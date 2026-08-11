@@ -7,12 +7,12 @@ SET paradedb.enable_columnar_exec = true;
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;
 -- Create test table
-CALL paradedb.create_bm25_test_table(
+CALL paradedb.create_paradedb_test_table(
     schema_name => 'public',
     table_name => 'mock_items'
 );
 CREATE INDEX idx_mock_items ON mock_items
-    USING bm25 (id, description, category, rating, in_stock)
+    USING paradedb (id, description, category, rating, in_stock)
     WITH (
         key_field='id',
         text_fields='{"description": {}, "category": {"fast": true}}',
@@ -362,7 +362,7 @@ CREATE TABLE agg_null_test (
     score INT
 );
 CREATE INDEX idx_agg_null_test ON agg_null_test
-USING bm25 (id, category, score)
+USING paradedb (id, category, score)
 WITH (
     key_field='id',
     text_fields='{"category": {"fast": true}}',

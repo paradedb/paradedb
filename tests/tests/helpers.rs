@@ -132,7 +132,7 @@ fn test_index_fields(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX idx_test_fields ON test_fields USING bm25 (
+        CREATE INDEX idx_test_fields ON test_fields USING paradedb (
             id, title, price, in_stock, metadata, price_range, created_at
         ) WITH (
             key_field='id',

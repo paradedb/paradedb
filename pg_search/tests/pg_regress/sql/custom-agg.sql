@@ -50,7 +50,7 @@ INSERT INTO logs (description, severity, category, response_time, unindexed_metr
     ('Invalid authentication token', 'error', 'security', 15, 170, 401, '2024-01-01 10:14:00'),
     ('Suspicious activity detected', 'critical', 'security', 25, 171, 403, '2024-01-01 10:19:00');
 
-CREATE INDEX logs_idx ON logs USING bm25 (id, description, severity, category, response_time, status_code, timestamp)
+CREATE INDEX logs_idx ON logs USING paradedb (id, description, severity, category, response_time, status_code, timestamp)
 WITH (
     key_field = 'id',
     text_fields = '{"description": {}, "severity": {"fast": true}, "category": {"fast": true}}',
@@ -874,7 +874,7 @@ INSERT INTO products (description, category, brand, rating, price) VALUES
     ('Toy laptop', 'Toys', 'Fisher Price', 3, 29.99);
 
 CREATE INDEX products_idx ON products
-USING bm25 (id, description, category, brand, rating, price)
+USING paradedb (id, description, category, brand, rating, price)
 WITH (
     key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}, "brand": {"fast": true}}',
@@ -1106,7 +1106,7 @@ INSERT INTO mvcc_test (description, category, value) VALUES
 
 -- Create index BEFORE deleting - so deleted docs remain in the index
 CREATE INDEX mvcc_test_idx ON mvcc_test
-USING bm25 (id, description, category, value)
+USING paradedb (id, description, category, value)
 WITH (
     key_field = 'id',
     text_fields = '{"description": {}, "category": {"fast": true}}',
@@ -1274,7 +1274,7 @@ INSERT INTO test_window_order VALUES
 (2, 'B', 10),
 (3, 'C', 20);
 
-CREATE INDEX idx_window_order ON test_window_order USING bm25 (id, name, group_id) WITH (key_field='id');
+CREATE INDEX idx_window_order ON test_window_order USING paradedb (id, name, group_id) WITH (key_field='id');
 
 -- NOTE: This query can _not_ be pushed down, because `name` is not fast/columnar.
 SELECT
@@ -1315,7 +1315,7 @@ INSERT INTO agg_param_test (description, category)
 SELECT 'document ' || i, (ARRAY['a','b','c'])[1 + (i % 3)]
 FROM generate_series(1, 100) AS i;
 CREATE INDEX agg_param_test_idx ON agg_param_test
-USING bm25 (id, description, category)
+USING paradedb (id, description, category)
 WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
 
 -- Baseline: constant JSON literal pushes through AggregateScan.

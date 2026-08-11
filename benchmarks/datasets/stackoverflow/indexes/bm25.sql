@@ -1,3 +1,12 @@
+-- Deliberately `USING bm25`, not `USING paradedb`. This SQL is executed against a
+-- cluster restored from a pgBackRest heap snapshot (the `restore-heap` steps in
+-- .github/workflows/benchmark-pg_search-queries.yml), which replaces the entire
+-- data directory. The restored catalog therefore carries whatever pg_search
+-- version the snapshot was captured with, not the version built from the branch,
+-- and the `paradedb` access method only exists from 0.25.0 onward. `bm25` is the
+-- permanent backwards-compatible alias and resolves on every version, so it is
+-- the only name that is safe here until the snapshots are regenerated.
+
 CREATE INDEX stackoverflow_posts_idx ON stackoverflow_posts
 USING bm25 (
     id,

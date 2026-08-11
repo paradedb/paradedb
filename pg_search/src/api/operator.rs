@@ -423,7 +423,7 @@ pub unsafe fn tantivy_field_name_from_node(
     }
     let (heaprel, indexrel) = rel_get_bm25_index(heaprelid).unwrap_or_else(|| {
         panic!(
-            "`{}` does not contain a `USING bm25` index",
+            "`{}` does not contain a `USING paradedb` index",
             PgSearchRelation::open(heaprelid).name()
         )
     });
@@ -782,7 +782,7 @@ unsafe fn make_lhs_var(
     let tupdesc = indexrel.tuple_desc();
     let att = tupdesc
         .get(0)
-        .expect("`USING bm25` index must have at least one attribute which is the 'key_field'");
+        .expect("`USING paradedb` index must have at least one attribute which is the 'key_field'");
 
     let var = pg_sys::copyObjectImpl(base_var.cast()).cast::<pg_sys::Var>();
 

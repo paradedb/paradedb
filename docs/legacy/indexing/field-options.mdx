@@ -15,7 +15,7 @@ For instance, the following statement configures an ngram tokenizer for the `des
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (
     key_field = 'id',
     text_fields = '{
@@ -36,7 +36,7 @@ tokenizers for both the `description` and `category` fields.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description, category)
+USING paradedb (id, description, category)
 WITH (
     key_field = 'id',
     text_fields = '{
@@ -59,7 +59,7 @@ should be passed to `text_fields`.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (
     key_field = 'id',
     text_fields = '{
@@ -103,7 +103,7 @@ Options for columns of type `JSON` and `JSONB` should be passed to `json_fields`
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, metadata)
+USING paradedb (id, metadata)
 WITH (
   key_field = 'id',
   json_fields = '{
@@ -153,7 +153,7 @@ should be passed to `numeric_fields`.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, rating)
+USING paradedb (id, rating)
 WITH (
     key_field = 'id',
     numeric_fields = '{
@@ -191,7 +191,7 @@ Options for columns of type `BOOLEAN` and `BOOLEAN[]` should be passed to `boole
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, in_stock)
+USING paradedb (id, in_stock)
 WITH (
   key_field = 'id',
   boolean_fields = '{
@@ -221,7 +221,7 @@ passed to `range_fields`. Range fields should be queried with [range term querie
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, weight_range)
+USING paradedb (id, weight_range)
 WITH (
   key_field = 'id',
   range_fields = '{

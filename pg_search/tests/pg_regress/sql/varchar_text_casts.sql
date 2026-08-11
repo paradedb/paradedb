@@ -9,7 +9,7 @@ CREATE TABLE varchar_text_casts(id int, content text);
 INSERT INTO varchar_text_casts VALUES (1, 'a b'), (2, 'a c');
 
 CREATE INDEX varchar_text_casts_idx ON varchar_text_casts
-USING bm25 (id, (content::pdb.unicode_words))
+USING paradedb (id, (content::pdb.unicode_words))
 WITH (key_field = id);
 
 SELECT id FROM varchar_text_casts

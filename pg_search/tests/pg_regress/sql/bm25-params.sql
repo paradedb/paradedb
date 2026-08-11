@@ -23,7 +23,7 @@ INSERT INTO bm25_params_test (id, short_text, long_text) VALUES
 -- =============================================================================
 
 CREATE INDEX bm25_default_idx ON bm25_params_test
-USING bm25 (id, short_text)
+USING paradedb (id, short_text)
 WITH (key_field='id');
 
 SELECT id, short_text, round(pdb.score(id)::numeric, 4) AS score
@@ -39,7 +39,7 @@ DROP INDEX bm25_default_idx;
 -- =============================================================================
 
 CREATE INDEX bm25_low_k1_idx ON bm25_params_test
-USING bm25 (id, (short_text::pdb.simple('k1=0.0')))
+USING paradedb (id, (short_text::pdb.simple('k1=0.0')))
 WITH (key_field='id');
 
 SELECT id, short_text, round(pdb.score(id)::numeric, 4) AS score
@@ -54,7 +54,7 @@ DROP INDEX bm25_low_k1_idx;
 -- =============================================================================
 
 CREATE INDEX bm25_no_len_norm_idx ON bm25_params_test
-USING bm25 (id, (long_text::pdb.simple('b=0.0')))
+USING paradedb (id, (long_text::pdb.simple('b=0.0')))
 WITH (key_field='id');
 
 SELECT id, round(pdb.score(id)::numeric, 4) AS score
@@ -69,7 +69,7 @@ DROP INDEX bm25_no_len_norm_idx;
 -- =============================================================================
 
 CREATE INDEX bm25_full_len_norm_idx ON bm25_params_test
-USING bm25 (id, (long_text::pdb.simple('b=1.0')))
+USING paradedb (id, (long_text::pdb.simple('b=1.0')))
 WITH (key_field='id');
 
 SELECT id, round(pdb.score(id)::numeric, 4) AS score
@@ -84,7 +84,7 @@ DROP INDEX bm25_full_len_norm_idx;
 -- =============================================================================
 
 CREATE INDEX bm25_per_field_idx ON bm25_params_test
-USING bm25 (
+USING paradedb (
     id,
     (short_text::pdb.simple('k1=0.5', 'b=0.3')),
     (long_text::pdb.simple('k1=1.5', 'b=0.9'))
@@ -108,7 +108,7 @@ DROP INDEX bm25_per_field_idx;
 -- =============================================================================
 
 CREATE INDEX bm25_high_k1_idx ON bm25_params_test
-USING bm25 (id, (short_text::pdb.simple('k1=5.0')))
+USING paradedb (id, (short_text::pdb.simple('k1=5.0')))
 WITH (key_field='id');
 
 SELECT id, short_text, round(pdb.score(id)::numeric, 4) AS score
@@ -123,7 +123,7 @@ DROP INDEX bm25_high_k1_idx;
 -- =============================================================================
 
 CREATE INDEX bm25_invalid_idx ON bm25_params_test
-USING bm25 (id, (short_text::pdb.simple('b=1.5')))
+USING paradedb (id, (short_text::pdb.simple('b=1.5')))
 WITH (key_field='id');
 
 -- =============================================================================
@@ -131,7 +131,7 @@ WITH (key_field='id');
 -- =============================================================================
 
 CREATE INDEX bm25_invalid_idx ON bm25_params_test
-USING bm25 (id, (short_text::pdb.simple('b=-0.1')))
+USING paradedb (id, (short_text::pdb.simple('b=-0.1')))
 WITH (key_field='id');
 
 -- =============================================================================
@@ -139,7 +139,7 @@ WITH (key_field='id');
 -- =============================================================================
 
 CREATE INDEX bm25_invalid_idx ON bm25_params_test
-USING bm25 (id, (short_text::pdb.simple('k1=-0.5')))
+USING paradedb (id, (short_text::pdb.simple('k1=-0.5')))
 WITH (key_field='id');
 
 -- =============================================================================
@@ -147,7 +147,7 @@ WITH (key_field='id');
 -- =============================================================================
 
 CREATE INDEX bm25_invalid_idx ON bm25_params_test
-USING bm25 (id, (short_text::pdb.simple('k1=abc')))
+USING paradedb (id, (short_text::pdb.simple('k1=abc')))
 WITH (key_field='id');
 
 -- =============================================================================
@@ -166,7 +166,7 @@ INSERT INTO bm25_json_test (id, data) VALUES
 (3, '{"text": "database query"}');
 
 CREATE INDEX bm25_json_idx ON bm25_json_test
-USING bm25 (id, (data::pdb.simple('k1=0.5', 'b=0.3')))
+USING paradedb (id, (data::pdb.simple('k1=0.5', 'b=0.3')))
 WITH (key_field='id');
 
 SELECT id, round(pdb.score(id)::numeric, 4) AS score
@@ -182,7 +182,7 @@ DROP TABLE bm25_json_test CASCADE;
 -- =============================================================================
 
 CREATE INDEX bm25_custom_idx ON bm25_params_test
-USING bm25 (id, (short_text::pdb.simple('k1=5.0', 'b=0.0')))
+USING paradedb (id, (short_text::pdb.simple('k1=5.0', 'b=0.0')))
 WITH (key_field='id');
 
 SELECT id, round(pdb.score(id)::numeric, 4) AS score
@@ -193,7 +193,7 @@ ORDER BY pdb.score(id) DESC, id;
 DROP INDEX bm25_custom_idx;
 
 CREATE INDEX bm25_default_roundtrip_idx ON bm25_params_test
-USING bm25 (id, short_text)
+USING paradedb (id, short_text)
 WITH (key_field='id');
 
 SELECT id, round(pdb.score(id)::numeric, 4) AS score

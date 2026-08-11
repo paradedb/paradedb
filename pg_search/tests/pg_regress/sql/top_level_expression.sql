@@ -1,7 +1,7 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
 CREATE TABLE test (id int, content text, extra jsonb);
-CREATE INDEX test_bm25 ON test USING bm25 (id, content, extra) WITH (key_field='id');
+CREATE INDEX test_bm25 ON test USING paradedb (id, content, extra) WITH (key_field='id');
 
 INSERT INTO test (id, content, extra) VALUES
 (1, 'Beijing CBD area', '{"type": "business", "district": "Chaoyang"}'::jsonb),

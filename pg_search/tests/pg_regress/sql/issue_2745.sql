@@ -21,7 +21,7 @@ INSERT INTO contacts_companies (contact_id, company_id, contact_name) VALUES
 (17973, 1004, 'Dave');
 
 INSERT INTO contact_list (id, list_id) VALUES (17970, 'ABCD123');
-CREATE INDEX ON contacts_companies USING bm25 (contact_id, company_id, contact_name) WITH (key_field = 'contact_id');
+CREATE INDEX ON contacts_companies USING paradedb (contact_id, company_id, contact_name) WITH (key_field = 'contact_id');
 
 SET enable_seqscan = off; SET enable_indexscan = off;
 

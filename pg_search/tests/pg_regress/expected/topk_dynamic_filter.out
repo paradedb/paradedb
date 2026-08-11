@@ -44,9 +44,9 @@ SELECT
     (i % 5) + 1,
     round((10.0 + (i * 9.8))::numeric, 2)
 FROM generate_series(1, 30) AS i;
-CREATE INDEX products_bm25_idx ON products USING bm25 (id, name, description, supplier_id, price)
+CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price)
 WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}}');
-CREATE INDEX suppliers_bm25_idx ON suppliers USING bm25 (id, name, region)
+CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, region)
 WITH (key_field = 'id');
 SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
@@ -455,9 +455,9 @@ SELECT
     'File Title ' || LPAD(i::TEXT, 3, '0'),
     'file content for item ' || i
 FROM generate_series(1, 200) AS i;
-CREATE INDEX bench_documents_bm25_idx ON bench_documents USING bm25 (id, category, title)
+CREATE INDEX bench_documents_bm25_idx ON bench_documents USING paradedb (id, category, title)
 WITH (key_field = 'id');
-CREATE INDEX bench_files_bm25_idx ON bench_files USING bm25 (id, document_id, title, content)
+CREATE INDEX bench_files_bm25_idx ON bench_files USING paradedb (id, document_id, title, content)
 WITH (key_field = 'id', text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}, "content": {"fast": true}}');
 -- ----- TEST 8a: Wide-range build side -----
 -- The subquery matches PROJECT_ALPHA documents scattered across doc-01..doc-19.

@@ -673,7 +673,7 @@ impl CustomScan for BaseScan {
                     return None;
                 }
 
-                // and that relation must have a `USING bm25` index
+                // and that relation must have a `USING paradedb` index
                 let (table, bm25_index) = rel_get_bm25_index(rte.relid)?;
 
                 (table, bm25_index)

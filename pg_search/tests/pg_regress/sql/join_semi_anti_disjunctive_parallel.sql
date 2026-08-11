@@ -49,7 +49,7 @@ CREATE TABLE jsd_par_exclusions (
 SET paradedb.global_mutable_segment_rows = 0;
 
 CREATE INDEX jsd_par_items_idx ON jsd_par_items
-USING bm25 (id, name, alt_name, category)
+USING paradedb (id, name, alt_name, category)
 WITH (
     key_field = 'id',
     text_fields = '{
@@ -62,7 +62,7 @@ WITH (
 );
 
 CREATE INDEX jsd_par_exclusions_idx ON jsd_par_exclusions
-USING bm25 (id, pattern)
+USING paradedb (id, pattern)
 WITH (
     key_field = 'id',
     text_fields = '{

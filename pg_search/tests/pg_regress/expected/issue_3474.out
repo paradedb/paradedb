@@ -9,7 +9,7 @@ INSERT INTO snippet_test (content) VALUES
 ('Another test of the snippet snippet function with repeated snippet words'),
 ('Yet another test test test of the function function function'),
 ('test Lorem ipsum dolor sit amet...test');
-CREATE INDEX ON snippet_test USING bm25 (
+CREATE INDEX ON snippet_test USING paradedb (
     id,
     (content::pdb.unicode_words)
 ) WITH (

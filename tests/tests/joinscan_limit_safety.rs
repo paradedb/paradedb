@@ -48,8 +48,8 @@ fn setup(conn: &mut PgConnection) {
     FROM generate_series(1, 2000) g;
     INSERT INTO ls_child SELECT g, ((g - 1) % 1000) + 1 FROM generate_series(1, 2000) g;
 
-    CREATE INDEX ls_parent_bm25 ON ls_parent USING bm25 (id, kind) WITH (key_field = 'id');
-    CREATE INDEX ls_child_bm25  ON ls_child  USING bm25 (id, parent_id) WITH (key_field = 'id');
+    CREATE INDEX ls_parent_bm25 ON ls_parent USING paradedb (id, kind) WITH (key_field = 'id');
+    CREATE INDEX ls_child_bm25  ON ls_child  USING paradedb (id, parent_id) WITH (key_field = 'id');
     ANALYZE ls_parent;
     ANALYZE ls_child;
     "#

@@ -41,7 +41,7 @@ INSERT INTO agg_join_tags (product_id, tag_name) VALUES
     (5, 'tech'), (5, 'kids');
 
 CREATE INDEX agg_join_products_idx ON agg_join_products
-USING bm25 (id, description, category, price, rating)
+USING paradedb (id, description, category, price, rating)
 WITH (
     key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}',
@@ -49,7 +49,7 @@ WITH (
 );
 
 CREATE INDEX agg_join_tags_idx ON agg_join_tags
-USING bm25 (id, product_id, tag_name)
+USING paradedb (id, product_id, tag_name)
 WITH (
     key_field='id',
     numeric_fields='{"product_id": {"fast": true}}',
@@ -364,8 +364,8 @@ CREATE TABLE comp_a (id SERIAL PRIMARY KEY, description TEXT, x INT, y INT);
 CREATE TABLE comp_b (id SERIAL PRIMARY KEY, name TEXT, x INT, y INT);
 INSERT INTO comp_a VALUES (1,'laptop fast',10,20),(2,'shoes nice',30,40),(3,'laptop pro',10,20);
 INSERT INTO comp_b VALUES (1,'B1',10,20),(2,'B2',30,40);
-CREATE INDEX idx_comp_a ON comp_a USING bm25(id,description,x,y) WITH (key_field='id',text_fields='{"description":{}}',numeric_fields='{"x":{"fast":true},"y":{"fast":true}}');
-CREATE INDEX idx_comp_b ON comp_b USING bm25(id,name,x,y) WITH (key_field='id',text_fields='{"name":{}}',numeric_fields='{"x":{"fast":true},"y":{"fast":true}}');
+CREATE INDEX idx_comp_a ON comp_a USING paradedb (id,description,x,y) WITH (key_field='id',text_fields='{"description":{}}',numeric_fields='{"x":{"fast":true},"y":{"fast":true}}');
+CREATE INDEX idx_comp_b ON comp_b USING paradedb (id,name,x,y) WITH (key_field='id',text_fields='{"name":{}}',numeric_fields='{"x":{"fast":true},"y":{"fast":true}}');
 
 -- Test 8.1: Composite ON with two equi-join keys — should use DataFusion
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -479,14 +479,14 @@ INSERT INTO ts_items (order_id, item_name) VALUES
     (3, 'shoes'), (3, 'socks');
 
 CREATE INDEX ts_orders_idx ON ts_orders
-USING bm25 (id, description, category, created_at)
+USING paradedb (id, description, category, created_at)
 WITH (
     key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}'
 );
 
 CREATE INDEX ts_items_idx ON ts_items
-USING bm25 (id, order_id, item_name)
+USING paradedb (id, order_id, item_name)
 WITH (
     key_field='id',
     numeric_fields='{"order_id": {"fast": true}}',
@@ -553,14 +553,14 @@ INSERT INTO tstz_items (order_id, item_name) VALUES
     (5, 'jacket');
 
 CREATE INDEX tstz_orders_idx ON tstz_orders
-USING bm25 (id, description, category, created_at)
+USING paradedb (id, description, category, created_at)
 WITH (
     key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}'
 );
 
 CREATE INDEX tstz_items_idx ON tstz_items
-USING bm25 (id, order_id, item_name)
+USING paradedb (id, order_id, item_name)
 WITH (
     key_field='id',
     numeric_fields='{"order_id": {"fast": true}}',
@@ -632,7 +632,7 @@ INSERT INTO agg_join_tags (product_id, tag_name) VALUES (9902, 'real_tag_2');
 -- Rebuild the BM25 index so the new rows are visible
 DROP INDEX agg_join_products_idx;
 CREATE INDEX agg_join_products_idx ON agg_join_products
-USING bm25 (id, description, category, price, rating)
+USING paradedb (id, description, category, price, rating)
 WITH (
     key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}',
@@ -848,7 +848,7 @@ UPDATE agg_join_products SET in_stock = false WHERE category = 'Toys';
 -- We need fast field access for in_stock; recreate BM25 index
 DROP INDEX agg_join_products_idx;
 CREATE INDEX agg_join_products_idx ON agg_join_products
-USING bm25 (id, description, category, price, rating, in_stock)
+USING paradedb (id, description, category, price, rating, in_stock)
 WITH (
     key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}',
@@ -934,7 +934,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 DROP INDEX agg_join_products_idx;
 ALTER TABLE agg_join_products DROP COLUMN in_stock;
 CREATE INDEX agg_join_products_idx ON agg_join_products
-USING bm25 (id, description, category, price, rating)
+USING paradedb (id, description, category, price, rating)
 WITH (
     key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}',
@@ -1076,14 +1076,14 @@ INSERT INTO agg_json_orders (item_id, qty) VALUES
     (1, 10), (1, 5), (2, 3), (3, 7);
 
 CREATE INDEX agg_json_items_idx ON agg_json_items
-USING bm25 (id, metadata)
+USING paradedb (id, metadata)
 WITH (
     key_field='id',
     json_fields='{"metadata": {"fast": true}}'
 );
 
 CREATE INDEX agg_json_orders_idx ON agg_json_orders
-USING bm25 (id, item_id, qty)
+USING paradedb (id, item_id, qty)
 WITH (
     key_field='id',
     numeric_fields='{"item_id": {"fast": true}, "qty": {"fast": true}}'

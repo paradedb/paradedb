@@ -74,20 +74,20 @@ VALUES (201, 'Wireless Mouse', 'Ergonomic wireless mouse with Bluetooth connecti
 -- Create BM25 indexes with fast fields on join keys and ORDER BY columns
 -- All columns that appear in DISTINCT target lists must be fast fields
 CREATE INDEX dist_products_bm25_idx ON dist_products
-    USING bm25 (id, name, description, supplier_id, category_id, price)
+    USING paradedb (id, name, description, supplier_id, category_id, price)
     WITH (
     key_field = 'id',
     text_fields = '{"name": {"fast": true}}',
     numeric_fields = '{"supplier_id": {"fast": true}, "category_id": {"fast": true}, "price": {"fast": true}}'
     );
 CREATE INDEX dist_suppliers_bm25_idx ON dist_suppliers
-    USING bm25 (id, name, contact_info, country)
+    USING paradedb (id, name, contact_info, country)
     WITH (
     key_field = 'id',
     text_fields = '{"name": {"fast": true}}'
     );
 CREATE INDEX dist_categories_bm25_idx ON dist_categories
-    USING bm25 (id, name, description)
+    USING paradedb (id, name, description)
     WITH (
     key_field = 'id',
     text_fields = '{"name": {"fast": true}}'
@@ -895,8 +895,8 @@ INSERT INTO jobs VALUES
   (3, 2, 'Developer'),         -- Bob  ← matches "developer"
   (4, 2, 'Recruiter'),         -- Bob  ← should exclude Bob
   (5, 3, 'Recruiter');         -- Charlie
-CREATE INDEX jobs_bm25 ON jobs USING bm25 (id, person_id, title) WITH (key_field='id');
-CREATE INDEX persons_bm25 ON persons USING bm25 (id, name) WITH (key_field='id', text_fields='{"name": {"fast": true}}');
+CREATE INDEX jobs_bm25 ON jobs USING paradedb (id, person_id, title) WITH (key_field='id');
+CREATE INDEX persons_bm25 ON persons USING paradedb (id, name) WITH (key_field='id', text_fields='{"name": {"fast": true}}');
 SET paradedb.enable_join_custom_scan = on;
 EXPLAIN (COSTS OFF)
 SELECT DISTINCT p.id, p.name
@@ -1027,7 +1027,7 @@ INSERT INTO profiles_positions (profile_id, group_id, deleted_at, title) VALUES
   (2, 'c624233d-2c2c-43ab-976e-0847bfd58387', NULL, 'Developer'),
   (2, 'c624233d-2c2c-43ab-976e-0847bfd58387', NULL, 'Recruiter'),
   (3, 'c624233d-2c2c-43ab-976e-0847bfd58387', NULL, 'Recruiter');
-CREATE INDEX profiles_positions_bm25 ON profiles_positions USING bm25 (id, profile_id, group_id, deleted_at, title) WITH (key_field='id');
+CREATE INDEX profiles_positions_bm25 ON profiles_positions USING paradedb (id, profile_id, group_id, deleted_at, title) WITH (key_field='id');
 SET paradedb.enable_join_custom_scan = on;
 EXPLAIN (COSTS OFF)
 SELECT DISTINCT profile_id

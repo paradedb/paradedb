@@ -68,7 +68,7 @@ SELECT
 FROM generate_series(1, 10000) i;
 -- Create a search index with various field types
 CREATE INDEX records_search_idx ON records
-USING bm25 (
+USING paradedb (
     id, notes, flow_type, tenant_id, state, source_id, 
     is_active, metadata, value_range, time_period, created_at, updated_at, 
     tags, process_method, currency_code, recipient_id, 

@@ -2082,7 +2082,7 @@ mod tests {
         Spi::run(
             r#"
             CREATE INDEX segmented_topk_test_idx ON segmented_topk_test 
-            USING bm25 (id, name, sort_col) 
+            USING paradedb (id, name, sort_col) 
             WITH (
                 key_field = 'id', 
                 target_segment_count = 4, 

@@ -31,7 +31,7 @@ CREATE TABLE orders
 );
 
 
-CREATE INDEX idxusers ON users USING bm25 (id, name, color, age)
+CREATE INDEX idxusers ON users USING paradedb (id, name, color, age)
     WITH (
     key_field = 'id',
     text_fields = '
@@ -41,7 +41,7 @@ CREATE INDEX idxusers ON users USING bm25 (id, name, color, age)
                 "age": { "tokenizer": { "type": "keyword" } }
             }'
     );
-CREATE INDEX idxproducts ON products USING bm25 (id, name, color, age)
+CREATE INDEX idxproducts ON products USING paradedb (id, name, color, age)
     WITH (
     key_field = 'id',
     text_fields = '
@@ -51,7 +51,7 @@ CREATE INDEX idxproducts ON products USING bm25 (id, name, color, age)
                 "age": { "tokenizer": { "type": "keyword" } }
             }'
     );
-CREATE INDEX idxorders ON orders USING bm25 (id, name, color, age)
+CREATE INDEX idxorders ON orders USING paradedb (id, name, color, age)
     WITH (
     key_field = 'id',
     text_fields = '

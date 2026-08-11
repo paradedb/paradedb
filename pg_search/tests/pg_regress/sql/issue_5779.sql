@@ -20,7 +20,7 @@ INSERT INTO issue_5779_repro (id, title_x) VALUES
     (5, 'nothing here');
 
 CREATE INDEX issue_5779_idx ON issue_5779_repro
-    USING bm25 (id, title_x)
+    USING paradedb (id, title_x)
     WITH (key_field = 'id');
 
 -- Baseline: the same query as a literal must return the fuzzy match set.

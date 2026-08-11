@@ -14,7 +14,7 @@ INSERT INTO tokenizer_fast (t, t_long, metadata) VALUES
     ('hello', 'the big cat', '{"key": "the big cat", "value": 3}'),
     ('world', 'Quick brown fox', '{"key": "Quick brown fox", "value": 2}');
 
-CREATE INDEX idxtokenizer_fast ON tokenizer_fast USING bm25 (
+CREATE INDEX idxtokenizer_fast ON tokenizer_fast USING paradedb (
     id,
     (t::pdb.literal),
     (t_long::pdb.literal_normalized('stopwords_language=English')),

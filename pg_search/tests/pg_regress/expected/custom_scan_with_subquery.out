@@ -17,7 +17,7 @@ INSERT INTO t (col_a, col_b, col_c, col_d, col_e, col_f) VALUES
 (100, '11111111-1111-1111-1111-111111111111', TRUE, '2025-08-01', '2025-08-01 10:00:00', NULL),
 ( 99, '11111111-1111-1111-1111-111111111111', TRUE, '2025-07-31', '2025-07-31 09:00:00', NULL),
 (101, '11111111-1111-1111-1111-111111111111', TRUE, '2025-08-01', '2025-08-01 09:30:00', NULL);
-CREATE INDEX ON t USING bm25 (col_a, col_b, col_c, col_d, col_e, col_f) WITH (key_field='col_a');
+CREATE INDEX ON t USING paradedb (col_a, col_b, col_c, col_d, col_e, col_f) WITH (key_field='col_a');
 SELECT
   t.col_a, t.col_b, t.col_c, t.col_d, t.col_e, t.col_f
 FROM t

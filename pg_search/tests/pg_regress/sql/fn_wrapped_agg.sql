@@ -16,7 +16,7 @@ CREATE TABLE fn_wrapped_agg_logs (
 
 -- Create a BM25 index with fast fields for aggregation
 CREATE INDEX fn_wrapped_agg_logs_idx ON fn_wrapped_agg_logs
-USING bm25 (log_id, description, category)
+USING paradedb (log_id, description, category)
 WITH (
     key_field = 'log_id',
     text_fields = '{
@@ -108,7 +108,7 @@ UPDATE fn_wrapped_agg_logs SET score = log_id * 10;
 -- Recreate index with score column using v2 API
 DROP INDEX fn_wrapped_agg_logs_idx;
 CREATE INDEX fn_wrapped_agg_logs_idx ON fn_wrapped_agg_logs
-USING bm25 (log_id, description, (category::pdb.literal), score)
+USING paradedb (log_id, description, (category::pdb.literal), score)
 WITH (key_field = 'log_id');
 
 -- Test 5: pdb.agg() wrapped in jsonb_pretty (non-window)

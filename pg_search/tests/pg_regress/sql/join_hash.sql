@@ -24,10 +24,10 @@ CREATE TABLE hash_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
 INSERT INTO hash_t1 SELECT i, 'val ' || i FROM generate_series(1, 1000) i;
 INSERT INTO hash_t2 SELECT i, (i % 1000) + 1, 'val ' || i FROM generate_series(1, 1000) i;
 
-CREATE INDEX hash_t1_idx ON hash_t1 USING bm25 (id, val)
+CREATE INDEX hash_t1_idx ON hash_t1 USING paradedb (id, val)
 WITH (key_field = 'id', text_fields = '{"val": {"fast": true}}');
 
-CREATE INDEX hash_t2_idx ON hash_t2 USING bm25 (id, t1_id, val)
+CREATE INDEX hash_t2_idx ON hash_t2 USING paradedb (id, t1_id, val)
 WITH (key_field = 'id', numeric_fields = '{"t1_id": {"fast": true}}');
 
 ANALYZE hash_t1;
@@ -84,10 +84,10 @@ CREATE TABLE hash_sorted_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
 INSERT INTO hash_sorted_t1 SELECT i, 'val ' || i FROM generate_series(1, 1500) i;
 INSERT INTO hash_sorted_t2 SELECT i, ((i - 1) % 1500) + 1, 'val ' || i FROM generate_series(1, 2000) i;
 
-CREATE INDEX hash_sorted_t1_idx ON hash_sorted_t1 USING bm25 (id, val)
+CREATE INDEX hash_sorted_t1_idx ON hash_sorted_t1 USING paradedb (id, val)
 WITH (key_field = 'id', text_fields = '{"val": {"fast": true}}');
 
-CREATE INDEX hash_sorted_t2_idx ON hash_sorted_t2 USING bm25 (id, t1_id, val)
+CREATE INDEX hash_sorted_t2_idx ON hash_sorted_t2 USING paradedb (id, t1_id, val)
 WITH (
     key_field = 'id',
     numeric_fields = '{"t1_id": {"fast": true}}',

@@ -55,7 +55,7 @@ INSERT INTO ec_suppliers (category, supplier_name) VALUES
     ('Clothing', 'StyleHouse');
 
 CREATE INDEX ec_products_idx ON ec_products
-USING bm25 (id, description, category, price, (metadata::pdb.literal_normalized))
+USING paradedb (id, description, category, price, (metadata::pdb.literal_normalized))
 WITH (
     key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}',
@@ -63,7 +63,7 @@ WITH (
 );
 
 CREATE INDEX ec_reviews_idx ON ec_reviews
-USING bm25 (id, category, rating, reviewer)
+USING paradedb (id, category, rating, reviewer)
 WITH (
     key_field='id',
     text_fields='{"category": {"fast": true}, "reviewer": {"fast": true}}',
@@ -71,7 +71,7 @@ WITH (
 );
 
 CREATE INDEX ec_suppliers_idx ON ec_suppliers
-USING bm25 (id, category, supplier_name)
+USING paradedb (id, category, supplier_name)
 WITH (
     key_field='id',
     text_fields='{"category": {"fast": true}, "supplier_name": {"fast": true}}'

@@ -122,7 +122,7 @@ fn setup_topk_desc_large(conn: &mut PgConnection) {
         id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
         body TEXT NOT NULL
     );
-    CREATE INDEX topk_desc_large_idx ON topk_desc_large USING bm25 (id, body)
+    CREATE INDEX topk_desc_large_idx ON topk_desc_large USING paradedb (id, body)
         WITH (
             key_field = 'id',
             target_segment_count = 4,
@@ -154,7 +154,7 @@ fn setup_many_segments(conn: &mut PgConnection) {
         id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
         body TEXT NOT NULL
     );
-    CREATE INDEX topk_desc_many_segs_idx ON topk_desc_many_segs USING bm25 (id, body)
+    CREATE INDEX topk_desc_many_segs_idx ON topk_desc_many_segs USING paradedb (id, body)
         WITH (
             key_field = 'id',
             target_segment_count = 32,
@@ -184,7 +184,7 @@ fn setup_topk_asc_small(conn: &mut PgConnection) {
         id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
         body TEXT NOT NULL
     );
-    CREATE INDEX topk_asc_small_idx ON topk_asc_small USING bm25 (id, body)
+    CREATE INDEX topk_asc_small_idx ON topk_asc_small USING paradedb (id, body)
         WITH (
             key_field = 'id',
             target_segment_count = 4,
@@ -208,7 +208,7 @@ fn setup_multi_term(conn: &mut PgConnection) {
         id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
         body TEXT NOT NULL
     );
-    CREATE INDEX topk_desc_multi_term_idx ON topk_desc_multi_term USING bm25 (id, body)
+    CREATE INDEX topk_desc_multi_term_idx ON topk_desc_multi_term USING paradedb (id, body)
         WITH (
             key_field = 'id',
             target_segment_count = 4,
@@ -236,7 +236,7 @@ fn setup_unanalyzed(conn: &mut PgConnection) {
         id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
         body TEXT NOT NULL
     );
-    CREATE INDEX topk_unanalyzed_idx ON topk_unanalyzed USING bm25 (id, body)
+    CREATE INDEX topk_unanalyzed_idx ON topk_unanalyzed USING paradedb (id, body)
         WITH (
             key_field = 'id',
             target_segment_count = 4,

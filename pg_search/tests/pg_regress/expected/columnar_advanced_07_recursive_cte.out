@@ -26,7 +26,7 @@ CREATE TABLE mixed_numeric_string_test (
     string_field3 TEXT NOT NULL,
     content TEXT
 );
-CREATE INDEX mixed_test_search ON mixed_numeric_string_test USING bm25 (
+CREATE INDEX mixed_test_search ON mixed_numeric_string_test USING paradedb (
     id,
     numeric_field1,
     numeric_field2,
@@ -100,7 +100,7 @@ CREATE TABLE pages (
     FOREIGN KEY (fileId) REFERENCES files(id)
 );
 -- Create BM25 indexes
-CREATE INDEX documents_search ON documents USING bm25 (
+CREATE INDEX documents_search ON documents USING paradedb (
     id,
     title,
     parents,
@@ -109,7 +109,7 @@ CREATE INDEX documents_search ON documents USING bm25 (
     key_field = 'id',
     text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
-CREATE INDEX files_search ON files USING bm25 (
+CREATE INDEX files_search ON files USING paradedb (
     id,
     documentId,
     title,
@@ -118,7 +118,7 @@ CREATE INDEX files_search ON files USING bm25 (
     key_field = 'id',
     text_fields = '{"documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
-CREATE INDEX pages_search ON pages USING bm25 (
+CREATE INDEX pages_search ON pages USING paradedb (
     id,
     fileId,
     content,
@@ -152,7 +152,7 @@ CREATE TABLE categories (
     description TEXT,
     parent_id INTEGER REFERENCES categories(id)
 );
-CREATE INDEX category_search ON categories USING bm25 (
+CREATE INDEX category_search ON categories USING paradedb (
     id,
     name,
     description
@@ -177,7 +177,7 @@ CREATE TABLE products (
     category_id INTEGER REFERENCES categories(id),
     price FLOAT NOT NULL
 );
-CREATE INDEX product_search ON products USING bm25 (
+CREATE INDEX product_search ON products USING paradedb (
     id,
     name,
     category_id,
@@ -207,7 +207,7 @@ CREATE TABLE conversion_test (
     timestamp_field TIMESTAMP,
     content TEXT
 );
-CREATE INDEX conversion_search ON conversion_test USING bm25 (
+CREATE INDEX conversion_search ON conversion_test USING paradedb (
     id, 
     smallint_field, 
     integer_field, 
@@ -282,7 +282,7 @@ FROM generate_series(1, 50) i;
 DROP INDEX IF EXISTS union_test_a_idx;
 DROP INDEX IF EXISTS union_test_b_idx;
 CREATE INDEX union_test_a_idx ON union_test_a
-USING bm25 (id, title, author, rating, year, price, is_published)
+USING paradedb (id, title, author, rating, year, price, is_published)
 WITH (
     key_field = 'id',
     text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
@@ -290,7 +290,7 @@ WITH (
     boolean_fields = '{"is_published": {"fast": true}}'
 );
 CREATE INDEX union_test_b_idx ON union_test_b
-USING bm25 (id, title, author, rating, year, price, is_published)
+USING paradedb (id, title, author, rating, year, price, is_published)
 WITH (
     key_field = 'id',
     text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
@@ -358,7 +358,7 @@ VALUES
 -- Create search index with columnar storage
 DROP INDEX IF EXISTS category_idx;
 CREATE INDEX category_idx ON category
-USING bm25 (id, name, parent_id, description, level, item_count, is_active)
+USING paradedb (id, name, parent_id, description, level, item_count, is_active)
 WITH (
     key_field = 'id',
     text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}, "fast": true}}',

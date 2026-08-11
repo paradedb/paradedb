@@ -9,19 +9,19 @@ SET max_parallel_workers_per_gather = 0;
 
 DROP TABLE IF EXISTS users CASCADE;
 CREATE TABLE users (id SERIAL8 PRIMARY KEY, name TEXT, color VARCHAR, age VARCHAR);
-CREATE INDEX idxusers ON users USING bm25 (id, name, color, age) WITH (key_field = 'id', text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }');
+CREATE INDEX idxusers ON users USING paradedb (id, name, color, age) WITH (key_field = 'id', text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }');
 INSERT INTO users (name, color, age) VALUES ('bob', 'blue', '20');
 ANALYZE;
 
 DROP TABLE IF EXISTS products CASCADE;
 CREATE TABLE products (id SERIAL8 PRIMARY KEY, name TEXT, color VARCHAR);
-CREATE INDEX idxproducts ON products USING bm25 (id, name, color) WITH (key_field = 'id', text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }');
+CREATE INDEX idxproducts ON products USING paradedb (id, name, color) WITH (key_field = 'id', text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }');
 INSERT INTO products (name, color) VALUES ('bob', 'blue');
 ANALYZE;
 
 DROP TABLE IF EXISTS orders CASCADE;
 CREATE TABLE orders (id SERIAL8 PRIMARY KEY, name TEXT, color VARCHAR);
-CREATE INDEX idxorders ON orders USING bm25 (id, name, color) WITH (key_field = 'id', text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }');
+CREATE INDEX idxorders ON orders USING paradedb (id, name, color) WITH (key_field = 'id', text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }');
 INSERT INTO orders (name, color) VALUES ('bob', 'blue');
 ANALYZE;
 

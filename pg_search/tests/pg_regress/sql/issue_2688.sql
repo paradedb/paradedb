@@ -38,7 +38,7 @@ FROM generate_series(1, 20) i;
 
 DROP INDEX IF EXISTS records_no_fast_idx;
 CREATE INDEX records_no_fast_idx ON data_records
-USING bm25 (
+USING paradedb (
     id, title, category, price, in_stock, created_at, valid_period, quantity_range, tags
 ) WITH (
     key_field = 'id'

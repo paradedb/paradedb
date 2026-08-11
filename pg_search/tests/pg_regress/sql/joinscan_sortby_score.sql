@@ -53,7 +53,7 @@ INSERT INTO pages (id, "fileId", content, title) VALUES
 ('page-4', 'file-3', 'Beta page content', 'Page D');
 
 CREATE INDEX pages_bm25 ON pages
-USING bm25 (id, content, title, "fileId")
+USING paradedb (id, content, title, "fileId")
 WITH (
     key_field = 'id',
     text_fields = '{
@@ -64,7 +64,7 @@ WITH (
 );
 
 CREATE INDEX files_bm25 ON files
-USING bm25 (id, content, "documentId", title)
+USING paradedb (id, content, "documentId", title)
 WITH (
     key_field = 'id',
     text_fields = '{
@@ -75,7 +75,7 @@ WITH (
 );
 
 CREATE INDEX documents_bm25 ON documents
-USING bm25 (id, content, title, parents)
+USING paradedb (id, content, title, parents)
 WITH (
     key_field = 'id',
     text_fields = '{

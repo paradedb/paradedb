@@ -22,7 +22,7 @@ use tests::fixtures::*;
 #[rstest]
 fn only_one_index_allowed(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     )
@@ -31,14 +31,14 @@ fn only_one_index_allowed(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX index_one ON public.mock_items
-    USING bm25 (id, description)
+    USING paradedb (id, description)
     WITH (key_field = 'id');
     "#
     .execute(&mut conn);
 
     let result = r#"
     CREATE INDEX index_two ON public.mock_items
-    USING bm25 (id, description)
+    USING paradedb (id, description)
     WITH (key_field = 'id');
     "#
     .execute_result(&mut conn);

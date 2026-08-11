@@ -9,7 +9,7 @@ CREATE TABLE mv (
 );
 
 CREATE INDEX mv_idx ON mv
-    USING bm25 (id, label, vec vector_l2_ops)
+    USING paradedb (id, label, vec vector_l2_ops)
     WITH (
         key_field = id,
         mutable_segment_rows = 100,

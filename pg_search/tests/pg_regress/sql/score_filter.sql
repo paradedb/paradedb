@@ -21,7 +21,7 @@ INSERT INTO score_items (id, description) VALUES
 (2, 'Search engines are powerful'),
 (3, 'Tantivy is fast');
 
-CREATE INDEX score_items_idx ON score_items USING bm25 (id, description) WITH (key_field='id');
+CREATE INDEX score_items_idx ON score_items USING paradedb (id, description) WITH (key_field='id');
 
 -- =============================================================================
 -- TEST 1: Score filter >= 0 (matches everything)

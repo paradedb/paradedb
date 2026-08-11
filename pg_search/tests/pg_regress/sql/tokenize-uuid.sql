@@ -14,17 +14,17 @@ INSERT INTO test_table (uuid) VALUES
 
 
 -- verify default is literal
-CREATE INDEX idx_test_table_uuid ON test_table USING bm25 (id, uuid) WITH (key_field='id');
+CREATE INDEX idx_test_table_uuid ON test_table USING paradedb (id, uuid) WITH (key_field='id');
 SELECT * FROM paradedb.schema('idx_test_table_uuid');
 DROP INDEX idx_test_table_uuid;
 
 -- use unicode
-CREATE INDEX idx_test_table_uuid ON test_table USING bm25 (id, (uuid::pdb.unicode_words)) WITH (key_field='id');
+CREATE INDEX idx_test_table_uuid ON test_table USING paradedb (id, (uuid::pdb.unicode_words)) WITH (key_field='id');
 SELECT * FROM paradedb.schema('idx_test_table_uuid');
 DROP INDEX idx_test_table_uuid;
 
 -- use alias
-CREATE INDEX idx_test_table_uuid ON test_table USING bm25 (id, (uuid::pdb.unicode_words('alias=uuid_words'))) WITH (key_field='id');
+CREATE INDEX idx_test_table_uuid ON test_table USING paradedb (id, (uuid::pdb.unicode_words('alias=uuid_words'))) WITH (key_field='id');
 SELECT * FROM paradedb.schema('idx_test_table_uuid');
 DROP INDEX idx_test_table_uuid;
 

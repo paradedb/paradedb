@@ -12,7 +12,7 @@ INSERT INTO snippet_test (content) VALUES
 ('Yet another test test test of the function function function'),
 ('test Lorem ipsum dolor sit amet...test');
 
-CREATE INDEX ON snippet_test USING bm25 (
+CREATE INDEX ON snippet_test USING paradedb (
     id,
     content
 ) WITH (

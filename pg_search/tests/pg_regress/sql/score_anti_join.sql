@@ -32,7 +32,7 @@ SELECT i, 'user1'
 FROM generate_series(1, 500) i;
 
 CREATE INDEX score_aj_items_idx ON score_aj_items
-USING bm25 (id, title, state)
+USING paradedb (id, title, state)
 WITH (key_field = 'id');
 
 SET max_parallel_workers_per_gather = 4;

@@ -25,7 +25,7 @@ fn test_icu_arabic_tokenizer(mut conn: PgConnection) {
     IcuArabicPostsTable::setup().execute(&mut conn);
     r#"
     CREATE INDEX idx_arabic ON icu_arabic_posts 
-    USING bm25 (id, author, title, message)
+    USING paradedb (id, author, title, message)
     WITH (
         key_field = 'id', 
         text_fields = '{"author": {"tokenizer": {"type": "icu"}}, "title": {"tokenizer": {"type": "icu"}}, "message": {"tokenizer": {"type": "icu"}}}'
@@ -53,7 +53,7 @@ fn test_icu_amharic_tokenizer(mut conn: PgConnection) {
     IcuAmharicPostsTable::setup().execute(&mut conn);
     r#"
     CREATE INDEX idx_amharic ON icu_amharic_posts 
-    USING bm25 (id, author, title, message)
+    USING paradedb (id, author, title, message)
     WITH (
         key_field = 'id', 
         text_fields = '{"author": {"tokenizer": {"type": "icu"}}, "title": {"tokenizer": {"type": "icu"}}, "message": {"tokenizer": {"type": "icu"}}}'
@@ -81,7 +81,7 @@ fn test_icu_greek_tokenizer(mut conn: PgConnection) {
     IcuGreekPostsTable::setup().execute(&mut conn);
     r#"
     CREATE INDEX idx_greek ON icu_greek_posts 
-    USING bm25 (id, author, title, message)
+    USING paradedb (id, author, title, message)
     WITH (
         key_field = 'id', 
         text_fields = '{"author": {"tokenizer": {"type": "icu"}}, "title": {"tokenizer": {"type": "icu"}}, "message": {"tokenizer": {"type": "icu"}}}'
@@ -109,7 +109,7 @@ fn test_icu_czech_tokenizer(mut conn: PgConnection) {
     IcuCzechPostsTable::setup().execute(&mut conn);
     r#"
     CREATE INDEX idx_czech ON icu_czech_posts 
-    USING bm25 (id, author, title, message)
+    USING paradedb (id, author, title, message)
     WITH (
         key_field = 'id', 
         text_fields = '{"author": {"tokenizer": {"type": "icu"}}, "title": {"tokenizer": {"type": "icu"}}, "message": {"tokenizer": {"type": "icu"}}}'
@@ -137,7 +137,7 @@ fn test_icu_czech_content_tokenizer(mut conn: PgConnection) {
     IcuCzechPostsTable::setup().execute(&mut conn);
     r#"
     CREATE INDEX idx_czech_content ON icu_czech_posts 
-    USING bm25 (id, message)
+    USING paradedb (id, message)
     WITH (
         key_field = 'id', 
         text_fields = '{"message": {"tokenizer": {"type": "icu"}}}'
@@ -160,7 +160,7 @@ fn test_icu_snippet(mut conn: PgConnection) {
     IcuArabicPostsTable::setup().execute(&mut conn);
     r#"
     CREATE INDEX idx_arabic ON icu_arabic_posts 
-    USING bm25 (id, author, title, message)
+    USING paradedb (id, author, title, message)
     WITH (
         key_field = 'id', 
         text_fields = '{"author": {"tokenizer": {"type": "icu"}}, "title": {"tokenizer": {"type": "icu"}}, "message": {"tokenizer": {"type": "icu"}}}'

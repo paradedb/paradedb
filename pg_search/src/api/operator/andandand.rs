@@ -14,15 +14,37 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-use crate::api::builder_fns::{match_conjunction, match_conjunction_array, term_set_str};
+use crate::api::builder_fns::{match_conjunction, match_conjunction_array};
 use crate::api::operator::boost::BoostType;
 use crate::api::operator::fuzzy::FuzzyType;
 use crate::api::operator::{
-    RHSValue, ReturnedNodePointer, build_text_funcexpr, request_simplify,
+    RHSValue, ReturnedNodePointer, build_text_funcexpr, classify_pdb_query_input, request_simplify,
     validate_lhs_type_as_text_compatible,
 };
 use crate::query::pdb_query::{pdb, to_search_query_input};
 use pgrx::{AnyElement, Internal, extension_sql, opname, pg_extern, pg_operator, pg_sys};
+
+/// Classify an `UnclassifiedString` / `UnclassifiedArray` into a `match_conjunction` /
+/// `match_conjunction_array` (both carry `conjunction_mode = Some(true)`) with any `fuzzy_data`
+/// / `slop_data` re-applied. Shared with `search_with_match_conjunction_support`'s const-fold
+/// path via [`classify_pdb_query_input`].
+fn classify_for_andandand(query: pdb::Query) -> pdb::Query {
+    classify_pdb_query_input(
+        query,
+        |string, fuzzy_data, slop_data| {
+            let mut q = match_conjunction(string);
+            q.apply_fuzzy_data(fuzzy_data);
+            q.apply_slop_data(slop_data);
+            q
+        },
+        |array, fuzzy_data, slop_data| {
+            let mut q = match_conjunction_array(array);
+            q.apply_fuzzy_data(fuzzy_data);
+            q.apply_slop_data(slop_data);
+            q
+        },
+    )
+}
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
 #[opname(pg_catalog.&&&)]
@@ -80,39 +102,9 @@ fn search_with_match_conjunction_support(arg: Internal) -> ReturnedNodePointer {
                 RHSValue::TextArray(tokens) => {
                     to_search_query_input(field, match_conjunction_array(tokens))
                 }
-                RHSValue::PdbQuery(pdb::Query::ScoreAdjusted { query, score }) => {
-                    let mut query = *query;
-                    if let pdb::Query::UnclassifiedString { string, fuzzy_data, slop_data } = query {
-                        query = match_conjunction(string);
-                        query.apply_fuzzy_data(fuzzy_data);
-                        query.apply_slop_data(slop_data);
-                    } else if let pdb::Query::UnclassifiedArray {array, fuzzy_data, slop_data} = query {
-                        query = match_conjunction_array(array);
-                        query.apply_fuzzy_data(fuzzy_data);
-                        query.apply_slop_data(slop_data);
-                    }
-                    to_search_query_input(field, pdb::Query::ScoreAdjusted { query: Box::new(query), score })
+                RHSValue::PdbQuery(query) => {
+                    to_search_query_input(field, classify_for_andandand(query))
                 }
-                RHSValue::PdbQuery(pdb::Query::UnclassifiedString {string, fuzzy_data, slop_data}) => {
-                    let mut query = match_conjunction(string);
-                    query.apply_fuzzy_data(fuzzy_data);
-                    query.apply_slop_data(slop_data);
-                    to_search_query_input(field, query)
-                }
-                RHSValue::PdbQuery(pdb::Query::UnclassifiedArray { array, fuzzy_data, slop_data }) => {
-                    let mut query = term_set_str(array);
-                    query.apply_fuzzy_data(fuzzy_data);
-                    query.apply_slop_data(slop_data);
-
-                    assert!(matches!(query, pdb::Query::MatchArray{..}));
-                    let pdb::Query::MatchArray { conjunction_mode, .. } = &mut query else {
-                        unreachable!()
-                    };
-                    *conjunction_mode = Some(true);
-
-                    to_search_query_input(field, query)
-                }
-
                 _ => panic!("The right-hand side of the `&&&(field, TEXT)` operator must be a text value."),
             }
         }, |field, lhs, rhs| {

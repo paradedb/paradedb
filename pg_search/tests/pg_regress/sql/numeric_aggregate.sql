@@ -128,6 +128,15 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT category, SUM(amount) s FROM numagg WHERE description @@@ 'apple OR basket' GROUP BY category ORDER BY s DESC LIMIT 1;
 SET paradedb.enable_aggregate_custom_scan TO on;
 
+-- Numeric64 SUM sorts the same way
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category, SUM(price) s FROM numagg WHERE description @@@ 'apple OR basket' GROUP BY category ORDER BY s ASC LIMIT 1;
+SELECT category, SUM(price) s FROM numagg WHERE description @@@ 'apple OR basket' GROUP BY category ORDER BY s ASC LIMIT 1;
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT category, SUM(price) s FROM numagg WHERE description @@@ 'apple OR basket' GROUP BY category ORDER BY s ASC LIMIT 1;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
 -- AVG blobs do not sort; TopK is skipped and Postgres sorts above the scan
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT category, AVG(price) a FROM numagg WHERE description @@@ 'apple OR basket' GROUP BY category ORDER BY a ASC LIMIT 1;
@@ -158,13 +167,22 @@ SELECT SUM(weight), MIN(weight), MAX(weight) FROM numagg WHERE description @@@ '
 SELECT SUM(amount), AVG(amount), MIN(amount), MAX(amount) FROM numagg WHERE description @@@ 'durian OR basket';
 SET paradedb.enable_aggregate_custom_scan TO on;
 
+-- TopK over a group whose SUM is NaN: NaN sorts highest, matching Postgres
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category, SUM(price) s FROM numagg WHERE description @@@ 'durian OR basket OR apple' GROUP BY category ORDER BY s DESC LIMIT 1;
+SELECT category, SUM(price) s FROM numagg WHERE description @@@ 'durian OR basket OR apple' GROUP BY category ORDER BY s DESC LIMIT 1;
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT category, SUM(price) s FROM numagg WHERE description @@@ 'durian OR basket OR apple' GROUP BY category ORDER BY s DESC LIMIT 1;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
 -- ============================================================================
 -- PART 8: Empty result set and FILTER clause
 -- ============================================================================
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT SUM(amount), COUNT(*) FROM numagg WHERE description @@@ 'nonexistent';
-SELECT SUM(amount), COUNT(*) FROM numagg WHERE description @@@ 'nonexistent';
+SELECT SUM(amount), AVG(amount), COUNT(*) FROM numagg WHERE description @@@ 'nonexistent';
+SELECT SUM(amount), AVG(amount), COUNT(*) FROM numagg WHERE description @@@ 'nonexistent';
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT SUM(price) FILTER (WHERE category = 'grocery') FROM numagg WHERE description @@@ 'apple OR basket';

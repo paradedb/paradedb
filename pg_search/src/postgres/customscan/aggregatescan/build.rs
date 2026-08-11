@@ -494,14 +494,6 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
     }
 }
 
-/// Returns true when the query has ORDER BY on any aggregate + LIMIT.
-/// These queries are routed to DataFusion instead of Tantivy because:
-/// - Tantivy's max_buckets (65000) silently drops groups beyond that limit,
-///   which could exclude groups that belong in the top-K.
-/// - DataFusion has no bucket cap and provides native TopK via SortExec(fetch=K).
-///
-/// This is a lightweight parse-tree check used before building the full
-/// AggregateCSClause — it only looks at the sort clause structure.
 /// True when the query aggregates over a NUMERIC column or groups by one,
 /// where the column is a direct `Var` reference. Those queries must route to
 /// the DataFusion backend: the Tantivy aggregation engine computes metrics in
@@ -571,6 +563,14 @@ pub(super) unsafe fn has_numeric_aggregate_or_group(args: &CreateUpperPathsHookA
     false
 }
 
+/// Returns true when the query has ORDER BY on any aggregate + LIMIT.
+/// These queries are routed to DataFusion instead of Tantivy because:
+/// - Tantivy's max_buckets (65000) silently drops groups beyond that limit,
+///   which could exclude groups that belong in the top-K.
+/// - DataFusion has no bucket cap and provides native TopK via SortExec(fetch=K).
+///
+/// This is a lightweight parse-tree check used before building the full
+/// AggregateCSClause — it only looks at the sort clause structure.
 pub(super) unsafe fn has_aggregate_orderby_with_limit(args: &CreateUpperPathsHookArgs) -> bool {
     let parse = args.root().parse;
     if parse.is_null() || (*parse).sortClause.is_null() || (*parse).groupClause.is_null() {

@@ -136,7 +136,7 @@ CREATE TABLE transfers (
 
 The following shapes fall back to Postgres for aggregation:
 
-- Columns declared as unbounded `NUMERIC` (no precision and scale). Declare a precision and scale to enable pushdown. `COUNT` still pushes down.
+- Columns declared as unbounded `NUMERIC` (no precision and scale). Declare a precision and scale to enable pushdown. `COUNT` on such a column still pushes down, but a `GROUP BY` on it declines the whole query.
 - `HAVING` over a `NUMERIC` aggregate
 - `SUM(DISTINCT ...)` / `AVG(DISTINCT ...)` on `NUMERIC` columns
 - `STDDEV`, `VARIANCE`, and other statistical aggregates on `NUMERIC` columns

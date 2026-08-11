@@ -55,6 +55,17 @@ fn find_source_by_rti<'a>(
     })
 }
 
+/// Heap attribute name for decline messages, so the planner warning names the
+/// column instead of an (RTI, attno) pair the user can't act on.
+unsafe fn attname_or_attno(relid: pg_sys::Oid, attno: pg_sys::AttrNumber) -> String {
+    let ptr = pg_sys::get_attname(relid, attno, true);
+    if ptr.is_null() {
+        format!("attno {attno}")
+    } else {
+        std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned()
+    }
+}
+
 /// Simplified aggregate classification for the DataFusion backend.
 /// Unlike `AggregateType` (Tantivy-oriented), this enum is lightweight and maps
 /// directly to DataFusion aggregate expressions.
@@ -209,8 +220,8 @@ fn validate_numeric_aggregate(
 }
 
 /// NUMERIC storage info for a resolved field; `None` for non-NUMERIC fields.
-/// Legacy indexes that stored NUMERIC as F64 also return `None`: their column
-/// data really is `Float64` and the native aggregates apply.
+/// Legacy indexes that stored NUMERIC as F64 return [`NumericAggStorage::LegacyF64`]
+/// so [`validate_numeric_aggregate`] can decline with a REINDEX hint.
 fn numeric_storage(source: &JoinAggSource, field_name: &str) -> Option<NumericAggStorage> {
     let index = source.bm25_index.as_ref()?;
     let schema = index.schema().ok()?;
@@ -392,8 +403,8 @@ pub unsafe fn extract_aggregate_targetlist(
 
             let field_name = source.column_name(attno).ok_or_else(|| {
                 format!(
-                    "could not resolve field name for GROUP BY column (RTI={}, attno={})",
-                    rti, attno
+                    "GROUP BY column {} is not indexed as a fast field",
+                    attname_or_attno(source.relid, attno)
                 )
             })?;
 
@@ -438,6 +449,10 @@ pub unsafe fn extract_aggregate_targetlist(
                     )
                 })?;
 
+            // A missing source happens for rti-aliased JSON group keys from
+            // sub-PlannerInfos; their fields are JSON paths, never NUMERIC.
+            // Bare NUMERIC columns are plain Vars and take the branch above,
+            // which propagates the lookup failure.
             let numeric_scale = match find_source_by_rti(sources, rti, "GROUP BY expression") {
                 Ok(source) => numeric_group_scale(source, &field_name)?,
                 Err(_) => None,
@@ -613,8 +628,8 @@ unsafe fn extract_aggref_field_refs(
 
         let field_name = source.column_name(attno).ok_or_else(|| {
             format!(
-                "could not resolve field name for aggregate argument (RTI={}, attno={})",
-                rti, attno
+                "aggregate argument {} is not indexed as a fast field",
+                attname_or_attno(source.relid, attno)
             )
         })?;
 

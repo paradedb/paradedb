@@ -188,6 +188,14 @@ impl NumericSumState {
         Ok(())
     }
 
+    /// Approximate heap bytes of the running sum, for DataFusion memory
+    /// accounting: a high-cardinality GROUP BY keeps one accumulator per
+    /// group, so the `BigInt` digits must count toward the pool.
+    fn heap_size(&self) -> usize {
+        // ~3.3 bits per decimal digit, rounded up to limb granularity.
+        (self.decimal.digits() as usize) / 2 + 8
+    }
+
     /// Encode the running sum as decimal-bytes. `None` when no rows were seen,
     /// which surfaces as SQL NULL (Postgres `SUM` over zero rows).
     fn encode(&self, scale: i32) -> Result<Option<Vec<u8>>> {
@@ -326,7 +334,7 @@ impl Accumulator for NumericSumAccumulator {
     }
 
     fn size(&self) -> usize {
-        size_of_val(self)
+        size_of_val(self) + self.state.heap_size()
     }
 
     fn state(&mut self) -> Result<Vec<ScalarValue>> {
@@ -516,7 +524,7 @@ impl Accumulator for NumericAvgAccumulator {
     }
 
     fn size(&self) -> usize {
-        size_of_val(self)
+        size_of_val(self) + self.state.heap_size()
     }
 
     fn state(&mut self) -> Result<Vec<ScalarValue>> {

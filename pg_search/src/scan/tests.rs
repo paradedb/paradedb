@@ -816,7 +816,9 @@ mod tests {
 
     #[pg_test]
     fn test_range_partitioned_assigned_execution() {
+        use arrow_array::Int64Array;
         use datafusion::physical_plan::Partitioning;
+        use datafusion_proto::physical_plan::DefaultPhysicalProtoConverter;
 
         let (heap_oid, index_oid) = get_relation_oids();
         let heap_rel = PgSearchRelation::open(heap_oid);
@@ -885,6 +887,27 @@ mod tests {
         // As one of four task variants: this one owns partition 1 alone.
         let plan = Arc::new(plan).with_assigned_partition(1);
 
+        assert!(plan.repartition(2).is_err());
+        assert_eq!(plan.properties().output_partitioning().partition_count(), 1);
+        assert!(matches!(
+            plan.properties().output_partitioning(),
+            Partitioning::UnknownPartitioning(1)
+        ));
+
+        // Dispatch must preserve the four global ranges even though this task-specialized
+        // variant advertises one local partition to DataFusion.
+        let proto_converter = DefaultPhysicalProtoConverter {};
+        let encoded = plan.encode_for_dispatch(&proto_converter).unwrap();
+        let task_context = TaskContext::default();
+        let plan = PgSearchScanPlan::decode_for_dispatch(
+            &encoded,
+            None,
+            None,
+            &task_context,
+            &proto_converter,
+        )
+        .unwrap();
+
         assert_eq!(plan.properties().output_partitioning().partition_count(), 1);
         assert!(matches!(
             plan.properties().output_partitioning(),
@@ -894,21 +917,28 @@ mod tests {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .build()
             .unwrap();
-        let count_rows = |partition: usize| {
+        let collect_ids = |partition: usize| {
             let mut stream = plan
                 .execute(partition, Arc::new(TaskContext::default()))
                 .unwrap();
-            let mut rows = 0;
+            let mut ids = Vec::new();
             runtime.block_on(async {
                 while let Some(batch) = stream.next().await {
-                    rows += batch.unwrap().num_rows();
+                    let batch = batch.unwrap();
+                    let id_array = batch
+                        .column(1)
+                        .as_any()
+                        .downcast_ref::<Int64Array>()
+                        .expect("id should be an Int64Array");
+                    ids.extend(id_array.values().iter().copied());
                 }
             });
-            rows
+            ids.sort_unstable();
+            ids
         };
 
-        // Executing partition 0 on this single-partition variant scans assigned partition 1 (ids 25..=49).
-        assert_eq!(count_rows(0), 25);
+        // Local partition 0 must map to global partition 1, not merely any 25-row range.
+        assert_eq!(collect_ids(0), (25_i64..50).collect::<Vec<_>>());
 
         // The state is consumed exactly once.
         assert!(plan.execute(0, Arc::new(TaskContext::default())).is_err());

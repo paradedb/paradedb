@@ -114,23 +114,19 @@ pub struct ScanState {
 
 /// Execution state for a single `PgSearchScanPlan`.
 ///
-/// Under multi-partition distributed or parallel execution, a plan variant's `assigned_partition` indicates
-/// which partition should consume the state and yield data. Calling `execute()` on that assigned partition
-/// consumes the state exactly once and transitions it to `Consumed`.
-///
-/// Any calls to `execute()` for a partition that does not match `assigned_partition` will yield an
-/// empty stream and leave the state untouched. This ensures each plan variant only yields data for its
-/// explicitly assigned slice of the workload.
+/// Under distributed execution, a task-specialized variant exposes one local partition.
+/// Its `assigned_partition` maps that local partition back to the global partition whose
+/// state and range bounds it must consume exactly once.
 #[derive(Default, Clone)]
 pub enum ExecutionState {
     /// In Shared mode, we optionally load-balance via ParallelScanState.
-    /// The state is consumed by the assigned partition.
+    /// The state is consumed at most once by this plan or one of its task variants.
     Shared {
         parallel_state: Option<UnsafeSendSync<*mut crate::postgres::ParallelScanState>>,
         scan_state: Box<UnsafeSendSync<ScanState>>,
     },
     /// In RangePartitioned mode, we static-partition using RangePartitioning.
-    /// The state is consumed by the assigned partition.
+    /// A task variant maps its sole local partition to one range before consuming the state.
     RangePartitioned {
         range_boundaries: RangePartitioning,
         scan_state: Box<UnsafeSendSync<ScanState>>,
@@ -144,13 +140,12 @@ pub enum ExecutionState {
 
 /// A DataFusion `ExecutionPlan` for scanning `pg_search` index segments.
 ///
-/// Under multi-partition parallel or distributed execution, this plan's `output_partitioning` declares
-/// a *capacity* (`min(segments, target_partitions)`). The plan is then cloned into multiple variants,
-/// where each variant has its `assigned_partition` explicitly set. When `execute()` is called, only
-/// the assigned partition actually consumes the scan state to produce a stream, guaranteeing exactly-once
-/// processing of the underlying data.
+/// Before task specialization, this plan's `output_partitioning` declares the planner-selected
+/// global partition count. Each specialized variant then exposes one local partition while
+/// retaining the global partition count and its `assigned_partition`, so local `execute(0)`
+/// consumes exactly the assigned slice of the workload.
 pub struct PgSearchScanPlan {
-    /// State for this single-partition scan.
+    /// State consumed exactly once by this plan or one of its task-specialized clones.
     ///
     /// We use a Mutex to allow taking ownership of the scanner during `execute()`.
     /// We wrap the state in `UnsafeSendSync` to satisfy `ExecutionPlan`'s `Send` + `Sync`
@@ -166,6 +161,10 @@ pub struct PgSearchScanPlan {
     /// from ParallelScanState or the reader, and kept around for EXPLAIN after
     /// the state is consumed.
     segment_count: usize,
+    /// Number of partitions in the scan before task specialization. Assigned variants expose
+    /// one local partition to DataFusion, but dispatch still needs this global count to rebuild
+    /// the same range boundaries on the receiving worker.
+    global_partition_count: usize,
     properties: Arc<PlanProperties>,
     resolved_query: SearchQueryInput,
     /// Dynamic filters pushed down from parent operators (e.g. Top K threshold
@@ -200,9 +199,8 @@ pub struct PgSearchScanPlan {
     /// `=true` in that case.
     dynamic_filter_strategy: Arc<AtomicU8>,
     range_sample: Option<RangePartitioningSample>,
-    /// When executing in a multi-task distributed or parallel environment, this
-    /// indicates the specific execution partition this plan variant is responsible for.
-    /// It guarantees that the `ExecutionState` is consumed exactly once by the designated worker.
+    /// Global partition selected for a task-specialized variant. When present, this plan
+    /// exposes one local partition and maps `execute(0)` back to this global partition.
     pub(crate) assigned_partition: Option<usize>,
 }
 
@@ -214,6 +212,7 @@ impl Clone for PgSearchScanPlan {
             state: Mutex::new(new_state),
             planner_estimated_rows: self.planner_estimated_rows,
             segment_count: self.segment_count,
+            global_partition_count: self.global_partition_count,
             properties: Arc::clone(&self.properties),
             resolved_query: self.resolved_query.clone(),
             dynamic_filters: self.dynamic_filters.clone(),
@@ -249,8 +248,8 @@ impl PgSearchScanPlan {
     /// * `resolved_query` - The filter-combined, param-solved query the readers were opened
     ///   with. Used for EXPLAIN and shipped on dispatch.
     /// * `sort_order` - Optional sort order declaration for equivalence properties
-    /// * `partition_count` - Number of distributed tasks/partitions this scan natively supports
-    ///   (usually `min(segments, target_partitions)`).
+    /// * `partition_count` - Planner-selected number of global partitions. Non-range scans cap
+    ///   this at their segment count; sampled range scans may expose more partitions than segments.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         state: Option<ScanState>,
@@ -328,6 +327,7 @@ impl PgSearchScanPlan {
             state: Mutex::new(exec_state),
             planner_estimated_rows,
             segment_count,
+            global_partition_count: partition_count,
             properties,
             resolved_query,
             dynamic_filters: Vec::new(),
@@ -354,7 +354,13 @@ impl PgSearchScanPlan {
     /// - For `RangePartitioned` mode, it asks the internal `range_sample` to safely
     ///   down-sample (or up-sample) the partitioning bounds so the new partition count
     ///   has roughly uniformly distributed boundaries.
-    pub fn repartition(&self, target_partitions: usize) -> Result<Arc<dyn ExecutionPlan>> {
+    pub(crate) fn repartition(&self, target_partitions: usize) -> Result<Arc<dyn ExecutionPlan>> {
+        if self.assigned_partition.is_some() {
+            return Err(DataFusionError::Internal(
+                "Cannot repartition a task-specialized PgSearchScanPlan".into(),
+            ));
+        }
+
         let state_guard = self
             .state
             .lock()
@@ -393,14 +399,16 @@ impl PgSearchScanPlan {
             range_boundaries,
             self.assigned_partition,
         );
-        let new_properties = Arc::new(PlanProperties::new(
-            self.properties.eq_properties.clone(),
-            partitioning,
-            self.properties.emission_type,
-            self.properties.boundedness,
-        ));
+        let new_properties = Arc::new(
+            PlanProperties::clone(self.properties.as_ref()).with_partitioning(partitioning),
+        );
 
-        Ok(self.with_overrides(new_state, new_properties, self.dynamic_filters.clone()))
+        Ok(self.with_overrides(
+            new_state,
+            new_properties,
+            self.dynamic_filters.clone(),
+            target_partitions,
+        ))
     }
 
     fn with_overrides(
@@ -408,16 +416,15 @@ impl PgSearchScanPlan {
         state: ExecutionState,
         properties: Arc<PlanProperties>,
         dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
+        global_partition_count: usize,
     ) -> Arc<Self> {
         let properties = if self.assigned_partition.is_some()
             && properties.output_partitioning().partition_count() != 1
         {
-            Arc::new(PlanProperties::new(
-                properties.eq_properties.clone(),
-                Partitioning::UnknownPartitioning(1),
-                properties.emission_type,
-                properties.boundedness,
-            ))
+            Arc::new(
+                PlanProperties::clone(properties.as_ref())
+                    .with_partitioning(Partitioning::UnknownPartitioning(1)),
+            )
         } else {
             properties
         };
@@ -425,6 +432,7 @@ impl PgSearchScanPlan {
             state: Mutex::new(state),
             planner_estimated_rows: self.planner_estimated_rows,
             segment_count: self.segment_count,
+            global_partition_count,
             properties,
             resolved_query: self.resolved_query.clone(),
             dynamic_filters,
@@ -450,15 +458,22 @@ impl PgSearchScanPlan {
     /// The variant declares `Partitioning::UnknownPartitioning(1)` so DataFusion treats
     /// it as a single-partition plan, while `assigned_partition` records which partition's
     /// workload (range bounds or parallel state assignment) this variant executes.
-    pub fn with_assigned_partition(self: &Arc<Self>, assigned: usize) -> Arc<Self> {
+    pub(crate) fn with_assigned_partition(self: &Arc<Self>, assigned: usize) -> Arc<Self> {
+        debug_assert!(
+            self.assigned_partition.is_none(),
+            "PgSearchScanPlan is already task-specialized"
+        );
+        debug_assert!(
+            assigned < self.global_partition_count,
+            "assigned partition {assigned} is outside global partition count {}",
+            self.global_partition_count
+        );
         let mut variant = self.as_ref().clone();
         variant.assigned_partition = Some(assigned);
-        let new_properties = Arc::new(PlanProperties::new(
-            variant.properties.eq_properties.clone(),
-            Partitioning::UnknownPartitioning(1),
-            variant.properties.emission_type,
-            variant.properties.boundedness,
-        ));
+        let new_properties = Arc::new(
+            PlanProperties::clone(variant.properties.as_ref())
+                .with_partitioning(Partitioning::UnknownPartitioning(1)),
+        );
         variant.properties = new_properties;
         Arc::new(variant)
     }
@@ -558,7 +573,7 @@ impl PgSearchScanPlan {
             batch_size_hint: scanner_config.batch_size_hint,
             source_idx,
             planner_estimated_rows,
-            partition_count: self.properties.output_partitioning().partition_count(),
+            global_partition_count: self.global_partition_count,
             range_sample: self.range_sample.clone(),
             assigned_partition: self.assigned_partition,
         };
@@ -685,7 +700,7 @@ impl PgSearchScanPlan {
             ffhelper_arg,
             descriptor.indexrelid,
             descriptor.deferred_ctid_plan_position,
-            descriptor.partition_count,
+            descriptor.global_partition_count,
             parallel_state,
             descriptor.range_sample,
         );
@@ -724,7 +739,9 @@ struct ScanDispatchDescriptor {
     /// single-counter checkout (basescan and non-MPP parallel joins). All-sources position.
     source_idx: Option<usize>,
     planner_estimated_rows: u64,
-    partition_count: usize,
+    /// Number of partitions before task specialization. This remains global even when an
+    /// assigned variant advertises one local output partition to DataFusion.
+    global_partition_count: usize,
     range_sample: Option<RangePartitioningSample>,
     assigned_partition: Option<usize>,
 }
@@ -815,7 +832,7 @@ impl DisplayAs for PgSearchScanPlan {
                     Some(ExecutionState::RangePartitioned {
                         range_boundaries, ..
                     }) => range_boundaries.clone(),
-                    _ => range_sample.build(assigned + 1),
+                    _ => range_sample.build(self.global_partition_count),
                 };
 
                 let lower = if assigned > 0 && assigned - 1 < partitioning.split_points.len() {
@@ -1159,7 +1176,12 @@ impl ExecutionPlan for PgSearchScanPlan {
                 ))
             })?);
 
-            let new_plan = self.with_overrides(state, self.properties.clone(), dynamic_filters);
+            let new_plan = self.with_overrides(
+                state,
+                self.properties.clone(),
+                dynamic_filters,
+                self.global_partition_count,
+            );
             Ok(
                 FilterPushdownPropagation::with_parent_pushdown_result(filters)
                     .with_updated_node(new_plan as Arc<dyn ExecutionPlan>),

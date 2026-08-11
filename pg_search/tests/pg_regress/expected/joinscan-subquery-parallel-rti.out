@@ -131,7 +131,7 @@ LIMIT 10;
            :     │         t0: PgSearchScan: segments=2, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"with_index":{"query":{"term_set":{"field":"technology_name","terms":["Marketo"]}}}}]}}
            :     └──────────────────────────────────────────────────
            :     ┌───── Stage 2 ── tasks=4, partitions=16
-           :     │ RepartitionExec: partitioning=Hash([company_id@0], 16), input_partitions=4
+           :     │ RepartitionExec: partitioning=Hash([company_id@0], 16), input_partitions=1
            :     │   DistributedLeafExec:
            :     │     t0: PgSearchScan: segments=30, dynamic_filters=1, query="all"
            :     │     t1: PgSearchScan: segments=30, dynamic_filters=1, query="all"

@@ -126,10 +126,11 @@ ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
 -- =====================================================================
--- Pass 3: worker metrics reach the leader's EXPLAIN ANALYZE display.
--- Asserts presence, not content: how many workers launch and how they
--- split the rows isn't pinned, so per-fragment metrics vary run to run.
--- A fragment's row counts appear only once its TaskMetrics crossed the mesh.
+-- Pass 3: worker metrics and dynamic-filter pruning reach the leader's
+-- EXPLAIN ANALYZE display. Asserts presence, not exact counts: how many
+-- workers launch and how they split the rows isn't pinned, so per-fragment
+-- metrics vary run to run. A fragment's row counts appear only once its
+-- TaskMetrics crossed the mesh.
 -- =====================================================================
 
 CREATE OR REPLACE FUNCTION mpp_explain_analyze_lines(q text) RETURNS SETOF text AS $$
@@ -140,16 +141,48 @@ BEGIN
   END LOOP;
 END $$ LANGUAGE plpgsql;
 
-SELECT count(*) > 0 AS worker_metrics_shown
+CREATE TEMP TABLE mpp_explain_analyze_output AS
+SELECT line
 FROM mpp_explain_analyze_lines(
   'SELECT f.title, p.size_bytes
    FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
    WHERE f.content @@@ ''Section''
+     AND f.id <= 20
    ORDER BY f.title, p.size_bytes
    LIMIT 10'
-) AS line
+) AS line;
+
+SELECT count(*) > 0 AS worker_metrics_shown
+FROM mpp_explain_analyze_output
 WHERE line LIKE '%output_rows%';
 
+-- Assigned range variants expose one local partition, satisfying DataFusion's
+-- dynamic-filter routing condition. Positive pruning is worker-runtime proof
+-- that a populated join filter reached the Tantivy scan after dispatch.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM mpp_explain_analyze_output
+    WHERE line LIKE '%DistributedExec%'
+  ) OR NOT EXISTS (
+    SELECT 1
+    FROM mpp_explain_analyze_output
+    WHERE line LIKE '%partition=%'
+  ) THEN
+    RAISE EXCEPTION 'expected an MPP range-partitioned join';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM mpp_explain_analyze_output
+    WHERE line ~ 'rows_pruned=\{[^}]*:[1-9][0-9]*'
+  ) THEN
+    RAISE EXCEPTION 'expected an MPP range-join worker to prune rows with a dynamic filter';
+  END IF;
+END $$;
+
+DROP TABLE mpp_explain_analyze_output;
 DROP FUNCTION mpp_explain_analyze_lines(text);
 
 -- =====================================================================

@@ -93,7 +93,7 @@ bytes = { version = "1", features = ["serde"] }
 # both point to the same datafusion ref.
 datafusion = { git = "https://github.com/apache/datafusion", rev = "8d680db14a9134837bbd3d53497dd58c985c51a7", default-features = false }
 datafusion-proto = { git = "https://github.com/apache/datafusion", rev = "8d680db14a9134837bbd3d53497dd58c985c51a7", default-features = false }
-datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed", tag = "snapshot-main-2026-08-10-165331", default-features = false }
+datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed", tag = "snapshot-main-2026-08-11-004258", default-features = false }
 futures = "0.3"
 async-stream = "0.3.6"
 prost = "0.14.3"

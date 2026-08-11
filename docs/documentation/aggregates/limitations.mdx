@@ -124,25 +124,21 @@ When a fallback happens, the query still runs correctly through Postgres' native
 
 ## NUMERIC Columns
 
-`NUMERIC` columns do not support aggregate pushdown. Queries with aggregates on `NUMERIC` columns will automatically fall back to Postgres for aggregation.
-
-For numeric data that requires aggregate pushdown, use `FLOAT` or `DOUBLE PRECISION` instead:
+`SUM`, `AVG`, `MIN`, `MAX`, and `COUNT` push down for `NUMERIC(p, s)` columns of any precision, including high-precision columns like `NUMERIC(78, 0)`. Results are exact and match Postgres, including `NaN` handling.
 
 ```sql
--- Aggregates can be pushed down
-CREATE TABLE products (
+-- Aggregates push down for any declared precision
+CREATE TABLE transfers (
     id SERIAL PRIMARY KEY,
-    price DOUBLE PRECISION
-);
-
--- Aggregates fall back to PostgreSQL
-CREATE TABLE products (
-    id SERIAL PRIMARY KEY,
-    price NUMERIC(10,2)
+    amount NUMERIC(78,0)
 );
 ```
 
-<Note>
-  Filter pushdown (equality and range queries) is fully supported for all
-  `NUMERIC` columns. Only aggregate pushdown is not supported.
-</Note>
+The following shapes fall back to Postgres for aggregation:
+
+- Columns declared as unbounded `NUMERIC` (no precision and scale). Declare a precision and scale to enable pushdown. `COUNT` still pushes down.
+- `HAVING` over a `NUMERIC` aggregate
+- `SUM(DISTINCT ...)` / `AVG(DISTINCT ...)` on `NUMERIC` columns
+- `STDDEV`, `VARIANCE`, and other statistical aggregates on `NUMERIC` columns
+- Indexes built before v0.22, which store `NUMERIC` as `FLOAT8`. `REINDEX` to enable pushdown.
+- `pdb.agg()` on `NUMERIC` fields (use standard SQL aggregate functions instead)

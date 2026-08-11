@@ -83,7 +83,7 @@ lazy_static = "1.5.0"
 macros = { path = "../macros" }
 half = "2.7.1"
 bytemuck = { version = "1.25.0", features = ["derive", "min_const_generics"] }
-decimal-bytes = "0.4.2"
+decimal-bytes = { git = "https://github.com/paradedb/decimal-bytes", rev = "934d4de0b46d522e46c185ef08011154e8fbf9b6" }
 bigdecimal = "0.4.10"
 paste = "1.0.15"
 typetag = "0.2"

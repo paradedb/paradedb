@@ -14,6 +14,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
+use crate::api::FieldName;
 use crate::api::builder_fns::{match_conjunction, match_conjunction_array};
 use crate::api::operator::boost::BoostType;
 use crate::api::operator::fuzzy::FuzzyType;
@@ -21,6 +22,7 @@ use crate::api::operator::{
     RHSValue, ReturnedNodePointer, build_text_funcexpr, classify_pdb_query_input, request_simplify,
     validate_lhs_type_as_text_compatible,
 };
+use crate::query::SearchQueryInput;
 use crate::query::pdb_query::{pdb, to_search_query_input};
 use pgrx::{AnyElement, Internal, extension_sql, opname, pg_extern, pg_operator, pg_sys};
 
@@ -44,6 +46,20 @@ fn classify_for_andandand(query: pdb::Query) -> pdb::Query {
             q
         },
     )
+}
+
+/// Runtime counterpart to the `&&&` const-folding path in
+/// `search_with_match_conjunction_support`. Called from the plan built by that support
+/// function's `exec_rewrite` when the RHS is a `Param` (generic prepared plan) rather than a
+/// folded `Const`. `to_search_query_input` alone leaves `UnclassifiedString` / `UnclassifiedArray`
+/// intact and blows up at Tantivy conversion time; the shared classifier resolves those into a
+/// `Match` / `MatchArray` with `conjunction_mode = Some(true)` first. Fixes #5779 for `&&&`.
+#[pg_extern(immutable, parallel_safe)]
+pub fn match_conjunction_search_query_input(
+    field: FieldName,
+    query: pdb::Query,
+) -> SearchQueryInput {
+    to_search_query_input(field, classify_for_andandand(query))
 }
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]

@@ -1,0 +1,281 @@
+-- =====================================================================
+-- GROUP BY DATE(<timestamp>) pushdown
+-- =====================================================================
+-- `GROUP BY DATE(ts)` on a NOT NULL `timestamp` column should be pushed into
+-- the ParadeDB Aggregate Scan rather than computed by Postgres.
+--
+-- Data notes:
+--   * 2024-01-01 has three rows, including both edges of the day
+--     (00:00:00 and 23:59:59); they must collapse into a single bucket.
+--   * 2024-01-04 has no rows and must not appear as an empty bucket.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_aggregate_custom_scan TO on;
+DROP TABLE IF EXISTS events_nn CASCADE;
+CREATE TABLE events_nn (
+    id SERIAL PRIMARY KEY,
+    created_at TIMESTAMP NOT NULL
+);
+INSERT INTO events_nn (created_at) VALUES
+    ('2024-01-01 00:00:00'),
+    ('2024-01-01 08:00:00'),
+    ('2024-01-01 23:59:59'),
+    ('2024-01-02 09:00:00'),
+    ('2024-01-03 12:00:00'),
+    ('2024-01-05 18:00:00');
+CREATE INDEX events_nn_idx ON events_nn USING paradedb (id, created_at)
+WITH (key_field = 'id');
+-- =====================================================================
+-- Test 1: basic GROUP BY DATE(timestamp)
+-- =====================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DATE(created_at), COUNT(*)
+FROM events_nn
+WHERE id @@@ pdb.all()
+GROUP BY DATE(created_at);
+                                                                                                                                                                              QUERY PLAN                                                                                                                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.events_nn
+   Output: date(created_at), pdb.agg_fn('COUNT(*)'::text)
+   Index: events_nn_idx
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+     Applies to Aggregates: COUNT(*)
+     Group By: created_at
+     Aggregate Definition: {"grouped":{"histogram":{"extended_bounds":null,"field":"created_at","hard_bounds":null,"interval":86400000000.0,"is_normalized_to_ns":false,"keyed":false,"min_doc_count":1,"offset":-946684800000000.0}},"missing":{"filter":{"query":{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"created_at"}}]}},"type":"FilterQuery"}}}
+(7 rows)
+
+SELECT DATE(created_at) AS day, COUNT(*) AS cnt
+FROM events_nn
+WHERE id @@@ pdb.all()
+GROUP BY DATE(created_at)
+ORDER BY day;
+    day     | cnt 
+------------+-----
+ 01-01-2024 |   3
+ 01-02-2024 |   1
+ 01-03-2024 |   1
+ 01-05-2024 |   1
+(4 rows)
+
+-- =====================================================================
+-- Test 2: ts::date spelling resolves to the same function and pushes down
+-- =====================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT created_at::date, COUNT(*)
+FROM events_nn
+WHERE id @@@ pdb.all()
+GROUP BY created_at::date;
+                                                                                                                                                                              QUERY PLAN                                                                                                                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.events_nn
+   Output: (created_at)::date, pdb.agg_fn('COUNT(*)'::text)
+   Index: events_nn_idx
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+     Applies to Aggregates: COUNT(*)
+     Group By: created_at
+     Aggregate Definition: {"grouped":{"histogram":{"extended_bounds":null,"field":"created_at","hard_bounds":null,"interval":86400000000.0,"is_normalized_to_ns":false,"keyed":false,"min_doc_count":1,"offset":-946684800000000.0}},"missing":{"filter":{"query":{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"created_at"}}]}},"type":"FilterQuery"}}}
+(7 rows)
+
+SELECT created_at::date AS day, COUNT(*) AS cnt
+FROM events_nn
+WHERE id @@@ pdb.all()
+GROUP BY created_at::date
+ORDER BY day;
+    day     | cnt 
+------------+-----
+ 01-01-2024 |   3
+ 01-02-2024 |   1
+ 01-03-2024 |   1
+ 01-05-2024 |   1
+(4 rows)
+
+DROP TABLE events_nn CASCADE;
+-- =====================================================================
+-- Test 3: nullable column — NULL group carries COUNT and SUM
+-- =====================================================================
+-- NULL-timestamp rows form their own group with real metric values,
+-- matching both Postgres and the terms path's existing NULL handling.
+DROP TABLE IF EXISTS events_nullable CASCADE;
+CREATE TABLE events_nullable (
+    id SERIAL PRIMARY KEY,
+    created_at TIMESTAMP,
+    region TEXT,
+    amount INTEGER NOT NULL
+);
+INSERT INTO events_nullable (created_at, region, amount) VALUES
+    ('2024-01-01 08:00:00', 'east', 10),
+    ('2024-01-01 20:00:00', 'west', 20),
+    ('2024-01-02 09:00:00', 'east', 40),
+    (NULL, 'east', 100),
+    (NULL, 'west', 200);
+CREATE INDEX events_nullable_idx ON events_nullable
+USING paradedb (id, created_at, region, amount)
+WITH (key_field = 'id', text_fields = '{"region": {"fast": true}}');
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DATE(created_at), COUNT(*), SUM(amount)
+FROM events_nullable
+WHERE id @@@ pdb.all()
+GROUP BY DATE(created_at);
+                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.events_nullable
+   Output: date(created_at), pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text)
+   Index: events_nullable_idx
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+     Applies to Aggregates: COUNT(*), SUM(amount)
+     Group By: created_at
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"amount","missing":null,"none_if_no_match":true}}},"histogram":{"extended_bounds":null,"field":"created_at","hard_bounds":null,"interval":86400000000.0,"is_normalized_to_ns":false,"keyed":false,"min_doc_count":1,"offset":-946684800000000.0}},"missing":{"aggs":{"0":{"sum":{"field":"amount","missing":null,"none_if_no_match":true}}},"filter":{"query":{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"created_at"}}]}},"type":"FilterQuery"}}}
+(7 rows)
+
+SELECT DATE(created_at) AS day, COUNT(*) AS cnt, SUM(amount) AS total
+FROM events_nullable
+WHERE id @@@ pdb.all()
+GROUP BY DATE(created_at)
+ORDER BY day NULLS LAST;
+    day     | cnt | total 
+------------+-----+-------
+ 01-01-2024 |   2 |    30
+ 01-02-2024 |   1 |    40
+            |   2 |   300
+(3 rows)
+
+-- =====================================================================
+-- Test 4: aggregate FILTER declines (read path lacks "missing" support)
+-- =====================================================================
+-- Expect the named warning; values are computed by Postgres and stay
+-- correct — the NULL group's filtered count must be 2, not 0.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DATE(created_at), COUNT(*) FILTER (WHERE amount > 50)
+FROM events_nullable
+WHERE id @@@ pdb.all()
+GROUP BY DATE(created_at);
+WARNING:  Aggregate Scan not used: DATE() grouping combined with aggregate FILTER clause is not supported. To disable this warning: SET paradedb.check_aggregate_scan = false (table: events_nullable)
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ GroupAggregate
+   Output: (date(created_at)), count(*) FILTER (WHERE (amount > 50))
+   Group Key: (date(events_nullable.created_at))
+   ->  Sort
+         Output: (date(created_at)), amount
+         Sort Key: (date(events_nullable.created_at))
+         ->  Custom Scan (ParadeDB Base Scan) on public.events_nullable
+               Output: date(created_at), amount
+               Table: events_nullable
+               Index: events_nullable_idx
+               Worker Selection: Cost model
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(14 rows)
+
+SELECT DATE(created_at) AS day, COUNT(*) FILTER (WHERE amount > 50) AS cnt
+FROM events_nullable
+WHERE id @@@ pdb.all()
+GROUP BY DATE(created_at)
+ORDER BY day NULLS LAST;
+WARNING:  Aggregate Scan not used: DATE() grouping combined with aggregate FILTER clause is not supported. To disable this warning: SET paradedb.check_aggregate_scan = false (table: events_nullable)
+    day     | cnt 
+------------+-----
+ 01-01-2024 |   0
+ 01-02-2024 |   0
+            |   2
+(3 rows)
+
+-- =====================================================================
+-- Test 5: multi-column GROUP BY declines; NULL dates still split by region
+-- =====================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DATE(created_at), region, COUNT(*)
+FROM events_nullable
+WHERE id @@@ pdb.all()
+GROUP BY DATE(created_at), region;
+WARNING:  Aggregate Scan not used: DATE() grouping combined with other grouping columns is not supported. To disable this warning: SET paradedb.check_aggregate_scan = false (table: events_nullable)
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ GroupAggregate
+   Output: (date(created_at)), region, count(*)
+   Group Key: (date(events_nullable.created_at)), events_nullable.region
+   ->  Sort
+         Output: (date(created_at)), region
+         Sort Key: (date(events_nullable.created_at)), events_nullable.region
+         ->  Custom Scan (ParadeDB Base Scan) on public.events_nullable
+               Output: date(created_at), region
+               Table: events_nullable
+               Index: events_nullable_idx
+               Worker Selection: Cost model
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(14 rows)
+
+SELECT DATE(created_at) AS day, region, COUNT(*) AS cnt
+FROM events_nullable
+WHERE id @@@ pdb.all()
+GROUP BY DATE(created_at), region
+ORDER BY day NULLS LAST, region;
+WARNING:  Aggregate Scan not used: DATE() grouping combined with other grouping columns is not supported. To disable this warning: SET paradedb.check_aggregate_scan = false (table: events_nullable)
+    day     | region | cnt 
+------------+--------+-----
+ 01-01-2024 | east   |   1
+ 01-01-2024 | west   |   1
+ 01-02-2024 | east   |   1
+            | east   |   1
+            | west   |   1
+(5 rows)
+
+DROP TABLE events_nullable CASCADE;
+-- =====================================================================
+-- Test 6: DATE(timestamptz) declines — the v1 review's timezone repro
+-- =====================================================================
+-- date(timestamptz) [pg_proc 1178] depends on the session TimeZone, which
+-- the plan cannot see; only date(timestamp) [2029] is pushed down. Under
+-- America/Los_Angeles these two UTC instants fall on DIFFERENT local days,
+-- which the pushed-down UTC-day histogram could not reproduce.
+DROP TABLE IF EXISTS events_tz CASCADE;
+CREATE TABLE events_tz (
+    id SERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL
+);
+INSERT INTO events_tz (created_at) VALUES
+    ('2024-01-02 05:00:00+00'),
+    ('2024-01-02 20:00:00+00');
+CREATE INDEX events_tz_idx ON events_tz USING paradedb (id, created_at)
+WITH (key_field = 'id');
+SET TIME ZONE 'America/Los_Angeles';
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DATE(created_at), COUNT(*)
+FROM events_tz
+WHERE id @@@ pdb.all()
+GROUP BY DATE(created_at);
+WARNING:  Aggregate Scan not used: could not resolve grouping column from expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: events_tz)
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ GroupAggregate
+   Output: (date(created_at)), count(*)
+   Group Key: (date(events_tz.created_at))
+   ->  Sort
+         Output: (date(created_at))
+         Sort Key: (date(events_tz.created_at))
+         ->  Custom Scan (ParadeDB Base Scan) on public.events_tz
+               Output: date(created_at)
+               Table: events_tz
+               Index: events_tz_idx
+               Worker Selection: Cost model
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(14 rows)
+
+SELECT DATE(created_at) AS day, COUNT(*) AS cnt
+FROM events_tz
+WHERE id @@@ pdb.all()
+GROUP BY DATE(created_at)
+ORDER BY day;
+WARNING:  Aggregate Scan not used: could not resolve grouping column from expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: events_tz)
+    day     | cnt 
+------------+-----
+ 01-01-2024 |   1
+ 01-02-2024 |   1
+(2 rows)
+
+RESET TIME ZONE;
+DROP TABLE events_tz CASCADE;

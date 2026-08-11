@@ -25,9 +25,9 @@ CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
 
 CREATE TABLE mem_a (id bigint PRIMARY KEY, state text);
 CREATE TABLE mem_b (id bigint PRIMARY KEY, aid bigint, u text);
-CREATE INDEX mem_a_idx ON mem_a USING bm25 (id, state)
+CREATE INDEX mem_a_idx ON mem_a USING paradedb (id, state)
   WITH (key_field = 'id', target_segment_count = '3', mutable_segment_rows = '0');
-CREATE INDEX mem_b_idx ON mem_b USING bm25 (id, aid, u)
+CREATE INDEX mem_b_idx ON mem_b USING paradedb (id, aid, u)
   WITH (key_field = 'id', target_segment_count = '3');
 
 INSERT INTO mem_a SELECT g, 'active' FROM generate_series(1, 50000) g;

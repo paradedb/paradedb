@@ -721,7 +721,7 @@ fn parallel_with_initplan_param_in_heap_filter(mut conn: PgConnection) {
     SELECT (g % 200) + 1, 'Page text for page ' || g, (g * 17) % 4096
     FROM generate_series(1, 1000) AS g;
 
-    CREATE INDEX bsp_files_idx ON bsp_files USING bm25 (id, title, content)
+    CREATE INDEX bsp_files_idx ON bsp_files USING paradedb (id, title, content)
     WITH (key_field = 'id', text_fields = '{"title": {"fast": true}, "content": {}}');
 
     ANALYZE bsp_files;

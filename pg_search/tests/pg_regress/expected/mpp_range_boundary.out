@@ -20,11 +20,11 @@ SET paradedb.mpp_queue_size = '64kB';
 CREATE TABLE rb_users    (id bigserial PRIMARY KEY, display_name text, reputation int, about_me text);
 CREATE TABLE rb_posts    (id bigserial PRIMARY KEY, owner_user_id bigint, title text, body text);
 CREATE TABLE rb_comments (id bigserial PRIMARY KEY, post_id bigint, text text, score int);
-CREATE INDEX rb_users_idx ON rb_users USING bm25 (id, display_name, reputation)
+CREATE INDEX rb_users_idx ON rb_users USING paradedb (id, display_name, reputation)
 WITH (key_field='id', partition_by='id', text_fields='{"display_name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"reputation":{"fast":true}}');
-CREATE INDEX rb_posts_idx ON rb_posts USING bm25 (id, owner_user_id, title)
+CREATE INDEX rb_posts_idx ON rb_posts USING paradedb (id, owner_user_id, title)
 WITH (key_field='id', partition_by='id,owner_user_id', text_fields='{"title":{"fast":true}}', numeric_fields='{"owner_user_id":{"fast":true}}');
-CREATE INDEX rb_comments_idx ON rb_comments USING bm25 (id, post_id, text, score)
+CREATE INDEX rb_comments_idx ON rb_comments USING paradedb (id, post_id, text, score)
 WITH (key_field='id', partition_by='post_id', text_fields='{"text":{"fast":true}}', numeric_fields='{"post_id":{"fast":true},"score":{"fast":true}}');
 -- Eight segments per index, kilobyte-scale payloads so batches dwarf the ring.
 SET paradedb.global_mutable_segment_rows = 0;

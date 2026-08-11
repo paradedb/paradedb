@@ -180,6 +180,23 @@ pub fn arrow_array_to_datum(
                         pgrx::Uuid::from_bytes(val.try_into().map_err(|_| "Invalid UUID bytes")?);
                     uuid.into_datum()
                 }
+                // Numeric aggregate results (e.g. SUM over a NUMERIC field)
+                // are decimal-bytes encoded, same as BinaryView fast fields.
+                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => {
+                    let decimal = Decimal::from_bytes(val)
+                        .map_err(|e| format!("Failed to decode bytes as Decimal: {e:?}"))?;
+
+                    let decimal_str = if let Some(scale) = numeric_scale {
+                        decimal.to_string_with_scale(scale as i32)
+                    } else {
+                        decimal.to_string()
+                    };
+
+                    decimal_str
+                        .parse::<pgrx::AnyNumeric>()
+                        .map_err(|e| format!("Failed to parse Decimal string as AnyNumeric: {e}"))?
+                        .into_datum()
+                }
                 _ => return Err(format!("Unsupported OID for Binary Arrow type: {oid:?}")),
             }
         }

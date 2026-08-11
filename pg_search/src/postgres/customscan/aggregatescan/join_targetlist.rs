@@ -27,6 +27,7 @@ use super::privdat::FilterExpr;
 use crate::api::SortDirection;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::var::{VarContext, find_one_aggref, find_one_var_and_fieldname};
+use crate::schema::SearchFieldType;
 use pgrx::PgList;
 use pgrx::pg_sys;
 use pgrx::pg_sys::{
@@ -112,6 +113,115 @@ pub struct JoinGroupColumn {
     pub field_name: String,
     /// Position in the output tuple (index into `output_rel.reltarget.exprs`).
     pub output_index: usize,
+    /// Declared scale when this is a NUMERIC field. Grouping itself works on
+    /// the stored representation; the scale is needed to render group keys
+    /// with the column's display scale.
+    #[serde(default)]
+    pub numeric_scale: Option<i16>,
+}
+
+/// Storage representation of a NUMERIC field referenced by an aggregate,
+/// captured at plan time. Execution picks the matching UDAF from it, and
+/// projection renders results with the declared scale.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum NumericAggStorage {
+    /// NUMERIC(p <= 18): scaled `Int64` fast field.
+    Numeric64 { scale: i16 },
+    /// NUMERIC(p > 18): decimal-bytes `BinaryView` fast field. The scale is
+    /// `None` for columns declared without a typmod.
+    NumericBytes { scale: Option<i16> },
+    /// Pre-v0.22 index that stored NUMERIC as F64. Aggregating the lossy
+    /// f64 column would change results vs Postgres, so SUM/AVG/MIN/MAX
+    /// decline and fall back.
+    LegacyF64,
+}
+
+impl NumericAggStorage {
+    pub fn scale(&self) -> Option<i16> {
+        match self {
+            NumericAggStorage::Numeric64 { scale } => Some(*scale),
+            NumericAggStorage::NumericBytes { scale } => *scale,
+            NumericAggStorage::LegacyF64 => None,
+        }
+    }
+}
+
+/// Display scale for a NUMERIC GROUP BY column. Grouping compares the stored
+/// representation, which is order- and equality-preserving for both NUMERIC
+/// storages, but rendering the keys needs the declared scale. Unbounded
+/// NUMERIC drops per-value display scale at index time, so it declines.
+fn numeric_group_scale(source: &JoinAggSource, field_name: &str) -> Result<Option<i16>, String> {
+    match numeric_storage(source, field_name) {
+        // Legacy F64 group keys keep their existing Float64 handling.
+        None | Some(NumericAggStorage::LegacyF64) => Ok(None),
+        Some(storage) => match storage.scale() {
+            Some(scale) => Ok(Some(scale)),
+            None => Err(format!(
+                "GROUP BY column {field_name} is an unbounded NUMERIC; declare a precision and \
+                 scale to enable aggregate pushdown"
+            )),
+        },
+    }
+}
+
+/// Decide whether an aggregate over a NUMERIC field is supported, and which
+/// storage the execution layer must handle.
+///
+/// COUNT variants work on the stored representation directly (the encodings
+/// are canonical, so byte-distinct means value-distinct) and return `None`.
+/// SUM/AVG/MIN/MAX need the declared scale to render results; unbounded
+/// NUMERIC declines because index storage drops per-value display scale.
+/// Everything else declines so the query falls back to Postgres instead of
+/// failing when DataFusion rejects the storage type.
+fn validate_numeric_aggregate(
+    agg_kind: &AggKind,
+    field_refs: &[JoinAggColRef],
+    has_distinct: bool,
+) -> Result<Option<NumericAggStorage>, String> {
+    let Some(storage) = field_refs.iter().find_map(|r| r.numeric) else {
+        return Ok(None);
+    };
+
+    match agg_kind {
+        AggKind::CountStar | AggKind::Count | AggKind::CountDistinct => Ok(None),
+        AggKind::Sum | AggKind::Avg | AggKind::Min | AggKind::Max => {
+            if has_distinct {
+                return Err(format!(
+                    "{agg_kind} with DISTINCT is not supported on NUMERIC columns"
+                ));
+            }
+            if matches!(storage, NumericAggStorage::LegacyF64) {
+                return Err(format!(
+                    "{agg_kind} on a NUMERIC column stored as F64 (pre-v0.22 index) is not \
+                     supported; REINDEX to enable aggregate pushdown"
+                ));
+            }
+            if storage.scale().is_none() {
+                return Err(format!(
+                    "{agg_kind} on an unbounded NUMERIC column is not supported; declare a \
+                     precision and scale to enable aggregate pushdown"
+                ));
+            }
+            Ok(Some(storage))
+        }
+        _ => Err(format!("{agg_kind} is not supported on NUMERIC columns")),
+    }
+}
+
+/// NUMERIC storage info for a resolved field; `None` for non-NUMERIC fields.
+/// Legacy indexes that stored NUMERIC as F64 also return `None`: their column
+/// data really is `Float64` and the native aggregates apply.
+fn numeric_storage(source: &JoinAggSource, field_name: &str) -> Option<NumericAggStorage> {
+    let index = source.bm25_index.as_ref()?;
+    let schema = index.schema().ok()?;
+    match schema.get_field_type(field_name)? {
+        SearchFieldType::Numeric64(_, scale) => Some(NumericAggStorage::Numeric64 { scale }),
+        SearchFieldType::NumericBytes(_, scale) => Some(NumericAggStorage::NumericBytes { scale }),
+        SearchFieldType::F64(oid) if oid == pg_sys::NUMERICOID => {
+            Some(NumericAggStorage::LegacyF64)
+        }
+        _ => None,
+    }
 }
 
 /// Aggregate-argument column reference. Same identity model as
@@ -121,6 +231,9 @@ pub struct JoinAggColRef {
     pub plan_position: usize,
     pub attno: pg_sys::AttrNumber,
     pub field_name: String,
+    /// Set when the referenced field is NUMERIC.
+    #[serde(default)]
+    pub numeric: Option<NumericAggStorage>,
 }
 
 /// Aggregate ORDER BY entry (e.g. `STRING_AGG(col, ',' ORDER BY col2)`).
@@ -164,6 +277,10 @@ pub struct JoinAggregateEntry {
     /// `None` when the aggregate has no FILTER.
     #[serde(default)]
     pub filter: Option<FilterExpr>,
+    /// Set for SUM/AVG/MIN/MAX over a NUMERIC field. COUNT works on the
+    /// stored representation and leaves this `None`.
+    #[serde(default)]
+    pub numeric: Option<NumericAggStorage>,
 }
 
 /// The complete aggregate target list for a join aggregate query. Each
@@ -289,11 +406,14 @@ pub unsafe fn extract_aggregate_targetlist(
                     )
                 })?;
 
+            let numeric_scale = numeric_group_scale(source, &field_name)?;
+
             group_columns.push(JoinGroupColumn {
                 plan_position,
                 attno,
                 field_name,
                 output_index: idx,
+                numeric_scale,
             });
         } else if let Some((var, field_name)) = find_one_var_and_fieldname(
             VarContext::from_planner(args.root),
@@ -318,11 +438,17 @@ pub unsafe fn extract_aggregate_targetlist(
                     )
                 })?;
 
+            let numeric_scale = match find_source_by_rti(sources, rti, "GROUP BY expression") {
+                Ok(source) => numeric_group_scale(source, &field_name)?,
+                Err(_) => None,
+            };
+
             group_columns.push(JoinGroupColumn {
                 plan_position,
                 attno,
                 field_name,
                 output_index: idx,
+                numeric_scale,
             });
         } else if let Some(aggref) = find_one_aggref(expr as *mut pg_sys::Node) {
             // Aggregate function (possibly wrapped in COALESCE, etc.)
@@ -382,6 +508,8 @@ pub unsafe fn extract_aggregate_targetlist(
             // not a guessed type - this avoids segfaults from type mismatches
             let result_type_oid = (*aggref).aggtype;
 
+            let numeric = validate_numeric_aggregate(&agg_kind, &field_refs, has_distinct)?;
+
             aggregates.push(JoinAggregateEntry {
                 func_oid: aggfnoid,
                 agg_kind,
@@ -391,6 +519,7 @@ pub unsafe fn extract_aggregate_targetlist(
                 filter,
                 distinct: has_distinct,
                 order_by,
+                numeric,
             });
         } else {
             return Err(format!(
@@ -498,10 +627,13 @@ unsafe fn extract_aggref_field_refs(
                 )
             })?;
 
+        let numeric = numeric_storage(source, &field_name);
+
         refs.push(JoinAggColRef {
             plan_position,
             attno,
             field_name,
+            numeric,
         });
     }
 
@@ -594,7 +726,7 @@ unsafe fn extract_aggref_order_by(
 /// Unwrap an expression to a bare `Var`, allowing only `RelabelType` wrappers.
 /// Returns `None` for anything more complex (COALESCE, FuncExpr, etc.)
 /// so the caller can reject and fall back to native Postgres.
-unsafe fn unwrap_to_var(mut node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
+pub(super) unsafe fn unwrap_to_var(mut node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
     while !node.is_null() {
         match (*node).type_ {
             pg_sys::NodeTag::T_Var => return Some(node as *mut pg_sys::Var),

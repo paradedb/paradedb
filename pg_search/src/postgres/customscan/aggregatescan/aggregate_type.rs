@@ -225,8 +225,10 @@ impl AggregateType {
         let first_arg = args.get_ptr(0).ok_or("aggregate missing argument")?;
         let (field, missing) = parse_aggregate_field(first_arg, heaprelid)?;
 
-        // Check if aggregate pushdown is supported for this field type
-        // NUMERIC fields are not supported - they fall back to PostgreSQL
+        // Check if aggregate pushdown is supported for this field type on the
+        // Tantivy backend. NUMERIC fields are not supported here; standard SQL
+        // aggregates over them route to the DataFusion backend at path
+        // creation time and never reach this classifier.
         if !bm25_index.field_supports_aggregate(&field).unwrap_or(false) {
             return Err(format!(
                 "field '{}' does not support aggregate pushdown",

@@ -42,6 +42,7 @@ use tantivy::index::SegmentId;
 use crate::api::{HashMap, HashSet};
 use crate::index::fast_fields_helper::FFHelper;
 use crate::postgres::ParallelScanState;
+use crate::postgres::customscan::datafusion::numeric_agg;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
@@ -191,6 +192,30 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
         try_encode_pg_search_udf(node, buf)?;
         Ok(())
     }
+
+    fn try_decode_udaf(
+        &self,
+        name: &str,
+        _buf: &[u8],
+    ) -> Result<Arc<datafusion::logical_expr::AggregateUDF>> {
+        // The numeric aggregate UDAFs are stateless singletons resolved by
+        // name; they are not in any session registry, so a dispatched plan
+        // that references them must decode through here.
+        numeric_agg::udaf_by_name(name).ok_or_else(|| {
+            DataFusionError::NotImplemented(format!(
+                "UDAF '{name}' deserialization not implemented"
+            ))
+        })
+    }
+
+    fn try_encode_udaf(
+        &self,
+        _node: &datafusion::logical_expr::AggregateUDF,
+        _buf: &mut Vec<u8>,
+    ) -> Result<()> {
+        // Name-only encoding; decode resolves by name.
+        Ok(())
+    }
 }
 
 /// Per-scan runtime handles pulled from a decoded subtree, used to re-wire the deferred execs.
@@ -293,6 +318,24 @@ impl PhysicalExtensionCodec for DistributedCodecHostingPgSearchUdfs {
         if is_pg_search_udf(node.name()) {
             return Err(DataFusionError::NotImplemented(format!(
                 "UDF '{}' is encoded by the pg_search codec",
+                node.name()
+            )));
+        }
+        Ok(())
+    }
+
+    fn try_encode_udaf(
+        &self,
+        node: &datafusion::logical_expr::AggregateUDF,
+        _buf: &mut Vec<u8>,
+    ) -> Result<()> {
+        // Same shadowing hazard as `try_encode_udf`: accepting the encode here
+        // would record this codec's index, and its decode has no resolver for
+        // the numeric aggregate UDAFs. Decline ours so composition falls
+        // through to `PgSearchPhysicalExtensionCodec`.
+        if numeric_agg::udaf_by_name(node.name()).is_some() {
+            return Err(DataFusionError::NotImplemented(format!(
+                "UDAF '{}' is encoded by the pg_search codec",
                 node.name()
             )));
         }

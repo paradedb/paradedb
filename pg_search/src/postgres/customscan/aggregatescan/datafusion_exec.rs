@@ -27,9 +27,12 @@
 use super::join_targetlist::AggOrderByEntry;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
-    AggKind, JoinAggregateEntry, JoinAggregateTargetList,
+    AggKind, JoinAggregateEntry, JoinAggregateTargetList, NumericAggStorage,
 };
 use crate::postgres::customscan::aggregatescan::privdat::{CompareOp, DataFusionTopK, FilterExpr};
+use crate::postgres::customscan::datafusion::numeric_agg::{
+    numeric_bytes_avg_udaf, numeric_bytes_sum_udaf, numeric64_avg_udaf, numeric64_sum_udaf,
+};
 use crate::postgres::customscan::datafusion::translator::{
     ColumnMapper, PredicateTranslator, apply_join_level_filter, build_join_df, make_col,
     make_source_col,
@@ -145,8 +148,14 @@ pub async fn build_join_aggregate_plan(
                         None,   // null_treatment
                     )))
                 }
-                AggKind::Sum => agg_field_col(agg, plan).map(sum),
-                AggKind::Avg => agg_field_col(agg, plan).map(avg),
+                AggKind::Sum => agg_field_col(agg, plan).map(|col| match &agg.numeric {
+                    None => sum(col),
+                    Some(storage) => numeric_agg_expr(storage, col, false),
+                }),
+                AggKind::Avg => agg_field_col(agg, plan).map(|col| match &agg.numeric {
+                    None => avg(col),
+                    Some(storage) => numeric_agg_expr(storage, col, true),
+                }),
                 AggKind::Min => agg_field_col(agg, plan).map(min),
                 AggKind::Max => agg_field_col(agg, plan).map(max),
                 AggKind::StddevSamp => agg_field_col(agg, plan).map(stddev),
@@ -671,6 +680,41 @@ fn agg_field_col(agg: &JoinAggregateEntry, plan: &RelNode) -> Result<Expr> {
         DataFusionError::Internal("non-COUNT(*) aggregate must have a field reference".to_string())
     })?;
     Ok(make_plan_position_col(plan, r.plan_position, &r.field_name))
+}
+
+/// SUM/AVG expression for a NUMERIC column. The scaled-Int64 UDAFs take the
+/// scale as a plan literal so it survives plan serialization for parallel and
+/// MPP execution; decimal-bytes values are self-describing.
+fn numeric_agg_expr(storage: &NumericAggStorage, col: Expr, is_avg: bool) -> Expr {
+    let (udaf, args) = match storage {
+        NumericAggStorage::Numeric64 { scale } => {
+            let udaf = if is_avg {
+                numeric64_avg_udaf()
+            } else {
+                numeric64_sum_udaf()
+            };
+            (udaf, vec![col, lit(*scale as i32)])
+        }
+        NumericAggStorage::NumericBytes { .. } => {
+            let udaf = if is_avg {
+                numeric_bytes_avg_udaf()
+            } else {
+                numeric_bytes_sum_udaf()
+            };
+            (udaf, vec![col])
+        }
+        NumericAggStorage::LegacyF64 => {
+            unreachable!("legacy F64 numeric aggregates decline at plan time")
+        }
+    };
+    Expr::AggregateFunction(AggregateFunction::new_udf(
+        udaf,
+        args,
+        false,  // distinct
+        None,   // filter
+        vec![], // order_by
+        None,   // null_treatment
+    ))
 }
 
 /// Convert aggregate ORDER BY entries to DataFusion `Sort` expressions.

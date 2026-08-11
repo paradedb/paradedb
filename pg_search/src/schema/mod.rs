@@ -519,11 +519,13 @@ impl SearchIndexSchema {
         }
     }
 
-    /// Check if a field supports aggregate pushdown.
+    /// Check if a field supports aggregate pushdown on the Tantivy backend.
     ///
-    /// Returns `false` for NUMERIC fields (which don't support aggregate pushdown
-    /// due to NaN/Infinity handling), `true` for all other field types.
-    /// Returns `false` if the field doesn't exist.
+    /// Returns `false` for NUMERIC fields: Tantivy aggregations compute in f64
+    /// (losing precision and mishandling NaN/Infinity sentinels) and cannot read
+    /// the decimal-bytes storage at all. Standard SQL aggregates over NUMERIC
+    /// route to the DataFusion backend instead; `pdb.agg()` has no such backend
+    /// and declines. Returns `false` if the field doesn't exist.
     pub fn field_supports_aggregate(&self, name: impl AsRef<str>) -> bool {
         self.search_field(name)
             .is_some_and(|f| !f.field_type().is_numeric())
@@ -759,8 +761,9 @@ impl SearchField {
         self.field_entry.field_type().is_str()
     }
 
-    /// Returns true if this field uses NumericBytes storage (hex-encoded string).
-    /// NumericBytes fields are stored as text but should support direct equality/range pushdown.
+    /// Returns true if this field uses NumericBytes storage (decimal-bytes column).
+    /// NumericBytes fields support direct equality/range pushdown because the
+    /// encoding is lexicographically order-preserving.
     pub fn is_numeric_bytes(&self) -> bool {
         matches!(self.field_type, SearchFieldType::NumericBytes(..))
     }

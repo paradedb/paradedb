@@ -200,21 +200,13 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
     ) -> Result<Arc<datafusion::logical_expr::AggregateUDF>> {
         // The numeric aggregate UDAFs are stateless singletons resolved by
         // name; they are not in any session registry, so a dispatched plan
-        // that references them must decode through here.
+        // that references them must decode through here. The encode side is
+        // the trait default (accept, write nothing): name-only travel.
         numeric_agg::udaf_by_name(name).ok_or_else(|| {
             DataFusionError::NotImplemented(format!(
                 "UDAF '{name}' deserialization not implemented"
             ))
         })
-    }
-
-    fn try_encode_udaf(
-        &self,
-        _node: &datafusion::logical_expr::AggregateUDF,
-        _buf: &mut Vec<u8>,
-    ) -> Result<()> {
-        // Name-only encoding; decode resolves by name.
-        Ok(())
     }
 }
 

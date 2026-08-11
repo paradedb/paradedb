@@ -186,10 +186,15 @@ jobs:
       - name: Verify PostgreSQL accepts queries and extensions are available
         if: steps.release_gate.outputs.skip != 'true'
         run: |
-          docker exec paradedb psql -U myuser -d mydatabase -c "SELECT 1;"
-          docker exec paradedb psql -U myuser -d mydatabase -c "CREATE EXTENSION IF NOT EXISTS vector;"
-          docker exec paradedb psql -U myuser -d mydatabase -c "CREATE EXTENSION IF NOT EXISTS pg_search;"
-          docker exec paradedb psql -U myuser -d mydatabase -c "SELECT extname, extversion FROM pg_extension ORDER BY extname;"
+          set -euo pipefail
+          # `-v ON_ERROR_STOP=1` is what makes this step an actual gate: psql exits 0
+          # on a SQL error in `-c`, so without it a failed `CREATE EXTENSION` would
+          # print the error and still pass. The log scan above runs before these
+          # commands, so it does not cover them either.
+          docker exec paradedb psql -v ON_ERROR_STOP=1 -U myuser -d mydatabase -c "SELECT 1;"
+          docker exec paradedb psql -v ON_ERROR_STOP=1 -U myuser -d mydatabase -c "CREATE EXTENSION IF NOT EXISTS vector;"
+          docker exec paradedb psql -v ON_ERROR_STOP=1 -U myuser -d mydatabase -c "CREATE EXTENSION IF NOT EXISTS pg_search;"
+          docker exec paradedb psql -v ON_ERROR_STOP=1 -U myuser -d mydatabase -c "SELECT extname, extversion FROM pg_extension ORDER BY extname;"
 
       - name: Verify barman-cloud is functional
         if: steps.release_gate.outputs.skip != 'true' && matrix.flavor == 'paradedb'

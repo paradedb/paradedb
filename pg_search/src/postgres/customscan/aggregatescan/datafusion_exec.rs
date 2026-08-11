@@ -703,9 +703,6 @@ fn numeric_agg_expr(storage: &NumericAggStorage, col: Expr, is_avg: bool) -> Exp
             };
             (udaf, vec![col])
         }
-        NumericAggStorage::LegacyF64 => {
-            unreachable!("legacy F64 numeric aggregates decline at plan time")
-        }
     };
     Expr::AggregateFunction(AggregateFunction::new_udf(
         udaf,

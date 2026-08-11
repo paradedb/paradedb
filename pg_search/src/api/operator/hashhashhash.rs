@@ -26,7 +26,8 @@ use crate::api::builder_fns::{phrase_array, phrase_string};
 use crate::api::operator::boost::BoostType;
 use crate::api::operator::slop::SlopType;
 use crate::api::operator::{
-    RHSValue, ReturnedNodePointer, build_text_funcexpr, classify_pdb_query_input, request_simplify,
+    RHSValue, ReturnedNodePointer, build_pdb_query_funcexpr, build_text_funcexpr,
+    classify_pdb_query_input, get_expr_result_type, is_pdb_query_castable, request_simplify,
     validate_lhs_type_as_text_compatible,
 };
 use crate::query::SearchQueryInput;
@@ -129,11 +130,23 @@ fn search_with_phrase_support(arg: Internal) -> ReturnedNodePointer {
         }, |field, lhs, rhs| {
             validate_lhs_type_as_text_compatible(lhs, "###");
             let field = field.expect("The left hand side of the `###(field, TEXT)` operator must be a field.");
-            build_text_funcexpr(
-                field, rhs, "###",
-                c"paradedb.phrase(paradedb.fieldname, text)",
-                c"paradedb.phrase_array(paradedb.fieldname, text[])",
-            )
+            // Under a generic prepared plan, a `Param` RHS is not folded to a `Const`, so the
+            // RHS type is still `pdb.query` / `pdb.fuzzy` / etc. and the text-only
+            // `build_text_funcexpr` path rejects it. Route those through the runtime dispatch
+            // that mirrors the const path. See #5779; matches the fix for `===`.
+            let rhs_type = get_expr_result_type(rhs);
+            if is_pdb_query_castable(rhs_type) {
+                build_pdb_query_funcexpr(
+                    field, rhs, rhs_type,
+                    c"paradedb.phrase_search_query_input(paradedb.fieldname, pdb.query)",
+                )
+            } else {
+                build_text_funcexpr(
+                    field, rhs, "###",
+                    c"paradedb.phrase(paradedb.fieldname, text)",
+                    c"paradedb.phrase_array(paradedb.fieldname, text[])",
+                )
+            }
         })
             .unwrap_or(ReturnedNodePointer(None))
     }

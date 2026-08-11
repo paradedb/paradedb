@@ -5047,6 +5047,7 @@ dependencies = [
  "arrow-select 59.1.0",
  "async-stream",
  "async-trait",
+ "bigdecimal",
  "bincode 2.0.1",
  "bitpacking",
  "bytemuck",

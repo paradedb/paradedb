@@ -246,6 +246,12 @@ impl CustomScan for AggregateScan {
                         // ORDER BY aggregate + LIMIT: route to DataFusion which has
                         // no bucket cap and provides native TopK via SortExec(fetch=K).
                         || build::has_aggregate_orderby_with_limit(builder.args())
+                        // NUMERIC aggregates and NUMERIC group keys only work on
+                        // the DataFusion backend: Tantivy aggregations compute in
+                        // f64 and cannot read the decimal-bytes storage. pdb.agg()
+                        // stays on the Tantivy path, which rejects NUMERIC fields.
+                        || (!has_paradedb_agg
+                            && build::has_numeric_aggregate_or_group(builder.args()))
                 };
                 if use_datafusion {
                     if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg {
@@ -1273,21 +1279,32 @@ impl AggregateScan {
         let having_filter = unsafe {
             let parse = builder.args().root().parse;
             if !parse.is_null() && !(*parse).havingQual.is_null() {
-                Some(
-                    privdat::FilterExpr::from_pg_node(
-                        (*parse).havingQual,
-                        &datafusion_build::FilterExprBuildContext::Having {
-                            targetlist: &targetlist,
-                            plan: &plan,
-                            outer_root_id,
-                        },
-                    )
-                    .ok_or_else(|| {
-                        warn(AggregateDeclineReason::Other(
-                            "HAVING clause cannot be translated for aggregate-on-join".into(),
-                        ))
-                    })?,
+                let having = privdat::FilterExpr::from_pg_node(
+                    (*parse).havingQual,
+                    &datafusion_build::FilterExprBuildContext::Having {
+                        targetlist: &targetlist,
+                        plan: &plan,
+                        outer_root_id,
+                    },
                 )
+                .ok_or_else(|| {
+                    warn(AggregateDeclineReason::Other(
+                        "HAVING clause cannot be translated for aggregate-on-join".into(),
+                    ))
+                })?;
+                // HAVING literals compare as f64, but numeric SUM/AVG results
+                // are decimal-bytes blobs; the comparison would be garbage.
+                if having.any_agg_ref(&|idx| {
+                    targetlist
+                        .aggregates
+                        .get(idx)
+                        .is_some_and(|a| a.numeric.is_some())
+                }) {
+                    return Err(warn(AggregateDeclineReason::Other(
+                        "HAVING on a NUMERIC aggregate is not supported".into(),
+                    )));
+                }
+                Some(having)
             } else {
                 None
             }
@@ -2018,6 +2035,15 @@ unsafe fn detect_join_aggregate_topk(
         if targetlist::find_single_aggref_in_expr(sort_expr)
             .is_none_or(|a| a as *mut pg_sys::Node != sort_expr)
         {
+            return None;
+        }
+        // A numeric AVG evaluates to a [count, sum] blob whose byte order
+        // does not follow the quotient, so DataFusion cannot TopK on it.
+        // Skipping TopK is correct: all groups are returned and Postgres
+        // applies its own Sort + Limit above the scan. Numeric SUM/MIN/MAX
+        // sort fine: decimal-bytes ordering matches numeric ordering.
+        let agg = &targetlist.aggregates[agg_idx];
+        if matches!(agg.agg_kind, join_targetlist::AggKind::Avg) && agg.numeric.is_some() {
             return None;
         }
         return Some(privdat::DataFusionTopK {

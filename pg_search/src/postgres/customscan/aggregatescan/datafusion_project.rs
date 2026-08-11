@@ -23,9 +23,12 @@
 //! - The aggregate result schema directly maps to the SQL output
 //! - Type conversion is limited to aggregate-relevant types
 
-use super::join_targetlist::{AggKind, JoinAggregateTargetList};
-use arrow_array::{Array, RecordBatch};
-use pgrx::{IntoDatum, pg_sys};
+use super::join_targetlist::{AggKind, JoinAggregateEntry, JoinAggregateTargetList};
+use crate::postgres::customscan::datafusion::numeric_agg::decode_avg_blob;
+use arrow_array::cast::AsArray;
+use arrow_array::{Array, ArrayRef, RecordBatch};
+use decimal_bytes::Decimal;
+use pgrx::{AnyNumeric, IntoDatum, pg_sys};
 
 /// Project a single row from an aggregate `RecordBatch` into a Postgres `TupleTableSlot`.
 ///
@@ -79,7 +82,7 @@ pub unsafe fn project_aggregate_row_to_slot(
                 col.as_ref(),
                 row_idx,
                 pgrx::PgOid::from(expected_type),
-                None,
+                gc.numeric_scale,
             ) {
                 Ok(Some(datum)) => {
                     datums[pg_idx] = datum;
@@ -124,12 +127,26 @@ pub unsafe fn project_aggregate_row_to_slot(
                     datums[pg_idx] = pg_sys::Datum::null();
                 }
             }
+        } else if matches!(agg.agg_kind, AggKind::Avg) && agg.numeric.is_some() {
+            match numeric_avg_to_datum(col, row_idx) {
+                Ok(Some(datum)) => {
+                    datums[pg_idx] = datum;
+                    isnull[pg_idx] = false;
+                }
+                Ok(None) => {
+                    isnull[pg_idx] = true;
+                    datums[pg_idx] = pg_sys::Datum::null();
+                }
+                Err(e) => {
+                    panic!("BUG: Aggregate projection failed: {}", e);
+                }
+            }
         } else {
             match crate::postgres::types_arrow::arrow_array_to_datum(
                 col.as_ref(),
                 row_idx,
                 pgrx::PgOid::from(agg.result_type_oid),
-                None,
+                numeric_display_scale(agg),
             ) {
                 Ok(Some(datum)) => {
                     datums[pg_idx] = datum;
@@ -152,4 +169,29 @@ pub unsafe fn project_aggregate_row_to_slot(
     (*slot).tts_nvalid = natts as i16;
 
     slot
+}
+
+/// Display scale for a numeric SUM/MIN/MAX result. AVG never reaches the
+/// generic conversion (it is handled by [`numeric_avg_to_datum`]).
+fn numeric_display_scale(agg: &JoinAggregateEntry) -> Option<i16> {
+    agg.numeric.and_then(|n| n.scale())
+}
+
+/// Convert a numeric AVG blob (`[count u64 BE, decimal-bytes sum]`) into a
+/// NUMERIC datum. The division runs through `AnyNumeric` so the result scale
+/// follows Postgres' numeric division rules, matching a non-pushed-down AVG.
+fn numeric_avg_to_datum(col: &ArrayRef, row_idx: usize) -> Result<Option<pg_sys::Datum>, String> {
+    let blob = col.as_binary::<i32>().value(row_idx);
+    let (count, sum_bytes) = decode_avg_blob(blob).map_err(|e| e.to_string())?;
+    if count == 0 {
+        return Ok(None);
+    }
+    let sum = Decimal::from_bytes(sum_bytes)
+        .map_err(|e| format!("failed to decode numeric AVG sum: {e:?}"))?;
+    let sum: AnyNumeric = sum
+        .to_string()
+        .parse()
+        .map_err(|e| format!("failed to parse numeric AVG sum: {e}"))?;
+    let count = AnyNumeric::from(count as i64);
+    Ok((sum / count).into_datum())
 }

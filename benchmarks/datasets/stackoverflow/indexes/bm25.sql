@@ -19,6 +19,8 @@ USING bm25 (
     view_count,
     answer_count,
     comment_count,
+    amount15,
+    amount78,
     (owner_display_name::pdb.unicode_words('columnar=true')),
     owner_user_id
 ) WITH (

@@ -22,8 +22,8 @@ use rstest::*;
 use serde_json::Value;
 use sqlx::PgConnection;
 use tests::fixtures::*;
-use time::macros::date;
 use time::Date;
+use time::macros::date;
 
 fn assert_uses_custom_scan(conn: &mut PgConnection, enabled: bool, query: impl AsRef<str>) {
     let (plan,) = format!(" EXPLAIN (FORMAT JSON) {}", query.as_ref()).fetch_one::<(Value,)>(conn);
@@ -410,5 +410,49 @@ fn test_group_by_date_multi_column_falls_back(mut conn: PgConnection) {
          FROM date_pushdown_multi \
          WHERE id @@@ pdb.all() \
          GROUP BY region, DATE(created_at)",
+    );
+}
+
+#[rstest]
+fn test_group_by_date_of_cast_falls_back(mut conn: PgConnection) {
+    // DATE(text_col::timestamp) resolves to date(timestamp) and, because the
+    // field resolver looks through casts, to the underlying *text* column —
+    // which previously pushed down as a histogram over a string field
+
+    r#"
+      CREATE TABLE date_pushdown_cast (
+          id SERIAL PRIMARY KEY,
+          timestamp_text TEXT
+      );
+      INSERT INTO date_pushdown_cast (timestamp_text) VALUES
+          ('2024-01-01 08:00:00'),
+          ('2024-01-01 20:00:00'),
+          ('2024-01-02 09:00:00'),
+          (NULL);
+      CREATE INDEX date_pushdown_cast_idx ON date_pushdown_cast
+          USING paradedb (id, timestamp_text)
+          WITH (key_field = 'id', text_fields = '{"timestamp_text": {"fast": true}}');
+      "#
+    .execute(&mut conn);
+
+    "SET paradedb.enable_aggregate_custom_scan TO on;".execute(&mut conn);
+
+    let query = "SELECT DATE(timestamp_text::timestamp) AS day, COUNT(*) AS cnt \
+                   FROM date_pushdown_cast \
+                   WHERE id @@@ pdb.all() \
+                   GROUP BY DATE(timestamp_text::timestamp)";
+
+    assert_uses_custom_scan(&mut conn, false, query);
+
+    let rows = format!("{query} ORDER BY day NULLS LAST").fetch::<(Option<Date>, i64)>(&mut conn);
+
+    assert_eq!(
+        rows,
+        vec![
+            (Some(date!(2024 - 01 - 01)), 2),
+            (Some(date!(2024 - 01 - 02)), 1),
+            (None, 1),
+        ],
+        "fallback must compute DATE() over the cast correctly"
     );
 }

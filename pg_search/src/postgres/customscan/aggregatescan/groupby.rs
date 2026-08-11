@@ -266,6 +266,13 @@ pub(crate) unsafe fn extract_date_func_field(
 
     let (var, field_name) = find_one_var_and_fieldname(var_context, inner_arg)?;
 
+    // The resolver looks through coercion wrappers, so `DATE(text_col::timestamp)`
+    // resolves here with the *text* column as the Var — and text-to-timestamp
+    // parsing depends on the session DateStyle, which the plan cannot see
+    if (*var).vartype != pg_sys::TIMESTAMPOID {
+        return None;
+    }
+
     let (heaprelid, attno, _) = find_var_relation(var, root);
     if heaprelid == pg_sys::InvalidOid {
         return None;

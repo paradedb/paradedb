@@ -141,10 +141,6 @@ pub enum NumericAggStorage {
     /// NUMERIC(p > 18): decimal-bytes `BinaryView` fast field. The scale is
     /// `None` for columns declared without a typmod.
     NumericBytes { scale: Option<i16> },
-    /// Pre-v0.22 index that stored NUMERIC as F64. Aggregating the lossy
-    /// f64 column would change results vs Postgres, so SUM/AVG/MIN/MAX
-    /// decline and fall back.
-    LegacyF64,
 }
 
 impl NumericAggStorage {
@@ -152,7 +148,6 @@ impl NumericAggStorage {
         match self {
             NumericAggStorage::Numeric64 { scale } => Some(*scale),
             NumericAggStorage::NumericBytes { scale } => *scale,
-            NumericAggStorage::LegacyF64 => None,
         }
     }
 }
@@ -163,8 +158,7 @@ impl NumericAggStorage {
 /// NUMERIC drops per-value display scale at index time, so it declines.
 fn numeric_group_scale(source: &JoinAggSource, field_name: &str) -> Result<Option<i16>, String> {
     match numeric_storage(source, field_name) {
-        // Legacy F64 group keys keep their existing Float64 handling.
-        None | Some(NumericAggStorage::LegacyF64) => Ok(None),
+        None => Ok(None),
         Some(storage) => match storage.scale() {
             Some(scale) => Ok(Some(scale)),
             None => Err(format!(
@@ -201,12 +195,6 @@ fn validate_numeric_aggregate(
                     "{agg_kind} with DISTINCT is not supported on NUMERIC columns"
                 ));
             }
-            if matches!(storage, NumericAggStorage::LegacyF64) {
-                return Err(format!(
-                    "{agg_kind} on a NUMERIC column stored as F64 (pre-v0.22 index) is not \
-                     supported; REINDEX to enable aggregate pushdown"
-                ));
-            }
             if storage.scale().is_none() {
                 return Err(format!(
                     "{agg_kind} on an unbounded NUMERIC column is not supported; declare a \
@@ -220,17 +208,14 @@ fn validate_numeric_aggregate(
 }
 
 /// NUMERIC storage info for a resolved field; `None` for non-NUMERIC fields.
-/// Legacy indexes that stored NUMERIC as F64 return [`NumericAggStorage::LegacyF64`]
-/// so [`validate_numeric_aggregate`] can decline with a REINDEX hint.
+/// Legacy indexes that stored NUMERIC as F64 also return `None`: their column
+/// data really is `Float64` and the native aggregates apply.
 fn numeric_storage(source: &JoinAggSource, field_name: &str) -> Option<NumericAggStorage> {
     let index = source.bm25_index.as_ref()?;
     let schema = index.schema().ok()?;
     match schema.get_field_type(field_name)? {
         SearchFieldType::Numeric64(_, scale) => Some(NumericAggStorage::Numeric64 { scale }),
         SearchFieldType::NumericBytes(_, scale) => Some(NumericAggStorage::NumericBytes { scale }),
-        SearchFieldType::F64(oid) if oid == pg_sys::NUMERICOID => {
-            Some(NumericAggStorage::LegacyF64)
-        }
         _ => None,
     }
 }

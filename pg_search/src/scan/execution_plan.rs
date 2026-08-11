@@ -273,7 +273,7 @@ impl PgSearchScanPlan {
         // If state is None, execute() will return an EmptyStream for this single partition.
         let range_boundaries = range_sample.as_ref().map(|s| s.build(partition_count));
         let partitioning =
-            declared_partitioning(&schema, partition_count, range_boundaries.as_ref());
+            declared_partitioning(&schema, partition_count, range_boundaries.as_ref(), None);
         let eq_properties = build_equivalence_properties(schema, sort_order);
 
         let properties = Arc::new(PlanProperties::new(
@@ -391,6 +391,7 @@ impl PgSearchScanPlan {
             self.properties.eq_properties.schema(),
             target_partitions,
             range_boundaries,
+            self.assigned_partition,
         );
         let new_properties = Arc::new(PlanProperties::new(
             self.properties.eq_properties.clone(),
@@ -408,6 +409,18 @@ impl PgSearchScanPlan {
         properties: Arc<PlanProperties>,
         dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
     ) -> Arc<Self> {
+        let properties = if self.assigned_partition.is_some()
+            && properties.output_partitioning().partition_count() != 1
+        {
+            Arc::new(PlanProperties::new(
+                properties.eq_properties.clone(),
+                Partitioning::UnknownPartitioning(1),
+                properties.emission_type,
+                properties.boundedness,
+            ))
+        } else {
+            properties
+        };
         Arc::new(Self {
             state: Mutex::new(state),
             planner_estimated_rows: self.planner_estimated_rows,
@@ -430,6 +443,24 @@ impl PgSearchScanPlan {
             range_sample: self.range_sample.clone(),
             assigned_partition: self.assigned_partition,
         })
+    }
+
+    /// Returns a variant of this plan configured to execute assigned partition `assigned`.
+    ///
+    /// The variant declares `Partitioning::UnknownPartitioning(1)` so DataFusion treats
+    /// it as a single-partition plan, while `assigned_partition` records which partition's
+    /// workload (range bounds or parallel state assignment) this variant executes.
+    pub fn with_assigned_partition(self: &Arc<Self>, assigned: usize) -> Arc<Self> {
+        let mut variant = self.as_ref().clone();
+        variant.assigned_partition = Some(assigned);
+        let new_properties = Arc::new(PlanProperties::new(
+            variant.properties.eq_properties.clone(),
+            Partitioning::UnknownPartitioning(1),
+            variant.properties.emission_type,
+            variant.properties.boundedness,
+        ));
+        variant.properties = new_properties;
+        Arc::new(variant)
     }
 
     /// Late-bind the shared `ParallelScanState` into this scan's execution state (#5667).
@@ -658,9 +689,14 @@ impl PgSearchScanPlan {
             parallel_state,
             descriptor.range_sample,
         );
-        plan.assigned_partition = descriptor.assigned_partition;
         plan.dynamic_filters = dynamic_filters;
-        Ok(Arc::new(plan))
+        let plan_arc = Arc::new(plan);
+        let final_plan = if let Some(assigned) = descriptor.assigned_partition {
+            plan_arc.with_assigned_partition(assigned)
+        } else {
+            plan_arc
+        };
+        Ok(final_plan)
     }
 }
 
@@ -704,7 +740,11 @@ fn declared_partitioning(
     schema: &SchemaRef,
     partition_count: usize,
     range_boundaries: Option<&RangePartitioning>,
+    assigned_partition: Option<usize>,
 ) -> Partitioning {
+    if assigned_partition.is_some() {
+        return Partitioning::UnknownPartitioning(1);
+    }
     if partition_count > 1
         && let Some(boundaries) = range_boundaries
         && boundaries.split_points.len() + 1 == partition_count
@@ -770,10 +810,15 @@ impl DisplayAs for PgSearchScanPlan {
         write!(f, "PgSearchScan: segments={}", self.segment_count)?;
         if let Some(range_sample) = &self.range_sample {
             if let Some(assigned) = self.assigned_partition {
-                let partitioning =
-                    range_sample.build(self.properties.output_partitioning().partition_count());
+                let state_guard = self.state.lock().ok();
+                let partitioning = match state_guard.as_deref() {
+                    Some(ExecutionState::RangePartitioned {
+                        range_boundaries, ..
+                    }) => range_boundaries.clone(),
+                    _ => range_sample.build(assigned + 1),
+                };
 
-                let lower = if assigned > 0 {
+                let lower = if assigned > 0 && assigned - 1 < partitioning.split_points.len() {
                     let val = &partitioning.split_points[assigned - 1];
                     serde_json::to_string(val).unwrap_or_else(|_| format!("{:?}", val))
                 } else {
@@ -886,19 +931,6 @@ impl ExecutionPlan for PgSearchScanPlan {
             pgrx::error!("artificial panic to test worker error propagation");
         }
 
-        // Under DataFusion Distributed execution, upstream stage operators (such as `RepartitionExec`)
-        // call `execute(p)` for all partition indices `p` in the stage's requested partition range.
-        // For partitions where `p != assigned`, we return an empty stream so multi-partition
-        // stage pipelines can pull and repartition data without failing.
-        if let Some(assigned) = self.assigned_partition
-            && partition != assigned
-        {
-            let schema = self.properties.eq_properties.schema().clone();
-            return Ok(Box::pin(unsafe {
-                UnsafeSendStream::new(futures::stream::empty(), schema)
-            }));
-        }
-
         let mut state_guard = self.state.lock().map_err(|e| {
             DataFusionError::Internal(format!("Failed to lock PgSearchScanPlan state: {e}"))
         })?;
@@ -911,6 +943,7 @@ impl ExecutionPlan for PgSearchScanPlan {
             )));
         }
 
+        let target_partition = self.assigned_partition.unwrap_or(partition);
         let state = std::mem::replace(&mut *state_guard, ExecutionState::Consumed);
 
         // Handle state transitions for execution.
@@ -925,7 +958,7 @@ impl ExecutionPlan for PgSearchScanPlan {
             } => {
                 // If target_partitions scaled past the available sample boundaries, we
                 // just return empty streams for the extra partitions.
-                if partition > range_boundaries.split_points.len() {
+                if target_partition > range_boundaries.split_points.len() {
                     let schema = self.properties.eq_properties.schema().clone();
                     return Ok(Box::pin(unsafe {
                         UnsafeSendStream::new(futures::stream::empty(), schema)
@@ -936,7 +969,7 @@ impl ExecutionPlan for PgSearchScanPlan {
             }
             ExecutionState::Consumed => {
                 return Err(DataFusionError::Internal(format!(
-                    "PgSearchScanPlan partition {partition} executed more than once"
+                    "PgSearchScanPlan partition {target_partition} executed more than once"
                 )));
             }
             ExecutionState::Uninitialized => {
@@ -958,11 +991,11 @@ impl ExecutionPlan for PgSearchScanPlan {
 
         let has_dynamic_filters = !self.dynamic_filters.is_empty();
         let rows_scanned = has_dynamic_filters
-            .then(|| MetricBuilder::new(&self.metrics).counter("rows_scanned", partition));
+            .then(|| MetricBuilder::new(&self.metrics).counter("rows_scanned", target_partition));
         let rows_pruned = has_dynamic_filters
-            .then(|| MetricBuilder::new(&self.metrics).counter("rows_pruned", partition));
+            .then(|| MetricBuilder::new(&self.metrics).counter("rows_pruned", target_partition));
 
-        let baseline_metrics = BaselineMetrics::new(&self.metrics, partition);
+        let baseline_metrics = BaselineMetrics::new(&self.metrics, target_partition);
         let schema = self.properties.eq_properties.schema().clone();
         let score_column_schema_idx: Option<usize> = schema
             .column_with_name(&WhichFastField::Score.name())
@@ -974,7 +1007,7 @@ impl ExecutionPlan for PgSearchScanPlan {
         let stream_gen = async_stream::try_stream! {
             // Create a local copy of the reader if the query changed
             let mut reader = match &range_boundaries {
-                Some(rb) => reader.and_query_input(&rb.partition_bounds(partition)),
+                Some(rb) => reader.and_query_input(&rb.partition_bounds(target_partition)),
                 None => reader,
             };
 
@@ -1260,12 +1293,9 @@ pub(crate) fn pg_search_scan_scale_up_leaf_node(
 
         // Assign each task its explicit execution partition to ensure it is the only one
         // executing it.
+        let final_scan_plan_arc = Arc::new(final_scan_plan.clone());
         let variants = (0..ev.task_count)
-            .map(|i| {
-                let mut variant = final_scan_plan.clone();
-                variant.assigned_partition = Some(i);
-                Arc::new(variant) as Arc<dyn ExecutionPlan>
-            })
+            .map(|i| final_scan_plan_arc.with_assigned_partition(i) as Arc<dyn ExecutionPlan>)
             .collect::<Vec<_>>();
 
         Ok(ScaleUpLeafNodeEventResponse::new(Arc::new(

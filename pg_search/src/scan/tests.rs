@@ -869,7 +869,7 @@ mod tests {
             ],
         };
 
-        let mut plan = PgSearchScanPlan::new(
+        let plan = PgSearchScanPlan::new(
             Some(scan_state),
             build_arrow_schema(&fields),
             SearchQueryInput::All,
@@ -883,12 +883,12 @@ mod tests {
             Some(sample),
         );
         // As one of four task variants: this one owns partition 1 alone.
-        plan.assigned_partition = Some(1);
+        let plan = Arc::new(plan).with_assigned_partition(1);
 
-        assert_eq!(plan.properties().output_partitioning().partition_count(), 4);
+        assert_eq!(plan.properties().output_partitioning().partition_count(), 1);
         assert!(matches!(
             plan.properties().output_partitioning(),
-            Partitioning::Range(_)
+            Partitioning::UnknownPartitioning(1)
         ));
 
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -907,14 +907,10 @@ mod tests {
             rows
         };
 
-        // Non-assigned partitions yield empty streams without touching the state, so
-        // the assigned partition still consumes it afterwards.
-        assert_eq!(count_rows(0), 0);
-        assert_eq!(count_rows(2), 0);
-        assert_eq!(count_rows(3), 0);
-        assert_eq!(count_rows(1), 25); // ids 25..=49
+        // Executing partition 0 on this single-partition variant scans assigned partition 1 (ids 25..=49).
+        assert_eq!(count_rows(0), 25);
 
         // The state is consumed exactly once.
-        assert!(plan.execute(1, Arc::new(TaskContext::default())).is_err());
+        assert!(plan.execute(0, Arc::new(TaskContext::default())).is_err());
     }
 }

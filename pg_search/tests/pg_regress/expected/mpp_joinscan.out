@@ -146,9 +146,9 @@ LIMIT 10;
            : ┌───── DistributedExec
            : │ ProjectionExec: expr=[title@3 as col_1, size_bytes@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            : │   SortPreservingMergeExec: [title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], fetch=10
-           : │     [Stage 1] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
+           : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
            : └──────────────────────────────────────────────────
-           :   ┌───── Stage 1 ── tasks=3, partitions=9
+           :   ┌───── Stage 1 ── tasks=3, partitions=3
            :   │ LocalLimitExec: fetch=10
            :   │   TantivyLookupExec: decode=[title]
            :   │     SegmentedTopKExec: expr=[title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], k=10, visibility_checks=[p, f]
@@ -240,9 +240,9 @@ LIMIT 10;
            : ┌───── DistributedExec
            : │ ProjectionExec: expr=[title@3 as col_1, size_bytes@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            : │   SortPreservingMergeExec: [title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], fetch=10
-           : │     [Stage 1] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
+           : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
            : └──────────────────────────────────────────────────
-           :   ┌───── Stage 1 ── tasks=3, partitions=9
+           :   ┌───── Stage 1 ── tasks=3, partitions=3
            :   │ LocalLimitExec: fetch=10
            :   │   TantivyLookupExec: decode=[title]
            :   │     SegmentedTopKExec: expr=[title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], k=10, visibility_checks=[p, f]
@@ -370,7 +370,7 @@ LIMIT 10;
            :   │         [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=4
            :   └──────────────────────────────────────────────────
            :     ┌───── Stage 1 ── tasks=4, partitions=16
-           :     │ RepartitionExec: partitioning=Hash([id@1], 16), input_partitions=4
+           :     │ RepartitionExec: partitioning=Hash([id@1], 16), input_partitions=1
            :     │   DistributedLeafExec:
            :     │     t0: PgSearchScan: segments=2, partition=id[-∞..38), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
            :     │     t1: PgSearchScan: segments=2, partition=id[38..76), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
@@ -378,7 +378,7 @@ LIMIT 10;
            :     │     t3: PgSearchScan: segments=2, partition=id[126..∞), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
            :     └──────────────────────────────────────────────────
            :     ┌───── Stage 2 ── tasks=4, partitions=16
-           :     │ RepartitionExec: partitioning=Hash([file_id@1], 16), input_partitions=4
+           :     │ RepartitionExec: partitioning=Hash([file_id@1], 16), input_partitions=1
            :     │   VisibilityFilterExec: tables=[p]
            :     │     DistributedLeafExec:
            :     │       t0: PgSearchScan: segments=2, partition=file_id[-∞..38), dynamic_filters=1, query="all"
@@ -464,7 +464,7 @@ LIMIT 5;
                  :   │     [Stage 1] => NetworkShuffleExec: output_partitions=3, input_tasks=3
                  :   └──────────────────────────────────────────────────
                  :     ┌───── Stage 1 ── tasks=3, partitions=9
-                 :     │ RepartitionExec: partitioning=Hash([title@0], 9), input_partitions=3
+                 :     │ RepartitionExec: partitioning=Hash([title@0], 9), input_partitions=1
                  :     │   AggregateExec: mode=Partial, gby=[title@0 as title], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
                  :     │     HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, size_bytes@3]
                  :     │       DistributedLeafExec:

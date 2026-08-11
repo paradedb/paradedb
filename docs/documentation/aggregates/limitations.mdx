@@ -140,5 +140,4 @@ The following shapes fall back to Postgres for aggregation:
 - `HAVING` over a `NUMERIC` aggregate
 - `SUM(DISTINCT ...)` / `AVG(DISTINCT ...)` on `NUMERIC` columns
 - `STDDEV`, `VARIANCE`, and other statistical aggregates on `NUMERIC` columns
-- Indexes built before v0.22, which store `NUMERIC` as `FLOAT8`. `REINDEX` to enable pushdown.
 - `pdb.agg()` on `NUMERIC` fields (use standard SQL aggregate functions instead)

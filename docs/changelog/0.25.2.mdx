@@ -1,0 +1,20 @@
+---
+title: 0.25.2
+noindex: true
+---
+
+## Performance Improvements 🚀
+
+- Support using MPP for joins and aggregates when fewer workers than expected are launched.
+
+## Stability Improvements 💪
+
+- Fix fieldless-`more_like_this` in the presence of vector columns.
+- Tighten access controls for typemod definitions.
+- Clean up orphaned dynamic filters during segmented Top-K.
+- Fix `pdb.fuzzy` under generic prepared plans with `===`.
+- Fix correctness of some types of subplans executed via heap filters in parallel workers.
+- Make MPP errors deterministic.
+- Fix correctness of some MPP plan shapes which did not support being scaled up.
+
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.25.2).

@@ -1,0 +1,671 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+-- ============================================================================
+-- NUMERIC AGGREGATE PUSHDOWN TESTS
+-- ============================================================================
+-- SUM/AVG/MIN/MAX/COUNT over NUMERIC columns route to the DataFusion backend
+-- of the aggregate custom scan:
+-- 1. Numeric64 (scaled I64): NUMERIC(p,s) where p <= 18
+-- 2. NumericBytes (decimal-bytes): NUMERIC(p,s) where p > 18
+-- Unbounded NUMERIC (no typmod) falls back to Postgres.
+-- ============================================================================
+SET paradedb.enable_aggregate_custom_scan TO on;
+SET max_parallel_workers_per_gather = 2;
+DROP TABLE IF EXISTS numagg CASCADE;
+CREATE TABLE numagg (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    category TEXT,
+    price NUMERIC(15, 2),
+    weight NUMERIC(38, 9),
+    amount NUMERIC(78, 0),
+    free NUMERIC
+);
+INSERT INTO numagg (description, category, price, weight, amount, free) VALUES
+    ('apple laptop', 'electronics', 1000.10, 1.500000001, 100000000000000000000000000000000000000000000000000000000000000000000000000001, 1.10),
+    ('apple phone', 'electronics', 2000.25, 2.250000002, 200000000000000000000000000000000000000000000000000000000000000000000000000002, 2.20),
+    ('banana basket', 'grocery', 10.05, 0.100000003, 33, 0.30),
+    ('cherry basket', 'grocery', 20.90, 0.200000004, 44, NULL),
+    ('empty crate', 'grocery', NULL, NULL, NULL, NULL);
+CREATE INDEX numagg_idx ON numagg USING bm25 (
+    id, description, category, price, weight, amount, free
+) WITH (key_field = 'id', text_fields = '{"description": {}, "category": {"fast": true}}');
+-- Deterministic worker selection in fallback EXPLAINs
+ANALYZE numagg;
+-- ============================================================================
+-- PART 1: Scalar aggregates, Numeric64 storage: NUMERIC(15,2)
+-- ============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT SUM(price), AVG(price), MIN(price), MAX(price), COUNT(price) FROM numagg WHERE description @@@ 'apple OR basket OR crate';
+                                                                                                               QUERY PLAN                                                                                                               
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text), pdb.agg_fn('COUNT'::text)
+   Backend: DataFusion
+   Indexes: numagg_idx (numagg)
+   Aggregates: SUM(price), AVG(price), MIN(price), MAX(price), COUNT(price)
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Final, gby=[], aggr=[numeric64_sum(numagg_0.price, 2) as agg_0, numeric64_avg(numagg_0.price, 2) as agg_1, min(numagg_0.price) as agg_2, max(numagg_0.price) as agg_3, count(numagg_0.price) as agg_4]
+     :   CoalescePartitionsExec
+     :     AggregateExec: mode=Partial, gby=[], aggr=[numeric64_sum(numagg_0.price, 2) as agg_0, numeric64_avg(numagg_0.price, 2) as agg_1, min(numagg_0.price) as agg_2, max(numagg_0.price) as agg_3, count(numagg_0.price) as agg_4]
+     :       RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
+     :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"apple OR basket OR crate","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+SELECT SUM(price), AVG(price), MIN(price), MAX(price), COUNT(price) FROM numagg WHERE description @@@ 'apple OR basket OR crate';
+   sum   |         avg          |  min  |   max   | count 
+---------+----------------------+-------+---------+-------
+ 3031.30 | 757.8250000000000000 | 10.05 | 2000.25 |     4
+(1 row)
+
+-- Cross-check against Postgres without pushdown
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT SUM(price), AVG(price), MIN(price), MAX(price), COUNT(price) FROM numagg WHERE description @@@ 'apple OR basket OR crate';
+   sum   |         avg          |  min  |   max   | count 
+---------+----------------------+-------+---------+-------
+ 3031.30 | 757.8250000000000000 | 10.05 | 2000.25 |     4
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- ============================================================================
+-- PART 2: Scalar aggregates, NumericBytes storage: NUMERIC(38,9)
+-- ============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT SUM(weight), AVG(weight), MIN(weight), MAX(weight), COUNT(weight) FROM numagg WHERE description @@@ 'apple OR basket OR crate';
+                                                                                                                  QUERY PLAN                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text), pdb.agg_fn('COUNT'::text)
+   Backend: DataFusion
+   Indexes: numagg_idx (numagg)
+   Aggregates: SUM(weight), AVG(weight), MIN(weight), MAX(weight), COUNT(weight)
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Final, gby=[], aggr=[numeric_bytes_sum(numagg_0.weight) as agg_0, numeric_bytes_avg(numagg_0.weight) as agg_1, min(numagg_0.weight) as agg_2, max(numagg_0.weight) as agg_3, count(numagg_0.weight) as agg_4]
+     :   CoalescePartitionsExec
+     :     AggregateExec: mode=Partial, gby=[], aggr=[numeric_bytes_sum(numagg_0.weight) as agg_0, numeric_bytes_avg(numagg_0.weight) as agg_1, min(numagg_0.weight) as agg_2, max(numagg_0.weight) as agg_3, count(numagg_0.weight) as agg_4]
+     :       RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
+     :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"apple OR basket OR crate","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+SELECT SUM(weight), AVG(weight), MIN(weight), MAX(weight), COUNT(weight) FROM numagg WHERE description @@@ 'apple OR basket OR crate';
+     sum     |          avg           |     min     |     max     | count 
+-------------+------------------------+-------------+-------------+-------
+ 4.050000010 | 1.01250000250000000000 | 0.100000003 | 2.250000002 |     4
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT SUM(weight), AVG(weight), MIN(weight), MAX(weight), COUNT(weight) FROM numagg WHERE description @@@ 'apple OR basket OR crate';
+     sum     |          avg           |     min     |     max     | count 
+-------------+------------------------+-------------+-------------+-------
+ 4.050000010 | 1.01250000250000000000 | 0.100000003 | 2.250000002 |     4
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- ============================================================================
+-- PART 3: Scalar aggregates, NumericBytes storage: NUMERIC(78,0)
+-- ============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT SUM(amount), AVG(amount), MIN(amount), MAX(amount), COUNT(amount) FROM numagg WHERE description @@@ 'apple OR basket OR crate';
+                                                                                                                  QUERY PLAN                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text), pdb.agg_fn('COUNT'::text)
+   Backend: DataFusion
+   Indexes: numagg_idx (numagg)
+   Aggregates: SUM(amount), AVG(amount), MIN(amount), MAX(amount), COUNT(amount)
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Final, gby=[], aggr=[numeric_bytes_sum(numagg_0.amount) as agg_0, numeric_bytes_avg(numagg_0.amount) as agg_1, min(numagg_0.amount) as agg_2, max(numagg_0.amount) as agg_3, count(numagg_0.amount) as agg_4]
+     :   CoalescePartitionsExec
+     :     AggregateExec: mode=Partial, gby=[], aggr=[numeric_bytes_sum(numagg_0.amount) as agg_0, numeric_bytes_avg(numagg_0.amount) as agg_1, min(numagg_0.amount) as agg_2, max(numagg_0.amount) as agg_3, count(numagg_0.amount) as agg_4]
+     :       RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
+     :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"apple OR basket OR crate","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+SELECT SUM(amount), AVG(amount), MIN(amount), MAX(amount), COUNT(amount) FROM numagg WHERE description @@@ 'apple OR basket OR crate';
+                                      sum                                       |                                      avg                                      | min |                                      max                                       | count 
+--------------------------------------------------------------------------------+-------------------------------------------------------------------------------+-----+--------------------------------------------------------------------------------+-------
+ 300000000000000000000000000000000000000000000000000000000000000000000000000080 | 75000000000000000000000000000000000000000000000000000000000000000000000000020 |  33 | 200000000000000000000000000000000000000000000000000000000000000000000000000002 |     4
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT SUM(amount), AVG(amount), MIN(amount), MAX(amount), COUNT(amount) FROM numagg WHERE description @@@ 'apple OR basket OR crate';
+                                      sum                                       |                                      avg                                      | min |                                      max                                       | count 
+--------------------------------------------------------------------------------+-------------------------------------------------------------------------------+-----+--------------------------------------------------------------------------------+-------
+ 300000000000000000000000000000000000000000000000000000000000000000000000000080 | 75000000000000000000000000000000000000000000000000000000000000000000000000020 |  33 | 200000000000000000000000000000000000000000000000000000000000000000000000000002 |     4
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- ============================================================================
+-- PART 4: Unbounded NUMERIC falls back to Postgres
+-- ============================================================================
+-- Serial for the fallback EXPLAIN so no worker-count lines appear
+SET max_parallel_workers_per_gather = 0;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT SUM(free) FROM numagg WHERE description @@@ 'apple OR basket OR crate';
+WARNING:  Aggregate Scan (DataFusion) not used: SUM on an unbounded NUMERIC column is not supported; declare a precision and scale to enable aggregate pushdown (table: join)
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   Output: sum(free)
+   ->  Custom Scan (ParadeDB Base Scan) on public.numagg
+         Output: free
+         Table: numagg
+         Index: numagg_idx
+         Worker Selection: Cost model
+         Exec Method: ColumnarExecState
+         Fast Fields: free
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"apple OR basket OR crate","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+SELECT SUM(free) FROM numagg WHERE description @@@ 'apple OR basket OR crate';
+WARNING:  Aggregate Scan (DataFusion) not used: SUM on an unbounded NUMERIC column is not supported; declare a precision and scale to enable aggregate pushdown (table: join)
+ sum 
+-----
+ 3.6
+(1 row)
+
+SET max_parallel_workers_per_gather = 2;
+-- COUNT on an unbounded NUMERIC column still pushes down
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT COUNT(free) FROM numagg WHERE description @@@ 'apple OR basket OR crate';
+                                                                                              QUERY PLAN                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: pdb.agg_fn('COUNT'::text)
+   Backend: DataFusion
+   Indexes: numagg_idx (numagg)
+   Aggregates: COUNT(free)
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Final, gby=[], aggr=[count(numagg_0.free) as agg_0]
+     :   CoalescePartitionsExec
+     :     AggregateExec: mode=Partial, gby=[], aggr=[count(numagg_0.free) as agg_0]
+     :       RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
+     :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"apple OR basket OR crate","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+SELECT COUNT(free) FROM numagg WHERE description @@@ 'apple OR basket OR crate';
+ count 
+-------
+     3
+(1 row)
+
+-- ============================================================================
+-- PART 5: GROUP BY a text column, numeric aggregates
+-- ============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category, SUM(price), AVG(amount), MIN(weight), MAX(price) FROM numagg WHERE description @@@ 'apple OR basket OR crate' GROUP BY category ORDER BY category;
+                                                                                                                  QUERY PLAN                                                                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category, (sum(price)), (avg(amount)), (min(weight)), (max(price))
+   Sort Key: numagg.category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: category, (sum(price)), (avg(amount)), (min(weight)), (max(price))
+         Backend: DataFusion
+         Indexes: numagg_idx (numagg)
+         Group By: category
+         Aggregates: SUM(price), AVG(amount), MIN(weight), MAX(price)
+         DataFusion Physical Plan: 
+           : CoalescePartitionsExec
+           :   AggregateExec: mode=FinalPartitioned, gby=[category@0 as category], aggr=[numeric64_sum(numagg_0.price, 2) as agg_0, numeric_bytes_avg(numagg_0.amount) as agg_1, min(numagg_0.weight) as agg_2, max(numagg_0.price) as agg_3]
+           :     RepartitionExec: partitioning=Hash([category@0], 2), input_partitions=2
+           :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[numeric64_sum(numagg_0.price, 2) as agg_0, numeric_bytes_avg(numagg_0.amount) as agg_1, min(numagg_0.weight) as agg_2, max(numagg_0.price) as agg_3]
+           :         RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
+           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"apple OR basket OR crate","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
+
+SELECT category, SUM(price), AVG(amount), MIN(weight), MAX(price) FROM numagg WHERE description @@@ 'apple OR basket OR crate' GROUP BY category ORDER BY category;
+  category   |   sum   |                                      avg                                       |     min     |   max   
+-------------+---------+--------------------------------------------------------------------------------+-------------+---------
+ electronics | 3000.35 | 150000000000000000000000000000000000000000000000000000000000000000000000000002 | 1.500000001 | 2000.25
+ grocery     |   30.95 |                                                            38.5000000000000000 | 0.100000003 |   20.90
+(2 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT category, SUM(price), AVG(amount), MIN(weight), MAX(price) FROM numagg WHERE description @@@ 'apple OR basket OR crate' GROUP BY category ORDER BY category;
+  category   |   sum   |                                      avg                                       |     min     |   max   
+-------------+---------+--------------------------------------------------------------------------------+-------------+---------
+ electronics | 3000.35 | 150000000000000000000000000000000000000000000000000000000000000000000000000002 | 1.500000001 | 2000.25
+ grocery     |   30.95 |                                                            38.5000000000000000 | 0.100000003 |   20.90
+(2 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- ============================================================================
+-- PART 6: GROUP BY a NUMERIC column
+-- ============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT price, COUNT(*) FROM numagg WHERE description @@@ 'apple OR basket' GROUP BY price ORDER BY price;
+                                                                                             QUERY PLAN                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: price, (count(*))
+   Sort Key: numagg.price
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: price, (count(*))
+         Backend: DataFusion
+         Indexes: numagg_idx (numagg)
+         Group By: price
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : CoalescePartitionsExec
+           :   AggregateExec: mode=FinalPartitioned, gby=[price@0 as price], aggr=[count(1) as agg_0]
+           :     RepartitionExec: partitioning=Hash([price@0], 2), input_partitions=2
+           :       AggregateExec: mode=Partial, gby=[price@0 as price], aggr=[count(1) as agg_0]
+           :         RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
+           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"apple OR basket","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
+
+SELECT price, COUNT(*) FROM numagg WHERE description @@@ 'apple OR basket' GROUP BY price ORDER BY price;
+  price  | count 
+---------+-------
+   10.05 |     1
+   20.90 |     1
+ 1000.10 |     1
+ 2000.25 |     1
+(4 rows)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT amount, COUNT(*) FROM numagg WHERE description @@@ 'apple OR basket' GROUP BY amount ORDER BY amount;
+                                                                                             QUERY PLAN                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: amount, (count(*))
+   Sort Key: numagg.amount
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: amount, (count(*))
+         Backend: DataFusion
+         Indexes: numagg_idx (numagg)
+         Group By: amount
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : CoalescePartitionsExec
+           :   AggregateExec: mode=FinalPartitioned, gby=[amount@0 as amount], aggr=[count(1) as agg_0]
+           :     RepartitionExec: partitioning=Hash([amount@0], 2), input_partitions=2
+           :       AggregateExec: mode=Partial, gby=[amount@0 as amount], aggr=[count(1) as agg_0]
+           :         RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
+           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"apple OR basket","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
+
+SELECT amount, COUNT(*) FROM numagg WHERE description @@@ 'apple OR basket' GROUP BY amount ORDER BY amount;
+                                     amount                                     | count 
+--------------------------------------------------------------------------------+-------
+                                                                             33 |     1
+                                                                             44 |     1
+ 100000000000000000000000000000000000000000000000000000000000000000000000000001 |     1
+ 200000000000000000000000000000000000000000000000000000000000000000000000000002 |     1
+(4 rows)
+
+-- ============================================================================
+-- PART 6b: ORDER BY a numeric aggregate with LIMIT (TopK)
+-- ============================================================================
+-- SUM sorts natively: decimal-bytes ordering matches numeric ordering
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category, SUM(amount) s FROM numagg WHERE description @@@ 'apple OR basket' GROUP BY category ORDER BY s DESC LIMIT 1;
+                                                                                                 QUERY PLAN                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: category, (sum(amount))
+   ->  Sort
+         Output: category, (sum(amount))
+         Sort Key: (sum(numagg.amount)) DESC
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: category, (sum(amount))
+               Backend: DataFusion
+               Indexes: numagg_idx (numagg)
+               Group By: category
+               Aggregates: SUM(amount)
+               DataFusion Physical Plan: 
+                 : SortPreservingMergeExec: [agg_0@1 DESC], fetch=1
+                 :   SortExec: TopK(fetch=1), expr=[agg_0@1 DESC], preserve_partitioning=[true]
+                 :     AggregateExec: mode=FinalPartitioned, gby=[category@0 as category], aggr=[numeric_bytes_sum(numagg_0.amount) as agg_0]
+                 :       RepartitionExec: partitioning=Hash([category@0], 2), input_partitions=2
+                 :         AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[numeric_bytes_sum(numagg_0.amount) as agg_0]
+                 :           RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
+                 :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"apple OR basket","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
+
+SELECT category, SUM(amount) s FROM numagg WHERE description @@@ 'apple OR basket' GROUP BY category ORDER BY s DESC LIMIT 1;
+  category   |                                       s                                        
+-------------+--------------------------------------------------------------------------------
+ electronics | 300000000000000000000000000000000000000000000000000000000000000000000000000003
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT category, SUM(amount) s FROM numagg WHERE description @@@ 'apple OR basket' GROUP BY category ORDER BY s DESC LIMIT 1;
+  category   |                                       s                                        
+-------------+--------------------------------------------------------------------------------
+ electronics | 300000000000000000000000000000000000000000000000000000000000000000000000000003
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- AVG blobs do not sort; TopK is skipped and Postgres sorts above the scan
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category, AVG(price) a FROM numagg WHERE description @@@ 'apple OR basket' GROUP BY category ORDER BY a ASC LIMIT 1;
+                                                                                                QUERY PLAN                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: category, (avg(price))
+   ->  Sort
+         Output: category, (avg(price))
+         Sort Key: (avg(numagg.price))
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: category, (avg(price))
+               Backend: DataFusion
+               Indexes: numagg_idx (numagg)
+               Group By: category
+               Aggregates: AVG(price)
+               DataFusion Physical Plan: 
+                 : CoalescePartitionsExec
+                 :   AggregateExec: mode=FinalPartitioned, gby=[category@0 as category], aggr=[numeric64_avg(numagg_0.price, 2) as agg_0]
+                 :     RepartitionExec: partitioning=Hash([category@0], 2), input_partitions=2
+                 :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[numeric64_avg(numagg_0.price, 2) as agg_0]
+                 :         RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
+                 :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"apple OR basket","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
+
+SELECT category, AVG(price) a FROM numagg WHERE description @@@ 'apple OR basket' GROUP BY category ORDER BY a ASC LIMIT 1;
+ category |          a          
+----------+---------------------
+ grocery  | 15.4750000000000000
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT category, AVG(price) a FROM numagg WHERE description @@@ 'apple OR basket' GROUP BY category ORDER BY a ASC LIMIT 1;
+ category |          a          
+----------+---------------------
+ grocery  | 15.4750000000000000
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- ============================================================================
+-- PART 7: NaN handling
+-- ============================================================================
+INSERT INTO numagg (description, category, price, weight, amount) VALUES
+    ('durian crate', 'grocery', 'NaN', 'NaN', 'NaN');
+ANALYZE numagg;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT SUM(price), MIN(price), MAX(price) FROM numagg WHERE description @@@ 'durian OR basket';
+                                                                                            QUERY PLAN                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: pdb.agg_fn('SUM'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
+   Backend: DataFusion
+   Indexes: numagg_idx (numagg)
+   Aggregates: SUM(price), MIN(price), MAX(price)
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ AggregateExec: mode=Final, gby=[], aggr=[numeric64_sum(numagg_0.price, 2) as agg_0, min(numagg_0.price) as agg_1, max(numagg_0.price) as agg_2]
+     : │   CoalescePartitionsExec
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=4, input_tasks=2
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 1 ── tasks=2, partitions=4
+     :   │ AggregateExec: mode=Partial, gby=[], aggr=[numeric64_sum(numagg_0.price, 2) as agg_0, min(numagg_0.price) as agg_1, max(numagg_0.price) as agg_2]
+     :   │   DistributedLeafExec:
+     :   │     t0: PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"durian OR basket","lenient":null,"conjunction_mode":null}}}}
+     :   │     t1: PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"durian OR basket","lenient":null,"conjunction_mode":null}}}}
+     :   └──────────────────────────────────────────────────
+(17 rows)
+
+SELECT SUM(price), MIN(price), MAX(price) FROM numagg WHERE description @@@ 'durian OR basket';
+ sum |  min  | max 
+-----+-------+-----
+ NaN | 10.05 | NaN
+(1 row)
+
+SELECT SUM(weight), MIN(weight), MAX(weight) FROM numagg WHERE description @@@ 'durian OR basket';
+ sum |     min     | max 
+-----+-------------+-----
+ NaN | 0.100000003 | NaN
+(1 row)
+
+SELECT SUM(amount), AVG(amount), MIN(amount), MAX(amount) FROM numagg WHERE description @@@ 'durian OR basket';
+ sum | avg | min | max 
+-----+-----+-----+-----
+ NaN | NaN |  33 | NaN
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT SUM(price), MIN(price), MAX(price) FROM numagg WHERE description @@@ 'durian OR basket';
+ sum |  min  | max 
+-----+-------+-----
+ NaN | 10.05 | NaN
+(1 row)
+
+SELECT SUM(weight), MIN(weight), MAX(weight) FROM numagg WHERE description @@@ 'durian OR basket';
+ sum |     min     | max 
+-----+-------------+-----
+ NaN | 0.100000003 | NaN
+(1 row)
+
+SELECT SUM(amount), AVG(amount), MIN(amount), MAX(amount) FROM numagg WHERE description @@@ 'durian OR basket';
+ sum | avg | min | max 
+-----+-----+-----+-----
+ NaN | NaN |  33 | NaN
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- ============================================================================
+-- PART 8: Empty result set and FILTER clause
+-- ============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT SUM(amount), COUNT(*) FROM numagg WHERE description @@@ 'nonexistent';
+                                                                                         QUERY PLAN                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: pdb.agg_fn('SUM'::text), pdb.agg_fn('COUNT(*)'::text)
+   Backend: DataFusion
+   Indexes: numagg_idx (numagg)
+   Aggregates: SUM(amount), COUNT(*)
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ AggregateExec: mode=Final, gby=[], aggr=[numeric_bytes_sum(numagg_0.amount) as agg_0, count(1) as agg_1]
+     : │   CoalescePartitionsExec
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=4, input_tasks=2
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 1 ── tasks=2, partitions=4
+     :   │ AggregateExec: mode=Partial, gby=[], aggr=[numeric_bytes_sum(numagg_0.amount) as agg_0, count(1) as agg_1]
+     :   │   DistributedLeafExec:
+     :   │     t0: PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"nonexistent","lenient":null,"conjunction_mode":null}}}}
+     :   │     t1: PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"nonexistent","lenient":null,"conjunction_mode":null}}}}
+     :   └──────────────────────────────────────────────────
+(17 rows)
+
+SELECT SUM(amount), COUNT(*) FROM numagg WHERE description @@@ 'nonexistent';
+ sum | count 
+-----+-------
+     |     0
+(1 row)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT SUM(price) FILTER (WHERE category = 'grocery') FROM numagg WHERE description @@@ 'apple OR basket';
+                                                                                           QUERY PLAN                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: pdb.agg_fn('SUM'::text)
+   Backend: DataFusion
+   Indexes: numagg_idx (numagg)
+   Aggregates: SUM(price)
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ AggregateExec: mode=Final, gby=[], aggr=[numeric64_sum(numagg_0.price, 2) FILTER (WHERE numagg_0.category = Utf8View("grocery")) as agg_0]
+     : │   CoalescePartitionsExec
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=4, input_tasks=2
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 1 ── tasks=2, partitions=4
+     :   │ AggregateExec: mode=Partial, gby=[], aggr=[numeric64_sum(numagg_0.price, 2) FILTER (WHERE numagg_0.category = Utf8View("grocery")) as agg_0]
+     :   │   DistributedLeafExec:
+     :   │     t0: PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"apple OR basket","lenient":null,"conjunction_mode":null}}}}
+     :   │     t1: PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"apple OR basket","lenient":null,"conjunction_mode":null}}}}
+     :   └──────────────────────────────────────────────────
+(17 rows)
+
+SELECT SUM(price) FILTER (WHERE category = 'grocery') FROM numagg WHERE description @@@ 'apple OR basket';
+  sum  
+-------
+ 30.95
+(1 row)
+
+-- ============================================================================
+-- PART 9: Declined shapes fall back to Postgres
+-- ============================================================================
+-- Serial for the fallback EXPLAINs so no worker-count lines appear
+SET max_parallel_workers_per_gather = 0;
+-- HAVING over a numeric aggregate
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category, SUM(price) FROM numagg WHERE description @@@ 'apple OR basket' GROUP BY category HAVING SUM(price) > 100 ORDER BY category;
+WARNING:  Aggregate Scan (DataFusion) not used: HAVING on a NUMERIC aggregate is not supported (table: join)
+                                                                                 QUERY PLAN                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: category, sum(price)
+   Group Key: numagg.category
+   Filter: (sum(numagg.price) > '100'::numeric)
+   ->  Sort
+         Output: category, price
+         Sort Key: numagg.category
+         ->  Custom Scan (ParadeDB Base Scan) on public.numagg
+               Output: category, price
+               Table: numagg
+               Index: numagg_idx
+               Worker Selection: Cost model
+               Exec Method: ColumnarExecState
+               Fast Fields: category, price
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"apple OR basket","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
+
+SELECT category, SUM(price) FROM numagg WHERE description @@@ 'apple OR basket' GROUP BY category HAVING SUM(price) > 100 ORDER BY category;
+WARNING:  Aggregate Scan (DataFusion) not used: HAVING on a NUMERIC aggregate is not supported (table: join)
+  category   |   sum   
+-------------+---------
+ electronics | 3000.35
+(1 row)
+
+-- SUM(DISTINCT numeric)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT SUM(DISTINCT price) FROM numagg WHERE description @@@ 'apple OR basket';
+WARNING:  Aggregate Scan (DataFusion) not used: SUM with DISTINCT is not supported on NUMERIC columns (table: join)
+                                                                                 QUERY PLAN                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   Output: sum(DISTINCT price)
+   ->  Sort
+         Output: price
+         Sort Key: numagg.price
+         ->  Custom Scan (ParadeDB Base Scan) on public.numagg
+               Output: price
+               Table: numagg
+               Index: numagg_idx
+               Worker Selection: Cost model
+               Exec Method: ColumnarExecState
+               Fast Fields: price
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"apple OR basket","lenient":null,"conjunction_mode":null}}}}
+(14 rows)
+
+SELECT SUM(DISTINCT price) FROM numagg WHERE description @@@ 'apple OR basket';
+WARNING:  Aggregate Scan (DataFusion) not used: SUM with DISTINCT is not supported on NUMERIC columns (table: join)
+   sum   
+---------
+ 3031.30
+(1 row)
+
+-- stddev is not supported on NUMERIC columns
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT STDDEV(price) FROM numagg WHERE description @@@ 'apple OR basket';
+WARNING:  Aggregate Scan (DataFusion) not used: STDDEV_SAMP is not supported on NUMERIC columns (table: join)
+                                                                              QUERY PLAN                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   Output: stddev(price)
+   ->  Custom Scan (ParadeDB Base Scan) on public.numagg
+         Output: price
+         Table: numagg
+         Index: numagg_idx
+         Worker Selection: Cost model
+         Exec Method: ColumnarExecState
+         Fast Fields: price
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"apple OR basket","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+SELECT STDDEV(price) FROM numagg WHERE description @@@ 'apple OR basket';
+WARNING:  Aggregate Scan (DataFusion) not used: STDDEV_SAMP is not supported on NUMERIC columns (table: join)
+      stddev      
+------------------
+ 949.481079765855
+(1 row)
+
+-- ============================================================================
+-- PART 10: Aggregate over a join
+-- ============================================================================
+SET max_parallel_workers_per_gather = 2;
+SET paradedb.enable_join_custom_scan TO on;
+DROP TABLE IF EXISTS numagg_lines CASCADE;
+CREATE TABLE numagg_lines (
+    id SERIAL PRIMARY KEY,
+    numagg_id INTEGER,
+    note TEXT
+);
+INSERT INTO numagg_lines (numagg_id, note) VALUES
+    (1, 'first line'),
+    (1, 'second line'),
+    (2, 'third line'),
+    (3, 'fourth line');
+CREATE INDEX numagg_lines_idx ON numagg_lines USING bm25 (
+    id, numagg_id, note
+) WITH (key_field = 'id');
+ANALYZE numagg_lines;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT SUM(n.price), SUM(n.amount), MIN(n.weight) FROM numagg n JOIN numagg_lines l ON l.numagg_id = n.id WHERE n.description @@@ 'apple OR basket';
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: pdb.agg_fn('SUM'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('MIN'::text)
+   Backend: DataFusion
+   Indexes: numagg_idx (n), numagg_lines_idx (l)
+   Aggregates: SUM(price), SUM(amount), MIN(weight)
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ AggregateExec: mode=Final, gby=[], aggr=[numeric64_sum(n_0.price, 2) as agg_0, numeric_bytes_sum(n_0.amount) as agg_1, min(n_0.weight) as agg_2]
+     : │   CoalescePartitionsExec
+     : │     [Stage 2] => NetworkCoalesceExec: output_partitions=4, input_tasks=2
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 2 ── tasks=2, partitions=4
+     :   │ AggregateExec: mode=Partial, gby=[], aggr=[numeric64_sum(n_0.price, 2) as agg_0, numeric_bytes_sum(n_0.amount) as agg_1, min(n_0.weight) as agg_2]
+     :   │   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(numagg_id@0, id@0)], projection=[price@2, weight@3, amount@4]
+     :   │     CoalescePartitionsExec
+     :   │       [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=1
+     :   │     DistributedLeafExec:
+     :   │       t0: PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"apple OR basket","lenient":null,"conjunction_mode":null}}}}
+     :   │       t1: PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"apple OR basket","lenient":null,"conjunction_mode":null}}}}
+     :   └──────────────────────────────────────────────────
+     :     ┌───── Stage 1 ── tasks=1, partitions=2
+     :     │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
+     :     │   DistributedLeafExec:
+     :     │     t0: PgSearchScan: segments=1, query="all"
+     :     └──────────────────────────────────────────────────
+(25 rows)
+
+SELECT SUM(n.price), SUM(n.amount), MIN(n.weight) FROM numagg n JOIN numagg_lines l ON l.numagg_id = n.id WHERE n.description @@@ 'apple OR basket';
+   sum   |                                      sum                                       |     min     
+---------+--------------------------------------------------------------------------------+-------------
+ 4010.50 | 400000000000000000000000000000000000000000000000000000000000000000000000000037 | 0.100000003
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT SUM(n.price), SUM(n.amount), MIN(n.weight) FROM numagg n JOIN numagg_lines l ON l.numagg_id = n.id WHERE n.description @@@ 'apple OR basket';
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: l, n)
+   sum   |                                      sum                                       |     min     
+---------+--------------------------------------------------------------------------------+-------------
+ 4010.50 | 400000000000000000000000000000000000000000000000000000000000000000000000000037 | 0.100000003
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+DROP TABLE numagg_lines CASCADE;
+DROP TABLE numagg CASCADE;

@@ -231,6 +231,29 @@ ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
 -- =====================================================================
+-- Pass 7: aggregate-on-join range co-partitioning
+--
+-- Inner join with aggregate scan must also range co-partition.
+-- =====================================================================
+
+SET max_parallel_workers_per_gather TO 3;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+GROUP BY f.title
+ORDER BY f.title
+LIMIT 5;
+
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+GROUP BY f.title
+ORDER BY f.title
+LIMIT 5;
+
+-- =====================================================================
 -- Cleanup
 -- =====================================================================
 

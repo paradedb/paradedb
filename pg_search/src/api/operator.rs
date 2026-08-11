@@ -1132,6 +1132,39 @@ pub(crate) unsafe fn build_pdb_query_funcexpr(
     }
 }
 
+/// Resolve `UnclassifiedString` / `UnclassifiedArray` variants (including those wrapped in a
+/// `ScoreAdjusted`) into an operator-specific `pdb.query` shape. Callers supply builder closures
+/// that turn the raw string / array plus its `fuzzy_data` / `slop_data` into the query the
+/// operator's const path would produce; every other `pdb::Query` variant is returned as-is.
+///
+/// Runtime `*_search_query_input` pg_externs use this to mirror their operator's
+/// `search_with_*_support` const-fold path when a `Param` (generic prepared plan) leaves the RHS
+/// as an `UnclassifiedString` / `UnclassifiedArray` that would otherwise reach Tantivy conversion
+/// and blow up with `pdb::Query::UnclassifiedString cannot be converted into a TantivyQuery`.
+pub(crate) fn classify_pdb_query_input(
+    query: pdb::Query,
+    from_string: impl Fn(String, Option<pdb::FuzzyData>, Option<pdb::SlopData>) -> pdb::Query + Copy,
+    from_array: impl Fn(Vec<String>, Option<pdb::FuzzyData>, Option<pdb::SlopData>) -> pdb::Query + Copy,
+) -> pdb::Query {
+    match query {
+        pdb::Query::UnclassifiedString {
+            string,
+            fuzzy_data,
+            slop_data,
+        } => from_string(string, fuzzy_data, slop_data),
+        pdb::Query::UnclassifiedArray {
+            array,
+            fuzzy_data,
+            slop_data,
+        } => from_array(array, fuzzy_data, slop_data),
+        pdb::Query::ScoreAdjusted { query, score } => pdb::Query::ScoreAdjusted {
+            query: Box::new(classify_pdb_query_input(*query, from_string, from_array)),
+            score,
+        },
+        other => other,
+    }
+}
+
 /// Given a [`pg_sys::Node`] and a [`pg_sys::PlannerInfo`], attempt to find the relation Oid that
 /// is referenced by the node.
 ///

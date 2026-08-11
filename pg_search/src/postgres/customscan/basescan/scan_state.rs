@@ -109,6 +109,11 @@ pub struct BaseScanState {
     /// The `(vector field, query vector)` of the `~~~` knn predicate, for
     /// validating that it matches `pdb.rrf()`'s distance leg.
     pub knn_leaf: Option<(FieldName, Vec<f32>)>,
+    /// Per-arm candidate windows harvested from `::pdb.top(n)` annotations
+    /// in the WHERE clause (text arm, vector arm). Injected into the Rrf
+    /// ordering feature at exec-method init.
+    pub arm_bm25_window: Option<i32>,
+    pub arm_vector_window: Option<i32>,
 
     /// True when a junk ORDER-BY `embedding <-> query` `OpExpr` in the scan's
     /// targetlist was replaced with a NULL placeholder `Const` (see
@@ -178,6 +183,13 @@ impl BaseScanState {
 
     pub fn set_base_search_query_input(&mut self, input: SearchQueryInput) {
         self.base_search_query_input = input;
+    }
+
+    /// Replace the executable query (used after `::pdb.top` arm annotations
+    /// are stripped, so downstream consumers like snippet generation never
+    /// see the inert wrappers).
+    pub fn replace_search_query_input(&mut self, input: SearchQueryInput) {
+        self.search_query_input = input;
     }
 
     pub fn search_query_input(&self) -> &SearchQueryInput {

@@ -28,6 +28,7 @@ mod proximity;
 mod searchqueryinput;
 pub(crate) mod slop;
 mod tildetildetilde;
+pub(crate) mod top;
 
 use crate::api::operator::boost::{boost_to_boost, BoostType};
 use crate::api::operator::fuzzy::{fuzzy_to_fuzzy, FuzzyType};

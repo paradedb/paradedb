@@ -125,6 +125,14 @@ pub enum SearchQueryInput {
         oid: pg_sys::Oid,
         query: Box<SearchQueryInput>,
     },
+    /// A `(subtree)::pdb.top(n)` fusion-arm annotation: "this row is among
+    /// the top `window` rows ranked by `query`'s own measure". Like `Knn`,
+    /// never converted to a tantivy query — the rank-fusion path harvests
+    /// the window and strips the wrapper before execution.
+    TopN {
+        query: Box<SearchQueryInput>,
+        window: i32,
+    },
     /// The `~~~(vector, vector)` knn operator: "this row is among the
     /// top-`window_size` nearest neighbors of `query_vector`". Not a
     /// standalone tantivy query — a query containing a `Knn` leaf must be
@@ -151,6 +159,20 @@ pub enum SearchQueryInput {
         field: FieldName,
         query: pdb::Query,
     },
+}
+
+/// One harvested `::pdb.top(n)` arm annotation; see
+/// [`SearchQueryInput::strip_top_arms`].
+#[derive(Debug, Clone, Copy)]
+pub struct TopArmInfo {
+    /// The arm's candidate window (the typmod `n`).
+    pub window: i32,
+    /// The annotated subtree contains a `~~~` knn predicate.
+    pub contains_knn: bool,
+    /// The annotated subtree is exactly a knn predicate.
+    pub knn_only: bool,
+    /// The annotated subtree itself contains another `::pdb.top` annotation.
+    pub nested: bool,
 }
 
 fn serialize_fielded_query<S>(
@@ -405,6 +427,8 @@ impl SearchQueryInput {
             | SearchQueryInput::Knn { .. }
             | SearchQueryInput::PostgresExpression { .. } => false,
 
+            SearchQueryInput::TopN { query, .. } => query.needs_tokenizer(),
+
             SearchQueryInput::Parse { .. } | SearchQueryInput::MoreLikeThis { .. } => true,
 
             SearchQueryInput::FieldedQuery { query, .. } => query.needs_tokenizer(),
@@ -439,8 +463,9 @@ impl SearchQueryInput {
     /// Used by `estimate_selectivity` to short-circuit and return a heuristic instead.
     pub fn is_expensive_to_estimate(&self) -> bool {
         match self {
-            // not estimable at all: a knn leaf cannot become a tantivy query
-            SearchQueryInput::Knn { .. } => true,
+            // not estimable at all: knn leaves and ::pdb.top arms cannot
+            // become tantivy queries
+            SearchQueryInput::Knn { .. } | SearchQueryInput::TopN { .. } => true,
             SearchQueryInput::Boolean {
                 must,
                 should,
@@ -480,6 +505,7 @@ impl SearchQueryInput {
             // knn candidacy is bounded by the rank-fusion window, which is
             // tiny relative to the table
             SearchQueryInput::Knn { .. } => 0.01,
+            SearchQueryInput::TopN { query, .. } => query.selectivity_heuristic(),
             SearchQueryInput::Boolean { must, should, .. } => {
                 // AND: product of children selectivities; OR: max of children selectivities.
                 let must_sel = must
@@ -694,6 +720,9 @@ impl SearchQueryInput {
             SearchQueryInput::HeapFilter { indexed_query, .. } => {
                 indexed_query.visit(visitor);
             }
+            SearchQueryInput::TopN { query, .. } => {
+                query.visit(visitor);
+            }
 
             SearchQueryInput::Uninitialized
             | SearchQueryInput::All
@@ -756,6 +785,7 @@ impl SearchQueryInput {
                 SearchQueryInput::HeapFilter { indexed_query, .. } => {
                     walk(indexed_query, negated, leaves)
                 }
+                SearchQueryInput::TopN { query, .. } => walk(query, negated, leaves),
                 SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
                     for q in disjuncts {
                         walk(q, negated, leaves);
@@ -795,7 +825,7 @@ impl SearchQueryInput {
 
     /// True when this query (possibly through score-transparent wrappers) is
     /// nothing but a [`SearchQueryInput::Knn`] leaf.
-    fn is_knn_only(&self) -> bool {
+    pub(crate) fn is_knn_only(&self) -> bool {
         match self {
             SearchQueryInput::Knn { .. } => true,
             SearchQueryInput::WithIndex { query, .. }
@@ -806,6 +836,76 @@ impl SearchQueryInput {
             } => query.is_knn_only(),
             _ => false,
         }
+    }
+
+    /// Return a copy of this tree with every [`SearchQueryInput::TopN`] arm
+    /// annotation removed, harvesting each arm's classification and window.
+    ///
+    /// The annotations only carry plan-level information (per-arm candidate
+    /// windows); execution runs over the stripped tree.
+    pub fn strip_top_arms(&self) -> (SearchQueryInput, Vec<TopArmInfo>) {
+        fn walk(query: &SearchQueryInput, arms: &mut Vec<TopArmInfo>) -> SearchQueryInput {
+            match query {
+                SearchQueryInput::TopN { query, window } => {
+                    let mut inner_arms = Vec::new();
+                    let stripped = walk(query, &mut inner_arms);
+                    arms.push(TopArmInfo {
+                        window: *window,
+                        contains_knn: query.contains_knn(),
+                        knn_only: query.is_knn_only(),
+                        nested: !inner_arms.is_empty(),
+                    });
+                    arms.extend(inner_arms);
+                    stripped
+                }
+                SearchQueryInput::Boolean {
+                    must,
+                    should,
+                    must_not,
+                    minimum_should_match,
+                } => SearchQueryInput::Boolean {
+                    must: must.iter().map(|q| walk(q, arms)).collect(),
+                    should: should.iter().map(|q| walk(q, arms)).collect(),
+                    must_not: must_not.iter().map(|q| walk(q, arms)).collect(),
+                    minimum_should_match: *minimum_should_match,
+                },
+                SearchQueryInput::WithIndex { oid, query } => SearchQueryInput::WithIndex {
+                    oid: *oid,
+                    query: Box::new(walk(query, arms)),
+                },
+                SearchQueryInput::Boost { query, factor } => SearchQueryInput::Boost {
+                    query: Box::new(walk(query, arms)),
+                    factor: *factor,
+                },
+                SearchQueryInput::ConstScore { query, score } => SearchQueryInput::ConstScore {
+                    query: Box::new(walk(query, arms)),
+                    score: *score,
+                },
+                SearchQueryInput::ScoreFilter { bounds, query } => SearchQueryInput::ScoreFilter {
+                    bounds: bounds.clone(),
+                    query: query.as_ref().map(|q| Box::new(walk(q, arms))),
+                },
+                SearchQueryInput::HeapFilter {
+                    indexed_query,
+                    field_filters,
+                } => SearchQueryInput::HeapFilter {
+                    indexed_query: Box::new(walk(indexed_query, arms)),
+                    field_filters: field_filters.clone(),
+                },
+                SearchQueryInput::DisjunctionMax {
+                    disjuncts,
+                    tie_breaker,
+                } => SearchQueryInput::DisjunctionMax {
+                    disjuncts: disjuncts.iter().map(|q| walk(q, arms)).collect(),
+                    tie_breaker: *tie_breaker,
+                },
+                other => other.clone(),
+            }
+        }
+
+        let mut arms = Vec::new();
+        let stripped = walk(self, &mut arms);
+        (stripped, arms)
     }
 
     /// Return a copy of this tree with every [`SearchQueryInput::Knn`] leaf
@@ -868,6 +968,10 @@ impl SearchQueryInput {
             } => SearchQueryInput::HeapFilter {
                 indexed_query: Box::new(indexed_query.without_knn()),
                 field_filters: field_filters.clone(),
+            },
+            SearchQueryInput::TopN { query, window } => SearchQueryInput::TopN {
+                query: Box::new(query.without_knn()),
+                window: *window,
             },
             SearchQueryInput::DisjunctionMax {
                 disjuncts,
@@ -1311,6 +1415,9 @@ impl SearchQueryInput {
             }
             SearchQueryInput::Knn { .. } => {
                 panic!("the `~~~(vector, vector)` operator requires a ParadeDB TopK rank-fusion scan: use `ORDER BY pdb.rrf(pdb.score(<key>), <vector_column> <op> <query_vector>) LIMIT <n>`")
+            }
+            SearchQueryInput::TopN { .. } => {
+                panic!("::pdb.top(n) annotations require a ParadeDB TopK rank-fusion scan: use `ORDER BY pdb.rrf(<key>) LIMIT <k>`")
             }
             SearchQueryInput::Boolean {
                 must,

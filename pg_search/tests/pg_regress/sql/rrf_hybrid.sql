@@ -127,6 +127,45 @@ ORDER BY pdb.rrf(id, vector_window_size => 3)
 LIMIT 3;
 
 
+-- ::pdb.top(n) arm annotations: per-arm windows written on the arms
+-- themselves. Equivalent to the vector_window_size => 3 query above (2,1,4),
+-- and the windows are visible in the Tantivy Query.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM hyb
+WHERE (label ||| 'east wind')::pdb.top(100) OR (vec ~~~ '[0.05,0.1,0.99]')::pdb.top(3)
+ORDER BY pdb.rrf(id)
+LIMIT 3;
+SELECT id, pdb.score(id, type => 'rank') AS fused_rank
+FROM hyb
+WHERE (label ||| 'east wind')::pdb.top(100) OR (vec ~~~ '[0.05,0.1,0.99]')::pdb.top(3)
+ORDER BY pdb.rrf(id)
+LIMIT 3;
+
+-- a ::pdb.top arm cannot mix text and knn predicates
+SELECT id FROM hyb
+WHERE (label ||| 'east wind' AND vec ~~~ '[1,0,0]')::pdb.top(5)
+ORDER BY pdb.rrf(id)
+LIMIT 3;
+
+-- multiple text arms are not supported yet
+SELECT id FROM hyb
+WHERE (label ||| 'east')::pdb.top(5) OR (label ||| 'wind')::pdb.top(5) OR vec ~~~ '[1,0,0]'
+ORDER BY pdb.rrf(id)
+LIMIT 3;
+
+-- a window given both on the arm and on pdb.rrf() is a conflict
+SELECT id FROM hyb
+WHERE label ||| 'east wind' OR (vec ~~~ '[0.05,0.1,0.99]')::pdb.top(3)
+ORDER BY pdb.rrf(id, vector_window_size => 5)
+LIMIT 3;
+
+-- ::pdb.top requires the rank-fusion ordering
+SELECT id FROM hyb
+WHERE (label ||| 'east wind')::pdb.top(5)
+ORDER BY id
+LIMIT 3;
+
+
 -- ============================================================
 -- filtered semantics: WHERE defines the candidate set
 -- ============================================================

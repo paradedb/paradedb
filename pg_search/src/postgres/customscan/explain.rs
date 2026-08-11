@@ -241,6 +241,7 @@ fn inject_estimates_into_json(
         | SearchQueryInput::PostgresExpression { .. }
         | SearchQueryInput::FieldedQuery { .. }
         | SearchQueryInput::Knn { .. }
+        | SearchQueryInput::TopN { .. }
         | SearchQueryInput::Uninitialized => {
             // These are leaf nodes, no children to process
         }

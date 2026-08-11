@@ -36,6 +36,13 @@ use std::ops::Bound;
 #[derive(Debug, Clone)]
 pub enum Qual {
     All,
+    /// A `(subtree)::pdb.top(n)` fusion-arm annotation: the row is among the
+    /// top `n` rows ranked by the subtree's own measure. Consumed by the
+    /// rank-fusion scan; see `SearchQueryInput::TopN`.
+    TopArm {
+        inner: Box<Qual>,
+        window: i32,
+    },
     ExternalVar,
     ExternalExpr,
     OpExpr {
@@ -153,6 +160,7 @@ impl Qual {
             Qual::And(quals) => quals.iter().any(|q| q.contains_all()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_all()),
             Qual::Not(qual) => qual.contains_all(),
+            Qual::TopArm { inner, .. } => inner.contains_all(),
         }
     }
 
@@ -175,6 +183,7 @@ impl Qual {
             Qual::And(quals) => quals.iter().any(|q| q.contains_external_var()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_external_var()),
             Qual::Not(qual) => qual.contains_external_var(),
+            Qual::TopArm { inner, .. } => inner.contains_external_var(),
         }
     }
 
@@ -197,6 +206,7 @@ impl Qual {
             Qual::And(quals) => quals.iter().any(|q| q.contains_correlated_param(root)),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_correlated_param(root)),
             Qual::Not(qual) => qual.contains_correlated_param(root),
+            Qual::TopArm { inner, .. } => inner.contains_correlated_param(root),
         }
     }
 
@@ -219,6 +229,7 @@ impl Qual {
             Qual::And(quals) => quals.iter().any(|q| q.contains_exprs()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_exprs()),
             Qual::Not(qual) => qual.contains_exprs(),
+            Qual::TopArm { inner, .. } => inner.contains_exprs(),
         }
     }
 
@@ -241,6 +252,7 @@ impl Qual {
             Qual::And(quals) => quals.iter().any(|q| q.contains_score_exprs()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_score_exprs()),
             Qual::Not(qual) => qual.contains_score_exprs(),
+            Qual::TopArm { inner, .. } => inner.contains_score_exprs(),
         }
     }
 
@@ -487,6 +499,10 @@ impl From<&Qual> for SearchQueryInput {
             Qual::All => SearchQueryInput::All,
             Qual::ExternalVar => SearchQueryInput::All,
             Qual::ExternalExpr => SearchQueryInput::All,
+            Qual::TopArm { inner, window } => SearchQueryInput::TopN {
+                query: Box::new(SearchQueryInput::from(inner.as_ref())),
+                window: *window,
+            },
             // Handle ScalarArrayOpExpr: PostgreSQL 18+ rewrites OR clauses like
             // `field @@@ 'a' OR field @@@ 'b'` into `field @@@ ANY(ARRAY['a','b'])`.
             // We decode the array and convert it to a Boolean query (should/must).
@@ -830,6 +846,75 @@ pub unsafe fn is_subplan(node: *mut pg_sys::Node, root: *mut pg_sys::PlannerInfo
     walker(node, std::ptr::null_mut())
 }
 
+/// Recognize the `(subtree)::pdb.top(n)` cast sandwich:
+/// `top_to_bool(top_to_top*(bool_to_top(subtree, typmod, _), typmod, _))`,
+/// where re-annotation layers may repeat and the outermost typmod wins.
+/// Returns a [`Qual::TopArm`] wrapping the recursively-extracted subtree.
+#[allow(clippy::too_many_arguments)]
+unsafe fn top_arm(
+    context: &PlannerContext,
+    rti: pg_sys::Index,
+    node: *mut pg_sys::Node,
+    ri_type: RestrictInfoType,
+    indexrel: &PgSearchRelation,
+    convert_external_to_special_qual: bool,
+    state: &mut QualExtractState,
+    attempt_pushdown: bool,
+) -> Option<Qual> {
+    use crate::api::operator::top::{bool_to_top_procoid, top_to_bool_procoid, top_to_top_procoid};
+
+    let outer = nodecast!(FuncExpr, T_FuncExpr, node)?;
+    let top_to_bool = top_to_bool_procoid();
+    if top_to_bool == pg_sys::Oid::INVALID || (*outer).funcid != top_to_bool {
+        return None;
+    }
+
+    // Descend through re-annotation layers; the outermost typmod wins.
+    let mut window: Option<i32> = None;
+    let mut current = PgList::<pg_sys::Node>::from_pg((*outer).args).get_ptr(0)?;
+    loop {
+        let funcexpr = nodecast!(FuncExpr, T_FuncExpr, current)?;
+        let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+        let is_creator = (*funcexpr).funcid == bool_to_top_procoid();
+        let is_retypmod = (*funcexpr).funcid == top_to_top_procoid();
+        if !is_creator && !is_retypmod {
+            return None;
+        }
+
+        if window.is_none() {
+            let typmod_const = nodecast!(Const, T_Const, args.get_ptr(1)?)?;
+            if !(*typmod_const).constisnull {
+                let typmod = i32::from_datum((*typmod_const).constvalue, false)?;
+                if typmod >= 0 {
+                    window = Some(typmod);
+                }
+            }
+        }
+
+        let inner = args.get_ptr(0)?;
+        if is_creator {
+            let Some(window) = window else {
+                pgrx::error!("::pdb.top requires a window, e.g. `(<predicate>)::pdb.top(100)`");
+            };
+            let inner_qual = extract_quals(
+                context,
+                rti,
+                inner,
+                ri_type,
+                indexrel,
+                convert_external_to_special_qual,
+                state,
+                attempt_pushdown,
+            )?;
+            return Some(Qual::TopArm {
+                inner: Box::new(inner_qual),
+                window,
+            });
+        }
+        current = inner;
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn extract_quals(
     context: &PlannerContext,
@@ -847,6 +932,21 @@ pub unsafe fn extract_quals(
 
     match (*node).type_ {
         pg_sys::NodeTag::T_FuncExpr => {
+            // `(subtree)::pdb.top(n)` fusion-arm annotations arrive as a cast
+            // sandwich: top_to_bool(bool_to_top(subtree, typmod, ..)).
+            if let Some(qual) = top_arm(
+                context,
+                rti,
+                node.cast(),
+                ri_type,
+                indexrel,
+                convert_external_to_special_qual,
+                state,
+                attempt_pushdown,
+            ) {
+                return Some(qual);
+            }
+
             // Standalone FuncExprs in a WHERE clause must return boolean (e.g. ST_DWithin).
             // This is distinct from FuncExprs used inside comparisons (e.g. pdb.score(id) > 0.5),
             // which are handled within opexpr().

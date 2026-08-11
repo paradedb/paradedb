@@ -66,6 +66,268 @@ ORDER BY f.score DESC, m.id
 LIMIT 5;
 ```
 
+```ts Drizzle
+import { desc, eq, sql } from "drizzle-orm";
+import { unionAll } from "drizzle-orm/pg-core";
+import { search } from "@paradedb/drizzle-paradedb";
+
+const queryEmbedding = [1, 2, 3, 4, 5, 6, 7, 8];
+const score = search.score(mockItems.id);
+const distance = search.cosineDistance(mockItems.embedding, queryEmbedding);
+
+const text = db.$with("text").as(
+  db
+    .select({
+      id: mockItems.id,
+      rank: sql`rank() over (order by ${score} desc, ${mockItems.id})`.as(
+        "rank",
+      ),
+    })
+    .from(mockItems)
+    .where(search.matchAny(mockItems.description, "running shoes"))
+    .orderBy(desc(score), mockItems.id)
+    .limit(20),
+);
+
+const vector = db.$with("vector").as(
+  db
+    .select({
+      id: mockItems.id,
+      rank: sql`rank() over (order by ${distance}, ${mockItems.id})`.as("rank"),
+    })
+    .from(mockItems)
+    .where(search.all(mockItems.id))
+    .orderBy(distance, mockItems.id)
+    .limit(20),
+);
+
+const weighted = db.$with("weighted").as(
+  unionAll(
+    db
+      .select({
+        id: text.id,
+        weight: sql`1.0 / (60 + ${text.rank})`.as("weight"),
+      })
+      .from(text),
+    db
+      .select({
+        id: vector.id,
+        weight: sql`0.7 / (60 + ${vector.rank})`.as("weight"),
+      })
+      .from(vector),
+  ),
+);
+
+const fused = db.$with("fused").as(
+  db
+    .select({
+      id: weighted.id,
+      score: sql`sum(${weighted.weight})`.as("score"),
+    })
+    .from(weighted)
+    .groupBy(weighted.id),
+);
+
+await db
+  .with(text, vector, weighted, fused)
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    score: fused.score,
+  })
+  .from(fused)
+  .innerJoin(mockItems, eq(mockItems.id, fused.id))
+  .orderBy(desc(fused.score), mockItems.id)
+  .limit(5);
+```
+
+```python Django
+from django.db.models import F, FloatField, Sum, Value, Window
+from django.db.models.expressions import ExpressionWrapper
+from django.db.models.functions import Cast, Rank
+from django_cte import CTE, with_cte
+
+from paradedb import All, MatchAny, ParadeDB, Score
+from paradedb.vector import CosineDistance
+
+query_embedding = [1, 2, 3, 4, 5, 6, 7, 8]
+
+text = CTE(
+    MockItem.objects.filter(description=ParadeDB(MatchAny('running shoes')))
+    .annotate(score=Score())
+    .annotate(rank=Window(expression=Rank(), order_by=[F('score').desc(), 'id']))
+    .order_by('-score', 'id')
+    .values('id', 'rank')[:20],
+    name='text',
+)
+
+vector = CTE(
+    MockItem.objects.filter(id=ParadeDB(All()))
+    .annotate(distance=CosineDistance('embedding', query_embedding))
+    .annotate(rank=Window(expression=Rank(), order_by=[F('distance').asc(), 'id']))
+    .order_by('distance', 'id')
+    .values('id', 'rank')[:20],
+    name='vector',
+)
+
+
+def rrf_weight(weight):
+    return ExpressionWrapper(
+        Value(weight) / (Value(60.0) + Cast(F('rank'), FloatField())),
+        output_field=FloatField(),
+    )
+
+
+weighted = CTE(
+    text.queryset()
+    .annotate(weight=rrf_weight(1.0))
+    .values('id', 'weight')
+    .union(
+        vector.queryset().annotate(weight=rrf_weight(0.7)).values('id', 'weight'),
+        all=True,
+    ),
+    name='weighted',
+)
+
+fused = CTE(
+    weighted.queryset().values('id').annotate(score=Sum('weight')),
+    name='fused',
+)
+
+with_cte(
+    text,
+    vector,
+    weighted,
+    fused,
+    select=fused.join(MockItem, id=fused.col.id)
+    .annotate(score=fused.col.score)
+    .order_by('-score', 'id')[:5],
+)
+```
+
+```python SQLAlchemy
+from sqlalchemy import func, select, union_all
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search, vector
+
+query_embedding = [1, 2, 3, 4, 5, 6, 7, 8]
+score = pdb.score(MockItem.id)
+distance = vector.cosine_distance(MockItem.embedding, query_embedding)
+
+text = (
+    select(
+        MockItem.id,
+        func.rank().over(order_by=(score.desc(), MockItem.id)).label("rank"),
+    )
+    .where(search.match_any(MockItem.description, "running shoes"))
+    .order_by(score.desc(), MockItem.id)
+    .limit(20)
+    .cte("text")
+)
+
+vec = (
+    select(
+        MockItem.id,
+        func.rank().over(order_by=(distance, MockItem.id)).label("rank"),
+    )
+    .where(search.all(MockItem.id))
+    .order_by(distance, MockItem.id)
+    .limit(20)
+    .cte("vector")
+)
+
+weighted = union_all(
+    select(text.c.id, (1.0 / (60 + text.c.rank)).label("weight")),
+    select(vec.c.id, (0.7 / (60 + vec.c.rank)).label("weight")),
+).subquery("u")
+
+fused = (
+    select(weighted.c.id, func.sum(weighted.c.weight).label("score"))
+    .group_by(weighted.c.id)
+    .cte("fused")
+)
+
+stmt = (
+    select(MockItem.id, MockItem.description, fused.c.score)
+    .join_from(fused, MockItem, MockItem.id == fused.c.id)
+    .order_by(fused.c.score.desc(), MockItem.id)
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+query_embedding = [1, 2, 3, 4, 5, 6, 7, 8]
+id = MockItem.arel_table[:id]
+score = MockItem.paradedb_arel.score(:id)
+distance = MockItem.paradedb_arel.cosine_distance(:embedding, query_embedding)
+
+text = MockItem.search(:description)
+               .match_any("running shoes")
+               .select(id, Arel::Nodes::NamedFunction.new("RANK", [])
+                 .over(Arel::Nodes::Window.new.order(score.desc, id))
+                 .as("rank"))
+               .order(score.desc, id)
+               .limit(20)
+
+vector = MockItem.nearest(:embedding, query_embedding, metric: :cosine)
+                 .select(id, Arel::Nodes::NamedFunction.new("RANK", [])
+                   .over(Arel::Nodes::Window.new.order(distance, id))
+                   .as("rank"))
+                 .order(:id)
+                 .limit(20)
+
+weighted = [
+  MockItem.from("text").select("text.id", "1.0 / (60 + text.rank) AS weight"),
+  MockItem.from("vector").select("vector.id", "0.7 / (60 + vector.rank) AS weight")
+]
+
+fused = MockItem.from("weighted")
+                .select("weighted.id", "SUM(weighted.weight) AS score")
+                .group("weighted.id")
+
+MockItem.with(text: text, vector: vector, weighted: weighted, fused: fused)
+        .from("fused")
+        .joins("JOIN mock_items ON mock_items.id = fused.id")
+        .select("mock_items.id", "mock_items.description", "fused.score")
+        .order("fused.score DESC, mock_items.id")
+        .limit(5)
+```
+
+```cs EF Core
+var queryEmbedding = new float[] { 1, 2, 3, 4, 5, 6, 7, 8 };
+
+var text = await dbContext
+    .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "running shoes"))
+    .OrderByDescending(item => EF.Functions.Score(item.Id))
+    .ThenBy(item => item.Id)
+    .Select(item => new { item.Id, item.Description })
+    .Take(20)
+    .ToListAsync();
+
+var vector = await dbContext
+    .MockItems.Where(item => EF.Functions.All(item.Id))
+    .OrderBy(item => EF.Functions.CosineDistance(item.Embedding, queryEmbedding))
+    .ThenBy(item => item.Id)
+    .Select(item => new { item.Id, item.Description })
+    .Take(20)
+    .ToListAsync();
+
+var results = text
+    .Select((item, index) => (item.Id, item.Description, Weight: 1.0 / (60 + index + 1)))
+    .Concat(
+        vector.Select((item, index) => (item.Id, item.Description, Weight: 0.7 / (60 + index + 1)))
+    )
+    .GroupBy(row => row.Id)
+    .Select(group => (group.Key, group.First().Description, Score: group.Sum(row => row.Weight)))
+    .OrderByDescending(row => row.Score)
+    .ThenBy(row => row.Key)
+    .Take(5)
+    .ToList();
+```
+
 </CodeGroup>
 
 The `1.0` and `0.7` are the per-branch weights, here valuing text matches over vector ones, and `60` is `k`.

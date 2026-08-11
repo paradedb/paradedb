@@ -434,6 +434,11 @@ unsafe fn build_scan_node(
         .with_heaprelid(source.relid)
         .with_indexrelid(bm25_index.oid());
 
+    // Preserve index `partition_by` so RangePartitioningRule can co-partition
+    // equi-joins under AggregateScan (matches JoinScan planning).
+    let partition_by = bm25_index.options().partition_by();
+    candidate = candidate.with_partition_by(partition_by);
+
     // Propagate the eagerly resolved BM25 fields so the downstream JoinSource
     // (and everything built on it - AggregateIndexVarMapper, build_source_df)
     // agrees with JoinAggSource::column_name on alias-aware field names.

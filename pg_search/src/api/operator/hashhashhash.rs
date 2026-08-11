@@ -21,6 +21,7 @@
 //! sequence, so the hashes have to be separated in the macro input; pgrx strips the whitespace out
 //! of the `opname` token stream, so the operator Postgres sees is still `###`.
 
+use crate::api::FieldName;
 use crate::api::builder_fns::{phrase_array, phrase_string};
 use crate::api::operator::boost::BoostType;
 use crate::api::operator::slop::SlopType;
@@ -28,6 +29,7 @@ use crate::api::operator::{
     RHSValue, ReturnedNodePointer, build_text_funcexpr, classify_pdb_query_input, request_simplify,
     validate_lhs_type_as_text_compatible,
 };
+use crate::query::SearchQueryInput;
 use crate::query::pdb_query::{pdb, to_search_query_input};
 use pgrx::{AnyElement, Internal, extension_sql, opname, pg_extern, pg_operator, pg_sys};
 
@@ -50,6 +52,17 @@ fn classify_for_hashhashhash(query: pdb::Query) -> pdb::Query {
             q
         },
     )
+}
+
+/// Runtime counterpart to the `###` const-folding path in `search_with_phrase_support`. Called
+/// from the plan built by that support function's `exec_rewrite` when the RHS is a `Param`
+/// (generic prepared plan) rather than a folded `Const`. `to_search_query_input` alone leaves
+/// `UnclassifiedString` / `UnclassifiedArray` intact and blows up at Tantivy conversion time; the
+/// shared classifier resolves those into a `TokenizedPhrase` / `PhraseArray` first (any
+/// `fuzzy_data` is dropped since phrases have no per-token fuzzy distance). Fixes #5779 for `###`.
+#[pg_extern(immutable, parallel_safe)]
+pub fn phrase_search_query_input(field: FieldName, query: pdb::Query) -> SearchQueryInput {
+    to_search_query_input(field, classify_for_hashhashhash(query))
 }
 
 // The `# # #` spelling below is the SQL operator `###`. Edition 2024 reserves `##` as a token

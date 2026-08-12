@@ -396,8 +396,9 @@ impl JoinSourceCandidate {
         self
     }
 
-    pub fn with_indexrelid(mut self, oid: pg_sys::Oid) -> Self {
-        self.indexrelid = Some(oid);
+    pub fn with_index(mut self, index: &crate::postgres::rel::PgSearchRelation) -> Self {
+        self.indexrelid = Some(index.oid());
+        self.partition_by = index.options().partition_by();
         self
     }
 
@@ -408,11 +409,6 @@ impl JoinSourceCandidate {
 
     pub fn with_search_predicate(mut self) -> Self {
         self.has_search_predicate = true;
-        self
-    }
-
-    pub fn with_partition_by(mut self, partition_by: Vec<crate::api::FieldName>) -> Self {
-        self.partition_by = partition_by;
         self
     }
 

@@ -1,0 +1,180 @@
+-- =====================================================================
+-- AggregateScan must preserve index partition_by so range-based MPP
+-- co-partitioning can apply to aggregate-over-join queries.
+--
+-- Dataset and GUCs mirror mpp_joinscan / mpp_aggregate, but indexes set
+-- partition_by on the equi-join keys. JoinScan already uses that metadata
+-- (see mpp_joinscan); AggregateScan must do the same.
+--
+-- Correctness: serial and MPP result rows must match.
+-- Plan: VERBOSE EXPLAIN on the MPP GROUP BY must show
+-- HashJoinExec mode=Partitioned with partition=id[…] / partition=file_id[…]
+-- on the PgSearchScans (not CollectLeft + broadcast).
+-- =====================================================================
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_aggregate_custom_scan TO on;
+SET paradedb.enable_join_custom_scan TO on;
+SET max_parallel_workers_per_gather TO 3;
+SET max_parallel_workers TO 8;
+-- Force parallel even on this tiny dataset; otherwise the cost-based
+-- planner picks the serial AggregateScan and MPP never activates.
+SET min_parallel_table_scan_size TO 0;
+SET parallel_setup_cost TO 0;
+SET parallel_tuple_cost TO 0;
+-- =====================================================================
+-- Test data (mirrors mpp_aggregate / mpp_joinscan, with partition_by)
+-- =====================================================================
+CREATE TABLE mpp_agg_pb_files (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    content TEXT
+);
+CREATE TABLE mpp_agg_pb_pages (
+    id SERIAL PRIMARY KEY,
+    file_id INTEGER,
+    page_text TEXT,
+    size_bytes INTEGER
+);
+CREATE INDEX mpp_agg_pb_files_idx ON mpp_agg_pb_files
+USING bm25 (id, title, content)
+WITH (
+    key_field='id',
+    partition_by='id',
+    text_fields='{"title": {"fast": true}, "content": {}}'
+);
+CREATE INDEX mpp_agg_pb_pages_idx ON mpp_agg_pb_pages
+USING bm25 (id, file_id, page_text, size_bytes)
+WITH (
+    key_field='id',
+    partition_by='file_id',
+    numeric_fields='{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
+    text_fields='{"page_text": {}}'
+);
+SET paradedb.global_mutable_segment_rows = 0;
+INSERT INTO mpp_agg_pb_files (title, content)
+SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
+FROM generate_series(1, 100) AS g;
+INSERT INTO mpp_agg_pb_files (title, content)
+SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
+FROM generate_series(101, 200) AS g;
+INSERT INTO mpp_agg_pb_pages (file_id, page_text, size_bytes)
+SELECT (g % 200) + 1,
+       'Page text for page ' || g,
+       (g * 17) % 4096
+FROM generate_series(1, 500) AS g;
+INSERT INTO mpp_agg_pb_pages (file_id, page_text, size_bytes)
+SELECT (g % 200) + 1,
+       'Page text for page ' || g,
+       (g * 17) % 4096
+FROM generate_series(501, 1000) AS g;
+RESET paradedb.global_mutable_segment_rows;
+ANALYZE mpp_agg_pb_files;
+ANALYZE mpp_agg_pb_pages;
+-- =====================================================================
+-- Pass 1: serial baseline (max_parallel_workers_per_gather = 0)
+-- =====================================================================
+SET max_parallel_workers_per_gather TO 0;
+SELECT COUNT(*)
+FROM mpp_agg_pb_files f JOIN mpp_agg_pb_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section';
+ count 
+-------
+  1000
+(1 row)
+
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
+FROM mpp_agg_pb_files f JOIN mpp_agg_pb_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+GROUP BY f.title
+ORDER BY f.title
+LIMIT 5;
+  title   | count |  sum  
+----------+-------+-------
+ file-1   |     5 | 10040
+ file-10  |     5 | 10189
+ file-100 |     5 |  9647
+ file-101 |     5 |  9732
+ file-102 |     5 |  9817
+(5 rows)
+
+-- =====================================================================
+-- Pass 2: MPP path — same results, plus VERBOSE EXPLAIN.
+--
+-- With partition_by preserved, the join under AggregateScan should be
+-- HashJoinExec mode=Partitioned with range-partitioned PgSearchScans
+-- (partition=id[…] / partition=file_id[…]), not CollectLeft + broadcast.
+-- =====================================================================
+SET max_parallel_workers_per_gather TO 3;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
+FROM mpp_agg_pb_files f JOIN mpp_agg_pb_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+GROUP BY f.title
+ORDER BY f.title
+LIMIT 5;
+                                                                                                                   QUERY PLAN                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: f.title, (count(*)), (sum(p.size_bytes))
+   ->  Sort
+         Output: f.title, (count(*)), (sum(p.size_bytes))
+         Sort Key: f.title
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: f.title, (count(*)), (sum(p.size_bytes))
+               Backend: DataFusion
+               Indexes: mpp_agg_pb_files_idx (f), mpp_agg_pb_pages_idx (p)
+               Group By: title
+               Aggregates: COUNT(*), SUM(size_bytes)
+               DataFusion Physical Plan: 
+                 : ┌───── DistributedExec
+                 : │ SortPreservingMergeExec: [title@0 ASC NULLS LAST], fetch=5
+                 : │   [Stage 2] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
+                 : └──────────────────────────────────────────────────
+                 :   ┌───── Stage 2 ── tasks=3, partitions=3
+                 :   │ SortExec: TopK(fetch=5), expr=[title@0 ASC NULLS LAST], preserve_partitioning=[true]
+                 :   │   AggregateExec: mode=FinalPartitioned, gby=[title@0 as title], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
+                 :   │     [Stage 1] => NetworkShuffleExec: output_partitions=3, input_tasks=3
+                 :   └──────────────────────────────────────────────────
+                 :     ┌───── Stage 1 ── tasks=3, partitions=9
+                 :     │ RepartitionExec: partitioning=Hash([title@0], 9), input_partitions=1
+                 :     │   AggregateExec: mode=Partial, gby=[title@0 as title], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
+                 :     │     HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, size_bytes@3]
+                 :     │       DistributedLeafExec:
+                 :     │         t0: PgSearchScan: segments=2, partition=id[-∞..51), dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+                 :     │         t1: PgSearchScan: segments=2, partition=id[51..101), dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+                 :     │         t2: PgSearchScan: segments=2, partition=id[101..∞), dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+                 :     │       DistributedLeafExec:
+                 :     │         t0: PgSearchScan: segments=2, partition=file_id[-∞..51), dynamic_filters=1, query="all"
+                 :     │         t1: PgSearchScan: segments=2, partition=file_id[51..101), dynamic_filters=1, query="all"
+                 :     │         t2: PgSearchScan: segments=2, partition=file_id[101..∞), dynamic_filters=1, query="all"
+                 :     └──────────────────────────────────────────────────
+(34 rows)
+
+SELECT COUNT(*)
+FROM mpp_agg_pb_files f JOIN mpp_agg_pb_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section';
+ count 
+-------
+  1000
+(1 row)
+
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
+FROM mpp_agg_pb_files f JOIN mpp_agg_pb_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+GROUP BY f.title
+ORDER BY f.title
+LIMIT 5;
+  title   | count |  sum  
+----------+-------+-------
+ file-1   |     5 | 10040
+ file-10  |     5 | 10189
+ file-100 |     5 |  9647
+ file-101 |     5 |  9732
+ file-102 |     5 |  9817
+(5 rows)
+
+-- =====================================================================
+-- Cleanup
+-- =====================================================================
+DROP TABLE mpp_agg_pb_pages;
+DROP TABLE mpp_agg_pb_files;

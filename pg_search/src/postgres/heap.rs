@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::buffer::BufferManager;
+use crate::postgres::storage::buffer::{BorrowedBuffer, BufferManager, PinnedBuffer};
 use crate::postgres::utils;
 use pgrx::PgList;
 use pgrx::pg_sys;
@@ -48,6 +48,11 @@ pub struct VisibilityChecker {
     /// Cached relation size (in blocks) at scan start. Used to cheaply skip
     /// stale ctids pointing to pages truncated by a previous VACUUM.
     nblocks: pg_sys::BlockNumber,
+
+    /// Pin on the heap block last probed by `check_one`, held across calls
+    /// since consecutive probes tend to hit the same block.
+    cached_heap_block: pg_sys::BlockNumber,
+    cached_heap_pin: Option<PinnedBuffer>,
 
     pub heap_tuple_check_count: usize,
     pub invisible_tuple_count: usize,
@@ -88,6 +93,8 @@ impl VisibilityChecker {
                 vmbuff: pg_sys::InvalidBuffer as pg_sys::Buffer,
                 blockvis: (pg_sys::InvalidBlockNumber, false),
                 nblocks,
+                cached_heap_block: pg_sys::InvalidBlockNumber,
+                cached_heap_pin: None,
                 heap_tuple_check_count: 0,
                 invisible_tuple_count: 0,
             }
@@ -228,6 +235,35 @@ impl VisibilityChecker {
                 None
             }
         }
+    }
+
+    /// Single-ctid visibility check for callers probing one doc at a time
+    /// (e.g. the lazy cardinality visibility filter). The VM all-visible fast
+    /// path avoids heap access entirely; otherwise the tuple is checked under
+    /// a short share lock, reusing a cached pin on the heap block across
+    /// calls since consecutive probes tend to hit the same block.
+    pub fn check_one(&mut self, ctid: u64) -> bool {
+        let blockno = (ctid >> 16) as pg_sys::BlockNumber;
+        if blockno >= self.nblocks {
+            self.invisible_tuple_count += 1;
+            return false;
+        }
+        if self.is_block_all_visible(blockno) {
+            return true;
+        }
+        self.heap_tuple_check_count += 1;
+        if self.cached_heap_block != blockno {
+            drop(self.cached_heap_pin.take());
+            self.cached_heap_pin = Some(self.bman.pinned_buffer(blockno));
+            self.cached_heap_block = blockno;
+        }
+        let pg_buffer = self.cached_heap_pin.as_ref().unwrap().pg_buffer();
+        let _lock = unsafe { BorrowedBuffer::from_pg(pg_buffer) };
+        let visible = self.check_visibility_with_buffer(ctid, pg_buffer).is_some();
+        if !visible {
+            self.invisible_tuple_count += 1;
+        }
+        visible
     }
 
     /// Checks if a batch of rows are visible, and computes their updated ctid (by following a HOT

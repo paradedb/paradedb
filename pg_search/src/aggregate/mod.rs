@@ -1016,9 +1016,7 @@ pub mod lazy_vischeck {
                 let Some(ctid) = ctid_ff.as_u64(doc) else {
                     return false;
                 };
-                let mut results = [None];
-                vischeck.lock().check_batch(&[Some(ctid)], &mut results);
-                results[0].is_some()
+                vischeck.lock().check_one(ctid)
             }))
         })
     }

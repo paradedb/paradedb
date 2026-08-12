@@ -105,8 +105,8 @@ use tantivy::{Score, SegmentOrdinal};
 
 use crate::api::HashSet;
 use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::query::value_to_term;
-use crate::scan::filter_pushdown::scalar_to_owned_value;
 use tantivy::query::{
     BooleanQuery, ConstScoreQuery, Occur, Query, TermSetQuery, TermSetStrategyConfig,
 };
@@ -883,7 +883,7 @@ fn try_convert_in_list_to_query(
         .iter()
         .map(|expr| {
             let scalar = extract_physical_scalar_value(expr)?;
-            let owned_value = scalar_to_owned_value(&scalar, &field_type)?;
+            let owned_value = PdbOwnedValue::from_scalar(&scalar, &field_type)?;
             value_to_term(
                 tantivy_field,
                 &owned_value,

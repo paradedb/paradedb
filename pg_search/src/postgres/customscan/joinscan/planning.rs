@@ -222,15 +222,12 @@ pub(super) unsafe fn collect_join_sources_base_rel(
     let mut classified = ClassifiedBaseRestrictInfo::empty();
 
     if let Some((_, bm25_index)) = rel_get_bm25_index(relid) {
-        side_info = side_info.with_indexrelid(bm25_index.oid());
+        side_info = side_info.with_index(&bm25_index);
 
         let baserestrictinfo = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
         if missing_partial_index_predicate(bm25_index.rd_indpred, &baserestrictinfo) {
             return None;
         }
-
-        let partition_by = bm25_index.options().partition_by();
-        side_info = side_info.with_partition_by(partition_by);
 
         classified = classify_base_restrictinfo(root, (*rel).baserestrictinfo);
 

@@ -429,15 +429,12 @@ unsafe fn build_scan_node(
         )
     })?;
 
-    // Build a JoinSourceCandidate progressively
+    // Build a JoinSourceCandidate progressively. `with_index` attaches index metadata
+    // and `partition_by` so RangePartitioningRule can co-partition equi-joins
+    // under AggregateScan (matches JoinScan planning).
     let mut candidate = JoinSourceCandidate::new(PlannerRootId::from(root), rti)
         .with_heaprelid(source.relid)
-        .with_indexrelid(bm25_index.oid());
-
-    // Preserve index `partition_by` so RangePartitioningRule can co-partition
-    // equi-joins under AggregateScan (matches JoinScan planning).
-    let partition_by = bm25_index.options().partition_by();
-    candidate = candidate.with_partition_by(partition_by);
+        .with_index(bm25_index);
 
     // Propagate the eagerly resolved BM25 fields so the downstream JoinSource
     // (and everything built on it - AggregateIndexVarMapper, build_source_df)

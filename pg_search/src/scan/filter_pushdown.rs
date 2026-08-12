@@ -159,7 +159,7 @@ impl<'a> FilterAnalyzer<'a> {
         let column_name = extract_column_name(column_expr)?;
         let field_type = self.find_field(&column_name)?;
         let scalar = extract_scalar_value(literal_expr)?;
-        let value = scalar_to_owned_value(&scalar, field_type)?;
+        let value = PdbOwnedValue::from_scalar(&scalar, field_type)?;
         let field: FieldName = column_name.into();
 
         match op {
@@ -198,7 +198,7 @@ impl<'a> FilterAnalyzer<'a> {
             .iter()
             .filter_map(|expr| {
                 let scalar = extract_scalar_value(expr)?;
-                scalar_to_owned_value(&scalar, field_type)
+                PdbOwnedValue::from_scalar(&scalar, field_type)
             })
             .collect();
 
@@ -314,91 +314,6 @@ fn extract_column_name(expr: &Expr) -> Option<String> {
 pub fn extract_scalar_value(expr: &Expr) -> Option<ScalarValue> {
     match expr {
         Expr::Literal(scalar, _) => Some(scalar.clone()),
-        _ => None,
-    }
-}
-
-pub fn scalar_to_owned_value(
-    scalar: &ScalarValue,
-    field_type: &SearchFieldType,
-) -> Option<PdbOwnedValue> {
-    match (scalar, field_type) {
-        // Integer types (I64)
-        (ScalarValue::Int8(Some(v)), SearchFieldType::I64(_)) => {
-            Some(PdbOwnedValue::I64(*v as i64))
-        }
-        (ScalarValue::Int16(Some(v)), SearchFieldType::I64(_)) => {
-            Some(PdbOwnedValue::I64(*v as i64))
-        }
-        (ScalarValue::Int32(Some(v)), SearchFieldType::I64(_)) => {
-            Some(PdbOwnedValue::I64(*v as i64))
-        }
-        (ScalarValue::Int64(Some(v)), SearchFieldType::I64(_)) => Some(PdbOwnedValue::I64(*v)),
-
-        // Unsigned integer types (U64)
-        (ScalarValue::UInt8(Some(v)), SearchFieldType::U64(_)) => {
-            Some(PdbOwnedValue::U64(*v as u64))
-        }
-        (ScalarValue::UInt16(Some(v)), SearchFieldType::U64(_)) => {
-            Some(PdbOwnedValue::U64(*v as u64))
-        }
-        (ScalarValue::UInt32(Some(v)), SearchFieldType::U64(_)) => {
-            Some(PdbOwnedValue::U64(*v as u64))
-        }
-        (ScalarValue::UInt64(Some(v)), SearchFieldType::U64(_)) => Some(PdbOwnedValue::U64(*v)),
-
-        // Cross-type integer conversions
-        (ScalarValue::Int8(Some(v)), SearchFieldType::U64(_)) if *v >= 0 => {
-            Some(PdbOwnedValue::U64(*v as u64))
-        }
-        (ScalarValue::Int16(Some(v)), SearchFieldType::U64(_)) if *v >= 0 => {
-            Some(PdbOwnedValue::U64(*v as u64))
-        }
-        (ScalarValue::Int32(Some(v)), SearchFieldType::U64(_)) if *v >= 0 => {
-            Some(PdbOwnedValue::U64(*v as u64))
-        }
-        (ScalarValue::Int64(Some(v)), SearchFieldType::U64(_)) if *v >= 0 => {
-            Some(PdbOwnedValue::U64(*v as u64))
-        }
-
-        // Float types (F64)
-        (ScalarValue::Float32(Some(v)), SearchFieldType::F64(_)) => {
-            Some(PdbOwnedValue::F64(*v as f64))
-        }
-        (ScalarValue::Float64(Some(v)), SearchFieldType::F64(_)) => Some(PdbOwnedValue::F64(*v)),
-
-        // Integer to float conversion
-        (ScalarValue::Int64(Some(v)), SearchFieldType::F64(_)) => {
-            Some(PdbOwnedValue::F64(*v as f64))
-        }
-        (ScalarValue::Int32(Some(v)), SearchFieldType::F64(_)) => {
-            Some(PdbOwnedValue::F64(*v as f64))
-        }
-
-        // Boolean
-        (ScalarValue::Boolean(Some(v)), SearchFieldType::Bool(_)) => Some(PdbOwnedValue::Bool(*v)),
-
-        // String/Text types
-        (ScalarValue::Utf8(Some(v)), SearchFieldType::Text(_)) => {
-            Some(PdbOwnedValue::Str(v.clone()))
-        }
-        (ScalarValue::LargeUtf8(Some(v)), SearchFieldType::Text(_)) => {
-            Some(PdbOwnedValue::Str(v.clone()))
-        }
-        (ScalarValue::Utf8View(Some(v)), SearchFieldType::Text(_)) => {
-            Some(PdbOwnedValue::Str(v.clone()))
-        }
-
-        // Numeric64 (scaled integers)
-        (ScalarValue::Int64(Some(v)), SearchFieldType::Numeric64(_, scale)) => {
-            let multiplier = 10i64.pow(*scale as u32);
-            Some(PdbOwnedValue::I64(v * multiplier))
-        }
-        (ScalarValue::Float64(Some(v)), SearchFieldType::Numeric64(_, scale)) => {
-            let multiplier = 10f64.powi(*scale as i32);
-            Some(PdbOwnedValue::I64((v * multiplier).round() as i64))
-        }
-
         _ => None,
     }
 }

@@ -127,41 +127,69 @@ ORDER BY pdb.rrf(id, vector_window_size => 3)
 LIMIT 3;
 
 
--- ::pdb.top(n) arm annotations: per-arm windows written on the arms
--- themselves. Equivalent to the vector_window_size => 3 query above (2,1,4),
--- and the windows are visible in the Tantivy Query.
+-- ::pdb.top_bm25(n) / ::pdb.top_knn(n) arm annotations: the cast's type
+-- name declares what ranks the arm, the typmod its candidate window, both
+-- written on the arm itself. Equivalent to the vector_window_size => 3 query
+-- above (2,1,4), and the measures and windows are visible in the Tantivy
+-- Query.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM hyb
-WHERE (label ||| 'east wind')::pdb.top(100) OR (vec ~~~ '[0.05,0.1,0.99]')::pdb.top(3)
+WHERE (label ||| 'east wind')::pdb.top_bm25(100) OR (vec ~~~ '[0.05,0.1,0.99]')::pdb.top_knn(3)
 ORDER BY pdb.rrf(id)
 LIMIT 3;
 SELECT id, pdb.score(id, type => 'rank') AS fused_rank
 FROM hyb
-WHERE (label ||| 'east wind')::pdb.top(100) OR (vec ~~~ '[0.05,0.1,0.99]')::pdb.top(3)
+WHERE (label ||| 'east wind')::pdb.top_bm25(100) OR (vec ~~~ '[0.05,0.1,0.99]')::pdb.top_knn(3)
 ORDER BY pdb.rrf(id)
 LIMIT 3;
 
--- a ::pdb.top arm cannot mix text and knn predicates
-SELECT id FROM hyb
-WHERE (label ||| 'east wind' AND vec ~~~ '[1,0,0]')::pdb.top(5)
+-- predicates inside a ::pdb.top_knn arm are filters: the arm ranks by
+-- proximity among the rows that pass them. The knn arm is gated to id < 3
+-- (docs 1, 2; doc 2 the nearer) and truncated to a window of 1, so only
+-- doc 2 gets vector credit: 1/62 + 1/61 beats doc 1's 1/61 and doc 3's 1/63.
+SELECT id, pdb.score(id, type => 'rank') AS fused_rank
+FROM hyb
+WHERE (label ||| 'east wind')::pdb.top_bm25(100)
+   OR (id < 3 AND vec ~~~ '[0.05,0.1,0.99]')::pdb.top_knn(1)
 ORDER BY pdb.rrf(id)
 LIMIT 3;
 
--- multiple text arms are not supported yet
+-- a lone ::pdb.top_knn arm with a text filter is a filtered knn search:
+-- candidates must match the filter (docs 1, 2, 3), ranked purely by
+-- proximity (2, 3, 1); there is no text arm, so bm25 is NULL
+SELECT id, round(pdb.score(id)::numeric, 6) AS bm25, pdb.score(id, type => 'rank') AS fused_rank
+FROM hyb
+WHERE (label ||| 'east wind' AND vec ~~~ '[0.05,0.1,0.99]')::pdb.top_knn(5)
+ORDER BY pdb.rrf(id)
+LIMIT 5;
+
+-- a ::pdb.top_bm25 arm ranks by BM25, so a ~~~ inside it has no meaning
 SELECT id FROM hyb
-WHERE (label ||| 'east')::pdb.top(5) OR (label ||| 'wind')::pdb.top(5) OR vec ~~~ '[1,0,0]'
+WHERE (label ||| 'east wind' AND vec ~~~ '[1,0,0]')::pdb.top_bm25(5)
+ORDER BY pdb.rrf(id)
+LIMIT 3;
+
+-- a ::pdb.top_knn arm must have a ~~~ to rank by
+SELECT id FROM hyb
+WHERE (label ||| 'east wind')::pdb.top_knn(5)
+ORDER BY pdb.rrf(id)
+LIMIT 3;
+
+-- multiple bm25 arms are not supported yet
+SELECT id FROM hyb
+WHERE (label ||| 'east')::pdb.top_bm25(5) OR (label ||| 'wind')::pdb.top_bm25(5) OR vec ~~~ '[1,0,0]'
 ORDER BY pdb.rrf(id)
 LIMIT 3;
 
 -- a window given both on the arm and on pdb.rrf() is a conflict
 SELECT id FROM hyb
-WHERE label ||| 'east wind' OR (vec ~~~ '[0.05,0.1,0.99]')::pdb.top(3)
+WHERE label ||| 'east wind' OR (vec ~~~ '[0.05,0.1,0.99]')::pdb.top_knn(3)
 ORDER BY pdb.rrf(id, vector_window_size => 5)
 LIMIT 3;
 
--- ::pdb.top requires the rank-fusion ordering
+-- the annotations require the rank-fusion ordering
 SELECT id FROM hyb
-WHERE (label ||| 'east wind')::pdb.top(5)
+WHERE (label ||| 'east wind')::pdb.top_bm25(5)
 ORDER BY id
 LIMIT 3;
 

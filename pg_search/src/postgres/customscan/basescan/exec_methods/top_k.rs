@@ -415,9 +415,9 @@ impl ExecMethod for TopKScanExecState {
             }
         }
 
-        // Inject per-arm candidate windows harvested from `::pdb.top(n)`
-        // annotations, erroring if the same arm's window was also given via
-        // pdb.rrf() arguments.
+        // Inject per-arm candidate windows harvested from `::pdb.top_bm25(n)`
+        // / `::pdb.top_knn(n)` annotations, erroring if the same arm's window
+        // was also given via pdb.rrf() arguments.
         {
             let arm_bm25 = state.arm_bm25_window;
             let arm_vector = state.arm_vector_window;
@@ -433,7 +433,7 @@ impl ExecMethod for TopKScanExecState {
                             if let Some(window) = arm_bm25 {
                                 if *bm25_window != 0 && *bm25_window != window {
                                     pgrx::error!(
-                                        "the text arm's window is specified both via ::pdb.top and pdb.rrf(bm25_window_size => ..); use one"
+                                        "the text arm's window is specified both via ::pdb.top_bm25 and pdb.rrf(bm25_window_size => ..); use one"
                                     );
                                 }
                                 *bm25_window = window;
@@ -441,7 +441,7 @@ impl ExecMethod for TopKScanExecState {
                             if let Some(window) = arm_vector {
                                 if *vector_window != 0 && *vector_window != window {
                                     pgrx::error!(
-                                        "the vector arm's window is specified both via ::pdb.top and pdb.rrf(vector_window_size => ..); use one"
+                                        "the vector arm's window is specified both via ::pdb.top_knn and pdb.rrf(vector_window_size => ..); use one"
                                     );
                                 }
                                 *vector_window = window;

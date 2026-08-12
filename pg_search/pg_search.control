@@ -1,5 +1,5 @@
 comment = 'pg_search: Full text search for PostgreSQL using BM25'
-default_version = '0.25.0.4'
+default_version = '0.25.0.5'
 module_pathname = '$libdir/pg_search'
 relocatable = false
 superuser = false

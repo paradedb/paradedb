@@ -125,13 +125,16 @@ pub enum SearchQueryInput {
         oid: pg_sys::Oid,
         query: Box<SearchQueryInput>,
     },
-    /// A `(subtree)::pdb.top(n)` fusion-arm annotation: "this row is among
-    /// the top `window` rows ranked by `query`'s own measure". Like `Knn`,
-    /// never converted to a tantivy query — the rank-fusion path harvests
-    /// the window and strips the wrapper before execution.
+    /// A `(subtree)::pdb.top_bm25(n)` / `(subtree)::pdb.top_knn(n)`
+    /// fusion-arm annotation: "this row is among the top `window` rows
+    /// ranked by `measure`"; every other predicate in the subtree is a
+    /// filter. Like `Knn`, never converted to a tantivy query — the
+    /// rank-fusion path harvests the measure and window and strips the
+    /// wrapper before execution.
     TopN {
         query: Box<SearchQueryInput>,
         window: i32,
+        measure: TopMeasure,
     },
     /// The `~~~(vector, vector)` knn operator: "this row is among the
     /// top-`window_size` nearest neighbors of `query_vector`". Not a
@@ -161,18 +164,29 @@ pub enum SearchQueryInput {
     },
 }
 
-/// One harvested `::pdb.top(n)` arm annotation; see
+/// The ranking measure a fusion-arm annotation declares: the type name of
+/// the cast (`::pdb.top_bm25(n)` or `::pdb.top_knn(n)`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TopMeasure {
+    Bm25,
+    Knn,
+}
+
+/// One harvested fusion-arm annotation; see
 /// [`SearchQueryInput::strip_top_arms`].
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct TopArmInfo {
     /// The arm's candidate window (the typmod `n`).
     pub window: i32,
+    /// The measure the annotation's type name declares.
+    pub measure: TopMeasure,
     /// The annotated subtree contains a `~~~` knn predicate.
     pub contains_knn: bool,
-    /// The annotated subtree is exactly a knn predicate.
-    pub knn_only: bool,
-    /// The annotated subtree itself contains another `::pdb.top` annotation.
+    /// The annotated subtree itself contains another arm annotation.
     pub nested: bool,
+    /// The arm's subtree, with any nested annotations stripped.
+    pub inner: SearchQueryInput,
 }
 
 fn serialize_fielded_query<S>(
@@ -463,7 +477,7 @@ impl SearchQueryInput {
     /// Used by `estimate_selectivity` to short-circuit and return a heuristic instead.
     pub fn is_expensive_to_estimate(&self) -> bool {
         match self {
-            // not estimable at all: knn leaves and ::pdb.top arms cannot
+            // not estimable at all: knn leaves and fusion arms cannot
             // become tantivy queries
             SearchQueryInput::Knn { .. } | SearchQueryInput::TopN { .. } => true,
             SearchQueryInput::Boolean {
@@ -846,14 +860,19 @@ impl SearchQueryInput {
     pub fn strip_top_arms(&self) -> (SearchQueryInput, Vec<TopArmInfo>) {
         fn walk(query: &SearchQueryInput, arms: &mut Vec<TopArmInfo>) -> SearchQueryInput {
             match query {
-                SearchQueryInput::TopN { query, window } => {
+                SearchQueryInput::TopN {
+                    query,
+                    window,
+                    measure,
+                } => {
                     let mut inner_arms = Vec::new();
                     let stripped = walk(query, &mut inner_arms);
                     arms.push(TopArmInfo {
                         window: *window,
+                        measure: *measure,
                         contains_knn: query.contains_knn(),
-                        knn_only: query.is_knn_only(),
                         nested: !inner_arms.is_empty(),
+                        inner: stripped.clone(),
                     });
                     arms.extend(inner_arms);
                     stripped
@@ -906,6 +925,126 @@ impl SearchQueryInput {
         let mut arms = Vec::new();
         let stripped = walk(self, &mut arms);
         (stripped, arms)
+    }
+
+    /// The boolean context a `::pdb.top_knn` arm's candidates must satisfy
+    /// beyond the arm's own predicates: this (pre-strip) tree with the knn
+    /// arm assumed true (replaced by `All`) and every other annotation
+    /// unwrapped.
+    ///
+    /// Under `bm25_arm OR knn_arm` the OR is absorbed and only shared
+    /// predicates remain; under `bm25_arm AND knn_arm` the bm25 arm survives
+    /// as a gate (the intersection shape). ANDing this context with the knn
+    /// arm's own `inner[knn := true]` yields the vector leg's driving query,
+    /// so a text-arm row that fails the knn arm's filters can never occupy a
+    /// slot in its candidate window.
+    pub fn knn_arm_context(&self) -> SearchQueryInput {
+        match self {
+            SearchQueryInput::TopN { query, measure, .. } => match measure {
+                TopMeasure::Knn => SearchQueryInput::All,
+                TopMeasure::Bm25 => query.knn_arm_context(),
+            },
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+                minimum_should_match,
+            } => SearchQueryInput::Boolean {
+                must: must.iter().map(|q| q.knn_arm_context()).collect(),
+                should: should.iter().map(|q| q.knn_arm_context()).collect(),
+                must_not: must_not.iter().map(|q| q.knn_arm_context()).collect(),
+                minimum_should_match: *minimum_should_match,
+            },
+            SearchQueryInput::WithIndex { oid, query } => SearchQueryInput::WithIndex {
+                oid: *oid,
+                query: Box::new(query.knn_arm_context()),
+            },
+            SearchQueryInput::HeapFilter {
+                indexed_query,
+                field_filters,
+            } => SearchQueryInput::HeapFilter {
+                indexed_query: Box::new(indexed_query.knn_arm_context()),
+                field_filters: field_filters.clone(),
+            },
+            other => other.clone(),
+        }
+    }
+
+    /// Like [`Self::without_knn`], but at the granularity of a whole
+    /// `::pdb.top_knn` arm: the arm's entire subtree (its `~~~` predicate
+    /// *and* its filters) is deleted from its boolean context, and every
+    /// other annotation is unwrapped.
+    ///
+    /// This is the text-relevance scoring query when arms are annotated:
+    /// under `bm25_arm OR knn_arm` it is the bm25 arm alone, so a document
+    /// matching the knn arm's filters gets no BM25 credit for them. A tree
+    /// that consists solely of the knn arm becomes `Empty` (there is no text
+    /// relevance).
+    pub fn without_knn_arm(&self) -> SearchQueryInput {
+        fn is_knn_arm(query: &SearchQueryInput) -> bool {
+            matches!(
+                query,
+                SearchQueryInput::TopN {
+                    measure: TopMeasure::Knn,
+                    ..
+                }
+            )
+        }
+
+        match self {
+            SearchQueryInput::TopN { query, measure, .. } => match measure {
+                TopMeasure::Knn => SearchQueryInput::Empty,
+                TopMeasure::Bm25 => query.without_knn_arm(),
+            },
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+                minimum_should_match,
+            } => {
+                let strip = |clauses: &[SearchQueryInput]| {
+                    clauses
+                        .iter()
+                        .filter(|clause| !is_knn_arm(clause))
+                        .map(|clause| clause.without_knn_arm())
+                        .collect::<Vec<_>>()
+                };
+                let (must, should, must_not) = (strip(must), strip(should), strip(must_not));
+                if must.is_empty() && should.is_empty() && must_not.is_empty() {
+                    SearchQueryInput::Empty
+                } else {
+                    SearchQueryInput::Boolean {
+                        must,
+                        should,
+                        must_not,
+                        minimum_should_match: *minimum_should_match,
+                    }
+                }
+            }
+            SearchQueryInput::WithIndex { oid, query } => SearchQueryInput::WithIndex {
+                oid: *oid,
+                query: Box::new(query.without_knn_arm()),
+            },
+            SearchQueryInput::HeapFilter {
+                indexed_query,
+                field_filters,
+            } => SearchQueryInput::HeapFilter {
+                indexed_query: Box::new(indexed_query.without_knn_arm()),
+                field_filters: field_filters.clone(),
+            },
+            SearchQueryInput::DisjunctionMax {
+                disjuncts,
+                tie_breaker,
+            } => SearchQueryInput::DisjunctionMax {
+                disjuncts: disjuncts
+                    .iter()
+                    .filter(|disjunct| !is_knn_arm(disjunct))
+                    .map(|disjunct| disjunct.without_knn_arm())
+                    .collect(),
+                tie_breaker: *tie_breaker,
+            },
+            other => other.clone(),
+        }
     }
 
     /// Return a copy of this tree with every [`SearchQueryInput::Knn`] leaf
@@ -969,9 +1108,14 @@ impl SearchQueryInput {
                 indexed_query: Box::new(indexed_query.without_knn()),
                 field_filters: field_filters.clone(),
             },
-            SearchQueryInput::TopN { query, window } => SearchQueryInput::TopN {
+            SearchQueryInput::TopN {
+                query,
+                window,
+                measure,
+            } => SearchQueryInput::TopN {
                 query: Box::new(query.without_knn()),
                 window: *window,
+                measure: *measure,
             },
             SearchQueryInput::DisjunctionMax {
                 disjuncts,
@@ -1417,7 +1561,7 @@ impl SearchQueryInput {
                 panic!("the `~~~(vector, vector)` operator requires a ParadeDB TopK rank-fusion scan: use `ORDER BY pdb.rrf(pdb.score(<key>), <vector_column> <op> <query_vector>) LIMIT <n>`")
             }
             SearchQueryInput::TopN { .. } => {
-                panic!("::pdb.top(n) annotations require a ParadeDB TopK rank-fusion scan: use `ORDER BY pdb.rrf(<key>) LIMIT <k>`")
+                panic!("::pdb.top_bm25(n)/::pdb.top_knn(n) annotations require a ParadeDB TopK rank-fusion scan: use `ORDER BY pdb.rrf(<key>) LIMIT <k>`")
             }
             SearchQueryInput::Boolean {
                 must,

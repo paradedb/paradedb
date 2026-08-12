@@ -28,7 +28,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::var::VarContext;
 use crate::query::heap_field_filter::HeapFieldFilter;
 use crate::query::pdb_query::pdb;
-use crate::query::SearchQueryInput;
+use crate::query::{SearchQueryInput, TopMeasure};
 use pg_sys::BoolExprType;
 use pgrx::{pg_guard, pg_sys, FromDatum, IntoDatum, PgList};
 use std::ops::Bound;
@@ -36,12 +36,14 @@ use std::ops::Bound;
 #[derive(Debug, Clone)]
 pub enum Qual {
     All,
-    /// A `(subtree)::pdb.top(n)` fusion-arm annotation: the row is among the
-    /// top `n` rows ranked by the subtree's own measure. Consumed by the
-    /// rank-fusion scan; see `SearchQueryInput::TopN`.
+    /// A `(subtree)::pdb.top_bm25(n)` / `(subtree)::pdb.top_knn(n)`
+    /// fusion-arm annotation: the row is among the top `n` rows ranked by
+    /// the named measure. Consumed by the rank-fusion scan; see
+    /// `SearchQueryInput::TopN`.
     TopArm {
         inner: Box<Qual>,
         window: i32,
+        measure: TopMeasure,
     },
     ExternalVar,
     ExternalExpr,
@@ -499,9 +501,14 @@ impl From<&Qual> for SearchQueryInput {
             Qual::All => SearchQueryInput::All,
             Qual::ExternalVar => SearchQueryInput::All,
             Qual::ExternalExpr => SearchQueryInput::All,
-            Qual::TopArm { inner, window } => SearchQueryInput::TopN {
+            Qual::TopArm {
+                inner,
+                window,
+                measure,
+            } => SearchQueryInput::TopN {
                 query: Box::new(SearchQueryInput::from(inner.as_ref())),
                 window: *window,
+                measure: *measure,
             },
             // Handle ScalarArrayOpExpr: PostgreSQL 18+ rewrites OR clauses like
             // `field @@@ 'a' OR field @@@ 'b'` into `field @@@ ANY(ARRAY['a','b'])`.
@@ -846,10 +853,12 @@ pub unsafe fn is_subplan(node: *mut pg_sys::Node, root: *mut pg_sys::PlannerInfo
     walker(node, std::ptr::null_mut())
 }
 
-/// Recognize the `(subtree)::pdb.top(n)` cast sandwich:
-/// `top_to_bool(top_to_top*(bool_to_top(subtree, typmod, _), typmod, _))`,
-/// where re-annotation layers may repeat and the outermost typmod wins.
-/// Returns a [`Qual::TopArm`] wrapping the recursively-extracted subtree.
+/// Recognize a `(subtree)::pdb.top_bm25(n)` / `(subtree)::pdb.top_knn(n)`
+/// cast sandwich: `<to_bool>(<retypmod>*(<creator>(subtree, typmod, _),
+/// typmod, _))`, where re-annotation layers may repeat and the outermost
+/// typmod wins. The type name of the cast declares the arm's ranking
+/// measure. Returns a [`Qual::TopArm`] wrapping the recursively-extracted
+/// subtree.
 #[allow(clippy::too_many_arguments)]
 unsafe fn top_arm(
     context: &PlannerContext,
@@ -861,13 +870,19 @@ unsafe fn top_arm(
     state: &mut QualExtractState,
     attempt_pushdown: bool,
 ) -> Option<Qual> {
-    use crate::api::operator::top::{bool_to_top_procoid, top_to_bool_procoid, top_to_top_procoid};
+    use crate::api::operator::top::{top_bm25_procs, top_knn_procs};
 
     let outer = nodecast!(FuncExpr, T_FuncExpr, node)?;
-    let top_to_bool = top_to_bool_procoid();
-    if top_to_bool == pg_sys::Oid::INVALID || (*outer).funcid != top_to_bool {
-        return None;
-    }
+    let (measure, type_name, procs) = [
+        (TopMeasure::Bm25, "pdb.top_bm25", top_bm25_procs()),
+        (TopMeasure::Knn, "pdb.top_knn", top_knn_procs()),
+    ]
+    .into_iter()
+    .find_map(|(measure, type_name, procs)| {
+        let procs = procs?;
+        (procs.to_bool != pg_sys::Oid::INVALID && (*outer).funcid == procs.to_bool)
+            .then_some((measure, type_name, procs))
+    })?;
 
     // Descend through re-annotation layers; the outermost typmod wins.
     let mut window: Option<i32> = None;
@@ -875,8 +890,8 @@ unsafe fn top_arm(
     loop {
         let funcexpr = nodecast!(FuncExpr, T_FuncExpr, current)?;
         let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-        let is_creator = (*funcexpr).funcid == bool_to_top_procoid();
-        let is_retypmod = (*funcexpr).funcid == top_to_top_procoid();
+        let is_creator = (*funcexpr).funcid == procs.creator;
+        let is_retypmod = (*funcexpr).funcid == procs.retypmod;
         if !is_creator && !is_retypmod {
             return None;
         }
@@ -894,7 +909,9 @@ unsafe fn top_arm(
         let inner = args.get_ptr(0)?;
         if is_creator {
             let Some(window) = window else {
-                pgrx::error!("::pdb.top requires a window, e.g. `(<predicate>)::pdb.top(100)`");
+                pgrx::error!(
+                    "::{type_name} requires a window, e.g. `(<predicate>)::{type_name}(100)`"
+                );
             };
             let inner_qual = extract_quals(
                 context,
@@ -909,6 +926,7 @@ unsafe fn top_arm(
             return Some(Qual::TopArm {
                 inner: Box::new(inner_qual),
                 window,
+                measure,
             });
         }
         current = inner;
@@ -932,8 +950,9 @@ pub unsafe fn extract_quals(
 
     match (*node).type_ {
         pg_sys::NodeTag::T_FuncExpr => {
-            // `(subtree)::pdb.top(n)` fusion-arm annotations arrive as a cast
-            // sandwich: top_to_bool(bool_to_top(subtree, typmod, ..)).
+            // `(subtree)::pdb.top_bm25(n)` / `::pdb.top_knn(n)` fusion-arm
+            // annotations arrive as a cast sandwich:
+            // <to_bool>(<creator>(subtree, typmod, ..)).
             if let Some(qual) = top_arm(
                 context,
                 rti,

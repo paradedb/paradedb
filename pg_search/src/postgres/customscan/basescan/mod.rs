@@ -90,7 +90,7 @@ use crate::postgres::utils::{
     filter_implied_predicates, is_unnest_func, missing_partial_index_predicate,
 };
 use crate::query::pdb_query::pdb;
-use crate::query::SearchQueryInput;
+use crate::query::{SearchQueryInput, TopMeasure};
 use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
@@ -136,40 +136,70 @@ impl BaseScan {
         let needs_tokenizer_manager =
             search_query_input.needs_tokenizer() || state.custom_state().need_snippets();
 
-        // `::pdb.top(n)` arm annotations carry per-arm candidate windows;
-        // harvest them and strip the inert wrappers before execution.
-        let (search_query_input, top_arms) = search_query_input.strip_top_arms();
+        // `::pdb.top_bm25(n)` / `::pdb.top_knn(n)` arm annotations declare
+        // each arm's ranking measure and candidate window; harvest them and
+        // strip the inert wrappers before execution. A `::pdb.top_knn` arm
+        // also scopes the vector leg: its candidates are gathered among rows
+        // matching the arm's own filters (plus the shared context), not the
+        // whole boolean, so we derive those two leg queries from the
+        // pre-strip tree here.
+        let (stripped_query_input, top_arms) = search_query_input.strip_top_arms();
+        let mut arm_vector_leg: Option<SearchQueryInput> = None;
+        let mut arm_scoring_query: Option<SearchQueryInput> = None;
         if !top_arms.is_empty() {
             if !state.custom_state().orderby_is_rrf() {
                 pgrx::error!(
-                    "::pdb.top(n) annotations require a rank-fusion ordering: `ORDER BY pdb.rrf(<key>) LIMIT <n>`"
+                    "::pdb.top_bm25(n)/::pdb.top_knn(n) annotations require a rank-fusion ordering: `ORDER BY pdb.rrf(<key>) LIMIT <n>`"
                 );
             }
             let mut text_window: Option<i32> = None;
             let mut vector_window: Option<i32> = None;
             for arm in &top_arms {
                 if arm.nested {
-                    pgrx::error!("::pdb.top(n) annotations cannot be nested");
+                    pgrx::error!("fusion-arm annotations cannot be nested");
                 }
-                if arm.contains_knn {
-                    if !arm.knn_only {
-                        pgrx::error!(
-                            "a ::pdb.top arm may contain either text predicates or a single `~~~` knn predicate, not both: the two are ranked by incomparable measures"
-                        );
+                match arm.measure {
+                    TopMeasure::Bm25 => {
+                        if arm.contains_knn {
+                            pgrx::error!(
+                                "a ::pdb.top_bm25 arm ranks by BM25 and cannot contain a `~~~` knn predicate; annotate that group with ::pdb.top_knn instead"
+                            );
+                        }
+                        if text_window.replace(arm.window).is_some() {
+                            pgrx::error!(
+                                "multiple ::pdb.top_bm25 arms (N-ary rank fusion) are not supported yet"
+                            );
+                        }
                     }
-                    if vector_window.replace(arm.window).is_some() {
-                        pgrx::error!("only one `~~~` knn arm is supported per query");
+                    TopMeasure::Knn => {
+                        if !arm.contains_knn {
+                            pgrx::error!(
+                                "a ::pdb.top_knn arm must contain a `~~~` knn predicate: that is the measure it ranks by"
+                            );
+                        }
+                        if vector_window.replace(arm.window).is_some() {
+                            pgrx::error!("only one ::pdb.top_knn arm is supported per query");
+                        }
+                        arm_vector_leg = Some(SearchQueryInput::Boolean {
+                            must: vec![
+                                arm.inner.substitute_knn(true),
+                                search_query_input.knn_arm_context(),
+                            ],
+                            should: vec![],
+                            must_not: vec![],
+                            minimum_should_match: None,
+                        });
+                        arm_scoring_query = Some(search_query_input.without_knn_arm());
                     }
-                } else if text_window.replace(arm.window).is_some() {
-                    pgrx::error!("multiple text arms (N-ary rank fusion) are not supported yet");
                 }
             }
             state.custom_state_mut().arm_bm25_window = text_window;
             state.custom_state_mut().arm_vector_window = vector_window;
             state
                 .custom_state_mut()
-                .replace_search_query_input(search_query_input.clone());
+                .replace_search_query_input(stripped_query_input.clone());
         }
+        let search_query_input = stripped_query_input;
 
         // A `~~~` knn predicate splits the query into per-leg queries for the
         // rank-fusion TopK: the reader is opened with the vector leg's
@@ -194,9 +224,10 @@ impl BaseScan {
                 );
             }
 
-            let vector_leg = search_query_input.substitute_knn(true);
+            let vector_leg =
+                arm_vector_leg.unwrap_or_else(|| search_query_input.substitute_knn(true));
             let bm25_leg = search_query_input.substitute_knn(false);
-            let scoring = search_query_input.without_knn();
+            let scoring = arm_scoring_query.unwrap_or_else(|| search_query_input.without_knn());
             state.custom_state_mut().knn_bm25_leg_query = Some(bm25_leg);
             state.custom_state_mut().knn_scoring_query = Some(scoring);
             state.custom_state_mut().knn_leaf = Some((field, query_vector));
@@ -2855,7 +2886,7 @@ fn base_query_has_search_predicates(
         // A knn candidate predicate is a search predicate
         SearchQueryInput::Knn { .. } => true,
 
-        // A ::pdb.top arm is a search predicate when its subtree is
+        // A fusion-arm annotation is a search predicate when its subtree is
         SearchQueryInput::TopN { query, .. } => {
             base_query_has_search_predicates(query, current_index_oid)
         }

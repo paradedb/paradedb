@@ -159,7 +159,7 @@ impl<'a> FilterAnalyzer<'a> {
         let column_name = extract_column_name(column_expr)?;
         let field_type = self.find_field(&column_name)?;
         let scalar = extract_scalar_value(literal_expr)?;
-        let value = scalar_to_owned_value(&scalar, field_type)?;
+        let value = PdbOwnedValue::from_scalar(&scalar, field_type)?;
         let field: FieldName = column_name.into();
 
         match op {
@@ -198,7 +198,7 @@ impl<'a> FilterAnalyzer<'a> {
             .iter()
             .filter_map(|expr| {
                 let scalar = extract_scalar_value(expr)?;
-                scalar_to_owned_value(&scalar, field_type)
+                PdbOwnedValue::from_scalar(&scalar, field_type)
             })
             .collect();
 
@@ -316,13 +316,6 @@ pub fn extract_scalar_value(expr: &Expr) -> Option<ScalarValue> {
         Expr::Literal(scalar, _) => Some(scalar.clone()),
         _ => None,
     }
-}
-
-pub fn scalar_to_owned_value(
-    scalar: &ScalarValue,
-    field_type: &SearchFieldType,
-) -> Option<PdbOwnedValue> {
-    PdbOwnedValue::from_scalar(scalar, field_type)
 }
 
 /// Combine multiple SearchQueryInput queries with AND.

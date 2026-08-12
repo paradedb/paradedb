@@ -238,7 +238,11 @@ impl PdbOwnedValue {
     }
 
     /// Converts this [`PdbOwnedValue`] into a DataFusion [`ScalarValue`] representation matching
-    /// the column's Arrow [`DataType`]. Returns `None` for NULLs or unsupported conversions.
+    /// the column's Arrow [`DataType`].
+    ///
+    /// **Contract**: Returns `Some` only for exact, lossless conversions. Returns `None` for
+    /// NULLs, out-of-range bounds, precision-losing casts, or unsupported conversions.
+    /// [`RangePartitioning::to_datafusion`](crate::scan::range_partitioning::RangePartitioning::to_datafusion) depends on this exactness guarantee.
     pub fn to_scalar(&self, data_type: &DataType) -> Option<ScalarValue> {
         use arrow_schema::TimeUnit;
 
@@ -269,6 +273,9 @@ impl PdbOwnedValue {
             (DataType::UInt8, PdbOwnedValue::U64(v)) if *v <= u8::MAX as u64 => {
                 Some(ScalarValue::UInt8(Some(*v as u8)))
             }
+            // The sampler classifies integer fields using Tantivy's FFType. An Int64 field with
+            // only non-negative values in a sample may be extracted as U64 (and vice-versa).
+            // Allow exact cross-conversions.
             (DataType::Int64, PdbOwnedValue::U64(v)) if *v <= i64::MAX as u64 => {
                 Some(ScalarValue::Int64(Some(*v as i64)))
             }
@@ -282,7 +289,7 @@ impl PdbOwnedValue {
                 Some(ScalarValue::UInt32(Some(*v as u32)))
             }
             (DataType::Float64, PdbOwnedValue::F64(v)) => Some(ScalarValue::Float64(Some(*v))),
-            (DataType::Float32, PdbOwnedValue::F64(v)) => {
+            (DataType::Float32, PdbOwnedValue::F64(v)) if (*v as f32) as f64 == *v => {
                 Some(ScalarValue::Float32(Some(*v as f32)))
             }
             (DataType::Boolean, PdbOwnedValue::Bool(v)) => Some(ScalarValue::Boolean(Some(*v))),
@@ -290,6 +297,7 @@ impl PdbOwnedValue {
                 Some(ScalarValue::Utf8View(Some(v.clone())))
             }
             (DataType::Utf8, PdbOwnedValue::Str(v)) => Some(ScalarValue::Utf8(Some(v.clone()))),
+            // Fast fields store Timestamp/Date values as i64 microseconds.
             (DataType::Timestamp(TimeUnit::Microsecond, None), PdbOwnedValue::I64(v)) => {
                 Some(ScalarValue::TimestampMicrosecond(Some(*v), None))
             }

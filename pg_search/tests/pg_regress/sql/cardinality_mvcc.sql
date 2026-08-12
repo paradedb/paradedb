@@ -37,6 +37,15 @@ SELECT pdb.agg('{"cardinality": {"field": "val"}}'::jsonb) FROM card_mvcc WHERE 
 -- solve_mvcc=false counts raw index entries: overshoots to 12
 SELECT pdb.agg('{"cardinality": {"field": "val"}}'::jsonb, false) FROM card_mvcc WHERE card_mvcc @@@ pdb.all();
 
+-- facet form: cardinality as a window aggregate alongside top-k. Same MVCC
+-- semantics: correct with solve_mvcc, overshoots without.
+SELECT id, pdb.agg('{"cardinality": {"field": "val"}}'::jsonb, true) OVER () AS agg
+FROM card_mvcc WHERE card_mvcc @@@ pdb.all()
+ORDER BY id DESC LIMIT 1 OFFSET 0;
+SELECT id, pdb.agg('{"cardinality": {"field": "val"}}'::jsonb, false) OVER () AS agg
+FROM card_mvcc WHERE card_mvcc @@@ pdb.all()
+ORDER BY id DESC LIMIT 1 OFFSET 0;
+
 -- delete everything: MVCC-correct cardinality drops to 0
 DELETE FROM card_mvcc;
 SELECT pdb.agg('{"cardinality": {"field": "val"}}'::jsonb) FROM card_mvcc WHERE card_mvcc @@@ pdb.all();

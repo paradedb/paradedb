@@ -474,6 +474,70 @@ pub(crate) fn validate_agg_json_fields(
             ));
         }
     }
+
+    validate_top_hits_sort_fields(agg_json, schema)?;
+
+    Ok(())
+}
+
+/// Recursively walk `agg_json` and validate that every `top_hits.sort` field is a type
+/// Tantivy's sort accessor supports (see [`SearchFieldType::supports_top_hits_sort`]).
+///
+/// A text / uuid / inet / ltree / json / range / vector sort key would fall back to an empty
+/// accessor and every hit would silently get `"sort": [null]` with no ordering applied
+/// (issue #5710). Raising a clear planning-time error is friendlier than silent wrong
+/// results.
+///
+/// Elasticsearch-style pseudo fields prefixed with `_` (`_score`, `_doc`) are skipped:
+/// they do not resolve to schema fields and have their own accessor path in Tantivy.
+fn validate_top_hits_sort_fields(
+    agg_json: &serde_json::Value,
+    schema: &SearchIndexSchema,
+) -> Result<(), String> {
+    match agg_json {
+        serde_json::Value::Object(map) => {
+            if let Some(sort) = map
+                .get("top_hits")
+                .and_then(|v| v.as_object())
+                .and_then(|top_hits| top_hits.get("sort"))
+                .and_then(|v| v.as_array())
+            {
+                for entry in sort {
+                    let Some(sort_obj) = entry.as_object() else {
+                        continue;
+                    };
+                    for field_name in sort_obj.keys() {
+                        if field_name.starts_with('_') {
+                            continue;
+                        }
+                        let root = FieldName::from(field_name.as_str()).root();
+                        let Some(field_type) = schema.get_field_type(&root) else {
+                            // Missing-field errors are surfaced by the fields loop above; skip
+                            // here so this validator only reports the sort-type problem.
+                            continue;
+                        };
+                        if !field_type.supports_top_hits_sort() {
+                            return Err(format!(
+                                "top_hits.sort field '{}' has an unsupported type for sorting. \
+                                 Only numeric and date fields can be used as top_hits.sort keys.",
+                                field_name
+                            ));
+                        }
+                    }
+                }
+            }
+
+            for value in map.values() {
+                validate_top_hits_sort_fields(value, schema)?;
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr {
+                validate_top_hits_sort_fields(item, schema)?;
+            }
+        }
+        _ => {}
+    }
     Ok(())
 }
 

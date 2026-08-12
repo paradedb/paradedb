@@ -47,13 +47,13 @@ LIMIT 5;
            : │       VisibilityFilterExec: tables=[sv, le]
            : │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, series_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
            : │           CoalescePartitionsExec
-           : │             [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=2, stage_partitions=2, input_tasks=2
+           : │             [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=1, input_tasks=2
            : │           RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
            : │             DistributedLeafExec:
            : │               t0: PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"term":{"field":"user_id","value":"u1"}}}}
            : └──────────────────────────────────────────────────
-           :   ┌───── Stage 1 ── tasks=2, partitions=4
-           :   │ BroadcastExec: input_partitions=2, consumer_tasks=1, output_partitions=2
+           :   ┌───── Stage 1 ── tasks=2, partitions=2
+           :   │ BroadcastExec: input_partitions=1, consumer_tasks=1, output_partitions=1
            :   │   DistributedLeafExec:
            :   │     t0: PgSearchScan: segments=2, query={"with_index":{"query":{"term":{"field":"state","value":"merged"}}}}
            :   │     t1: PgSearchScan: segments=2, query={"with_index":{"query":{"term":{"field":"state","value":"merged"}}}}

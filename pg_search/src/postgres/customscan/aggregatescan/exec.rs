@@ -43,6 +43,10 @@ use tantivy::aggregation::metric::SingleMetricResult as TantivySingleMetricResul
 /// Extract the bucket entries from a grouped aggregation result. Grouping columns
 /// produce a `terms` aggregation, except for date-bucketed columns (`GROUP BY DATE(ts)`)
 /// which produce a `histogram`. Returns `None` for any other result type.
+///
+/// Allocates a list of references; use only where a level's buckets are iterated
+/// once (`collect_group_keys`), never per output row — the per-row walkers use
+/// [`find_grouped_bucket`] instead.
 fn extract_grouped_buckets(agg_result: &TantivyAggregationResult) -> Option<Vec<&BucketEntry>> {
     match agg_result {
         TantivyAggregationResult::BucketResult(BucketResult::Terms { buckets, .. }) => {
@@ -55,6 +59,59 @@ fn extract_grouped_buckets(agg_result: &TantivyAggregationResult) -> Option<Vec<
             })
         }
         _ => None,
+    }
+}
+
+/// True if a tantivy bucket key equals one group key.
+fn bucket_key_matches(bucket_key: &Key, group_key: &PdbOwnedValue) -> bool {
+    match (bucket_key, group_key) {
+        (Key::Str(s), PdbOwnedValue::Str(v)) => s == v,
+        (Key::I64(i), PdbOwnedValue::I64(v)) => i == v,
+        (Key::U64(i), PdbOwnedValue::U64(v)) => i == v,
+        (Key::F64(i), PdbOwnedValue::F64(v)) => i == v,
+        _ => false,
+    }
+}
+
+/// Find the bucket matching `key` in a grouped (terms or histogram) result,
+/// searching the buckets in place. This runs once per output row and nesting
+/// level, so it must not allocate.
+fn find_grouped_bucket<'a>(
+    agg_result: &'a TantivyAggregationResult,
+    key: &TantivyValue,
+) -> Option<&'a BucketEntry> {
+    match agg_result {
+        TantivyAggregationResult::BucketResult(BucketResult::Terms { buckets, .. }) => {
+            buckets.iter().find(|b| bucket_key_matches(&b.key, &key.0))
+        }
+        TantivyAggregationResult::BucketResult(BucketResult::Histogram { buckets, .. }) => {
+            match buckets {
+                BucketEntries::Vec(buckets) => {
+                    buckets.iter().find(|b| bucket_key_matches(&b.key, &key.0))
+                }
+                BucketEntries::HashMap(buckets) => buckets
+                    .values()
+                    .find(|b| bucket_key_matches(&b.key, &key.0)),
+            }
+        }
+        _ => None,
+    }
+}
+
+/// True if this result is a grouped (terms or histogram) bucket result with
+/// at least one bucket.
+fn has_grouped_buckets(agg_result: &TantivyAggregationResult) -> bool {
+    match agg_result {
+        TantivyAggregationResult::BucketResult(BucketResult::Terms { buckets, .. }) => {
+            !buckets.is_empty()
+        }
+        TantivyAggregationResult::BucketResult(BucketResult::Histogram { buckets, .. }) => {
+            match buckets {
+                BucketEntries::Vec(buckets) => !buckets.is_empty(),
+                BucketEntries::HashMap(buckets) => !buckets.is_empty(),
+            }
+        }
+        _ => false,
     }
 }
 
@@ -423,8 +480,7 @@ impl AggregationResults {
                     .sub_aggregation
                     .0
                     .get(GroupedKey::NAME)
-                    .and_then(extract_grouped_buckets)
-                    .is_some_and(|buckets| !buckets.is_empty());
+                    .is_some_and(has_grouped_buckets);
 
                 if has_child_grouped {
                     // not a leaf yet; keep descending
@@ -445,16 +501,15 @@ impl AggregationResults {
         // them separately; emit them as one group keyed by the NULL sentinel.
         if let Some(TantivyAggregationResult::BucketResult(BucketResult::Filter(missing))) =
             map.get(MissingKey::NAME)
+            && missing.doc_count > 0
         {
-            if missing.doc_count > 0 {
-                let mut new_keys = key_accumulator;
-                new_keys.push(TantivyValue(PdbOwnedValue::F64(f64::MAX)));
-                out.push(AggregationResultsRow {
-                    group_keys: new_keys,
-                    aggregates: Vec::new(),
-                    doc_count: Some(missing.doc_count),
-                });
-            }
+            let mut new_keys = key_accumulator;
+            new_keys.push(TantivyValue(PdbOwnedValue::F64(f64::MAX)));
+            out.push(AggregationResultsRow {
+                group_keys: new_keys,
+                aggregates: Vec::new(),
+                doc_count: Some(missing.doc_count),
+            });
         }
     }
 
@@ -474,20 +529,8 @@ impl AggregationResults {
 
             // traverse down into nested "grouped" buckets following group_keys
             for key in &row.group_keys {
-                if let Some(buckets) = current
-                    .get(GroupedKey::NAME)
-                    .and_then(extract_grouped_buckets)
-                {
-                    // find the bucket whose key matches this level
-                    let maybe_bucket = buckets.iter().find(|b| match (&b.key, &key.0) {
-                        (Key::Str(s), PdbOwnedValue::Str(v)) => s == v,
-                        (Key::I64(i), PdbOwnedValue::I64(v)) => i == v,
-                        (Key::U64(i), PdbOwnedValue::U64(v)) => i == v,
-                        (Key::F64(i), PdbOwnedValue::F64(v)) => i == v,
-                        _ => false,
-                    });
-
-                    if let Some(bucket) = maybe_bucket {
+                if let Some(grouped) = current.get(GroupedKey::NAME) {
+                    if let Some(bucket) = find_grouped_bucket(grouped, key) {
                         // descend into this bucket’s sub-aggregations
                         current = &bucket.sub_aggregation.0;
                     } else if let Some(TantivyAggregationResult::BucketResult(
@@ -657,17 +700,8 @@ impl AggregationResults {
                     let mut matched = true;
 
                     for key in &row.group_keys {
-                        if let Some(buckets) = current
-                            .get(GroupedKey::NAME)
-                            .and_then(extract_grouped_buckets)
-                        {
-                            if let Some(bucket) = buckets.iter().find(|b| match (&b.key, &key.0) {
-                                (Key::Str(s), PdbOwnedValue::Str(v)) => s == v,
-                                (Key::I64(i), PdbOwnedValue::I64(v)) => i == v,
-                                (Key::U64(i), PdbOwnedValue::U64(v)) => i == v,
-                                (Key::F64(i), PdbOwnedValue::F64(v)) => i == v,
-                                _ => false,
-                            }) {
+                        if let Some(grouped) = current.get(GroupedKey::NAME) {
+                            if let Some(bucket) = find_grouped_bucket(grouped, key) {
                                 current = &bucket.sub_aggregation.0;
                             } else {
                                 matched = false;

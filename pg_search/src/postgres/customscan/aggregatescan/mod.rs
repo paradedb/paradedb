@@ -210,9 +210,16 @@ impl CustomScan for AggregateScan {
     }
 
     fn create_custom_path(builder: CustomPathBuilder<Self>) -> Vec<pg_sys::CustomPath> {
-        let has_paradedb_agg = unsafe {
+        let (has_paradedb_agg_recursive, has_paradedb_agg) = unsafe {
             let parse = builder.args().root().parse;
-            !parse.is_null() && query_has_paradedb_agg(parse, true)
+            if parse.is_null() {
+                (false, false)
+            } else {
+                (
+                    query_has_paradedb_agg(parse, true),
+                    query_has_paradedb_agg(parse, false),
+                )
+            }
         };
 
         let input_rel = builder.args().input_rel();
@@ -243,7 +250,7 @@ impl CustomScan for AggregateScan {
                         || build::has_aggregate_orderby_with_limit(builder.args())
                 };
                 if use_datafusion {
-                    if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg {
+                    if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg_recursive {
                         return Vec::new();
                     }
                     return Self::build_datafusion_aggregate_path(builder, has_paradedb_agg);
@@ -251,7 +258,7 @@ impl CustomScan for AggregateScan {
                 Self::build_tantivy_aggregate_path(builder, has_paradedb_agg)
             }
             pg_sys::RelOptKind::RELOPT_JOINREL => {
-                if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg {
+                if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg_recursive {
                     return Vec::new();
                 }
                 Self::build_datafusion_aggregate_path(builder, has_paradedb_agg)

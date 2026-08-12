@@ -299,6 +299,9 @@ impl BaseScan {
             }
         }
 
+        let allow_without_operator =
+            gucs::enable_custom_scan_without_operator() || query_has_window_agg_functions(root);
+
         // If we couldn't push down quals, try to push down quals from the join
         // This is only done if we have a join predicate, and only if we have used our operator
         let quals = if quals.is_none() {
@@ -315,8 +318,6 @@ impl BaseScan {
                 attempt_pushdown,
             );
 
-            let allow_without_operator =
-                gucs::enable_custom_scan_without_operator() || query_has_window_agg_functions(root);
             let quals =
                 Self::handle_heap_expr_optimization(&state, &mut quals, allow_without_operator);
 
@@ -336,8 +337,6 @@ impl BaseScan {
                 None
             }
         } else {
-            let allow_without_operator =
-                gucs::enable_custom_scan_without_operator() || query_has_window_agg_functions(root);
             Self::handle_heap_expr_optimization(&state, &mut quals, allow_without_operator)
         };
 
@@ -350,9 +349,7 @@ impl BaseScan {
         //    their own, OR
         // 2. enable_custom_scan_without_operator is true, OR
         // 3. The query has window aggregates (pdb.agg()) that we must handle.
-        let has_window_aggs = query_has_window_agg_functions(root);
-        if state.uses_our_operator || gucs::enable_custom_scan_without_operator() || has_window_aggs
-        {
+        if state.uses_our_operator || allow_without_operator {
             quals
         } else {
             None
@@ -575,9 +572,12 @@ impl BaseScanDeclineReason {
 }
 
 /// Returns `Ok(())` if all predicates in `baserestrictinfo` can be fully
-/// evaluated inside Tantivy. Returns `Err` if Postgres will need to apply a
-/// post-filter above the scan. Pushing LIMIT into the scan in that case would cap
-/// the output before post-filtering, producing fewer rows than correct.
+/// evaluated inside custom scan. Returns `Err` if Postgres will need to apply a
+/// post-filter above the scan.
+///
+/// Used to gate:
+///   1. LIMIT pushdown: pushing LIMIT below a post-filter would cap output prematurely.
+///   2. Window aggregates (`pdb.agg()`): window aggregates require full pushdown to avoid data loss.
 unsafe fn has_non_pushable_predicates(
     rel: *mut pg_sys::RelOptInfo,
     quals_pushed: &Option<Qual>,
@@ -601,9 +601,12 @@ unsafe fn has_non_pushable_predicates(
     // If qual extraction returned None but restrictions exist,
     // something is being left as a post-filter.
     if quals_pushed.is_none() && !restrict_list.is_empty() {
-        return Err(BaseScanDeclineReason::new(
-            "WHERE clause contains predicates that cannot be pushed down, and paradedb.enable_filter_pushdown is disabled",
-        ));
+        let message = if crate::gucs::enable_filter_pushdown() {
+            "WHERE clause contains predicates that cannot be pushed down"
+        } else {
+            "WHERE clause contains predicates that cannot be pushed down, and paradedb.enable_filter_pushdown is disabled"
+        };
+        return Err(BaseScanDeclineReason::new(message));
     }
 
     Ok(())

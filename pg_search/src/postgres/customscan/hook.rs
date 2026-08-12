@@ -503,9 +503,15 @@ unsafe fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
     if !can_handle_where_clause(parse) {
         if has_paradedb_agg_current_level {
             // pdb.agg() requires that we handle the query, but we can't handle the WHERE clause
-            pgrx::error!(
-                "Cannot execute window aggregate: WHERE clause contains predicates that cannot be pushed down, and paradedb.enable_filter_pushdown is disabled"
-            );
+            if crate::gucs::enable_filter_pushdown() {
+                pgrx::error!(
+                    "Cannot execute window aggregate: WHERE clause contains predicates that cannot be pushed down"
+                );
+            } else {
+                pgrx::error!(
+                    "Cannot execute window aggregate: WHERE clause contains predicates that cannot be pushed down, and paradedb.enable_filter_pushdown is disabled"
+                );
+            }
         }
         // For non-pdb.agg queries, just don't replace - let PostgreSQL handle them
         return false;

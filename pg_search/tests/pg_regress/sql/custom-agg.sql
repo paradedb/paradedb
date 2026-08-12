@@ -1359,3 +1359,24 @@ SELECT 1 AS backend_still_alive;
 DEALLOCATE agg_param_g;
 RESET plan_cache_mode;
 DROP TABLE agg_param_test;
+
+\echo '--- pdb.agg inside CTE with outer GROUP BY on non-BM25 table ---'
+CREATE TABLE cte_bm25_logs (id INT, description TEXT, category TEXT);
+INSERT INTO cte_bm25_logs VALUES (1, 'error event', 'cat1'), (2, 'warning event', 'cat2');
+CREATE INDEX cte_bm25_logs_idx ON cte_bm25_logs USING bm25 (id, description, category) WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
+
+CREATE TABLE cte_plain_tbl (cat TEXT);
+INSERT INTO cte_plain_tbl VALUES ('cat1'), ('cat2');
+
+WITH facets AS (
+    SELECT id, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () AS agg
+    FROM cte_bm25_logs WHERE description @@@ 'error' ORDER BY id DESC LIMIT 1
+)
+SELECT p.cat, count(*), (SELECT f.agg FROM facets f LIMIT 1)
+FROM cte_plain_tbl p
+GROUP BY p.cat
+ORDER BY p.cat;
+
+DROP TABLE cte_bm25_logs;
+DROP TABLE cte_plain_tbl;
+

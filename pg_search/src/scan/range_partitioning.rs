@@ -17,8 +17,8 @@
 
 use std::sync::Arc;
 
-use arrow_schema::{DataType, SchemaRef, SortOptions, TimeUnit};
-use datafusion::common::{ScalarValue, SplitPoint};
+use arrow_schema::{SchemaRef, SortOptions};
+use datafusion::common::SplitPoint;
 use datafusion::physical_expr::{
     LexOrdering, PhysicalSortExpr, RangePartitioning as DataFusionRangePartitioning,
 };
@@ -134,7 +134,9 @@ impl RangePartitioning {
             .split_points
             .iter()
             .map(|value| {
-                scalar_value_for(value, field.data_type()).map(|sv| SplitPoint::new(vec![sv]))
+                value
+                    .to_scalar(field.data_type())
+                    .map(|sv| SplitPoint::new(vec![sv]))
             })
             .collect::<Option<Vec<_>>>()?;
 
@@ -157,34 +159,6 @@ impl RangePartitioning {
             ordering,
             split_points,
         )))
-    }
-}
-
-/// Converts a sampled fast-field value into the `ScalarValue` representation of the
-/// column's arrow type. Returns `None` for NULLs and for any value/type combination
-/// that has no exact representation, in which case the caller declines to declare
-/// range partitioning rather than declare it imprecisely.
-fn scalar_value_for(value: &PdbOwnedValue, data_type: &DataType) -> Option<ScalarValue> {
-    match (data_type, value) {
-        (DataType::Int64, PdbOwnedValue::I64(v)) => Some(ScalarValue::Int64(Some(*v))),
-        (DataType::UInt64, PdbOwnedValue::U64(v)) => Some(ScalarValue::UInt64(Some(*v))),
-        // The sampler reads through FFType, whose integer classification follows the
-        // physical tantivy column rather than the declared field type; accept the
-        // lossless cross-representations.
-        (DataType::Int64, PdbOwnedValue::U64(v)) if *v <= i64::MAX as u64 => {
-            Some(ScalarValue::Int64(Some(*v as i64)))
-        }
-        (DataType::UInt64, PdbOwnedValue::I64(v)) if *v >= 0 => {
-            Some(ScalarValue::UInt64(Some(*v as u64)))
-        }
-        (DataType::Float64, PdbOwnedValue::F64(v)) => Some(ScalarValue::Float64(Some(*v))),
-        (DataType::Boolean, PdbOwnedValue::Bool(v)) => Some(ScalarValue::Boolean(Some(*v))),
-        (DataType::Utf8View, PdbOwnedValue::Str(v)) => Some(ScalarValue::Utf8View(Some(v.clone()))),
-        // Datetime fields use v2 storage: i64 microseconds.
-        (DataType::Timestamp(TimeUnit::Microsecond, None), PdbOwnedValue::I64(v)) => {
-            Some(ScalarValue::TimestampMicrosecond(Some(*v), None))
-        }
-        _ => None,
     }
 }
 

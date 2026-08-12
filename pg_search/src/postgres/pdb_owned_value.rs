@@ -19,12 +19,15 @@
 
 use std::net::Ipv6Addr;
 
+use arrow_schema::DataType;
+use datafusion::common::ScalarValue;
 use serde::ser::SerializeMap;
 use tantivy::schema::{Facet, OwnedValue};
 
 use crate::api::version::{Version, VersionInfo};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::types::TantivyValueError;
+use crate::schema::SearchFieldType;
 
 pub const PDB_DATE_TAG: &str = "$__pdb_date__";
 
@@ -144,6 +147,162 @@ impl PdbOwnedValue {
             OwnedValue::Bytes(val) => PdbOwnedValue::Bytes(val),
             OwnedValue::IpAddr(val) => PdbOwnedValue::IpAddr(val),
             OwnedValue::PreTokStr(val) => PdbOwnedValue::PreTokStr(val),
+        }
+    }
+
+    /// Converts a DataFusion [`ScalarValue`] into a [`PdbOwnedValue`], guided by the
+    /// field's [`SearchFieldType`].
+    pub fn from_scalar(scalar: &ScalarValue, field_type: &SearchFieldType) -> Option<Self> {
+        match (scalar, field_type) {
+            // Integer types (I64)
+            (ScalarValue::Int8(Some(v)), SearchFieldType::I64(_)) => {
+                Some(PdbOwnedValue::I64(*v as i64))
+            }
+            (ScalarValue::Int16(Some(v)), SearchFieldType::I64(_)) => {
+                Some(PdbOwnedValue::I64(*v as i64))
+            }
+            (ScalarValue::Int32(Some(v)), SearchFieldType::I64(_)) => {
+                Some(PdbOwnedValue::I64(*v as i64))
+            }
+            (ScalarValue::Int64(Some(v)), SearchFieldType::I64(_)) => Some(PdbOwnedValue::I64(*v)),
+
+            // Unsigned integer types (U64)
+            (ScalarValue::UInt8(Some(v)), SearchFieldType::U64(_)) => {
+                Some(PdbOwnedValue::U64(*v as u64))
+            }
+            (ScalarValue::UInt16(Some(v)), SearchFieldType::U64(_)) => {
+                Some(PdbOwnedValue::U64(*v as u64))
+            }
+            (ScalarValue::UInt32(Some(v)), SearchFieldType::U64(_)) => {
+                Some(PdbOwnedValue::U64(*v as u64))
+            }
+            (ScalarValue::UInt64(Some(v)), SearchFieldType::U64(_)) => Some(PdbOwnedValue::U64(*v)),
+
+            // Cross-type integer conversions
+            (ScalarValue::Int8(Some(v)), SearchFieldType::U64(_)) if *v >= 0 => {
+                Some(PdbOwnedValue::U64(*v as u64))
+            }
+            (ScalarValue::Int16(Some(v)), SearchFieldType::U64(_)) if *v >= 0 => {
+                Some(PdbOwnedValue::U64(*v as u64))
+            }
+            (ScalarValue::Int32(Some(v)), SearchFieldType::U64(_)) if *v >= 0 => {
+                Some(PdbOwnedValue::U64(*v as u64))
+            }
+            (ScalarValue::Int64(Some(v)), SearchFieldType::U64(_)) if *v >= 0 => {
+                Some(PdbOwnedValue::U64(*v as u64))
+            }
+
+            // Float types (F64)
+            (ScalarValue::Float32(Some(v)), SearchFieldType::F64(_)) => {
+                Some(PdbOwnedValue::F64(*v as f64))
+            }
+            (ScalarValue::Float64(Some(v)), SearchFieldType::F64(_)) => {
+                Some(PdbOwnedValue::F64(*v))
+            }
+
+            // Integer to float conversion
+            (ScalarValue::Int64(Some(v)), SearchFieldType::F64(_)) => {
+                Some(PdbOwnedValue::F64(*v as f64))
+            }
+            (ScalarValue::Int32(Some(v)), SearchFieldType::F64(_)) => {
+                Some(PdbOwnedValue::F64(*v as f64))
+            }
+
+            // Boolean
+            (ScalarValue::Boolean(Some(v)), SearchFieldType::Bool(_)) => {
+                Some(PdbOwnedValue::Bool(*v))
+            }
+
+            // String/Text types
+            (ScalarValue::Utf8(Some(v)), SearchFieldType::Text(_)) => {
+                Some(PdbOwnedValue::Str(v.clone()))
+            }
+            (ScalarValue::LargeUtf8(Some(v)), SearchFieldType::Text(_)) => {
+                Some(PdbOwnedValue::Str(v.clone()))
+            }
+            (ScalarValue::Utf8View(Some(v)), SearchFieldType::Text(_)) => {
+                Some(PdbOwnedValue::Str(v.clone()))
+            }
+
+            // Numeric64 (scaled integers)
+            (ScalarValue::Int64(Some(v)), SearchFieldType::Numeric64(_, scale)) => {
+                let multiplier = 10i64.pow(*scale as u32);
+                Some(PdbOwnedValue::I64(v * multiplier))
+            }
+            (ScalarValue::Float64(Some(v)), SearchFieldType::Numeric64(_, scale)) => {
+                let multiplier = 10f64.powi(*scale as i32);
+                Some(PdbOwnedValue::I64((v * multiplier).round() as i64))
+            }
+
+            _ => None,
+        }
+    }
+
+    /// Converts this [`PdbOwnedValue`] into a DataFusion [`ScalarValue`] representation matching
+    /// the column's Arrow [`DataType`].
+    ///
+    /// **Contract**: Returns `Some` only for exact, lossless conversions. Returns `None` for
+    /// NULLs, out-of-range bounds, precision-losing casts, or unsupported conversions.
+    /// [`RangePartitioning::to_datafusion`](crate::scan::range_partitioning::RangePartitioning::to_datafusion) depends on this exactness guarantee.
+    pub fn to_scalar(&self, data_type: &DataType) -> Option<ScalarValue> {
+        use arrow_schema::TimeUnit;
+
+        match (data_type, self) {
+            (DataType::Int64, PdbOwnedValue::I64(v)) => Some(ScalarValue::Int64(Some(*v))),
+            (DataType::Int32, PdbOwnedValue::I64(v))
+                if *v >= i32::MIN as i64 && *v <= i32::MAX as i64 =>
+            {
+                Some(ScalarValue::Int32(Some(*v as i32)))
+            }
+            (DataType::Int16, PdbOwnedValue::I64(v))
+                if *v >= i16::MIN as i64 && *v <= i16::MAX as i64 =>
+            {
+                Some(ScalarValue::Int16(Some(*v as i16)))
+            }
+            (DataType::Int8, PdbOwnedValue::I64(v))
+                if *v >= i8::MIN as i64 && *v <= i8::MAX as i64 =>
+            {
+                Some(ScalarValue::Int8(Some(*v as i8)))
+            }
+            (DataType::UInt64, PdbOwnedValue::U64(v)) => Some(ScalarValue::UInt64(Some(*v))),
+            (DataType::UInt32, PdbOwnedValue::U64(v)) if *v <= u32::MAX as u64 => {
+                Some(ScalarValue::UInt32(Some(*v as u32)))
+            }
+            (DataType::UInt16, PdbOwnedValue::U64(v)) if *v <= u16::MAX as u64 => {
+                Some(ScalarValue::UInt16(Some(*v as u16)))
+            }
+            (DataType::UInt8, PdbOwnedValue::U64(v)) if *v <= u8::MAX as u64 => {
+                Some(ScalarValue::UInt8(Some(*v as u8)))
+            }
+            // The sampler classifies integer fields using Tantivy's FFType. An Int64 field with
+            // only non-negative values in a sample may be extracted as U64 (and vice-versa).
+            // Allow exact cross-conversions.
+            (DataType::Int64, PdbOwnedValue::U64(v)) if *v <= i64::MAX as u64 => {
+                Some(ScalarValue::Int64(Some(*v as i64)))
+            }
+            (DataType::Int32, PdbOwnedValue::U64(v)) if *v <= i32::MAX as u64 => {
+                Some(ScalarValue::Int32(Some(*v as i32)))
+            }
+            (DataType::UInt64, PdbOwnedValue::I64(v)) if *v >= 0 => {
+                Some(ScalarValue::UInt64(Some(*v as u64)))
+            }
+            (DataType::UInt32, PdbOwnedValue::I64(v)) if *v >= 0 && *v <= u32::MAX as i64 => {
+                Some(ScalarValue::UInt32(Some(*v as u32)))
+            }
+            (DataType::Float64, PdbOwnedValue::F64(v)) => Some(ScalarValue::Float64(Some(*v))),
+            (DataType::Float32, PdbOwnedValue::F64(v)) if (*v as f32) as f64 == *v => {
+                Some(ScalarValue::Float32(Some(*v as f32)))
+            }
+            (DataType::Boolean, PdbOwnedValue::Bool(v)) => Some(ScalarValue::Boolean(Some(*v))),
+            (DataType::Utf8View, PdbOwnedValue::Str(v)) => {
+                Some(ScalarValue::Utf8View(Some(v.clone())))
+            }
+            (DataType::Utf8, PdbOwnedValue::Str(v)) => Some(ScalarValue::Utf8(Some(v.clone()))),
+            // Fast fields store Timestamp/Date values as i64 microseconds.
+            (DataType::Timestamp(TimeUnit::Microsecond, None), PdbOwnedValue::I64(v)) => {
+                Some(ScalarValue::TimestampMicrosecond(Some(*v), None))
+            }
+            _ => None,
         }
     }
 }

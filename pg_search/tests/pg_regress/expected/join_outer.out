@@ -448,7 +448,7 @@ LIMIT 10;
            :   │       [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=2
            :   └──────────────────────────────────────────────────
            :     ┌───── Stage 1 ── tasks=2, partitions=8
-           :     │ RepartitionExec: partitioning=Hash([file_id@1], 8), input_partitions=2
+           :     │ RepartitionExec: partitioning=Hash([file_id@1], 8), input_partitions=1
            :     │   DistributedLeafExec:
            :     │     t0: PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
            :     │     t1: PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
@@ -456,7 +456,7 @@ LIMIT 10;
            :     ┌───── Stage 2 ── tasks=2, partitions=8
            :     │ RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=4
            :     │   VisibilityFilterExec: tables=[f]
-           :     │     RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=2
+           :     │     RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
            :     │       DistributedLeafExec:
            :     │         t0: PgSearchScan: segments=2, dynamic_filters=1, query="all"
            :     │         t1: PgSearchScan: segments=2, dynamic_filters=1, query="all"
@@ -624,14 +624,14 @@ WHERE p.page_text @@@ 'Page';
      :   │ AggregateExec: mode=Partial, gby=[], aggr=[count(f_1.id) as agg_0]
      :   │   HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@0, file_id@0)], projection=[id@0]
      :   │     CoalescePartitionsExec
-     :   │       [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=2, stage_partitions=4, input_tasks=2
-     :   │     RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=2
+     :   │       [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+     :   │     RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
      :   │       DistributedLeafExec:
      :   │         t0: PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
      :   │         t1: PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
      :   └──────────────────────────────────────────────────
-     :     ┌───── Stage 1 ── tasks=2, partitions=8
-     :     │ BroadcastExec: input_partitions=2, consumer_tasks=2, output_partitions=4
+     :     ┌───── Stage 1 ── tasks=2, partitions=4
+     :     │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
      :     │   DistributedLeafExec:
      :     │     t0: PgSearchScan: segments=2, query="all"
      :     │     t1: PgSearchScan: segments=2, query="all"

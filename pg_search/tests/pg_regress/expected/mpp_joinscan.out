@@ -472,7 +472,7 @@ WHERE f.content @@@ 'Section'
 GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
-                                                                                                                   QUERY PLAN                                                                                                                    
+                                                                                                                   QUERY PLAN
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.title, (count(*)), (sum(p.size_bytes))
@@ -485,7 +485,7 @@ LIMIT 5;
                Indexes: mpp_join_files_idx (f), mpp_join_pages_idx (p)
                Group By: title
                Aggregates: COUNT(*), SUM(size_bytes)
-               DataFusion Physical Plan: 
+               DataFusion Physical Plan:
                  : ┌───── DistributedExec
                  : │ SortPreservingMergeExec: [title@0 ASC NULLS LAST], fetch=5
                  : │   [Stage 2] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
@@ -516,7 +516,7 @@ WHERE f.content @@@ 'Section'
 GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
-  title   | count |  sum  
+  title   | count |  sum
 ----------+-------+-------
  file-1   |     5 | 10040
  file-10  |     5 | 10189

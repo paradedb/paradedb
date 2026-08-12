@@ -1422,34 +1422,33 @@ ORDER BY timestamp DESC LIMIT 10;
 SET paradedb.enable_custom_scan TO on;
 -- Test 48: pdb.agg() as window function with WHERE clause when filter_pushdown is disabled
 -- The custom scan will reject queries where quals can't be extracted
--- Result: Query executes correctly via PostgreSQL (not custom scan), returns filtered results
--- This is SAFE behavior - WHERE clause is applied correctly, no silent data loss
+-- Result: Planner throws an error because the custom scan is required to execute pdb.agg()
 SET paradedb.enable_filter_pushdown TO off;
 EXPLAIN SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
 FROM logs
 WHERE unindexed_metric = 150
 ORDER BY timestamp DESC
 LIMIT 1;
-ERROR:  pdb.agg() window functions cannot be used with this WHERE clause because some predicates may not be pushable to the index. To fix this, enable 'SET paradedb.enable_filter_pushdown = on' to allow filtering on all fields. Alternatively, ensure all WHERE predicates use indexed fields or remove non-indexed predicates.
+ERROR:  Cannot execute window aggregate: WHERE clause contains predicates that cannot be pushed down, and paradedb.enable_filter_pushdown is disabled
 SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
 FROM logs
 WHERE unindexed_metric = 150
 ORDER BY timestamp DESC
 LIMIT 1;
-ERROR:  pdb.agg() window functions cannot be used with this WHERE clause because some predicates may not be pushable to the index. To fix this, enable 'SET paradedb.enable_filter_pushdown = on' to allow filtering on all fields. Alternatively, ensure all WHERE predicates use indexed fields or remove non-indexed predicates.
+ERROR:  Cannot execute window aggregate: WHERE clause contains predicates that cannot be pushed down, and paradedb.enable_filter_pushdown is disabled
 -- Test 49: pdb.agg() with exact text match WHERE clause and filter_pushdown enabled
--- With filter_pushdown ON, the custom scan should handle this via Qual::All + PostgreSQL filtering
--- Result: Custom scan uses Qual::All, PostgreSQL applies WHERE clause filter, returns correct results
+-- With filter_pushdown ON, the custom scan should handle this via HeapExpr retention
+-- Result: Custom scan evaluates the WHERE clause via Tantivy's heap_filter
 SET paradedb.enable_filter_pushdown TO on;
 EXPLAIN SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
 FROM logs
 WHERE description = 'Database connection error'
 ORDER BY timestamp DESC
 LIMIT 1;
-                                     QUERY PLAN                                      
--------------------------------------------------------------------------------------
- Limit  (cost=10.00..10.12 rows=1 width=76)
-   ->  Custom Scan (ParadeDB Base Scan) on logs  (cost=10.00..10.12 rows=1 width=76)
+                                                                      QUERY PLAN                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=10.00..10.01 rows=1 width=76)
+   ->  Custom Scan (ParadeDB Base Scan) on logs  (cost=10.00..10.01 rows=1 width=76)
          Table: logs
          Index: logs_idx
          Segment Count: 1
@@ -1458,7 +1457,7 @@ LIMIT 1;
             TopK Order By: timestamp desc
             TopK Limit: 1
          Full Index Scan: true
-         Tantivy Query: "all"
+         Tantivy Query: {"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(description = 'Database connection error'::text)"}]}}
 (11 rows)
 
 SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
@@ -1466,9 +1465,9 @@ FROM logs
 WHERE description = 'Database connection error'
 ORDER BY timestamp DESC
 LIMIT 1;
- id |        description        |                                                                                                                               agg                                                                                                                               
-----+---------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- 11 | API internal server error | {"buckets": [{"key": "database", "doc_count": 6}, {"key": "api", "doc_count": 5}, {"key": "application", "doc_count": 4}, {"key": "network", "doc_count": 4}, {"key": "security", "doc_count": 3}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ id |        description        |                                                      agg                                                       
+----+---------------------------+----------------------------------------------------------------------------------------------------------------
+  1 | Database connection error | {"buckets": [{"key": "database", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
 (1 row)
 
 SET paradedb.enable_filter_pushdown TO off;
@@ -1510,7 +1509,7 @@ FROM logs
 WHERE description @@@ 'error' AND description = 'Database connection error'
 ORDER BY timestamp DESC
 LIMIT 1;
-ERROR:  pdb.agg() window functions cannot be used with this WHERE clause because some predicates may not be pushable to the index. To fix this, enable 'SET paradedb.enable_filter_pushdown = on' to allow filtering on all fields. Alternatively, ensure all WHERE predicates use indexed fields or remove non-indexed predicates.
+ERROR:  Cannot execute window aggregate: WHERE clause contains predicates that cannot be pushed down, and paradedb.enable_filter_pushdown is disabled
 -- Test 52: Same query works with filter_pushdown enabled
 SET paradedb.enable_filter_pushdown TO on;
 SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
@@ -1524,7 +1523,7 @@ LIMIT 1;
 (1 row)
 
 SET paradedb.enable_filter_pushdown TO off;
--- Test 51: pdb.agg() as window function with @@@ WHERE clause
+-- Test 53: pdb.agg() as window function with @@@ WHERE clause
 -- Currently requires filter_pushdown because we can't determine at planner time
 -- if ALL predicates are pushable (conservative approach to prevent silent data loss)
 SET paradedb.enable_filter_pushdown TO on;
@@ -1538,6 +1537,22 @@ LIMIT 1;
  11 | API internal server error | {"buckets": [{"key": "database", "doc_count": 3}, {"key": "application", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
 (1 row)
 
+-- Test 54: pdb.agg() as window function with volatile function in WHERE clause
+-- Result: Planner throws an error because volatile functions cannot be pushed down safely
+SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+FROM logs
+WHERE description = 'Database connection error' AND random() > -1
+ORDER BY timestamp DESC
+LIMIT 1;
+ERROR:  Cannot execute window aggregate: WHERE clause contains volatile functions which cannot be safely evaluated in a custom scan
+-- Test 55: pdb.agg() as window function with subplan in WHERE clause
+-- Result: Planner throws an error because subqueries cannot be evaluated inside a custom scan
+SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+FROM logs
+WHERE description = (SELECT description FROM logs l2 WHERE l2.id = logs.id ORDER BY id LIMIT 1)
+ORDER BY timestamp DESC
+LIMIT 1;
+ERROR:  Cannot execute window aggregate: WHERE clause contains subqueries which cannot be evaluated in a custom scan
 -- =====================================================================
 -- SECTION 16: pdb.agg() with Composite Aggregation
 -- =====================================================================
@@ -2425,8 +2440,7 @@ SELECT 'expecting error from placeholder pdb.agg in GENERIC mode:';
 (1 row)
 
 EXECUTE agg_param_g('{"terms":{"field":"category"}}');
-WARNING:  Aggregate Scan not used: pdb.agg argument must be a constant for aggregate pushdown (table: agg_param_test)
-ERROR:  pdb.agg() must be handled by ParadeDB's custom scan. This error usually means the query syntax is not supported. Try adding '@@@ pdb.all()' to your WHERE clause to force custom scan usage, or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported.
+ERROR:  Cannot execute pdb.agg: pdb.agg argument must be a constant for aggregate pushdown
 \set VERBOSITY default
 -- Sanity check: backend is still alive.
 SELECT 1 AS backend_still_alive;
@@ -2438,3 +2452,26 @@ SELECT 1 AS backend_still_alive;
 DEALLOCATE agg_param_g;
 RESET plan_cache_mode;
 DROP TABLE agg_param_test;
+\echo '--- pdb.agg inside CTE with outer GROUP BY on non-BM25 table ---'
+--- pdb.agg inside CTE with outer GROUP BY on non-BM25 table ---
+CREATE TABLE cte_bm25_logs (id INT, description TEXT, category TEXT);
+INSERT INTO cte_bm25_logs VALUES (1, 'error event', 'cat1'), (2, 'warning event', 'cat2');
+CREATE INDEX cte_bm25_logs_idx ON cte_bm25_logs USING bm25 (id, description, category) WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
+CREATE TABLE cte_plain_tbl (cat TEXT);
+INSERT INTO cte_plain_tbl VALUES ('cat1'), ('cat2');
+WITH facets AS (
+    SELECT id, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () AS agg
+    FROM cte_bm25_logs WHERE description @@@ 'error' ORDER BY id DESC LIMIT 1
+)
+SELECT p.cat, count(*), (SELECT f.agg FROM facets f LIMIT 1)
+FROM cte_plain_tbl p
+GROUP BY p.cat
+ORDER BY p.cat;
+ cat  | count |                                                    agg                                                     
+------+-------+------------------------------------------------------------------------------------------------------------
+ cat1 |     1 | {"buckets": [{"key": "cat1", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ cat2 |     1 | {"buckets": [{"key": "cat1", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(2 rows)
+
+DROP TABLE cte_bm25_logs;
+DROP TABLE cte_plain_tbl;

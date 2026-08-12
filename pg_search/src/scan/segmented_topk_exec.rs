@@ -566,6 +566,20 @@ impl ExecutionPlan for SegmentedTopKExec {
         "SegmentedTopKExec"
     }
 
+    fn apply_expressions(
+        &self,
+        f: &mut dyn FnMut(
+            &Arc<dyn datafusion::physical_plan::PhysicalExpr>,
+        ) -> Result<datafusion::common::tree_node::TreeNodeRecursion>,
+    ) -> Result<datafusion::common::tree_node::TreeNodeRecursion> {
+        for sort_expr in &self.sort_exprs {
+            if f(&sort_expr.expr)? == datafusion::common::tree_node::TreeNodeRecursion::Stop {
+                return Ok(datafusion::common::tree_node::TreeNodeRecursion::Stop);
+            }
+        }
+        Ok(datafusion::common::tree_node::TreeNodeRecursion::Continue)
+    }
+
     fn properties(&self) -> &Arc<PlanProperties> {
         &self.properties
     }

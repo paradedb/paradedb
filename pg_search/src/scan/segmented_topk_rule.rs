@@ -129,9 +129,7 @@ fn try_inject_at_sort(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionP
     // therefore reach the same recipients the SortExec would have driven, and no
     // trailing `FilterPushdown(Post)` pass is required to re-push a fresh filter.
     // See #5635.
-    let parent_filter = sort_exec
-        .dynamic_filter_expr()
-        .map(|f| f as Arc<dyn PhysicalExpr>);
+    let parent_filter = sort_exec.dynamic_expressions_produced().first().cloned();
 
     // Walk down from SortExec to find TantivyLookupExec.
     // If injection succeeds, SegmentedTopKExec now handles the final sort + limit,

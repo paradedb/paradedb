@@ -97,8 +97,8 @@ WHERE i.overview @@@ 'software'
   )
 ORDER BY i.id DESC
 LIMIT 10;
-                                                                                                                  QUERY PLAN                                                                                                                   
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id
    ->  Custom Scan (ParadeDB Join Scan)
@@ -128,7 +128,7 @@ LIMIT 10;
            :     │         t0: PgSearchScan: segments=10, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
            :     │     RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
            :     │       DistributedLeafExec:
-           :     │         t0: PgSearchScan: segments=2, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"with_index":{"query":{"term_set":{"field":"technology_name","terms":["Marketo"]}}}}]}}
+           :     │         t0: PgSearchScan: segments=2, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"with_index":{"query":{"term_set":{"field":"technology_name","terms":["Marketo"]}}}}]}}
            :     └──────────────────────────────────────────────────
            :     ┌───── Stage 2 ── tasks=4, partitions=16
            :     │ RepartitionExec: partitioning=Hash([company_id@0], 16), input_partitions=1

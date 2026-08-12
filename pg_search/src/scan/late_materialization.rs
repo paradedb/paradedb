@@ -28,7 +28,6 @@ use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
 use async_trait::async_trait;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use datafusion::common::{Column, DFSchemaRef, DataFusionError, Result};
-use datafusion::execution::context::SessionState;
 use datafusion::logical_expr::{Expr, Extension, LogicalPlan, UserDefinedLogicalNodeCore};
 use datafusion::optimizer::{OptimizerConfig, OptimizerRule};
 use datafusion::physical_plan::ExecutionPlan;
@@ -676,7 +675,8 @@ impl ExtensionPlanner for LateMaterializePlanner {
         node: &dyn datafusion::logical_expr::UserDefinedLogicalNode,
         _logical_inputs: &[&LogicalPlan],
         physical_inputs: &[Arc<dyn ExecutionPlan>],
-        _session_state: &SessionState,
+        _session: &dyn datafusion::catalog::Session,
+        _planning_ctx: &datafusion::logical_expr::physical_planning_context::PhysicalPlanningContext,
     ) -> Result<Option<Arc<dyn ExecutionPlan>>> {
         if let Some(mat_node) = node.as_any().downcast_ref::<LateMaterializeNode>() {
             let input_exec = Arc::clone(&physical_inputs[0]);

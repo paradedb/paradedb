@@ -79,8 +79,8 @@ WHERE
     AND contact_id @@@ paradedb.range(field => 'contact_id', range => '(0,)'::int8range)
 ORDER BY revenue_rank DESC NULLS LAST, contact_id ASC
 LIMIT 25;
-                                                                                          QUERY PLAN                                                                                           
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                       QUERY PLAN                                                                                       
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: (cccf ANTI cne) SEMI ce
@@ -95,7 +95,7 @@ LIMIT 25;
            :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, company_id@1)]
            :           PgSearchScan: segments=1, query="all"
            :           HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, company_id@1)]
-           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse":{"query_string":"speciality:salesforce","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse":{"query_string":"speciality:salesforce","lenient":null,"conjunction_mode":null}}}}
            :             RepartitionExec: partitioning=RoundRobinBatch(8), input_partitions=1
            :               PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"range":{"field":"contact_id","lower_bound":{"included":1},"upper_bound":null}}}}
 (17 rows)
@@ -159,8 +159,8 @@ WHERE
     AND contact_id @@@ paradedb.range(field => 'contact_id', range => '(0,)'::int8range)
 ORDER BY revenue_rank DESC NULLS LAST, contact_id ASC
 LIMIT 25;
-                                                                                          QUERY PLAN                                                                                           
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                      QUERY PLAN                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: (cccf ANTI cne) SEMI ce
@@ -176,7 +176,7 @@ LIMIT 25;
            :           PgSearchScan: segments=1, query="all"
            :         HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, company_id@1)]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse":{"query_string":"speciality:salesforce","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse":{"query_string":"speciality:salesforce","lenient":null,"conjunction_mode":null}}}}
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"range":{"field":"contact_id","lower_bound":{"included":1},"upper_bound":null}}}}
 (18 rows)

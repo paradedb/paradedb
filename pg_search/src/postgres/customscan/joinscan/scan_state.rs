@@ -132,8 +132,12 @@ impl QueryPlanner for PgSearchQueryPlanner {
     async fn create_physical_plan(
         &self,
         logical_plan: &datafusion::logical_expr::LogicalPlan,
-        session_state: &SessionState,
+        session: &dyn datafusion::catalog::Session,
     ) -> Result<Arc<dyn ExecutionPlan>> {
+        let session_state = session
+            .as_any()
+            .downcast_ref::<SessionState>()
+            .ok_or_else(|| DataFusionError::Internal("Expected SessionState".to_string()))?;
         let mut extension_planners: Vec<
             Arc<dyn datafusion::physical_planner::ExtensionPlanner + Send + Sync>,
         > = vec![Arc::new(

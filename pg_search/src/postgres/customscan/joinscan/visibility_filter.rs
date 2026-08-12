@@ -55,7 +55,7 @@ use datafusion::arrow::compute::kernels::boolean::{and, is_not_null};
 use datafusion::catalog::default_table_source::DefaultTableSource;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use datafusion::common::{DFSchemaRef, DataFusionError, Result};
-use datafusion::execution::{SendableRecordBatchStream, SessionState, TaskContext};
+use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::logical_expr::{Extension, LogicalPlan, UserDefinedLogicalNode};
 use datafusion::optimizer::optimizer::ApplyOrder;
 use datafusion::optimizer::{OptimizerConfig, OptimizerRule};
@@ -655,7 +655,8 @@ impl ExtensionPlanner for VisibilityExtensionPlanner {
         node: &dyn UserDefinedLogicalNode,
         _logical_inputs: &[&LogicalPlan],
         physical_inputs: &[Arc<dyn ExecutionPlan>],
-        _session_state: &SessionState,
+        _session: &dyn datafusion::catalog::Session,
+        _planning_ctx: &datafusion::logical_expr::physical_planning_context::PhysicalPlanningContext,
     ) -> Result<Option<Arc<dyn ExecutionPlan>>> {
         let Some(vis_node) = node.as_any().downcast_ref::<VisibilityFilterNode>() else {
             return Ok(None);
@@ -847,6 +848,15 @@ impl DisplayAs for VisibilityFilterExec {
 impl ExecutionPlan for VisibilityFilterExec {
     fn name(&self) -> &str {
         "VisibilityFilterExec"
+    }
+
+    fn apply_expressions(
+        &self,
+        _f: &mut dyn FnMut(
+            &Arc<dyn datafusion::physical_plan::PhysicalExpr>,
+        ) -> Result<TreeNodeRecursion>,
+    ) -> Result<TreeNodeRecursion> {
+        Ok(TreeNodeRecursion::Continue)
     }
 
     fn metrics(&self) -> Option<MetricsSet> {

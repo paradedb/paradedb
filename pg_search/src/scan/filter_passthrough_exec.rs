@@ -63,6 +63,15 @@ impl ExecutionPlan for FilterPassthroughExec {
         self.inner.name()
     }
 
+    fn apply_expressions(
+        &self,
+        f: &mut dyn FnMut(
+            &Arc<dyn datafusion::physical_plan::PhysicalExpr>,
+        ) -> Result<datafusion::common::tree_node::TreeNodeRecursion>,
+    ) -> Result<datafusion::common::tree_node::TreeNodeRecursion> {
+        self.inner.apply_expressions(f)
+    }
+
     fn properties(&self) -> &Arc<PlanProperties> {
         self.inner.properties()
     }

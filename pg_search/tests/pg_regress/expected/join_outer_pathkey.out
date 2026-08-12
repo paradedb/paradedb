@@ -93,7 +93,7 @@ LIMIT 10;
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"term":{"field":"tag","value":"niche"}}}}
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"term":{"field":"tag","value":"niche"}}}}
 (18 rows)
 
 SELECT p.id, p.description

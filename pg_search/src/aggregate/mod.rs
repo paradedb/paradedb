@@ -273,28 +273,38 @@ impl<'a> ParallelAggregationWorker<'a> {
         };
         let from_sql = matches!(self.aggregation.as_ref(), Some(AggregateRequest::Sql(_)));
         let mut aggregations: Aggregations = self.aggregation.take().unwrap().try_into()?;
+        let schema = indexrel.schema()?;
         if from_sql {
             // ensure GROUP BY includes a bucket for documents missing the group-by value
-            let schema = indexrel.schema()?;
             set_missing_on_terms(&mut aggregations, &schema, &use_min_sentinel_fields);
         }
+
+        let solve_mvcc_lazily =
+            self.config.solve_mvcc && lazy_vischeck::eligible(&aggregations, &schema);
 
         let nworkers = self.state.launched_workers();
         // Get the tokenizer manager from the index (has all custom tokenizers registered)
         let tokenizer_manager = reader.searcher().index().tokenizers().clone();
-        let base_collector = DistributedAggregationCollector::from_aggs(
-            aggregations,
-            AggContextParams::new(
-                AggregationLimitsGuard::new(
-                    Some(self.config.memory_limit / std::cmp::max(nworkers as u64, 1)),
-                    Some(self.config.bucket_limit),
-                ),
-                tokenizer_manager,
+        let mut context = AggContextParams::new(
+            AggregationLimitsGuard::new(
+                Some(self.config.memory_limit / std::cmp::max(nworkers as u64, 1)),
+                Some(self.config.bucket_limit),
             ),
+            tokenizer_manager,
         );
+        if solve_mvcc_lazily {
+            let heaprel = indexrel
+                .heap_relation()
+                .expect("index should belong to a heap relation");
+            context = context.with_doc_visibility_factory(lazy_vischeck::doc_visibility_factory(
+                &heaprel,
+                unsafe { pg_sys::GetActiveSnapshot() },
+            ));
+        }
+        let base_collector = DistributedAggregationCollector::from_aggs(aggregations, context);
 
         let start = std::time::Instant::now();
-        let intermediate_results = if self.config.solve_mvcc {
+        let intermediate_results = if self.config.solve_mvcc && !solve_mvcc_lazily {
             let heaprel = indexrel
                 .heap_relation()
                 .expect("index should belong to a heap relation");
@@ -940,6 +950,76 @@ pub mod interrupt_collector {
         fn harvest(self) -> Self::Fruit {
             self.inner.harvest()
         }
+    }
+}
+
+pub mod lazy_vischeck {
+    use parking_lot::Mutex;
+    use std::sync::Arc;
+
+    use crate::index::fast_fields_helper::FFType;
+    use crate::postgres::heap::VisibilityChecker;
+    use crate::postgres::rel::PgSearchRelation;
+    use crate::schema::SearchIndexSchema;
+    use pgrx::pg_sys;
+    use tantivy::aggregation::DocVisibilityFilterFactory;
+    use tantivy::aggregation::agg_req::{AggregationVariants, Aggregations};
+
+    /// The lazy visibility path applies when every aggregation in the request
+    /// is a cardinality over a string field: tantivy then consults the
+    /// visibility filter only for docs whose value is not yet confirmed
+    /// visible, instead of vischecking every matched doc up front. Tantivy
+    /// validates the same conditions per segment and errors on violations, so
+    /// this check decides routing only; anything ineligible takes the full
+    /// `MVCCFilterCollector` path.
+    pub fn eligible(aggs: &Aggregations, schema: &SearchIndexSchema) -> bool {
+        !aggs.is_empty()
+            && aggs.values().all(|agg| {
+                agg.sub_aggregation.is_empty()
+                    && match &agg.agg {
+                        AggregationVariants::Cardinality(card) => schema
+                            .search_field(&card.field)
+                            .is_some_and(|field| field.is_text()),
+                        _ => false,
+                    }
+            })
+    }
+
+    struct SendSyncWrapper<T>(T);
+    // SAFETY: same rationale as MVCCFilterCollector — collection runs
+    // single-threaded within this backend/parallel-worker process.
+    unsafe impl<T> Send for SendSyncWrapper<T> {}
+    unsafe impl<T> Sync for SendSyncWrapper<T> {}
+
+    impl<T> SendSyncWrapper<T> {
+        // Method (not field) access so closures capture the whole wrapper,
+        // keeping the unsafe Send/Sync impls effective under edition-2021
+        // disjoint capture.
+        fn get(&self) -> &T {
+            &self.0
+        }
+    }
+
+    #[allow(clippy::arc_with_non_send_sync)]
+    pub fn doc_visibility_factory(
+        heaprel: &PgSearchRelation,
+        snapshot: pg_sys::Snapshot,
+    ) -> DocVisibilityFilterFactory {
+        let vischeck = SendSyncWrapper(Arc::new(Mutex::new(VisibilityChecker::with_rel_and_snap(
+            heaprel, snapshot,
+        ))));
+        Arc::new(move |segment_reader| {
+            let ctid_ff = FFType::new(segment_reader.fast_fields(), "ctid");
+            let vischeck = vischeck.get().clone();
+            Some(Box::new(move |doc| {
+                let Some(ctid) = ctid_ff.as_u64(doc) else {
+                    return false;
+                };
+                let mut results = [None];
+                vischeck.lock().check_batch(&[Some(ctid)], &mut results);
+                results[0].is_some()
+            }))
+        })
     }
 }
 

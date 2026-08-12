@@ -572,12 +572,18 @@ impl ExecutionPlan for SegmentedTopKExec {
             &Arc<dyn datafusion::physical_plan::PhysicalExpr>,
         ) -> Result<datafusion::common::tree_node::TreeNodeRecursion>,
     ) -> Result<datafusion::common::tree_node::TreeNodeRecursion> {
-        for sort_expr in &self.sort_exprs {
-            if f(&sort_expr.expr)? == datafusion::common::tree_node::TreeNodeRecursion::Stop {
-                return Ok(datafusion::common::tree_node::TreeNodeRecursion::Stop);
-            }
-        }
-        Ok(datafusion::common::tree_node::TreeNodeRecursion::Continue)
+        // We need to visit sort_exprs, as they are evaluated at runtime, and the dynamic filter
+        // we take over from the replaced SortExec.
+        let exprs = self
+            .sort_exprs
+            .iter()
+            .map(|e| e.expr.clone())
+            .chain([self.dynamic_filter.clone()]);
+        datafusion::physical_plan::apply_expression_roots(exprs, f)
+    }
+
+    fn dynamic_expressions_produced(&self) -> Vec<Arc<dyn PhysicalExpr>> {
+        vec![self.dynamic_filter.clone()]
     }
 
     fn properties(&self) -> &Arc<PlanProperties> {

@@ -241,7 +241,6 @@ BEGIN
     RAISE EXCEPTION 'expected an MPP range-join worker to apply a dynamic filter';
   END IF;
 END $$;
-ERROR:  expected an MPP range-join worker to apply a dynamic filter
 DROP TABLE mpp_explain_analyze_output;
 DROP FUNCTION mpp_explain_analyze_lines(text);
 -- =====================================================================

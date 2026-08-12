@@ -1922,7 +1922,7 @@ WHERE p.description @@@ 'laptop';
      :     CooperativeExec
      :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=3, output_bytes=24.0 B, output_batches=1]
      :     CooperativeExec
-     :       PgSearchScan: segments=2, dynamic_filters=1, query="all", metrics=[output_rows=9, output_bytes=72.0 B, output_batches=2, rows_pruned=0, rows_scanned=12]
+     :       PgSearchScan: segments=2, dynamic_filters=1, query="all", metrics=[output_rows=9, output_bytes=72.0 B, output_batches=2, rows_pruned=3, rows_scanned=12]
 (11 rows)
 
 -- =====================================================================

@@ -146,9 +146,9 @@ LIMIT 10;
            : ┌───── DistributedExec
            : │ ProjectionExec: expr=[title@3 as col_1, size_bytes@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            : │   SortPreservingMergeExec: [title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], fetch=10
-           : │     [Stage 1] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
+           : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
            : └──────────────────────────────────────────────────
-           :   ┌───── Stage 1 ── tasks=3, partitions=9
+           :   ┌───── Stage 1 ── tasks=3, partitions=3
            :   │ LocalLimitExec: fetch=10
            :   │   TantivyLookupExec: decode=[title]
            :   │     SegmentedTopKExec: expr=[title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], k=10, visibility_checks=[p, f]
@@ -184,10 +184,11 @@ LIMIT 10;
 (10 rows)
 
 -- =====================================================================
--- Pass 3: worker metrics reach the leader's EXPLAIN ANALYZE display.
--- Asserts presence, not content: how many workers launch and how they
--- split the rows isn't pinned, so per-fragment metrics vary run to run.
--- A fragment's row counts appear only once its TaskMetrics crossed the mesh.
+-- Pass 3: worker metrics and dynamic-filter pruning reach the leader's
+-- EXPLAIN ANALYZE display. Asserts presence, not exact counts: how many
+-- workers launch and how they split the rows isn't pinned, so per-fragment
+-- metrics vary run to run. A fragment's row counts appear only once its
+-- TaskMetrics crossed the mesh.
 -- =====================================================================
 CREATE OR REPLACE FUNCTION mpp_explain_analyze_lines(q text) RETURNS SETOF text AS $$
 DECLARE r record;
@@ -196,20 +197,51 @@ BEGIN
     RETURN NEXT r."QUERY PLAN";
   END LOOP;
 END $$ LANGUAGE plpgsql;
-SELECT count(*) > 0 AS worker_metrics_shown
+CREATE TEMP TABLE mpp_explain_analyze_output AS
+SELECT line
 FROM mpp_explain_analyze_lines(
   'SELECT f.title, p.size_bytes
    FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
    WHERE f.content @@@ ''Section''
+     AND f.id <= 20
    ORDER BY f.title, p.size_bytes
    LIMIT 10'
-) AS line
+) AS line;
+SELECT count(*) > 0 AS worker_metrics_shown
+FROM mpp_explain_analyze_output
 WHERE line LIKE '%output_rows%';
  worker_metrics_shown 
 ----------------------
  t
 (1 row)
 
+-- Assigned range variants expose one local partition, satisfying DataFusion's
+-- dynamic-filter routing condition. A worker may apply the resulting filter
+-- either in the batch pre-filter or by pushing it directly into Tantivy.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM mpp_explain_analyze_output
+    WHERE line LIKE '%DistributedExec%'
+  ) OR NOT EXISTS (
+    SELECT 1
+    FROM mpp_explain_analyze_output
+    WHERE line LIKE '%partition=%'
+  ) THEN
+    RAISE EXCEPTION 'expected an MPP range-partitioned join';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM mpp_explain_analyze_output
+    WHERE line ~ 'rows_pruned=\{[^}]*:[1-9][0-9]*'
+       OR line LIKE '%dynamic_filter_pushdown=%'
+  ) THEN
+    RAISE EXCEPTION 'expected an MPP range-join worker to apply a dynamic filter';
+  END IF;
+END $$;
+DROP TABLE mpp_explain_analyze_output;
 DROP FUNCTION mpp_explain_analyze_lines(text);
 -- =====================================================================
 -- Pass 4: MPP with heap filter
@@ -240,9 +272,9 @@ LIMIT 10;
            : ┌───── DistributedExec
            : │ ProjectionExec: expr=[title@3 as col_1, size_bytes@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            : │   SortPreservingMergeExec: [title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], fetch=10
-           : │     [Stage 1] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
+           : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
            : └──────────────────────────────────────────────────
-           :   ┌───── Stage 1 ── tasks=3, partitions=9
+           :   ┌───── Stage 1 ── tasks=3, partitions=3
            :   │ LocalLimitExec: fetch=10
            :   │   TantivyLookupExec: decode=[title]
            :   │     SegmentedTopKExec: expr=[title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], k=10, visibility_checks=[p, f]
@@ -370,7 +402,7 @@ LIMIT 10;
            :   │         [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=4
            :   └──────────────────────────────────────────────────
            :     ┌───── Stage 1 ── tasks=4, partitions=16
-           :     │ RepartitionExec: partitioning=Hash([id@1], 16), input_partitions=4
+           :     │ RepartitionExec: partitioning=Hash([id@1], 16), input_partitions=1
            :     │   DistributedLeafExec:
            :     │     t0: PgSearchScan: segments=2, partition=id[-∞..38), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
            :     │     t1: PgSearchScan: segments=2, partition=id[38..76), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
@@ -378,7 +410,7 @@ LIMIT 10;
            :     │     t3: PgSearchScan: segments=2, partition=id[126..∞), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
            :     └──────────────────────────────────────────────────
            :     ┌───── Stage 2 ── tasks=4, partitions=16
-           :     │ RepartitionExec: partitioning=Hash([file_id@1], 16), input_partitions=4
+           :     │ RepartitionExec: partitioning=Hash([file_id@1], 16), input_partitions=1
            :     │   VisibilityFilterExec: tables=[p]
            :     │     DistributedLeafExec:
            :     │       t0: PgSearchScan: segments=2, partition=file_id[-∞..38), dynamic_filters=1, query="all"
@@ -464,7 +496,7 @@ LIMIT 5;
                  :   │     [Stage 1] => NetworkShuffleExec: output_partitions=3, input_tasks=3
                  :   └──────────────────────────────────────────────────
                  :     ┌───── Stage 1 ── tasks=3, partitions=9
-                 :     │ RepartitionExec: partitioning=Hash([title@0], 9), input_partitions=3
+                 :     │ RepartitionExec: partitioning=Hash([title@0], 9), input_partitions=1
                  :     │   AggregateExec: mode=Partial, gby=[title@0 as title], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
                  :     │     HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, size_bytes@3]
                  :     │       DistributedLeafExec:

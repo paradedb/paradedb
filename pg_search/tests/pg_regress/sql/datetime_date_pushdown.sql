@@ -1,8 +1,10 @@
 -- =====================================================================
 -- GROUP BY DATE(<timestamp>) pushdown
 -- =====================================================================
--- `GROUP BY DATE(ts)` on a NOT NULL `timestamp` column should be pushed into
--- the ParadeDB Aggregate Scan rather than computed by Postgres.
+-- `GROUP BY DATE(ts)` on a `timestamp` fast field is pushed into the
+-- ParadeDB Aggregate Scan rather than computed by Postgres; NULL rows form
+-- their own group. Unsupported shapes (timestamptz, casts, FILTER,
+-- multi-column) decline with a named reason and fall back to Postgres.
 --
 -- Data notes:
 --   * 2024-01-01 has three rows, including both edges of the day

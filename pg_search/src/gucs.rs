@@ -70,6 +70,10 @@ static MAX_WINDOW_AGGREGATE_RESPONSE_BYTES: GucSetting<i32> = GucSetting::<i32>:
 /// For testing, ensures the same handling of null aggregates as Postgres
 static ADD_DOC_COUNT_TO_AGGS: GucSetting<bool> = GucSetting::<bool>::new(false);
 
+/// Use lazy per-value MVCC visibility checks for string cardinality aggregations
+/// instead of vischecking every matched doc via the MVCC filter collector.
+static ENABLE_LAZY_CARDINALITY_VISCHECK: GucSetting<bool> = GucSetting::<bool>::new(true);
+
 /// The number of fast-field columns below-which the ColumnarExecState will be used, rather
 /// than the NormalExecState. The Columnar execution mode fetches data as column-oriented, whereas
 /// the Normal mode fetches data as row-oriented.
@@ -503,6 +507,17 @@ pub fn init() {
     );
 
     GucRegistry::define_bool_guc(
+        c"paradedb.enable_lazy_cardinality_vischeck",
+        c"Use lazy MVCC visibility checks for string cardinality aggregations",
+        c"When enabled, MVCC-correct cardinality aggregations over string fields check doc \
+          visibility only for values not yet confirmed visible, instead of checking every \
+          matched doc. Disable to force the full MVCC filter collector path.",
+        &ENABLE_LAZY_CARDINALITY_VISCHECK,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
         c"paradedb.check_topk_scan",
         c"Validate Top K scan eligibility for LIMIT queries",
         c"When enabled, logs a warning if a query with LIMIT cannot use the Top K scan. \
@@ -865,6 +880,10 @@ pub fn min_rows_per_worker() -> i32 {
 
 pub fn add_doc_count_to_aggs() -> bool {
     ADD_DOC_COUNT_TO_AGGS.get()
+}
+
+pub fn enable_lazy_cardinality_vischeck() -> bool {
+    ENABLE_LAZY_CARDINALITY_VISCHECK.get()
 }
 
 pub fn dynamic_filter_batch_size() -> i32 {

@@ -279,8 +279,9 @@ impl<'a> ParallelAggregationWorker<'a> {
             set_missing_on_terms(&mut aggregations, &schema, &use_min_sentinel_fields);
         }
 
-        let solve_mvcc_lazily =
-            self.config.solve_mvcc && lazy_vischeck::eligible(&aggregations, &schema);
+        let solve_mvcc_lazily = self.config.solve_mvcc
+            && crate::gucs::enable_lazy_cardinality_vischeck()
+            && lazy_vischeck::eligible(&aggregations, &schema);
 
         let nworkers = self.state.launched_workers();
         // Get the tokenizer manager from the index (has all custom tokenizers registered)

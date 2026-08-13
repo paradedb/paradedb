@@ -596,6 +596,7 @@ where
                         if let Some(field_name) = field_name_opt
                             && let Some(search_field) = schema.search_field(field_name.root())
                             && lower_sortability_check(&search_field)
+                            && sortable_at_position(&search_field, pathkey_styles.len())
                         {
                             pathkey_styles.push(OrderByStyle::Field {
                                 pathkey,

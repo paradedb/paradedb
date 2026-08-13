@@ -261,8 +261,8 @@ with Session(engine) as session:
 ```ruby Rails
 query_embedding = [1, 2, 3, 4, 5, 6, 7, 8]
 id = MockItem.arel_table[:id]
-score = MockItem.paradedb_arel.score(:id)
-distance = MockItem.paradedb_arel.cosine_distance(:embedding, query_embedding)
+score = Arel::Nodes::NamedFunction.new("pdb.score", [id])
+distance = MockItem.cosine_distance(:embedding, query_embedding)
 
 text = MockItem.search(:description)
                .match_any("running shoes")

@@ -164,7 +164,7 @@ if [[ $ORMS =~ "rails" ]]; then
   echo "Installing rails-paradedb from RubyGems..."
   GEM_HOME="$RUBY_GEM_HOME" GEM_PATH="$RUBY_GEM_HOME" \
     gem install --silent --no-document --install-dir "$RUBY_GEM_HOME" \
-    "rails-paradedb:0.11.0" \
+    "rails-paradedb:0.12.0" \
     "pg"
 
   while IFS= read -r snippet_file; do
@@ -208,7 +208,7 @@ if [[ $ORMS =~ "sqlalchemy" ]]; then
 
   echo "Installing SQLAlchemy ParadeDB client from PyPI..."
   PIP_DISABLE_PIP_VERSION_CHECK=1 "$PYTHON_BIN" -m pip install --quiet --upgrade \
-    "sqlalchemy-paradedb==0.10.0" \
+    "sqlalchemy-paradedb==0.11.0" \
     "psycopg[binary]"
 
   while IFS= read -r snippet_file; do

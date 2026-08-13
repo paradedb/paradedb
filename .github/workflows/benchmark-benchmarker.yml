@@ -11,7 +11,7 @@
 #   1. Compile pg_search from the checked-out source on the runner with
 #      cargo-pgrx (.github/actions/build-pg_search-source).
 #   2. Overlay those artifacts onto a released ParadeDB image (docker/
-#      Dockerfile.paradedb-source-18) so only the pg_search binary changes -> the
+#      Dockerfile.benchmarker) so only the pg_search binary changes -> the
 #      Postgres version, tuning, and bootstrap match the published image.
 #   3. Clone benchmarker, `make` its custom k6 + loader, pull the hn-benchmarker
 #      dataset from the public S3 bucket, and stand up the paradedb container
@@ -34,7 +34,7 @@ on:
       - "**/*.rs"
       - "**/*.toml"
       - ".github/workflows/benchmark-benchmarker.yml"
-      - "docker/Dockerfile.paradedb-source-18"
+      - "docker/Dockerfile.benchmarker"
   # Opt-in on a PR by attaching the `benchmark-benchmarker` label.
   pull_request:
     types: [labeled]
@@ -49,9 +49,9 @@ on:
         required: false
         default: "main"
       base_paradedb_image:
-        description: "Released ParadeDB image whose pg_search is overwritten with the source build."
+        description: "Released ParadeDB image whose pg_search is overwritten with the source build. Defaults to the rolling latest-pg18 tag."
         required: false
-        default: "paradedb/paradedb:v0.25.0-pg18"
+        default: "paradedb/paradedb:latest-pg18"
 
 permissions:
   contents: write # github-action-benchmark pushes to the gh-pages branch
@@ -143,11 +143,14 @@ jobs:
         run: |
           set -euo pipefail
           ctx="$(mktemp -d)"
-          cp docker/Dockerfile.paradedb-source-18 "${ctx}/Dockerfile"
+          cp docker/Dockerfile.benchmarker "${ctx}/Dockerfile"
           cp -R "${{ steps.build-pg_search.outputs.artifacts-dir }}" "${ctx}/artifacts"
+          # --pull so the rolling latest-pg18 base is refetched, not taken from a
+          # stale local layer.
           docker build \
+            --pull \
             --file "${ctx}/Dockerfile" \
-            --build-arg BASE_IMAGE="${{ inputs.base_paradedb_image || 'paradedb/paradedb:v0.25.0-pg18' }}" \
+            --build-arg BASE_IMAGE="${{ inputs.base_paradedb_image || 'paradedb/paradedb:latest-pg18' }}" \
             --tag "${IMAGE_TAG}" \
             "${ctx}"
 

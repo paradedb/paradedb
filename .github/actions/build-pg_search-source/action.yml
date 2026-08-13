@@ -6,7 +6,7 @@
 # This runs a plain native build on the runner (no Docker builder stage), so
 # cargo's normal mtime fingerprinting works and an ordinary target/ cache gives
 # real incremental compiles across runs. Consumers overlay the staged `usr/`
-# tree onto a base image (e.g. docker/Dockerfile.paradedb-source-18) or package
+# tree onto a base image (e.g. docker/Dockerfile.benchmarker) or package
 # it however they need.
 #
 # Toolchain versions are read from the repo (rust-toolchain.toml + Cargo.toml)

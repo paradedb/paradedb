@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# docker/Dockerfile.paradedb-source-18
+# docker/Dockerfile.benchmarker
 #
 # Full, runnable ParadeDB image built from THIS repo's source, for the
 # benchmarker CI workflow (.github/workflows/benchmark-benchmarker.yml).
@@ -16,7 +16,7 @@
 # Build context must contain an `artifacts/usr/` tree as staged by the action
 # (the action's `artifacts-dir` output). Pass BASE_IMAGE to pick the release.
 
-ARG BASE_IMAGE=paradedb/paradedb:v0.25.0-pg18
+ARG BASE_IMAGE=paradedb/paradedb:latest-pg18
 FROM ${BASE_IMAGE}
 
 # Overwrite the base image's pg_search library, control file, and SQL scripts

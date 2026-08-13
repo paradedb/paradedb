@@ -112,10 +112,6 @@ impl SuperKMeansIvfClusterer {
 }
 
 impl IvfClusterer for SuperKMeansIvfClusterer {
-    fn centroid_ratio(&self) -> f32 {
-        self.centroid_ratio
-    }
-
     fn training_sample_ratio(&self) -> f32 {
         self.training_sample_ratio
     }

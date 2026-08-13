@@ -102,12 +102,12 @@ prost = "0.14.3"
 # SuperKMeans IVF clusterer (pure-Rust port). BLAS backend is target-specific:
 # Accelerate on macOS, OpenBLAS on Linux (already required by the build env).
 [target.'cfg(target_os = "macos")'.dependencies]
-superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "56d08e141d0ac458da07037536ecaf31280ad59c", features = [
+superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "98be4f10193c74f306aa1612e3f6aeb594a50b68", features = [
   "accelerate",
 ] }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
-superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "56d08e141d0ac458da07037536ecaf31280ad59c", features = [
+superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "98be4f10193c74f306aa1612e3f6aeb594a50b68", features = [
   "openblas",
 ] }
 

@@ -531,6 +531,7 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 10;
+WARNING:  Aggregate Scan (DataFusion) not used: grouping column "description" exists, but is not a fast field (table: join)
 WARNING:  JoinScan not used: DISTINCT columns must be fast fields (tables: p, s)
                                                                                       QUERY PLAN                                                                                       
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -957,38 +958,27 @@ WHERE j.id @@@ paradedb.parse('title:developer')
   )
 ORDER BY p.id
 LIMIT 50;
-WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan. To disable this warning: SET paradedb.check_aggregate_scan = false (table: join)
-                                                                             QUERY PLAN                                                                              
----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                         QUERY PLAN                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Unique
-         ->  Incremental Sort
-               Sort Key: p.id, p.name
-               Presorted Key: p.id
-               ->  Merge Join
-                     Merge Cond: (p.id = j.person_id)
-                     ->  Sort
-                           Sort Key: p.id
-                           ->  Seq Scan on persons p
-                                 Filter: (NOT (ANY (id = (hashed SubPlan 1).col1)))
-                                 SubPlan 1
-                                   ->  Custom Scan (ParadeDB Base Scan) on jobs j2
-                                         Table: jobs
-                                         Index: jobs_bm25
-                                         Exec Method: ColumnarExecState
-                                         Fast Fields: person_id
-                                         Scores: false
-                                         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}}
-                     ->  Sort
-                           Sort Key: j.person_id
-                           ->  Custom Scan (ParadeDB Base Scan) on jobs j
-                                 Table: jobs
-                                 Index: jobs_bm25
-                                 Exec Method: ColumnarExecState
-                                 Fast Fields: person_id
-                                 Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}}
-(28 rows)
+   ->  Sort
+         Sort Key: p.id
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Backend: DataFusion
+               Indexes: persons_bm25 (p), jobs_bm25 (j2), jobs_bm25 (j)
+               Group By: id, name
+               DataFusion Physical Plan: 
+                 : SortExec: TopK(fetch=50), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   AggregateExec: mode=Single, gby=[id@0 as id, name@1 as name], aggr=[]
+                 :     HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(person_id@0, id@0)]
+                 :       CooperativeExec
+                 :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}}
+                 :       HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@0, person_id@0)], null_aware
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 SELECT DISTINCT p.id, p.name
 FROM persons p
@@ -1001,7 +991,6 @@ WHERE j.id @@@ paradedb.parse('title:developer')
   )
 ORDER BY p.id
 LIMIT 50;
-WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan. To disable this warning: SET paradedb.check_aggregate_scan = false (table: join)
  id | name  
 ----+-------
   1 | Alice
@@ -1100,7 +1089,7 @@ WHERE deleted_at IS NULL
   )
 ORDER BY profile_id
 LIMIT 50;
-WARNING:  Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be pushed to individual table scans. To disable this warning: SET paradedb.check_aggregate_scan = false (table: join)
+WARNING:  Aggregate Scan (DataFusion) not used: outer-join ON residual predicates are not supported (table: join)
                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                    
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -1140,7 +1129,7 @@ WHERE deleted_at IS NULL
   )
 ORDER BY profile_id
 LIMIT 50;
-WARNING:  Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be pushed to individual table scans. To disable this warning: SET paradedb.check_aggregate_scan = false (table: join)
+WARNING:  Aggregate Scan (DataFusion) not used: outer-join ON residual predicates are not supported (table: join)
  profile_id 
 ------------
           1

@@ -304,19 +304,17 @@ impl GroupingShape {
         PgList::<pg_sys::Expr>::from_pg((*self.reltarget).exprs)
     }
 
-    /// The first DISTINCT output column whose collation makes byte grouping
+    /// Whether any output column carries a collation that makes byte grouping
     /// disagree with Postgres.
     ///
     /// Deterministic collations settle equality with a byte comparison, so the
-    /// aggregation backends still group them the way Postgres does. A
-    /// nondeterministic collation can call two different byte strings equal, and
-    /// no node above the scan can merge groups the scan already emitted apart.
-    unsafe fn nondeterministic_collation(&self) -> Option<pg_sys::Oid> {
-        self.target_exprs().iter_ptr().find_map(|expr| {
+    /// aggregation backends group them the way Postgres does. A nondeterministic
+    /// collation can call two different byte strings equal, and no node above the
+    /// scan can merge groups the scan already emitted apart.
+    unsafe fn has_nondeterministic_collation(&self) -> bool {
+        self.target_exprs().iter_ptr().any(|expr| {
             let collation = pg_sys::exprCollation(expr as *mut pg_sys::Node);
-            (collation != pg_sys::Oid::INVALID
-                && !pg_sys::get_collation_isdeterministic(collation))
-            .then_some(collation)
+            collation != pg_sys::Oid::INVALID && !pg_sys::get_collation_isdeterministic(collation)
         })
     }
 }
@@ -1328,7 +1326,7 @@ impl AggregateScan {
                 return Err(warn(AggregateDeclineReason::DistinctOn));
             }
 
-            if unsafe { shape.nondeterministic_collation() }.is_some() {
+            if unsafe { shape.has_nondeterministic_collation() } {
                 return Err(warn(AggregateDeclineReason::NondeterministicCollation));
             }
         }

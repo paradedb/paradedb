@@ -22,9 +22,9 @@
 //! column and aggregate argument belongs to. This is the join-aware counterpart
 //! of [`super::targetlist::TargetList`] (which assumes a single base relation).
 
+use super::GroupingShape;
 use super::datafusion_build::{FilterExprBuildContext, JoinAggSource};
 use super::privdat::FilterExpr;
-use super::GroupingShape;
 use crate::api::SortDirection;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::customscan::datafusion::explain::get_attname_safe;
@@ -504,13 +504,13 @@ pub unsafe fn extract_aggregate_targetlist(
                 order_by,
                 numeric,
             });
-        } else {
-            // The target is neither a plain column (Var) nor an aggregate
-            // (Aggref): a DISTINCT/GROUP BY on an expression such as
-            // `upper(col)`. Only plain columns are pushed down; the query
-            // still runs natively.
+        } else if plain_columns_only {
             return Err(format!(
-                "DISTINCT/GROUP BY on expressions is not pushed down, only plain columns are (target index {idx})"
+                "DISTINCT on an expression is not pushed down, only plain columns are (target index {idx})"
+            ));
+        } else {
+            return Err(format!(
+                "GROUP BY on this expression is not pushed down, only plain columns and aggregates are (target index {idx})"
             ));
         }
     }

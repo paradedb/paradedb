@@ -161,7 +161,7 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: f,
    Group By: title
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[title@0 as title], aggr=[]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1]
+     :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, file_id@0)], projection=[title@1]
      :     CooperativeExec
      :       PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
@@ -312,30 +312,33 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: f,
    DataFusion Physical Plan: 
      : ┌───── DistributedExec
      : │ CoalescePartitionsExec
-     : │   [Stage 3] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+     : │   [Stage 4] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 3 ── tasks=2, partitions=3
+     :   ┌───── Stage 4 ── tasks=2, partitions=3
      :   │ AggregateExec: mode=FinalPartitioned, gby=[title@0 as title], aggr=[]
-     :   │   [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+     :   │   [Stage 3] => NetworkShuffleExec: output_partitions=3, input_tasks=2
      :   └──────────────────────────────────────────────────
-     :     ┌───── Stage 2 ── tasks=2, partitions=6
+     :     ┌───── Stage 3 ── tasks=2, partitions=6
      :     │ RepartitionExec: partitioning=Hash([title@0], 6), input_partitions=3
      :     │   AggregateExec: mode=Partial, gby=[title@0 as title], aggr=[]
-     :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1]
-     :     │       CoalescePartitionsExec
-     :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=2, stage_partitions=4, input_tasks=2
-     :     │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=2
-     :     │         DistributedLeafExec:
-     :     │           t0: PgSearchScan: segments=2, dynamic_filters=1, query="all"
-     :     │           t1: PgSearchScan: segments=2, dynamic_filters=1, query="all"
+     :     │     HashJoinExec: mode=Partitioned, join_type=LeftSemi, on=[(id@0, file_id@0)], projection=[title@1]
+     :     │       [Stage 1] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+     :     │       [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
      :     └──────────────────────────────────────────────────
-     :       ┌───── Stage 1 ── tasks=2, partitions=8
-     :       │ BroadcastExec: input_partitions=2, consumer_tasks=2, output_partitions=4
+     :       ┌───── Stage 1 ── tasks=2, partitions=6
+     :       │ RepartitionExec: partitioning=Hash([id@0], 6), input_partitions=1
      :       │   DistributedLeafExec:
      :       │     t0: PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :       │     t1: PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :       └──────────────────────────────────────────────────
-(31 rows)
+     :       ┌───── Stage 2 ── tasks=2, partitions=6
+     :       │ RepartitionExec: partitioning=Hash([file_id@0], 6), input_partitions=3
+     :       │   RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+     :       │     DistributedLeafExec:
+     :       │       t0: PgSearchScan: segments=2, dynamic_filters=1, query="all"
+     :       │       t1: PgSearchScan: segments=2, dynamic_filters=1, query="all"
+     :       └──────────────────────────────────────────────────
+(34 rows)
 
 SELECT COUNT(*) FROM (
     SELECT DISTINCT f.title

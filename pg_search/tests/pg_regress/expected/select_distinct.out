@@ -55,8 +55,8 @@ SELECT DISTINCT category
 FROM dist_products
 WHERE name @@@ 'laptop OR jacket OR shoes'
 ORDER BY category;
-                                                                                            QUERY PLAN                                                                                            
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -64,10 +64,13 @@ ORDER BY category;
          Indexes: dist_products_idx (dist_products)
          Group By: category
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[]
-           :   CooperativeExec
-           :     PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+           : CoalescePartitionsExec
+           :   AggregateExec: mode=FinalPartitioned, gby=[category@0 as category], aggr=[]
+           :     RepartitionExec: partitioning=Hash([category@0], 2), input_partitions=2
+           :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[]
+           :         RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
+           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 SELECT DISTINCT category
 FROM dist_products
@@ -102,8 +105,8 @@ SELECT DISTINCT rating
 FROM dist_products
 WHERE name @@@ 'laptop OR keyboard'
 ORDER BY rating;
-                                                                                        QUERY PLAN                                                                                         
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                           QUERY PLAN                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: rating
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -111,10 +114,13 @@ ORDER BY rating;
          Indexes: dist_products_idx (dist_products)
          Group By: rating
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Single, gby=[rating@0 as rating], aggr=[]
-           :   CooperativeExec
-           :     PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+           : CoalescePartitionsExec
+           :   AggregateExec: mode=FinalPartitioned, gby=[rating@0 as rating], aggr=[]
+           :     RepartitionExec: partitioning=Hash([rating@0], 2), input_partitions=2
+           :       AggregateExec: mode=Partial, gby=[rating@0 as rating], aggr=[]
+           :         RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
+           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 SELECT DISTINCT rating
 FROM dist_products
@@ -143,8 +149,8 @@ FROM dist_products
 WHERE name @@@ 'laptop OR keyboard OR jacket OR shoes OR headphones OR hub OR monitor OR mat OR chair OR desk'
 ORDER BY rating
 LIMIT 2;
-                                                                                                                                           QUERY PLAN                                                                                                                                            
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                              QUERY PLAN                                                                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: rating
@@ -153,11 +159,14 @@ LIMIT 2;
                Indexes: dist_products_idx (dist_products)
                Group By: rating
                DataFusion Physical Plan: 
-                 : SortExec: TopK(fetch=2), expr=[rating@0 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[rating@0 as rating], aggr=[], lim=[2]
-                 :     CooperativeExec
-                 :       PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard OR jacket OR shoes OR headphones OR hub OR monitor OR mat OR chair OR desk","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+                 : SortPreservingMergeExec: [rating@0 ASC NULLS LAST], fetch=2
+                 :   SortExec: TopK(fetch=2), expr=[rating@0 ASC NULLS LAST], preserve_partitioning=[true]
+                 :     AggregateExec: mode=FinalPartitioned, gby=[rating@0 as rating], aggr=[], lim=[2]
+                 :       RepartitionExec: partitioning=Hash([rating@0], 2), input_partitions=2
+                 :         AggregateExec: mode=Partial, gby=[rating@0 as rating], aggr=[], lim=[2]
+                 :           RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard OR jacket OR shoes OR headphones OR hub OR monitor OR mat OR chair OR desk","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
 
 SELECT DISTINCT rating
 FROM dist_products
@@ -207,8 +216,8 @@ SELECT DISTINCT category, brand
 FROM dist_products
 WHERE name @@@ 'laptop OR keyboard OR headphones'
 ORDER BY category, brand;
-                                                                                               QUERY PLAN                                                                                                
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                  QUERY PLAN                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: category, brand
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -216,10 +225,13 @@ ORDER BY category, brand;
          Indexes: dist_products_idx (dist_products)
          Group By: brand, category
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Single, gby=[category@0 as category, brand@1 as brand], aggr=[]
-           :   CooperativeExec
-           :     PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard OR headphones","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+           : CoalescePartitionsExec
+           :   AggregateExec: mode=FinalPartitioned, gby=[category@0 as category, brand@1 as brand], aggr=[]
+           :     RepartitionExec: partitioning=Hash([category@0, brand@1], 2), input_partitions=2
+           :       AggregateExec: mode=Partial, gby=[category@0 as category, brand@1 as brand], aggr=[]
+           :         RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
+           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard OR headphones","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 SELECT DISTINCT category, brand
 FROM dist_products
@@ -260,7 +272,7 @@ SELECT DISTINCT name
 FROM dist_products
 WHERE name @@@ 'laptop'
 ORDER BY name;
-WARNING:  Aggregate Scan (DataFusion) not used: grouping column "name" exists, but is not a fast field. To disable this warning: SET paradedb.check_aggregate_scan = false (table: dist_products)
+WARNING:  Aggregate Scan (DataFusion) not used: grouping column "name" exists, but is not a fast field (table: dist_products)
                                                                          QUERY PLAN                                                                         
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
  Unique
@@ -278,7 +290,7 @@ SELECT DISTINCT name
 FROM dist_products
 WHERE name @@@ 'laptop'
 ORDER BY name;
-WARNING:  Aggregate Scan (DataFusion) not used: grouping column "name" exists, but is not a fast field. To disable this warning: SET paradedb.check_aggregate_scan = false (table: dist_products)
+WARNING:  Aggregate Scan (DataFusion) not used: grouping column "name" exists, but is not a fast field (table: dist_products)
      name      
 ---------------
  Gaming Laptop
@@ -311,7 +323,7 @@ SELECT DISTINCT ON (category) category, name
 FROM dist_products
 WHERE name @@@ 'laptop OR keyboard'
 ORDER BY category, name;
-WARNING:  Aggregate Scan not used: DISTINCT ON is not supported (see https://github.com/paradedb/paradedb/issues/new/choose). To disable this warning: SET paradedb.check_aggregate_scan = false (table: dist_products)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT ON is not supported (table: dist_products)
                                                                                QUERY PLAN                                                                               
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Unique
@@ -329,7 +341,7 @@ SELECT DISTINCT ON (category) category, name
 FROM dist_products
 WHERE name @@@ 'laptop OR keyboard'
 ORDER BY category, name;
-WARNING:  Aggregate Scan not used: DISTINCT ON is not supported (see https://github.com/paradedb/paradedb/issues/new/choose). To disable this warning: SET paradedb.check_aggregate_scan = false (table: dist_products)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT ON is not supported (table: dist_products)
   category   |        name         
 -------------+---------------------
  Accessories | Mechanical Keyboard
@@ -371,8 +383,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT category
 FROM dist_products
 ORDER BY category;
-                                  QUERY PLAN                                   
--------------------------------------------------------------------------------
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
  Sort
    Sort Key: category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -380,10 +392,13 @@ ORDER BY category;
          Indexes: dist_products_idx (dist_products)
          Group By: category
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[]
-           :   CooperativeExec
-           :     PgSearchScan: segments=1, query="all"
-(10 rows)
+           : CoalescePartitionsExec
+           :   AggregateExec: mode=FinalPartitioned, gby=[category@0 as category], aggr=[]
+           :     RepartitionExec: partitioning=Hash([category@0], 2), input_partitions=2
+           :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[]
+           :         RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
+           :           PgSearchScan: segments=1, query="all"
+(13 rows)
 
 SELECT DISTINCT category
 FROM dist_products
@@ -428,8 +443,8 @@ FROM dist_products dp
 JOIN dist_regions dr ON dp.category = dr.category
 WHERE dp.name @@@ 'laptop OR jacket OR shoes'
 ORDER BY dp.category;
-                                                                                                      QUERY PLAN                                                                                                       
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: dp.category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -437,13 +452,15 @@ ORDER BY dp.category;
          Indexes: dist_products_idx (dp), dist_regions_idx (dr)
          Group By: category
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[]
-           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[category@1]
-           :     CooperativeExec
-           :       PgSearchScan: segments=1, query="all"
-           :     CooperativeExec
-           :       PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
+           : CoalescePartitionsExec
+           :   AggregateExec: mode=FinalPartitioned, gby=[category@0 as category], aggr=[]
+           :     RepartitionExec: partitioning=Hash([category@0], 2), input_partitions=2
+           :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[]
+           :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(category@0, category@0)]
+           :           PgSearchScan: segments=1, query="all"
+           :           RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
 
 SELECT DISTINCT dp.category
 FROM dist_products dp
@@ -499,8 +516,8 @@ SELECT DISTINCT url
 FROM dist_urls
 WHERE name @@@ 'Page'
 ORDER BY url;
-                                                                                 QUERY PLAN                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                    QUERY PLAN                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: url
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -508,10 +525,13 @@ ORDER BY url;
          Indexes: dist_urls_idx (dist_urls)
          Group By: url
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Single, gby=[url@0 as url], aggr=[]
-           :   CooperativeExec
-           :     PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+           : CoalescePartitionsExec
+           :   AggregateExec: mode=FinalPartitioned, gby=[url@0 as url], aggr=[]
+           :     RepartitionExec: partitioning=Hash([url@0], 2), input_partitions=2
+           :       AggregateExec: mode=Partial, gby=[url@0 as url], aggr=[]
+           :         RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
+           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 SELECT DISTINCT url
 FROM dist_urls
@@ -567,8 +587,8 @@ SELECT DISTINCT category
 FROM dist_nullable
 WHERE name @@@ 'laptop OR keyboard OR widget OR gadget OR thingamajig'
 ORDER BY category;
-                                                                                                          QUERY PLAN                                                                                                          
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                             QUERY PLAN                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -576,10 +596,13 @@ ORDER BY category;
          Indexes: dist_nullable_idx (dist_nullable)
          Group By: category
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[]
-           :   CooperativeExec
-           :     PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard OR widget OR gadget OR thingamajig","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+           : CoalescePartitionsExec
+           :   AggregateExec: mode=FinalPartitioned, gby=[category@0 as category], aggr=[]
+           :     RepartitionExec: partitioning=Hash([category@0], 2), input_partitions=2
+           :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[]
+           :         RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
+           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard OR widget OR gadget OR thingamajig","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 -- DISTINCT must return: Accessories, Electronics, NULL (three rows)
 SELECT DISTINCT category
@@ -646,8 +669,8 @@ SELECT DISTINCT url
 FROM dist_highcard
 WHERE name @@@ 'Page'
 ORDER BY url;
-                                                                                 QUERY PLAN                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                    QUERY PLAN                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: url
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -655,10 +678,13 @@ ORDER BY url;
          Indexes: dist_highcard_idx (dist_highcard)
          Group By: url
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Single, gby=[url@0 as url], aggr=[]
-           :   CooperativeExec
-           :     PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+           : CoalescePartitionsExec
+           :   AggregateExec: mode=FinalPartitioned, gby=[url@0 as url], aggr=[]
+           :     RepartitionExec: partitioning=Hash([url@0], 2), input_partitions=2
+           :       AggregateExec: mode=Partial, gby=[url@0 as url], aggr=[]
+           :         RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
+           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 -- Verify all 20 distinct values are returned, not just 10.
 SELECT COUNT(*)
@@ -702,7 +728,7 @@ SELECT DISTINCT upper(category)
 FROM dist_expr
 WHERE name @@@ 'laptop OR mouse OR hub'
 ORDER BY 1;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT/GROUP BY on expressions is not pushed down, only plain columns are (target index 0). To disable this warning: SET paradedb.check_aggregate_scan = false (table: dist_expr)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: dist_expr)
                                                                                  QUERY PLAN                                                                                 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Unique
@@ -721,7 +747,7 @@ SELECT DISTINCT upper(category)
 FROM dist_expr
 WHERE name @@@ 'laptop OR mouse OR hub'
 ORDER BY 1;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT/GROUP BY on expressions is not pushed down, only plain columns are (target index 0). To disable this warning: SET paradedb.check_aggregate_scan = false (table: dist_expr)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: dist_expr)
     upper    
 -------------
  ACCESSORIES
@@ -747,7 +773,7 @@ SELECT DISTINCT category || '-' || brand
 FROM dist_expr
 WHERE name @@@ 'laptop OR mouse OR hub'
 ORDER BY 1;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT/GROUP BY on expressions is not pushed down, only plain columns are (target index 0). To disable this warning: SET paradedb.check_aggregate_scan = false (table: dist_expr)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: dist_expr)
                                                                                  QUERY PLAN                                                                                 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Unique
@@ -767,7 +793,7 @@ SELECT DISTINCT category || '-' || brand
 FROM dist_expr
 WHERE name @@@ 'laptop OR mouse OR hub'
 ORDER BY 1;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT/GROUP BY on expressions is not pushed down, only plain columns are (target index 0). To disable this warning: SET paradedb.check_aggregate_scan = false (table: dist_expr)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: dist_expr)
       ?column?      
 --------------------
  Accessories-BrandC
@@ -875,8 +901,8 @@ JOIN dist_regions dr ON dp.category = dr.category
 WHERE dp.name @@@ 'laptop OR jacket OR shoes'
 GROUP BY dp.category
 ORDER BY dp.category;
-                                                                                                         QUERY PLAN                                                                                                          
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Unique
    ->  Sort
          Sort Key: dp.category
@@ -886,13 +912,15 @@ ORDER BY dp.category;
                Group By: category
                Aggregates: COUNT(*)
                DataFusion Physical Plan: 
-                 : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
-                 :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[category@1]
-                 :     CooperativeExec
-                 :       PgSearchScan: segments=1, query="all"
-                 :     CooperativeExec
-                 :       PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
-(15 rows)
+                 : CoalescePartitionsExec
+                 :   AggregateExec: mode=FinalPartitioned, gby=[category@0 as category], aggr=[count(1) as agg_0]
+                 :     RepartitionExec: partitioning=Hash([category@0], 2), input_partitions=2
+                 :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[category@1]
+                 :           PgSearchScan: segments=1, query="all"
+                 :           RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
 
 SELECT DISTINCT ON (dp.category) dp.category, COUNT(*)
 FROM dist_products dp
@@ -927,8 +955,8 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 -- =============================================================================
 -- TEST 16: JOIN + DISTINCT without LIMIT under enable_join_custom_scan = on
 -- JoinScan requires a top-level LIMIT, so it declines this shape and builds
--- no path. AggregateScan must still claim it (the deferral is based on an
--- actual JoinScan path in the joinrel pathlist, not the GUC).
+-- no path. AggregateScan must still claim it: the deferral asks whether a
+-- JoinScan path exists on the joinrel, not whether JoinScan is enabled.
 -- =============================================================================
 SET paradedb.enable_join_custom_scan TO on;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -938,8 +966,8 @@ JOIN dist_regions dr ON dp.category = dr.category
 WHERE dp.name @@@ 'laptop OR jacket OR shoes'
 ORDER BY dp.category;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: dp, dr)
-                                                                                                      QUERY PLAN                                                                                                       
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: dp.category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -947,13 +975,15 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: dp
          Indexes: dist_products_idx (dp), dist_regions_idx (dr)
          Group By: category
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[]
-           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[category@1]
-           :     CooperativeExec
-           :       PgSearchScan: segments=1, query="all"
-           :     CooperativeExec
-           :       PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
+           : CoalescePartitionsExec
+           :   AggregateExec: mode=FinalPartitioned, gby=[category@0 as category], aggr=[]
+           :     RepartitionExec: partitioning=Hash([category@0], 2), input_partitions=2
+           :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[]
+           :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(category@0, category@0)]
+           :           PgSearchScan: segments=1, query="all"
+           :           RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
 
 SELECT DISTINCT dp.category
 FROM dist_products dp
@@ -968,8 +998,270 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: dp
  Sports
 (3 rows)
 
+-- =============================================================================
+-- TEST 17: JOIN + DISTINCT + LIMIT that JoinScan declines for its own reason
+-- A volatile predicate makes JoinScan reject the LIMIT pushdown, so no
+-- JoinScan path reaches the joinrel. AggregateScan must pick the shape up
+-- instead of letting it fall back to native PG.
+-- =============================================================================
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT DISTINCT dp.category
+FROM dist_products dp
+JOIN dist_regions dr ON dp.category = dr.category
+WHERE dp.name @@@ 'laptop OR jacket OR shoes'
+  AND dp.id + random() > 0
+ORDER BY dp.category
+LIMIT 10;
+WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to volatile functions (tables: dp, dr)
+                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: dp.category
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Backend: DataFusion
+               Indexes: dist_products_idx (dp), dist_regions_idx (dr)
+               Group By: category
+               DataFusion Physical Plan: 
+                 : SortPreservingMergeExec: [category@0 ASC NULLS LAST], fetch=10
+                 :   SortExec: TopK(fetch=10), expr=[category@0 ASC NULLS LAST], preserve_partitioning=[true]
+                 :     AggregateExec: mode=FinalPartitioned, gby=[category@0 as category], aggr=[], lim=[10]
+                 :       RepartitionExec: partitioning=Hash([category@0], 2), input_partitions=2
+                 :         AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[], lim=[10]
+                 :           HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(category@0, category@0)]
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+                 :             RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
+                 :               PgSearchScan: segments=1, dynamic_filters=2, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(((id)::double precision + random()) > '0'::double precision)"}]}}]}}
+(17 rows)
+
+SELECT DISTINCT dp.category
+FROM dist_products dp
+JOIN dist_regions dr ON dp.category = dr.category
+WHERE dp.name @@@ 'laptop OR jacket OR shoes'
+  AND dp.id + random() > 0
+ORDER BY dp.category
+LIMIT 10;
+WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to volatile functions (tables: dp, dr)
+  category   
+-------------
+ Clothing
+ Electronics
+ Sports
+(3 rows)
+
 RESET paradedb.enable_join_custom_scan;
 DROP TABLE IF EXISTS dist_regions CASCADE;
+-- =============================================================================
+-- TEST 18: type-changing cast — declines to native PG
+-- The fast field holds the bigint, the query asks for its text rendering.
+-- Grouping the raw field would hand the tuple slot the wrong type.
+-- =============================================================================
+DROP TABLE IF EXISTS dist_cast CASCADE;
+CREATE TABLE dist_cast (
+    id   SERIAL PRIMARY KEY,
+    name TEXT,
+    n    BIGINT
+);
+INSERT INTO dist_cast (name, n) VALUES
+    ('alpha', 1),
+    ('beta',  2),
+    ('gamma', 1);
+CREATE INDEX dist_cast_idx ON dist_cast
+USING bm25 (id, name, n)
+WITH (
+    key_field = 'id',
+    text_fields = '{"name": {}}',
+    numeric_fields = '{"n": {"fast": true}}'
+);
+ANALYZE dist_cast;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT DISTINCT n::text
+FROM dist_cast
+WHERE id @@@ paradedb.all()
+ORDER BY 1;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: dist_cast)
+                         QUERY PLAN                          
+-------------------------------------------------------------
+ Unique
+   ->  Sort
+         Sort Key: ((n)::text)
+         ->  Custom Scan (ParadeDB Base Scan) on dist_cast
+               Table: dist_cast
+               Index: dist_cast_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+(10 rows)
+
+SELECT DISTINCT n::text
+FROM dist_cast
+WHERE id @@@ paradedb.all()
+ORDER BY 1;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: dist_cast)
+ n 
+---
+ 1
+ 2
+(2 rows)
+
+-- Correctness: must match native PG
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT DISTINCT n::text
+FROM dist_cast
+WHERE id @@@ paradedb.all()
+ORDER BY 1;
+ n 
+---
+ 1
+ 2
+(2 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+DROP TABLE IF EXISTS dist_cast CASCADE;
+-- =============================================================================
+-- TEST 19: JSON container — declines to native PG
+-- The fast field indexes the array elements, the query deduplicates whole
+-- arrays. Grouping on the elements would collapse ["a"] and ["a","b"].
+-- =============================================================================
+DROP TABLE IF EXISTS dist_json CASCADE;
+CREATE TABLE dist_json (
+    id   SERIAL PRIMARY KEY,
+    name TEXT,
+    meta JSONB
+);
+INSERT INTO dist_json (name, meta) VALUES
+    ('alpha', '{"tags": ["a", "b"]}'),
+    ('beta',  '{"tags": ["a", "b"]}'),
+    ('gamma', '{"tags": ["a"]}');
+CREATE INDEX dist_json_idx ON dist_json
+USING bm25 (id, name, meta)
+WITH (
+    key_field = 'id',
+    text_fields = '{"name": {}}',
+    json_fields = '{"meta": {"fast": true}}'
+);
+ANALYZE dist_json;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT DISTINCT meta->'tags'
+FROM dist_json
+WHERE id @@@ paradedb.all()
+ORDER BY 1;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: dist_json)
+                         QUERY PLAN                          
+-------------------------------------------------------------
+ Unique
+   ->  Sort
+         Sort Key: ((meta -> 'tags'::text))
+         ->  Custom Scan (ParadeDB Base Scan) on dist_json
+               Table: dist_json
+               Index: dist_json_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+(10 rows)
+
+SELECT DISTINCT meta->'tags'
+FROM dist_json
+WHERE id @@@ paradedb.all()
+ORDER BY 1;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: dist_json)
+  ?column?  
+------------
+ ["a"]
+ ["a", "b"]
+(2 rows)
+
+-- Correctness: must match native PG
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT DISTINCT meta->'tags'
+FROM dist_json
+WHERE id @@@ paradedb.all()
+ORDER BY 1;
+  ?column?  
+------------
+ ["a"]
+ ["a", "b"]
+(2 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+DROP TABLE IF EXISTS dist_json CASCADE;
+-- =============================================================================
+-- TEST 20: nondeterministic collation — declines to native PG
+-- A case-insensitive ICU collation calls 'a' and 'A' equal. The aggregation
+-- backend groups by bytes and would keep them apart, and no node above the
+-- scan can merge groups it already emitted separately. Which of the two
+-- survives the dedup is up to Postgres, so this asserts the count.
+-- =============================================================================
+DROP TABLE IF EXISTS dist_ci CASCADE;
+CREATE COLLATION IF NOT EXISTS dist_ci_coll (
+    provider = icu,
+    locale = 'und-u-ks-level2',
+    deterministic = false
+);
+CREATE TABLE dist_ci (
+    id    SERIAL PRIMARY KEY,
+    name  TEXT,
+    value TEXT COLLATE dist_ci_coll
+);
+INSERT INTO dist_ci (name, value) VALUES
+    ('one',   'a'),
+    ('two',   'A'),
+    ('three', 'b');
+CREATE INDEX dist_ci_idx ON dist_ci
+USING bm25 (id, name, value)
+WITH (
+    key_field = 'id',
+    text_fields = '{"name": {}, "value": {"fast": true}}'
+);
+ANALYZE dist_ci;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT DISTINCT value
+FROM dist_ci
+WHERE id @@@ paradedb.all();
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on a nondeterministic collation is not supported (table: dist_ci)
+                         QUERY PLAN                          
+-------------------------------------------------------------
+ Unique
+   ->  Sort
+         Sort Key: value COLLATE dist_ci_coll
+         ->  Custom Scan (ParadeDB Base Scan) on dist_ci
+               Table: dist_ci
+               Index: dist_ci_idx
+               Exec Method: ColumnarExecState
+               Fast Fields: value
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+(11 rows)
+
+SELECT COUNT(*) FROM (
+    SELECT DISTINCT value
+    FROM dist_ci
+    WHERE id @@@ paradedb.all()
+) t;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on a nondeterministic collation is not supported (table: dist_ci)
+ count 
+-------
+     2
+(1 row)
+
+-- Correctness: must match native PG
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT COUNT(*) FROM (
+    SELECT DISTINCT value
+    FROM dist_ci
+    WHERE id @@@ paradedb.all()
+) t;
+ count 
+-------
+     2
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+DROP TABLE IF EXISTS dist_ci CASCADE;
+DROP COLLATION IF EXISTS dist_ci_coll;
 -- =============================================================================
 -- Cleanup
 -- =============================================================================

@@ -283,46 +283,27 @@ impl<'a> ParallelAggregationWorker<'a> {
         }
 
         let nworkers = self.state.launched_workers();
-        // Get the tokenizer manager from the index (has all custom tokenizers registered)
-        let tokenizer_manager = reader.searcher().index().tokenizers().clone();
         let limits = AggregationLimitsGuard::new(
             Some(self.config.memory_limit / std::cmp::max(nworkers as u64, 1)),
             Some(self.config.bucket_limit),
         );
+        let heaprel = indexrel
+            .heap_relation()
+            .expect("index should belong to a heap relation");
+        let (context, mvcc_solved) =
+            aggregations.agg_context(&reader, &heaprel, self.config.solve_mvcc, limits);
+        let base_collector = DistributedAggregationCollector::from_aggs(aggregations, context);
 
         let start = std::time::Instant::now();
-        let intermediate_results = if self.config.solve_mvcc {
-            let heaprel = indexrel
-                .heap_relation()
-                .expect("index should belong to a heap relation");
-            if aggregations.is_string_cardinality(&schema) {
-                let collector = DistributedAggregationCollector::from_aggs(
-                    aggregations,
-                    AggContextParams::new(limits, tokenizer_manager).with_doc_visibility_factory(
-                        cardinality::doc_visibility_factory(&heaprel, unsafe {
-                            pg_sys::GetActiveSnapshot()
-                        }),
-                    ),
-                );
-                reader.collect(InterruptableCollector::new(collector))
-            } else {
-                let base_collector = DistributedAggregationCollector::from_aggs(
-                    aggregations,
-                    AggContextParams::new(limits, tokenizer_manager),
-                );
-                let mvcc_collector = MVCCFilterCollector::new(
-                    base_collector,
-                    VisibilityChecker::with_rel_and_snap(&heaprel, unsafe {
-                        pg_sys::GetActiveSnapshot()
-                    }),
-                );
-                reader.collect(InterruptableCollector::new(mvcc_collector))
-            }
-        } else {
-            let base_collector = DistributedAggregationCollector::from_aggs(
-                aggregations,
-                AggContextParams::new(limits, tokenizer_manager),
+        let intermediate_results = if self.config.solve_mvcc && !mvcc_solved {
+            let mvcc_collector = MVCCFilterCollector::new(
+                base_collector,
+                VisibilityChecker::with_rel_and_snap(&heaprel, unsafe {
+                    pg_sys::GetActiveSnapshot()
+                }),
             );
+            reader.collect(InterruptableCollector::new(mvcc_collector))
+        } else {
             reader.collect(InterruptableCollector::new(base_collector))
         };
         pgrx::debug1!(

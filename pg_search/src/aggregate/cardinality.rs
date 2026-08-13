@@ -25,17 +25,31 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 
 use crate::index::fast_fields_helper::FFType;
+use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::schema::SearchIndexSchema;
 use pgrx::pg_sys;
-use tantivy::aggregation::DocVisibilityFilterFactory;
 use tantivy::aggregation::agg_req::{AggregationVariants, Aggregations};
+use tantivy::aggregation::{AggContextParams, AggregationLimitsGuard, DocVisibilityFilterFactory};
 
 pub trait CardinalityExt {
     /// True when every aggregation in the request is a cardinality over a
     /// string field, with no sub-aggregations
     fn is_string_cardinality(&self, schema: &SearchIndexSchema) -> bool;
+
+    /// Builds the context for executing this request. When `solve_mvcc` is
+    /// set and the request is cardinality-only over string fields, MVCC is
+    /// solved inside the aggregation with a per-value visibility filter and
+    /// the returned flag is true; otherwise the caller is responsible for
+    /// visibility filtering whenever `solve_mvcc` is set.
+    fn agg_context(
+        &self,
+        reader: &SearchIndexReader,
+        heaprel: &PgSearchRelation,
+        solve_mvcc: bool,
+        limits: AggregationLimitsGuard,
+    ) -> (AggContextParams, bool);
 }
 
 impl CardinalityExt for Aggregations {
@@ -50,6 +64,29 @@ impl CardinalityExt for Aggregations {
                         _ => false,
                     }
             })
+    }
+
+    fn agg_context(
+        &self,
+        reader: &SearchIndexReader,
+        heaprel: &PgSearchRelation,
+        solve_mvcc: bool,
+        limits: AggregationLimitsGuard,
+    ) -> (AggContextParams, bool) {
+        let tokenizers = reader.searcher().index().tokenizers().clone();
+        let context = AggContextParams::new(limits, tokenizers);
+        // fast path for string cardinality aggregations
+        // todo: refactor if we discover more fast paths
+        if solve_mvcc && self.is_string_cardinality(reader.schema()) {
+            (
+                context.with_doc_visibility_factory(doc_visibility_factory(heaprel, unsafe {
+                    pg_sys::GetActiveSnapshot()
+                })),
+                true,
+            )
+        } else {
+            (context, false)
+        }
     }
 }
 
@@ -68,12 +105,8 @@ impl<T> SendSyncWrapper<T> {
     }
 }
 
-/// Per-segment visibility filter used to solve MVCC inside a cardinality
-/// aggregation. Only valid for requests that pass [`is_string_cardinality`].
-///
-/// [`is_string_cardinality`]: CardinalityExt::is_string_cardinality
 #[allow(clippy::arc_with_non_send_sync)]
-pub fn doc_visibility_factory(
+fn doc_visibility_factory(
     heaprel: &PgSearchRelation,
     snapshot: pg_sys::Snapshot,
 ) -> DocVisibilityFilterFactory {

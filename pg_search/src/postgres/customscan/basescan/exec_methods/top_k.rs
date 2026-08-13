@@ -17,7 +17,7 @@
 
 use std::cell::RefCell;
 
-use crate::aggregate::cardinality::{self, CardinalityExt};
+use crate::aggregate::cardinality::CardinalityExt;
 use crate::api::version::VersionInfo;
 use crate::api::{HashMap, OrderByInfo};
 use crate::gucs;
@@ -42,9 +42,7 @@ use pgrx::{IntoDatum, check_for_interrupts, direct_function_call, pg_sys};
 use tantivy::SegmentOrdinal;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
-use tantivy::aggregation::{
-    AggContextParams, AggregationLimitsGuard, DistributedAggregationCollector,
-};
+use tantivy::aggregation::{AggregationLimitsGuard, DistributedAggregationCollector};
 use tantivy::index::SegmentId;
 
 struct PreparedAggregations {
@@ -376,16 +374,6 @@ impl ExecMethod for TopKScanExecState {
             Some(bucket_limit),
         );
 
-        // Get the tokenizer manager from the index (has all custom tokenizers registered)
-        let tokenizer_manager = self
-            .search_reader
-            .as_ref()
-            .unwrap()
-            .searcher()
-            .index()
-            .tokenizers()
-            .clone();
-
         // Run the Top K (and optional aggregate) query.
         self.search_results = if let Some(orderby_info) = self.orderby_info.as_ref() {
             let maybe_aux_collector = aggregations.as_ref().map(|aggregations| {
@@ -393,24 +381,18 @@ impl ExecMethod for TopKScanExecState {
                 // inside the aggregation, checking visibility per unconfirmed
                 // value. Top K then relies on the standard dead-row handling
                 // used when no aggregates are present.
-                let is_string_cardinality = aggregations.mvcc_enabled
-                    && aggregations
-                        .aggregations
-                        .is_string_cardinality(self.search_reader.as_ref().unwrap().schema());
-                let mut agg_context = AggContextParams::new(agg_limits.clone(), tokenizer_manager);
-                if is_string_cardinality {
-                    agg_context = agg_context.with_doc_visibility_factory(
-                        cardinality::doc_visibility_factory(state.heaprel(), unsafe {
-                            pg_sys::GetActiveSnapshot()
-                        }),
-                    );
-                }
+                let (agg_context, mvcc_solved) = aggregations.aggregations.agg_context(
+                    self.search_reader.as_ref().unwrap(),
+                    state.heaprel(),
+                    aggregations.mvcc_enabled,
+                    agg_limits.clone(),
+                );
 
                 // Otherwise wrap with MVCC filtering to respect transaction visibility.
                 // This can be disabled via pdb.agg(..., false) for performance
                 // in cases where accuracy is less important than speed.
                 // See: https://github.com/paradedb/paradedb/issues/3500
-                let vischeck = (aggregations.mvcc_enabled && !is_string_cardinality).then(|| {
+                let vischeck = (aggregations.mvcc_enabled && !mvcc_solved).then(|| {
                     VisibilityChecker::with_rel_and_snap(state.heaprel(), unsafe {
                         pg_sys::GetActiveSnapshot()
                     })
@@ -501,19 +483,12 @@ impl ExecMethod for TopKScanExecState {
                 // Unordered TopK: run a standalone aggregation query since the
                 // unordered path does not support aggregation collectors
                 let search_reader = self.search_reader.as_ref().unwrap();
-                let tokenizer_manager = search_reader.searcher().index().tokenizers().clone();
-                let mut agg_context = AggContextParams::new(agg_limits.clone(), tokenizer_manager);
-                if aggregations.mvcc_enabled
-                    && aggregations
-                        .aggregations
-                        .is_string_cardinality(search_reader.schema())
-                {
-                    agg_context = agg_context.with_doc_visibility_factory(
-                        cardinality::doc_visibility_factory(state.heaprel(), unsafe {
-                            pg_sys::GetActiveSnapshot()
-                        }),
-                    );
-                }
+                let (agg_context, _) = aggregations.aggregations.agg_context(
+                    search_reader,
+                    state.heaprel(),
+                    aggregations.mvcc_enabled,
+                    agg_limits.clone(),
+                );
                 let aggregation_collector = DistributedAggregationCollector::from_aggs(
                     aggregations.aggregations.clone(),
                     agg_context,

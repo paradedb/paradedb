@@ -296,13 +296,15 @@ impl<'a> ParallelAggregationWorker<'a> {
                 .heap_relation()
                 .expect("index should belong to a heap relation");
             if aggregations.is_string_cardinality(&schema) {
-                cardinality::execute_with_mvcc(
-                    &reader,
+                let collector = DistributedAggregationCollector::from_aggs(
                     aggregations,
-                    &heaprel,
-                    limits,
-                    tokenizer_manager,
-                )
+                    AggContextParams::new(limits, tokenizer_manager).with_doc_visibility_factory(
+                        cardinality::doc_visibility_factory(&heaprel, unsafe {
+                            pg_sys::GetActiveSnapshot()
+                        }),
+                    ),
+                );
+                reader.collect(InterruptableCollector::new(collector))
             } else {
                 let base_collector = DistributedAggregationCollector::from_aggs(
                     aggregations,

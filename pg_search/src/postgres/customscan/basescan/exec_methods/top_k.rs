@@ -397,15 +397,14 @@ impl ExecMethod for TopKScanExecState {
                     && aggregations
                         .aggregations
                         .is_string_cardinality(self.search_reader.as_ref().unwrap().schema());
-                let agg_context = if is_string_cardinality {
-                    cardinality::mvcc_agg_context(
-                        state.heaprel(),
-                        agg_limits.clone(),
-                        tokenizer_manager,
-                    )
-                } else {
-                    AggContextParams::new(agg_limits.clone(), tokenizer_manager)
-                };
+                let mut agg_context = AggContextParams::new(agg_limits.clone(), tokenizer_manager);
+                if is_string_cardinality {
+                    agg_context = agg_context.with_doc_visibility_factory(
+                        cardinality::doc_visibility_factory(state.heaprel(), unsafe {
+                            pg_sys::GetActiveSnapshot()
+                        }),
+                    );
+                }
 
                 // Otherwise wrap with MVCC filtering to respect transaction visibility.
                 // This can be disabled via pdb.agg(..., false) for performance
@@ -503,28 +502,26 @@ impl ExecMethod for TopKScanExecState {
                 // unordered path does not support aggregation collectors
                 let search_reader = self.search_reader.as_ref().unwrap();
                 let tokenizer_manager = search_reader.searcher().index().tokenizers().clone();
+                let mut agg_context = AggContextParams::new(agg_limits.clone(), tokenizer_manager);
                 if aggregations.mvcc_enabled
                     && aggregations
                         .aggregations
                         .is_string_cardinality(search_reader.schema())
                 {
-                    cardinality::execute_with_mvcc(
-                        search_reader,
-                        aggregations.aggregations.clone(),
-                        state.heaprel(),
-                        agg_limits.clone(),
-                        tokenizer_manager,
-                    )
-                } else {
-                    let aggregation_collector = DistributedAggregationCollector::from_aggs(
-                        aggregations.aggregations.clone(),
-                        AggContextParams::new(agg_limits.clone(), tokenizer_manager),
+                    agg_context = agg_context.with_doc_visibility_factory(
+                        cardinality::doc_visibility_factory(state.heaprel(), unsafe {
+                            pg_sys::GetActiveSnapshot()
+                        }),
                     );
-                    search_reader
-                        .searcher()
-                        .search(search_reader.query(), &aggregation_collector)
-                        .expect("failed to run window aggregation query")
                 }
+                let aggregation_collector = DistributedAggregationCollector::from_aggs(
+                    aggregations.aggregations.clone(),
+                    agg_context,
+                );
+                search_reader
+                    .searcher()
+                    .search(search_reader.query(), &aggregation_collector)
+                    .expect("failed to run window aggregation query")
             };
 
             let search_reader = state.search_reader.as_ref().unwrap();

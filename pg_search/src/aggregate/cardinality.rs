@@ -24,27 +24,17 @@
 use parking_lot::Mutex;
 use std::sync::Arc;
 
-use crate::aggregate::interrupt_collector::InterruptableCollector;
 use crate::index::fast_fields_helper::FFType;
-use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::schema::SearchIndexSchema;
 use pgrx::pg_sys;
+use tantivy::aggregation::DocVisibilityFilterFactory;
 use tantivy::aggregation::agg_req::{AggregationVariants, Aggregations};
-use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
-use tantivy::aggregation::{
-    AggContextParams, AggregationLimitsGuard, DistributedAggregationCollector,
-    DocVisibilityFilterFactory,
-};
-use tantivy::tokenizer::TokenizerManager;
 
 pub trait CardinalityExt {
     /// True when every aggregation in the request is a cardinality over a
-    /// string field, with no sub-aggregations — the requests this module can
-    /// execute. Tantivy validates the same conditions per segment and errors
-    /// on violations, so this check decides routing only; anything ineligible
-    /// must solve MVCC another way (e.g. `MVCCFilterCollector`).
+    /// string field, with no sub-aggregations
     fn is_string_cardinality(&self, schema: &SearchIndexSchema) -> bool;
 }
 
@@ -63,35 +53,6 @@ impl CardinalityExt for Aggregations {
     }
 }
 
-/// Builds an aggregation context that solves MVCC through tantivy's per-value
-/// visibility filter. Only valid for requests that pass [`is_string_cardinality`].
-pub fn mvcc_agg_context(
-    heaprel: &PgSearchRelation,
-    limits: AggregationLimitsGuard,
-    tokenizers: TokenizerManager,
-) -> AggContextParams {
-    AggContextParams::new(limits, tokenizers)
-        .with_doc_visibility_factory(doc_visibility_factory(heaprel, unsafe {
-            pg_sys::GetActiveSnapshot()
-        }))
-}
-
-/// Executes a cardinality-only aggregation request with MVCC enabled. Only
-/// valid for requests that pass [`is_string_cardinality`].
-pub fn execute_with_mvcc(
-    reader: &SearchIndexReader,
-    aggregations: Aggregations,
-    heaprel: &PgSearchRelation,
-    limits: AggregationLimitsGuard,
-    tokenizers: TokenizerManager,
-) -> IntermediateAggregationResults {
-    let collector = DistributedAggregationCollector::from_aggs(
-        aggregations,
-        mvcc_agg_context(heaprel, limits, tokenizers),
-    );
-    reader.collect(InterruptableCollector::new(collector))
-}
-
 struct SendSyncWrapper<T>(T);
 // SAFETY: same rationale as MVCCFilterCollector — collection runs
 // single-threaded within this backend/parallel-worker process.
@@ -107,8 +68,12 @@ impl<T> SendSyncWrapper<T> {
     }
 }
 
+/// Per-segment visibility filter used to solve MVCC inside a cardinality
+/// aggregation. Only valid for requests that pass [`is_string_cardinality`].
+///
+/// [`is_string_cardinality`]: CardinalityExt::is_string_cardinality
 #[allow(clippy::arc_with_non_send_sync)]
-fn doc_visibility_factory(
+pub fn doc_visibility_factory(
     heaprel: &PgSearchRelation,
     snapshot: pg_sys::Snapshot,
 ) -> DocVisibilityFilterFactory {

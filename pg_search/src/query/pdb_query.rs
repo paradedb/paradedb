@@ -1982,7 +1982,7 @@ fn match_query(
         Occur::Should
     };
 
-    let clauses: Vec<_> = terms
+    let mut clauses: Vec<_> = terms
         .into_iter()
         .map(|term| {
             let query: Box<dyn TantivyQuery> = match (distance, prefix) {
@@ -1994,6 +1994,12 @@ fn match_query(
         })
         .collect();
 
+    // A boolean of one positive clause is that clause: unwrapping skips the
+    // union scorer and preserves `Weight::count` fast paths (e.g. doc_freq
+    // for a single term).
+    if clauses.len() == 1 {
+        return Ok(clauses.pop().unwrap().1);
+    }
     Ok(Box::new(BooleanQuery::new(clauses)))
 }
 #[allow(clippy::too_many_arguments)]
@@ -2050,6 +2056,10 @@ fn match_array_query(
         terms.push((occur, term_query));
     }
 
+    // See `match_query`: a boolean of one positive clause is that clause.
+    if terms.len() == 1 {
+        return Ok(terms.pop().unwrap().1);
+    }
     Ok(Box::new(BooleanQuery::new(terms)))
 }
 

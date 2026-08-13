@@ -43,7 +43,7 @@ INSERT INTO range_items (title, i4, i8, nr, dr, tr, tzr) VALUES
 
 -- Range fields are fast by default, so no explicit field configuration is needed.
 CREATE INDEX range_items_idx ON range_items
-USING bm25 (id, title, i4, i8, nr, dr, tr, tzr) WITH (key_field = 'id');
+USING paradedb (id, title, i4, i8, nr, dr, tr, tzr) WITH (key_field = 'id');
 
 -- =============================================================================
 -- The plan: ORDER BY range + LIMIT is a Top-N scan, with no Postgres Sort above it.
@@ -155,7 +155,7 @@ SELECT id, nr FROM range_items WHERE title @@@ 'doc' ORDER BY id, nr LIMIT 5;
 -- =============================================================================
 CREATE TABLE range_segments (id SERIAL PRIMARY KEY, title TEXT, nr NUMRANGE, tzr TSTZRANGE);
 CREATE INDEX range_segments_idx ON range_segments
-USING bm25 (id, title, nr, tzr) WITH (key_field = 'id');
+USING paradedb (id, title, nr, tzr) WITH (key_field = 'id');
 
 DO $$
 BEGIN
@@ -217,7 +217,7 @@ SELECT 'Product ' || i,
 FROM generate_series(1, 100) i;
 
 CREATE INDEX records_no_fast_idx ON data_records
-USING bm25 (id, title, category, valid_period, quantity_range) WITH (key_field = 'id');
+USING paradedb (id, title, category, valid_period, quantity_range) WITH (key_field = 'id');
 
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT id, title, category FROM data_records

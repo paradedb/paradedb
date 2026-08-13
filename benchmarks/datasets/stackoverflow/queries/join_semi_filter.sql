@@ -7,10 +7,6 @@
 -- - 'David John Alex' selectivity on users.display_name: ~2%
 -- - combined selectivity on users (about_me ||| 'java' AND display_name ||| 'David John Alex'): <1%
 
--- TODO: the two "Sortedness enabled" blocks now run the same SQL as their "Sortedness disabled"
--- twins, since the sort toggle that separated them is gone. Drop them on the next pass that can
--- reset the benchmark baseline (removing alternatives renumbers the stored history).
-
 SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO off; SELECT
     p.id,
     p.title,
@@ -44,8 +40,8 @@ ORDER BY
     p.title ASC
 LIMIT 25;
 
--- Sortedness enabled, no join scan.
-SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO off; SELECT
+-- Range-partitioned join scan.
+SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SET paradedb.enable_range_partitioned_join TO on; SELECT
     p.id,
     p.title,
     p.creation_date
@@ -71,23 +67,6 @@ WHERE
     p.owner_user_id @@@ pdb.term_set((
         SELECT array_agg(id) FROM users WHERE about_me ||| 'java' AND display_name ||| 'David John Alex'
     ))
-ORDER BY
-    p.title ASC
-LIMIT 25;
-
--- Sortedness enabled, with join scan.
-SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT
-    p.id,
-    p.title,
-    p.creation_date
-FROM stackoverflow_posts p
-WHERE
-    p.owner_user_id IN (
-        SELECT id
-        FROM users
-        WHERE about_me ||| 'java'
-        AND display_name ||| 'David John Alex'
-    )
 ORDER BY
     p.title ASC
 LIMIT 25;

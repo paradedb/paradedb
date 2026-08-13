@@ -48,8 +48,8 @@ pub struct VisibilityChecker {
     /// stale ctids pointing to pages truncated by a previous VACUUM.
     nblocks: pg_sys::BlockNumber,
 
-    /// Pin on the heap block last probed by `check_one`, held across calls
-    /// since consecutive probes tend to hit the same block.
+    /// Pin on the heap block last checked by `resolve_visible_ctid`, held
+    /// across calls since consecutive checks tend to hit the same block.
     cached_heap_block: pg_sys::BlockNumber,
     cached_heap_pin: Option<PinnedBuffer>,
 
@@ -236,12 +236,12 @@ impl VisibilityChecker {
         }
     }
 
-    /// Single-ctid visibility probe: stale-block guard, VM all-visible fast
+    /// Single-ctid visibility check: stale-block guard, VM all-visible fast
     /// path, then a heap check under a short share lock, reusing a cached pin
-    /// on the heap block across calls since consecutive probes tend to hit
+    /// on the heap block across calls since consecutive checks tend to hit
     /// the same block. Returns the visible ctid, which might differ from the
     /// input ctid if a HOT chain was followed.
-    fn probe(&mut self, ctid: u64) -> Option<u64> {
+    fn resolve_visible_ctid(&mut self, ctid: u64) -> Option<u64> {
         let blockno = (ctid >> 16) as pg_sys::BlockNumber;
         if blockno >= self.nblocks {
             self.invisible_tuple_count += 1;
@@ -268,7 +268,7 @@ impl VisibilityChecker {
     /// Single-ctid visibility check for callers probing one doc at a time
     /// (e.g. the cardinality fast path's visibility filter).
     pub fn check_one(&mut self, ctid: u64) -> bool {
-        self.probe(ctid).is_some()
+        self.resolve_visible_ctid(ctid).is_some()
     }
 
     /// Checks if a batch of rows are visible, and computes their updated ctid (by following a HOT
@@ -289,7 +289,7 @@ impl VisibilityChecker {
         sorted_indices.sort_unstable_by_key(|(_, ctid)| *ctid);
 
         for (idx, ctid) in sorted_indices {
-            results[idx] = self.probe(ctid);
+            results[idx] = self.resolve_visible_ctid(ctid);
         }
     }
 }

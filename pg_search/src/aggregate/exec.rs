@@ -41,9 +41,7 @@ use tantivy::aggregation::{
 pub trait AggregationExec {
     /// True when `solve_mvcc` is requested and every aggregation in the
     /// request is a cardinality over a string field, with no
-    /// sub-aggregations — MVCC is then solved inside the aggregation with a
-    /// per-value visibility filter.
-    // todo: refactor if we discover more fast paths
+    /// sub-aggregations
     fn cardinality_fast_path(&self, schema: &SearchIndexSchema, solve_mvcc: bool) -> bool;
 
     /// Builds the collector for executing this request. When `solve_mvcc` is

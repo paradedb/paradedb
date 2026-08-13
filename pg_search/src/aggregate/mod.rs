@@ -295,7 +295,7 @@ impl<'a> ParallelAggregationWorker<'a> {
             let heaprel = indexrel
                 .heap_relation()
                 .expect("index should belong to a heap relation");
-            if aggregations.is_cardinality(&schema) {
+            if aggregations.is_string_cardinality(&schema) {
                 cardinality::execute_with_mvcc(
                     &reader,
                     aggregations,

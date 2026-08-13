@@ -393,11 +393,11 @@ impl ExecMethod for TopKScanExecState {
                 // inside the aggregation, checking visibility per unconfirmed
                 // value. Top K then relies on the standard dead-row handling
                 // used when no aggregates are present.
-                let is_cardinality = aggregations.mvcc_enabled
+                let is_string_cardinality = aggregations.mvcc_enabled
                     && aggregations
                         .aggregations
-                        .is_cardinality(self.search_reader.as_ref().unwrap().schema());
-                let agg_context = if is_cardinality {
+                        .is_string_cardinality(self.search_reader.as_ref().unwrap().schema());
+                let agg_context = if is_string_cardinality {
                     cardinality::mvcc_agg_context(
                         state.heaprel(),
                         agg_limits.clone(),
@@ -411,7 +411,7 @@ impl ExecMethod for TopKScanExecState {
                 // This can be disabled via pdb.agg(..., false) for performance
                 // in cases where accuracy is less important than speed.
                 // See: https://github.com/paradedb/paradedb/issues/3500
-                let vischeck = (aggregations.mvcc_enabled && !is_cardinality).then(|| {
+                let vischeck = (aggregations.mvcc_enabled && !is_string_cardinality).then(|| {
                     VisibilityChecker::with_rel_and_snap(state.heaprel(), unsafe {
                         pg_sys::GetActiveSnapshot()
                     })
@@ -506,7 +506,7 @@ impl ExecMethod for TopKScanExecState {
                 if aggregations.mvcc_enabled
                     && aggregations
                         .aggregations
-                        .is_cardinality(search_reader.schema())
+                        .is_string_cardinality(search_reader.schema())
                 {
                     cardinality::execute_with_mvcc(
                         search_reader,

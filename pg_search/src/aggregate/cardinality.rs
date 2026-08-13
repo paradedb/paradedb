@@ -45,11 +45,11 @@ pub trait CardinalityExt {
     /// execute. Tantivy validates the same conditions per segment and errors
     /// on violations, so this check decides routing only; anything ineligible
     /// must solve MVCC another way (e.g. `MVCCFilterCollector`).
-    fn is_cardinality(&self, schema: &SearchIndexSchema) -> bool;
+    fn is_string_cardinality(&self, schema: &SearchIndexSchema) -> bool;
 }
 
 impl CardinalityExt for Aggregations {
-    fn is_cardinality(&self, schema: &SearchIndexSchema) -> bool {
+    fn is_string_cardinality(&self, schema: &SearchIndexSchema) -> bool {
         !self.is_empty()
             && self.values().all(|agg| {
                 agg.sub_aggregation.is_empty()
@@ -64,7 +64,7 @@ impl CardinalityExt for Aggregations {
 }
 
 /// Builds an aggregation context that solves MVCC through tantivy's per-value
-/// visibility filter. Only valid for requests that pass [`is_cardinality`].
+/// visibility filter. Only valid for requests that pass [`is_string_cardinality`].
 pub fn mvcc_agg_context(
     heaprel: &PgSearchRelation,
     limits: AggregationLimitsGuard,
@@ -77,7 +77,7 @@ pub fn mvcc_agg_context(
 }
 
 /// Executes a cardinality-only aggregation request with MVCC enabled. Only
-/// valid for requests that pass [`is_cardinality`].
+/// valid for requests that pass [`is_string_cardinality`].
 pub fn execute_with_mvcc(
     reader: &SearchIndexReader,
     aggregations: Aggregations,

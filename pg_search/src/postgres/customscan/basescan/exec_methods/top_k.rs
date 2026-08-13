@@ -17,7 +17,7 @@
 
 use std::cell::RefCell;
 
-use crate::aggregate::lazy_vischeck;
+use crate::aggregate::cardinality;
 use crate::api::version::VersionInfo;
 use crate::api::{HashMap, OrderByInfo};
 use crate::gucs;
@@ -389,41 +389,40 @@ impl ExecMethod for TopKScanExecState {
         // Run the Top K (and optional aggregate) query.
         self.search_results = if let Some(orderby_info) = self.orderby_info.as_ref() {
             let maybe_aux_collector = aggregations.as_ref().map(|aggregations| {
-                // Lazy visibility: cardinality-only aggregations over string
-                // fields check visibility per unconfirmed value inside the
-                // aggregation instead of vischecking every matched doc up
-                // front. Top K then relies on the standard dead-row handling
+                // Cardinality-only aggregations over string fields solve MVCC
+                // inside the aggregation, checking visibility per unconfirmed
+                // value. Top K then relies on the standard dead-row handling
                 // used when no aggregates are present.
-                let use_lazy_vischeck = aggregations.mvcc_enabled
-                    && lazy_vischeck::eligible(
+                let cardinality_context = if aggregations.mvcc_enabled {
+                    cardinality::mvcc_agg_context(
                         &aggregations.aggregations,
                         self.search_reader.as_ref().unwrap().schema(),
-                    );
-                let mut agg_context = AggContextParams::new(agg_limits.clone(), tokenizer_manager);
-                if use_lazy_vischeck {
-                    agg_context = agg_context.with_doc_visibility_factory(
-                        lazy_vischeck::doc_visibility_factory(state.heaprel(), unsafe {
+                        state.heaprel(),
+                        agg_limits.clone(),
+                        tokenizer_manager.clone(),
+                    )
+                } else {
+                    None
+                };
+
+                // Otherwise wrap with MVCC filtering to respect transaction visibility.
+                // This can be disabled via pdb.agg(..., false) for performance
+                // in cases where accuracy is less important than speed.
+                // See: https://github.com/paradedb/paradedb/issues/3500
+                let vischeck =
+                    (aggregations.mvcc_enabled && cardinality_context.is_none()).then(|| {
+                        VisibilityChecker::with_rel_and_snap(state.heaprel(), unsafe {
                             pg_sys::GetActiveSnapshot()
-                        }),
-                    );
-                }
+                        })
+                    });
+
+                let agg_context = cardinality_context.unwrap_or_else(|| {
+                    AggContextParams::new(agg_limits.clone(), tokenizer_manager)
+                });
                 let aggregation_collector = DistributedAggregationCollector::from_aggs(
                     aggregations.aggregations.clone(),
                     agg_context,
                 );
-
-                // Optionally wrap with MVCC filtering to respect transaction visibility.
-                // This can be disabled via pdb.agg(..., false) for performance
-                // in cases where accuracy is less important than speed.
-                // See: https://github.com/paradedb/paradedb/issues/3500
-                let vischeck = if aggregations.mvcc_enabled && !use_lazy_vischeck {
-                    let heaprel = state.heaprel();
-                    Some(VisibilityChecker::with_rel_and_snap(heaprel, unsafe {
-                        pg_sys::GetActiveSnapshot()
-                    }))
-                } else {
-                    None
-                };
 
                 TopKAuxiliaryCollector {
                     aggregation_collector,
@@ -507,24 +506,31 @@ impl ExecMethod for TopKScanExecState {
                 // unordered path does not support aggregation collectors
                 let search_reader = self.search_reader.as_ref().unwrap();
                 let tokenizer_manager = search_reader.searcher().index().tokenizers().clone();
-                let mut agg_context = AggContextParams::new(agg_limits.clone(), tokenizer_manager);
-                if aggregations.mvcc_enabled
-                    && lazy_vischeck::eligible(&aggregations.aggregations, search_reader.schema())
-                {
-                    agg_context = agg_context.with_doc_visibility_factory(
-                        lazy_vischeck::doc_visibility_factory(state.heaprel(), unsafe {
-                            pg_sys::GetActiveSnapshot()
-                        }),
-                    );
+                let cardinality_results = if aggregations.mvcc_enabled {
+                    cardinality::execute_with_mvcc(
+                        search_reader,
+                        &aggregations.aggregations,
+                        search_reader.schema(),
+                        state.heaprel(),
+                        agg_limits.clone(),
+                        tokenizer_manager.clone(),
+                    )
+                } else {
+                    None
+                };
+                match cardinality_results {
+                    Some(results) => results,
+                    None => {
+                        let aggregation_collector = DistributedAggregationCollector::from_aggs(
+                            aggregations.aggregations.clone(),
+                            AggContextParams::new(agg_limits.clone(), tokenizer_manager),
+                        );
+                        search_reader
+                            .searcher()
+                            .search(search_reader.query(), &aggregation_collector)
+                            .expect("failed to run window aggregation query")
+                    }
                 }
-                let aggregation_collector = DistributedAggregationCollector::from_aggs(
-                    aggregations.aggregations.clone(),
-                    agg_context,
-                );
-                search_reader
-                    .searcher()
-                    .search(search_reader.query(), &aggregation_collector)
-                    .expect("failed to run window aggregation query")
             };
 
             let search_reader = state.search_reader.as_ref().unwrap();

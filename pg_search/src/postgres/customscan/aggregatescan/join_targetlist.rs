@@ -24,6 +24,7 @@
 
 use super::datafusion_build::{FilterExprBuildContext, JoinAggSource};
 use super::privdat::FilterExpr;
+use super::GroupingShape;
 use crate::api::SortDirection;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::customscan::datafusion::explain::get_attname_safe;
@@ -277,8 +278,8 @@ fn classify_aggregate_by_name(aggfnoid: u32) -> Option<AggKind> {
     }
 }
 
-/// Extract aggregate target list from `output_rel.reltarget.exprs` for a join
-/// aggregate query.
+/// Extract the aggregate target list for a join aggregate query from the
+/// grouping/DISTINCT output columns ([`GroupingShape::target_exprs`]).
 ///
 /// Iterates the target list and classifies each expression as either a GROUP BY
 /// column (`T_Var`) or an aggregate function (`T_Aggref`). For joins, `Var.varno`
@@ -302,9 +303,9 @@ pub unsafe fn extract_aggregate_targetlist(
     args: &CreateUpperPathsHookArgs,
     sources: &[JoinAggSource],
     plan: &crate::postgres::customscan::joinscan::build::RelNode,
+    shape: GroupingShape,
 ) -> Result<JoinAggregateTargetList, String> {
-    let output_rel = args.output_rel();
-    let target_exprs = PgList::<pg_sys::Expr>::from_pg((*output_rel.reltarget).exprs);
+    let target_exprs = shape.target_exprs();
     if target_exprs.is_empty() {
         return Err("target list is empty".into());
     }
@@ -315,7 +316,7 @@ pub unsafe fn extract_aggregate_targetlist(
     let mut group_columns = Vec::new();
     let mut aggregates = Vec::new();
 
-    for (idx, expr) in target_exprs.iter_ptr().enumerate() {
+    for (idx, expr) in target_exprs.iter().copied().enumerate() {
         let tag = (*(expr as *mut pg_sys::Node)).type_;
 
         if tag == pg_sys::NodeTag::T_Var {
@@ -491,9 +492,12 @@ pub unsafe fn extract_aggregate_targetlist(
                 numeric,
             });
         } else {
+            // The target is neither a plain column (Var) nor an aggregate
+            // (Aggref): a DISTINCT/GROUP BY on an expression such as
+            // `upper(col)`. Only plain columns are pushed down; the query
+            // still runs natively.
             return Err(format!(
-                "expression at index {} is neither a GROUP BY column (Var) nor an aggregate (Aggref)",
-                idx
+                "DISTINCT/GROUP BY on expressions is not pushed down, only plain columns are (target index {idx})"
             ));
         }
     }

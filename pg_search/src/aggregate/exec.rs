@@ -42,7 +42,7 @@ pub trait AggregationExec {
     /// True when `solve_mvcc` is requested and every aggregation in the
     /// request is a cardinality over a string field, with no
     /// sub-aggregations
-    fn cardinality_fast_path(&self, schema: &SearchIndexSchema, solve_mvcc: bool) -> bool;
+    fn use_cardinality_fast_path(&self, schema: &SearchIndexSchema, solve_mvcc: bool) -> bool;
 
     /// Builds the collector for executing this request. When `solve_mvcc` is
     /// set and the request is cardinality-only over string fields, MVCC is
@@ -72,7 +72,7 @@ pub trait AggregationExec {
 }
 
 impl AggregationExec for Aggregations {
-    fn cardinality_fast_path(&self, schema: &SearchIndexSchema, solve_mvcc: bool) -> bool {
+    fn use_cardinality_fast_path(&self, schema: &SearchIndexSchema, solve_mvcc: bool) -> bool {
         solve_mvcc
             && !self.is_empty()
             && self.values().all(|agg| {
@@ -96,7 +96,7 @@ impl AggregationExec for Aggregations {
     ) -> DistributedAggregationCollector {
         let tokenizers = reader.searcher().index().tokenizers().clone();
         let mut params = AggContextParams::new(limits, tokenizers);
-        if self.cardinality_fast_path(reader.schema(), solve_mvcc) {
+        if self.use_cardinality_fast_path(reader.schema(), solve_mvcc) {
             let vischeck = SendSyncWrapper(Arc::new(Mutex::new(
                 VisibilityChecker::with_rel_and_snap(heaprel, unsafe {
                     pg_sys::GetActiveSnapshot()
@@ -123,7 +123,7 @@ impl AggregationExec for Aggregations {
         heaprel: &PgSearchRelation,
         solve_mvcc: bool,
     ) -> Option<VisibilityChecker> {
-        (solve_mvcc && !self.cardinality_fast_path(reader.schema(), solve_mvcc)).then(|| {
+        (solve_mvcc && !self.use_cardinality_fast_path(reader.schema(), solve_mvcc)).then(|| {
             VisibilityChecker::with_rel_and_snap(heaprel, unsafe { pg_sys::GetActiveSnapshot() })
         })
     }

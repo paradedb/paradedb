@@ -492,12 +492,15 @@ WHERE title @@@ 'product' ORDER BY valid_period, id LIMIT 10;
  10 | Product 10 | Books
 (10 rows)
 
-SET
+-- Parallel TopK: range sort stays correct with parallelism enabled.
+SET max_parallel_workers_per_gather = 2;
+SELECT check_range_order('range_items', 'nr', 'ASC', 5, 0);
  check_range_order 
 -------------------
  ok
 (1 row)
 
+SELECT check_range_order('range_items', 'dr', 'DESC NULLS LAST', 4, 0);
  check_range_order 
 -------------------
  ok

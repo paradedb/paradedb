@@ -146,16 +146,10 @@ impl SortKeyComputer for SortByRange {
         ) {
             (None, None) => SegmentBounds::Numeric {
                 lower: fast_fields
-                    .u64_lenient_for_type(
-                        Some(RANGE_BOUND_COLUMN_TYPES),
-                        &self.path("lower"),
-                    )?
+                    .u64_lenient_for_type(Some(RANGE_BOUND_COLUMN_TYPES), &self.path("lower"))?
                     .map(|(column, _)| column),
                 upper: fast_fields
-                    .u64_lenient_for_type(
-                        Some(RANGE_BOUND_COLUMN_TYPES),
-                        &self.path("upper"),
-                    )?
+                    .u64_lenient_for_type(Some(RANGE_BOUND_COLUMN_TYPES), &self.path("upper"))?
                     .map(|(column, _)| column),
             },
             (lower, upper) => SegmentBounds::Text { lower, upper },

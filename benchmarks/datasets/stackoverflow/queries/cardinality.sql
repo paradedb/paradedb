@@ -27,9 +27,3 @@ SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO off; SELECT 
 
 -- tantivy cardinality agg on a string field (mvcc disabled baseline)
 SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO off; SELECT pdb.agg('{"cardinality": {"field": "tags"}}', false) FROM stackoverflow_posts WHERE body ||| 'javascript';
-
--- tantivy cardinality agg on a numeric field (mvcc enabled -> full MVCC filter, sketch path)
-SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO off; SELECT pdb.agg('{"cardinality": {"field": "post_type_id"}}', true) FROM stackoverflow_posts WHERE body ||| 'javascript';
-
--- facet: string cardinality as window agg alongside ordered top-k (mvcc enabled -> lazy vischeck)
-SET work_mem TO '4GB'; SELECT id, pdb.agg('{"cardinality": {"field": "tags"}}', true) OVER () FROM stackoverflow_posts WHERE body ||| 'javascript' ORDER BY creation_date DESC LIMIT 20;

@@ -2231,13 +2231,8 @@ mod tests {
             .is_full_scan_query()
         );
     }
-}
 
-#[cfg(test)]
-mod traversal_tests {
-    use super::SearchQueryInput;
-
-    #[test]
+    #[pg_test]
     fn read_only_and_mutable_visitors_follow_the_same_nodes_in_the_same_order() {
         let query = SearchQueryInput::Boolean {
             must: vec![SearchQueryInput::Boost {

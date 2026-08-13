@@ -130,15 +130,12 @@ impl AggregationExec for Aggregations {
 }
 
 struct SendSyncWrapper<T>(T);
-// SAFETY: same rationale as MVCCFilterCollector — collection runs
-// single-threaded within this backend/parallel-worker process.
+// SAFETY: collection runs single-threaded within this backend/parallel-worker
+// process.
 unsafe impl<T> Send for SendSyncWrapper<T> {}
 unsafe impl<T> Sync for SendSyncWrapper<T> {}
 
 impl<T> SendSyncWrapper<T> {
-    // Method (not field) access so closures capture the whole wrapper,
-    // keeping the unsafe Send/Sync impls effective under edition-2021
-    // disjoint capture.
     fn get(&self) -> &T {
         &self.0
     }

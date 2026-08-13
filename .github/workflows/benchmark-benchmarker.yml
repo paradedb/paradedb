@@ -1,32 +1,15 @@
-# workflows/benchmark-benchmarker.yml
-#
 # Benchmark pg_search (Benchmarker)
-# Runs the external benchmarker suite (github.com/paradedb/benchmarker) against a
-# pg_search build made from THIS repo's source, using the `hn-benchmarker`
-# dataset. Every k6 script the dataset ships is run once against the single
-# database under test (the branch's pg_search). Background:
-# https://www.paradedb.com/blog/benchmarker-iteration.
 #
-# How it works, end to end:
-#   1. Compile pg_search from the checked-out source on the runner with
-#      cargo-pgrx (.github/actions/build-pg_search-source).
-#   2. Overlay those artifacts onto a released ParadeDB image (docker/
-#      Dockerfile.benchmarker) so only the pg_search binary changes -> the
-#      Postgres version, tuning, and bootstrap match the published image.
-#   3. Clone benchmarker, `make` its custom k6 + loader, pull the hn-benchmarker
-#      dataset from the public S3 bucket, and stand up the paradedb container
-#      (the branch under test) from the dataset's docker-compose, with
-#      PARADEDB_IMAGE pointed at the source build.
-#   4. Load paradedb, restart it, then run every k6 script in the dataset once.
-#   5. Upload the k6 dashboards as artifacts, publish each run's self-contained
-#      dashboard HTML (with per-container CPU/memory graphs) to gh-pages and link
-#      it from a PR comment, and (on main) push QPS + p50/p90/p95/p99 latency to
-#      gh-pages via github-action-benchmark for over-time tracking.
+# Runs the benchmarker suite (github.com/paradedb/benchmarker) against a
+# pg_search built from this repo's source, on the hn-benchmarker dataset:
+# build pg_search -> overlay onto a released ParadeDB image -> load the dataset
+# -> run every k6 script -> publish dashboards + QPS/latency to gh-pages.
+# https://www.paradedb.com/blog/benchmarker-iteration
 
 name: Benchmark pg_search (Benchmarker)
 
 on:
-  # Track history on every push to main that could move performance.
+  # Track history on pushes to main that could move performance.
   push:
     branches:
       - main
@@ -35,7 +18,7 @@ on:
       - "**/*.toml"
       - ".github/workflows/benchmark-benchmarker.yml"
       - "docker/Dockerfile.benchmarker"
-  # Opt-in on a PR by attaching the `benchmark-benchmarker` label.
+  # Opt in on a PR with the `benchmark-benchmarker` label.
   pull_request:
     types: [labeled]
   workflow_dispatch:
@@ -57,28 +40,21 @@ permissions:
   contents: write # github-action-benchmark pushes to the gh-pages branch
   pull-requests: write # comment benchmark alerts on PRs
 
-# No concurrency group: we want every benchmark run to complete (results are
-# appended to gh-pages history), matching the other benchmark workflows here.
+# No concurrency group: let every run complete and append to gh-pages history.
 
 jobs:
   benchmark-benchmarker:
     name: Run Benchmarker Suite
-    # RunsOn (https://runs-on.com) provisions an ephemeral EC2 instance in our AWS
-    # account from these labels. See https://runs-on.com/configuration/job-labels/ (us-east-1).
+    # RunsOn provisions an ephemeral EC2 instance from these labels (us-east-1).
+    # https://runs-on.com/configuration/job-labels/
     runs-on:
       - runs-on=${{ github.run_id }}
-      # 8 vCPU / 32 GiB Graviton4 with local NVMe. Same m8gd family as the
-      # metal-24xl used by benchmark-pg_search-queries (comparable microarch),
-      # just the small size. The two DB containers are each capped at 4 cores by
-      # the dataset compose and only one is under load at a time, so 8 cores give
-      # ~4 to the active backend and ~4 to the k6 client. Bump the size (e.g.
-      # m8gd.4xlarge) if you widen client concurrency. 32 GiB fits both 8 GiB
-      # container limits plus headroom.
+      # 8 vCPU / 32 GiB Graviton4 + NVMe. The dataset compose caps the DB at 4
+      # cores, leaving ~4 for the k6 client; bump the size for wider concurrency.
       - family=m8gd.2xlarge
       - image=ubuntu24-full-arm64
-      - extras=s3-cache # magic S3-backed cache; see https://runs-on.com/caching/magic-cache/
-      # No EBS volume: rely on the on-machine NVMe to avoid the run-to-run
-      # variance EBS would introduce, matching the other benchmark runners.
+      - extras=s3-cache # S3-backed cache; https://runs-on.com/caching/magic-cache/
+      # No EBS volume: on-machine NVMe avoids run-to-run variance.
     if: >-
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
@@ -91,8 +67,7 @@ jobs:
       IMAGE_TAG: paradedb-source:ci
 
     steps:
-      # A PR triggers this by having the `benchmark-benchmarker` label attached.
-      # Remove it once the job starts so it can be re-applied to run again.
+      # The label triggers this run; remove it so it can be re-applied to re-run.
       - name: Maybe Remove Label
         if: github.event_name == 'pull_request' && github.event.label.name == 'benchmark-benchmarker'
         env:
@@ -105,9 +80,8 @@ jobs:
       - name: Determine Ref to Benchmark
         id: determine-ref
         run: |
-          # A workflow_dispatch `commit` input wins. Otherwise use github.sha: on a
-          # PR that is the merge commit (present in the base repo even for forks),
-          # and on push/dispatch it is the triggering commit.
+          # workflow_dispatch `commit` wins; otherwise github.sha (the PR merge
+          # commit, or the pushed commit).
           if [ -n "${{ inputs.commit }}" ]; then
             echo "ref=${{ inputs.commit }}" >> "$GITHUB_OUTPUT"
           else
@@ -122,31 +96,26 @@ jobs:
 
       - name: Derive Short Commit
         id: commit_info
-        # HEAD is the just-checked-out ref, so this is the actual benchmarked
-        # commit even when a branch/tag/custom ref was requested above.
+        # HEAD is the benchmarked commit, even for a custom ref.
         run: echo "short_commit=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
 
-      # ---- Build the full ParadeDB image from source -----------------------
+      # ---- Build the ParadeDB image from source ----------------------------
 
-      # Compile pg_search from the checked-out source on the runner. A native
-      # build (no Docker builder stage) keeps cargo's mtime fingerprinting intact,
-      # so the action's target/ cache gives real incremental compiles run-to-run.
+      # Native build (no Docker stage) so cargo's mtime fingerprinting and the
+      # action's target/ cache give real incremental compiles across runs.
       - name: Build pg_search from source
         id: build-pg_search
         uses: ./.github/actions/build-pg_search-source
         with:
           pg-version: ${{ env.pg_version }}
 
-      # Overlay the source-built pg_search onto the released base image. The
-      # Dockerfile is a single COPY, so this is a fast, cache-free image build.
       - name: Assemble ParadeDB image (pg_search from source)
         run: |
           set -euo pipefail
           ctx="$(mktemp -d)"
           cp docker/Dockerfile.benchmarker "${ctx}/Dockerfile"
           cp -R "${{ steps.build-pg_search.outputs.artifacts-dir }}" "${ctx}/artifacts"
-          # --pull so the rolling latest-pg18 base is refetched, not taken from a
-          # stale local layer.
+          # --pull to refetch the rolling latest-pg18 base, not a stale local layer.
           docker build \
             --pull \
             --file "${ctx}/Dockerfile" \
@@ -162,7 +131,7 @@ jobs:
           repository: ${{ env.BENCHMARKER_REPO }}
           ref: ${{ inputs.benchmarker_ref || 'main' }}
           path: benchmarker
-          # benchmarker is a public repo, so checkout's default token reads it.
+          # benchmarker is public, so checkout's default token reads it.
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -180,11 +149,9 @@ jobs:
 
       - name: Start database
         working-directory: benchmarker/datasets/${{ env.DATASET }}
-        # The dataset's paradedb service is gated behind the `paradedb` compose
-        # profile, so select it via COMPOSE_PROFILES. PARADEDB_IMAGE points the
-        # compose image: ${PARADEDB_IMAGE:-<release>} at our source build; it
-        # must be set on every compose invocation, otherwise compose sees config
-        # drift and recreates the container with the default release image.
+        # The paradedb service sits behind the `paradedb` compose profile.
+        # PARADEDB_IMAGE points the compose at our source build and must be set on
+        # every compose call, or config drift recreates it with the release image.
         env:
           PARADEDB_IMAGE: ${{ env.IMAGE_TAG }}
           COMPOSE_PROFILES: paradedb
@@ -218,15 +185,11 @@ jobs:
             echo "No k6 scripts found under datasets/${DATASET}/k6/" >&2
             exit 1
           fi
-          # Run every script the dataset ships, once each, against the single
-          # database under test. Name each pass by the script's basename so its
-          # dashboard + metrics are tracked under that name.
+          # Run every script the dataset ships, named by basename.
           for script in "${scripts[@]}"; do
             name="$(basename "$script" .js)"
-            # First pass warms the OS page cache + Postgres shared_buffers so the
-            # measured pass reflects warm steady-state, not cold-cache noise. Only
-            # the second (measured) pass is exported and kept; the warm-up produces
-            # no dashboard output.
+            # Warm-up pass (discarded) fills page cache + shared_buffers; the
+            # second pass is the measured, exported one.
             echo "== warming ${name} (discarded) =="
             ( cd "$root/results" && "$root/k6" run "$script" >/dev/null )
             echo "== measuring ${name} =="
@@ -241,20 +204,17 @@ jobs:
 
       - name: Upload dashboards
         if: always()
-        # Best-effort: the gh-pages HTML + comment below are the real deliverables,
-        # so never let the artifact backend fail the job.
+        # Best effort: the gh-pages HTML + comment are the real deliverables.
         continue-on-error: true
-        # runs-on's extras=s3-cache proxies ACTIONS_RESULTS_URL to its local cache
-        # server, which upload-artifact then POSTs to and fails with a non-JSON
-        # error. Pin the endpoint back to GitHub's canonical artifact receiver just
-        # for this step (see test-pg_search.yml).
+        # runs-on's s3-cache proxies ACTIONS_RESULTS_URL; upload-artifact POSTs
+        # there and fails, so pin it back to GitHub's receiver (see test-pg_search.yml).
         env:
           ACTIONS_RESULTS_URL: https://results-receiver.actions.githubusercontent.com/
           ACTIONS_CACHE_SERVICE_V2: ""
         uses: actions/upload-artifact@v7
         with:
           name: benchmarker-dashboards-${{ steps.commit_info.outputs.short_commit }}
-          # Two patterns, not a brace glob: @actions/glob does not expand {json,html}.
+          # Separate patterns: @actions/glob doesn't expand {json,html}.
           path: |
             benchmarker/results/*.json
             benchmarker/results/*.html
@@ -267,13 +227,8 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          # Aggregate each dashboard's per-query samples into per-run QPS and
-          # p50/p90/p95/p99. Schema: dashboard/output.go ->
-          #   runs: { <run>: { name, backend, startTime, endTime,
-          #                    queries: { <q>: { latencies[], timestamps[] } } } }
-          # Latencies (ms) live under queries[].latencies; QPS = sample count over
-          # the timestamp span. Each run's .name (e.g. "paradedb (single_topk)")
-          # is already a unique, descriptive series name.
+          # Per-run QPS + p50/p90/p95/p99 from queries[].latencies (ms); QPS =
+          # sample count over the timestamp span. Run .name is the series name.
           mkdir -p _metrics
           for j in results/*.json; do
             nm="$(basename "$j" .json)"
@@ -286,8 +241,7 @@ jobs:
                       unit:  "QPS",
                       value: ($n / (((($ts|max) - ($ts|min)) | if . <= 0 then 1000 else . end) / 1000)) } ]' \
               "$j" > "_metrics/${nm}.qps.json"
-            # `(50,90,95,99) as $p` fans out => four percentile rows per run
-            # (nearest-rank on sorted latencies).
+            # (50,90,95,99) fans out to four rows per run (nearest-rank).
             jq '[ .runs | to_entries[] | .value as $r
                   | ([$r.queries[]?.latencies[]?] | sort) as $sorted
                   | ($sorted | length) as $n
@@ -298,7 +252,7 @@ jobs:
                       value: $sorted[ ((($n - 1) * $p / 100) | floor) ] } ]' \
               "$j" > "_metrics/${nm}.lat.json"
           done
-          # Merge per-script arrays (guarded so an empty set yields [] not a hang).
+          # Merge per-script arrays; empty set -> [].
           if compgen -G "_metrics/*.qps.json" > /dev/null; then jq -s 'add' _metrics/*.qps.json; else echo '[]'; fi > benchmarker_qps.json
           if compgen -G "_metrics/*.lat.json" > /dev/null; then jq -s 'add' _metrics/*.lat.json; else echo '[]'; fi > benchmarker_latency.json
           echo "== QPS =="; cat benchmarker_qps.json
@@ -308,7 +262,7 @@ jobs:
         run: rm -rf ./benchmark-data-repository
 
       - name: Publish Throughput (QPS)
-        # Never let a metrics/publish hiccup block the HTML dashboards + comment.
+        # Don't let a publish hiccup block the dashboards/comment below.
         continue-on-error: true
         uses: benchmark-action/github-action-benchmark@v1
         with:
@@ -345,10 +299,8 @@ jobs:
           comment-always: ${{ github.event_name == 'pull_request' }}
 
       # ---- Publish per-run dashboards to gh-pages and link them -------------
-      # The k6 `dashboard=html` export is a self-contained page (data, including
-      # per-container CPU % / memory series, is inlined as
-      # window.__DASHBOARD_EMBEDDED_DATA), so hosting the .html alone renders the
-      # full interactive graphs. No JSON needed.
+      # The k6 html export is self-contained (data inlined as
+      # window.__DASHBOARD_EMBEDDED_DATA), so the .html alone renders everything.
 
       - name: Stage dashboards (HTML only) for gh-pages
         run: |
@@ -362,8 +314,7 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./_ghpages_html
-          # Per-commit subdir; keep_files preserves the github-action-benchmark
-          # data under benchmarker/ (and every other run's dashboards).
+          # keep_files preserves other runs' dashboards + the benchmark data.
           destination_dir: benchmarker-runs/${{ steps.commit_info.outputs.short_commit }}
           keep_files: true
           user_name: "github-actions[bot]"
@@ -379,7 +330,7 @@ jobs:
           shopt -s nullglob
           BASE="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/benchmarker-runs/${{ steps.commit_info.outputs.short_commit }}"
           OVERTIME="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/benchmarker/"
-          # One link per published script dashboard.
+          # One link per published dashboard.
           links=""
           for h in _ghpages_html/*.html; do
             nm="$(basename "$h" .html)"
@@ -410,15 +361,13 @@ jobs:
           gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
             -f body="📊 Benchmarker dashboards: ${links%· }"
 
-      # The publish steps run continue-on-error so a metrics hiccup can't block the
-      # dashboards/comment above. This final gate makes the *specific* "k6 ran but
-      # recorded no query samples" case (empty QPS set) a loud, red failure instead
-      # of a silently-masked green. Runs last so the deliverables still ship.
+      # Publishes run continue-on-error, so gate here: fail loudly if k6 recorded
+      # no samples (empty QPS) instead of a silently-masked green. Runs last.
       - name: Fail if no metrics were extracted
         if: always()
         run: |
           f=benchmarker/benchmarker_qps.json
-          # No file => an earlier stage already failed the job; don't pile on.
+          # No file => an earlier stage already failed; don't pile on.
           [ -f "$f" ] || { echo "no metrics file (earlier stage failed); skipping guard"; exit 0; }
           n=$(jq 'length' "$f")
           echo "extracted QPS series: ${n}"

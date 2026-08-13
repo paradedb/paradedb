@@ -17,16 +17,23 @@
 
 use std::sync::{Arc, Mutex};
 
-use superkmeans::{HierarchicalSuperKMeans, HierarchicalSuperKMeansConfig};
+use superkmeans::{
+    ClusterTree, HierarchicalSuperKMeans, HierarchicalSuperKMeansConfig, TreeNode,
+};
 use tantivy::vector::{
-    IvfCentroids, IvfClusterer, IvfMatrix, IvfMergeSettings, IvfTrainingVectors, IvfVectors,
-    Metric, VectorOptions,
+    BKTree, BKTreeNode, IvfCentroids, IvfClusterer, IvfMatrix, IvfMergeSettings,
+    IvfTrainingVectors, IvfVectors, Metric, VectorOptions,
 };
 use tantivy::{Index, TantivyError};
 
 use crate::postgres::options::BM25IndexOptions;
 
 const DEFAULT_ASSIGN_BATCH_SIZE: usize = 40_960;
+
+/// SPTAG-style BKT fan-out when clustering IVF centroids for RNG seeding.
+const BKT_BRANCHING_FACTOR: usize = 32;
+/// Target members per BKT leaf (IVF / RNG node ids).
+const BKT_MAX_LEAF_SIZE: usize = 10;
 
 /// A `HierarchicalSuperKMeans` built for assignment, tagged with the
 /// `(dim, angular)` it was constructed for. `assign` never reads the clusterer's
@@ -293,6 +300,198 @@ impl IvfClusterer for SuperKMeansIvfClusterer {
         );
         Ok(primaries)
     }
+
+    fn build_bkt(
+        &self,
+        options: &VectorOptions,
+        centroids: &IvfCentroids,
+    ) -> tantivy::Result<Option<BKTree<Vec<f32>>>> {
+        let IvfCentroids::F32(centroids) = centroids;
+        let dim = options.dim();
+        let n = centroids.rows;
+        if n == 0 {
+            return Ok(None);
+        }
+        if centroids.dims != dim {
+            return Err(TantivyError::InvalidArgument(format!(
+                "centroid dimensionality mismatch: expected {dim}, got {}",
+                centroids.dims
+            )));
+        }
+        if centroids.values.len() != n * dim {
+            return Err(TantivyError::InvalidArgument(format!(
+                "centroid value count mismatch: expected {}, got {}",
+                n * dim,
+                centroids.values.len()
+            )));
+        }
+        // Too few centroids for a useful router; `rank_clusters` falls back to
+        // strided RNG seeds.
+        if n <= BKT_MAX_LEAF_SIZE {
+            return Ok(None);
+        }
+
+        let mut config = self.config.clone();
+        config.branching_factor = Some(BKT_BRANCHING_FACTOR);
+        config.max_leaf_size = BKT_MAX_LEAF_SIZE;
+        if matches!(options.metric(), Metric::Cosine | Metric::Dot) {
+            config.base.angular = true;
+        }
+        config.base.suppress_warnings = true;
+
+        let mut clusterer = HierarchicalSuperKMeans::with_config(dim, config);
+        // Train may run on a sample in the future; membership of every IVF
+        // centroid is resolved by `assign` below either way.
+        let leaf_centroids = clusterer.train(&centroids.values, n);
+        let assignments = clusterer.assign(&centroids.values, &leaf_centroids, n);
+        if assignments.len() != n {
+            return Err(TantivyError::InternalError(format!(
+                "BKT assign returned {} labels, expected {n}",
+                assignments.len()
+            )));
+        }
+
+        let tree = cluster_tree_to_bkt(
+            &clusterer.tree,
+            &clusterer.base.pruner,
+            &assignments,
+            dim,
+            options.metric(),
+        )?;
+        Ok(Some(tree))
+    }
+}
+
+/// Map a SuperKMeans [`ClusterTree`] into a Tantivy [`BKTree`].
+///
+/// Tree centers are unrotated into the same space as IVF centroids / queries.
+/// Leaf `members` are IVF / RNG node ids from `assignments` (one leaf index per
+/// centroid row).
+fn cluster_tree_to_bkt(
+    tree: &ClusterTree,
+    pruner: &superkmeans::adsampling::ADSamplingPruner,
+    assignments: &[u32],
+    dim: usize,
+    metric: Metric,
+) -> tantivy::Result<BKTree<Vec<f32>>> {
+    if tree.is_empty() {
+        return Err(TantivyError::InternalError(
+            "BKT ClusterTree is empty after training".to_string(),
+        ));
+    }
+    if tree.root.0 != 0 {
+        return Err(TantivyError::InternalError(format!(
+            "BKT expects ClusterTree root at node 0, got {}",
+            tree.root.0
+        )));
+    }
+    if tree.dimensionality() != dim {
+        return Err(TantivyError::InternalError(format!(
+            "BKT tree dimensionality {} != field dim {dim}",
+            tree.dimensionality()
+        )));
+    }
+
+    let n_nodes = tree.nodes.len();
+    let n_leaves = tree.n_leaves;
+    if n_leaves == 0 {
+        return Err(TantivyError::InternalError(
+            "BKT ClusterTree has no leaves".to_string(),
+        ));
+    }
+
+    // `tree.centroids` are in the ADSampling-rotated train domain; query-time
+    // BKT search scores with the field metric against IVF-space vectors.
+    let mut centers = vec![0.0_f32; n_nodes * dim];
+    pruner.unrotate(&tree.centroids, &mut centers, n_nodes);
+
+    // `assign` labels are indices into `tree.leaves()` order.
+    let mut leaf_index_of_node = vec![usize::MAX; n_nodes];
+    for (leaf_idx, (node_id, _)) in tree
+        .nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| node.is_leaf())
+        .enumerate()
+    {
+        leaf_index_of_node[node_id] = leaf_idx;
+    }
+
+    let mut buckets: Vec<Vec<u32>> = vec![Vec::new(); n_leaves];
+    for (centroid_id, &leaf_idx) in assignments.iter().enumerate() {
+        let leaf_idx = leaf_idx as usize;
+        if leaf_idx >= n_leaves {
+            return Err(TantivyError::InternalError(format!(
+                "BKT assign label {leaf_idx} out of range for {n_leaves} leaves"
+            )));
+        }
+        buckets[leaf_idx].push(centroid_id as u32);
+    }
+
+    let mut members = Vec::with_capacity(assignments.len());
+    let mut leaf_member_range = vec![(0_u32, 0_u32); n_leaves];
+    for (leaf_idx, bucket) in buckets.iter().enumerate() {
+        let offset = members.len() as u32;
+        let size = bucket.len() as u32;
+        members.extend_from_slice(bucket);
+        leaf_member_range[leaf_idx] = (offset, size);
+    }
+
+    let mut nodes = Vec::with_capacity(n_nodes);
+    for (node_id, node) in tree.nodes.iter().enumerate() {
+        match node {
+            TreeNode::Internal {
+                centroid_offset,
+                children_offset,
+                children_size,
+                ..
+            } => {
+                nodes.push(BKTreeNode::Internal {
+                    centroid_id: u32::try_from(*centroid_offset).map_err(|_| {
+                        TantivyError::InternalError(
+                            "BKT centroid_offset exceeds u32".to_string(),
+                        )
+                    })?,
+                    children_offset: u32::try_from(*children_offset).map_err(|_| {
+                        TantivyError::InternalError(
+                            "BKT children_offset exceeds u32".to_string(),
+                        )
+                    })?,
+                    children_size: u32::try_from(*children_size).map_err(|_| {
+                        TantivyError::InternalError("BKT children_size exceeds u32".to_string())
+                    })?,
+                });
+            }
+            TreeNode::Leaf {
+                centroid_offset, ..
+            } => {
+                let leaf_idx = leaf_index_of_node[node_id];
+                if leaf_idx == usize::MAX {
+                    return Err(TantivyError::InternalError(format!(
+                        "BKT leaf node {node_id} missing from leaves() enumeration"
+                    )));
+                }
+                let (members_offset, members_size) = leaf_member_range[leaf_idx];
+                nodes.push(BKTreeNode::Leaf {
+                    centroid_id: u32::try_from(*centroid_offset).map_err(|_| {
+                        TantivyError::InternalError(
+                            "BKT centroid_offset exceeds u32".to_string(),
+                        )
+                    })?,
+                    members_offset,
+                    members_size,
+                });
+            }
+        }
+    }
+
+    Ok(BKTree {
+        dim,
+        metric,
+        nodes,
+        members,
+        centers,
+    })
 }
 
 pub fn set_ivf_clusterer(index: &mut Index, options: &BM25IndexOptions) {
@@ -341,5 +540,76 @@ mod tests {
             .with_centroid_ratio(0.01)
             .with_training_sample_ratio(1.0);
         assert_eq!(full.max_leaf_size(), 100);
+    }
+
+    #[test]
+    fn build_bkt_maps_cluster_tree_members_as_permutation() {
+        use tantivy::vector::IvfClusterer;
+
+        let dim = 8;
+        let n = 64;
+        let mut values = Vec::with_capacity(n * dim);
+        for i in 0..n {
+            for d in 0..dim {
+                values.push((i * dim + d) as f32 * 0.01);
+            }
+        }
+        let centroids = IvfCentroids::F32(IvfMatrix {
+            values,
+            rows: n,
+            dims: dim,
+        });
+        let options = VectorOptions::new(dim, Metric::L2);
+
+        let tree = SuperKMeansIvfClusterer::new()
+            .build_bkt(&options, &centroids)
+            .expect("build_bkt")
+            .expect("expected Some(BKTree)");
+
+        assert!(!tree.nodes.is_empty());
+        assert_eq!(tree.dim, dim);
+        assert_eq!(tree.centers.len(), tree.nodes.len() * dim);
+
+        let mut members = tree.members.clone();
+        members.sort_unstable();
+        let expected: Vec<u32> = (0..n as u32).collect();
+        assert_eq!(members, expected, "leaf members must cover every IVF centroid");
+
+        let leaf_count = tree
+            .nodes
+            .iter()
+            .filter(|n| matches!(n, BKTreeNode::Leaf { .. }))
+            .count();
+        assert!(leaf_count >= 2);
+        for node in &tree.nodes {
+            if let BKTreeNode::Leaf {
+                members_offset,
+                members_size,
+                ..
+            } = node
+            {
+                assert!(*members_size as usize <= BKT_MAX_LEAF_SIZE + 4);
+                let end = *members_offset as usize + *members_size as usize;
+                assert!(end <= tree.members.len());
+            }
+        }
+    }
+
+    #[test]
+    fn build_bkt_skips_tiny_centroid_sets() {
+        use tantivy::vector::IvfClusterer;
+
+        let dim = 4;
+        let n = BKT_MAX_LEAF_SIZE;
+        let centroids = IvfCentroids::F32(IvfMatrix {
+            values: vec![0.0; n * dim],
+            rows: n,
+            dims: dim,
+        });
+        let options = VectorOptions::new(dim, Metric::L2);
+        let tree = SuperKMeansIvfClusterer::new()
+            .build_bkt(&options, &centroids)
+            .unwrap();
+        assert!(tree.is_none());
     }
 }

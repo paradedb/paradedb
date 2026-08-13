@@ -102,7 +102,7 @@ Execution-layer files under [`pg_search/src/scan/`](../../scan/):
 | GUC                                      | Default | Effect                        |
 | ---------------------------------------- | ------- | ----------------------------- |
 | `paradedb.enable_join_custom_scan`       | `on`    | Master switch                 |
-| `paradedb.enable_range_partitioned_join` | `true`  | Range co-partitioned joins    |
+| `paradedb.enable_range_partitioned_join` | `false` | Range co-partitioned joins    |
 | `paradedb.enable_segmented_topk`         | `true`  | `SegmentedTopKExec` injection |
 
 [activation]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/postgres/customscan/joinscan/mod.rs#L317

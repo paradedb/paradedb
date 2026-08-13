@@ -110,6 +110,9 @@ impl PdbOwnedValue {
             OwnedValue::Date(_) => unreachable!(
                 "We serialize PdbOwnedValue::Date as a string, so this should never happen"
             ),
+            OwnedValue::Custom(_) => {
+                unreachable!("PdbOwnedValue never serializes custom values")
+            }
             OwnedValue::Array(array) => PdbOwnedValue::Array(
                 array
                     .into_iter()

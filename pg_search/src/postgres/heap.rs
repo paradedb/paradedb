@@ -50,8 +50,8 @@ pub struct VisibilityChecker {
     /// stale ctids pointing to pages truncated by a previous VACUUM.
     nblocks: pg_sys::BlockNumber,
 
-    /// Pin on the heap block last checked by `resolve_visible_ctid`, held
-    /// across calls since consecutive checks tend to hit the same block.
+    /// Pin on the heap block last checked by `resolve_visible`, held across
+    /// calls since consecutive checks tend to hit the same block.
     cached_heap_block: pg_sys::BlockNumber,
     cached_heap_pin: Option<PinnedBuffer>,
 
@@ -239,47 +239,10 @@ impl VisibilityChecker {
         }
     }
 
-    /// Shared preamble for visibility checks: stale-block guard, VM
-    /// all-visible fast path, and counter bumps.
-    fn precheck(&mut self, ctid: u64) -> Precheck {
-        let blockno = (ctid >> 16) as pg_sys::BlockNumber;
-        if blockno >= self.nblocks {
-            self.invisible_tuple_count += 1;
-            return Precheck::Stale;
-        }
-        if self.is_block_all_visible(blockno) {
-            return Precheck::AllVisible;
-        }
-        self.heap_tuple_check_count += 1;
-        Precheck::CheckHeap(blockno)
-    }
-
-    /// Single-ctid visibility check: after the preamble, the tuple is checked
-    /// under a short share lock, reusing a cached pin on the heap block
-    /// across calls since consecutive checks tend to hit the same block.
-    /// Returns the visible ctid, which might differ from the input ctid if a
-    /// HOT chain was followed.
-    fn resolve_visible_ctid(&mut self, ctid: u64) -> Option<u64> {
-        match self.precheck(ctid) {
-            Precheck::Stale => None,
-            Precheck::AllVisible => Some(ctid),
-            Precheck::CheckHeap(blockno) => {
-                if self.cached_heap_block != blockno {
-                    drop(self.cached_heap_pin.take());
-                    self.cached_heap_pin = Some(self.bman.pinned_buffer(blockno));
-                    self.cached_heap_block = blockno;
-                }
-                let pg_buffer = self.cached_heap_pin.as_ref().unwrap().pg_buffer();
-                let _lock = unsafe { BorrowedBuffer::from_pg(pg_buffer) };
-                self.check_visibility_with_buffer(ctid, pg_buffer)
-            }
-        }
-    }
-
     /// Single-ctid visibility check for callers probing one doc at a time
     /// (e.g. the cardinality fast path's visibility filter).
     pub fn check_one(&mut self, ctid: u64) -> bool {
-        self.resolve_visible_ctid(ctid).is_some()
+        ctid.resolve_visible(self, None).is_some()
     }
 
     /// Checks if a batch of rows are visible, and computes their updated ctid (by following a HOT
@@ -303,33 +266,69 @@ impl VisibilityChecker {
         let mut current_block = pg_sys::InvalidBlockNumber;
 
         for (idx, ctid) in sorted_indices {
-            results[idx] = match self.precheck(ctid) {
-                Precheck::Stale => None,
-                Precheck::AllVisible => Some(ctid),
-                Precheck::CheckHeap(blockno) => {
-                    if current_block != blockno {
-                        drop(current_buffer.take());
-                        current_buffer = Some(self.bman.get_buffer(blockno));
-                        current_block = blockno;
-                    }
-                    self.check_visibility_with_buffer(
-                        ctid,
-                        *current_buffer.as_ref().unwrap().deref(),
-                    )
+            let blockno = (ctid >> 16) as pg_sys::BlockNumber;
+            // acquire the block's buffer once per run of same-block ctids and
+            // hold its lock across the run; resolve_visible's own VM re-check
+            // hits the blockvis cache
+            let needs_heap_check = blockno < self.nblocks && !self.is_block_all_visible(blockno);
+            let locked_buffer = if needs_heap_check {
+                if current_block != blockno {
+                    drop(current_buffer.take());
+                    current_buffer = Some(self.bman.get_buffer(blockno));
+                    current_block = blockno;
                 }
+                Some(*current_buffer.as_ref().unwrap().deref())
+            } else {
+                None
             };
+            results[idx] = ctid.resolve_visible(self, locked_buffer);
         }
     }
 }
 
-enum Precheck {
-    /// The ctid points past the relation's end: a stale entry for a page
-    /// truncated by a previous VACUUM.
-    Stale,
-    /// The VM says the whole block is visible; no heap access needed.
-    AllVisible,
-    /// The tuple must be checked in the heap.
-    CheckHeap(pg_sys::BlockNumber),
+pub trait ResolveVisible {
+    /// Resolves this ctid to its visible ctid under `checker`'s snapshot,
+    /// following any HOT chain; `None` if invisible or stale. A caller
+    /// already holding a pin and share lock on the ctid's block passes the
+    /// buffer; otherwise the tuple is checked under a short share lock,
+    /// reusing a cached pin on the heap block across calls since consecutive
+    /// checks tend to hit the same block.
+    fn resolve_visible(
+        self,
+        checker: &mut VisibilityChecker,
+        locked_buffer: Option<pg_sys::Buffer>,
+    ) -> Option<u64>;
+}
+
+impl ResolveVisible for u64 {
+    fn resolve_visible(
+        self,
+        checker: &mut VisibilityChecker,
+        locked_buffer: Option<pg_sys::Buffer>,
+    ) -> Option<u64> {
+        let blockno = (self >> 16) as pg_sys::BlockNumber;
+        if blockno >= checker.nblocks {
+            checker.invisible_tuple_count += 1;
+            return None;
+        }
+        if checker.is_block_all_visible(blockno) {
+            return Some(self);
+        }
+        checker.heap_tuple_check_count += 1;
+        match locked_buffer {
+            Some(buffer) => checker.check_visibility_with_buffer(self, buffer),
+            None => {
+                if checker.cached_heap_block != blockno {
+                    drop(checker.cached_heap_pin.take());
+                    checker.cached_heap_pin = Some(checker.bman.pinned_buffer(blockno));
+                    checker.cached_heap_block = blockno;
+                }
+                let pg_buffer = checker.cached_heap_pin.as_ref().unwrap().pg_buffer();
+                let _lock = unsafe { BorrowedBuffer::from_pg(pg_buffer) };
+                checker.check_visibility_with_buffer(self, pg_buffer)
+            }
+        }
+    }
 }
 
 /// A wrapper for an owned scan and slot for repeated use with table_index_fetch_tuple.

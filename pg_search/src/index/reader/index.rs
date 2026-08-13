@@ -561,6 +561,22 @@ impl SearchIndexReader {
         self.and_query(tantivy_query)
     }
 
+    /// Count matched docs by summing `Weight::count` across segments.
+    ///
+    /// For term-like queries (term, or term wrapped in boost/const-score) on
+    /// segments without deletes this reads the stored doc_freq from the term
+    /// dictionary without touching postings; other queries drain their
+    /// docsets without scoring or collection overhead. Counts raw index
+    /// entries: no MVCC filtering.
+    pub fn count_matched_docs(&self) -> tantivy::Result<u64> {
+        let weight = self.weight();
+        let mut total = 0u64;
+        for segment_reader in self.searcher.segment_readers() {
+            total += u64::from(weight.count(segment_reader)?);
+        }
+        Ok(total)
+    }
+
     pub fn weight(&self) -> Box<dyn Weight> {
         self.query
             .weight(if self.need_scores {

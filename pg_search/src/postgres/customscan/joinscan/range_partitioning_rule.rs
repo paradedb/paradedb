@@ -38,6 +38,7 @@ use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::SearchQueryInput;
 
+use crate::scan::info::RowEstimate;
 use crate::scan::range_partitioning::RangePartitioningSample;
 use crate::scan::table_provider::PgSearchTableProvider;
 
@@ -369,6 +370,27 @@ fn sort_sample_points(points: &mut [PdbOwnedValue]) {
     });
 }
 
+/// Opens a `SearchIndexReader` for sampling a table provider's index.
+fn open_index_reader(provider: &PgSearchTableProvider) -> Result<SearchIndexReader> {
+    let index_rel = PgSearchRelation::open(provider.scan_info.indexrelid);
+    SearchIndexReader::open(
+        &index_rel,
+        SearchQueryInput::All,
+        false,
+        MvccSatisfies::LargestSegment,
+    )
+    .map_err(|e| DataFusionError::Internal(format!("Failed to open index for sampling: {e}")))
+}
+
+/// Returns the estimated matching rows for a provider (from planner statistics if known,
+/// falling back to the total document count from the index reader).
+fn provider_estimated_rows(provider: &PgSearchTableProvider, reader: &SearchIndexReader) -> u64 {
+    match provider.scan_info.estimate {
+        RowEstimate::Known(n) => n,
+        RowEstimate::Unknown => reader.total_docs(),
+    }
+}
+
 /// Samples both sides of the join and merges the two distributions, so the split
 /// points reflect the combined key space rather than one side's skew.
 ///
@@ -390,8 +412,35 @@ fn merged_sample(
         return Ok(None);
     }
 
-    let mut sample = sample_fast_field(l_provider, l_field)?;
-    let r_sample = sample_fast_field(r_provider, r_field)?;
+    // TODO: Reading the index during planning adds latency to DataFusion logical planning,
+    // and produces an unfiltered sample from raw fast fields without query filter awareness.
+    // This is a temporary situation for M1. In M2, we will migrate this sampling to
+    // something that happens prior to CREATE INDEX (or switch to using pg_statistic),
+    // or partition index segments directly such that each segment contains disjoint data ranges.
+    let l_reader = open_index_reader(l_provider)?;
+    let r_reader = open_index_reader(r_provider)?;
+
+    let l_est_rows = provider_estimated_rows(l_provider, &l_reader);
+    let r_est_rows = provider_estimated_rows(r_provider, &r_reader);
+
+    const TOTAL_TARGET_SAMPLES: usize = 1024;
+
+    let (l_target_samples, r_target_samples) = match (l_est_rows, r_est_rows) {
+        (0, 0) => (0, 0),
+        (0, _) => (0, TOTAL_TARGET_SAMPLES),
+        (_, 0) => (TOTAL_TARGET_SAMPLES, 0),
+        (l_rows, r_rows) => {
+            let total_rows = (l_rows + r_rows) as f64;
+            let l_ratio = l_rows as f64 / total_rows;
+            let l_samples = (TOTAL_TARGET_SAMPLES as f64 * l_ratio).round() as usize;
+            let l_samples = l_samples.clamp(1, TOTAL_TARGET_SAMPLES - 1);
+            let r_samples = TOTAL_TARGET_SAMPLES - l_samples;
+            (l_samples, r_samples)
+        }
+    };
+
+    let mut sample = sample_fast_field(l_provider, l_field, &l_reader, l_target_samples)?;
+    let r_sample = sample_fast_field(r_provider, r_field, &r_reader, r_target_samples)?;
     sample.sample_points.extend(r_sample.sample_points);
     sort_sample_points(&mut sample.sample_points);
     Ok(Some(sample))
@@ -400,18 +449,15 @@ fn merged_sample(
 fn sample_fast_field(
     provider: &PgSearchTableProvider,
     partition_by: &FieldName,
+    reader: &SearchIndexReader,
+    max_target_samples: usize,
 ) -> Result<RangePartitioningSample> {
-    let index_rel = PgSearchRelation::open(provider.scan_info.indexrelid);
-    // TODO: Reading the index during planning adds latency to DataFusion logical planning.
-    // This is a temporary situation for M1. In M2, we will migrate this sampling to
-    // something that happens prior to CREATE INDEX, or switch to using pg_statistic.
-    let reader = SearchIndexReader::open(
-        &index_rel,
-        SearchQueryInput::All,
-        false,
-        MvccSatisfies::LargestSegment,
-    )
-    .map_err(|e| DataFusionError::Internal(format!("Failed to open index for sampling: {e}")))?;
+    if max_target_samples == 0 {
+        return Ok(RangePartitioningSample {
+            partition_by: partition_by.clone(),
+            sample_points: vec![],
+        });
+    }
 
     let segment_readers = reader.segment_readers();
     if segment_readers.is_empty() {
@@ -444,7 +490,7 @@ fn sample_fast_field(
         None
     });
 
-    let target_samples = std::cmp::min(512, max_doc as usize);
+    let target_samples = std::cmp::min(max_target_samples, max_doc as usize);
     let step = (max_doc as f64) / (target_samples as f64);
 
     let sample_doc_ids: Vec<u32> = (0..target_samples)

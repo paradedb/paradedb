@@ -1774,12 +1774,10 @@ pub mod pdb {
 
                 for partition in index_kind.partitions() {
                     if let Ok(search_reader) =
-                        SearchIndexReader::empty(&partition, MvccSatisfies::Snapshot)
+                        SearchIndexReader::empty(&partition, MvccSatisfies::LargestSegment)
                     {
-                        for segment_reader in search_reader.segment_readers().iter() {
-                            num_segments += 1;
-                            total_docs += segment_reader.num_docs() as i64;
-                        }
+                        num_segments += search_reader.total_segment_count() as i32;
+                        total_docs += search_reader.total_docs() as i64;
                     }
                 }
 

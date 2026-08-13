@@ -1435,7 +1435,7 @@ impl SearchIndexReader {
             None,
         )?;
 
-        let total_docs = self.searcher.num_docs() as f64;
+        let total_docs = (self.total_docs as f64).max(self.searcher.num_docs() as f64);
         self.estimate_docs_recursive(&mut query_tree, total_docs, &parser_closure);
 
         Ok(query_tree)

@@ -563,12 +563,9 @@ async fn build_source_df(
     let needs_runtime_context =
         source_query.has_postgres_expressions() || source_query.has_parameters();
     // `.or(expr_context)` can hand every source the same context, but only the
-    // EXPLAIN-only rebuild both reaches it and goes on to physical planning.
-    // There it is safe: `PgSearchTableProvider::scan()` returns "postgres
-    // expressions have not been solved: missing planstate" before it would call
+    // EXPLAIN-only rebuild reaches it. There it is safe: `PgSearchTableProvider::scan()` returns
+    // "postgres expressions have not been solved: missing planstate" before it would call
     // `solve_postgres_expressions`, so the shared context is never reset.
-    // `stash_mpp_plan_bytes` also passes `planstate: None`, but stops at the
-    // logical plan, so `scan()` never runs there.
     let source_expr_context = if needs_runtime_context {
         unsafe {
             planstate

@@ -890,7 +890,6 @@ impl JoinScan {
     fn launch_mpp(
         state: &mut CustomScanStateWrapper<Self>,
         physical: &Arc<dyn ExecutionPlan>,
-        plan_bytes_len: usize,
     ) -> Option<crate::postgres::customscan::mpp::glue::MppLeaderState> {
         Self::ensure_source_manifests(state);
         let all_sources: Vec<&[tantivy::SegmentReader]> = state
@@ -904,7 +903,7 @@ impl JoinScan {
             query: vec![],
             with_aggregates: false,
         };
-        crate::postgres::customscan::mpp::launch::launch_mpp_join(physical, plan_bytes_len, args)
+        crate::postgres::customscan::mpp::launch::launch_mpp_join(physical, args)
     }
 
     /// Re-bake the DataFusion logical plan from the current (post-solve) `join_clause`, so the
@@ -1359,15 +1358,15 @@ impl CustomScan for JoinScan {
                 state.custom_state_mut().result_slot = Some(state.csstate.ss.ps.ps_ResultTupleSlot);
                 state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
             }
-            // Stash a pending-launch marker for the leader. The stored planning-time bytes are
-            // not used for JoinScan DSM sizing: exec_custom_scan first resolves and rebakes
-            // runtime expressions, then sizes DSM from that current plan. Workers receive
-            // per-stage physical fragments over the mesh, never these logical bytes.
+            // MPP: mark one launch attempt for the first exec call. The existing logical plan is
+            // resolved and rebaked at execution time before it is deserialized to build the
+            // physical plan. The finished stages then provide the exact dispatch payload before
+            // DSM allocation. Only the leader runs this branch (`ParallelWorkerNumber == -1`).
             if mpp_is_active()
                 && unsafe { pg_sys::ParallelWorkerNumber } == -1
-                && let Some(bytes) = state.custom_state().logical_plan.clone()
+                && state.custom_state().logical_plan.is_some()
             {
-                state.custom_state_mut().mpp = MppLifecycle::PlanBytes(bytes.to_vec());
+                state.custom_state_mut().mpp = MppLifecycle::Pending;
             }
         }
     }
@@ -1375,18 +1374,17 @@ impl CustomScan for JoinScan {
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         let relaunch_mpp = matches!(
             &state.custom_state().mpp,
-            MppLifecycle::PlanBytes(_) | MppLifecycle::Launched(_)
+            MppLifecycle::Pending | MppLifecycle::Launched(_)
         );
         Self::finish_mpp_execution(state);
         state.custom_state_mut().relations.clear();
         state.custom_state_mut().reset();
         if relaunch_mpp {
-            let bytes = state
-                .custom_state()
-                .logical_plan
-                .clone()
-                .expect("MPP rescan requires logical plan bytes");
-            state.custom_state_mut().mpp = MppLifecycle::PlanBytes(bytes.to_vec());
+            assert!(
+                state.custom_state().logical_plan.is_some(),
+                "MPP rescan requires logical plan bytes"
+            );
+            state.custom_state_mut().mpp = MppLifecycle::Pending;
         }
     }
 
@@ -1491,13 +1489,13 @@ impl CustomScan for JoinScan {
                             .expect("Failed to create execution plan")
                     };
 
-                let mpp_plan_bytes = state.custom_state_mut().mpp.take_plan_bytes();
+                let mpp_pending = state.custom_state_mut().mpp.take_pending();
                 // Leader session context: on an MPP attempt, layer the DF-D fork's
                 // distributed-planner knobs over the Join profile so the resulting physical
                 // plan is a `DistributedExec`, with `producer_worker_cap()` acting as the
                 // planner's ceiling. The mesh and the dispatch source are execute-time
                 // concerns; the exec session below carries them once the workers are committed.
-                let plan_ctx = if mpp_plan_bytes.is_some() {
+                let plan_ctx = if mpp_pending {
                     Self::build_mpp_session_context(None)
                 } else {
                     create_datafusion_session_context(SessionContextProfile::Join)
@@ -1509,8 +1507,8 @@ impl CustomScan for JoinScan {
                 // On a launch fallback (nothing to distribute, or too few attached workers) no
                 // workers remain and the `DistributedExec` shape has no mesh to read from, so
                 // replan serially.
-                let (ctx, plan) = match mpp_plan_bytes {
-                    Some(_) => match Self::launch_mpp(state, &plan, plan_bytes.len()) {
+                let (ctx, plan) = if mpp_pending {
+                    match Self::launch_mpp(state, &plan) {
                         Some(leader) => {
                             let source = crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::default();
                             let exec_ctx = Self::build_mpp_session_context(Some(Arc::clone(
@@ -1563,8 +1561,9 @@ impl CustomScan for JoinScan {
                                 Some(bytes::Bytes::from(fallback_bytes));
                             (serial_ctx, plan)
                         }
-                    },
-                    None => (plan_ctx, plan),
+                    }
+                } else {
+                    (plan_ctx, plan)
                 };
 
                 let task_ctx = build_task_context(

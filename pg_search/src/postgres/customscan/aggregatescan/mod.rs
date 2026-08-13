@@ -105,7 +105,6 @@ use crate::postgres::types::{TantivyValue, is_datetime_type};
 use crate::postgres::utils::{
     ExprContextGuard, add_vars_to_tlist, is_unnest_func, make_text_const,
 };
-use crate::scan::codec::serialize_logical_plan;
 use pgrx::{PgList, PgMemoryContexts, PgTupleDesc, pg_sys};
 use std::ffi::CStr;
 
@@ -601,12 +600,14 @@ impl CustomScan for AggregateScan {
                 );
                 state.custom_state_mut().scan_slot = Some(scan_slot);
             }
-            // MPP: serialize the logical plan now, while the source manifests are alive; the
-            // first exec call's launch sizes the DSM dispatch-payload region from its length.
-            // Only the leader runs this branch (`ParallelWorkerNumber == -1` in the leader
-            // backend).
-            if mpp_is_active() && unsafe { pg_sys::ParallelWorkerNumber } == -1 {
-                Self::stash_mpp_plan_bytes(state);
+            // MPP: pin the source manifests and mark one launch attempt. The real logical and
+            // physical plan is built once, on first execution; its finished stages provide the
+            // exact dispatch-payload size. Plain EXPLAIN never executes and must not prepare MPP.
+            if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) == 0
+                && mpp_is_active()
+                && unsafe { pg_sys::ParallelWorkerNumber } == -1
+            {
+                Self::prepare_mpp(state);
             }
             return;
         }
@@ -830,67 +831,16 @@ impl AggregateScan {
         state.custom_state_mut().source_manifests = manifests;
     }
 
-    /// Serialize the leader's logical plan (already on `df_state`) and move the MPP lifecycle
-    /// to `PlanBytes`. `launch_mpp` uses the byte length to size the DSM payload region; the
-    /// dispatched stage plans themselves are derived later, from the leader's physical plan.
-    fn stash_mpp_plan_bytes(state: &mut CustomScanStateWrapper<Self>) {
-        // Capture source manifests BEFORE building the logical plan.
-        // We pass `is_mpp: false` below because this plan is only serialized to compute `.len()`
-        // to size the DSM payload. The actual dispatched payload is derived later from the
-        // leader's physical plan. The resulting byte length is a close approximation, and
-        // `DISPATCH_BLOAT_FACTOR` absorbs any difference from omitted `source_idx` fields.
+    /// Pin the MPP source manifests and mark one launch attempt for the first execution call.
+    /// Planning remains lazy: the finished physical stages provide the exact dispatch payload
+    /// before DSM allocation, so begin never needs a throwaway logical plan.
+    fn prepare_mpp(state: &mut CustomScanStateWrapper<Self>) {
         Self::ensure_source_manifests(state);
 
         let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() else {
             return;
         };
-        // Build a logical plan eagerly. The DataFusion exec path normally
-        // builds it lazily on first `exec_custom_scan` call; MPP serializes
-        // it at begin time so the launch can size the dispatch payload.
-        let runtime = match tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        {
-            Ok(rt) => rt,
-            Err(e) => {
-                pgrx::warning!("mpp: tokio runtime build failed: {e}; skipping MPP");
-                return;
-            }
-        };
-        let ctx = create_aggregate_session_context();
-        let custom_exprs = df_state.custom_exprs;
-        let custom_scan_tlist = df_state.custom_scan_tlist;
-        let logical = runtime.block_on(async {
-            build_join_aggregate_plan(
-                &df_state.plan,
-                &df_state.targetlist,
-                df_state.topk.as_ref(),
-                &df_state.join_level_predicates,
-                custom_exprs,
-                custom_scan_tlist,
-                df_state.having_filter.as_ref(),
-                &ctx,
-                None,
-                None,
-                false,
-            )
-            .await
-        });
-        let logical = match logical {
-            Ok((lp, _group_df_indices)) => lp,
-            Err(e) => {
-                pgrx::warning!("mpp: build_join_aggregate_plan failed: {e}; skipping MPP");
-                return;
-            }
-        };
-        let bytes = match serialize_logical_plan(&logical) {
-            Ok(b) => b,
-            Err(e) => {
-                pgrx::warning!("mpp: serialize_logical_plan failed: {e}; skipping MPP");
-                return;
-            }
-        };
-        df_state.mpp = MppLifecycle::PlanBytes(bytes.to_vec());
+        df_state.mpp = MppLifecycle::Pending;
     }
 
     /// Plan-first MPP launch (#5667). Called with the leader's already-built physical plan:
@@ -900,10 +850,8 @@ impl AggregateScan {
     fn launch_mpp(
         state: &mut CustomScanStateWrapper<Self>,
         physical: &Arc<dyn ExecutionPlan>,
-        plan_bytes_len: usize,
     ) -> Option<crate::postgres::customscan::mpp::glue::MppLeaderState> {
-        // Manifests were captured in `stash_mpp_plan_bytes` (begin); `ensure`
-        // is idempotent.
+        // Manifests were captured in `prepare_mpp` (begin); `ensure` is idempotent.
         Self::ensure_source_manifests(state);
 
         let all_sources: Vec<&[tantivy::SegmentReader]> = state
@@ -918,11 +866,7 @@ impl AggregateScan {
             with_aggregates: false,
         };
 
-        crate::postgres::customscan::mpp::launch::launch_mpp_aggregate(
-            physical,
-            plan_bytes_len,
-            args,
-        )
+        crate::postgres::customscan::mpp::launch::launch_mpp_aggregate(physical, args)
     }
 
     /// Build the aggregate's DataFusion physical plan under `ctx`. `is_mpp` marks that parallel
@@ -1549,13 +1493,13 @@ impl AggregateScan {
             .as_ref()
             .is_some_and(|d| d.runtime.is_none());
 
-        // Taken up front (not inside the df_state borrow below) because the launch needs
-        // `state` for the source manifests.
-        let mpp_plan_bytes = state
+        // Taken up front (not inside the df_state borrow below) because the launch needs `state`
+        // for the source manifests.
+        let mpp_pending = state
             .custom_state_mut()
             .datafusion_state
             .as_mut()
-            .and_then(|d| d.mpp.take_plan_bytes());
+            .is_some_and(|d| d.mpp.take_pending());
 
         // First call: build and execute the DataFusion plan
         if first_call {
@@ -1569,7 +1513,7 @@ impl AggregateScan {
             // `producer_worker_cap()` acting as the planner's ceiling. The mesh and the
             // dispatch source are execute-time concerns; the exec session below carries them
             // once the workers are committed.
-            let is_mpp = mpp_plan_bytes.is_some();
+            let is_mpp = mpp_pending;
             let plan_ctx = if is_mpp {
                 Self::build_mpp_session_context(None)
             } else {
@@ -1597,9 +1541,10 @@ impl AggregateScan {
             // On a launch fallback (nothing to distribute, or too few attached workers) no workers
             // remain and the `DistributedExec` shape has no mesh to read from, so replan serially
             // below.
-            let leader = match &mpp_plan_bytes {
-                Some(bytes) => Self::launch_mpp(state, &physical_plan, bytes.len()),
-                None => None,
+            let leader = if mpp_pending {
+                Self::launch_mpp(state, &physical_plan)
+            } else {
+                None
             };
 
             let df_state = state

@@ -231,9 +231,10 @@ pub struct JoinScanState {
     /// before workers can open them.
     pub source_manifests: Vec<SearchIndexManifest>,
 
-    /// Where MPP sits in its launch lifecycle for this scan. Planning-time bytes represent a
-    /// pending launch only; execution rebakes parameterized plans and sizes DSM from the current
-    /// bytes instead. Stays `Inactive` on the serial path.
+    /// Where MPP sits in its launch lifecycle for this scan: marked pending at begin, launched
+    /// on first exec after runtime expressions are resolved and the built plan's stages are
+    /// committed (#5667: the plan comes first; workers spawn only after it exists). Stays
+    /// `Inactive` on the serial path.
     pub mpp: crate::postgres::customscan::mpp::launch::MppLifecycle,
 }
 

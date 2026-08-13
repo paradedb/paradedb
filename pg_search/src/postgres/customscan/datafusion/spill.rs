@@ -85,9 +85,6 @@ impl TempFileFactory for BufFileTempFileFactory {
         &self,
         description: &str,
     ) -> datafusion::common::Result<Arc<dyn SpillFile>> {
-        // TEMP DIAGNOSTIC: confirms DataFusion is actually attempting to spill through
-        // this factory at all, vs. failing before ever reaching it. Remove before merge.
-        pgrx::warning!("paradedb.spill_to_disk: creating BufFile spill file for {description}");
         let file = unsafe { create_transaction_scoped_buffile() }.map_err(|e| {
             exec_datafusion_err!("failed to create BufFile spill file for {description}: {e}")
         })?;

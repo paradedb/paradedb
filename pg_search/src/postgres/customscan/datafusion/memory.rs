@@ -86,6 +86,13 @@ impl MemoryPool for WorkMemMemoryPool {
     fn reserved(&self) -> usize {
         self.pool.reserved()
     }
+    fn memory_limit(&self) -> datafusion::execution::memory_pool::MemoryLimit {
+        // DataFusion's aggregate stream selection (execute_typed) picks a
+        // spill-capable stream only when the pool reports a Finite limit;
+        // the trait's default (Unknown) causes it to pick a stream with no
+        // spill support at all, so a bounded pool must report its real size.
+        datafusion::execution::memory_pool::MemoryLimit::Finite(self.limit)
+    }
 }
 
 /// Returns a memory pool that fails the query with a `ResourcesExhausted` error when the

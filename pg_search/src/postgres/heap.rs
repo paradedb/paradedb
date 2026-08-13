@@ -211,34 +211,6 @@ impl VisibilityChecker {
         self.blockvis.1
     }
 
-    /// If the specified `ctid` is visible in the heap, return the visible `ctid`.
-    /// The returned `ctid` might differ from the input `ctid` if a HOT chain was followed.
-    fn check_visibility_with_buffer(&mut self, ctid: u64, buffer: pg_sys::Buffer) -> Option<u64> {
-        unsafe {
-            utils::u64_to_item_pointer(ctid, &mut self.tid);
-
-            let mut heap_tuple_data: pg_sys::HeapTupleData = std::mem::zeroed();
-            let mut all_dead = false;
-
-            let found = pg_sys::heap_hot_search_buffer(
-                &mut self.tid,
-                self.heaprel.as_ptr(),
-                buffer,
-                self.snapshot,
-                &mut heap_tuple_data,
-                &mut all_dead,
-                true, // first_call
-            );
-
-            if found {
-                Some(utils::item_pointer_to_u64(self.tid))
-            } else {
-                self.invisible_tuple_count += 1;
-                None
-            }
-        }
-    }
-
     /// Single-ctid visibility check for callers probing one doc at a time
     /// (e.g. the cardinality fast path's visibility filter).
     pub fn check_one(&mut self, ctid: u64) -> bool {
@@ -301,8 +273,8 @@ impl VisibilityChecker {
             return Some(ctid);
         }
         self.heap_tuple_check_count += 1;
-        match locked_buffer {
-            Some(buffer) => self.check_visibility_with_buffer(ctid, buffer),
+        let (buffer, _lock) = match locked_buffer {
+            Some(buffer) => (buffer, None),
             None => {
                 if self.cached_heap_block != blockno {
                     drop(self.cached_heap_pin.take());
@@ -310,8 +282,34 @@ impl VisibilityChecker {
                     self.cached_heap_block = blockno;
                 }
                 let pg_buffer = self.cached_heap_pin.as_ref().unwrap().pg_buffer();
-                let _lock = unsafe { BorrowedBuffer::from_pg(pg_buffer) };
-                self.check_visibility_with_buffer(ctid, pg_buffer)
+                (
+                    pg_buffer,
+                    Some(unsafe { BorrowedBuffer::from_pg(pg_buffer) }),
+                )
+            }
+        };
+
+        unsafe {
+            utils::u64_to_item_pointer(ctid, &mut self.tid);
+
+            let mut heap_tuple_data: pg_sys::HeapTupleData = std::mem::zeroed();
+            let mut all_dead = false;
+
+            let found = pg_sys::heap_hot_search_buffer(
+                &mut self.tid,
+                self.heaprel.as_ptr(),
+                buffer,
+                self.snapshot,
+                &mut heap_tuple_data,
+                &mut all_dead,
+                true, // first_call
+            );
+
+            if found {
+                Some(utils::item_pointer_to_u64(self.tid))
+            } else {
+                self.invisible_tuple_count += 1;
+                None
             }
         }
     }

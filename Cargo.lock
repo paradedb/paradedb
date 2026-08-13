@@ -3192,9 +3192,9 @@ dependencies = [
 
 [[package]]
 name = "frostem"
-version = "1.20260804.3"
+version = "1.20260804.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d40fe1f1e7e8fa13e348c9541d81f0ccd890e992a086bacba47228f66f1736ec"
+checksum = "2259231b07ffab73ea88425c59313769863d10e231c285cc4f9d02e6b686fe24"
 
 [[package]]
 name = "funty"

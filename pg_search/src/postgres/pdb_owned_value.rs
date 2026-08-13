@@ -110,9 +110,6 @@ impl PdbOwnedValue {
             OwnedValue::Date(_) => unreachable!(
                 "We serialize PdbOwnedValue::Date as a string, so this should never happen"
             ),
-            OwnedValue::Custom(_) => {
-                unreachable!("PdbOwnedValue never serializes custom values")
-            }
             OwnedValue::Array(array) => PdbOwnedValue::Array(
                 array
                     .into_iter()
@@ -149,6 +146,9 @@ impl PdbOwnedValue {
             OwnedValue::Bytes(val) => PdbOwnedValue::Bytes(val),
             OwnedValue::IpAddr(val) => PdbOwnedValue::IpAddr(val),
             OwnedValue::PreTokStr(val) => PdbOwnedValue::PreTokStr(val),
+            OwnedValue::Custom(_) => unreachable!(
+                "custom values are plugin-owned and never serialized, so this should never happen"
+            ),
         }
     }
 

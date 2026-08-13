@@ -393,31 +393,29 @@ impl ExecMethod for TopKScanExecState {
                 // inside the aggregation, checking visibility per unconfirmed
                 // value. Top K then relies on the standard dead-row handling
                 // used when no aggregates are present.
-                let cardinality_context = if aggregations.mvcc_enabled {
-                    cardinality::mvcc_agg_context(
+                let is_cardinality = aggregations.mvcc_enabled
+                    && cardinality::is_cardinality(
                         &aggregations.aggregations,
                         self.search_reader.as_ref().unwrap().schema(),
+                    );
+                let agg_context = if is_cardinality {
+                    cardinality::mvcc_agg_context(
                         state.heaprel(),
                         agg_limits.clone(),
-                        tokenizer_manager.clone(),
+                        tokenizer_manager,
                     )
                 } else {
-                    None
+                    AggContextParams::new(agg_limits.clone(), tokenizer_manager)
                 };
 
                 // Otherwise wrap with MVCC filtering to respect transaction visibility.
                 // This can be disabled via pdb.agg(..., false) for performance
                 // in cases where accuracy is less important than speed.
                 // See: https://github.com/paradedb/paradedb/issues/3500
-                let vischeck =
-                    (aggregations.mvcc_enabled && cardinality_context.is_none()).then(|| {
-                        VisibilityChecker::with_rel_and_snap(state.heaprel(), unsafe {
-                            pg_sys::GetActiveSnapshot()
-                        })
-                    });
-
-                let agg_context = cardinality_context.unwrap_or_else(|| {
-                    AggContextParams::new(agg_limits.clone(), tokenizer_manager)
+                let vischeck = (aggregations.mvcc_enabled && !is_cardinality).then(|| {
+                    VisibilityChecker::with_rel_and_snap(state.heaprel(), unsafe {
+                        pg_sys::GetActiveSnapshot()
+                    })
                 });
                 let aggregation_collector = DistributedAggregationCollector::from_aggs(
                     aggregations.aggregations.clone(),
@@ -506,30 +504,28 @@ impl ExecMethod for TopKScanExecState {
                 // unordered path does not support aggregation collectors
                 let search_reader = self.search_reader.as_ref().unwrap();
                 let tokenizer_manager = search_reader.searcher().index().tokenizers().clone();
-                let cardinality_results = if aggregations.mvcc_enabled {
-                    cardinality::execute_with_mvcc(
-                        search_reader,
+                if aggregations.mvcc_enabled
+                    && cardinality::is_cardinality(
                         &aggregations.aggregations,
                         search_reader.schema(),
+                    )
+                {
+                    cardinality::execute_with_mvcc(
+                        search_reader,
+                        aggregations.aggregations.clone(),
                         state.heaprel(),
                         agg_limits.clone(),
-                        tokenizer_manager.clone(),
+                        tokenizer_manager,
                     )
                 } else {
-                    None
-                };
-                match cardinality_results {
-                    Some(results) => results,
-                    None => {
-                        let aggregation_collector = DistributedAggregationCollector::from_aggs(
-                            aggregations.aggregations.clone(),
-                            AggContextParams::new(agg_limits.clone(), tokenizer_manager),
-                        );
-                        search_reader
-                            .searcher()
-                            .search(search_reader.query(), &aggregation_collector)
-                            .expect("failed to run window aggregation query")
-                    }
+                    let aggregation_collector = DistributedAggregationCollector::from_aggs(
+                        aggregations.aggregations.clone(),
+                        AggContextParams::new(agg_limits.clone(), tokenizer_manager),
+                    );
+                    search_reader
+                        .searcher()
+                        .search(search_reader.query(), &aggregation_collector)
+                        .expect("failed to run window aggregation query")
                 }
             };
 

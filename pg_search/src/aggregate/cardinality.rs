@@ -39,22 +39,13 @@ use tantivy::aggregation::{
 };
 use tantivy::tokenizer::TokenizerManager;
 
-/// Builds an aggregation context that solves MVCC through tantivy's per-value
-/// visibility filter, if the request qualifies: every aggregation must be a
-/// cardinality over a string field, with no sub-aggregations. Tantivy
-/// validates the same conditions per segment and errors on violations, so the
-/// check here decides routing only.
-///
-/// Returns `None` when the request doesn't qualify; the caller must then
-/// solve MVCC itself (e.g. with `MVCCFilterCollector`).
-pub fn mvcc_agg_context(
-    aggregations: &Aggregations,
-    schema: &SearchIndexSchema,
-    heaprel: &PgSearchRelation,
-    limits: AggregationLimitsGuard,
-    tokenizers: TokenizerManager,
-) -> Option<AggContextParams> {
-    let eligible = !aggregations.is_empty()
+/// True when every aggregation in the request is a cardinality over a string
+/// field, with no sub-aggregations — the requests this module can execute.
+/// Tantivy validates the same conditions per segment and errors on
+/// violations, so this check decides routing only; anything ineligible must
+/// solve MVCC another way (e.g. `MVCCFilterCollector`).
+pub fn is_cardinality(aggregations: &Aggregations, schema: &SearchIndexSchema) -> bool {
+    !aggregations.is_empty()
         && aggregations.values().all(|agg| {
             agg.sub_aggregation.is_empty()
                 && match &agg.agg {
@@ -63,29 +54,36 @@ pub fn mvcc_agg_context(
                         .is_some_and(|field| field.is_text()),
                     _ => false,
                 }
-        });
-    eligible.then(|| {
-        AggContextParams::new(limits, tokenizers).with_doc_visibility_factory(
-            doc_visibility_factory(heaprel, unsafe { pg_sys::GetActiveSnapshot() }),
-        )
-    })
+        })
 }
 
-/// Executes a cardinality-only aggregation request with MVCC enabled.
-///
-/// Returns `None` when the request doesn't qualify (see [`mvcc_agg_context`]);
-/// the caller must then solve MVCC itself.
-pub fn execute_with_mvcc(
-    reader: &SearchIndexReader,
-    aggregations: &Aggregations,
-    schema: &SearchIndexSchema,
+/// Builds an aggregation context that solves MVCC through tantivy's per-value
+/// visibility filter. Only valid for requests that pass [`is_cardinality`].
+pub fn mvcc_agg_context(
     heaprel: &PgSearchRelation,
     limits: AggregationLimitsGuard,
     tokenizers: TokenizerManager,
-) -> Option<IntermediateAggregationResults> {
-    let context = mvcc_agg_context(aggregations, schema, heaprel, limits, tokenizers)?;
-    let collector = DistributedAggregationCollector::from_aggs(aggregations.clone(), context);
-    Some(reader.collect(InterruptableCollector::new(collector)))
+) -> AggContextParams {
+    AggContextParams::new(limits, tokenizers)
+        .with_doc_visibility_factory(doc_visibility_factory(heaprel, unsafe {
+            pg_sys::GetActiveSnapshot()
+        }))
+}
+
+/// Executes a cardinality-only aggregation request with MVCC enabled. Only
+/// valid for requests that pass [`is_cardinality`].
+pub fn execute_with_mvcc(
+    reader: &SearchIndexReader,
+    aggregations: Aggregations,
+    heaprel: &PgSearchRelation,
+    limits: AggregationLimitsGuard,
+    tokenizers: TokenizerManager,
+) -> IntermediateAggregationResults {
+    let collector = DistributedAggregationCollector::from_aggs(
+        aggregations,
+        mvcc_agg_context(heaprel, limits, tokenizers),
+    );
+    reader.collect(InterruptableCollector::new(collector))
 }
 
 struct SendSyncWrapper<T>(T);

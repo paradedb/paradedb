@@ -294,28 +294,26 @@ impl<'a> ParallelAggregationWorker<'a> {
             let heaprel = indexrel
                 .heap_relation()
                 .expect("index should belong to a heap relation");
-            match cardinality::execute_with_mvcc(
-                &reader,
-                &aggregations,
-                &schema,
-                &heaprel,
-                limits.clone(),
-                tokenizer_manager.clone(),
-            ) {
-                Some(results) => results,
-                None => {
-                    let base_collector = DistributedAggregationCollector::from_aggs(
-                        aggregations,
-                        AggContextParams::new(limits, tokenizer_manager),
-                    );
-                    let mvcc_collector = MVCCFilterCollector::new(
-                        base_collector,
-                        VisibilityChecker::with_rel_and_snap(&heaprel, unsafe {
-                            pg_sys::GetActiveSnapshot()
-                        }),
-                    );
-                    reader.collect(InterruptableCollector::new(mvcc_collector))
-                }
+            if cardinality::is_cardinality(&aggregations, &schema) {
+                cardinality::execute_with_mvcc(
+                    &reader,
+                    aggregations,
+                    &heaprel,
+                    limits,
+                    tokenizer_manager,
+                )
+            } else {
+                let base_collector = DistributedAggregationCollector::from_aggs(
+                    aggregations,
+                    AggContextParams::new(limits, tokenizer_manager),
+                );
+                let mvcc_collector = MVCCFilterCollector::new(
+                    base_collector,
+                    VisibilityChecker::with_rel_and_snap(&heaprel, unsafe {
+                        pg_sys::GetActiveSnapshot()
+                    }),
+                );
+                reader.collect(InterruptableCollector::new(mvcc_collector))
             }
         } else {
             let base_collector = DistributedAggregationCollector::from_aggs(

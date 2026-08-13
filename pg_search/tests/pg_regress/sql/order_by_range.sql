@@ -226,6 +226,11 @@ WHERE title @@@ 'product' ORDER BY valid_period LIMIT 10;
 SELECT id, title, category FROM data_records
 WHERE title @@@ 'product' ORDER BY valid_period, id LIMIT 10;
 
+-- Parallel TopK: range sort stays correct with parallelism enabled.
+SET max_parallel_workers_per_gather = 2;
+SELECT check_range_order('range_items', 'nr', 'ASC', 5, 0);
+SELECT check_range_order('range_items', 'dr', 'DESC NULLS LAST', 4, 0);
+
 DROP FUNCTION check_range_order(text, text, text, int, int);
 DROP TABLE data_records CASCADE;
 DROP TABLE range_segments CASCADE;

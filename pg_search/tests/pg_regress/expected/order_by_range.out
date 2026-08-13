@@ -492,6 +492,17 @@ WHERE title @@@ 'product' ORDER BY valid_period, id LIMIT 10;
  10 | Product 10 | Books
 (10 rows)
 
+SET
+ check_range_order 
+-------------------
+ ok
+(1 row)
+
+ check_range_order 
+-------------------
+ ok
+(1 row)
+
 DROP FUNCTION check_range_order(text, text, text, int, int);
 DROP TABLE data_records CASCADE;
 DROP TABLE range_segments CASCADE;

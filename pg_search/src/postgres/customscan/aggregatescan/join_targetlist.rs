@@ -310,13 +310,21 @@ pub unsafe fn extract_aggregate_targetlist(
         return Err("target list is empty".into());
     }
 
+    // `find_one_var_and_fieldname` below resolves an expression down to the fast
+    // field it reads, which holds the column value and not the expression value.
+    // The two agree only when the expression is the identity, so a JSON container
+    // dedups on its elements and a type-changing cast hands the slot the wrong
+    // Arrow type. Postgres deduplicates the expression itself, so DISTINCT takes
+    // plain columns and nothing else.
+    let plain_columns_only = shape.is_distinct();
+
     let outer_root_id =
         crate::postgres::customscan::joinscan::build::PlannerRootId::from(args.root);
 
     let mut group_columns = Vec::new();
     let mut aggregates = Vec::new();
 
-    for (idx, expr) in target_exprs.iter().copied().enumerate() {
+    for (idx, expr) in target_exprs.iter_ptr().enumerate() {
         let tag = (*(expr as *mut pg_sys::Node)).type_;
 
         if tag == pg_sys::NodeTag::T_Var {
@@ -371,10 +379,15 @@ pub unsafe fn extract_aggregate_targetlist(
                 output_index: idx,
                 numeric_scale,
             });
-        } else if let Some((var, field_name)) = find_one_var_and_fieldname(
-            VarContext::from_planner(args.root),
-            expr as *mut pg_sys::Node,
-        ) {
+        } else if let Some((var, field_name)) = (!plain_columns_only)
+            .then(|| {
+                find_one_var_and_fieldname(
+                    VarContext::from_planner(args.root),
+                    expr as *mut pg_sys::Node,
+                )
+            })
+            .flatten()
+        {
             // GROUP BY on a complex expression (e.g., metadata->>'category').
             // The resolver extracts the underlying Var and resolves the Tantivy
             // field name (e.g., "metadata.category") from JSON operators.

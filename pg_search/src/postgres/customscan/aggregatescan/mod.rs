@@ -93,7 +93,7 @@ use crate::postgres::customscan::exec::{
 };
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::hook::query_has_paradedb_agg;
-use crate::postgres::customscan::joinscan::satisfies_top_level_limit_gate;
+use crate::postgres::customscan::joinscan::JoinScan;
 use crate::postgres::customscan::joinscan::scan_state::{build_physical_plan, build_task_context};
 use crate::postgres::customscan::orderby::is_collation_pushdown_safe;
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
@@ -142,6 +142,7 @@ enum AggregateDeclineReason {
     JoinPredicate(datafusion_build::PathPredicateDeclineReason),
     CrossJoin,
     DistinctOn,
+    NondeterministicCollation,
     /// Errors carrying a free-form message (parse-tree extraction, target-list
     /// extraction, fast-field population) — the underlying helper already
     /// produces a contextual string.
@@ -169,6 +170,9 @@ impl AggregateDeclineReason {
             },
             Self::CrossJoin => "CROSS JOINs are not supported (no equi-join keys)".into(),
             Self::DistinctOn => "DISTINCT ON is not supported".into(),
+            Self::NondeterministicCollation => {
+                "DISTINCT on a nondeterministic collation is not supported".into()
+            }
             Self::Other(msg) => msg.clone().into(),
         }
     }
@@ -206,6 +210,25 @@ unsafe fn resolve_decline_alias(args: &CreateUpperPathsHookArgs) -> String {
     rte_alias_or_unknown(rte)
 }
 
+/// Whether `JoinScan` already offered a path for this join relation.
+///
+/// The upper-paths hook runs after the join relation is complete, so its
+/// pathlist answers the question directly. A JoinScan path can sit under a
+/// projection when the join output needs one, so unwrap those first.
+unsafe fn joinrel_has_joinscan_path(input_rel: &pg_sys::RelOptInfo) -> bool {
+    let joinscan_methods = JoinScan::custom_path_methods();
+    PgList::<pg_sys::Path>::from_pg(input_rel.pathlist)
+        .iter_ptr()
+        .any(|mut path| {
+            while !path.is_null() && (*path).pathtype == pg_sys::NodeTag::T_Result {
+                path = (*(path as *mut pg_sys::ProjectionPath)).subpath;
+            }
+            !path.is_null()
+                && (*path).pathtype == pg_sys::NodeTag::T_CustomScan
+                && (*(path as *mut pg_sys::CustomPath)).methods == joinscan_methods
+        })
+}
+
 /// A grouping operation, unifying GROUP BY and SELECT DISTINCT
 /// (`SELECT DISTINCT a, b` ≡ `GROUP BY a, b` with no aggregates).
 ///
@@ -239,11 +262,22 @@ impl GroupingShape {
         // A grouped path must advertise a positive row estimate: planner stages
         // above (e.g. a DISTINCT's Unique/HashAggregate) derive numGroups from
         // path->rows, and ExecInitAgg asserts numGroups > 0.
-        let rows = args.output_rel().rows.max(1.0);
+        //
+        // `create_distinct_paths` leaves `distinct_rel->rows` at zero, but it has
+        // already costed its own Unique paths against `estimate_num_groups`, so
+        // borrow the estimate from one of those instead of advertising a single row.
+        let rows = if is_distinct {
+            PgList::<pg_sys::Path>::from_pg(args.output_rel().pathlist)
+                .get_ptr(0)
+                .map(|path| (*path).rows)
+                .unwrap_or(args.output_rel().rows)
+        } else {
+            args.output_rel().rows
+        };
         Self {
             is_distinct,
             reltarget,
-            rows,
+            rows: rows.max(1.0),
         }
     }
 
@@ -263,13 +297,27 @@ impl GroupingShape {
     }
 
     /// The grouping/DISTINCT output column expressions.
-    pub(crate) unsafe fn target_exprs(&self) -> Vec<*mut pg_sys::Expr> {
+    pub(crate) unsafe fn target_exprs(&self) -> PgList<pg_sys::Expr> {
         if self.reltarget.is_null() {
-            return Vec::new();
+            return PgList::new();
         }
         PgList::<pg_sys::Expr>::from_pg((*self.reltarget).exprs)
-            .iter_ptr()
-            .collect()
+    }
+
+    /// The first DISTINCT output column whose collation makes byte grouping
+    /// disagree with Postgres.
+    ///
+    /// Deterministic collations settle equality with a byte comparison, so the
+    /// aggregation backends still group them the way Postgres does. A
+    /// nondeterministic collation can call two different byte strings equal, and
+    /// no node above the scan can merge groups the scan already emitted apart.
+    unsafe fn nondeterministic_collation(&self) -> Option<pg_sys::Oid> {
+        self.target_exprs().iter_ptr().find_map(|expr| {
+            let collation = pg_sys::exprCollation(expr as *mut pg_sys::Node);
+            (collation != pg_sys::Oid::INVALID
+                && !pg_sys::get_collation_isdeterministic(collation))
+            .then_some(collation)
+        })
     }
 }
 
@@ -365,12 +413,12 @@ impl CustomScan for AggregateScan {
                 Self::build_tantivy_aggregate_path(builder, has_paradedb_agg, shape)
             }
             pg_sys::RelOptKind::RELOPT_JOINREL => {
-                // Defer JOIN + DISTINCT to JoinScan when it owns the shape
-                // (enabled, and the query satisfies its top-level LIMIT gate);
-                // otherwise AggregateScan handles it.
-                let defer_to_joinscan = shape.is_distinct()
-                    && gucs::enable_join_custom_scan()
-                    && unsafe { satisfies_top_level_limit_gate(builder.args().root) };
+                // JoinScan deduplicates a DISTINCT itself and materializes the
+                // heap late, so leave the shape to it whenever it accepted the
+                // join. Asking whether it built a path (rather than replaying its
+                // gates) keeps a join it turned down from losing both pushdowns.
+                let defer_to_joinscan =
+                    shape.is_distinct() && unsafe { joinrel_has_joinscan_path(input_rel) };
                 if defer_to_joinscan {
                     return Vec::new();
                 }
@@ -1268,16 +1316,21 @@ impl AggregateScan {
             }
         }
 
-        // Reject DISTINCT ON only for a DISTINCT shape: it can't be modelled as
-        // an aggregate. A GROUP BY still pushes down, with PG applying the
-        // DISTINCT ON above the grouped output.
-        let has_distinct_on = shape.is_distinct()
-            && unsafe {
+        if shape.is_distinct() {
+            // DISTINCT ON can't be modelled as an aggregate. A GROUP BY under a
+            // DISTINCT ON still pushes down, with PG applying the DISTINCT ON
+            // above the grouped output, so this is gated on the shape.
+            let has_distinct_on = unsafe {
                 let parse = builder.args().root().parse;
                 !parse.is_null() && (*parse).hasDistinctOn
             };
-        if has_distinct_on {
-            return Err(warn(AggregateDeclineReason::DistinctOn));
+            if has_distinct_on {
+                return Err(warn(AggregateDeclineReason::DistinctOn));
+            }
+
+            if unsafe { shape.nondeterministic_collation() }.is_some() {
+                return Err(warn(AggregateDeclineReason::NondeterministicCollation));
+            }
         }
 
         // All tables must have BM25 indexes (DataFusion scans all via PgSearchTableProvider).
@@ -2088,7 +2141,7 @@ unsafe fn detect_join_aggregate_topk(
     let target_exprs = shape.target_exprs();
 
     let mut match_pos = None;
-    for (pos, target_expr) in target_exprs.iter().copied().enumerate() {
+    for (pos, target_expr) in target_exprs.iter_ptr().enumerate() {
         if pg_sys::equal(
             sort_expr as *const core::ffi::c_void,
             target_expr as *const core::ffi::c_void,

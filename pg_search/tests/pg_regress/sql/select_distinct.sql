@@ -625,8 +625,8 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 -- =============================================================================
 -- TEST 16: JOIN + DISTINCT without LIMIT under enable_join_custom_scan = on
 -- JoinScan requires a top-level LIMIT, so it declines this shape and builds
--- no path. AggregateScan must still claim it (the deferral is based on an
--- actual JoinScan path in the joinrel pathlist, not the GUC).
+-- no path. AggregateScan must still claim it: the deferral asks whether a
+-- JoinScan path exists on the joinrel, not whether JoinScan is enabled.
 -- =============================================================================
 
 SET paradedb.enable_join_custom_scan TO on;
@@ -644,9 +644,198 @@ JOIN dist_regions dr ON dp.category = dr.category
 WHERE dp.name @@@ 'laptop OR jacket OR shoes'
 ORDER BY dp.category;
 
+-- =============================================================================
+-- TEST 17: JOIN + DISTINCT + LIMIT that JoinScan declines for its own reason
+-- A volatile predicate makes JoinScan reject the LIMIT pushdown, so no
+-- JoinScan path reaches the joinrel. AggregateScan must pick the shape up
+-- instead of letting it fall back to native PG.
+-- =============================================================================
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT DISTINCT dp.category
+FROM dist_products dp
+JOIN dist_regions dr ON dp.category = dr.category
+WHERE dp.name @@@ 'laptop OR jacket OR shoes'
+  AND dp.id + random() > 0
+ORDER BY dp.category
+LIMIT 10;
+
+SELECT DISTINCT dp.category
+FROM dist_products dp
+JOIN dist_regions dr ON dp.category = dr.category
+WHERE dp.name @@@ 'laptop OR jacket OR shoes'
+  AND dp.id + random() > 0
+ORDER BY dp.category
+LIMIT 10;
+
 RESET paradedb.enable_join_custom_scan;
 
 DROP TABLE IF EXISTS dist_regions CASCADE;
+
+-- =============================================================================
+-- TEST 18: type-changing cast — declines to native PG
+-- The fast field holds the bigint, the query asks for its text rendering.
+-- Grouping the raw field would hand the tuple slot the wrong type.
+-- =============================================================================
+
+DROP TABLE IF EXISTS dist_cast CASCADE;
+
+CREATE TABLE dist_cast (
+    id   SERIAL PRIMARY KEY,
+    name TEXT,
+    n    BIGINT
+);
+
+INSERT INTO dist_cast (name, n) VALUES
+    ('alpha', 1),
+    ('beta',  2),
+    ('gamma', 1);
+
+CREATE INDEX dist_cast_idx ON dist_cast
+USING bm25 (id, name, n)
+WITH (
+    key_field = 'id',
+    text_fields = '{"name": {}}',
+    numeric_fields = '{"n": {"fast": true}}'
+);
+
+ANALYZE dist_cast;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT DISTINCT n::text
+FROM dist_cast
+WHERE id @@@ paradedb.all()
+ORDER BY 1;
+
+SELECT DISTINCT n::text
+FROM dist_cast
+WHERE id @@@ paradedb.all()
+ORDER BY 1;
+
+-- Correctness: must match native PG
+SET paradedb.enable_aggregate_custom_scan TO off;
+
+SELECT DISTINCT n::text
+FROM dist_cast
+WHERE id @@@ paradedb.all()
+ORDER BY 1;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+DROP TABLE IF EXISTS dist_cast CASCADE;
+
+-- =============================================================================
+-- TEST 19: JSON container — declines to native PG
+-- The fast field indexes the array elements, the query deduplicates whole
+-- arrays. Grouping on the elements would collapse ["a"] and ["a","b"].
+-- =============================================================================
+
+DROP TABLE IF EXISTS dist_json CASCADE;
+
+CREATE TABLE dist_json (
+    id   SERIAL PRIMARY KEY,
+    name TEXT,
+    meta JSONB
+);
+
+INSERT INTO dist_json (name, meta) VALUES
+    ('alpha', '{"tags": ["a", "b"]}'),
+    ('beta',  '{"tags": ["a", "b"]}'),
+    ('gamma', '{"tags": ["a"]}');
+
+CREATE INDEX dist_json_idx ON dist_json
+USING bm25 (id, name, meta)
+WITH (
+    key_field = 'id',
+    text_fields = '{"name": {}}',
+    json_fields = '{"meta": {"fast": true}}'
+);
+
+ANALYZE dist_json;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT DISTINCT meta->'tags'
+FROM dist_json
+WHERE id @@@ paradedb.all()
+ORDER BY 1;
+
+SELECT DISTINCT meta->'tags'
+FROM dist_json
+WHERE id @@@ paradedb.all()
+ORDER BY 1;
+
+-- Correctness: must match native PG
+SET paradedb.enable_aggregate_custom_scan TO off;
+
+SELECT DISTINCT meta->'tags'
+FROM dist_json
+WHERE id @@@ paradedb.all()
+ORDER BY 1;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+DROP TABLE IF EXISTS dist_json CASCADE;
+
+-- =============================================================================
+-- TEST 20: nondeterministic collation — declines to native PG
+-- A case-insensitive ICU collation calls 'a' and 'A' equal. The aggregation
+-- backend groups by bytes and would keep them apart, and no node above the
+-- scan can merge groups it already emitted separately. Which of the two
+-- survives the dedup is up to Postgres, so this asserts the count.
+-- =============================================================================
+
+DROP TABLE IF EXISTS dist_ci CASCADE;
+
+CREATE COLLATION IF NOT EXISTS dist_ci_coll (
+    provider = icu,
+    locale = 'und-u-ks-level2',
+    deterministic = false
+);
+
+CREATE TABLE dist_ci (
+    id    SERIAL PRIMARY KEY,
+    name  TEXT,
+    value TEXT COLLATE dist_ci_coll
+);
+
+INSERT INTO dist_ci (name, value) VALUES
+    ('one',   'a'),
+    ('two',   'A'),
+    ('three', 'b');
+
+CREATE INDEX dist_ci_idx ON dist_ci
+USING bm25 (id, name, value)
+WITH (
+    key_field = 'id',
+    text_fields = '{"name": {}, "value": {"fast": true}}'
+);
+
+ANALYZE dist_ci;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT DISTINCT value
+FROM dist_ci
+WHERE id @@@ paradedb.all();
+
+SELECT COUNT(*) FROM (
+    SELECT DISTINCT value
+    FROM dist_ci
+    WHERE id @@@ paradedb.all()
+) t;
+
+-- Correctness: must match native PG
+SET paradedb.enable_aggregate_custom_scan TO off;
+
+SELECT COUNT(*) FROM (
+    SELECT DISTINCT value
+    FROM dist_ci
+    WHERE id @@@ paradedb.all()
+) t;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+DROP TABLE IF EXISTS dist_ci CASCADE;
+DROP COLLATION IF EXISTS dist_ci_coll;
 
 -- =============================================================================
 -- Cleanup

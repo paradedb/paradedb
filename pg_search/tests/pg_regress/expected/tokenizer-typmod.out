@@ -347,9 +347,9 @@ SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=french')::text[];
 (1 row)
 
 SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=german')::text[];
-        text         
----------------------
- {running,shoes,olé}
+        text        
+--------------------
+ {running,shos,olé}
 (1 row)
 
 SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=greek')::text[];

@@ -148,43 +148,38 @@ enum AggregateDeclineReason {
 }
 
 impl AggregateDeclineReason {
-    fn emit(&self) {
-        let alias = "join".to_string();
+    fn detail(&self) -> std::borrow::Cow<'static, str> {
         match self {
-            AggregateDeclineReason::NotAllBm25 => AggregateScan::add_planner_warning(
-                "Aggregate Scan (DataFusion) not used: all tables in the join must have BM25 indexes",
-                alias,
-            ),
-            AggregateDeclineReason::JoinPredicate(reason) => {
-                let message = match reason {
-                    datafusion_build::PathPredicateDeclineReason::ExternParam => {
-                        "generic prepared-plan parameters in join predicates are not supported"
-                    }
-                    #[cfg(feature = "pg15")]
-                    datafusion_build::PathPredicateDeclineReason::AmbiguousVolatileOverlap => {
-                        "a volatile join predicate cannot be reconstructed safely on PostgreSQL 15"
-                    }
-                    datafusion_build::PathPredicateDeclineReason::OuterJoinOnResidual => {
-                        "outer-join ON residual predicates are not supported"
-                    }
-                    datafusion_build::PathPredicateDeclineReason::UnclassifiedClause => {
-                        "the selected lower join path contains a predicate that AggregateScan cannot classify"
-                    }
-                };
-                AggregateScan::add_planner_warning(
-                    format!("Aggregate Scan (DataFusion) not used: {message}"),
-                    alias,
-                )
-            }
-            AggregateDeclineReason::CrossJoin => AggregateScan::add_planner_warning(
-                "Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys)",
-                alias,
-            ),
-            AggregateDeclineReason::Other(msg) => AggregateScan::add_planner_warning(
-                format!("Aggregate Scan (DataFusion) not used: {}", msg),
-                alias,
-            ),
+            Self::NotAllBm25 => "all tables in the join must have BM25 indexes".into(),
+            Self::JoinPredicate(reason) => match reason {
+                datafusion_build::PathPredicateDeclineReason::ExternParam => {
+                    "generic prepared-plan parameters in join predicates are not supported".into()
+                }
+                #[cfg(feature = "pg15")]
+                datafusion_build::PathPredicateDeclineReason::AmbiguousVolatileOverlap => {
+                    "a volatile join predicate cannot be reconstructed safely on PostgreSQL 15".into()
+                }
+                datafusion_build::PathPredicateDeclineReason::OuterJoinOnResidual => {
+                    "outer-join ON residual predicates are not supported".into()
+                }
+                datafusion_build::PathPredicateDeclineReason::UnclassifiedClause => {
+                    "the selected lower join path contains a predicate that AggregateScan cannot classify".into()
+                }
+            },
+            Self::CrossJoin => "CROSS JOINs are not supported (no equi-join keys)".into(),
+            Self::Other(msg) => msg.clone().into(),
         }
+    }
+
+    fn emit(&self) {
+        AggregateScan::add_planner_warning(
+            format!("Aggregate Scan (DataFusion) not used: {}", self.detail()),
+            "join".to_string(),
+        );
+    }
+
+    fn emit_error(&self) {
+        pgrx::error!("Cannot execute pdb.agg: {}", self.detail());
     }
 }
 
@@ -215,9 +210,16 @@ impl CustomScan for AggregateScan {
     }
 
     fn create_custom_path(builder: CustomPathBuilder<Self>) -> Vec<pg_sys::CustomPath> {
-        let has_paradedb_agg = unsafe {
+        let (has_paradedb_agg_recursive, has_paradedb_agg) = unsafe {
             let parse = builder.args().root().parse;
-            !parse.is_null() && query_has_paradedb_agg(parse, true)
+            if parse.is_null() {
+                (false, false)
+            } else {
+                (
+                    query_has_paradedb_agg(parse, true),
+                    query_has_paradedb_agg(parse, false),
+                )
+            }
         };
 
         let input_rel = builder.args().input_rel();
@@ -248,18 +250,18 @@ impl CustomScan for AggregateScan {
                         || build::has_aggregate_orderby_with_limit(builder.args())
                 };
                 if use_datafusion {
-                    if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg {
+                    if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg_recursive {
                         return Vec::new();
                     }
-                    return Self::build_datafusion_aggregate_path(builder);
+                    return Self::build_datafusion_aggregate_path(builder, has_paradedb_agg);
                 }
                 Self::build_tantivy_aggregate_path(builder, has_paradedb_agg)
             }
             pg_sys::RelOptKind::RELOPT_JOINREL => {
-                if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg {
+                if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg_recursive {
                     return Vec::new();
                 }
-                Self::build_datafusion_aggregate_path(builder)
+                Self::build_datafusion_aggregate_path(builder, has_paradedb_agg)
             }
             _ => Vec::new(),
         }
@@ -1069,9 +1071,8 @@ impl AggregateScan {
         // Parent partitioned tables are not yet supported for aggregate pushdown.
         let Some(heap_relid) = (unsafe { range_table::get_plain_relation_relid(heap_rte) }) else {
             if has_paradedb_agg {
-                Self::add_planner_warning(
-                    "Aggregate Scan not used: unsupported relation type (e.g., partitioned table or view)",
-                    unsafe { rte_alias_or_unknown(heap_rte) },
+                pgrx::error!(
+                    "Cannot execute pdb.agg: unsupported relation type (e.g., partitioned table or view)"
                 );
             }
             return Vec::new();
@@ -1079,10 +1080,7 @@ impl AggregateScan {
 
         let Some((_table, index)) = rel_get_bm25_index(heap_relid) else {
             if has_paradedb_agg {
-                Self::add_planner_warning(
-                    "Aggregate Scan not used: table must have a BM25 index",
-                    unsafe { rte_alias_or_unknown(heap_rte) },
-                );
+                pgrx::error!("Cannot execute pdb.agg: table must have a BM25 index");
             }
             return Vec::new();
         };
@@ -1098,18 +1096,14 @@ impl AggregateScan {
                 })]
             }
             Err(CustomScanBuildError::Incompatible(e)) => {
-                if has_paradedb_agg
-                    || (gucs::enable_aggregate_custom_scan() && gucs::check_aggregate_scan())
-                {
-                    let warning_msg = if has_paradedb_agg {
-                        format!("Aggregate Scan not used: {}", e)
-                    } else {
-                        format!(
-                            "Aggregate Scan not used: {}. \
-                             To disable this warning: SET paradedb.check_aggregate_scan = false",
-                            e,
-                        )
-                    };
+                if has_paradedb_agg {
+                    pgrx::error!("Cannot execute pdb.agg: {}", e);
+                } else if gucs::enable_aggregate_custom_scan() && gucs::check_aggregate_scan() {
+                    let warning_msg = format!(
+                        "Aggregate Scan not used: {}. \
+                         To disable this warning: SET paradedb.check_aggregate_scan = false",
+                        e,
+                    );
                     Self::add_planner_warning(warning_msg, _table.name().to_string());
                 }
                 Vec::new()
@@ -1121,12 +1115,15 @@ impl AggregateScan {
     /// New DataFusion-backed aggregate path for JOINs.
     fn build_datafusion_aggregate_path(
         builder: CustomPathBuilder<Self>,
+        has_paradedb_agg: bool,
     ) -> Vec<pg_sys::CustomPath> {
         match Self::try_build_datafusion_aggregate_path(builder) {
             Ok(path) => vec![path],
             Err(AggregatePathDecline::Quiet) => Vec::new(),
             Err(AggregatePathDecline::Warn(reason)) => {
-                if gucs::check_aggregate_scan() {
+                if has_paradedb_agg {
+                    reason.emit_error();
+                } else if gucs::check_aggregate_scan() {
                     reason.emit();
                 }
                 Vec::new()

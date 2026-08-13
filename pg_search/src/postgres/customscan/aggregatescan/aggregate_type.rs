@@ -481,7 +481,7 @@ pub(crate) fn validate_agg_json_fields(
 }
 
 /// Recursively walk `agg_json` and validate that every `top_hits.sort` field is a type
-/// Tantivy's sort accessor supports (see [`SearchFieldType::supports_top_hits_sort`]).
+/// Tantivy's sort accessor supports (see [`crate::schema::SearchFieldType::supports_top_hits_sort`]).
 ///
 /// A text / uuid / inet / ltree / json / range / vector sort key would fall back to an empty
 /// accessor and every hit would silently get `"sort": [null]` with no ordering applied

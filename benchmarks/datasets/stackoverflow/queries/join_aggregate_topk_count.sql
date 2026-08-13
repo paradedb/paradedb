@@ -37,3 +37,18 @@ GROUP BY
 ORDER BY
     COUNT(*) DESC
 LIMIT 10;
+
+-- DataFusion TopK aggregate scan with range partitioned join
+SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO on; SET paradedb.enable_range_partitioned_join TO on; SELECT
+    p.owner_display_name,
+    COUNT(*)
+FROM stackoverflow_posts p
+JOIN comments c ON p.id = c.post_id
+WHERE
+    p.body ||| 'code'
+GROUP BY
+    p.owner_display_name
+ORDER BY
+    COUNT(*) DESC
+LIMIT 10;
+

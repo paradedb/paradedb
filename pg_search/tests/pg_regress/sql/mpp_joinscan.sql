@@ -12,6 +12,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.enable_join_custom_scan TO on;
+SET paradedb.enable_range_partitioned_join TO on;
 
 SET max_parallel_workers_per_gather TO 3;
 SET max_parallel_workers TO 8;

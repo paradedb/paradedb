@@ -17,7 +17,7 @@
 
 use std::cell::RefCell;
 
-use crate::aggregate::cardinality::CardinalityExt;
+use crate::aggregate::exec::AggregationExec;
 use crate::api::version::VersionInfo;
 use crate::api::{HashMap, OrderByInfo};
 use crate::gucs;
@@ -35,14 +35,13 @@ use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::parallel::checkout_segment_for_source;
-use crate::postgres::heap::VisibilityChecker;
 use crate::query::SearchQueryInput;
 
 use pgrx::{IntoDatum, check_for_interrupts, direct_function_call, pg_sys};
 use tantivy::SegmentOrdinal;
+use tantivy::aggregation::AggregationLimitsGuard;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
-use tantivy::aggregation::{AggregationLimitsGuard, DistributedAggregationCollector};
 use tantivy::index::SegmentId;
 
 struct PreparedAggregations {
@@ -257,23 +256,23 @@ impl TopKScanExecState {
 
     fn finalize_aggregates(
         &self,
-        aggregations: PreparedAggregations,
+        prepared: PreparedAggregations,
         agg_limits: AggregationLimitsGuard,
         intermediate_results: IntermediateAggregationResults,
         index_info: &AggIndexInfo,
     ) -> HashMap<usize, pg_sys::Datum> {
         let final_result = intermediate_results
-            .into_final_result(aggregations.aggregations, agg_limits)
+            .into_final_result(prepared.aggregations, agg_limits)
             .expect("failed to finalize aggregate");
 
         // For window functions (no GROUP BY), we expect a single ungrouped result
         // Convert to AggregationResults and extract Datums
         let agg_results_wrapper: AggregationResults = final_result.into();
         let datum_vec = agg_results_wrapper
-            .flatten_ungrouped_to_datums(&aggregations.combined_agg_types, index_info);
+            .flatten_ungrouped_to_datums(&prepared.combined_agg_types, index_info);
 
         // Map aggregate results to target entry indices
-        aggregations
+        prepared
             .agg_index_to_te_index
             .into_iter()
             .enumerate()
@@ -364,7 +363,7 @@ impl ExecMethod for TopKScanExecState {
             (self.limit() as f64 * self.scale_factor).max(self.chunk_size as f64) as usize;
         let next_offset = self.offset + local_limit;
 
-        let aggregations = self.prepare_aggregations(state);
+        let prepared = self.prepare_aggregations(state);
 
         // Use the GUC for term aggregation bucket limits (single source of truth).
         let bucket_limit: u32 = gucs::max_term_agg_buckets() as u32;
@@ -376,30 +375,18 @@ impl ExecMethod for TopKScanExecState {
 
         // Run the Top K (and optional aggregate) query.
         self.search_results = if let Some(orderby_info) = self.orderby_info.as_ref() {
-            let maybe_aux_collector = aggregations.as_ref().map(|aggregations| {
-                // Cardinality-only aggregations over string fields solve MVCC
-                // inside the aggregation, checking visibility per unconfirmed
-                // value. Top K then relies on the standard dead-row handling
-                // used when no aggregates are present.
-                let (agg_context, mvcc_solved) = aggregations.aggregations.agg_context(
-                    self.search_reader.as_ref().unwrap(),
+            let maybe_aux_collector = prepared.as_ref().map(|prepared| {
+                let search_reader = self.search_reader.as_ref().unwrap();
+                let aggregation_collector = prepared.aggregations.collector(
+                    search_reader,
                     state.heaprel(),
-                    aggregations.mvcc_enabled,
+                    prepared.mvcc_enabled,
                     agg_limits.clone(),
                 );
-
-                // Otherwise wrap with MVCC filtering to respect transaction visibility.
-                // This can be disabled via pdb.agg(..., false) for performance
-                // in cases where accuracy is less important than speed.
-                // See: https://github.com/paradedb/paradedb/issues/3500
-                let vischeck = (aggregations.mvcc_enabled && !mvcc_solved).then(|| {
-                    VisibilityChecker::with_rel_and_snap(state.heaprel(), unsafe {
-                        pg_sys::GetActiveSnapshot()
-                    })
-                });
-                let aggregation_collector = DistributedAggregationCollector::from_aggs(
-                    aggregations.aggregations.clone(),
-                    agg_context,
+                let vischeck = prepared.aggregations.visibility_checker(
+                    search_reader,
+                    state.heaprel(),
+                    prepared.mvcc_enabled,
                 );
 
                 TopKAuxiliaryCollector {
@@ -455,7 +442,7 @@ impl ExecMethod for TopKScanExecState {
 
         // If aggregates were executed, publish their results in our state for projection during
         // the scan.
-        if let Some(aggregations) = aggregations {
+        if let Some(prepared) = prepared {
             let intermediate_results = if self.orderby_info.is_some() {
                 // Ordered TopK: aggregation was piggybacked on the search via aux collector
                 let agg_result = self
@@ -483,15 +470,11 @@ impl ExecMethod for TopKScanExecState {
                 // Unordered TopK: run a standalone aggregation query since the
                 // unordered path does not support aggregation collectors
                 let search_reader = self.search_reader.as_ref().unwrap();
-                let (agg_context, _) = aggregations.aggregations.agg_context(
+                let aggregation_collector = prepared.aggregations.collector(
                     search_reader,
                     state.heaprel(),
-                    aggregations.mvcc_enabled,
+                    prepared.mvcc_enabled,
                     agg_limits.clone(),
-                );
-                let aggregation_collector = DistributedAggregationCollector::from_aggs(
-                    aggregations.aggregations.clone(),
-                    agg_context,
                 );
                 search_reader
                     .searcher()
@@ -504,12 +487,8 @@ impl ExecMethod for TopKScanExecState {
                 created_by_version: search_reader.index_created_by_version(),
                 schema: search_reader.schema().clone(),
             };
-            let window_aggregate_results = self.finalize_aggregates(
-                aggregations,
-                agg_limits,
-                intermediate_results,
-                &index_info,
-            );
+            let window_aggregate_results =
+                self.finalize_aggregates(prepared, agg_limits, intermediate_results, &index_info);
 
             state.window_aggregate_results = Some(window_aggregate_results);
         }

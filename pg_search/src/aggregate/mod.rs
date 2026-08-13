@@ -15,12 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-pub mod cardinality;
+pub mod exec;
 
 use std::error::Error;
 use std::ptr::NonNull;
 
-use crate::aggregate::cardinality::CardinalityExt;
+use crate::aggregate::exec::AggregationExec;
 use crate::aggregate::interrupt_collector::InterruptableCollector;
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::HashSet;
@@ -37,7 +37,6 @@ use crate::postgres::customscan::aggregatescan::build::{AggregateCSClause, Colle
 use crate::postgres::customscan::aggregatescan::json_rewrite::{
     rewrite_date_histogram_to_histogram, rewrite_json_date_histogram_to_histogram,
 };
-use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::locks::{AcquiredSpinLock, Spinlock};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
@@ -290,18 +289,14 @@ impl<'a> ParallelAggregationWorker<'a> {
         let heaprel = indexrel
             .heap_relation()
             .expect("index should belong to a heap relation");
-        let (context, mvcc_solved) =
-            aggregations.agg_context(&reader, &heaprel, self.config.solve_mvcc, limits);
-        let base_collector = DistributedAggregationCollector::from_aggs(aggregations, context);
+        let base_collector =
+            aggregations.collector(&reader, &heaprel, self.config.solve_mvcc, limits);
 
         let start = std::time::Instant::now();
-        let intermediate_results = if self.config.solve_mvcc && !mvcc_solved {
-            let mvcc_collector = MVCCFilterCollector::new(
-                base_collector,
-                VisibilityChecker::with_rel_and_snap(&heaprel, unsafe {
-                    pg_sys::GetActiveSnapshot()
-                }),
-            );
+        let intermediate_results = if let Some(vischeck) =
+            aggregations.visibility_checker(&reader, &heaprel, self.config.solve_mvcc)
+        {
+            let mvcc_collector = MVCCFilterCollector::new(base_collector, vischeck);
             reader.collect(InterruptableCollector::new(mvcc_collector))
         } else {
             reader.collect(InterruptableCollector::new(base_collector))

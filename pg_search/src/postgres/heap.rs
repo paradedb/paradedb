@@ -20,7 +20,6 @@ use crate::postgres::storage::buffer::{BorrowedBuffer, BufferManager, PinnedBuff
 use crate::postgres::utils;
 use pgrx::PgList;
 use pgrx::pg_sys;
-use std::ops::Deref;
 
 /// Helper to validate that a "ctid" is currently visible to a snapshot.
 ///
@@ -115,13 +114,13 @@ impl VisibilityChecker {
         slot: *mut pg_sys::TupleTableSlot,
         mut func: F,
     ) -> Option<T> {
-        self.heap_tuple_check_count += 1;
         unsafe {
             let blockno = (ctid >> 16) as pg_sys::BlockNumber;
             if blockno >= self.nblocks {
                 self.invisible_tuple_count += 1;
                 return None;
             }
+            self.heap_tuple_check_count += 1;
 
             utils::u64_to_item_pointer(ctid, &mut self.tid);
 
@@ -237,19 +236,19 @@ impl VisibilityChecker {
         }
     }
 
-    /// Single-ctid visibility check for callers probing one doc at a time
-    /// (e.g. the lazy cardinality visibility filter). The VM all-visible fast
-    /// path avoids heap access entirely; otherwise the tuple is checked under
-    /// a short share lock, reusing a cached pin on the heap block across
-    /// calls since consecutive probes tend to hit the same block.
-    pub fn check_one(&mut self, ctid: u64) -> bool {
+    /// Single-ctid visibility probe: stale-block guard, VM all-visible fast
+    /// path, then a heap check under a short share lock, reusing a cached pin
+    /// on the heap block across calls since consecutive probes tend to hit
+    /// the same block. Returns the visible ctid, which might differ from the
+    /// input ctid if a HOT chain was followed.
+    fn probe(&mut self, ctid: u64) -> Option<u64> {
         let blockno = (ctid >> 16) as pg_sys::BlockNumber;
         if blockno >= self.nblocks {
             self.invisible_tuple_count += 1;
-            return false;
+            return None;
         }
         if self.is_block_all_visible(blockno) {
-            return true;
+            return Some(ctid);
         }
         self.heap_tuple_check_count += 1;
         if self.cached_heap_block != blockno {
@@ -259,11 +258,17 @@ impl VisibilityChecker {
         }
         let pg_buffer = self.cached_heap_pin.as_ref().unwrap().pg_buffer();
         let _lock = unsafe { BorrowedBuffer::from_pg(pg_buffer) };
-        let visible = self.check_visibility_with_buffer(ctid, pg_buffer).is_some();
-        if !visible {
+        let visible = self.check_visibility_with_buffer(ctid, pg_buffer);
+        if visible.is_none() {
             self.invisible_tuple_count += 1;
         }
         visible
+    }
+
+    /// Single-ctid visibility check for callers probing one doc at a time
+    /// (e.g. the cardinality fast path's visibility filter).
+    pub fn check_one(&mut self, ctid: u64) -> bool {
+        self.probe(ctid).is_some()
     }
 
     /// Checks if a batch of rows are visible, and computes their updated ctid (by following a HOT
@@ -283,42 +288,8 @@ impl VisibilityChecker {
             .collect();
         sorted_indices.sort_unstable_by_key(|(_, ctid)| *ctid);
 
-        let mut current_buffer: Option<crate::postgres::storage::buffer::Buffer> = None;
-        let mut current_block = pg_sys::InvalidBlockNumber;
-
-        for (idx, mut ctid) in sorted_indices {
-            let blockno = (ctid >> 16) as pg_sys::BlockNumber;
-
-            if blockno >= self.nblocks {
-                self.invisible_tuple_count += 1;
-                results[idx] = None;
-                continue;
-            }
-
-            if self.is_block_all_visible(blockno) {
-                results[idx] = Some(ctid);
-                continue;
-            }
-
-            self.heap_tuple_check_count += 1;
-
-            if current_block != blockno {
-                drop(current_buffer.take());
-                current_buffer = Some(self.bman.get_buffer(blockno));
-                current_block = blockno;
-            }
-
-            if let Some(visible_ctid) =
-                self.check_visibility_with_buffer(ctid, *current_buffer.as_ref().unwrap().deref())
-            {
-                if visible_ctid != ctid {
-                    ctid = visible_ctid;
-                }
-                results[idx] = Some(ctid);
-            } else {
-                self.invisible_tuple_count += 1;
-                results[idx] = None;
-            }
+        for (idx, ctid) in sorted_indices {
+            results[idx] = self.probe(ctid);
         }
     }
 }

@@ -143,6 +143,57 @@ pub enum SearchQueryInput {
     },
 }
 
+// Keep the mutable and read-only query-tree visitors structurally identical. Rust requires
+// separate public signatures for `&mut SearchQueryInput` and `&SearchQueryInput`, but the
+// recursive enum walk itself should have one source of truth so adding a recursive variant
+// cannot update one visitor while silently skipping the other.
+macro_rules! visit_search_query_input {
+    ($query:expr, $visitor:expr, $visit_method:ident, $option_access:ident) => {{
+        $visitor($query);
+        match $query {
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+                ..
+            } => {
+                for query in must_not {
+                    query.$visit_method($visitor);
+                }
+                for query in should {
+                    query.$visit_method($visitor);
+                }
+                for query in must {
+                    query.$visit_method($visitor);
+                }
+            }
+            SearchQueryInput::Boost { query, .. }
+            | SearchQueryInput::ConstScore { query, .. }
+            | SearchQueryInput::WithIndex { query, .. } => query.$visit_method($visitor),
+            SearchQueryInput::ScoreFilter { query, .. } => query
+                .$option_access()
+                .expect("ScoreFilter's query should have been set")
+                .$visit_method($visitor),
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+                for query in disjuncts {
+                    query.$visit_method($visitor);
+                }
+            }
+            SearchQueryInput::HeapFilter { indexed_query, .. } => {
+                indexed_query.$visit_method($visitor);
+            }
+            SearchQueryInput::Uninitialized
+            | SearchQueryInput::All
+            | SearchQueryInput::Empty
+            | SearchQueryInput::MoreLikeThis { .. }
+            | SearchQueryInput::Parse { .. }
+            | SearchQueryInput::TermSet { .. }
+            | SearchQueryInput::PostgresExpression { .. }
+            | SearchQueryInput::FieldedQuery { .. } => {}
+        }
+    }};
+}
+
 fn serialize_fielded_query<S>(
     field: &FieldName,
     query: &pdb::Query,
@@ -635,59 +686,14 @@ impl SearchQueryInput {
     }
 
     pub fn visit(&mut self, visitor: &mut impl FnMut(&mut SearchQueryInput)) {
-        // Visit this node.
-        visitor(self);
-        // Then recurse on its children.
-        match self {
-            SearchQueryInput::Boolean {
-                must,
-                should,
-                must_not,
-                ..
-            } => {
-                for q in must_not {
-                    q.visit(visitor);
-                }
-                for q in should {
-                    q.visit(visitor);
-                }
-                for q in must {
-                    q.visit(visitor);
-                }
-            }
-            SearchQueryInput::Boost { query, .. } => {
-                query.visit(visitor);
-            }
-            SearchQueryInput::ConstScore { query, .. } => {
-                query.visit(visitor);
-            }
-            SearchQueryInput::ScoreFilter { query, .. } => {
-                query
-                    .as_mut()
-                    .expect("ScoreFilter's query should have been set")
-                    .visit(visitor);
-            }
-            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
-                for q in disjuncts {
-                    q.visit(visitor);
-                }
-            }
-            SearchQueryInput::WithIndex { query, .. } => {
-                query.visit(visitor);
-            }
-            SearchQueryInput::HeapFilter { indexed_query, .. } => {
-                indexed_query.visit(visitor);
-            }
+        visit_search_query_input!(self, visitor, visit, as_mut);
+    }
 
-            SearchQueryInput::Uninitialized
-            | SearchQueryInput::All
-            | SearchQueryInput::Empty
-            | SearchQueryInput::MoreLikeThis { .. }
-            | SearchQueryInput::Parse { .. }
-            | SearchQueryInput::TermSet { .. }
-            | SearchQueryInput::PostgresExpression { .. }
-            | SearchQueryInput::FieldedQuery { .. } => {}
-        }
+    /// Read-only query-tree traversal. This intentionally shares its recursive enum walk with
+    /// [`Self::visit`] so inspection-only callers do not clone query trees or maintain a second
+    /// list of recursive variants.
+    pub fn visit_ref(&self, visitor: &mut impl FnMut(&SearchQueryInput)) {
+        visit_search_query_input!(self, visitor, visit_ref, as_ref);
     }
 
     pub fn canonical_query_string(&self) -> String {
@@ -2224,5 +2230,57 @@ mod tests {
             }
             .is_full_scan_query()
         );
+    }
+}
+
+#[cfg(test)]
+mod traversal_tests {
+    use super::SearchQueryInput;
+
+    #[test]
+    fn read_only_and_mutable_visitors_follow_the_same_nodes_in_the_same_order() {
+        let query = SearchQueryInput::Boolean {
+            must: vec![SearchQueryInput::Boost {
+                query: Box::new(SearchQueryInput::All),
+                factor: 2.0,
+            }],
+            should: vec![SearchQueryInput::ScoreFilter {
+                bounds: vec![],
+                query: Some(Box::new(SearchQueryInput::ConstScore {
+                    query: Box::new(SearchQueryInput::Empty),
+                    score: 1.0,
+                })),
+            }],
+            must_not: vec![SearchQueryInput::DisjunctionMax {
+                disjuncts: vec![SearchQueryInput::WithIndex {
+                    oid: 42.into(),
+                    query: Box::new(SearchQueryInput::HeapFilter {
+                        indexed_query: Box::new(SearchQueryInput::Parse {
+                            query_string: "term".into(),
+                            lenient: None,
+                            conjunction_mode: None,
+                        }),
+                        field_filters: vec![],
+                    }),
+                }],
+                tie_breaker: None,
+            }],
+            minimum_should_match: None,
+        };
+
+        let mut read_only_order = Vec::new();
+        query.visit_ref(&mut |node| {
+            read_only_order.push(std::mem::discriminant(node));
+        });
+
+        let mut mutable_query = query.clone();
+        let mut mutable_order = Vec::new();
+        mutable_query.visit(&mut |node| {
+            mutable_order.push(std::mem::discriminant(node));
+        });
+
+        assert_eq!(read_only_order.len(), 10);
+        assert_eq!(read_only_order, mutable_order);
+        assert_eq!(query, mutable_query);
     }
 }

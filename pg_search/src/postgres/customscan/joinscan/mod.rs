@@ -840,7 +840,7 @@ impl JoinScan {
     /// (`&JoinCSClause`) so EXPLAIN's `&CustomScanStateWrapper` call site doesn't need a
     /// mutable borrow just to ask a yes/no question.
     fn source_queries_need_executor_state(join_clause: &JoinCSClause) -> bool {
-        join_clause.has_postgres_expressions_ref() || join_clause.has_parameters_ref()
+        join_clause.has_postgres_expressions() || join_clause.has_parameters()
     }
 }
 
@@ -955,6 +955,37 @@ impl JoinScan {
 
         bake_logical_plan(&mut private_data, custom_exprs, force_serial);
         private_data.logical_plan.map(|b| b.to_vec())
+    }
+
+    /// Join the MPP producer workers and destroy the parallel context once nothing
+    /// references the ring mesh. Drains any remaining worker metrics first, takes the
+    /// leader out (its mesh handle drops with it), then drops the stream/plan/runtime
+    /// (all carry mesh references) before `wait_for_finish` destroys the DSM. Used at
+    /// EndCustomScan and before a correlated rescan relaunches a fresh worker set.
+    fn finish_mpp_execution(state: &mut CustomScanStateWrapper<Self>) {
+        state.custom_state_mut().datafusion_stream = None;
+        if let Some(leader) = state.custom_state().mpp.leader()
+            && let Some(plan) = state.custom_state().physical_plan.as_ref()
+        {
+            crate::postgres::customscan::mpp::glue::drain_worker_metrics(
+                plan,
+                &leader.session.mesh,
+            );
+        }
+        let finish = match state.custom_state_mut().mpp.take_leader() {
+            Some(mut leader) => leader.finish.take(),
+            None => None,
+        };
+        if finish.is_some() {
+            let cs = state.custom_state_mut();
+            cs.datafusion_stream = None;
+            cs.current_batch = None;
+            cs.physical_plan = None;
+            cs.runtime = None;
+        }
+        if let Some(finish) = finish {
+            finish.wait_for_finish();
+        }
     }
 }
 impl CustomScan for JoinScan {
@@ -1121,7 +1152,7 @@ impl CustomScan for JoinScan {
     fn create_custom_scan_state(
         mut builder: CustomScanStateBuilder<Self, Self::PrivateData>,
     ) -> *mut CustomScanStateWrapper<Self> {
-        let mut join_clause = builder.custom_private().join_clause.clone();
+        let join_clause = builder.custom_private().join_clause.clone();
         let has_params = join_clause.has_parameters() || join_clause.has_postgres_expressions();
 
         builder.custom_state().base_join_clause = if has_params {
@@ -1362,7 +1393,21 @@ impl CustomScan for JoinScan {
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        let relaunch_mpp = matches!(
+            &state.custom_state().mpp,
+            MppLifecycle::PlanBytes(_) | MppLifecycle::Launched(_)
+        );
+        Self::finish_mpp_execution(state);
+        state.custom_state_mut().relations.clear();
         state.custom_state_mut().reset();
+        if relaunch_mpp {
+            let bytes = state
+                .custom_state()
+                .logical_plan
+                .clone()
+                .expect("MPP rescan requires logical plan bytes");
+            state.custom_state_mut().mpp = MppLifecycle::PlanBytes(bytes.to_vec());
+        }
     }
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
@@ -1490,7 +1535,7 @@ impl CustomScan for JoinScan {
                 // workers remain and the `DistributedExec` shape has no mesh to read from, so
                 // replan serially.
                 let (ctx, plan) = match mpp_plan_bytes {
-                    Some(bytes) => match Self::launch_mpp(state, &plan, bytes.len()) {
+                    Some(_) => match Self::launch_mpp(state, &plan, plan_bytes.len()) {
                         Some(leader) => {
                             let source = crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::default();
                             let exec_ctx = Self::build_mpp_session_context(Some(Arc::clone(
@@ -1669,32 +1714,8 @@ impl CustomScan for JoinScan {
     }
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // Join the MPP producer workers and destroy the parallel context once nothing references
-        // the ring mesh. Take the leader out first (its mesh handle drops with it), then drop the
-        // stream/plan/runtime (all carry mesh references) before wait_for_finish destroys the DSM.
-        let finish = match state.custom_state_mut().mpp.take_leader() {
-            Some(mut leader) => leader.finish.take(),
-            _ => None,
-        };
-        if finish.is_some() {
-            let cs = state.custom_state_mut();
-            cs.datafusion_stream = None;
-            cs.current_batch = None;
-            cs.physical_plan = None;
-            cs.runtime = None;
-        }
-        if let Some(finish) = finish {
-            // The gather already drained, or early-terminated and the deadlock fix let the
-            // producers stop, so the workers have finished and detached; this returns promptly.
-            finish.wait_for_finish();
-        }
+        Self::finish_mpp_execution(state);
 
-        unsafe {
-            // Drop tuple slots that we own.
-            for rel_state in state.custom_state().relations.values() {
-                pg_sys::ExecDropSingleTupleTableSlot(rel_state.fetch_slot);
-            }
-        }
         // Clean up resources
         state.custom_state_mut().relations.clear();
         state.custom_state_mut().result_slot = None;

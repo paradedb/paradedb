@@ -446,7 +446,7 @@ impl JoinSourceCandidate {
 
         let index_rel = PgSearchRelation::open(indexrelid);
         let heap_rel = PgSearchRelation::open(heaprelid);
-        let mut query = self.query.clone().unwrap_or(SearchQueryInput::All);
+        let query = self.query.clone().unwrap_or(SearchQueryInput::All);
         let row_estimate = RowEstimate::from_reltuples(heap_rel.reltuples().map(|r| r as f64));
 
         if query.has_postgres_expressions() || query.has_heap_filters() {
@@ -1525,9 +1525,9 @@ impl JoinCSClause {
         }
     }
 
-    pub fn has_postgres_expressions(&mut self) -> bool {
+    pub fn has_postgres_expressions(&self) -> bool {
         let mut found = false;
-        self.visit_queries_mut(&mut |q| {
+        self.visit_queries(&mut |q| {
             if q.has_postgres_expressions() {
                 found = true;
             }
@@ -1535,35 +1535,10 @@ impl JoinCSClause {
         found
     }
 
-    /// Read-only counterpart of `has_postgres_expressions`. Prefer this at call sites that
-    /// only have a `&JoinCSClause` (e.g. EXPLAIN) — it avoids cloning the clause just to get
-    /// a `&mut` receiver, since `SearchQueryInput::has_postgres_expressions` itself doesn't
-    /// mutate anything despite its `&mut self` signature.
-    pub fn has_postgres_expressions_ref(&self) -> bool {
+    pub fn has_parameters(&self) -> bool {
         let mut found = false;
         self.visit_queries(&mut |q| {
-            if q.clone().has_postgres_expressions() {
-                found = true;
-            }
-        });
-        found
-    }
-
-    pub fn has_parameters(&mut self) -> bool {
-        let mut found = false;
-        self.visit_queries_mut(&mut |q| {
             if q.has_parameters() {
-                found = true;
-            }
-        });
-        found
-    }
-
-    /// Read-only counterpart of `has_parameters`. See `has_postgres_expressions_ref`.
-    pub fn has_parameters_ref(&self) -> bool {
-        let mut found = false;
-        self.visit_queries(&mut |q| {
-            if q.clone().has_parameters() {
                 found = true;
             }
         });

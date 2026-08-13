@@ -161,6 +161,15 @@ pub struct RelationState {
     pub ctid_col_idx: Option<usize>,
 }
 
+crate::impl_safe_drop!(RelationState, |self| {
+    unsafe {
+        if crate::postgres::utils::IsTransactionState() && !self.fetch_slot.is_null() {
+            pg_sys::ExecDropSingleTupleTableSlot(self.fetch_slot);
+            self.fetch_slot = std::ptr::null_mut();
+        }
+    }
+});
+
 /// The execution state for the JoinScan.
 #[derive(Default)]
 pub struct JoinScanState {
@@ -243,8 +252,12 @@ impl JoinScanState {
     /// row's stale plan.
     pub fn reset(&mut self) {
         self.datafusion_stream = None;
+        self.runtime = None;
         self.current_batch = None;
         self.batch_index = 0;
+        self.physical_plan = None;
+        self.launch_timing = None;
+        self.stream_built_at = None;
 
         // base_join_clause is only populated (in create_custom_scan_state) when the plan
         // actually has parameters/postgres expressions; None means there's nothing to

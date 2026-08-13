@@ -212,9 +212,16 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
                 let entry = directory
                     .segment_meta_entry(&segment_id)
                     .expect("is_mutable() guarantees a loaded entry for this segment");
-                let ctids = entry
-                    .mutable_snapshot(&index_relation)
-                    .expect("is_mutable() guarantees this is a mutable segment");
+                let ctids = match entry.mutable_snapshot(&index_relation) {
+                    Ok(ctids) => ctids,
+                    // Torn after crash recovery (#5937): can't trust the ctid set,
+                    // so skip this segment. A later merge/GC heals it and the next
+                    // VACUUM reclaims its dead tuples.
+                    Err(e) => {
+                        pgrx::debug1!("ambulkdelete: skipping mutable segment {segment_id:?}: {e}");
+                        continue;
+                    }
+                };
                 Box::new(ctids.into_iter().map(|ctid| DeleteTarget::Ctid { ctid }))
             } else {
                 let ctid_ff = FFType::new_ctid(segment_reader.fast_fields());

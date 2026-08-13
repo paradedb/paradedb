@@ -1045,6 +1045,69 @@ mod tests {
         }
     }
 
+    // #5937: a torn header/list after crash recovery must return Err, not panic.
+    #[pg_test]
+    unsafe fn test_mutable_snapshot_torn_header_returns_err() {
+        use crate::postgres::storage::block::{MutableSegmentEntry, SegmentMetaEntryMutable};
+
+        let relation_oid = init_bm25_index();
+        let indexrel = PgSearchRelation::open(relation_oid);
+
+        // List holds only the 20 Adds; the 18 Removes are the records replay lost,
+        // but num_deleted_docs already counts them (header claims 2 live).
+        let (mut content, mut items) = SegmentMetaEntryMutable::create(&indexrel);
+        let adds = (1u64..=20)
+            .map(MutableSegmentEntry::Add)
+            .collect::<Vec<_>>();
+        items.add_items(&adds, None);
+        content.num_deleted_docs = 18;
+
+        let entry = SegmentMetaEntry::new_mutable(
+            random_segment_id(),
+            20, // max_doc
+            pg_sys::InvalidTransactionId,
+            content,
+        );
+
+        let result = entry.mutable_snapshot(&indexrel);
+        assert!(
+            result.is_err(),
+            "torn mutable segment must return Err, got {result:?}"
+        );
+    }
+
+    // A consistent header still snapshots to Ok: the #5937 fix fires only on a mismatch.
+    #[pg_test]
+    unsafe fn test_mutable_snapshot_consistent_header_returns_live_ctids() {
+        use crate::postgres::storage::block::{MutableSegmentEntry, SegmentMetaEntryMutable};
+
+        let relation_oid = init_bm25_index();
+        let indexrel = PgSearchRelation::open(relation_oid);
+
+        // 20 Adds then Remove ctids 1 and 2: header max_doc=20, num_deleted=2,
+        // so 18 live ctids (3..=20), matching the list.
+        let (mut content, mut items) = SegmentMetaEntryMutable::create(&indexrel);
+        let mut entries = (1u64..=20)
+            .map(MutableSegmentEntry::Add)
+            .collect::<Vec<_>>();
+        entries.push(MutableSegmentEntry::Remove(1));
+        entries.push(MutableSegmentEntry::Remove(2));
+        items.add_items(&entries, None);
+        content.num_deleted_docs = 2;
+
+        let entry = SegmentMetaEntry::new_mutable(
+            random_segment_id(),
+            20, // max_doc
+            pg_sys::InvalidTransactionId,
+            content,
+        );
+
+        let ctids = entry
+            .mutable_snapshot(&indexrel)
+            .expect("consistent mutable segment must snapshot to Ok");
+        assert_eq!(ctids, (3u64..=20).collect::<Vec<_>>());
+    }
+
     fn init_bm25_index() -> pg_sys::Oid {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
         Spi::run("CREATE INDEX t_idx ON t USING paradedb (id, data) WITH (key_field = 'id')")

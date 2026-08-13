@@ -20,6 +20,7 @@ pub mod cardinality;
 use std::error::Error;
 use std::ptr::NonNull;
 
+use crate::aggregate::cardinality::CardinalityExt;
 use crate::aggregate::interrupt_collector::InterruptableCollector;
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::HashSet;
@@ -294,7 +295,7 @@ impl<'a> ParallelAggregationWorker<'a> {
             let heaprel = indexrel
                 .heap_relation()
                 .expect("index should belong to a heap relation");
-            if cardinality::is_cardinality(&aggregations, &schema) {
+            if aggregations.is_cardinality(&schema) {
                 cardinality::execute_with_mvcc(
                     &reader,
                     aggregations,

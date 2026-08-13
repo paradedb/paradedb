@@ -39,22 +39,28 @@ use tantivy::aggregation::{
 };
 use tantivy::tokenizer::TokenizerManager;
 
-/// True when every aggregation in the request is a cardinality over a string
-/// field, with no sub-aggregations — the requests this module can execute.
-/// Tantivy validates the same conditions per segment and errors on
-/// violations, so this check decides routing only; anything ineligible must
-/// solve MVCC another way (e.g. `MVCCFilterCollector`).
-pub fn is_cardinality(aggregations: &Aggregations, schema: &SearchIndexSchema) -> bool {
-    !aggregations.is_empty()
-        && aggregations.values().all(|agg| {
-            agg.sub_aggregation.is_empty()
-                && match &agg.agg {
-                    AggregationVariants::Cardinality(card) => schema
-                        .search_field(&card.field)
-                        .is_some_and(|field| field.is_text()),
-                    _ => false,
-                }
-        })
+pub trait CardinalityExt {
+    /// True when every aggregation in the request is a cardinality over a
+    /// string field, with no sub-aggregations — the requests this module can
+    /// execute. Tantivy validates the same conditions per segment and errors
+    /// on violations, so this check decides routing only; anything ineligible
+    /// must solve MVCC another way (e.g. `MVCCFilterCollector`).
+    fn is_cardinality(&self, schema: &SearchIndexSchema) -> bool;
+}
+
+impl CardinalityExt for Aggregations {
+    fn is_cardinality(&self, schema: &SearchIndexSchema) -> bool {
+        !self.is_empty()
+            && self.values().all(|agg| {
+                agg.sub_aggregation.is_empty()
+                    && match &agg.agg {
+                        AggregationVariants::Cardinality(card) => schema
+                            .search_field(&card.field)
+                            .is_some_and(|field| field.is_text()),
+                        _ => false,
+                    }
+            })
+    }
 }
 
 /// Builds an aggregation context that solves MVCC through tantivy's per-value

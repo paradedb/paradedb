@@ -17,7 +17,7 @@
 
 use std::cell::RefCell;
 
-use crate::aggregate::cardinality;
+use crate::aggregate::cardinality::{self, CardinalityExt};
 use crate::api::version::VersionInfo;
 use crate::api::{HashMap, OrderByInfo};
 use crate::gucs;
@@ -394,10 +394,9 @@ impl ExecMethod for TopKScanExecState {
                 // value. Top K then relies on the standard dead-row handling
                 // used when no aggregates are present.
                 let is_cardinality = aggregations.mvcc_enabled
-                    && cardinality::is_cardinality(
-                        &aggregations.aggregations,
-                        self.search_reader.as_ref().unwrap().schema(),
-                    );
+                    && aggregations
+                        .aggregations
+                        .is_cardinality(self.search_reader.as_ref().unwrap().schema());
                 let agg_context = if is_cardinality {
                     cardinality::mvcc_agg_context(
                         state.heaprel(),
@@ -505,10 +504,9 @@ impl ExecMethod for TopKScanExecState {
                 let search_reader = self.search_reader.as_ref().unwrap();
                 let tokenizer_manager = search_reader.searcher().index().tokenizers().clone();
                 if aggregations.mvcc_enabled
-                    && cardinality::is_cardinality(
-                        &aggregations.aggregations,
-                        search_reader.schema(),
-                    )
+                    && aggregations
+                        .aggregations
+                        .is_cardinality(search_reader.schema())
                 {
                     cardinality::execute_with_mvcc(
                         search_reader,

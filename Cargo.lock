@@ -347,7 +347,7 @@ dependencies = [
  "arrow-schema 58.3.0",
  "arrow-select 58.3.0",
  "atoi",
- "base64",
+ "base64 0.22.1",
  "chrono",
  "comfy-table",
  "half 2.7.1",
@@ -369,7 +369,7 @@ dependencies = [
  "arrow-schema 59.1.0",
  "arrow-select 59.1.0",
  "atoi",
- "base64",
+ "base64 0.22.1",
  "chrono",
  "comfy-table",
  "half 2.7.1",
@@ -431,7 +431,7 @@ dependencies = [
  "arrow-schema 59.1.0",
  "arrow-select 59.1.0",
  "flatbuffers",
- "lz4_flex",
+ "lz4_flex 0.13.1",
  "zstd",
 ]
 
@@ -881,10 +881,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
+<<<<<<< HEAD
 name = "base64ct"
 version = "1.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
+=======
+name = "base64"
+version = "0.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
+>>>>>>> 22bff07f6 (chore: Sync to rebased Tantivy (#5925))
 
 [[package]]
 name = "benchmarks"
@@ -1067,7 +1074,11 @@ version = "3.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "519bd3116aeeb42d5372c29d982d16d0170d3d4a5ed85fc7dd91642ffff3c67c"
 dependencies = [
+<<<<<<< HEAD
  "darling 0.21.3",
+=======
+ "darling",
+>>>>>>> 22bff07f6 (chore: Sync to rebased Tantivy (#5925))
  "ident_case",
  "prettyplease",
  "proc-macro2",
@@ -1907,6 +1918,7 @@ version = "0.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9cdf337090841a411e2a7f3deb9187445851f91b309c0c0a29e05f74a00a48c0"
 dependencies = [
+<<<<<<< HEAD
  "darling_core 0.21.3",
  "darling_macro 0.21.3",
 ]
@@ -1923,6 +1935,10 @@ dependencies = [
  "quote",
  "strsim",
  "syn 2.0.117",
+=======
+ "darling_core",
+ "darling_macro",
+>>>>>>> 22bff07f6 (chore: Sync to rebased Tantivy (#5925))
 ]
 
 [[package]]
@@ -1936,6 +1952,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "strsim",
+<<<<<<< HEAD
  "syn 2.0.117",
 ]
 
@@ -1948,6 +1965,9 @@ dependencies = [
  "darling_core 0.20.11",
  "quote",
  "syn 2.0.117",
+=======
+ "syn 2.0.119",
+>>>>>>> 22bff07f6 (chore: Sync to rebased Tantivy (#5925))
 ]
 
 [[package]]
@@ -1956,9 +1976,15 @@ version = "0.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d38308df82d1080de0afee5d069fa14b0326a88c14f15c5ccda35b4a6c414c81"
 dependencies = [
+<<<<<<< HEAD
  "darling_core 0.21.3",
  "quote",
  "syn 2.0.117",
+=======
+ "darling_core",
+ "quote",
+ "syn 2.0.119",
+>>>>>>> 22bff07f6 (chore: Sync to rebased Tantivy (#5925))
 ]
 
 [[package]]
@@ -2304,7 +2330,7 @@ source = "git+https://github.com/apache/datafusion?rev=8d680db14a9134837bbd3d534
 dependencies = [
  "arrow 59.1.0",
  "arrow-buffer 59.1.0",
- "base64",
+ "base64 0.22.1",
  "chrono",
  "chrono-tz",
  "datafusion-common",
@@ -3028,7 +3054,7 @@ version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f43e744e4ea338060faee68ed933e46e722fb7f3617e722a5772d7e856d8b3ce"
 dependencies = [
- "darling 0.21.3",
+ "darling",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -3412,10 +3438,17 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
 name = "fs_extra"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42703706b716c37f96a77aea830392ad231f44c9e9a67872fa5548707e11b11c"
+=======
+name = "frostem"
+version = "1.20260804.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2259231b07ffab73ea88425c59313769863d10e231c285cc4f9d02e6b686fe24"
+>>>>>>> 22bff07f6 (chore: Sync to rebased Tantivy (#5925))
 
 [[package]]
 name = "funty"
@@ -4912,11 +4945,11 @@ dependencies = [
 
 [[package]]
 name = "lru"
-version = "0.16.4"
+version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f66e8d5d03f609abc3a39e6f08e4164ebf1447a732906d39eb9b99b7919ef39"
+checksum = "5d2f2f9b4ba7e6b24d95e7e899329d35be83bcded72c8540cdd5368932d1d90a"
 dependencies = [
- "hashbrown 0.16.1",
+ "hashbrown 0.17.1",
 ]
 
 [[package]]
@@ -4933,6 +4966,12 @@ checksum = "db9a0d582c2874f68138a16ce1867e0ffde6c0bb0a0df85e1f36d04146db488a"
 dependencies = [
  "twox-hash",
 ]
+
+[[package]]
+name = "lz4_flex"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ecbdfe44b1bd960b68170b417450a628c43f7cf56bb3c5317e61cb230ee7f226"
 
 [[package]]
 name = "macros"
@@ -5481,7 +5520,7 @@ dependencies = [
 [[package]]
 name = "ownedbytes"
 version = "0.9.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=15cfa80854c21955e3994a5910e12e36c90a5983#15cfa80854c21955e3994a5910e12e36c90a5983"
+source = "git+https://github.com/paradedb/tantivy.git?rev=09a3bca302f6ae769c2924a02156791af558e754#09a3bca302f6ae769c2924a02156791af558e754"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -6124,7 +6163,7 @@ version = "0.6.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56201207dac53e2f38e848e31b4b91616a6bb6e0c7205b77718994a7f49e70fc"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "byteorder",
  "bytes",
  "fallible-iterator 0.2.0",
@@ -6968,16 +7007,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rust-stemmers"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e46a2036019fdb888131db7a4c847a1063a7493f971ed94ea82c67eada63ca54"
-dependencies = [
- "serde",
- "serde_derive",
-]
-
-[[package]]
 name = "rust_decimal"
 version = "1.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7596,7 +7625,7 @@ checksum = "ee6798b1838b6a0f69c007c133b8df5866302197e404e8b6ee8ed3e3a5e68dc6"
 dependencies = [
  "async-io 1.13.0",
  "async-std",
- "base64",
+ "base64 0.22.1",
  "bigdecimal",
  "bytes",
  "chrono",
@@ -7671,7 +7700,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aa003f0038df784eb8fecbbac13affe3da23b45194bd57dba231c8f48199c526"
 dependencies = [
  "atoi",
- "base64",
+ "base64 0.22.1",
  "bigdecimal",
  "bitflags 2.13.0",
  "byteorder",
@@ -7968,12 +7997,12 @@ checksum = "7b2093cf4c8eb1e67749a6762251bc9cd836b6fc171623bd0a9d324d37af2417"
 
 [[package]]
 name = "tantivy"
-version = "0.26.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=15cfa80854c21955e3994a5910e12e36c90a5983#15cfa80854c21955e3994a5910e12e36c90a5983"
+version = "0.27.0"
+source = "git+https://github.com/paradedb/tantivy.git?rev=09a3bca302f6ae769c2924a02156791af558e754#09a3bca302f6ae769c2924a02156791af558e754"
 dependencies = [
  "aho-corasick",
  "arc-swap",
- "base64",
+ "base64 0.23.1",
  "bitpacking",
  "bon",
  "byteorder",
@@ -7986,6 +8015,7 @@ dependencies = [
  "fastdivide",
  "fastrand 2.4.1",
  "fnv",
+ "frostem",
  "futures-channel",
  "futures-util",
  "htmlescape",
@@ -7993,14 +8023,13 @@ dependencies = [
  "levenshtein_automata",
  "log",
  "lru",
- "lz4_flex",
+ "lz4_flex 0.14.0",
  "measure_time",
  "once_cell",
  "oneshot",
  "parking_lot",
  "rayon",
  "regex",
- "rust-stemmers",
  "rustc-hash",
  "serde",
  "serde_json",
@@ -8018,6 +8047,7 @@ dependencies = [
  "thiserror 2.0.18",
  "time",
  "typetag",
+ "unwrap-infallible",
  "uuid",
  "winapi",
 ]
@@ -8025,7 +8055,7 @@ dependencies = [
 [[package]]
 name = "tantivy-bitpacker"
 version = "0.10.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=15cfa80854c21955e3994a5910e12e36c90a5983#15cfa80854c21955e3994a5910e12e36c90a5983"
+source = "git+https://github.com/paradedb/tantivy.git?rev=09a3bca302f6ae769c2924a02156791af558e754#09a3bca302f6ae769c2924a02156791af558e754"
 dependencies = [
  "bitpacking",
 ]
@@ -8033,7 +8063,7 @@ dependencies = [
 [[package]]
 name = "tantivy-columnar"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=15cfa80854c21955e3994a5910e12e36c90a5983#15cfa80854c21955e3994a5910e12e36c90a5983"
+source = "git+https://github.com/paradedb/tantivy.git?rev=09a3bca302f6ae769c2924a02156791af558e754#09a3bca302f6ae769c2924a02156791af558e754"
 dependencies = [
  "downcast-rs",
  "fastdivide",
@@ -8048,7 +8078,7 @@ dependencies = [
 [[package]]
 name = "tantivy-common"
 version = "0.11.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=15cfa80854c21955e3994a5910e12e36c90a5983#15cfa80854c21955e3994a5910e12e36c90a5983"
+source = "git+https://github.com/paradedb/tantivy.git?rev=09a3bca302f6ae769c2924a02156791af558e754#09a3bca302f6ae769c2924a02156791af558e754"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -8081,7 +8111,7 @@ dependencies = [
 [[package]]
 name = "tantivy-query-grammar"
 version = "0.26.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=15cfa80854c21955e3994a5910e12e36c90a5983#15cfa80854c21955e3994a5910e12e36c90a5983"
+source = "git+https://github.com/paradedb/tantivy.git?rev=09a3bca302f6ae769c2924a02156791af558e754#09a3bca302f6ae769c2924a02156791af558e754"
 dependencies = [
  "fnv",
  "nom 7.1.3",
@@ -8093,7 +8123,7 @@ dependencies = [
 [[package]]
 name = "tantivy-sstable"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=15cfa80854c21955e3994a5910e12e36c90a5983#15cfa80854c21955e3994a5910e12e36c90a5983"
+source = "git+https://github.com/paradedb/tantivy.git?rev=09a3bca302f6ae769c2924a02156791af558e754#09a3bca302f6ae769c2924a02156791af558e754"
 dependencies = [
  "futures-util",
  "itertools 0.14.0",
@@ -8106,7 +8136,7 @@ dependencies = [
 [[package]]
 name = "tantivy-stacker"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=15cfa80854c21955e3994a5910e12e36c90a5983#15cfa80854c21955e3994a5910e12e36c90a5983"
+source = "git+https://github.com/paradedb/tantivy.git?rev=09a3bca302f6ae769c2924a02156791af558e754#09a3bca302f6ae769c2924a02156791af558e754"
 dependencies = [
  "fixedbitset",
  "murmurhash32",
@@ -8143,7 +8173,7 @@ dependencies = [
 [[package]]
 name = "tantivy-tokenizer-api"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=15cfa80854c21955e3994a5910e12e36c90a5983#15cfa80854c21955e3994a5910e12e36c90a5983"
+source = "git+https://github.com/paradedb/tantivy.git?rev=09a3bca302f6ae769c2924a02156791af558e754#09a3bca302f6ae769c2924a02156791af558e754"
 dependencies = [
  "serde",
 ]
@@ -8171,8 +8201,13 @@ version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
+<<<<<<< HEAD
  "fastrand 2.4.1",
  "getrandom 0.4.2",
+=======
+ "fastrand",
+ "getrandom 0.3.4",
+>>>>>>> 22bff07f6 (chore: Sync to rebased Tantivy (#5925))
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",
@@ -8821,6 +8856,43 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6d49784317cd0d1ee7ec5c716dd598ec5b4483ea832a2dced265471cc0f690ae"
 
 [[package]]
+<<<<<<< HEAD
+=======
+name = "unwrap-infallible"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e497bb1f828cc9fb236722c2eaa100dcf201563f38f4da6252357a59037adf31"
+
+[[package]]
+name = "ureq"
+version = "3.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dea7109cdcd5864d4eeb1b58a1648dc9bf520360d7af16ec26d0a9354bafcfc0"
+dependencies = [
+ "base64 0.22.1",
+ "log",
+ "percent-encoding",
+ "rustls",
+ "rustls-pki-types",
+ "ureq-proto",
+ "utf8-zero",
+ "webpki-roots",
+]
+
+[[package]]
+name = "ureq-proto"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e994ba84b0bd1b1b0cf92878b7ef898a5c1760108fe7b6010327e274917a808c"
+dependencies = [
+ "base64 0.22.1",
+ "http",
+ "httparse",
+ "log",
+]
+
+[[package]]
+>>>>>>> 22bff07f6 (chore: Sync to rebased Tantivy (#5925))
 name = "url"
 version = "2.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"

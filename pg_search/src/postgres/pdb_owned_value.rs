@@ -147,6 +147,9 @@ impl PdbOwnedValue {
             OwnedValue::Bytes(val) => PdbOwnedValue::Bytes(val),
             OwnedValue::IpAddr(val) => PdbOwnedValue::IpAddr(val),
             OwnedValue::PreTokStr(val) => PdbOwnedValue::PreTokStr(val),
+            OwnedValue::Custom(_) => unreachable!(
+                "custom values are plugin-owned and never serialized, so this should never happen"
+            ),
         }
     }
 

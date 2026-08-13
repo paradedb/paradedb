@@ -913,7 +913,7 @@ mod tests {
             text_options.get_fast_field_tokenizer_name()
         );
 
-        let text_options = text_options.set_fast(Some("index"));
+        let text_options = text_options.set_fast("index");
         assert_ne!(expected.is_fast(), text_options.is_fast());
     }
 
@@ -983,7 +983,7 @@ mod tests {
             json_object_options.is_expand_dots_enabled()
         );
 
-        let text_options = json_object_options.set_fast(Some("index"));
+        let text_options = json_object_options.set_fast("index");
         assert_ne!(expected.is_fast(), text_options.is_fast());
     }
 

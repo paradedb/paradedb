@@ -47,16 +47,16 @@ jobs:
           fi
           shopt -u globstar nullglob
 
-      - name: Check Bash Scripts for bash shebang
+      - name: Check Shell Scripts for shebang
         run: |
           while read -r file
           do
             shebang="$(head -n 1 "$file")"
-            if [[ "$shebang" = "#!/bin/bash" || "$shebang" = "#!/usr/bin/env bash" ]]
+            if [[ "$shebang" = "#!/bin/bash" || "$shebang" = "#!/bin/sh" || "$shebang" = "#!/usr/bin/env bash" ]]
             then
-              echo "[bash shebang -> Present] $file"
+              echo "[shebang -> Present] $file"
             else
-              echo "[bash shebang -> NOT FOUND] $file" && exit 1
+              echo "[shebang -> NOT FOUND] $file" && exit 1
             fi
           done < <(find . -name '*.sh')
 

@@ -258,8 +258,7 @@ impl CustomScan for AggregateScan {
                         // plan with no way to run the spec. A `pdb.agg()` over a
                         // NUMERIC field therefore keeps declining until the spec
                         // gains a DataFusion translation.
-                        || (!has_paradedb_agg
-                            && build::has_numeric_aggregate_or_group(builder.args()))
+                        || (!has_paradedb_agg && builder.args().has_numeric_aggregate())
                 };
                 if use_datafusion {
                     if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg_recursive {

@@ -697,7 +697,9 @@ unsafe fn extract_aggref_order_by(
 /// Unwrap an expression to a bare `Var`, allowing only `RelabelType` wrappers.
 /// Returns `None` for anything more complex (COALESCE, FuncExpr, etc.)
 /// so the caller can reject and fall back to native Postgres.
-pub(super) unsafe fn unwrap_to_var(mut node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
+pub(in crate::postgres::customscan) unsafe fn unwrap_to_var(
+    mut node: *mut pg_sys::Node,
+) -> Option<*mut pg_sys::Var> {
     while !node.is_null() {
         match (*node).type_ {
             pg_sys::NodeTag::T_Var => return Some(node as *mut pg_sys::Var),

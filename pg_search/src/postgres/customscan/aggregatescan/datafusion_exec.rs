@@ -149,13 +149,23 @@ pub async fn build_join_aggregate_plan(
                         None,   // null_treatment
                     )))
                 }
-                AggKind::Sum => agg_field_col(agg, plan).map(|col| match &agg.numeric {
+                // NUMERIC SUM/AVG route to scaled-Int64 or decimal-bytes UDAFs.
+                // The Numeric64 UDAFs take the scale as a plan literal so it
+                // survives plan serialization for parallel and MPP execution;
+                // decimal-bytes values are self-describing.
+                AggKind::Sum => agg_field_col(agg, plan).map(|col| match agg.numeric {
                     None => sum(col),
-                    Some(storage) => numeric_agg_expr(storage, col, false),
+                    Some(SearchFieldType::Numeric64(_, scale)) => {
+                        numeric64_sum_udaf().call(vec![col, lit(scale as i32)])
+                    }
+                    Some(_) => numeric_bytes_sum_udaf().call(vec![col]),
                 }),
-                AggKind::Avg => agg_field_col(agg, plan).map(|col| match &agg.numeric {
+                AggKind::Avg => agg_field_col(agg, plan).map(|col| match agg.numeric {
                     None => avg(col),
-                    Some(storage) => numeric_agg_expr(storage, col, true),
+                    Some(SearchFieldType::Numeric64(_, scale)) => {
+                        numeric64_avg_udaf().call(vec![col, lit(scale as i32)])
+                    }
+                    Some(_) => numeric_bytes_avg_udaf().call(vec![col]),
                 }),
                 AggKind::Min => agg_field_col(agg, plan).map(min),
                 AggKind::Max => agg_field_col(agg, plan).map(max),
@@ -681,39 +691,6 @@ fn agg_field_col(agg: &JoinAggregateEntry, plan: &RelNode) -> Result<Expr> {
         DataFusionError::Internal("non-COUNT(*) aggregate must have a field reference".to_string())
     })?;
     Ok(make_plan_position_col(plan, r.plan_position, &r.field_name))
-}
-
-/// SUM/AVG expression for a NUMERIC column. The scaled-Int64 UDAFs take the
-/// scale as a plan literal so it survives plan serialization for parallel and
-/// MPP execution; decimal-bytes values are self-describing.
-fn numeric_agg_expr(field_type: &SearchFieldType, col: Expr, is_avg: bool) -> Expr {
-    let (udaf, args) = match field_type {
-        SearchFieldType::Numeric64(_, scale) => {
-            let udaf = if is_avg {
-                numeric64_avg_udaf()
-            } else {
-                numeric64_sum_udaf()
-            };
-            (udaf, vec![col, lit(*scale as i32)])
-        }
-        SearchFieldType::NumericBytes(..) => {
-            let udaf = if is_avg {
-                numeric_bytes_avg_udaf()
-            } else {
-                numeric_bytes_sum_udaf()
-            };
-            (udaf, vec![col])
-        }
-        other => unreachable!("numeric aggregate reached execution with {other:?}"),
-    };
-    Expr::AggregateFunction(AggregateFunction::new_udf(
-        udaf,
-        args,
-        false,  // distinct
-        None,   // filter
-        vec![], // order_by
-        None,   // null_treatment
-    ))
 }
 
 /// Convert aggregate ORDER BY entries to DataFusion `Sort` expressions.

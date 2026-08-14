@@ -28,6 +28,7 @@ use crate::api::version::Version;
 use crate::api::{FieldName, HashMap, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::MvccSatisfies;
+use crate::index::reader::io_stats;
 use crate::index::reader::scorer::{DeferredScorer, LazyWeight, ScorerIter};
 use crate::index::setup_tokenizers;
 use crate::postgres::heap::VisibilityChecker;
@@ -1099,7 +1100,8 @@ impl SearchIndexReader {
                     ),
                 };
                 let segment_ids = collected_ids.into_inner();
-                let segment_info = probe_stats_to_segment_info(&segment_ids, &fruit.stats);
+                let mut segment_info = probe_stats_to_segment_info(&segment_ids, &fruit.stats);
+                io_stats::attach(&mut segment_info);
                 TopKSearch::with_segment_info(
                     TopKSearchResults::new_for_score(fruit.results, aggregation_results),
                     segment_info,
@@ -1656,11 +1658,14 @@ impl SearchIndexReader {
         collector: &C,
         weight: &dyn Weight,
     ) -> Vec<<<C as Collector>::Child as SegmentCollector>::Fruit> {
+        io_stats::reset();
         self.segment_readers_in_segments(segment_ids)
             .map(|(segment_ord, segment_reader)| {
-                collector
+                let fruit = collector
                     .collect_segment(weight, segment_ord, segment_reader)
-                    .expect("should be able to collect in segment")
+                    .expect("should be able to collect in segment");
+                io_stats::end_segment(segment_reader.segment_id());
+                fruit
             })
             .collect()
     }

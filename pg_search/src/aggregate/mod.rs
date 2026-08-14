@@ -15,9 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+pub mod exec;
+
 use std::error::Error;
 use std::ptr::NonNull;
 
+use crate::aggregate::exec::AggregationExec;
 use crate::aggregate::interrupt_collector::InterruptableCollector;
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::VersionInfo;
@@ -34,7 +37,6 @@ use crate::postgres::customscan::aggregatescan::build::{AggregateCSClause, Colle
 use crate::postgres::customscan::aggregatescan::json_rewrite::{
     rewrite_date_histogram_to_histogram, rewrite_json_date_histogram_to_histogram,
 };
-use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::locks::{AcquiredSpinLock, Spinlock};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
@@ -273,37 +275,26 @@ impl<'a> ParallelAggregationWorker<'a> {
         };
         let from_sql = matches!(self.aggregation.as_ref(), Some(AggregateRequest::Sql(_)));
         let mut aggregations: Aggregations = self.aggregation.take().unwrap().try_into()?;
+        let schema = indexrel.schema()?;
         if from_sql {
             // ensure GROUP BY includes a bucket for documents missing the group-by value
-            let schema = indexrel.schema()?;
             set_missing_on_terms(&mut aggregations, &schema, &use_min_sentinel_fields);
         }
 
         let nworkers = self.state.launched_workers();
-        // Get the tokenizer manager from the index (has all custom tokenizers registered)
-        let tokenizer_manager = reader.searcher().index().tokenizers().clone();
-        let base_collector = DistributedAggregationCollector::from_aggs(
-            aggregations,
-            AggContextParams::new(
-                AggregationLimitsGuard::new(
-                    Some(self.config.memory_limit / std::cmp::max(nworkers as u64, 1)),
-                    Some(self.config.bucket_limit),
-                ),
-                tokenizer_manager,
-            ),
+        let limits = AggregationLimitsGuard::new(
+            Some(self.config.memory_limit / std::cmp::max(nworkers as u64, 1)),
+            Some(self.config.bucket_limit),
         );
+        let heaprel = indexrel
+            .heap_relation()
+            .expect("index should belong to a heap relation");
+        let (base_collector, vischeck) =
+            aggregations.plan(&reader, &heaprel, self.config.solve_mvcc, limits);
 
         let start = std::time::Instant::now();
-        let intermediate_results = if self.config.solve_mvcc {
-            let heaprel = indexrel
-                .heap_relation()
-                .expect("index should belong to a heap relation");
-            let mvcc_collector = MVCCFilterCollector::new(
-                base_collector,
-                VisibilityChecker::with_rel_and_snap(&heaprel, unsafe {
-                    pg_sys::GetActiveSnapshot()
-                }),
-            );
+        let intermediate_results = if let Some(vischeck) = vischeck {
+            let mvcc_collector = MVCCFilterCollector::new(base_collector, vischeck);
             reader.collect(InterruptableCollector::new(mvcc_collector))
         } else {
             reader.collect(InterruptableCollector::new(base_collector))

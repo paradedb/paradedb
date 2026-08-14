@@ -455,6 +455,10 @@ impl PinnedBuffer {
     pub fn number(self) -> pg_sys::BlockNumber {
         unsafe { pg_sys::BufferGetBlockNumber(self.pg_buffer) }
     }
+
+    pub fn pg_buffer(&self) -> pg_sys::Buffer {
+        self.pg_buffer
+    }
 }
 
 /// Borrows a pinned Buffer owned by another struct (rather than acquiring one from the

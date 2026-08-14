@@ -289,13 +289,11 @@ impl<'a> ParallelAggregationWorker<'a> {
         let heaprel = indexrel
             .heap_relation()
             .expect("index should belong to a heap relation");
-        let base_collector =
-            aggregations.collector(&reader, &heaprel, self.config.solve_mvcc, limits);
+        let (base_collector, vischeck) =
+            aggregations.plan(&reader, &heaprel, self.config.solve_mvcc, limits);
 
         let start = std::time::Instant::now();
-        let intermediate_results = if let Some(vischeck) =
-            aggregations.visibility_checker(&reader, &heaprel, self.config.solve_mvcc)
-        {
+        let intermediate_results = if let Some(vischeck) = vischeck {
             let mvcc_collector = MVCCFilterCollector::new(base_collector, vischeck);
             reader.collect(InterruptableCollector::new(mvcc_collector))
         } else {

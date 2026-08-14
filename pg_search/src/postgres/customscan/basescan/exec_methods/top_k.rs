@@ -18,6 +18,7 @@
 use std::cell::RefCell;
 
 use crate::aggregate::exec::AggregationExec;
+use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::VersionInfo;
 use crate::api::{HashMap, OrderByInfo};
 use crate::gucs;
@@ -377,16 +378,11 @@ impl ExecMethod for TopKScanExecState {
         self.search_results = if let Some(orderby_info) = self.orderby_info.as_ref() {
             let maybe_aux_collector = prepared.as_ref().map(|prepared| {
                 let search_reader = self.search_reader.as_ref().unwrap();
-                let aggregation_collector = prepared.aggregations.collector(
+                let (aggregation_collector, vischeck) = prepared.aggregations.plan(
                     search_reader,
                     state.heaprel(),
                     prepared.mvcc_enabled,
                     agg_limits.clone(),
-                );
-                let vischeck = prepared.aggregations.visibility_checker(
-                    search_reader,
-                    state.heaprel(),
-                    prepared.mvcc_enabled,
                 );
 
                 TopKAuxiliaryCollector {
@@ -470,16 +466,22 @@ impl ExecMethod for TopKScanExecState {
                 // Unordered TopK: run a standalone aggregation query since the
                 // unordered path does not support aggregation collectors
                 let search_reader = self.search_reader.as_ref().unwrap();
-                let aggregation_collector = prepared.aggregations.collector(
+                let (aggregation_collector, vischeck) = prepared.aggregations.plan(
                     search_reader,
                     state.heaprel(),
                     prepared.mvcc_enabled,
                     agg_limits.clone(),
                 );
-                search_reader
-                    .searcher()
-                    .search(search_reader.query(), &aggregation_collector)
-                    .expect("failed to run window aggregation query")
+                let searcher = search_reader.searcher();
+                if let Some(vischeck) = vischeck {
+                    searcher.search(
+                        search_reader.query(),
+                        &MVCCFilterCollector::new(aggregation_collector, vischeck),
+                    )
+                } else {
+                    searcher.search(search_reader.query(), &aggregation_collector)
+                }
+                .expect("failed to run window aggregation query")
             };
 
             let search_reader = state.search_reader.as_ref().unwrap();

@@ -30,7 +30,6 @@ use crate::index::fast_fields_helper::FFType;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
-use crate::schema::SearchIndexSchema;
 use pgrx::pg_sys;
 use tantivy::aggregation::agg_req::{AggregationVariants, Aggregations};
 use tantivy::aggregation::{
@@ -39,71 +38,51 @@ use tantivy::aggregation::{
 };
 
 pub trait AggregationExec {
-    /// True when `solve_mvcc` is requested and every aggregation in the
-    /// request is a cardinality over a string field, with no
-    /// sub-aggregations
-    fn use_cardinality_fast_path(&self, schema: &SearchIndexSchema, solve_mvcc: bool) -> bool;
-
-    /// Builds the collector for executing this request. When `solve_mvcc` is
-    /// set and the request is cardinality-only over string fields, MVCC is
-    /// solved inside the aggregation with a per-value visibility filter;
-    /// otherwise the caller is responsible for visibility filtering if it
-    /// requested `solve_mvcc` (see [`visibility_checker`]).
-    ///
-    /// [`visibility_checker`]: AggregationExec::visibility_checker
-    fn collector(
+    /// Builds the collector for executing this request, along with the
+    /// visibility checker the caller must wrap it with. `None` means there is
+    /// nothing left to wrap: either `solve_mvcc` is off, or the request is
+    /// cardinality-only over string fields, in which case MVCC is solved
+    /// inside the aggregation with a per-value visibility filter.
+    fn plan(
         &self,
         reader: &SearchIndexReader,
         heaprel: &PgSearchRelation,
         solve_mvcc: bool,
         limits: AggregationLimitsGuard,
-    ) -> DistributedAggregationCollector;
+    ) -> (DistributedAggregationCollector, Option<VisibilityChecker>);
+}
 
-    /// The visibility checker the caller must apply when `solve_mvcc` is set
-    /// but [`collector`] does not solve MVCC inside the aggregation.
-    ///
-    /// [`collector`]: AggregationExec::collector
-    fn visibility_checker(
+impl AggregationExec for Aggregations {
+    #[allow(clippy::arc_with_non_send_sync)]
+    fn plan(
         &self,
         reader: &SearchIndexReader,
         heaprel: &PgSearchRelation,
         solve_mvcc: bool,
-    ) -> Option<VisibilityChecker>;
-}
-
-impl AggregationExec for Aggregations {
-    fn use_cardinality_fast_path(&self, schema: &SearchIndexSchema, solve_mvcc: bool) -> bool {
-        solve_mvcc
+        limits: AggregationLimitsGuard,
+    ) -> (DistributedAggregationCollector, Option<VisibilityChecker>) {
+        let use_cardinality_fast_path = solve_mvcc
             && !self.is_empty()
             && self.values().all(|agg| {
                 agg.sub_aggregation.is_empty()
                     && match &agg.agg {
-                        AggregationVariants::Cardinality(card) => schema
+                        AggregationVariants::Cardinality(card) => reader
+                            .schema()
                             .search_field(&card.field)
                             .is_some_and(|field| field.is_text()),
                         _ => false,
                     }
-            })
-    }
-
-    #[allow(clippy::arc_with_non_send_sync)]
-    fn collector(
-        &self,
-        reader: &SearchIndexReader,
-        heaprel: &PgSearchRelation,
-        solve_mvcc: bool,
-        limits: AggregationLimitsGuard,
-    ) -> DistributedAggregationCollector {
+            });
         let tokenizers = reader.searcher().index().tokenizers().clone();
         let mut params = AggContextParams::new(limits, tokenizers);
-        if self.use_cardinality_fast_path(reader.schema(), solve_mvcc) {
+        if use_cardinality_fast_path {
             let vischeck = SendSyncWrapper(Arc::new(Mutex::new(
                 VisibilityChecker::with_rel_and_snap(heaprel, unsafe {
                     pg_sys::GetActiveSnapshot()
                 }),
             )));
             let factory: DocVisibilityFilterFactory = Arc::new(move |segment_reader| {
-                let ctid_ff = FFType::new(segment_reader.fast_fields(), "ctid");
+                let ctid_ff = FFType::new_ctid(segment_reader.fast_fields());
                 let vischeck = vischeck.get().clone();
                 Some(Box::new(move |doc| {
                     let Some(ctid) = ctid_ff.as_u64(doc) else {
@@ -114,18 +93,11 @@ impl AggregationExec for Aggregations {
             });
             params = params.with_doc_visibility_factory(factory);
         }
-        DistributedAggregationCollector::from_aggs(self.clone(), params)
-    }
-
-    fn visibility_checker(
-        &self,
-        reader: &SearchIndexReader,
-        heaprel: &PgSearchRelation,
-        solve_mvcc: bool,
-    ) -> Option<VisibilityChecker> {
-        (solve_mvcc && !self.use_cardinality_fast_path(reader.schema(), solve_mvcc)).then(|| {
+        let collector = DistributedAggregationCollector::from_aggs(self.clone(), params);
+        let vischeck = (solve_mvcc && !use_cardinality_fast_path).then(|| {
             VisibilityChecker::with_rel_and_snap(heaprel, unsafe { pg_sys::GetActiveSnapshot() })
-        })
+        });
+        (collector, vischeck)
     }
 }
 

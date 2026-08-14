@@ -418,6 +418,31 @@ pub fn execute_aggregate(
             NonNull::new(planstate),
             query.needs_tokenizer(),
         )?;
+
+        // Fast path: a bare doc count without MVCC filtering is answerable by
+        // `Weight::count` — a stored-doc_freq metadata read for term queries
+        // on delete-free segments, a scoreless docset drain otherwise —
+        // skipping the aggregation framework's per-doc column iteration.
+        if !solve_mvcc
+            && matches!(&agg_req, AggregateRequest::Sql(clause) if clause.is_bare_doc_count())
+        {
+            let count = reader.count_matched_docs()?;
+            let mut results = AggregationResults::default();
+            // Key "0" matches `CollectAggregations::collect`'s enumeration of
+            // the single aggregate.
+            results.0.insert(
+                "0".to_string(),
+                tantivy::aggregation::agg_result::AggregationResult::MetricResult(
+                    tantivy::aggregation::agg_result::MetricResult::Count(
+                        tantivy::aggregation::metric::SingleMetricResult {
+                            value: Some(count as f64),
+                        },
+                    ),
+                ),
+            );
+            return Ok(results);
+        }
+
         let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
         let segment_ids = reader
             .segment_readers()

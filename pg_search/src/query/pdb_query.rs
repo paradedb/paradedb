@@ -1927,6 +1927,29 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
     )
 }
 
+/// Clauses destined for a [`BooleanQuery`].
+///
+/// Collapses on build: a boolean of one positive clause is that clause, so
+/// unwrapping skips the union scorer and preserves `Weight::count` fast
+/// paths (e.g. doc_freq for a single term). A lone `MustNot` is not
+/// equivalent to its inner query and stays wrapped.
+struct BooleanClauses(Vec<(Occur, Box<dyn TantivyQuery>)>);
+
+impl FromIterator<(Occur, Box<dyn TantivyQuery>)> for BooleanClauses {
+    fn from_iter<I: IntoIterator<Item = (Occur, Box<dyn TantivyQuery>)>>(iter: I) -> Self {
+        Self(iter.into_iter().collect())
+    }
+}
+
+impl BooleanClauses {
+    fn into_query(mut self) -> Box<dyn TantivyQuery> {
+        if self.0.len() == 1 && !matches!(self.0[0].0, Occur::MustNot) {
+            return self.0.pop().unwrap().1;
+        }
+        Box::new(BooleanQuery::new(self.0))
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn match_query(
     field: &FieldName,
@@ -1982,7 +2005,7 @@ fn match_query(
         Occur::Should
     };
 
-    let clauses: Vec<_> = terms
+    let clauses: BooleanClauses = terms
         .into_iter()
         .map(|term| {
             let query: Box<dyn TantivyQuery> = match (distance, prefix) {
@@ -1994,7 +2017,7 @@ fn match_query(
         })
         .collect();
 
-    Ok(Box::new(BooleanQuery::new(clauses)))
+    Ok(clauses.into_query())
 }
 #[allow(clippy::too_many_arguments)]
 fn match_array_query(
@@ -2050,7 +2073,7 @@ fn match_array_query(
         terms.push((occur, term_query));
     }
 
-    Ok(Box::new(BooleanQuery::new(terms)))
+    Ok(BooleanClauses(terms).into_query())
 }
 
 fn fuzzy_term(

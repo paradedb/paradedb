@@ -1,5 +1,5 @@
 # Note: Debian Trixie = Debian 13
-FROM postgres:15-trixie AS paradedb
+FROM postgres:15-trixie
 
 # Install pg_search from GitHub Releases
 RUN set -eux; \

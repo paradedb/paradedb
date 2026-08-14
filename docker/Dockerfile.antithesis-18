@@ -1,5 +1,5 @@
 # Note: Debian Trixie = Debian 13
-FROM postgres:18-trixie AS paradedb
+FROM postgres:18-trixie
 
 # Install the locally built, Antithesis-instrumented pg_search package.
 ARG COMMIT_SHA

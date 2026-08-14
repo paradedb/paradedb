@@ -1,5 +1,5 @@
 # Note: Debian Trixie = Debian 13
-FROM postgres:@@PG_VERSION_MAJOR@@-trixie AS paradedb
+FROM postgres:@@PG_VERSION_MAJOR@@-trixie
 
 # %%ANTITHESIS_BEGIN%%
 # Install the locally built, Antithesis-instrumented pg_search package.

@@ -1692,7 +1692,7 @@ FROM numeric_unbounded_agg_test
 WHERE id @@@ paradedb.all()
 GROUP BY category
 ORDER BY category;
-WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column numeric_unbounded_agg_test.category is not indexed as a fast field (table: join)
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column numeric_unbounded_agg_test.category is not columnar indexed (table: join)
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
  GroupAggregate
@@ -1717,7 +1717,7 @@ FROM numeric_unbounded_agg_test
 WHERE id @@@ paradedb.all()
 GROUP BY category
 ORDER BY category;
-WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column numeric_unbounded_agg_test.category is not indexed as a fast field (table: join)
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column numeric_unbounded_agg_test.category is not columnar indexed (table: join)
  category |               total                
 ----------+------------------------------------
  A        | 301.111111110111111111011111111100
@@ -1729,7 +1729,7 @@ SELECT category, SUM(amount) as total
 FROM numeric_unbounded_agg_test
 GROUP BY category
 ORDER BY category;
-WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column numeric_unbounded_agg_test.category is not indexed as a fast field (table: join)
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column numeric_unbounded_agg_test.category is not columnar indexed (table: join)
  category |               total                
 ----------+------------------------------------
  A        | 301.111111110111111111011111111100

@@ -330,7 +330,7 @@ pub unsafe fn extract_aggregate_targetlist(
                 let alias =
                     RelationAlias::new(source.alias.as_deref()).display(source.rti as usize);
                 format!(
-                    "GROUP BY column {} is not indexed as a fast field",
+                    "GROUP BY column {} is not columnar indexed",
                     get_attname_safe(Some(source.relid), attno, &alias)
                 )
             })?;
@@ -583,7 +583,7 @@ unsafe fn extract_aggref_field_refs(
         let field_name = source.column_name(attno).ok_or_else(|| {
             let alias = RelationAlias::new(source.alias.as_deref()).display(source.rti as usize);
             format!(
-                "aggregate argument {} is not indexed as a fast field",
+                "aggregate argument {} is not columnar indexed",
                 get_attname_safe(Some(source.relid), attno, &alias)
             )
         })?;

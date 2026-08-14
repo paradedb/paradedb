@@ -528,23 +528,6 @@ impl SearchIndexSchema {
             .map(|field_type| (field_type, field_type.numeric_scale()))
     }
 
-    /// Display scale for a NUMERIC GROUP BY column, `Ok(None)` for non-NUMERIC
-    /// columns. Grouping compares the stored representation, which is order-
-    /// and equality-preserving for both NUMERIC storages, but rendering the
-    /// keys needs the declared scale. Unbounded NUMERIC drops per-value display
-    /// scale at index time, so it declines.
-    pub fn numeric_group_scale(&self, name: impl AsRef<str>) -> Result<Option<i16>, String> {
-        let name = name.as_ref();
-        match self.numeric_field_type(name) {
-            None => Ok(None),
-            Some((_, Some(scale))) => Ok(Some(scale)),
-            Some((_, None)) => Err(format!(
-                "GROUP BY column {name} is an unbounded NUMERIC; declare a precision and \
-                 scale to enable aggregate pushdown"
-            )),
-        }
-    }
-
     pub fn search_field(&self, name: impl AsRef<str>) -> Option<SearchField> {
         let field_name = FieldName::from(name.as_ref());
         match self.schema.get_field(&field_name.root()) {

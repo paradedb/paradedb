@@ -344,13 +344,24 @@ pub unsafe fn extract_aggregate_targetlist(
                     )
                 })?;
 
+            // Grouping compares the stored representation, which is order- and
+            // equality-preserving for both NUMERIC storages, but rendering the
+            // keys needs the declared scale. Unbounded NUMERIC drops per-value
+            // display scale at index time, so it declines.
             let numeric_scale = source
                 .bm25_index
                 .as_ref()
                 .and_then(|i| i.schema().ok())
-                .map(|s| s.numeric_group_scale(&field_name))
-                .transpose()?
-                .flatten();
+                .and_then(|s| s.numeric_field_type(&field_name))
+                .map(|(_, scale)| {
+                    scale.ok_or_else(|| {
+                        format!(
+                            "GROUP BY column {field_name} is an unbounded NUMERIC; declare a \
+                             precision and scale to enable aggregate pushdown"
+                        )
+                    })
+                })
+                .transpose()?;
 
             group_columns.push(JoinGroupColumn {
                 plan_position,
@@ -390,9 +401,16 @@ pub unsafe fn extract_aggregate_targetlist(
                 .ok()
                 .and_then(|source| source.bm25_index.as_ref())
                 .and_then(|i| i.schema().ok())
-                .map(|s| s.numeric_group_scale(&field_name))
-                .transpose()?
-                .flatten();
+                .and_then(|s| s.numeric_field_type(&field_name))
+                .map(|(_, scale)| {
+                    scale.ok_or_else(|| {
+                        format!(
+                            "GROUP BY column {field_name} is an unbounded NUMERIC; declare a \
+                             precision and scale to enable aggregate pushdown"
+                        )
+                    })
+                })
+                .transpose()?;
 
             group_columns.push(JoinGroupColumn {
                 plan_position,

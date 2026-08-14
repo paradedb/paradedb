@@ -122,13 +122,6 @@ for DB in template1 paradedb "$POSTGRES_DB"; do
 EOSQL
 done
 
-# Add the `paradedb` schema to template1, paradedb, and $POSTGRES_DB
-for DB in template1 paradedb "$POSTGRES_DB"; do
-  echo "Adding 'paradedb' search_path to $DB"
-  psql -d "$DB" -c "ALTER DATABASE \"$DB\" SET search_path TO public,paradedb;"
-done
-
-
 # Tune postgresql.conf settings for the available hardware
 tune
 

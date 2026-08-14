@@ -20,9 +20,9 @@ use crate::query::{PostgresExpression, SearchQueryInput};
 use pgrx::{pg_sys, PgMemoryContexts};
 
 impl SearchQueryInput {
-    pub fn has_heap_filters(&mut self) -> bool {
+    pub fn has_heap_filters(&self) -> bool {
         let mut found = false;
-        self.visit(&mut |sqi| {
+        self.visit_ref(&mut |sqi| {
             if let SearchQueryInput::HeapFilter { .. } = sqi {
                 found = true;
             }
@@ -30,9 +30,9 @@ impl SearchQueryInput {
         found
     }
 
-    pub fn has_postgres_expressions(&mut self) -> bool {
+    pub fn has_postgres_expressions(&self) -> bool {
         let mut found = false;
-        self.visit(&mut |sqi| {
+        self.visit_ref(&mut |sqi| {
             if let SearchQueryInput::PostgresExpression { .. } = sqi {
                 found = true;
             }
@@ -40,9 +40,9 @@ impl SearchQueryInput {
         found
     }
 
-    pub fn has_parameters(&mut self) -> bool {
+    pub fn has_parameters(&self) -> bool {
         let mut found = false;
-        self.visit(&mut |sqi| {
+        self.visit_ref(&mut |sqi| {
             if let SearchQueryInput::HeapFilter { field_filters, .. } = sqi {
                 if field_filters.iter().any(|f| f.has_parameters()) {
                     found = true;
@@ -97,7 +97,24 @@ impl SearchQueryInput {
         );
         unsafe {
             pg_sys::MemoryContextReset((*expr_context).ecxt_per_tuple_memory);
+            self.solve_postgres_expressions_no_reset(expr_context);
+        }
+    }
 
+    /// Same as `solve_postgres_expressions`, but does not reset
+    /// `ecxt_per_tuple_memory` first. Callers solving several `SearchQueryInput`s
+    /// against the same `ExprContext` in one pass (e.g. `JoinCSClause`, which visits
+    /// multiple sources' queries) must reset the context once themselves before the
+    /// first call, then use this variant for every subsequent one in the pass —
+    /// otherwise each call's reset frees the rewritten expression tree solved by the
+    /// call before it, and anything reading the earlier tree afterward (e.g. rebaking
+    /// the logical plan) sees a dangling pointer.
+    pub fn solve_postgres_expressions_no_reset(&mut self, expr_context: *mut pg_sys::ExprContext) {
+        assert!(
+            !expr_context.is_null(),
+            "expr_context was never initialized"
+        );
+        unsafe {
             PgMemoryContexts::For((*expr_context).ecxt_per_tuple_memory).switch_to(|_| {
                 let sqi_typoid = searchqueryinput_typoid();
                 self.visit(&mut |sqi| match sqi {

@@ -444,9 +444,9 @@ SELECT SUM(price), MIN(price), MAX(price) FROM numagg WHERE description ||| 'dur
      : ┌───── DistributedExec
      : │ AggregateExec: mode=Final, gby=[], aggr=[numeric64_sum(numagg_0.price, 2) as agg_0, min(numagg_0.price) as agg_1, max(numagg_0.price) as agg_2]
      : │   CoalescePartitionsExec
-     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=4, input_tasks=2
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=2, input_tasks=2
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 1 ── tasks=2, partitions=4
+     :   ┌───── Stage 1 ── tasks=2, partitions=2
      :   │ AggregateExec: mode=Partial, gby=[], aggr=[numeric64_sum(numagg_0.price, 2) as agg_0, min(numagg_0.price) as agg_1, max(numagg_0.price) as agg_2]
      :   │   DistributedLeafExec:
      :   │     t0: PgSearchScan: segments=2, query={"with_index":{"query":{"match":{"field":"description","value":"durian OR basket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
@@ -519,7 +519,7 @@ SELECT category, SUM(price) s FROM numagg WHERE description ||| 'durian OR baske
                  :   │     [Stage 1] => NetworkShuffleExec: output_partitions=2, input_tasks=2
                  :   └──────────────────────────────────────────────────
                  :     ┌───── Stage 1 ── tasks=2, partitions=4
-                 :     │ RepartitionExec: partitioning=Hash([category@0], 4), input_partitions=2
+                 :     │ RepartitionExec: partitioning=Hash([category@0], 4), input_partitions=1
                  :     │   AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[numeric64_sum(numagg_0.price, 2) as agg_0]
                  :     │     DistributedLeafExec:
                  :     │       t0: PgSearchScan: segments=2, query={"with_index":{"query":{"match":{"field":"description","value":"durian OR basket OR apple","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
@@ -557,9 +557,9 @@ SELECT SUM(amount), AVG(amount), COUNT(*) FROM numagg WHERE description ||| 'non
      : ┌───── DistributedExec
      : │ AggregateExec: mode=Final, gby=[], aggr=[numeric_bytes_sum(numagg_0.amount) as agg_0, numeric_bytes_avg(numagg_0.amount) as agg_1, count(1) as agg_2]
      : │   CoalescePartitionsExec
-     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=4, input_tasks=2
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=2, input_tasks=2
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 1 ── tasks=2, partitions=4
+     :   ┌───── Stage 1 ── tasks=2, partitions=2
      :   │ AggregateExec: mode=Partial, gby=[], aggr=[numeric_bytes_sum(numagg_0.amount) as agg_0, numeric_bytes_avg(numagg_0.amount) as agg_1, count(1) as agg_2]
      :   │   DistributedLeafExec:
      :   │     t0: PgSearchScan: segments=2, query={"with_index":{"query":{"match":{"field":"description","value":"nonexistent","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
@@ -586,9 +586,9 @@ SELECT SUM(price) FILTER (WHERE category = 'grocery') FROM numagg WHERE descript
      : ┌───── DistributedExec
      : │ AggregateExec: mode=Final, gby=[], aggr=[numeric64_sum(numagg_0.price, 2) FILTER (WHERE numagg_0.category = Utf8View("grocery")) as agg_0]
      : │   CoalescePartitionsExec
-     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=4, input_tasks=2
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=2, input_tasks=2
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 1 ── tasks=2, partitions=4
+     :   ┌───── Stage 1 ── tasks=2, partitions=2
      :   │ AggregateExec: mode=Partial, gby=[], aggr=[numeric64_sum(numagg_0.price, 2) FILTER (WHERE numagg_0.category = Utf8View("grocery")) as agg_0]
      :   │   DistributedLeafExec:
      :   │     t0: PgSearchScan: segments=2, query={"with_index":{"query":{"match":{"field":"description","value":"apple OR basket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
@@ -726,9 +726,9 @@ SELECT SUM(n.price), SUM(n.amount), MIN(n.weight) FROM numagg n JOIN numagg_line
      : ┌───── DistributedExec
      : │ AggregateExec: mode=Final, gby=[], aggr=[numeric64_sum(n_0.price, 2) as agg_0, numeric_bytes_sum(n_0.amount) as agg_1, min(n_0.weight) as agg_2]
      : │   CoalescePartitionsExec
-     : │     [Stage 2] => NetworkCoalesceExec: output_partitions=4, input_tasks=2
+     : │     [Stage 2] => NetworkCoalesceExec: output_partitions=2, input_tasks=2
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 2 ── tasks=2, partitions=4
+     :   ┌───── Stage 2 ── tasks=2, partitions=2
      :   │ AggregateExec: mode=Partial, gby=[], aggr=[numeric64_sum(n_0.price, 2) as agg_0, numeric_bytes_sum(n_0.amount) as agg_1, min(n_0.weight) as agg_2]
      :   │   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(numagg_id@0, id@0)], projection=[price@2, weight@3, amount@4]
      :   │     CoalescePartitionsExec

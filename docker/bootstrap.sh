@@ -115,10 +115,9 @@ EOSQL
 }
 
 initialize template1
-initialize "$POSTGRES_DB"
-
 # paradedb inherits the above extensions because it is created from template1
 [ "$POSTGRES_DB" = paradedb ] || psql -d postgres -c 'CREATE DATABASE paradedb'
+initialize "$POSTGRES_DB"
 
 # Tune postgresql.conf settings for the available hardware
 tune

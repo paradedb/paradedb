@@ -10,5 +10,5 @@ EOSQL
 }
 
 initialize template1
-initialize "$POSTGRES_DB"
 [ "$POSTGRES_DB" = paradedb ] || psql -d postgres -c 'CREATE DATABASE paradedb'
+initialize "$POSTGRES_DB"

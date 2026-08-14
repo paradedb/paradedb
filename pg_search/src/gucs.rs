@@ -38,6 +38,9 @@ static CHECK_AGGREGATE_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// Allows the user to toggle the use of our "ParadeDB Join Scan".
 static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Allows the user to toggle range co-partitioning for joins.
+static ENABLE_RANGE_PARTITIONED_JOIN: GucSetting<bool> = GucSetting::<bool>::new(false);
+
 /// Allows the user to toggle the use of the custom scan without use of the `@@@` operator. The
 /// default is `false`.
 static ENABLE_CUSTOM_SCAN_WITHOUT_OPERATOR: GucSetting<bool> = GucSetting::<bool>::new(false);
@@ -291,6 +294,15 @@ pub fn init() {
         c"Enable ParadeDB's join custom scan",
         c"Enable ParadeDB's join custom scan, which pushes eligible joins down into the ParadeDB executor. Default is true.",
         &ENABLE_JOIN_CUSTOM_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_range_partitioned_join",
+        c"Allows the user to enable or disable range co-partitioned joins",
+        c"When enabled, DataFusion optimizer rules sample and co-partition inner joins across tables. Note that participating tables must also have a partition_by index option defined. Default is false.",
+        &ENABLE_RANGE_PARTITIONED_JOIN,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -698,6 +710,10 @@ pub fn check_aggregate_scan() -> bool {
 
 pub fn enable_join_custom_scan() -> bool {
     ENABLE_JOIN_CUSTOM_SCAN.get()
+}
+
+pub fn enable_range_partitioned_join() -> bool {
+    ENABLE_RANGE_PARTITIONED_JOIN.get()
 }
 
 pub fn enable_custom_scan_without_operator() -> bool {

@@ -31,7 +31,7 @@ sudo pacman -S extra/clang extra/lld
 Then install `cargo-pgrx` and let it bootstrap a managed PostgreSQL installation under `~/.pgrx/`:
 
 ```bash
-cargo install --locked cargo-pgrx --version 0.18.1
+cargo install --locked cargo-pgrx --version 0.19.2
 # On macOS, if `cargo pgrx init` fails with ICU-related errors, run
 # `brew install icu4c`
 # and then run

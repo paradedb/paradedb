@@ -238,7 +238,7 @@ pub enum MppLifecycle<P = Vec<u8>> {
     /// teardown already reclaimed the leader state.
     #[default]
     Inactive,
-    /// The scan is eligible to attempt MPP on its first execution. `P` carries only the
+    /// The scan is eligible to attempt MPP on its next execution. `P` carries only the
     /// preparation data that consumer needs: AggregateScan retains serialized plan bytes for
     /// DSM sizing, while JoinScan uses `()` because it sizes DSM from its execute-time plan.
     Pending(P),

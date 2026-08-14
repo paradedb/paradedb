@@ -951,13 +951,13 @@ impl JoinScan {
     /// EndCustomScan and before a correlated rescan relaunches a fresh worker set.
     fn finish_mpp_execution(state: &mut CustomScanStateWrapper<Self>) {
         state.custom_state_mut().datafusion_stream = None;
-        if let Some(leader) = state.custom_state().mpp.leader()
-            && let Some(plan) = state.custom_state().physical_plan.as_ref()
-        {
-            crate::postgres::customscan::mpp::glue::drain_worker_metrics(
-                plan,
-                &leader.session.mesh,
-            );
+        if let Some(leader) = state.custom_state().mpp.leader() {
+            if let Some(plan) = state.custom_state().physical_plan.as_ref() {
+                crate::postgres::customscan::mpp::glue::drain_worker_metrics(
+                    plan,
+                    &leader.session.mesh,
+                );
+            }
         }
         let finish = match state.custom_state_mut().mpp.take_leader() {
             Some(mut leader) => leader.finish.take(),
@@ -1363,9 +1363,7 @@ impl CustomScan for JoinScan {
             // not used for JoinScan DSM sizing: exec_custom_scan first resolves and rebakes
             // runtime expressions, then sizes DSM from that current plan. Workers receive
             // per-stage physical fragments over the mesh, never these logical bytes.
-            if mpp_is_active()
-                && unsafe { pg_sys::ParallelWorkerNumber } == -1
-            {
+            if mpp_is_active() && unsafe { pg_sys::ParallelWorkerNumber } == -1 {
                 if let Some(bytes) = state.custom_state().logical_plan.clone() {
                     state.custom_state_mut().mpp = MppLifecycle::PlanBytes(bytes.to_vec());
                 }

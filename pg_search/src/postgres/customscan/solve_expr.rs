@@ -42,19 +42,11 @@ impl SearchQueryInput {
 
     pub fn has_parameters(&self) -> bool {
         let mut found = false;
-<<<<<<< HEAD
-        self.visit(&mut |sqi| {
+        self.visit_ref(&mut |sqi| {
             if let SearchQueryInput::HeapFilter { field_filters, .. } = sqi {
                 if field_filters.iter().any(|f| f.has_parameters()) {
                     found = true;
                 }
-=======
-        self.visit_ref(&mut |sqi| {
-            if let SearchQueryInput::HeapFilter { field_filters, .. } = sqi
-                && field_filters.iter().any(|f| f.has_parameters())
-            {
-                found = true;
->>>>>>> 5285af063 (feat: solve Param/SubPlan expressions on leader before MPP dispatch (#5511))
             }
         });
         found

@@ -58,11 +58,8 @@ use crate::postgres::customscan::datafusion::translator::{
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, PrivateData, SCORE_COL_NAME,
 };
-<<<<<<< HEAD
-use crate::postgres::customscan::CustomScanState;
-=======
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
->>>>>>> 5285af063 (feat: solve Param/SubPlan expressions on leader before MPP dispatch (#5511))
+use crate::postgres::customscan::CustomScanState;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::{PgSearchTableProvider, VisibilityMode};

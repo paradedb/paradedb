@@ -1359,15 +1359,15 @@ impl CustomScan for JoinScan {
                 state.custom_state_mut().result_slot = Some(state.csstate.ss.ps.ps_ResultTupleSlot);
                 state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
             }
-            // Record that the leader should attempt MPP on first execution. JoinScan retains no
-            // planning-time bytes here: exec_custom_scan first resolves and rebakes runtime
-            // expressions, then sizes DSM from that current plan. Workers receive per-stage
-            // physical fragments over the mesh, never these logical bytes.
+            // Stash a pending-launch marker for the leader. The stored planning-time bytes are
+            // not used for JoinScan DSM sizing: exec_custom_scan first resolves and rebakes
+            // runtime expressions, then sizes DSM from that current plan. Workers receive
+            // per-stage physical fragments over the mesh, never these logical bytes.
             if mpp_is_active()
                 && unsafe { pg_sys::ParallelWorkerNumber } == -1
-                && state.custom_state().logical_plan.is_some()
+                && let Some(bytes) = state.custom_state().logical_plan.clone()
             {
-                state.custom_state_mut().mpp = MppLifecycle::Pending(());
+                state.custom_state_mut().mpp = MppLifecycle::PlanBytes(bytes.to_vec());
             }
         }
     }
@@ -1375,13 +1375,18 @@ impl CustomScan for JoinScan {
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         let relaunch_mpp = matches!(
             &state.custom_state().mpp,
-            MppLifecycle::Pending(()) | MppLifecycle::Launched(_)
+            MppLifecycle::PlanBytes(_) | MppLifecycle::Launched(_)
         );
         Self::finish_mpp_execution(state);
         state.custom_state_mut().relations.clear();
         state.custom_state_mut().reset();
         if relaunch_mpp {
-            state.custom_state_mut().mpp = MppLifecycle::Pending(());
+            let bytes = state
+                .custom_state()
+                .logical_plan
+                .clone()
+                .expect("MPP rescan requires logical plan bytes");
+            state.custom_state_mut().mpp = MppLifecycle::PlanBytes(bytes.to_vec());
         }
     }
 
@@ -1486,13 +1491,13 @@ impl CustomScan for JoinScan {
                             .expect("Failed to create execution plan")
                     };
 
-                let mpp_pending = state.custom_state_mut().mpp.take_pending();
+                let mpp_plan_bytes = state.custom_state_mut().mpp.take_plan_bytes();
                 // Leader session context: on an MPP attempt, layer the DF-D fork's
                 // distributed-planner knobs over the Join profile so the resulting physical
                 // plan is a `DistributedExec`, with `producer_worker_cap()` acting as the
                 // planner's ceiling. The mesh and the dispatch source are execute-time
                 // concerns; the exec session below carries them once the workers are committed.
-                let plan_ctx = if mpp_pending.is_some() {
+                let plan_ctx = if mpp_plan_bytes.is_some() {
                     Self::build_mpp_session_context(None)
                 } else {
                     create_datafusion_session_context(SessionContextProfile::Join)
@@ -1504,8 +1509,8 @@ impl CustomScan for JoinScan {
                 // On a launch fallback (nothing to distribute, or too few attached workers) no
                 // workers remain and the `DistributedExec` shape has no mesh to read from, so
                 // replan serially.
-                let (ctx, plan) = match mpp_pending {
-                    Some(()) => match Self::launch_mpp(state, &plan, plan_bytes.len()) {
+                let (ctx, plan) = match mpp_plan_bytes {
+                    Some(_) => match Self::launch_mpp(state, &plan, plan_bytes.len()) {
                         Some(leader) => {
                             let source = crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::default();
                             let exec_ctx = Self::build_mpp_session_context(Some(Arc::clone(

@@ -439,12 +439,19 @@ impl AggregateType {
 /// Returns an error if:
 /// - Any referenced field doesn't exist in the index
 /// - Any referenced field is a NUMERIC type (not supported for aggregation)
+/// - Any `top_hits.sort` key has a type Tantivy's sort accessor does not support
+///   (only `I64` / `U64` / `F64` / `Date` / `Numeric64` are accepted)
 pub(crate) fn validate_agg_json_fields(
     agg_json: &serde_json::Value,
     schema: &SearchIndexSchema,
 ) -> Result<(), String> {
     let mut fields = HashSet::default();
     extract_fields_from_agg_json(agg_json, &mut fields);
+    // top_hits.sort keys are object keys inside the sort array rather than values under a
+    // "field" key, so extract_fields_from_agg_json will not see them. Collect them here so
+    // the existence check below covers them and validate_top_hits_sort_fields can rely on
+    // schema.get_field_type() returning Some.
+    collect_top_hits_sort_field_names(agg_json, &mut fields);
     let indexed_fields: HashSet<String> = schema
         .fields()
         .map(|(_, entry)| entry.name().to_string())
@@ -474,7 +481,113 @@ pub(crate) fn validate_agg_json_fields(
             ));
         }
     }
+
+    validate_top_hits_sort_fields(agg_json, schema)?;
+
     Ok(())
+}
+
+/// Recursively walk `agg_json` and validate that every `top_hits.sort` field is a type
+/// Tantivy's sort accessor supports (see [`crate::schema::SearchFieldType::supports_top_hits_sort`]).
+///
+/// A text / uuid / inet / ltree / json / range / vector sort key would fall back to an empty
+/// accessor and every hit would silently get `"sort": [null]` with no ordering applied
+/// (issue #5710). Raising a clear planning-time error is friendlier than silent wrong
+/// results.
+///
+/// Elasticsearch-style pseudo fields prefixed with `_` (`_score`, `_doc`) are skipped:
+/// they do not resolve to schema fields and have their own accessor path in Tantivy.
+fn validate_top_hits_sort_fields(
+    agg_json: &serde_json::Value,
+    schema: &SearchIndexSchema,
+) -> Result<(), String> {
+    match agg_json {
+        serde_json::Value::Object(map) => {
+            if let Some(sort) = map
+                .get("top_hits")
+                .and_then(|v| v.as_object())
+                .and_then(|top_hits| top_hits.get("sort"))
+                .and_then(|v| v.as_array())
+            {
+                for entry in sort {
+                    let Some(sort_obj) = entry.as_object() else {
+                        continue;
+                    };
+                    for field_name in sort_obj.keys() {
+                        if field_name.starts_with('_') {
+                            continue;
+                        }
+                        let root = FieldName::from(field_name.as_str()).root();
+                        // Existence is guaranteed by the fields loop in
+                        // validate_agg_json_fields (which now includes top_hits.sort keys via
+                        // collect_top_hits_sort_field_names). Panic loudly if that invariant
+                        // is ever broken so the failure is not silent.
+                        let field_type = schema.get_field_type(&root).expect(
+                            "top_hits.sort field existence should have been validated by the \
+                             indexed_fields loop in validate_agg_json_fields",
+                        );
+                        if !field_type.supports_top_hits_sort() {
+                            return Err(format!(
+                                "top_hits.sort field '{}' has an unsupported type for sorting. \
+                                 Only numeric and date fields can be used as top_hits.sort keys.",
+                                field_name
+                            ));
+                        }
+                    }
+                }
+            }
+
+            for value in map.values() {
+                validate_top_hits_sort_fields(value, schema)?;
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr {
+                validate_top_hits_sort_fields(item, schema)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// Recursively walk `json` and add every `top_hits.sort` field key to `fields`. Sort keys
+/// appear as object keys inside the sort array (`{"field_name": "asc"}`), so
+/// [`extract_fields_from_agg_json`] does not see them. Elasticsearch-style pseudo fields
+/// (`_score`, `_doc`) are skipped since they do not resolve to schema fields.
+fn collect_top_hits_sort_field_names(json: &serde_json::Value, fields: &mut HashSet<String>) {
+    match json {
+        serde_json::Value::Object(map) => {
+            if let Some(sort) = map
+                .get("top_hits")
+                .and_then(|v| v.as_object())
+                .and_then(|top_hits| top_hits.get("sort"))
+                .and_then(|v| v.as_array())
+            {
+                for entry in sort {
+                    let Some(sort_obj) = entry.as_object() else {
+                        continue;
+                    };
+                    for field_name in sort_obj.keys() {
+                        if field_name.starts_with('_') {
+                            continue;
+                        }
+                        let field_name = FieldName::from(field_name.as_str());
+                        fields.insert(field_name.root());
+                    }
+                }
+            }
+            for value in map.values() {
+                collect_top_hits_sort_field_names(value, fields);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr {
+                collect_top_hits_sort_field_names(item, fields);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn extract_fields_from_agg_json(json: &serde_json::Value, fields: &mut HashSet<String>) {

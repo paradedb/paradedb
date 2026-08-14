@@ -1,0 +1,102 @@
+-- =====================================================================
+-- A co-partitioned (range) join whose output reaches the top gather with
+-- no aggregate or sort in between. The gather becomes a network boundary,
+-- and boundary scaling cannot handle a range layout, so the planner
+-- must break the range with a round-robin repartition under the gather.
+-- The bare LIMIT (early termination) mirrors the benchmark query that
+-- exposed the shape.
+--
+-- Outcomes are collected in a table so the expected output stays stable
+-- across machines and timings.
+-- =====================================================================
+
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+SET paradedb.enable_join_custom_scan TO on;
+SET paradedb.enable_range_partitioned_join TO on;
+SET max_parallel_workers_per_gather TO 8;
+SET max_parallel_workers TO 7;
+SET min_parallel_table_scan_size TO 0;
+SET parallel_setup_cost TO 0;
+SET parallel_tuple_cost TO 0;
+SET paradedb.mpp_queue_size = '64kB';
+
+CREATE TABLE rb_users    (id bigserial PRIMARY KEY, display_name text, reputation int, about_me text);
+CREATE TABLE rb_posts    (id bigserial PRIMARY KEY, owner_user_id bigint, title text, body text);
+CREATE TABLE rb_comments (id bigserial PRIMARY KEY, post_id bigint, text text, score int);
+
+CREATE INDEX rb_users_idx ON rb_users USING paradedb (id, display_name, reputation)
+WITH (key_field='id', partition_by='id', text_fields='{"display_name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"reputation":{"fast":true}}');
+CREATE INDEX rb_posts_idx ON rb_posts USING paradedb (id, owner_user_id, title)
+WITH (key_field='id', partition_by='id,owner_user_id', text_fields='{"title":{"fast":true}}', numeric_fields='{"owner_user_id":{"fast":true}}');
+CREATE INDEX rb_comments_idx ON rb_comments USING paradedb (id, post_id, text, score)
+WITH (key_field='id', partition_by='post_id', text_fields='{"text":{"fast":true}}', numeric_fields='{"post_id":{"fast":true},"score":{"fast":true}}');
+
+-- Eight segments per index, kilobyte-scale payloads so batches dwarf the ring.
+SET paradedb.global_mutable_segment_rows = 0;
+DO $$
+DECLARE
+    s int;
+BEGIN
+    FOR s IN 0..7 LOOP
+        INSERT INTO rb_users (display_name, reputation, about_me)
+        SELECT 'user_' || g, 50 + (g % 100), repeat('a', 2000) || g FROM generate_series(s * 1250 + 1, (s + 1) * 1250) g;
+        INSERT INTO rb_posts (owner_user_id, title, body)
+        SELECT 1 + (g % 10000), 'error in build ' || g, repeat('b', 2000) || g FROM generate_series(s * 2500 + 1, (s + 1) * 2500) g;
+        INSERT INTO rb_comments (post_id, text, score)
+        SELECT 1 + (g % 20000), 'question about stuff ' || repeat('c', 1000) || g, g % 10 FROM generate_series(s * 5000 + 1, (s + 1) * 5000) g;
+    END LOOP;
+END $$;
+RESET paradedb.global_mutable_segment_rows;
+ANALYZE rb_users;
+ANALYZE rb_posts;
+ANALYZE rb_comments;
+
+CREATE TABLE rb_outcome (line text);
+SET statement_timeout = '120s';
+
+-- Whether the co-partitioned join reports its range layout or a range-satisfied
+-- hash up to the gather depends on the sampled split points, so only the
+-- outcome is asserted: the query must neither error nor hang. On the range
+-- outcome, the run fails without the repartition under the gather.
+DO $$
+DECLARE
+    r record;
+    launched boolean := false;
+    ranged boolean := false;
+BEGIN
+    FOR r IN EXECUTE 'EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF)
+        SELECT * FROM rb_users u
+        JOIN rb_posts p ON u.id = p.owner_user_id
+        JOIN rb_comments c ON c.post_id = p.id
+        WHERE u.id @@@ pdb.all() AND u.reputation > 100 AND p.title @@@ ''error'' AND c.text @@@ ''question''
+        LIMIT 5'
+    LOOP
+        launched := launched OR r."QUERY PLAN" LIKE '%MPP Launch:%';
+        ranged := ranged OR r."QUERY PLAN" LIKE '%partition=%';
+    END LOOP;
+    INSERT INTO rb_outcome VALUES ('limit-5 explain analyze: mpp=' || launched
+        || ' range-scans=' || ranged);
+EXCEPTION WHEN OTHERS THEN
+    INSERT INTO rb_outcome VALUES ('limit-5 explain analyze: ERROR ' || SQLERRM);
+END $$;
+
+-- The limit must terminate the query early and still return its five rows.
+DO $$
+DECLARE
+    n bigint;
+BEGIN
+    SELECT count(*) INTO n FROM (
+        SELECT u.id FROM rb_users u
+        JOIN rb_posts p ON u.id = p.owner_user_id
+        JOIN rb_comments c ON c.post_id = p.id
+        WHERE u.id @@@ pdb.all() AND u.reputation > 100 AND p.title @@@ 'error' AND c.text @@@ 'question'
+        LIMIT 5
+    ) q;
+    INSERT INTO rb_outcome VALUES ('limit-5 rows: ' || n);
+EXCEPTION WHEN OTHERS THEN
+    INSERT INTO rb_outcome VALUES ('limit-5 rows: ERROR ' || SQLERRM);
+END $$;
+SET statement_timeout = 0;
+
+SELECT * FROM rb_outcome ORDER BY line;

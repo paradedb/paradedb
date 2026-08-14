@@ -100,17 +100,9 @@ tune() {
 # our configuration in our Dockerfile. Therefore, we install it separately here.
 psql -d postgres -c "CREATE EXTENSION IF NOT EXISTS pg_cron;"
 
-# Always create a `paradedb` database, regardless of what $POSTGRES_DB is set to
-if [ "$POSTGRES_DB" != "paradedb" ]; then
-  echo "Creating default 'paradedb' database"
-  psql -d postgres -c "CREATE DATABASE paradedb;"
-fi
-
-# Load ParadeDB and third-party extensions into template1, paradedb, and $POSTGRES_DB
-# Creating extensions in template1 ensures that they are available in all new databases.
-for DB in template1 paradedb "$POSTGRES_DB"; do
-  echo "Loading ParadeDB extensions into $DB"
-  psql -d "$DB" <<-'EOSQL'
+# Load ParadeDB and third-party extensions into template1 and $POSTGRES_DB.
+initialize() {
+  psql -v ON_ERROR_STOP=1 -d "$1" <<-'EOSQL'
     CREATE EXTENSION IF NOT EXISTS vector;
     CREATE EXTENSION IF NOT EXISTS pg_search;
     CREATE EXTENSION IF NOT EXISTS pg_ivm;
@@ -120,7 +112,13 @@ for DB in template1 paradedb "$POSTGRES_DB"; do
     CREATE EXTENSION IF NOT EXISTS postgis_tiger_geocoder;
     CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 EOSQL
-done
+}
+
+initialize template1
+initialize "$POSTGRES_DB"
+
+# paradedb inherits the above extensions because it is created from template1
+[ "$POSTGRES_DB" = paradedb ] || psql -d postgres -c 'CREATE DATABASE paradedb'
 
 # Tune postgresql.conf settings for the available hardware
 tune

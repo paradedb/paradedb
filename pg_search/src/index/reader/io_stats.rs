@@ -16,9 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 //! Attributes Postgres buffer hits/reads to tantivy segment components, keyed
-//! by [`SegmentComponent`]. For vector search, `centroids` reads are routing
-//! and `vec` reads are probing; the text components (`term`, `idx`, `fast`,
-//! ...) are counted the same way.
+//! by [`tantivy::index::SegmentComponent`]. For vector search, `centroids`
+//! reads are routing and `vec` reads are probing; the text components
+//! (`term`, `idx`, `fast`, ...) are counted the same way.
 //!
 //! Like `block_tracker`, this is compiled out unless the `io_stats` feature is
 //! enabled, in which case the per-segment counters are merged into the

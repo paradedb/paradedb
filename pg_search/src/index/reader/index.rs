@@ -334,11 +334,16 @@ impl Iterator for MultiSegmentSearchResults {
 pub struct TopKAuxiliaryCollector {
     /// If aggregations should be computed alongside Top K, the collector to use.
     pub aggregation_collector: DistributedAggregationCollector,
-    /// If MVCC filtering should be applied, then the visibility checker to use for that.
+    /// If MVCC filtering should be applied up front, then the visibility checker to use for that.
     ///
-    /// Note: If enabled, visibility checking is applied to _both_ the Top K and to any
+    /// Note: If set, visibility checking is applied to _both_ the Top K and to any
     /// aggregation collector: this is because once you've bothered to filter for MVCC, you might
     /// as well feed the filtered result to Top K too.
+    ///
+    /// `None` means either that MVCC filtering was not requested, or that it is solved lazily
+    /// inside `aggregation_collector` (cardinality-only over string fields). In both cases Top K
+    /// gets no pre-filtering here: the caller must verify visibility of the results and re-query
+    /// if necessary, exactly as when no auxiliary collector is present.
     pub vischeck: Option<VisibilityChecker>,
 }
 
@@ -869,9 +874,10 @@ impl SearchIndexReader {
     /// The documents are returned in either score or field order, in the given direction: at least
     /// one `OrderByInfo` must be defined.
     ///
-    /// If a TopKAuxiliaryCollector is provided, this method can optionally pre-filter for MVCC
-    /// visibility: if a collector is _not_ provided, then it is up to the caller to filter the
-    /// results for MVCC visibility, and re-query if necessary.
+    /// If a TopKAuxiliaryCollector with a vischeck is provided, this method pre-filters for MVCC
+    /// visibility. Otherwise — no auxiliary collector, or one whose vischeck is `None` because
+    /// MVCC is solved lazily inside its aggregation collector — it is up to the caller to filter
+    /// the results for MVCC visibility, and re-query if necessary.
     ///
     /// `parallel_state_holding_shared_threshold` should only be passed if we intend to query with a shared_threshold
     ///

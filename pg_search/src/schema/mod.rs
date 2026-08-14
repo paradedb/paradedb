@@ -543,7 +543,7 @@ impl SearchIndexSchema {
     /// the decimal-bytes storage at all. Standard SQL aggregates over NUMERIC
     /// route to the DataFusion backend instead; `pdb.agg()` has no such backend
     /// and declines. Returns `false` if the field doesn't exist.
-    pub fn field_supports_aggregate(&self, name: impl AsRef<str>) -> bool {
+    pub fn supports_tantivy_aggregate(&self, name: impl AsRef<str>) -> bool {
         self.search_field(name)
             .is_some_and(|f| !f.field_type().is_numeric())
     }

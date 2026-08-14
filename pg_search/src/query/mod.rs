@@ -143,10 +143,8 @@ pub enum SearchQueryInput {
     },
 }
 
-// Keep the mutable and read-only query-tree visitors structurally identical. Rust requires
-// separate public signatures for `&mut SearchQueryInput` and `&SearchQueryInput`, but the
-// recursive enum walk itself should have one source of truth so adding a recursive variant
-// cannot update one visitor while silently skipping the other.
+// Mutable and read-only visitors need separate signatures, but share one recursive enum walk so
+// adding a query variant cannot silently update only one traversal.
 macro_rules! visit_search_query_input {
     ($query:expr, $visitor:expr, $visit_method:ident, $option_access:ident) => {{
         $visitor($query);
@@ -689,9 +687,7 @@ impl SearchQueryInput {
         visit_search_query_input!(self, visitor, visit, as_mut);
     }
 
-    /// Read-only query-tree traversal. This intentionally shares its recursive enum walk with
-    /// [`Self::visit`] so inspection-only callers do not clone query trees or maintain a second
-    /// list of recursive variants.
+    /// Read-only query-tree traversal sharing [`Self::visit`]'s recursive enum walk.
     pub fn visit_ref(&self, visitor: &mut impl FnMut(&SearchQueryInput)) {
         visit_search_query_input!(self, visitor, visit_ref, as_ref);
     }

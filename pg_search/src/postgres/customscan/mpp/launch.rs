@@ -233,25 +233,26 @@ fn run_launched_worker(state_manager: ParallelStateManager, seed_ctx: fn() -> Se
 /// combinations unrepresentable. Held only by the leader; builder-launched workers reconstruct
 /// their state from DSM and never carry this.
 #[derive(Default)]
-pub enum MppLifecycle {
+pub enum MppLifecycle<P = Vec<u8>> {
     /// Serial execution: the query didn't qualify, a fallback abandoned the launch, or
     /// teardown already reclaimed the leader state.
     #[default]
     Inactive,
-    /// Serialized logical-plan bytes, stashed at begin time. The launch uses their length to
-    /// size the DSM payload region.
-    PlanBytes(Vec<u8>),
+    /// The scan is eligible to attempt MPP on its first execution. `P` carries only the
+    /// preparation data that consumer needs: AggregateScan retains serialized plan bytes for
+    /// DSM sizing, while JoinScan uses `()` because it sizes DSM from its execute-time plan.
+    Pending(P),
     /// The workers are running dispatched fragments; carries the leader's mesh and finish
     /// handles until teardown.
     Launched(MppLeaderState),
 }
 
-impl MppLifecycle {
-    /// Consume the stashed plan bytes. Leaves `Inactive`, so a launch fallback reads as the
+impl<P> MppLifecycle<P> {
+    /// Consume the pending launch state. Leaves `Inactive`, so a launch fallback reads as the
     /// serial path from then on.
-    pub fn take_plan_bytes(&mut self) -> Option<Vec<u8>> {
+    pub fn take_pending(&mut self) -> Option<P> {
         match std::mem::take(self) {
-            MppLifecycle::PlanBytes(bytes) => Some(bytes),
+            MppLifecycle::Pending(pending) => Some(pending),
             other => {
                 *self = other;
                 None

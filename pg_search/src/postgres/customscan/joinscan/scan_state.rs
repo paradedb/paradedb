@@ -231,10 +231,10 @@ pub struct JoinScanState {
     /// before workers can open them.
     pub source_manifests: Vec<SearchIndexManifest>,
 
-    /// Where MPP sits in its launch lifecycle for this scan: plan bytes stashed at begin,
-    /// launched on first exec once the built plan's stages are committed (#5667: the plan
-    /// comes first; workers spawn only after it exists). Stays `Inactive` on the serial path.
-    pub mpp: crate::postgres::customscan::mpp::launch::MppLifecycle,
+    /// Where MPP sits in its launch lifecycle for this scan. `Pending(())` records eligibility
+    /// without retaining planning-time bytes: execution rebakes parameterized plans first and
+    /// sizes DSM from those current bytes. Stays `Inactive` on the serial path.
+    pub mpp: crate::postgres::customscan::mpp::launch::MppLifecycle<()>,
 }
 
 impl JoinScanState {
@@ -283,14 +283,11 @@ impl CustomScanState for JoinScanState {
 
 impl SolvePostgresExpressions for JoinScanState {
     fn init_search_query_input(&mut self) {
-        // base_join_clause is populated in create_custom_scan_state exactly when
-        // has_parameters()/has_postgres_expressions() below would return true, so by the time
-        // the trait's caller (prepare_query_for_execution) reaches this it should always be
-        // Some. Guard anyway rather than unwrap: if that invariant is ever violated, leaving
-        // join_clause untouched is a safe no-op, not a panic.
-        if let Some(base) = &self.base_join_clause {
-            self.join_clause = base.clone();
-        }
+        self.join_clause = self
+            .base_join_clause
+            .as_ref()
+            .expect("runtime expression solving requires a pristine JoinScan clause")
+            .clone();
     }
     fn has_postgres_expressions(&mut self) -> bool {
         self.join_clause.has_postgres_expressions()

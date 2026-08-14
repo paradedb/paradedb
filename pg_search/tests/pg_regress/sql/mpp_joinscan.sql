@@ -105,9 +105,8 @@ LIMIT 10;
 
 -- =====================================================================
 -- Pass 2: MPP path (max_parallel_workers_per_gather = 3). Same query, same results.
--- EXPLAIN tree should switch to a `Gather -> Parallel Custom Scan`
--- shape, exercising the JoinScan MPP wiring (DSM init, shm_mq mesh,
--- fragment dispatch, leader-side NetworkCoalesceExec gather).
+-- The Custom Scan should contain a DataFusion DistributedExec, exercising
+-- DSM initialization, fragment dispatch, and leader-side network coalescing.
 -- =====================================================================
 
 SET max_parallel_workers_per_gather TO 3;
@@ -184,15 +183,6 @@ BEGIN
 END $$;
 
 DROP TABLE mpp_explain_analyze_output;
-DROP FUNCTION mpp_explain_analyze_lines(text);
-
-CREATE OR REPLACE FUNCTION mpp_explain_analyze_lines(q text) RETURNS SETOF text AS $$
-DECLARE r record;
-BEGIN
-  FOR r IN EXECUTE 'EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF) ' || q LOOP
-    RETURN NEXT r."QUERY PLAN";
-  END LOOP;
-END $$ LANGUAGE plpgsql;
 
 -- =====================================================================
 -- Pass 4: MPP with heap filter
@@ -321,31 +311,26 @@ EXECUTE mpp_join_heapfilter_param(6);
 
 EXECUTE mpp_join_heapfilter_param(6);
 
-CREATE OR REPLACE FUNCTION mpp_explain_analyze_lines(q text) RETURNS SETOF text AS $$
-DECLARE r record;
-BEGIN
-  FOR r IN EXECUTE 'EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF) ' || q LOOP
-    RETURN NEXT r."QUERY PLAN";
-  END LOOP;
-END $$ LANGUAGE plpgsql;
+-- Reuse the cached generic plan with a value that changes the result set. This
+-- proves execution-time rebaking binds the current value, not the first one.
+EXECUTE mpp_join_heapfilter_param(7);
 
 SELECT count(*) > 0 AS worker_metrics_shown
 FROM mpp_explain_analyze_lines(
-  $$EXECUTE mpp_join_heapfilter_param(6)$$
+  $$EXECUTE mpp_join_heapfilter_param(7)$$
 ) AS line
 WHERE line LIKE '%output_rows%';
 
 SELECT count(*) > 0 AS distributed_exec_shown
 FROM mpp_explain_analyze_lines(
-  $$EXECUTE mpp_join_heapfilter_param(6)$$
+  $$EXECUTE mpp_join_heapfilter_param(7)$$
 ) AS line
 WHERE line LIKE '%DistributedExec%';
 
--- The custom JoinScan owns MPP execution for this path. A PostgreSQL Gather
--- above it would run a second producer path and could duplicate scanning.
-SELECT count(*) = 0 AS postgres_gather_present
+-- JoinScan owns MPP execution; PostgreSQL must not add a second Gather path.
+SELECT count(*) = 0 AS no_postgres_gather
 FROM mpp_explain_analyze_lines(
-  $$EXECUTE mpp_join_heapfilter_param(6)$$
+  $$EXECUTE mpp_join_heapfilter_param(7)$$
 ) AS line
 WHERE line LIKE '%Gather%';
 
@@ -357,6 +342,13 @@ SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section'
   AND length(f.title) > 6
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+  AND length(f.title) > 7
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
 SET paradedb.enable_mpp TO on;
@@ -398,6 +390,16 @@ WHERE f.content @@@ (SELECT content FROM mpp_join_files ORDER BY id LIMIT 1)
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
+-- Execute the identical InitPlan query serially so the expected output directly
+-- checks MPP/serial result equivalence, not only MPP worker activity.
+SET paradedb.enable_mpp TO off;
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ (SELECT content FROM mpp_join_files ORDER BY id LIMIT 1)
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+SET paradedb.enable_mpp TO on;
+
 -- =====================================================================
 -- Pass 10: MPP with two parameterized source queries (review: mithuncy)
 --
@@ -423,9 +425,12 @@ LIMIT 5;
 
 EXECUTE mpp_join_two_source_params(6, 6);
 
+-- Change both source-local parameter values under the same generic plan.
+EXECUTE mpp_join_two_source_params(7, 21);
+
 SELECT count(*) > 0 AS distributed_exec_shown
 FROM mpp_explain_analyze_lines(
-  $$EXECUTE mpp_join_two_source_params(6, 6)$$
+  $$EXECUTE mpp_join_two_source_params(7, 21)$$
 ) AS line
 WHERE line LIKE '%DistributedExec%';
 
@@ -448,15 +453,18 @@ SELECT f.id AS file_id, p.id AS page_id
 FROM mpp_join_files f
 JOIN mpp_join_pages p ON f.id = p.file_id
 WHERE f.content @@@ $1
-   OR p.page_text @@@ 'Page'
+   OR p.page_text @@@ 'zzzznotpresent'
 ORDER BY f.id, p.id
 LIMIT 5;
 
-EXECUTE mpp_join_level_param('does-not-match');
+EXECUTE mpp_join_level_param('1');
+
+-- Rebind the join-level predicate to a value with a different result set.
+EXECUTE mpp_join_level_param('101');
 
 SELECT count(*) > 0 AS distributed_exec_shown
 FROM mpp_explain_analyze_lines(
-  $$EXECUTE mpp_join_level_param('does-not-match')$$
+  $$EXECUTE mpp_join_level_param('101')$$
 ) AS line
 WHERE line LIKE '%DistributedExec%';
 

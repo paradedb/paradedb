@@ -820,7 +820,7 @@ impl AggregateScan {
     }
 
     /// Serialize the leader's logical plan (already on `df_state`) and move the MPP lifecycle
-    /// to `PlanBytes`. `launch_mpp` uses the byte length to size the DSM payload region; the
+    /// to `Pending`. `launch_mpp` uses the byte length to size the DSM payload region; the
     /// dispatched stage plans themselves are derived later, from the leader's physical plan.
     fn stash_mpp_plan_bytes(state: &mut CustomScanStateWrapper<Self>) {
         // Capture source manifests BEFORE building the logical plan.
@@ -879,7 +879,7 @@ impl AggregateScan {
                 return;
             }
         };
-        df_state.mpp = MppLifecycle::PlanBytes(bytes.to_vec());
+        df_state.mpp = MppLifecycle::Pending(bytes.to_vec());
     }
 
     /// Plan-first MPP launch (#5667). Called with the leader's already-built physical plan:
@@ -1533,7 +1533,7 @@ impl AggregateScan {
             .custom_state_mut()
             .datafusion_state
             .as_mut()
-            .and_then(|d| d.mpp.take_plan_bytes());
+            .and_then(|d| d.mpp.take_pending());
 
         // First call: build and execute the DataFusion plan
         if first_call {

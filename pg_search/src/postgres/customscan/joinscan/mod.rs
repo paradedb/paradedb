@@ -861,12 +861,12 @@ impl JoinScan {
     /// First-exec solve of Param/SubPlan-backed expressions on the leader, rebaking the
     /// logical plan afterward so the bytes used for planning (both MPP dispatch and the
     /// leader's own execution) are fully resolved. Called before `build_plan` in
-    /// `exec_custom_scan`, ahead of the plan-first MPP launch (#5667). Returns `false` when a
-    /// resolved plan could not be rebaked; the caller should abort rather than plan from bytes
-    /// with unresolved expressions.
-    fn maybe_solve_and_rebake(state: &mut CustomScanStateWrapper<Self>) -> bool {
+    /// `exec_custom_scan`, ahead of the plan-first MPP launch (#5667). Rebaking is required once
+    /// expressions have been solved: failures abort at the operation that violated the invariant
+    /// rather than being represented as a recoverable absence of plan bytes.
+    fn maybe_solve_and_rebake(state: &mut CustomScanStateWrapper<Self>) {
         if !Self::source_queries_need_executor_state(&state.custom_state().join_clause) {
-            return true;
+            return;
         }
 
         let planstate = state.planstate();
@@ -876,20 +876,10 @@ impl JoinScan {
             .custom_state_mut()
             .prepare_query_for_execution(planstate, expr_context);
 
-        match unsafe { Self::rebake_for_mpp(state) } {
-            Some(bytes) => {
-                // Keep the leader's own execution in sync with what's dispatched to workers:
-                // exec_custom_scan's build_plan closure deserializes this same field.
-                state.custom_state_mut().logical_plan = Some(bytes::Bytes::from(bytes));
-                true
-            }
-            None => {
-                // Could not rebake a resolved plan (e.g. nodeToString/stringToNode round-trip
-                // failure). Caller aborts rather than plan from bytes with unresolved
-                // expressions.
-                false
-            }
-        }
+        let bytes = unsafe { Self::rebake_for_mpp(state) };
+        // Keep the leader's own execution in sync with what's dispatched to workers:
+        // exec_custom_scan's build_plan closure deserializes this same field.
+        state.custom_state_mut().logical_plan = Some(bytes::Bytes::from(bytes));
     }
 
     /// Plan-first MPP launch (#5667). Called with the leader's already-built physical plan:
@@ -920,31 +910,25 @@ impl JoinScan {
     /// Re-bake the DataFusion logical plan from the current (post-solve) `join_clause`, so the
     /// plan bytes used for dispatch and for the leader's own execution have every
     /// Param/SubPlan-backed `SearchQueryInput` fully resolved.
-    unsafe fn rebake_for_mpp(state: &mut CustomScanStateWrapper<Self>) -> Option<Vec<u8>> {
+    unsafe fn rebake_for_mpp(state: &mut CustomScanStateWrapper<Self>) -> Vec<u8> {
         Self::rebake_from_custom_exprs_string(state, false)
     }
 
-    /// Re-bake with `mpp_source_idx` forced to `None` on every source, for the short-launch
-    /// decline path (`launch_mpp` returns `None`: nothing to distribute, no workers survived
-    /// commit). The bytes already deserialized for the MPP attempt (via `plan_ctx` /
-    /// `build_mpp_session_context`) were baked while `mpp_is_active()` was true, so every
-    /// source carries `Some(source_idx)` — physically replanning with a serial session context
-    /// (as the caller already does) does NOT change that, because `source_idx` lives in the
-    /// *logical* plan bytes, fixed at bake time, not re-derived during physical planning. A
-    /// declined launch has no DSM/`parallel_state` for the per-source claim protocol those
-    /// `Some(source_idx)` sources expect, so without this the executor panics ("per-source
-    /// claim needs 'parallel_state' installed"). See review discussion on #5511 (mdashti).
-    unsafe fn rebake_for_mpp_fallback(state: &mut CustomScanStateWrapper<Self>) -> Option<Vec<u8>> {
+    /// Re-bake with `mpp_source_idx` forced to `None` on every source after a short-launch
+    /// decline. Physical replanning does not rewrite provider metadata already serialized in
+    /// the logical plan, so the serial fallback needs its own logical shape.
+    unsafe fn rebake_for_mpp_fallback(state: &mut CustomScanStateWrapper<Self>) -> Vec<u8> {
         Self::rebake_from_custom_exprs_string(state, true)
     }
 
     unsafe fn rebake_from_custom_exprs_string(
         state: &mut CustomScanStateWrapper<Self>,
         force_serial: bool,
-    ) -> Option<Vec<u8>> {
+    ) -> Vec<u8> {
         let custom_exprs: *mut pg_sys::List = match &state.custom_state().custom_exprs_string {
             Some(s) => {
-                let cstr = std::ffi::CString::new(s.as_str()).ok()?;
+                let cstr = std::ffi::CString::new(s.as_str())
+                    .expect("nodeToString snapshot cannot contain an interior NUL");
                 pg_sys::stringToNode(cstr.as_ptr()).cast()
             }
             None => std::ptr::null_mut(),
@@ -954,7 +938,10 @@ impl JoinScan {
         private_data.output_columns = state.custom_state().output_columns.clone();
 
         bake_logical_plan(&mut private_data, custom_exprs, force_serial);
-        private_data.logical_plan.map(|b| b.to_vec())
+        private_data
+            .logical_plan
+            .expect("rebaking must produce serialized logical plan bytes")
+            .to_vec()
     }
 
     /// Join the MPP producer workers and destroy the parallel context once nothing
@@ -978,7 +965,6 @@ impl JoinScan {
         };
         if finish.is_some() {
             let cs = state.custom_state_mut();
-            cs.datafusion_stream = None;
             cs.current_batch = None;
             cs.physical_plan = None;
             cs.runtime = None;
@@ -1373,21 +1359,15 @@ impl CustomScan for JoinScan {
                 state.custom_state_mut().result_slot = Some(state.csstate.ss.ps.ps_ResultTupleSlot);
                 state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
             }
-            // MPP: stash the leader's serialized logical plan for the first exec call, which
-            // deserializes it to build the physical plan and uses its length to size the DSM
-            // dispatch-payload region (`dispatch_plan_capacity`). Only the leader runs this
-            // branch (`ParallelWorkerNumber == -1`); workers receive per-stage physical
-            // subplans over the mesh, never these bytes.
-            //
-            // Queries with unresolved Param/SubPlan-backed SearchQueryInputs are not excluded
-            // here: exec_custom_scan resolves and rebakes them on the leader (via
-            // maybe_solve_and_rebake) before this stashed plan is deserialized, so by the time
-            // it's read the bytes are fully resolved either way.
+            // Record that the leader should attempt MPP on first execution. JoinScan retains no
+            // planning-time bytes here: exec_custom_scan first resolves and rebakes runtime
+            // expressions, then sizes DSM from that current plan. Workers receive per-stage
+            // physical fragments over the mesh, never these logical bytes.
             if mpp_is_active()
                 && unsafe { pg_sys::ParallelWorkerNumber } == -1
-                && let Some(bytes) = state.custom_state().logical_plan.clone()
+                && state.custom_state().logical_plan.is_some()
             {
-                state.custom_state_mut().mpp = MppLifecycle::PlanBytes(bytes.to_vec());
+                state.custom_state_mut().mpp = MppLifecycle::Pending(());
             }
         }
     }
@@ -1395,18 +1375,13 @@ impl CustomScan for JoinScan {
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         let relaunch_mpp = matches!(
             &state.custom_state().mpp,
-            MppLifecycle::PlanBytes(_) | MppLifecycle::Launched(_)
+            MppLifecycle::Pending(()) | MppLifecycle::Launched(_)
         );
         Self::finish_mpp_execution(state);
         state.custom_state_mut().relations.clear();
         state.custom_state_mut().reset();
         if relaunch_mpp {
-            let bytes = state
-                .custom_state()
-                .logical_plan
-                .clone()
-                .expect("MPP rescan requires logical plan bytes");
-            state.custom_state_mut().mpp = MppLifecycle::PlanBytes(bytes.to_vec());
+            state.custom_state_mut().mpp = MppLifecycle::Pending(());
         }
     }
 
@@ -1416,16 +1391,11 @@ impl CustomScan for JoinScan {
             if state.custom_state().datafusion_stream.is_none() {
                 // Solve any Param/SubPlan-backed SearchQueryInputs on the leader and rebake the
                 // logical plan before it's cloned/deserialized below, so both `join_clause` and
-                // `plan_bytes` reflect the resolved query. Must run ahead of the MPP dispatch
-                // stash in begin_custom_scan being read back (mpp.take_plan_bytes below) and
-                // ahead of plan_bytes being cloned, or a stale unresolved plan gets planned/
-                // dispatched. A `false` return means rebaking failed; abort rather than plan
-                // from bytes with unresolved expressions still inside.
-                if !Self::maybe_solve_and_rebake(state) {
-                    pgrx::error!(
-                        "mpp: failed to rebake logical plan after solving postgres expressions"
-                    );
-                }
+                // `plan_bytes` reflect the resolved query. Must run before the pending MPP
+                // marker is consumed below and before plan_bytes is cloned, or a stale unresolved
+                // plan gets planned/dispatched. Rebake failures are invariant violations and
+                // abort at their source rather than falling back to unresolved bytes.
+                Self::maybe_solve_and_rebake(state);
 
                 let runtime = tokio::runtime::Builder::new_current_thread()
                     .build()
@@ -1516,13 +1486,13 @@ impl CustomScan for JoinScan {
                             .expect("Failed to create execution plan")
                     };
 
-                let mpp_plan_bytes = state.custom_state_mut().mpp.take_plan_bytes();
+                let mpp_pending = state.custom_state_mut().mpp.take_pending();
                 // Leader session context: on an MPP attempt, layer the DF-D fork's
                 // distributed-planner knobs over the Join profile so the resulting physical
                 // plan is a `DistributedExec`, with `producer_worker_cap()` acting as the
                 // planner's ceiling. The mesh and the dispatch source are execute-time
                 // concerns; the exec session below carries them once the workers are committed.
-                let plan_ctx = if mpp_plan_bytes.is_some() {
+                let plan_ctx = if mpp_pending.is_some() {
                     Self::build_mpp_session_context(None)
                 } else {
                     create_datafusion_session_context(SessionContextProfile::Join)
@@ -1534,8 +1504,8 @@ impl CustomScan for JoinScan {
                 // On a launch fallback (nothing to distribute, or too few attached workers) no
                 // workers remain and the `DistributedExec` shape has no mesh to read from, so
                 // replan serially.
-                let (ctx, plan) = match mpp_plan_bytes {
-                    Some(_) => match Self::launch_mpp(state, &plan, plan_bytes.len()) {
+                let (ctx, plan) = match mpp_pending {
+                    Some(()) => match Self::launch_mpp(state, &plan, plan_bytes.len()) {
                         Some(leader) => {
                             let source = crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::default();
                             let exec_ctx = Self::build_mpp_session_context(Some(Arc::clone(
@@ -1551,23 +1521,12 @@ impl CustomScan for JoinScan {
                             (exec_ctx, plan)
                         }
                         None => {
-                            // Short-launch decline: launch_mpp returned None because nothing
-                            // survived commit (no producers launched). The bytes deserialized
-                            // above still carry `Some(source_idx)` on every source — baked in
-                            // at bake_logical_plan time from the global mpp_is_active() budget
-                            // check, not from whether *this* attempt actually got workers — so
-                            // simply replanning physically with a serial session context (as
-                            // before) doesn't clear it: source_idx lives in the logical plan
-                            // bytes, unaffected by which SessionContext builds the physical
-                            // plan from them. Re-bake a genuinely serial-shaped logical plan
-                            // instead, so the per-source claim protocol those Some(source_idx)
-                            // sources expect isn't invoked without a parallel_state/DSM to
-                            // claim against.
+                            // Short-launch decline: rebuild the logical plan with serial provider
+                            // metadata. Merely changing SessionContext would replan the existing
+                            // MPP-shaped logical providers without rewriting their source fields.
                             let serial_ctx =
                                 create_datafusion_session_context(SessionContextProfile::Join);
-                            let fallback_bytes = Self::rebake_for_mpp_fallback(state).expect(
-                                "failed to rebake a serial-shaped plan for MPP short-launch fallback",
-                            );
+                            let fallback_bytes = Self::rebake_for_mpp_fallback(state);
                             let logical_plan = deserialize_logical_plan_with_runtime(
                                 &fallback_bytes,
                                 &serial_ctx.task_ctx(),
@@ -1955,13 +1914,8 @@ unsafe fn build_output_projection(
 /// it during scan startup.
 ///
 /// `force_serial`: when `true`, every source is baked with `mpp_source_idx = None`
-/// regardless of the global `mpp_is_active()` budget check. Used by
-/// `rebake_for_mpp_fallback` to produce a genuinely serial-shaped plan for the
-/// short-launch-decline path — `mpp_is_active()` reflects the cluster's static worker
-/// budget, not whether *this* attempt actually launched workers, so without this override
-/// a declined launch still bakes `Some(source_idx)` and the executor later panics looking
-/// for a `parallel_state`/DSM that was never installed (see `maybe_prepare_mpp`'s old
-/// two-phase design notes and review discussion on #5511).
+/// regardless of the global `mpp_is_active()` budget check. A short-launch decline must rebuild
+/// this logical metadata because choosing a serial physical planner does not rewrite it.
 fn bake_logical_plan(
     private_data: &mut PrivateData,
     custom_exprs: *mut pg_sys::List,

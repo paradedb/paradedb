@@ -29,8 +29,8 @@ RUN set -eux; \
         postgresql-17-pgvector=0.8.5-1.pgdg13+1 \
         postgresql-17-cron=1.6.7-3.pgdg13+1 \
         postgresql-17-pg-ivm=1.13-1.pgdg13+1 \
-        postgresql-17-postgis-$POSTGIS_VERSION_MAJOR \
-        postgresql-17-postgis-$POSTGIS_VERSION_MAJOR-scripts; \
+        postgresql-17-postgis-$POSTGIS_VERSION_MAJOR=3.6.4+dfsg-2.pgdg13+1 \
+        postgresql-17-postgis-$POSTGIS_VERSION_MAJOR-scripts=3.6.4+dfsg-2.pgdg13+1; \
     rm /etc/apt/sources.list.d/pgdg-archive.list; \
     rm -rf /var/lib/apt/lists/*
 

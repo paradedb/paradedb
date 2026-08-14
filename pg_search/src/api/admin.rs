@@ -479,11 +479,7 @@ fn vector_info(
 }
 
 /// Per-cluster posting-list sizes for a single vector `field` of `index`, one
-/// row per segment that stores that field, in cluster order. The full
-/// distribution behind [`vector_info`]'s min/avg/max aggregates, for callers
-/// that want percentiles or histograms. `cluster_sizes` is NULL for flat
-/// segments; sizes count posting rows, so under replication their sum exceeds
-/// the segment's distinct-doc count.
+/// row per segment that stores that field, in cluster order.
 #[pg_extern]
 fn vector_cluster_sizes(
     index: PgRelation,

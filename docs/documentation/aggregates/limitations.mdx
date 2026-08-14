@@ -120,24 +120,3 @@ ParadeDB falls back to native Postgres execution when any of the following are t
 - The query uses `pdb.agg()` (use standard SQL aggregate functions instead)
 
 When a fallback happens, the query still runs correctly through Postgres' native planner. ParadeDB simply does not accelerate it.
-
-
-## NUMERIC Columns
-
-`SUM`, `AVG`, `MIN`, `MAX`, and `COUNT` push down for `NUMERIC(p, s)` columns of any precision, including high-precision columns like `NUMERIC(78, 0)`. Results are exact and match Postgres, including `NaN` handling.
-
-```sql
--- Aggregates push down for any declared precision
-CREATE TABLE transfers (
-    id SERIAL PRIMARY KEY,
-    amount NUMERIC(78,0)
-);
-```
-
-The following shapes fall back to Postgres for aggregation:
-
-- Columns declared as unbounded `NUMERIC` (no precision and scale). Declare a precision and scale to enable pushdown. `COUNT` on such a column still pushes down, but a `GROUP BY` on it declines the whole query.
-- `HAVING` over a `NUMERIC` aggregate
-- `SUM(DISTINCT ...)` / `AVG(DISTINCT ...)` on `NUMERIC` columns
-- `STDDEV`, `VARIANCE`, and other statistical aggregates on `NUMERIC` columns
-- `pdb.agg()` on `NUMERIC` fields (use standard SQL aggregate functions instead)

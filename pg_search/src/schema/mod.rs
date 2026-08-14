@@ -511,6 +511,16 @@ impl SearchIndexSchema {
             .get_field_type(&FieldName::from(name.as_ref()))
     }
 
+    /// The field type of `name` when the column is NUMERIC, else `None`.
+    ///
+    /// Callers use the variant to pick the storage-specific aggregate and
+    /// [`SearchFieldType::numeric_scale`] to render results at the column's
+    /// declared scale.
+    pub fn numeric_field_type(&self, name: impl AsRef<str>) -> Option<SearchFieldType> {
+        self.get_field_type(name)
+            .filter(SearchFieldType::is_numeric)
+    }
+
     pub fn search_field(&self, name: impl AsRef<str>) -> Option<SearchField> {
         let field_name = FieldName::from(name.as_ref());
         match self.schema.get_field(&field_name.root()) {

@@ -584,10 +584,9 @@ async fn process_index_creation(args: &BenchmarkArgs) -> anyhow::Result<Vec<Inde
     Ok(results)
 }
 
-/// Run an optional per-dataset setup file (`datasets/{dataset}/{stem}.sql`).
-async fn process_setup_sql(args: &BenchmarkArgs, stem: &str) -> anyhow::Result<()> {
-    let setup_sql = format!("datasets/{}/{stem}.sql", args.dataset);
-    if !Path::new(&setup_sql).exists() {
+async fn process_after_create_index_sql(args: &BenchmarkArgs) -> anyhow::Result<()> {
+    let after_create_index_sql = format!("datasets/{}/after_create_index.sql", args.dataset);
+    if !Path::new(&after_create_index_sql).exists() {
         return Ok(());
     }
 
@@ -596,7 +595,7 @@ async fn process_setup_sql(args: &BenchmarkArgs, stem: &str) -> anyhow::Result<(
         .with_context(|| "Failed to connect to database")?;
 
     // Resolve `{{ params }}` (e.g. probes, sized to the dataset) and run each statement.
-    let statements = queries(Path::new(&setup_sql));
+    let statements = queries(Path::new(&after_create_index_sql));
     let params =
         resolve_template_params(&mut conn, &args.dataset, args.size.as_deref(), &statements)
             .await?;
@@ -607,22 +606,10 @@ async fn process_setup_sql(args: &BenchmarkArgs, stem: &str) -> anyhow::Result<(
             .await
             .with_context(|| {
                 let preview: String = statement.chars().take(60).collect();
-                format!("Failed to run {stem} statement: {preview}")
+                format!("Failed to run after_create_index statement: {preview}")
             })?;
     }
     Ok(())
-}
-
-/// Schema amendments that must exist before the index builds. Restored heap
-/// snapshots can predate additions in `create_tables.sql`; this hook lets a
-/// dataset backfill them without the statements landing in the per-statement
-/// index-creation metrics.
-async fn process_before_create_index_sql(args: &BenchmarkArgs) -> anyhow::Result<()> {
-    process_setup_sql(args, "before_create_index").await
-}
-
-async fn process_after_create_index_sql(args: &BenchmarkArgs) -> anyhow::Result<()> {
-    process_setup_sql(args, "after_create_index").await
 }
 
 /// Database-level GUC holding the query vector that every query file orders by.
@@ -1236,7 +1223,6 @@ async fn generate_markdown_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
     write_test_info(&mut file, args).await?;
     write_postgres_settings(&mut file, &args.url).await?;
     if !args.skip_index {
-        process_before_create_index_sql(args).await?;
         process_index_creation_md(&mut file, args).await?;
         process_after_create_index_sql(args).await?;
     }
@@ -1248,7 +1234,6 @@ async fn generate_csv_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
     write_test_info_csv(args).await?;
     write_postgres_settings_csv(&args.url).await?;
     if !args.skip_index {
-        process_before_create_index_sql(args).await?;
         process_index_creation_csv(args).await?;
         process_after_create_index_sql(args).await?;
     }
@@ -1260,7 +1245,6 @@ async fn generate_json_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
     // Index and query metrics share one results.json, so the publish step reports them as one set.
     let mut results = Vec::new();
     if !args.skip_index {
-        process_before_create_index_sql(args).await?;
         results.extend(
             process_index_creation(args)
                 .await?

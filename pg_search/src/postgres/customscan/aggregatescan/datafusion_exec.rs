@@ -27,7 +27,7 @@
 use super::join_targetlist::AggOrderByEntry;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
-    AggKind, JoinAggregateEntry, JoinAggregateTargetList, NumericAggStorage,
+    AggKind, JoinAggregateEntry, JoinAggregateTargetList,
 };
 use crate::postgres::customscan::aggregatescan::privdat::{CompareOp, DataFusionTopK, FilterExpr};
 use crate::postgres::customscan::datafusion::numeric_agg::{
@@ -44,6 +44,7 @@ use crate::postgres::customscan::joinscan::scan_state::{
     SessionContextProfile, create_datafusion_session_context, register_source_table,
 };
 use crate::scan::PgSearchTableProvider;
+use crate::schema::SearchFieldType;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::functions_aggregate::array_agg::array_agg_udaf;
 use datafusion::functions_aggregate::count::count_udaf;
@@ -685,9 +686,9 @@ fn agg_field_col(agg: &JoinAggregateEntry, plan: &RelNode) -> Result<Expr> {
 /// SUM/AVG expression for a NUMERIC column. The scaled-Int64 UDAFs take the
 /// scale as a plan literal so it survives plan serialization for parallel and
 /// MPP execution; decimal-bytes values are self-describing.
-fn numeric_agg_expr(storage: &NumericAggStorage, col: Expr, is_avg: bool) -> Expr {
-    let (udaf, args) = match storage {
-        NumericAggStorage::Numeric64 { scale } => {
+fn numeric_agg_expr(field_type: &SearchFieldType, col: Expr, is_avg: bool) -> Expr {
+    let (udaf, args) = match field_type {
+        SearchFieldType::Numeric64(_, scale) => {
             let udaf = if is_avg {
                 numeric64_avg_udaf()
             } else {
@@ -695,7 +696,7 @@ fn numeric_agg_expr(storage: &NumericAggStorage, col: Expr, is_avg: bool) -> Exp
             };
             (udaf, vec![col, lit(*scale as i32)])
         }
-        NumericAggStorage::NumericBytes { .. } => {
+        SearchFieldType::NumericBytes(..) => {
             let udaf = if is_avg {
                 numeric_bytes_avg_udaf()
             } else {
@@ -703,6 +704,7 @@ fn numeric_agg_expr(storage: &NumericAggStorage, col: Expr, is_avg: bool) -> Exp
             };
             (udaf, vec![col])
         }
+        other => unreachable!("numeric aggregate reached execution with {other:?}"),
     };
     Expr::AggregateFunction(AggregateFunction::new_udf(
         udaf,

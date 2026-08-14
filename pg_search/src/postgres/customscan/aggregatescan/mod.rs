@@ -250,8 +250,14 @@ impl CustomScan for AggregateScan {
                         || build::has_aggregate_orderby_with_limit(builder.args())
                         // NUMERIC aggregates and NUMERIC group keys only work on
                         // the DataFusion backend: Tantivy aggregations compute in
-                        // f64 and cannot read the decimal-bytes storage. pdb.agg()
-                        // stays on the Tantivy path, which rejects NUMERIC fields.
+                        // f64 and cannot read the decimal-bytes storage.
+                        //
+                        // `pdb.agg()` is excluded because its argument is a
+                        // Tantivy aggregation spec, and only the Tantivy backend
+                        // can execute that JSON. Routing it here would produce a
+                        // plan with no way to run the spec. A `pdb.agg()` over a
+                        // NUMERIC field therefore keeps declining until the spec
+                        // gains a DataFusion translation.
                         || (!has_paradedb_agg
                             && build::has_numeric_aggregate_or_group(builder.args()))
                 };

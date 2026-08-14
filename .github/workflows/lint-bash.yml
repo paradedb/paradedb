@@ -74,7 +74,10 @@ jobs:
             else
               echo "[strict mode -> NOT FOUND] $file" && exit 1
             fi
-          done < <(find . -name '*.sh')
+            # bootstrap_official uses sh not bash, so it doesn't support pipefail. I don't want to
+            # clutter it with a skip annotation since its part of Docker Official Images, so it's
+            # ignored here in CI instead.
+          done < <(find . -name '*.sh' ! -path './docker/bootstrap_official.sh')
 
       - name: Run ShellCheck
         run: |

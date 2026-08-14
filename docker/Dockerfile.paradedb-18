@@ -15,7 +15,7 @@ RUN set -eux; \
     echo "${checksum} */tmp/pg_search.deb" | sha256sum --strict --check -; \
     apt-get install -y --no-install-recommends /tmp/pg_search.deb; \
     rm /tmp/pg_search.deb; \
-    rm -rf /var/lib/apt/lists/*
+    apt-get dist-clean
 
 # Install Barman Cloud and its dependencies for Azure, Google, and AWS via `pip`, and clean up after the installation to
 # minimize the size of the image. These are required for enabling Postgres backups in our CloudNativePG deployments.
@@ -26,7 +26,7 @@ RUN set -eux; \
     pip3 install --no-cache-dir 'setuptools==82.0.1' 'barman[cloud,azure,snappy,google]==3.18.0'; \
     apt-get remove -y python3-dev python3-pip --purge; \
     apt-get autoremove -y; \
-    rm -rf /var/lib/apt/lists/*; \
+    apt-get dist-clean; \
     find /usr/lib | grep -E "(/__pycache__$|\.pyc$|\.pyo$)" | xargs rm -rf; \
     find /usr/local | grep -E "(/__pycache__$|\.pyc$|\.pyo$)" | xargs rm -rf; \
     find /var/cache -type f -exec truncate --size 0 {} \;; \
@@ -46,8 +46,7 @@ RUN set -eux; \
         postgresql-18-pg-ivm=1.13-1.pgdg13+1 \
         postgresql-18-postgis-$POSTGIS_VERSION_MAJOR=3.6.4+dfsg-2.pgdg13+1 \
         postgresql-18-postgis-$POSTGIS_VERSION_MAJOR-scripts=3.6.4+dfsg-2.pgdg13+1; \
-    rm /etc/apt/sources.list.d/pgdg-archive.list; \
-    rm -rf /var/lib/apt/lists/*
+    apt-get dist-clean
 
 # The postgresql.conf.sample file is used as a template for the postgresql.conf file, which
 # does not exist until the first time the container is started. By adding our settings to the

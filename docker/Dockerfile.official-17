@@ -15,7 +15,7 @@ RUN set -eux; \
     echo "${checksum} */tmp/pg_search.deb" | sha256sum --strict --check -; \
     apt-get install -y --no-install-recommends /tmp/pg_search.deb; \
     rm /tmp/pg_search.deb; \
-    rm -rf /var/lib/apt/lists/*
+    apt-get dist-clean
 
 # Install core extensions
 # Use the PGDG archive so these pinned extension versions remain available after newer
@@ -31,8 +31,7 @@ RUN set -eux; \
         postgresql-17-pg-ivm=1.13-1.pgdg13+1 \
         postgresql-17-postgis-$POSTGIS_VERSION_MAJOR=3.6.4+dfsg-2.pgdg13+1 \
         postgresql-17-postgis-$POSTGIS_VERSION_MAJOR-scripts=3.6.4+dfsg-2.pgdg13+1; \
-    rm /etc/apt/sources.list.d/pgdg-archive.list; \
-    rm -rf /var/lib/apt/lists/*
+    apt-get dist-clean
 
 # The postgresql.conf.sample file is used as a template for the postgresql.conf file, which
 # does not exist until the first time the container is started. By adding our settings to the

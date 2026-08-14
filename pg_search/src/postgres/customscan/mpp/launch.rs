@@ -238,8 +238,9 @@ pub enum MppLifecycle {
     /// teardown already reclaimed the leader state.
     #[default]
     Inactive,
-    /// Serialized logical-plan bytes, stashed at begin time. The launch uses their length to
-    /// size the DSM payload region.
+    /// Serialized logical-plan bytes retained while an MPP launch is pending. AggregateScan uses
+    /// their length for DSM sizing; JoinScan treats only the variant as the pending marker and
+    /// sizes DSM from its freshly rebound execute-time plan.
     PlanBytes(Vec<u8>),
     /// The workers are running dispatched fragments; carries the leader's mesh and finish
     /// handles until teardown.

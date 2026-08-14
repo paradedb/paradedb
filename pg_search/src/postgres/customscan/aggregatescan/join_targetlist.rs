@@ -57,13 +57,6 @@ fn find_source_by_rti<'a>(
     })
 }
 
-/// Qualified column name for decline messages, so a planner warning names the
-/// column instead of an (RTI, attno) pair the user can't act on.
-fn source_column_label(source: &JoinAggSource, attno: pg_sys::AttrNumber) -> String {
-    let alias = RelationAlias::new(source.alias.as_deref()).display(source.rti as usize);
-    get_attname_safe(Some(source.relid), attno, &alias)
-}
-
 /// Simplified aggregate classification for the DataFusion backend.
 /// Unlike `AggregateType` (Tantivy-oriented), this enum is lightweight and maps
 /// directly to DataFusion aggregate expressions.
@@ -127,30 +120,6 @@ pub struct JoinGroupColumn {
     /// with the column's display scale.
     #[serde(default)]
     pub numeric_scale: Option<i16>,
-}
-
-/// The field type of a NUMERIC column, or `None` for anything else. Legacy
-/// indexes that store NUMERIC as F64 land in the `None` arm too: their column
-/// data really is `Float64`, so the native aggregates apply.
-fn numeric_field_type(source: &JoinAggSource, field_name: &str) -> Option<SearchFieldType> {
-    let schema = source.bm25_index.as_ref()?.schema().ok()?;
-    schema.numeric_field_type(field_name)
-}
-
-/// Display scale for a NUMERIC GROUP BY column. Grouping compares the stored
-/// representation, which is order- and equality-preserving for both NUMERIC
-/// storages, but rendering the keys needs the declared scale. Unbounded
-/// NUMERIC drops per-value display scale at index time, so it declines.
-fn numeric_group_scale(source: &JoinAggSource, field_name: &str) -> Result<Option<i16>, String> {
-    let Some(field_type) = numeric_field_type(source, field_name) else {
-        return Ok(None);
-    };
-    field_type.numeric_scale().map(Some).ok_or_else(|| {
-        format!(
-            "GROUP BY column {field_name} is an unbounded NUMERIC; declare a precision and \
-             scale to enable aggregate pushdown"
-        )
-    })
 }
 
 /// The NUMERIC field type an aggregate has to handle, or `None` when the
@@ -358,9 +327,11 @@ pub unsafe fn extract_aggregate_targetlist(
             let source = find_source_by_rti(sources, rti, "GROUP BY column")?;
 
             let field_name = source.column_name(attno).ok_or_else(|| {
+                let alias =
+                    RelationAlias::new(source.alias.as_deref()).display(source.rti as usize);
                 format!(
                     "GROUP BY column {} is not indexed as a fast field",
-                    source_column_label(source, attno)
+                    get_attname_safe(Some(source.relid), attno, &alias)
                 )
             })?;
 
@@ -373,7 +344,13 @@ pub unsafe fn extract_aggregate_targetlist(
                     )
                 })?;
 
-            let numeric_scale = numeric_group_scale(source, &field_name)?;
+            let numeric_scale = source
+                .bm25_index
+                .as_ref()
+                .and_then(|i| i.schema().ok())
+                .map(|s| s.numeric_group_scale(&field_name))
+                .transpose()?
+                .flatten();
 
             group_columns.push(JoinGroupColumn {
                 plan_position,
@@ -409,10 +386,13 @@ pub unsafe fn extract_aggregate_targetlist(
             // sub-PlannerInfos; their fields are JSON paths, never NUMERIC.
             // Bare NUMERIC columns are plain Vars and take the branch above,
             // which propagates the lookup failure.
-            let numeric_scale = match find_source_by_rti(sources, rti, "GROUP BY expression") {
-                Ok(source) => numeric_group_scale(source, &field_name)?,
-                Err(_) => None,
-            };
+            let numeric_scale = find_source_by_rti(sources, rti, "GROUP BY expression")
+                .ok()
+                .and_then(|source| source.bm25_index.as_ref())
+                .and_then(|i| i.schema().ok())
+                .map(|s| s.numeric_group_scale(&field_name))
+                .transpose()?
+                .flatten();
 
             group_columns.push(JoinGroupColumn {
                 plan_position,
@@ -583,9 +563,10 @@ unsafe fn extract_aggref_field_refs(
         let source = find_source_by_rti(sources, rti, "aggregate argument")?;
 
         let field_name = source.column_name(attno).ok_or_else(|| {
+            let alias = RelationAlias::new(source.alias.as_deref()).display(source.rti as usize);
             format!(
                 "aggregate argument {} is not indexed as a fast field",
-                source_column_label(source, attno)
+                get_attname_safe(Some(source.relid), attno, &alias)
             )
         })?;
 
@@ -598,7 +579,12 @@ unsafe fn extract_aggref_field_refs(
                 )
             })?;
 
-        let numeric = numeric_field_type(source, &field_name);
+        let numeric = source
+            .bm25_index
+            .as_ref()
+            .and_then(|i| i.schema().ok())
+            .and_then(|s| s.numeric_field_type(&field_name))
+            .map(|(field_type, _)| field_type);
 
         refs.push(JoinAggColRef {
             plan_position,

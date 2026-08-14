@@ -511,14 +511,38 @@ impl SearchIndexSchema {
             .get_field_type(&FieldName::from(name.as_ref()))
     }
 
-    /// The field type of `name` when the column is NUMERIC, else `None`.
+    /// The field type and declared scale of `name` when the column is NUMERIC,
+    /// else `None`. Legacy indexes that store NUMERIC as F64 land in the `None`
+    /// arm too: their column data really is `Float64`, so the native aggregates
+    /// apply.
     ///
-    /// Callers use the variant to pick the storage-specific aggregate and
-    /// [`SearchFieldType::numeric_scale`] to render results at the column's
-    /// declared scale.
-    pub fn numeric_field_type(&self, name: impl AsRef<str>) -> Option<SearchFieldType> {
+    /// Callers use the variant to pick the storage-specific aggregate and the
+    /// scale to render results at the column's declared scale; `None` scale
+    /// means the column is an unbounded NUMERIC.
+    pub fn numeric_field_type(
+        &self,
+        name: impl AsRef<str>,
+    ) -> Option<(SearchFieldType, Option<i16>)> {
         self.get_field_type(name)
             .filter(SearchFieldType::is_numeric)
+            .map(|field_type| (field_type, field_type.numeric_scale()))
+    }
+
+    /// Display scale for a NUMERIC GROUP BY column, `Ok(None)` for non-NUMERIC
+    /// columns. Grouping compares the stored representation, which is order-
+    /// and equality-preserving for both NUMERIC storages, but rendering the
+    /// keys needs the declared scale. Unbounded NUMERIC drops per-value display
+    /// scale at index time, so it declines.
+    pub fn numeric_group_scale(&self, name: impl AsRef<str>) -> Result<Option<i16>, String> {
+        let name = name.as_ref();
+        match self.numeric_field_type(name) {
+            None => Ok(None),
+            Some((_, Some(scale))) => Ok(Some(scale)),
+            Some((_, None)) => Err(format!(
+                "GROUP BY column {name} is an unbounded NUMERIC; declare a precision and \
+                 scale to enable aggregate pushdown"
+            )),
+        }
     }
 
     pub fn search_field(&self, name: impl AsRef<str>) -> Option<SearchField> {

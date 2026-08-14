@@ -49,7 +49,7 @@ use tantivy::directory::{
     DirectoryLock, DirectoryPanicHandler, FileHandle, InnerWritePtr, Lock, RamDirectory,
     WatchCallback, WatchHandle,
 };
-use tantivy::index::{SegmentId, SegmentMetaInventory};
+use tantivy::index::{SegmentComponent, SegmentId, SegmentMetaInventory};
 use tantivy::{Directory, IndexMeta, SegmentMeta, TantivyError};
 
 /// By default Tantivy writes 8192 bytes at a time (the `BufWriter` default).
@@ -197,7 +197,13 @@ impl MVCCDirectory {
                     ));
                 };
                 Ok(Arc::new(unsafe {
-                    SegmentComponentReader::new(&self.indexrel, file_entry)
+                    SegmentComponentReader::new(
+                        &self.indexrel,
+                        file_entry,
+                        path.extension()
+                            .and_then(|ext| ext.to_str())
+                            .and_then(|ext| SegmentComponent::try_from(ext).ok()),
+                    )
                 }))
             }
             LoadedSegmentMetaEntry::Memory {
@@ -347,7 +353,13 @@ impl Directory for MVCCDirectory {
                         };
                     Ok(vacant
                         .insert(Arc::new(unsafe {
-                            SegmentComponentReader::new(&self.indexrel, file_entry)
+                            SegmentComponentReader::new(
+                                &self.indexrel,
+                                file_entry,
+                                path.extension()
+                                    .and_then(|ext| ext.to_str())
+                                    .and_then(|ext| SegmentComponent::try_from(ext).ok()),
+                            )
                         }))
                         .clone())
                 }

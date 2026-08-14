@@ -478,14 +478,23 @@ fn vector_info(
     Ok(TableIterator::new(rows))
 }
 
-/// Per-cluster posting-list sizes for a single vector `field` of `index`, one
-/// row per segment that stores that field, in cluster order.
+/// Per-cluster posting-list sizes and ball-bound radii for a single vector
+/// `field` of `index`, one row per segment that stores that field, in cluster
+/// order.
 #[pg_extern]
-fn vector_cluster_sizes(
+#[allow(clippy::type_complexity)]
+fn vector_clusters(
     index: PgRelation,
     field: String,
 ) -> anyhow::Result<
-    TableIterator<'static, (name!(segno, String), name!(cluster_sizes, Option<Vec<i64>>))>,
+    TableIterator<
+        'static,
+        (
+            name!(segno, String),
+            name!(cluster_sizes, Option<Vec<i64>>),
+            name!(cluster_radii, Option<Vec<f32>>),
+        ),
+    >,
 > {
     // # Safety
     //
@@ -526,7 +535,15 @@ fn vector_cluster_sizes(
             let sizes = vector_index
                 .cluster_sizes()
                 .map(|sizes| sizes.into_iter().map(i64::from).collect());
-            rows.push((segment_reader.segment_id().short_uuid_string(), sizes));
+            let radii = vector_index.index().map(|ivf| {
+                let bounds = ivf.bounds();
+                (0..ivf.num_clusters()).map(|c| bounds.ball_r(c)).collect()
+            });
+            rows.push((
+                segment_reader.segment_id().short_uuid_string(),
+                sizes,
+                radii,
+            ));
         }
     }
 

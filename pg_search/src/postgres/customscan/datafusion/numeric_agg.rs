@@ -42,7 +42,7 @@ use arrow_array::cast::AsArray;
 use arrow_array::{Array, ArrayRef};
 use arrow_schema::{DataType, Field, FieldRef};
 use bigdecimal::BigDecimal;
-use bigdecimal::num_bigint::BigInt;
+use bigdecimal::num_bigint::{BigInt, BigUint, Sign};
 use datafusion::common::ScalarValue;
 use datafusion::error::{DataFusionError, Result};
 use datafusion::logical_expr::function::{AccumulatorArgs, StateFieldsArgs};
@@ -50,7 +50,9 @@ use datafusion::logical_expr::{
     Accumulator, AggregateUDF, AggregateUDFImpl, Signature, Volatility,
 };
 use datafusion::physical_plan::expressions::Literal;
-use decimal_bytes::{Decimal, Decimal64NoScale};
+use decimal_bytes::{
+    Decimal, Decimal64NoScale, SpecialValue, decode_parts_into, decode_special_value,
+};
 
 pub const NUMERIC64_SUM_NAME: &str = "numeric64_sum";
 pub const NUMERIC64_AVG_NAME: &str = "numeric64_avg";
@@ -142,6 +144,8 @@ struct NumericSumState {
     special: Special,
     scaled: i128,
     decimal: BigDecimal,
+    /// Reused per-row digit buffer for decimal-bytes decoding.
+    digit_buf: Vec<u8>,
 }
 
 impl NumericSumState {
@@ -151,6 +155,7 @@ impl NumericSumState {
             special: Special::Finite,
             scaled: 0,
             decimal: BigDecimal::from(0),
+            digit_buf: Vec::new(),
         }
     }
 
@@ -168,23 +173,37 @@ impl NumericSumState {
         }
     }
 
+    /// Decodes straight to digits and builds the `BigDecimal` from them:
+    /// a string round-trip here would dominate the whole aggregation.
     fn add_decimal_bytes(&mut self, bytes: &[u8]) -> Result<()> {
-        let d = Decimal::from_bytes(bytes).map_err(|e| {
+        self.seen = true;
+        if let Some(special) = decode_special_value(bytes) {
+            self.special.absorb(match special {
+                SpecialValue::NaN => Special::Nan,
+                SpecialValue::Infinity => Special::PosInf,
+                SpecialValue::NegInfinity => Special::NegInf,
+            });
+            return Ok(());
+        }
+        if self.special != Special::Finite {
+            return Ok(());
+        }
+        let parts = decode_parts_into(bytes, &mut self.digit_buf).map_err(|e| {
             DataFusionError::Internal(format!("failed to decode decimal bytes: {e:?}"))
         })?;
-        self.seen = true;
-        if d.is_nan() {
-            self.special.absorb(Special::Nan);
-        } else if d.is_pos_infinity() {
-            self.special.absorb(Special::PosInf);
-        } else if d.is_neg_infinity() {
-            self.special.absorb(Special::NegInf);
-        } else if self.special == Special::Finite {
-            let parsed = BigDecimal::from_str(&d.to_string()).map_err(|e| {
-                DataFusionError::Internal(format!("failed to parse decimal '{d}': {e}"))
-            })?;
-            self.decimal += parsed;
+        let Some((negative, exponent)) = parts else {
+            return Err(DataFusionError::Internal(
+                "decimal parts missing for a finite value".to_string(),
+            ));
+        };
+        if self.digit_buf.is_empty() {
+            return Ok(());
         }
+        let scale = self.digit_buf.len() as i64 - exponent as i64;
+        let magnitude = BigUint::from_radix_be(&self.digit_buf, 10)
+            .ok_or_else(|| DataFusionError::Internal("decimal digit out of range".to_string()))?;
+        let sign = if negative { Sign::Minus } else { Sign::Plus };
+        self.decimal += BigDecimal::new(BigInt::from_biguint(sign, magnitude), scale);
         Ok(())
     }
 
@@ -712,6 +731,15 @@ mod tests {
         state.add_scaled_i64(Decimal64NoScale::nan().raw());
         state.add_scaled_i64(100);
         assert_eq!(decode(&state.encode(2).unwrap().unwrap()), "NaN");
+    }
+
+    #[test]
+    fn sum_bytes_negative_and_zero() {
+        let mut state = NumericSumState::new();
+        state.add_decimal_bytes(&bytes_of("-2.50")).unwrap();
+        state.add_decimal_bytes(&bytes_of("1.25")).unwrap();
+        state.add_decimal_bytes(&bytes_of("0")).unwrap();
+        assert_eq!(decode(&state.encode(2).unwrap().unwrap()), "-1.25");
     }
 
     #[test]

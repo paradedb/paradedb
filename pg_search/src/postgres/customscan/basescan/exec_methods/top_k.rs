@@ -23,7 +23,7 @@ use crate::gucs;
 use crate::gucs::WorkMem;
 use crate::index::fast_fields_helper::{resolve_ctid, FFType};
 use crate::index::reader::index::{
-    SearchIndexReader, TopKAuxiliaryCollector, TopKSearchResults, MAX_TOPK_FEATURES,
+    SearchIndexReader, TopKAuxiliaryCollector, TopKSearch, TopKSearchResults, MAX_TOPK_FEATURES,
 };
 use crate::postgres::customscan::aggregatescan::exec::AggregationResults;
 use crate::postgres::customscan::aggregatescan::{AggIndexInfo, AggregateType};
@@ -416,24 +416,34 @@ impl ExecMethod for TopKScanExecState {
             // to use the shared threshold on the first query, as additional queries will
             // necessarily be below it.
             let maybe_parallel_state = if state.query_count() == 1 {
-                state.parallel_state
+                state.parallel_state()
             } else {
                 None
             };
-            self.search_reader
+            let TopKSearch {
+                results,
+                segment_info,
+            } = self
+                .search_reader
                 .as_ref()
                 .unwrap()
                 .search_top_k_in_segments(
                     self.segments_to_query(
                         state.search_reader.as_ref().unwrap(),
-                        state.parallel_state,
+                        state.parallel_state(),
                     ),
                     orderby_info,
                     local_limit,
                     self.offset,
                     maybe_aux_collector,
                     maybe_parallel_state,
-                )
+                );
+            // Per-segment Fruit JSON → local ScanTelemetry. Workers publish into
+            // DSM once at EndCustomScan; the leader merges at Shutdown.
+            if !segment_info.is_empty() {
+                state.accumulate_segment_info(segment_info);
+            }
+            results
         } else {
             self.search_reader
                 .as_ref()
@@ -441,7 +451,7 @@ impl ExecMethod for TopKScanExecState {
                 .search_top_k_unordered_in_segments(
                     self.segments_to_query(
                         state.search_reader.as_ref().unwrap(),
-                        state.parallel_state,
+                        state.parallel_state(),
                     ),
                     local_limit,
                     self.offset,
@@ -457,7 +467,7 @@ impl ExecMethod for TopKScanExecState {
                     .search_results
                     .take_aggregation_results()
                     .expect("an aggregation request should produce a result");
-                if let Some(parallel_state) = state.parallel_state {
+                if let Some(parallel_state) = state.parallel_state() {
                     let segment_count = self
                         .claimed_segments
                         .borrow()

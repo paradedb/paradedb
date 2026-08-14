@@ -153,8 +153,9 @@ jobs:
         if: steps.release_gate.outputs.skip != 'true'
         run: |
           echo "Waiting for PostgreSQL to accept connections..."
+          # The temporary init server only listens on the Unix socket; TCP starts after initialization completes.
           for i in $(seq 1 60); do
-            if docker exec paradedb pg_isready -U myuser -d mydatabase > /dev/null 2>&1; then
+            if docker exec paradedb pg_isready -h localhost -U myuser -d mydatabase > /dev/null 2>&1; then
               echo "PostgreSQL is ready after ${i}s"
               break
             fi
@@ -165,7 +166,7 @@ jobs:
             fi
             sleep 1
           done
-          if ! docker exec paradedb pg_isready -U myuser -d mydatabase > /dev/null 2>&1; then
+          if ! docker exec paradedb pg_isready -h localhost -U myuser -d mydatabase > /dev/null 2>&1; then
             echo "Error: PostgreSQL did not become ready within 60s"
             docker logs paradedb
             exit 1

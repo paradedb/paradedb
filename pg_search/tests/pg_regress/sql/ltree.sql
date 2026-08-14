@@ -65,9 +65,9 @@ RESET paradedb.enable_columnar_exec;
 -- Test &&& operator with ltree (ltree is intentionally incompatible with &&&)
 SELECT id, category FROM tbl_ltree WHERE category &&& 'Top.Science.Biology' ORDER BY id;
 
--- Test paradedb.term() query with ltree (exercises value_to_term facet branch)
+-- Test pdb.term() query with ltree (exercises value_to_term facet branch)
 SELECT id, category FROM tbl_ltree
-WHERE tbl_ltree @@@ paradedb.term(field => 'category', value => 'Top.Hobbies.Photography')
+WHERE category @@@ pdb.term('Top.Hobbies.Photography')
 ORDER BY id;
 
 RESET paradedb.enable_aggregate_custom_scan;

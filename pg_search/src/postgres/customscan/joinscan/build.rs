@@ -446,7 +446,7 @@ impl JoinSourceCandidate {
 
         let index_rel = PgSearchRelation::open(indexrelid);
         let heap_rel = PgSearchRelation::open(heaprelid);
-        let mut query = self.query.clone().unwrap_or(SearchQueryInput::All);
+        let query = self.query.clone().unwrap_or(SearchQueryInput::All);
         let row_estimate = RowEstimate::from_reltuples(heap_rel.reltuples().map(|r| r as f64));
 
         if query.has_postgres_expressions() || query.has_heap_filters() {
@@ -1249,6 +1249,33 @@ impl RelNode {
             RelNode::Filter(f) => f.input.explain_internal(is_root),
         }
     }
+    /// Visit every `SearchQueryInput` reachable from this subtree's `Scan` nodes.
+    /// Does NOT include `JoinCSClause::join_level_predicates` - those live outside
+    /// the tree and must be visited separately (see `JoinCSClause::visit_queries_mut`).
+    pub fn visit_queries_mut(&mut self, f: &mut impl FnMut(&mut SearchQueryInput)) {
+        match self {
+            RelNode::Scan(source) => f(&mut source.scan_info.query),
+            RelNode::Join(j) => {
+                j.left.visit_queries_mut(f);
+                j.right.visit_queries_mut(f);
+            }
+            RelNode::Filter(filt) => filt.input.visit_queries_mut(f),
+        }
+    }
+
+    /// Read-only counterpart of `visit_queries_mut`, for callers (e.g. EXPLAIN) that only
+    /// have a `&JoinCSClause`/`&RelNode` and want to inspect queries without cloning them
+    /// just to satisfy a `&mut` receiver.
+    pub fn visit_queries(&self, f: &mut impl FnMut(&SearchQueryInput)) {
+        match self {
+            RelNode::Scan(source) => f(&source.scan_info.query),
+            RelNode::Join(j) => {
+                j.left.visit_queries(f);
+                j.right.visit_queries(f);
+            }
+            RelNode::Filter(filt) => filt.input.visit_queries(f),
+        }
+    }
 }
 
 /// Finds an output-visible equivalent for `(pruned_rti, pruned_attno)` by
@@ -1478,6 +1505,69 @@ impl JoinCSClause {
         } else {
             None
         }
+    }
+    /// Visit every `SearchQueryInput` in this clause: both inside `Scan` nodes
+    /// (via `plan`) and inside `join_level_predicates`.
+    pub fn visit_queries_mut(&mut self, f: &mut impl FnMut(&mut SearchQueryInput)) {
+        self.plan.visit_queries_mut(f);
+        for pred in &mut self.join_level_predicates {
+            f(&mut pred.query);
+        }
+    }
+
+    /// Read-only counterpart of `visit_queries_mut`, for callers (e.g. EXPLAIN) that only
+    /// have a `&JoinCSClause` and want to inspect queries without cloning the clause just
+    /// to satisfy a `&mut` receiver.
+    pub fn visit_queries(&self, f: &mut impl FnMut(&SearchQueryInput)) {
+        self.plan.visit_queries(f);
+        for pred in &self.join_level_predicates {
+            f(&pred.query);
+        }
+    }
+
+    pub fn has_postgres_expressions(&self) -> bool {
+        let mut found = false;
+        self.visit_queries(&mut |q| {
+            if q.has_postgres_expressions() {
+                found = true;
+            }
+        });
+        found
+    }
+
+    pub fn has_parameters(&self) -> bool {
+        let mut found = false;
+        self.visit_queries(&mut |q| {
+            if q.has_parameters() {
+                found = true;
+            }
+        });
+        found
+    }
+
+    pub fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
+        self.visit_queries_mut(&mut |q| {
+            q.init_postgres_expressions(planstate);
+        });
+    }
+
+    /// Solves every `SearchQueryInput` reachable from this clause against `expr_context`.
+    /// Resets `ecxt_per_tuple_memory` exactly once for the whole clause, then solves each
+    /// query with the no-reset variant, so a later source's solve doesn't free the rewritten
+    /// expression tree an earlier source's solve just built (see
+    /// `SearchQueryInput::solve_postgres_expressions_no_reset`). Both must stay alive through
+    /// `rebake_for_mpp`, which is why the whole clause resets only up front.
+    pub fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
+        assert!(
+            !expr_context.is_null(),
+            "expr_context was never initialized"
+        );
+        unsafe {
+            pg_sys::MemoryContextReset((*expr_context).ecxt_per_tuple_memory);
+        }
+        self.visit_queries_mut(&mut |q| {
+            q.solve_postgres_expressions_no_reset(expr_context);
+        });
     }
 }
 

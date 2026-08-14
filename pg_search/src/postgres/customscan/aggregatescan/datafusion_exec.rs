@@ -559,7 +559,7 @@ async fn build_source_df(
     // the Const/expression nodes retained by the first source. Generic plans
     // that parameterize predicates on both join inputs then dereference stale
     // nodes during reader construction and abort the backend.
-    let mut source_query = scan_info.query.clone();
+    let source_query = scan_info.query.clone();
     let needs_runtime_context =
         source_query.has_postgres_expressions() || source_query.has_parameters();
     // `.or(expr_context)` can hand every source the same context, but only the

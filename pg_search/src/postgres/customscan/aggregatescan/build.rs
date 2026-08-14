@@ -334,6 +334,59 @@ impl AggregateCSClause {
         AggregateType::resolve_mvcc_enabled(self.aggregates())
     }
 
+    /// True when this clause is a single doc-count aggregate with no GROUP BY,
+    /// FILTER, or ORDER BY: the shape answerable by `Weight::count` alone.
+    /// Matches `COUNT(*)` and pdb.agg value_count over a field guaranteed
+    /// present exactly once per doc.
+    pub fn is_bare_doc_count(&self) -> bool {
+        if self.has_groupby() || self.has_filter() || self.orderby.has_orderby() {
+            return false;
+        }
+        let mut aggregates = self.aggregates();
+        let (Some(aggregate), None) = (aggregates.next(), aggregates.next()) else {
+            return false;
+        };
+        match aggregate {
+            AggregateType::CountAny { filter: None, .. } => true,
+            AggregateType::Custom {
+                agg_json,
+                filter: None,
+                ..
+            } => self.is_doc_count_json(agg_json),
+            _ => false,
+        }
+    }
+
+    /// True for `{"value_count": {"field": f}}` where `f` is single-valued and
+    /// present on every doc — the key field or ctid — making the value count
+    /// equal to the doc count.
+    fn is_doc_count_json(&self, agg_json: &serde_json::Value) -> bool {
+        let Some(aggs) = agg_json.as_object() else {
+            return false;
+        };
+        if aggs.len() != 1 {
+            return false;
+        }
+        let Some(value_count) = aggs.get("value_count").and_then(|v| v.as_object()) else {
+            return false;
+        };
+        let Some(field) = value_count.get("field").and_then(|f| f.as_str()) else {
+            return false;
+        };
+        if value_count
+            .iter()
+            .any(|(k, v)| k != "field" && !v.is_null())
+        {
+            return false;
+        }
+        if field == "ctid" {
+            return true;
+        }
+        let indexrel = PgSearchRelation::with_lock(self.indexrelid, pg_sys::AccessShareLock as _);
+        SearchIndexSchema::open(&indexrel)
+            .is_ok_and(|schema| schema.key_field_name().to_string() == field)
+    }
+
     pub fn planner_should_replace_aggrefs(&self) -> bool {
         self.targetlist.grouping_columns().is_empty()
             && self.orderby.orderby_info().is_empty()

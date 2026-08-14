@@ -284,7 +284,9 @@ impl OptimizerRule for RangePartitioningRule {
         plan: LogicalPlan,
         _config: &dyn OptimizerConfig,
     ) -> Result<Transformed<LogicalPlan>> {
-        if !crate::postgres::customscan::mpp::glue::mpp_is_active() {
+        if !crate::gucs::enable_range_partitioned_join()
+            || !crate::postgres::customscan::mpp::glue::mpp_is_active()
+        {
             return Ok(Transformed::no(plan));
         }
 
@@ -498,6 +500,10 @@ impl PhysicalOptimizerRule for RangeCoPartitionedJoinRule {
         plan: Arc<dyn ExecutionPlan>,
         _config: &ConfigOptions,
     ) -> Result<Arc<dyn ExecutionPlan>> {
+        if !crate::gucs::enable_range_partitioned_join() {
+            return Ok(plan);
+        }
+
         plan.transform_up(|node| {
             let Some(join) = node.downcast_ref::<HashJoinExec>() else {
                 return Ok(Transformed::no(node));

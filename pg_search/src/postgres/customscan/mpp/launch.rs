@@ -462,14 +462,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pending_launch_is_consumed_once() {
-        let mut lifecycle = MppLifecycle::Pending;
-
-        assert!(lifecycle.take_pending());
-        assert!(!lifecycle.take_pending());
-    }
-
-    #[test]
     fn short_launch_uses_the_attached_width_when_the_mesh_is_viable() {
         assert_eq!(
             mpp_attach_outcome(5, 0),

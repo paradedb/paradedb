@@ -103,21 +103,21 @@ from paradedb.sqlalchemy import search
 # Fuzzy match disjunction
 fuzzy_or_stmt = (
     select(MockItem.id, MockItem.description)
-    .where(search.match_any(MockItem.description, "runing shose", distance=2))
+    .where(search.match_any(MockItem.description, search.fuzzy("runing shose", 2)))
     .limit(5)
 )
 
 # Fuzzy match conjunction
 fuzzy_and_stmt = (
     select(MockItem.id, MockItem.description)
-    .where(search.match_all(MockItem.description, "runing shose", distance=2))
+    .where(search.match_all(MockItem.description, search.fuzzy("runing shose", 2)))
     .limit(5)
 )
 
 # Fuzzy term
 fuzzy_term_stmt = (
     select(MockItem.id, MockItem.description)
-    .where(search.term(MockItem.description, "shose", distance=2))
+    .where(search.term(MockItem.description, search.fuzzy("shose", 2)))
     .limit(5)
 )
 
@@ -132,19 +132,19 @@ with Session(engine) as session:
 ```ruby Rails
 # Fuzzy match disjunction
 MockItem.search(:description)
-        .match_any('runing shose', distance: 2)
+        .match_any(ParadeDB.fuzzy('runing shose', 2))
         .select(:id, :description)
         .limit(5)
 
 # Fuzzy match conjunction
 MockItem.search(:description)
-        .match_all('runing shose', distance: 2)
+        .match_all(ParadeDB.fuzzy('runing shose', 2))
         .select(:id, :description)
         .limit(5)
 
 # Fuzzy term
 MockItem.search(:description)
-        .term("shose", distance: 2)
+        .term(ParadeDB.fuzzy("shose", 2))
         .select(:id, :description)
         .limit(5)
 ```
@@ -239,7 +239,7 @@ from paradedb.sqlalchemy import search
 
 stmt = (
     select(MockItem.id, MockItem.description)
-    .where(search.term(MockItem.description, "rann", distance=1, prefix=True))
+    .where(search.term(MockItem.description, search.fuzzy("rann", 1, prefix=True)))
     .limit(5)
 )
 
@@ -249,7 +249,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .term("rann", distance: 1, prefix: true)
+        .term(ParadeDB.fuzzy("rann", 1, prefix: true))
         .select(:id, :description)
         .limit(5)
 ```
@@ -307,7 +307,7 @@ from paradedb.sqlalchemy import search
 
 stmt = (
     select(MockItem.id, MockItem.description)
-    .where(search.match_all(MockItem.description, "slee rann", distance=1, prefix=True))
+    .where(search.match_all(MockItem.description, search.fuzzy("slee rann", 1, prefix=True)))
     .limit(5)
 )
 
@@ -317,7 +317,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .match_all("slee rann", distance: 1, prefix: true)
+        .match_all(ParadeDB.fuzzy("slee rann", 1, prefix: true))
         .select(:id, :description)
         .limit(5)
 ```
@@ -375,7 +375,7 @@ from paradedb.sqlalchemy import search
 
 stmt = (
     select(MockItem.id, MockItem.description)
-    .where(search.term(MockItem.description, "shose", distance=1, transpose_cost_one=True))
+    .where(search.term(MockItem.description, search.fuzzy("shose", 1, transpose_cost_one=True)))
     .limit(5)
 )
 
@@ -385,7 +385,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .term("shose", distance: 1, transposition_cost_one: true)
+        .term(ParadeDB.fuzzy("shose", 1, transposition_cost_one: true))
         .select(:id, :description)
         .limit(5)
 ```

@@ -160,6 +160,25 @@ impl SearchFieldType {
         )
     }
 
+    /// Returns true if this field type is supported as a `top_hits.sort` key.
+    ///
+    /// Tantivy's `top_hits` sort accessor is built with numeric-or-date column types only
+    /// (`F64` / `U64` / `I64` / `DateTime`); a text-like or binary field falls back to an
+    /// empty accessor and every hit gets `"sort": [null]` with no ordering applied (see
+    /// issue #5710). Sortable types must therefore lower to one of those Arrow storage
+    /// types: `I64`, `U64`, `F64`, `Date`, and `Numeric64` (stored as scaled `Int64`) all
+    /// qualify. `NumericBytes` is excluded because it stores as `BinaryView`.
+    pub fn supports_top_hits_sort(&self) -> bool {
+        matches!(
+            self,
+            SearchFieldType::I64(_)
+                | SearchFieldType::U64(_)
+                | SearchFieldType::F64(_)
+                | SearchFieldType::Date(_)
+                | SearchFieldType::Numeric64(..)
+        )
+    }
+
     /// Returns the Arrow DataType used to store this field type in fast fields.
     ///
     /// Multiple SearchFieldType variants may map to the same Arrow storage type.

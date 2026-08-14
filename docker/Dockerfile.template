@@ -25,7 +25,7 @@ RUN set -eux; \
         *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
     esac; \
     curl -fsSL -o /tmp/pg_search.deb "https://github.com/paradedb/paradedb/releases/download/v@@PG_SEARCH_VERSION@@/postgresql-@@PG_VERSION_MAJOR@@-pg-search_@@PG_SEARCH_VERSION@@-1PARADEDB-trixie_${arch}.deb"; \
-    echo "${checksum}  /tmp/pg_search.deb" | sha256sum -c -; \
+    echo "${checksum} */tmp/pg_search.deb" | sha256sum --strict --check -; \
     apt-get install -y --no-install-recommends /tmp/pg_search.deb; \
     rm /tmp/pg_search.deb; \
     rm -rf /var/lib/apt/lists/*

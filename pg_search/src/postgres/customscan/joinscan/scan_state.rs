@@ -32,7 +32,7 @@
 use std::sync::Arc;
 
 use datafusion::common::{DataFusionError, Result};
-use datafusion::logical_expr::{Expr, col};
+use datafusion::logical_expr::{Expr, LogicalPlanBuilder, LogicalPlanBuilderOptions, col};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
@@ -766,7 +766,19 @@ fn apply_distinct_group_by(
             .map(|ctid_name| min(col(&ctid_name)).alias(&ctid_name))
             .collect();
 
-    let df = df.aggregate(group_exprs, agg_exprs)?;
+    // As in the aggregate scan: bypass `DataFrame::aggregate` so DataFusion does
+    // not append functionally-dependent columns to the group key. With the key
+    // field now declared unique, an expansion here would pull each source's ctid
+    // into the group key, every input row would land in its own group, and the
+    // DISTINCT would stop collapsing anything — while `min(ctid)` quietly became
+    // an identity.
+    let options = LogicalPlanBuilderOptions::new().with_add_implicit_group_by_exprs(false);
+    let (state, plan) = df.into_parts();
+    let aggregated = LogicalPlanBuilder::from(plan)
+        .with_options(options)
+        .aggregate(group_exprs, agg_exprs)?
+        .build()?;
+    let df = DataFrame::new(state, aggregated);
     Ok((df, distinct_col_map))
 }
 

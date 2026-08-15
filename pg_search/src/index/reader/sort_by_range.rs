@@ -134,11 +134,16 @@ impl SortKeyComputer for SortByRange {
         // `SortableDecimal`); every other range type indexes its bounds as a numeric or date
         // column. Probe for the string form first and fall back to the numeric form.
         //
-        // The `u64_lenient_for_type` mapping is monotonic within one column type, and a range column's
-        // subtype fixes that type (integer bounds are always `i64`, date/timestamp bounds always
-        // `Date`), so the same value maps to the same `u64` in every segment. A segment holding
-        // no finite bounds at all resolves to no columns, which is harmless: its keys are all
-        // unbounded or empty, and the bounded/unbounded discriminant is compared first.
+        // The `u64_lenient_for_type` mapping is monotonic within one column type, and a range
+        // column's subtype fixes that type (integer bounds are always `i64`, date/timestamp
+        // bounds always `Date`), so the same value maps to the same `u64` in every segment.
+        // Pinning the accepted types ties that to the write side: bounds stored under any other
+        // type resolve to no column and would then read as unbounded, so this list has to move
+        // whenever the writer does.
+        //
+        // A segment holding no finite bounds at all also resolves to no columns, which is
+        // harmless: its keys are all unbounded or empty, and the bounded/unbounded discriminant
+        // is compared first.
         const RANGE_BOUND_COLUMN_TYPES: &[ColumnType] = &[ColumnType::I64, ColumnType::DateTime];
         let bounds = match (
             fast_fields.str(&self.path("lower"))?,

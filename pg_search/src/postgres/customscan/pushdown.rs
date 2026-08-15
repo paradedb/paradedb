@@ -303,7 +303,7 @@ pub unsafe fn try_build_pushdown_qual(
 
     match lookup_operator(opexpr.opno()) {
         Some(pgsearch_operator) => {
-            // can't push down tokenized text (but NumericBytes fields are stored as text with raw tokenizer)
+            // can't push down tokenized text (but NumericBytes fields are untokenized decimal-bytes)
             if (search_field.is_text() || opexpr.is_text_binary())
                 && !search_field.is_keyword()
                 && !search_field.is_numeric_bytes()

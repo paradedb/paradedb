@@ -492,20 +492,53 @@ WHERE title @@@ 'product' ORDER BY valid_period, id LIMIT 10;
  10 | Product 10 | Books
 (10 rows)
 
--- Parallel TopK: range sort stays correct with parallelism enabled.
+-- =============================================================================
+-- Parallel TopK. The range key is merged across workers here, not just across
+-- segments. `range_segments` is the table to use: a single segment offers no
+-- useful workers, so `range_items` would stay serial whatever the cost knobs say.
+-- =============================================================================
 SET max_parallel_workers_per_gather = 2;
-SELECT check_range_order('range_items', 'nr', 'ASC', 5, 0);
+SET parallel_setup_cost = 0;
+SET parallel_tuple_cost = 0;
+SET min_parallel_table_scan_size = 0;
+CREATE FUNCTION plan_contains(query text, needle text) RETURNS bool LANGUAGE plpgsql AS $$
+DECLARE
+    line text;
+BEGIN
+    FOR line IN EXECUTE 'EXPLAIN (COSTS OFF) ' || query LOOP
+        IF line LIKE '%' || needle || '%' THEN
+            RETURN true;
+        END IF;
+    END LOOP;
+    RETURN false;
+END;
+$$;
+-- Guards the two checks below. Without a Gather they would silently re-test the
+-- serial path, which the rest of the file already covers.
+SELECT plan_contains(
+    'SELECT nr FROM range_segments WHERE title @@@ ''doc'' ORDER BY nr LIMIT 5',
+    'Gather') AS parallel_plan;
+ parallel_plan 
+---------------
+ t
+(1 row)
+
+SELECT check_range_order('range_segments', 'nr', 'ASC', 5, 0);
  check_range_order 
 -------------------
  ok
 (1 row)
 
-SELECT check_range_order('range_items', 'dr', 'DESC NULLS LAST', 4, 0);
+SELECT check_range_order('range_segments', 'tzr', 'DESC NULLS LAST', 4, 0);
  check_range_order 
 -------------------
  ok
 (1 row)
 
+RESET parallel_setup_cost;
+RESET parallel_tuple_cost;
+RESET min_parallel_table_scan_size;
+DROP FUNCTION plan_contains(text, text);
 DROP FUNCTION check_range_order(text, text, text, int, int);
 DROP TABLE data_records CASCADE;
 DROP TABLE range_segments CASCADE;

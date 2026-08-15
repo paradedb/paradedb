@@ -192,12 +192,26 @@ pub fn clear_planner_warnings() {
     });
 }
 
-pub fn emit_planner_warnings() {
+/// Render the collected warnings into the lines [`emit_planner_warnings`] will emit.
+///
+/// Kept separate from the emission so that no borrow of [`PLANNER_STATE`] is alive while Postgres
+/// is reporting: `pgrx::warning!` reaches `errfinish()`, which ends in `CHECK_FOR_INTERRUPTS()`.
+/// An interrupt there — statement timeout, cancel, recovery conflict — raises an `ERROR` and
+/// `siglongjmp`s past these Rust frames without running a single destructor, so a `Ref` guard held
+/// across the call would leave the thread-local borrowed for the life of the backend and every
+/// later planning cycle would fail in [`clear_planner_warnings`] with "RefCell already borrowed".
+///
+/// This reads the warnings rather than draining them: [`superseded_by_scan_warning`] still needs
+/// them while the plan executes, and they are cleared at the start of the next planning cycle.
+fn render_planner_warnings() -> Vec<String> {
     PLANNER_STATE.with(|state| {
         let state = state.borrow();
         // Flatten the map to iterate over all messages regardless of category
-        for category_warnings in state.warnings.values() {
-            for (message, warning_data) in category_warnings.iter() {
+        state
+            .warnings
+            .values()
+            .flat_map(|category_warnings| category_warnings.iter())
+            .map(|(message, warning_data)| {
                 let mut output = message.clone();
 
                 if !warning_data.details.is_empty() {
@@ -216,7 +230,7 @@ pub fn emit_planner_warnings() {
                 }
 
                 if warning_data.contexts.is_empty() {
-                    pgrx::warning!("{}", output);
+                    output
                 } else {
                     let label = if warning_data.contexts.len() > 1 {
                         "tables"
@@ -230,11 +244,17 @@ pub fn emit_planner_warnings() {
                         .cloned()
                         .collect::<Vec<_>>()
                         .join(", ");
-                    pgrx::warning!("{output} ({label}: {context_str})");
+                    format!("{output} ({label}: {context_str})")
                 }
-            }
-        }
-    });
+            })
+            .collect()
+    })
+}
+
+pub fn emit_planner_warnings() {
+    for message in render_planner_warnings() {
+        pgrx::warning!("{message}");
+    }
 }
 
 //
@@ -310,4 +330,52 @@ pub fn warn_filter_spilled() {
         &WARNED_SPILLED_AT,
         "the query's filter match set exceeded work_mem and spilled to a temporary file; query performance may be degraded",
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rendering_warnings_holds_no_borrow_and_leaves_the_state_readable() {
+        clear_planner_warnings();
+
+        add_detailed_planner_warning(
+            "Join",
+            "JoinScan not used",
+            "orders",
+            vec!["text".to_string()],
+        );
+        add_planner_warning(
+            "Top K",
+            "Top K not used",
+            vec!["a".to_string(), "b".to_string()],
+        );
+
+        let mut messages = render_planner_warnings();
+        messages.sort();
+
+        assert_eq!(
+            messages,
+            vec![
+                "JoinScan not used (type: text) (table: orders)".to_string(),
+                "Top K not used (tables: a, b)".to_string(),
+            ]
+        );
+
+        // Nothing may still be borrowing the state once rendering returns. `pgrx::warning!` can
+        // longjmp out of `emit_planner_warnings`, and a guard alive at that moment would poison
+        // `PLANNER_STATE` for the rest of the backend.
+        assert!(
+            PLANNER_STATE.with(|state| state.try_borrow_mut().is_ok()),
+            "render_planner_warnings left PLANNER_STATE borrowed"
+        );
+
+        // Rendering reads the warnings, it does not consume them: `superseded_by_scan_warning`
+        // reads the same state while the plan executes.
+        assert_eq!(render_planner_warnings().len(), 2);
+
+        clear_planner_warnings();
+        assert!(render_planner_warnings().is_empty());
+    }
 }

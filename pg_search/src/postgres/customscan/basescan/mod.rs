@@ -914,11 +914,20 @@ impl CustomScan for BaseScan {
                 }
                 _ => RowEstimate::Unknown,
             };
-            let base_result_rows = match row_estimate.known_rows() {
-                Some(rows) => rows.min(float_limit.unwrap_or(f64::MAX)),
+            // Rows the scan can produce before any LIMIT is applied to it. Whether the LIMIT
+            // bounds the scan at all depends on the exec method, so that clamp is applied per
+            // method inside the loop below.
+            let matching_rows = match row_estimate.known_rows() {
+                Some(rows) => rows,
                 None => float_limit.unwrap_or(1.0),
             }
             .max(1.0);
+
+            // Whether anything above this relation has to reorder its output. When it does, an
+            // exec method that cannot supply that ordering has a Sort between it and the Limit.
+            let query_pathkeys = (*builder.args().root).query_pathkeys;
+            let query_needs_ordering =
+                !query_pathkeys.is_null() && pg_sys::list_length(query_pathkeys) > 0;
 
             let exec_method_types = choose_exec_method(
                 &custom_private,
@@ -966,6 +975,16 @@ impl CustomScan for BaseScan {
                 };
 
                 let is_sorted = method.declares_sorted_output();
+
+                let effective_limit = if limit_bounds_scan(&method, query_needs_ordering) {
+                    float_limit
+                } else {
+                    None
+                };
+                let base_result_rows = matching_rows
+                    .min(effective_limit.unwrap_or(f64::MAX))
+                    .max(1.0);
+
                 let consider_parallel_local = (*builder.args().rel).consider_parallel;
                 let prunability = topk_can_prune_for_method(&method, builder.args().root, &quals);
 
@@ -1008,7 +1027,7 @@ impl CustomScan for BaseScan {
                     per_tuple_cost,
                     base_result_rows,
                     drive,
-                    float_limit,
+                    effective_limit,
                 );
 
                 // We must force this path (not interchangeable with native paths) if we need const
@@ -2996,4 +3015,62 @@ unsafe fn where_clause_only_references_left(
 
     // If walker returns true, it found a reference to another relation
     !walker(quals, &rti as *const _ as *mut _)
+}
+
+/// Whether a query-level `LIMIT` bounds what this exec method actually scans.
+///
+/// It does when the method produces the ordering the query asked for and stops at `k`
+/// ([`ExecMethodType::TopK`]), or when the query asks for no ordering at all, so the `Limit` node
+/// can stop pulling from the scan directly. It does not when the query needs an ordering this
+/// method cannot supply: a `Sort` then sits between the `Limit` and the scan and drains every
+/// matching row -- [`ExecMethodType::Normal`] ignores the `LIMIT` outright, and
+/// [`ExecMethodType::Columnar`] reads it only to size a batch.
+fn limit_bounds_scan(method: &ExecMethodType, query_needs_ordering: bool) -> bool {
+    matches!(method, ExecMethodType::TopK { .. }) || !query_needs_ordering
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::postgres::customscan::limit_offset::LimitOffset;
+    use crate::postgres::customscan::parameterized_value::ParameterizedValue;
+
+    fn topk() -> ExecMethodType {
+        ExecMethodType::TopK {
+            heaprelid: pg_sys::Oid::INVALID,
+            limit_offset: LimitOffset {
+                limit: ParameterizedValue::Static(10),
+                offset: None,
+            },
+            orderby_info: None,
+            window_aggregates: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_limit_bounds_only_the_scans_that_can_stop_at_it() {
+        // TopK produces the ordering and stops at k, so the LIMIT bounds it either way.
+        assert!(limit_bounds_scan(&topk(), true));
+        assert!(limit_bounds_scan(&topk(), false));
+
+        // Without an ordering to satisfy, the Limit node stops pulling from any method.
+        assert!(limit_bounds_scan(&ExecMethodType::Normal, false));
+        assert!(limit_bounds_scan(
+            &ExecMethodType::Columnar {
+                which_fast_fields: Default::default(),
+                limit_offset: None,
+            },
+            false
+        ));
+
+        // With an ordering they cannot supply, a Sort drains them: the LIMIT bounds neither.
+        assert!(!limit_bounds_scan(&ExecMethodType::Normal, true));
+        assert!(!limit_bounds_scan(
+            &ExecMethodType::Columnar {
+                which_fast_fields: Default::default(),
+                limit_offset: None,
+            },
+            true
+        ));
+    }
 }

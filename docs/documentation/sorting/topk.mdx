@@ -288,13 +288,13 @@ await dbContext
 
 Postgres range columns (`int4range`, `int8range`, `numrange`, `daterange`, `tsrange`, `tstzrange`) can receive the Top K optimization when they appear as the **leading** `ORDER BY` key. ParadeDB compares range values using the same rules as Postgres `range_cmp` (empty ranges, unbounded bounds, and inclusive/exclusive endpoints).
 
-Range columns must be indexed as fast fields (the default for range types). A range in a later `ORDER BY` position is not pushed down; Postgres sorts any tiebreaker columns after the index returns its prefix.
+Range columns are always indexed as fast fields, so no extra configuration is needed. A range in a later `ORDER BY` position is not pushed down; Postgres sorts any tiebreaker columns after the index returns its prefix.
 
 ```sql
-SELECT id, title, valid_period
-FROM events
-WHERE title @@@ 'conference'
-ORDER BY valid_period
+SELECT description, rating, weight_range
+FROM mock_items
+WHERE description @@@ 'shoes'
+ORDER BY weight_range
 LIMIT 10;
 ```
 

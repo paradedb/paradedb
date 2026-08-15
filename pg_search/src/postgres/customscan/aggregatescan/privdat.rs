@@ -63,6 +63,30 @@ pub enum FilterExpr {
     IsNotNull(Box<FilterExpr>),
 }
 
+impl FilterExpr {
+    /// True if any [`FilterExpr::AggRef`] in this tree satisfies `pred`.
+    pub fn any_agg_ref(&self, pred: &impl Fn(usize) -> bool) -> bool {
+        match self {
+            FilterExpr::AggRef(idx) => pred(*idx),
+            FilterExpr::GroupRef(_)
+            | FilterExpr::ColumnRef { .. }
+            | FilterExpr::LitInt(_)
+            | FilterExpr::LitFloat(_)
+            | FilterExpr::LitBool(_)
+            | FilterExpr::LitString(_) => false,
+            FilterExpr::BinOp { left, right, .. } => {
+                left.any_agg_ref(pred) || right.any_agg_ref(pred)
+            }
+            FilterExpr::And(children) | FilterExpr::Or(children) => {
+                children.iter().any(|c| c.any_agg_ref(pred))
+            }
+            FilterExpr::Not(inner) | FilterExpr::IsNull(inner) | FilterExpr::IsNotNull(inner) => {
+                inner.any_agg_ref(pred)
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum CompareOp {
     Eq,

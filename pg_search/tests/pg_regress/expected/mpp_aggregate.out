@@ -83,7 +83,7 @@ WHERE f.content @@@ 'Section';
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[]
+     :   HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, file_id@0)], projection=[]
      :     CooperativeExec
      :       PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
@@ -173,7 +173,7 @@ WHERE f.content @@@ 'Section';
      : └──────────────────────────────────────────────────
      :   ┌───── Stage 2 ── tasks=2, partitions=6
      :   │ AggregateExec: mode=Partial, gby=[], aggr=[count(1) as agg_0]
-     :   │   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[]
+     :   │   HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, file_id@0)], projection=[]
      :   │     CoalescePartitionsExec
      :   │       [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
      :   │     RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1

@@ -648,7 +648,7 @@ WHERE a.id NOT IN (
    Aggregates: COUNT(*), SUM(val)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0, sum(b_3.val) as agg_1]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, a_id@0)], filter=val@1 > threshold@0, projection=[val@3]
+     :   HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, a_id@0)], filter=val@1 > threshold@0, projection=[val@1]
      :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@0, aid@0)], null_aware
      :       CooperativeExec
      :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"outermatch","lenient":null,"conjunction_mode":null}}}}

@@ -758,3 +758,86 @@ fn test_explain_aggregate_join_with_heap_filter(mut conn: PgConnection) {
         "Expected physical plan during EXPLAIN ANALYZE.\nEXPLAIN ANALYZE:\n{analyze}"
     );
 }
+
+/// Regression test for #5654.
+///
+/// `PgSearchTableProvider` declares the BM25 key field unique, which gives
+/// DataFusion a functional dependency from the key to every other column of the
+/// scan. `DataFrame::aggregate` hardcodes `add_implicit_group_by_exprs(true)`,
+/// so once that dependency existed DataFusion appended the dependent columns
+/// (including `ctid`) to the group key. The aggregate scan resolves its output
+/// columns positionally — aggregates are read starting at
+/// `max(group_df_indices) + 1` — so the widened group key shifted every
+/// aggregate one slot right and `COUNT(*)` came back holding a ctid.
+///
+/// Grouping on the key field is what triggers it: no other grouping column
+/// determines the rest of the row.
+#[rstest]
+fn test_group_by_key_field_over_join_counts(mut conn: PgConnection) {
+    setup_join_tables(&mut conn);
+
+    // Products 1, 2, 5 match 'laptop' and product 3 matches 'shoes'; each of the
+    // four carries exactly 2 tags, so every group counts 2.
+    let query = r#"
+        SELECT p.id, p.category, COUNT(*)
+        FROM products p
+        JOIN tags t ON p.id = t.product_id
+        WHERE p.description @@@ 'laptop OR shoes'
+        GROUP BY p.id, p.category
+        ORDER BY p.id
+    "#;
+
+    let with_custom_scan = query.fetch::<(i32, String, i64)>(&mut conn);
+
+    assert_eq!(
+        with_custom_scan,
+        vec![
+            (1, "Electronics".into(), 2),
+            (2, "Electronics".into(), 2),
+            (3, "Sports".into(), 2),
+            (5, "Toys".into(), 2),
+        ],
+        "COUNT(*) must not be displaced by an implicitly widened group key"
+    );
+
+    // And the custom scan must agree with the plain Postgres path.
+    "SET paradedb.enable_aggregate_custom_scan TO off".execute(&mut conn);
+    let without_custom_scan = query.fetch::<(i32, String, i64)>(&mut conn);
+    "SET paradedb.enable_aggregate_custom_scan TO on".execute(&mut conn);
+
+    assert_eq!(
+        with_custom_scan, without_custom_scan,
+        "aggregate custom scan disagrees with the non-custom-scan plan"
+    );
+}
+
+/// The group key must stay exactly what Postgres asked for. Guarding the plan
+/// shape directly catches a reintroduced expansion even if the values happen to
+/// line up for a particular fixture.
+#[rstest]
+fn test_group_by_key_field_does_not_widen_group_key(mut conn: PgConnection) {
+    setup_join_tables(&mut conn);
+
+    let plan = r#"
+        EXPLAIN (COSTS OFF, VERBOSE)
+        SELECT p.id, p.category, COUNT(*)
+        FROM products p
+        JOIN tags t ON p.id = t.product_id
+        WHERE p.description @@@ 'laptop OR shoes'
+        GROUP BY p.id, p.category
+    "#
+    .fetch::<(String,)>(&mut conn)
+    .into_iter()
+    .map(|(line,)| line)
+    .collect::<Vec<_>>()
+    .join("\n");
+
+    assert!(
+        plan.contains("ParadeDB Aggregate Scan"),
+        "expected the aggregate custom scan to be chosen; plan was:\n{plan}"
+    );
+    assert!(
+        !plan.contains("ctid@"),
+        "ctid leaked into the aggregate group key; plan was:\n{plan}"
+    );
+}

@@ -272,7 +272,7 @@ SELECT DISTINCT name
 FROM dist_products
 WHERE name @@@ 'laptop'
 ORDER BY name;
-WARNING:  Aggregate Scan (DataFusion) not used: grouping column "name" exists, but is not a fast field (table: dist_products)
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column dist_products.name is not columnar indexed (table: dist_products)
                                                                          QUERY PLAN                                                                         
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
  Unique
@@ -290,7 +290,7 @@ SELECT DISTINCT name
 FROM dist_products
 WHERE name @@@ 'laptop'
 ORDER BY name;
-WARNING:  Aggregate Scan (DataFusion) not used: grouping column "name" exists, but is not a fast field (table: dist_products)
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column dist_products.name is not columnar indexed (table: dist_products)
      name      
 ---------------
  Gaming Laptop

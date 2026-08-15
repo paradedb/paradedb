@@ -797,7 +797,9 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 let Some(search_field) = schema.search_field(field_name.root()) else {
                     return false;
                 };
-                if !search_field.is_lower_sortable() {
+                if !search_field.is_lower_sortable()
+                    || !sortable_at_position(&search_field, position)
+                {
                     return false;
                 }
             }

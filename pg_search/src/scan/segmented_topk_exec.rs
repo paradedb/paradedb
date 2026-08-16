@@ -828,6 +828,19 @@ struct SegmentBuf {
     checked: usize,
 }
 
+/// A row that had a NULL ordinal in at least one deferred sort column, so it
+/// bypasses the ordinal-tracked segment buffers and is carried straight to
+/// the final sort. `deferred_ordinals[i]` is the resolved term ordinal for
+/// `SegmentedTopKState::deferred_columns[i]` on this row (`None` when that
+/// column was NULL); `emit_final_topk` uses these to build the row's final
+/// sort key so a NULL in one column does not blank out the others.
+struct PassThroughRow {
+    batch_idx: usize,
+    row_idx: usize,
+    seg_ord: SegmentOrdinal,
+    deferred_ordinals: Vec<Option<TermOrdinal>>,
+}
+
 struct SegmentedTopKState {
     sort_exprs: LexOrdering,
     deferred_columns: Vec<DeferredSortColumn>,
@@ -852,9 +865,11 @@ struct SegmentedTopKState {
     dynamic_filter: Arc<dyn PhysicalExpr>,
     /// Buffered batches during the collection phase.
     batches: Vec<RecordBatch>,
-    /// Buffered pass-through rows (NULL ordinals) that bypass
-    /// ordinal comparison. These are included in the final sort + limit.
-    pass_through_rows: Vec<(usize, usize)>,
+    /// Buffered pass-through rows (had a NULL ordinal in at least one deferred
+    /// sort column) that bypass ordinal comparison. Included in the final sort
+    /// with per-column ordinals so a NULL in one column does not force the
+    /// other columns to NULL.
+    pass_through_rows: Vec<PassThroughRow>,
 
     /// For each segment that has a cutoff, we cache the resolved values of its current
     /// K-th best row (the cutoff threshold). Indexed by `SegmentOrdinal`; `None` for
@@ -1020,7 +1035,10 @@ impl SegmentedTopKState {
             deferred_ords.insert(deferred_col.sort_col_idx, global_term_ords);
         }
 
-        // Build the evaluation arrays for the RowConverter
+        // Build the evaluation arrays for the RowConverter. `deferred_ords` is
+        // borrowed (not drained) so pass-through rows below can still read the
+        // per-column ordinals — a shared bitmap can't tell which column was
+        // the NULL cause, but the per-column vecs can.
         self.sort_arrays_scratch.clear();
         for expr in &self.sort_exprs {
             let col_idx = expr
@@ -1028,7 +1046,7 @@ impl SegmentedTopKState {
                 .downcast_ref::<datafusion::physical_expr::expressions::Column>()
                 .map(|c| c.index());
 
-            if let Some(Some(ords)) = col_idx.map(|idx| deferred_ords.remove(&idx)) {
+            if let Some(Some(ords)) = col_idx.map(|idx| deferred_ords.get(&idx).cloned()) {
                 // Use our artificially constructed ordinals array
                 let ords_array = Arc::new(UInt64Array::from(ords)) as ArrayRef;
                 self.sort_arrays_scratch.push(ords_array);
@@ -1049,7 +1067,28 @@ impl SegmentedTopKState {
 
         for row_idx in 0..num_rows {
             if self.pass_through_scratch[row_idx] {
-                self.pass_through_rows.push((batch_idx, row_idx));
+                // Capture per-column ordinals so `emit_final_topk` can build
+                // this row's sort key without collapsing non-NULL columns to
+                // NULL. `row_to_seg_scratch` is populated unconditionally in
+                // `extract_deferred_ordinals` for every row a deferred column
+                // touched, which includes any row that reached this branch.
+                let seg_ord = self.row_to_seg_scratch[row_idx]
+                    .expect("row_to_seg_scratch must be populated for pass-through rows");
+                let deferred_ordinals: Vec<Option<TermOrdinal>> = self
+                    .deferred_columns
+                    .iter()
+                    .map(|d| {
+                        deferred_ords
+                            .get(&d.sort_col_idx)
+                            .and_then(|v| v.get(row_idx).copied().flatten())
+                    })
+                    .collect();
+                self.pass_through_rows.push(PassThroughRow {
+                    batch_idx,
+                    row_idx,
+                    seg_ord,
+                    deferred_ordinals,
+                });
                 continue;
             }
 
@@ -1532,8 +1571,8 @@ impl SegmentedTopKState {
                 survivors.insert((*batch_idx, *row_idx));
             }
         }
-        for &(batch_idx, row_idx) in &self.pass_through_rows {
-            survivors.insert((batch_idx, row_idx));
+        for pt in &self.pass_through_rows {
+            survivors.insert((pt.batch_idx, pt.row_idx));
         }
 
         if survivors.is_empty() {
@@ -1579,9 +1618,9 @@ impl SegmentedTopKState {
             }
         }
         for entry in &mut self.pass_through_rows {
-            let new_ri = mapping[&(entry.0, entry.1)];
-            entry.0 = 0;
-            entry.1 = new_ri;
+            let new_ri = mapping[&(entry.batch_idx, entry.row_idx)];
+            entry.batch_idx = 0;
+            entry.row_idx = new_ri;
         }
 
         self.batches = vec![compacted];
@@ -1746,7 +1785,22 @@ impl SegmentedTopKState {
         //    pass below removes them, and it can never leave a segment short: the K
         //    rows kept by the last truncate_top_k were checked alive, and visibility
         //    against a fixed snapshot never changes mid-query.
-        type Candidate = (usize, usize, Option<(SegmentOrdinal, OwnedRow)>);
+        //
+        // A candidate is either an ordinal-tracked survivor from a segment buffer
+        // (with its full deferred `OwnedRow`) or a pass-through row that had a NULL
+        // ordinal in at least one deferred column (with per-column ordinals so the
+        // final sort can materialize each column independently).
+        enum CandidateSort {
+            Ordinal {
+                seg_ord: SegmentOrdinal,
+                row_val: OwnedRow,
+            },
+            PassThrough {
+                seg_ord: SegmentOrdinal,
+                ordinals: Vec<Option<TermOrdinal>>,
+            },
+        }
+        type Candidate = (usize, usize, CandidateSort);
         let mut candidates: Vec<Candidate> = Vec::new();
 
         for (seg_idx, slot) in self.segment_bufs.iter().enumerate() {
@@ -1755,14 +1809,26 @@ impl SegmentedTopKState {
                 candidates.push((
                     *batch_idx,
                     *row_idx,
-                    Some((seg_idx as SegmentOrdinal, row_val.clone())),
+                    CandidateSort::Ordinal {
+                        seg_ord: seg_idx as SegmentOrdinal,
+                        row_val: row_val.clone(),
+                    },
                 ));
             }
         }
 
-        // Always include pass-through rows (NULL ordinals).
-        for &(batch_idx, row_idx) in &self.pass_through_rows {
-            candidates.push((batch_idx, row_idx, None));
+        // Always include pass-through rows (had a NULL ordinal in at least one
+        // deferred column). Their per-column ordinals feed the final sort key
+        // resolution below.
+        for pt in &self.pass_through_rows {
+            candidates.push((
+                pt.batch_idx,
+                pt.row_idx,
+                CandidateSort::PassThrough {
+                    seg_ord: pt.seg_ord,
+                    ordinals: pt.deferred_ordinals.clone(),
+                },
+            ));
         }
 
         // 2a. Visibility filter: remove invisible rows from candidates.
@@ -1868,7 +1934,10 @@ impl SegmentedTopKState {
         // We collect `Row<'_>` directly to avoid cloning `OwnedRow`.
         let ord_rows: Vec<_> = candidates
             .iter()
-            .filter_map(|(_, _, ord_info)| ord_info.as_ref().map(|(_, row_val)| row_val.row()))
+            .filter_map(|(_, _, sort_info)| match sort_info {
+                CandidateSort::Ordinal { row_val, .. } => Some(row_val.row()),
+                CandidateSort::PassThrough { .. } => None,
+            })
             .collect();
 
         let all_ord_arrays: Option<Vec<ArrayRef>> = if !ord_rows.is_empty() {
@@ -1887,27 +1956,44 @@ impl SegmentedTopKState {
             .collect();
 
         let mut ord_pos = 0;
-        for (batch_idx, row_idx, ord_info) in candidates.iter() {
+        for (batch_idx, row_idx, sort_info) in candidates.iter() {
             for (i, sort_col) in sort_cols.iter().enumerate() {
                 let value = if let Some(deferred) = sort_col.deferred {
-                    if let Some((seg_ord, _)) = ord_info {
-                        // Ordinal survivor: use pre-batched arrays with our sequential counter.
-                        let arrays = all_ord_arrays
-                            .as_ref()
-                            .expect("all_ord_arrays is None for ordinal survivor");
-                        let term_ord = arrays[i]
-                            .as_any()
-                            .downcast_ref::<UInt64Array>()
-                            .map(|a| a.value(ord_pos));
-                        match term_ord {
-                            Some(term_ord) => self
-                                .materialize_deferred_ordinal(*seg_ord, term_ord, deferred)
-                                .map_or_else(|| typed_null(sort_col), Ok)?,
-                            None => typed_null(sort_col)?,
+                    match sort_info {
+                        CandidateSort::Ordinal { seg_ord, .. } => {
+                            // Ordinal survivor: use pre-batched arrays with our sequential counter.
+                            let arrays = all_ord_arrays
+                                .as_ref()
+                                .expect("all_ord_arrays is None for ordinal survivor");
+                            let term_ord = arrays[i]
+                                .as_any()
+                                .downcast_ref::<UInt64Array>()
+                                .map(|a| a.value(ord_pos));
+                            match term_ord {
+                                Some(term_ord) => self
+                                    .materialize_deferred_ordinal(*seg_ord, term_ord, deferred)
+                                    .map_or_else(|| typed_null(sort_col), Ok)?,
+                                None => typed_null(sort_col)?,
+                            }
                         }
-                    } else {
-                        // NULL ordinal pass-through
-                        typed_null(sort_col)?
+                        CandidateSort::PassThrough { seg_ord, ordinals } => {
+                            // Pass-through row: look up the ordinal for THIS deferred
+                            // column so a NULL in some other column does not force this
+                            // column to NULL. The index into `ordinals` matches the
+                            // order of `self.deferred_columns`, which is also the order
+                            // used when the row was captured in `collect_batch`.
+                            let deferred_idx = self
+                                .deferred_columns
+                                .iter()
+                                .position(|d| d.sort_col_idx == deferred.sort_col_idx)
+                                .expect("deferred column must exist");
+                            match ordinals.get(deferred_idx).copied().flatten() {
+                                Some(term_ord) => self
+                                    .materialize_deferred_ordinal(*seg_ord, term_ord, deferred)
+                                    .map_or_else(|| typed_null(sort_col), Ok)?,
+                                None => typed_null(sort_col)?,
+                            }
+                        }
                     }
                 } else {
                     // Non-deferred column: evaluate directly from the batch.
@@ -1919,7 +2005,7 @@ impl SegmentedTopKState {
                 column_values[i].push(value);
             }
 
-            if ord_info.is_some() {
+            if matches!(sort_info, CandidateSort::Ordinal { .. }) {
                 ord_pos += 1;
             }
         }

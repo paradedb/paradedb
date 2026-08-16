@@ -356,7 +356,7 @@ impl From<SearchFieldConfig> for TextOptions {
                     text_options = text_options.set_indexing_options(text_field_indexing);
                 }
             }
-            // NumericBytes fields are stored as hex-encoded text strings.
+            // NumericBytes fields are stored as decimal-bytes columns.
             // They don't need tokenization since they're exact values.
             SearchFieldConfig::Numeric { indexed, fast, .. } => {
                 if fast {

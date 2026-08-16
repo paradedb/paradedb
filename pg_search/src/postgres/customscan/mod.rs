@@ -445,6 +445,75 @@ impl CreateUpperPathsHookArgs {
             _ => false,
         }
     }
+
+    /// True when the query aggregates over a NUMERIC column or groups by one,
+    /// where the column is a direct `Var` reference. Those queries must route to
+    /// the DataFusion backend: the Tantivy aggregation engine computes metrics in
+    /// f64 and cannot aggregate the decimal-bytes storage at all.
+    ///
+    /// Wrapped expressions (casts of JSON sub-fields, COALESCE) stay on the
+    /// Tantivy backend, which classifies and declines them with its own messages;
+    /// the DataFusion backend cannot take them either.
+    pub unsafe fn has_numeric_aggregate(&self) -> bool {
+        use pgrx::pg_guard;
+
+        let parse = self.root().parse;
+        if parse.is_null() || (*parse).targetList.is_null() {
+            return false;
+        }
+
+        unsafe fn is_direct_numeric_var(expr: *mut pg_sys::Node) -> bool {
+            aggregatescan::join_targetlist::unwrap_to_var(expr)
+                .is_some_and(|var| (*var).vartype == pg_sys::NUMERICOID)
+        }
+
+        struct WalkerContext {
+            found: bool,
+        }
+
+        #[pg_guard]
+        unsafe extern "C-unwind" fn numeric_aggref_walker(
+            node: *mut pg_sys::Node,
+            context: *mut core::ffi::c_void,
+        ) -> bool {
+            if node.is_null() {
+                return false;
+            }
+            let ctx = &mut *(context as *mut WalkerContext);
+            if (*node).type_ == pg_sys::NodeTag::T_Aggref {
+                let aggref = node as *mut pg_sys::Aggref;
+                let agg_args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
+                for arg in agg_args.iter_ptr() {
+                    if is_direct_numeric_var((*arg).expr as *mut pg_sys::Node) {
+                        ctx.found = true;
+                        return true;
+                    }
+                }
+            }
+            pg_sys::expression_tree_walker(node, Some(numeric_aggref_walker), context)
+        }
+
+        let mut context = WalkerContext { found: false };
+        numeric_aggref_walker(
+            (*parse).targetList as *mut pg_sys::Node,
+            std::ptr::addr_of_mut!(context).cast(),
+        );
+        if context.found {
+            return true;
+        }
+
+        if !(*parse).groupClause.is_null() {
+            let group_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).groupClause);
+            for gc in group_clauses.iter_ptr() {
+                let expr = pg_sys::get_sortgroupclause_expr(gc, (*parse).targetList);
+                if !expr.is_null() && is_direct_numeric_var(expr) {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
 }
 
 /// Helper function for wrapping a raw [`pg_sys::CustomScanState`] pointer with something more

@@ -460,8 +460,8 @@ impl PgSearchRelation {
     ///
     /// Returns `Ok(false)` for NUMERIC fields, `Ok(true)` for other fields,
     /// or an error if the schema cannot be loaded.
-    pub fn field_supports_aggregate(&self, field: &str) -> Result<bool, SchemaError> {
-        self.schema().map(|s| s.field_supports_aggregate(field))
+    pub fn supports_tantivy_aggregate(&self, field: &str) -> Result<bool, SchemaError> {
+        self.schema().map(|s| s.supports_tantivy_aggregate(field))
     }
 }
 

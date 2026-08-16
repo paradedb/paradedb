@@ -194,7 +194,7 @@ impl AggregateType {
             for field_name in &fields {
                 // Only check NUMERIC support if field exists in schema
                 if schema.search_field(field_name).is_some()
-                    && !schema.field_supports_aggregate(field_name)
+                    && !schema.supports_tantivy_aggregate(field_name)
                 {
                     return Err(format!(
                         "field '{}' does not support aggregate pushdown (NUMERIC)",
@@ -225,9 +225,14 @@ impl AggregateType {
         let first_arg = args.get_ptr(0).ok_or("aggregate missing argument")?;
         let (field, missing) = parse_aggregate_field(first_arg, heaprelid)?;
 
-        // Check if aggregate pushdown is supported for this field type
-        // NUMERIC fields are not supported - they fall back to PostgreSQL
-        if !bm25_index.field_supports_aggregate(&field).unwrap_or(false) {
+        // Check if aggregate pushdown is supported for this field type on the
+        // Tantivy backend. NUMERIC fields are not supported here; standard SQL
+        // aggregates over them route to the DataFusion backend at path
+        // creation time and never reach this classifier.
+        if !bm25_index
+            .supports_tantivy_aggregate(&field)
+            .unwrap_or(false)
+        {
             return Err(format!(
                 "field '{}' does not support aggregate pushdown",
                 field
@@ -408,7 +413,7 @@ impl AggregateType {
     pub fn validate_fields(&self, schema: &SearchIndexSchema) -> Result<(), String> {
         // Check NUMERIC field support for standard aggregates
         if let Some(field) = self.field_name() {
-            if !schema.field_supports_aggregate(&field) {
+            if !schema.supports_tantivy_aggregate(&field) {
                 return Err(format!(
                     "Aggregate on NUMERIC field '{}' cannot be pushed down. \
                      NUMERIC columns do not support aggregate pushdown.",
@@ -473,7 +478,7 @@ pub(crate) fn validate_agg_json_fields(
             ));
         }
         // Check NUMERIC support
-        if !schema.field_supports_aggregate(field) {
+        if !schema.supports_tantivy_aggregate(field) {
             return Err(format!(
                 "Aggregation references NUMERIC field '{}' which cannot be aggregated. \
                  NUMERIC columns do not support aggregate pushdown.",

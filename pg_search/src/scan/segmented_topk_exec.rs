@@ -1699,6 +1699,32 @@ impl SegmentedTopKState {
         Ok((overall_visible, all_corrected))
     }
 
+    /// Resolve a `(seg_ord, term_ord)` pair on a deferred sort column to the
+    /// materialized `ScalarValue` that `mat_row_converter` expects. Returns
+    /// `None` if the column is not a dictionary type, or if the dictionary
+    /// lookup fails; callers substitute a typed NULL in that case.
+    fn materialize_deferred_ordinal(
+        &self,
+        seg_ord: SegmentOrdinal,
+        term_ord: TermOrdinal,
+        deferred: &DeferredSortColumn,
+    ) -> Option<datafusion::common::ScalarValue> {
+        use datafusion::common::ScalarValue;
+        match self.ffhelper.column(seg_ord, deferred.canonical.ff_index) {
+            FFType::Text(str_col) => {
+                let mut s = String::new();
+                str_col.ord_to_str(term_ord, &mut s).ok()?;
+                Some(ScalarValue::Utf8View(Some(s)))
+            }
+            FFType::Bytes(bytes_col) => {
+                let mut b = Vec::new();
+                bytes_col.ord_to_bytes(term_ord, &mut b).ok()?;
+                Some(ScalarValue::BinaryView(Some(b)))
+            }
+            _ => None,
+        }
+    }
+
     /// Perform the final sort + limit after all input is consumed.
     ///
     ///
@@ -1873,30 +1899,11 @@ impl SegmentedTopKState {
                             .as_any()
                             .downcast_ref::<UInt64Array>()
                             .map(|a| a.value(ord_pos));
-                        if let Some(term_ord) = term_ord {
-                            let ff_col =
-                                self.ffhelper.column(*seg_ord, deferred.canonical.ff_index);
-                            match ff_col {
-                                FFType::Text(str_col) => {
-                                    let mut s = String::new();
-                                    if str_col.ord_to_str(term_ord, &mut s).is_ok() {
-                                        ScalarValue::Utf8View(Some(s))
-                                    } else {
-                                        typed_null(sort_col)?
-                                    }
-                                }
-                                FFType::Bytes(bytes_col) => {
-                                    let mut b = Vec::new();
-                                    if bytes_col.ord_to_bytes(term_ord, &mut b).is_ok() {
-                                        ScalarValue::BinaryView(Some(b))
-                                    } else {
-                                        typed_null(sort_col)?
-                                    }
-                                }
-                                _ => typed_null(sort_col)?,
-                            }
-                        } else {
-                            typed_null(sort_col)?
+                        match term_ord {
+                            Some(term_ord) => self
+                                .materialize_deferred_ordinal(*seg_ord, term_ord, deferred)
+                                .map_or_else(|| typed_null(sort_col), Ok)?,
+                            None => typed_null(sort_col)?,
                         }
                     } else {
                         // NULL ordinal pass-through

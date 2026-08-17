@@ -16,7 +16,7 @@ members = [
 default-members = ["pg_search", "tokenizers"]
 
 [workspace.package]
-version = "0.25.3"
+version = "0.25.4"
 edition = "2021"
 license = "AGPL-3.0"
 

@@ -29,9 +29,7 @@ CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool LANGUAGE plpg
 DECLARE
     current_txid bigint;
 BEGIN
-    -- Get the current transaction ID
     current_txid := txid_current();
-    -- Check if the values are not equal
     IF a <> b THEN
         RAISE EXCEPTION 'Assertion failed: % <> %. Transaction ID: %', a, b, current_txid;
     END IF;
@@ -98,8 +96,6 @@ SELECT
 refresh_ms = 5
 title = "Custom Search"
 log_tps = true
-# This job used to run count(*), which now correctly belongs to Aggregate Scan. Retrieve actual
-# rows instead so background merges continuously race the normal/parallel custom-scan executor.
 on_connect = """
 SELECT assert_plan_contains(
     $q$ SELECT id, message, severity FROM test WHERE message @@@ 'drink' LIMIT 100 $q$,
@@ -114,7 +110,6 @@ SELECT id, message, severity FROM test WHERE message @@@ 'drink' LIMIT 100;
 refresh_ms = 5
 title = "Aggregate Search"
 log_tps = true
-# Keep the old count workload, but test the modern executor that is supposed to own it.
 on_connect = """
 SELECT assert_plan_contains(
     $q$ SELECT COUNT(*) FROM test WHERE message @@@ 'drink' $q$,

@@ -54,6 +54,24 @@ pub enum PdbOwnedValue {
 impl Eq for PdbOwnedValue {}
 
 impl PdbOwnedValue {
+    /// A total order usable for sorting and range routing: NULL sorts first, floats compare
+    /// with `f64::total_cmp` (so NaN has a fixed place), and integer variants compare by value
+    /// across `I64`/`U64`/`F64`, since the same column can surface as either through
+    /// deserialization. Everything else follows the derived `PartialOrd`.
+    pub fn total_cmp(&self, other: &Self) -> std::cmp::Ordering {
+        use std::cmp::Ordering;
+        match (self, other) {
+            (Self::F64(a), Self::F64(b)) => a.total_cmp(b),
+            (Self::I64(a), Self::U64(b)) => (*a as i128).cmp(&(*b as i128)),
+            (Self::U64(a), Self::I64(b)) => (*a as i128).cmp(&(*b as i128)),
+            (Self::I64(a), Self::F64(b)) => (*a as f64).total_cmp(b),
+            (Self::F64(a), Self::I64(b)) => a.total_cmp(&(*b as f64)),
+            (Self::U64(a), Self::F64(b)) => (*a as f64).total_cmp(b),
+            (Self::F64(a), Self::U64(b)) => a.total_cmp(&(*b as f64)),
+            _ => self.partial_cmp(other).unwrap_or(Ordering::Equal),
+        }
+    }
+
     pub fn into_tantivy_value(self, index_created_by_version: Option<Version>) -> OwnedValue {
         match self {
             PdbOwnedValue::Date(date) => {

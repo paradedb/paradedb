@@ -61,43 +61,18 @@ fn blob_config() -> impl bincode::config::Config {
     bincode::config::standard()
 }
 
-/// Physical-plan blobs grow with the logical plan but with a different constant: the physical
-/// encoding repeats schemas per node and carries the dispatch descriptors. The factor is
-/// deliberately generous because the region lives only for the query and an overflowing blob
-/// falls back to serial, while an undersized region costs the MPP path.
-const DISPATCH_BLOAT_FACTOR: usize = 64;
-/// Floor for tiny logical plans, whose physical expansion is dominated by fixed overhead.
-const DISPATCH_MIN_CAPACITY: usize = 1 << 20;
-
-/// DSM plan-region capacity for the dispatch payload (`[tag][u64 len][blob][pad]`).
+/// Frame the blob into the exact DSM dispatch payload:
+/// `[TAG_BLOB][u64 len LE][blob]`.
 ///
-/// The region is sized at `estimate_dsm` time, before the physical plan (and so the real blob
-/// size) can be known, because `ParallelScanState` doesn't exist yet. Size generously from the
-/// logical-plan length; an overflowing blob falls back to serial. `estimate_dsm` and
-/// `initialize_dsm` MUST call this with the same `logical_len` so the DSM layout matches.
-pub fn dispatch_plan_capacity(logical_len: usize) -> usize {
-    1 + 8
-        + logical_len
-            .saturating_mul(DISPATCH_BLOAT_FACTOR)
-            .max(DISPATCH_MIN_CAPACITY)
-}
-
-/// Frame the blob into a fixed-capacity dispatch payload:
-/// `[TAG_BLOB][u64 len LE][blob][zero pad to capacity]`. Errors if it doesn't fit `capacity` so
-/// the caller can fall back to serial.
-pub fn frame_dispatch_payload(blob: &[u8], capacity: usize) -> Result<Vec<u8>> {
-    let needed = 1 + 8 + blob.len();
-    if needed > capacity {
-        return Err(DataFusionError::Internal(format!(
-            "mpp dispatch: blob {needed} bytes exceeds DSM plan capacity {capacity}"
-        )));
-    }
-    let mut payload = Vec::with_capacity(capacity);
+/// MPP launch is plan-first, so the physical stages and their routing metadata exist before DSM
+/// allocation. Building this frame first lets the caller size DSM from `payload.len()` instead
+/// of estimating from an unrelated serialized logical-plan length.
+pub fn frame_dispatch_payload(blob: &[u8]) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(1 + 8 + blob.len());
     payload.push(TAG_BLOB);
     payload.extend_from_slice(&(blob.len() as u64).to_le_bytes());
     payload.extend_from_slice(blob);
-    payload.resize(capacity, 0);
-    Ok(payload)
+    payload
 }
 
 /// Extract the blob from a framed dispatch payload body (the bytes after the mode tag).
@@ -114,13 +89,10 @@ fn unframe_dispatch_payload(body: &[u8]) -> Result<&[u8]> {
     })
 }
 
-/// Build the dispatch payload (the routing blob, framed to `capacity`) from the stages the launch
-/// enumerated. The stage subplans travel separately: the coordinator serializes each through the
-/// leader's [`crate::postgres::customscan::mpp::glue::StagePlanDispatchSource`] as it dispatches.
-pub fn dispatch_payload_from_stages(
-    stages: &[DiscoveredStage],
-    capacity: usize,
-) -> Result<Vec<u8>> {
+/// Build the exact-size dispatch payload from the stages the launch enumerated. The stage
+/// subplans travel separately: the coordinator serializes each through the leader's
+/// [`crate::postgres::customscan::mpp::glue::StagePlanDispatchSource`] as it dispatches.
+pub fn dispatch_payload_from_stages(stages: &[DiscoveredStage]) -> Result<Vec<u8>> {
     let entries = classify_stages(stages)?;
     let dispatched: Vec<DispatchedStage> = entries
         .into_iter()
@@ -132,7 +104,7 @@ pub fn dispatch_payload_from_stages(
         .collect();
     let blob = bincode::serde::encode_to_vec(&dispatched, blob_config())
         .map_err(|e| DataFusionError::Internal(format!("mpp dispatch: blob encode: {e}")))?;
-    frame_dispatch_payload(&blob, capacity)
+    Ok(frame_dispatch_payload(&blob))
 }
 
 /// Decode the dispatch blob from the framed DSM payload a worker copied out of DSM.
@@ -224,6 +196,16 @@ pub fn fragments_for_worker(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frames_dispatch_payload_to_exact_length() {
+        let blob = [1, 2, 3, 4];
+        let payload = frame_dispatch_payload(&blob);
+
+        assert_eq!(payload.len(), 1 + 8 + blob.len());
+        assert_eq!(payload[0], TAG_BLOB);
+        assert_eq!(unframe_dispatch_payload(&payload[1..]).unwrap(), blob);
+    }
 
     #[test]
     fn assigns_every_logical_task_once_after_short_launch() {

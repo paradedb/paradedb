@@ -25,7 +25,12 @@ CREATE TABLE stackoverflow_posts (
     post_type_id SMALLINT,
     score INTEGER,
     tags VARCHAR,
-    view_count INTEGER
+    view_count INTEGER,
+    -- NUMERIC shapes for aggregate pushdown benchmarks, one per storage
+    -- format. Generated so the sampled CSVs stay unchanged: COPY skips
+    -- generated columns. amount78 mimics uint256-style token amounts.
+    amount15 NUMERIC(15, 2) GENERATED ALWAYS AS (view_count::numeric / 100) STORED,
+    amount78 NUMERIC(78, 0) GENERATED ALWAYS AS ('1e70'::numeric + view_count) STORED
 );
 
 CREATE TABLE badges (

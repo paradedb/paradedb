@@ -849,7 +849,7 @@ checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
 name = "benchmarks"
-version = "0.25.2"
+version = "0.25.3"
 dependencies = [
  "anyhow",
  "approx",
@@ -2536,9 +2536,9 @@ checksum = "46c4cf71a36b46dcfc00e5014c0c20ccad2b1b6a008304d7d57d2749b2d41b3d"
 
 [[package]]
 name = "decimal-bytes"
-version = "0.4.2"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "269277cb6b69f2fa55423ff5f3ff61f783893488b4e019b50fd4b57e077e1d4e"
+checksum = "04ca5c5cd9fae79b456f0a067c6b428ab1edad0c3a32b95c6e72ce8e777466cb"
 dependencies = [
  "serde",
  "thiserror 2.0.19",
@@ -2711,7 +2711,7 @@ checksum = "117240f60069e65410b3ae1bb213295bd828f707b5bec6596a1afc8793ce0cbc"
 
 [[package]]
 name = "dst"
-version = "0.25.2"
+version = "0.25.3"
 dependencies = [
  "antithesis-instrumentation",
  "antithesis_sdk",
@@ -4418,7 +4418,7 @@ checksum = "ecbdfe44b1bd960b68170b417450a628c43f7cf56bb3c5317e61cb230ee7f226"
 
 [[package]]
 name = "macros"
-version = "0.25.2"
+version = "0.25.3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4912,7 +4912,7 @@ dependencies = [
 [[package]]
 name = "ownedbytes"
 version = "0.9.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=09a3bca302f6ae769c2924a02156791af558e754#09a3bca302f6ae769c2924a02156791af558e754"
+source = "git+https://github.com/paradedb/tantivy.git?rev=c3caae3f613d5906c8080a3c3c2845190e749b64#c3caae3f613d5906c8080a3c3c2845190e749b64"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -5022,7 +5022,7 @@ dependencies = [
 
 [[package]]
 name = "pg_search"
-version = "0.25.2"
+version = "0.25.3"
 dependencies = [
  "antithesis-instrumentation",
  "anyhow",
@@ -5032,6 +5032,7 @@ dependencies = [
  "arrow-select 59.1.0",
  "async-stream",
  "async-trait",
+ "bigdecimal",
  "bincode 2.0.1",
  "bitpacking",
  "bytemuck",
@@ -5715,7 +5716,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -6897,7 +6898,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "stressgres"
-version = "0.25.2"
+version = "0.25.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -7083,7 +7084,7 @@ checksum = "7b2093cf4c8eb1e67749a6762251bc9cd836b6fc171623bd0a9d324d37af2417"
 [[package]]
 name = "tantivy"
 version = "0.27.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=09a3bca302f6ae769c2924a02156791af558e754#09a3bca302f6ae769c2924a02156791af558e754"
+source = "git+https://github.com/paradedb/tantivy.git?rev=c3caae3f613d5906c8080a3c3c2845190e749b64#c3caae3f613d5906c8080a3c3c2845190e749b64"
 dependencies = [
  "aho-corasick",
  "arc-swap",
@@ -7140,7 +7141,7 @@ dependencies = [
 [[package]]
 name = "tantivy-bitpacker"
 version = "0.10.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=09a3bca302f6ae769c2924a02156791af558e754#09a3bca302f6ae769c2924a02156791af558e754"
+source = "git+https://github.com/paradedb/tantivy.git?rev=c3caae3f613d5906c8080a3c3c2845190e749b64#c3caae3f613d5906c8080a3c3c2845190e749b64"
 dependencies = [
  "bitpacking",
 ]
@@ -7148,7 +7149,7 @@ dependencies = [
 [[package]]
 name = "tantivy-columnar"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=09a3bca302f6ae769c2924a02156791af558e754#09a3bca302f6ae769c2924a02156791af558e754"
+source = "git+https://github.com/paradedb/tantivy.git?rev=c3caae3f613d5906c8080a3c3c2845190e749b64#c3caae3f613d5906c8080a3c3c2845190e749b64"
 dependencies = [
  "downcast-rs",
  "fastdivide",
@@ -7163,7 +7164,7 @@ dependencies = [
 [[package]]
 name = "tantivy-common"
 version = "0.11.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=09a3bca302f6ae769c2924a02156791af558e754#09a3bca302f6ae769c2924a02156791af558e754"
+source = "git+https://github.com/paradedb/tantivy.git?rev=c3caae3f613d5906c8080a3c3c2845190e749b64#c3caae3f613d5906c8080a3c3c2845190e749b64"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -7196,7 +7197,7 @@ dependencies = [
 [[package]]
 name = "tantivy-query-grammar"
 version = "0.26.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=09a3bca302f6ae769c2924a02156791af558e754#09a3bca302f6ae769c2924a02156791af558e754"
+source = "git+https://github.com/paradedb/tantivy.git?rev=c3caae3f613d5906c8080a3c3c2845190e749b64#c3caae3f613d5906c8080a3c3c2845190e749b64"
 dependencies = [
  "fnv",
  "nom 7.1.3",
@@ -7208,7 +7209,7 @@ dependencies = [
 [[package]]
 name = "tantivy-sstable"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=09a3bca302f6ae769c2924a02156791af558e754#09a3bca302f6ae769c2924a02156791af558e754"
+source = "git+https://github.com/paradedb/tantivy.git?rev=c3caae3f613d5906c8080a3c3c2845190e749b64#c3caae3f613d5906c8080a3c3c2845190e749b64"
 dependencies = [
  "futures-util",
  "itertools 0.14.0",
@@ -7221,7 +7222,7 @@ dependencies = [
 [[package]]
 name = "tantivy-stacker"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=09a3bca302f6ae769c2924a02156791af558e754#09a3bca302f6ae769c2924a02156791af558e754"
+source = "git+https://github.com/paradedb/tantivy.git?rev=c3caae3f613d5906c8080a3c3c2845190e749b64#c3caae3f613d5906c8080a3c3c2845190e749b64"
 dependencies = [
  "fixedbitset",
  "murmurhash32",
@@ -7258,7 +7259,7 @@ dependencies = [
 [[package]]
 name = "tantivy-tokenizer-api"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=09a3bca302f6ae769c2924a02156791af558e754#09a3bca302f6ae769c2924a02156791af558e754"
+source = "git+https://github.com/paradedb/tantivy.git?rev=c3caae3f613d5906c8080a3c3c2845190e749b64#c3caae3f613d5906c8080a3c3c2845190e749b64"
 dependencies = [
  "serde",
 ]
@@ -7287,7 +7288,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",
@@ -7295,7 +7296,7 @@ dependencies = [
 
 [[package]]
 name = "tests"
-version = "0.25.2"
+version = "0.25.3"
 dependencies = [
  "anyhow",
  "approx",
@@ -7459,7 +7460,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokenizers"
-version = "0.25.2"
+version = "0.25.3"
 dependencies = [
  "anyhow",
  "emojis",

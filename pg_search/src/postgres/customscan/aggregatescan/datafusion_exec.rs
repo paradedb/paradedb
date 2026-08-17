@@ -30,6 +30,9 @@ use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, JoinAggregateEntry, JoinAggregateTargetList,
 };
 use crate::postgres::customscan::aggregatescan::privdat::{CompareOp, DataFusionTopK, FilterExpr};
+use crate::postgres::customscan::datafusion::numeric_agg::{
+    numeric_bytes_avg_udaf, numeric_bytes_sum_udaf, numeric64_avg_udaf, numeric64_sum_udaf,
+};
 use crate::postgres::customscan::datafusion::translator::{
     ColumnMapper, PredicateTranslator, apply_join_level_filter, build_join_df, make_col,
     make_source_col,
@@ -41,6 +44,7 @@ use crate::postgres::customscan::joinscan::scan_state::{
     SessionContextProfile, create_datafusion_session_context, register_source_table,
 };
 use crate::scan::PgSearchTableProvider;
+use crate::schema::SearchFieldType;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::functions_aggregate::array_agg::array_agg_udaf;
 use datafusion::functions_aggregate::count::count_udaf;
@@ -145,8 +149,24 @@ pub async fn build_join_aggregate_plan(
                         None,   // null_treatment
                     )))
                 }
-                AggKind::Sum => agg_field_col(agg, plan).map(sum),
-                AggKind::Avg => agg_field_col(agg, plan).map(avg),
+                // NUMERIC SUM/AVG route to scaled-Int64 or decimal-bytes UDAFs.
+                // The Numeric64 UDAFs take the scale as a plan literal so it
+                // survives plan serialization for parallel and MPP execution;
+                // decimal-bytes values are self-describing.
+                AggKind::Sum => agg_field_col(agg, plan).map(|col| match agg.numeric {
+                    None => sum(col),
+                    Some(SearchFieldType::Numeric64(_, scale)) => {
+                        numeric64_sum_udaf().call(vec![col, lit(scale as i32)])
+                    }
+                    Some(_) => numeric_bytes_sum_udaf().call(vec![col]),
+                }),
+                AggKind::Avg => agg_field_col(agg, plan).map(|col| match agg.numeric {
+                    None => avg(col),
+                    Some(SearchFieldType::Numeric64(_, scale)) => {
+                        numeric64_avg_udaf().call(vec![col, lit(scale as i32)])
+                    }
+                    Some(_) => numeric_bytes_avg_udaf().call(vec![col]),
+                }),
                 AggKind::Min => agg_field_col(agg, plan).map(min),
                 AggKind::Max => agg_field_col(agg, plan).map(max),
                 AggKind::StddevSamp => agg_field_col(agg, plan).map(stddev),
@@ -539,16 +559,13 @@ async fn build_source_df(
     // the Const/expression nodes retained by the first source. Generic plans
     // that parameterize predicates on both join inputs then dereference stale
     // nodes during reader construction and abort the backend.
-    let mut source_query = scan_info.query.clone();
+    let source_query = scan_info.query.clone();
     let needs_runtime_context =
         source_query.has_postgres_expressions() || source_query.has_parameters();
     // `.or(expr_context)` can hand every source the same context, but only the
-    // EXPLAIN-only rebuild both reaches it and goes on to physical planning.
-    // There it is safe: `PgSearchTableProvider::scan()` returns "postgres
-    // expressions have not been solved: missing planstate" before it would call
+    // EXPLAIN-only rebuild reaches it. There it is safe: `PgSearchTableProvider::scan()` returns
+    // "postgres expressions have not been solved: missing planstate" before it would call
     // `solve_postgres_expressions`, so the shared context is never reset.
-    // `stash_mpp_plan_bytes` also passes `planstate: None`, but stops at the
-    // logical plan, so `scan()` never runs there.
     let source_expr_context = if needs_runtime_context {
         unsafe {
             planstate

@@ -28,6 +28,7 @@ use crate::api::version::Version;
 use crate::api::{FieldName, HashMap, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::MvccSatisfies;
+use crate::index::reader::io_stats;
 use crate::index::reader::scorer::{DeferredScorer, LazyWeight, ScorerIter};
 use crate::index::setup_tokenizers;
 use crate::postgres::heap::VisibilityChecker;
@@ -334,11 +335,16 @@ impl Iterator for MultiSegmentSearchResults {
 pub struct TopKAuxiliaryCollector {
     /// If aggregations should be computed alongside Top K, the collector to use.
     pub aggregation_collector: DistributedAggregationCollector,
-    /// If MVCC filtering should be applied, then the visibility checker to use for that.
+    /// If MVCC filtering should be applied up front, then the visibility checker to use for that.
     ///
-    /// Note: If enabled, visibility checking is applied to _both_ the Top K and to any
+    /// Note: If set, visibility checking is applied to _both_ the Top K and to any
     /// aggregation collector: this is because once you've bothered to filter for MVCC, you might
     /// as well feed the filtered result to Top K too.
+    ///
+    /// `None` means either that MVCC filtering was not requested, or that it is solved lazily
+    /// inside `aggregation_collector` (cardinality-only over string fields). In both cases Top K
+    /// gets no pre-filtering here: the caller must verify visibility of the results and re-query
+    /// if necessary, exactly as when no auxiliary collector is present.
     pub vischeck: Option<VisibilityChecker>,
 }
 
@@ -559,6 +565,22 @@ impl SearchIndexReader {
     pub fn and_query_input(&self, query: &SearchQueryInput) -> Self {
         let tantivy_query = self.make_query(query, None);
         self.and_query(tantivy_query)
+    }
+
+    /// Count matched docs by summing `Weight::count` across segments.
+    ///
+    /// For term-like queries (term, or term wrapped in boost/const-score) on
+    /// segments without deletes this reads the stored doc_freq from the term
+    /// dictionary without touching postings; other queries drain their
+    /// docsets without scoring or collection overhead. Counts raw index
+    /// entries: no MVCC filtering.
+    pub fn count_matched_docs(&self) -> tantivy::Result<u64> {
+        let weight = self.weight();
+        let mut total = 0u64;
+        for segment_reader in self.searcher.segment_readers() {
+            total += u64::from(weight.count(segment_reader)?);
+        }
+        Ok(total)
     }
 
     pub fn weight(&self) -> Box<dyn Weight> {
@@ -869,9 +891,10 @@ impl SearchIndexReader {
     /// The documents are returned in either score or field order, in the given direction: at least
     /// one `OrderByInfo` must be defined.
     ///
-    /// If a TopKAuxiliaryCollector is provided, this method can optionally pre-filter for MVCC
-    /// visibility: if a collector is _not_ provided, then it is up to the caller to filter the
-    /// results for MVCC visibility, and re-query if necessary.
+    /// If a TopKAuxiliaryCollector with a vischeck is provided, this method pre-filters for MVCC
+    /// visibility. Otherwise — no auxiliary collector, or one whose vischeck is `None` because
+    /// MVCC is solved lazily inside its aggregation collector — it is up to the caller to filter
+    /// the results for MVCC visibility, and re-query if necessary.
     ///
     /// `parallel_state_holding_shared_threshold` should only be passed if we intend to query with a shared_threshold
     ///
@@ -1093,7 +1116,8 @@ impl SearchIndexReader {
                     ),
                 };
                 let segment_ids = collected_ids.into_inner();
-                let segment_info = probe_stats_to_segment_info(&segment_ids, &fruit.stats);
+                let mut segment_info = probe_stats_to_segment_info(&segment_ids, &fruit.stats);
+                io_stats::attach(&mut segment_info);
                 TopKSearch::with_segment_info(
                     TopKSearchResults::new_for_score(fruit.results, aggregation_results),
                     segment_info,
@@ -1650,11 +1674,14 @@ impl SearchIndexReader {
         collector: &C,
         weight: &dyn Weight,
     ) -> Vec<<<C as Collector>::Child as SegmentCollector>::Fruit> {
+        io_stats::reset();
         self.segment_readers_in_segments(segment_ids)
             .map(|(segment_ord, segment_reader)| {
-                collector
+                let fruit = collector
                     .collect_segment(weight, segment_ord, segment_reader)
-                    .expect("should be able to collect in segment")
+                    .expect("should be able to collect in segment");
+                io_stats::end_segment(segment_reader.segment_id());
+                fruit
             })
             .collect()
     }

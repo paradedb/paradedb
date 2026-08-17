@@ -457,11 +457,21 @@ pub fn launch_mpp_join(
     launch_mpp(physical, args, "mpp_launched_worker_join")
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use pgrx::pg_test;
 
-    #[test]
+    #[pg_test]
+    fn pending_launch_is_consumed_once() {
+        let mut lifecycle = MppLifecycle::Pending;
+
+        assert!(lifecycle.take_pending());
+        assert!(!lifecycle.take_pending());
+    }
+
+    #[pg_test]
     fn short_launch_uses_the_attached_width_when_the_mesh_is_viable() {
         assert_eq!(
             mpp_attach_outcome(5, 0),

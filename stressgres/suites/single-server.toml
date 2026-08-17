@@ -132,12 +132,12 @@ log_tps = true
 on_connect = """
 SET max_parallel_workers_per_gather = 0;
 SELECT assert_plan_contains(
-    $q$ SELECT id, message, payload FROM test WHERE message ||| 'wine' LIMIT 100 $q$,
+    $q$ SELECT id, message, payload FROM test WHERE message ||| 'wine' AND id <= 200 $q$,
     'NormalScanExecState'
 );
 """
 sql = """
-SELECT id, message, payload FROM test WHERE message ||| 'wine' LIMIT 100;
+SELECT id, message, payload FROM test WHERE message ||| 'wine' AND id <= 200;
 """
 
 [[jobs]]
@@ -147,12 +147,12 @@ log_tps = true
 on_connect = """
 SET paradedb.enable_columnar_exec = on;
 SELECT assert_plan_contains(
-    $q$ SELECT id, category FROM test WHERE message ||| 'beer' LIMIT 100 $q$,
+    $q$ SELECT id, category FROM test WHERE message ||| 'beer' AND id <= 200 $q$,
     'ColumnarExecState'
 );
 """
 sql = """
-SELECT id, category FROM test WHERE message ||| 'beer' LIMIT 100;
+SELECT id, category FROM test WHERE message ||| 'beer' AND id <= 200;
 """
 
 [[jobs]]

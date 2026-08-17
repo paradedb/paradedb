@@ -127,17 +127,32 @@ SELECT id FROM test WHERE message ||| 'cheese' LIMIT 100;
 
 [[jobs]]
 refresh_ms = 5
-title = "Normal Search"
+title = "Top K Search"
 log_tps = true
 on_connect = """
 SET max_parallel_workers_per_gather = 0;
 SELECT assert_plan_contains(
-    $q$ SELECT id, message, payload FROM test WHERE message ||| 'wine' AND id <= 200 $q$,
+    $q$ SELECT id, message, payload FROM test WHERE message ||| 'wine' LIMIT 100 $q$,
+    'TopKScanExecState'
+);
+"""
+sql = """
+SELECT id, message, payload FROM test WHERE message ||| 'wine' LIMIT 100;
+"""
+
+[[jobs]]
+refresh_ms = 5
+title = "Normal Scan Fallback"
+log_tps = true
+on_connect = """
+SET max_parallel_workers_per_gather = 0;
+SELECT assert_plan_contains(
+    $q$ SELECT id, message, payload FROM test WHERE message ||| 'wine' $q$,
     'NormalScanExecState'
 );
 """
 sql = """
-SELECT id, message, payload FROM test WHERE message ||| 'wine' AND id <= 200;
+SELECT id, message, payload FROM test WHERE message ||| 'wine';
 """
 
 [[jobs]]
@@ -147,12 +162,12 @@ log_tps = true
 on_connect = """
 SET paradedb.enable_columnar_exec = on;
 SELECT assert_plan_contains(
-    $q$ SELECT id, category FROM test WHERE message ||| 'beer' AND id <= 200 $q$,
+    $q$ SELECT id, category FROM test WHERE message ||| 'beer' $q$,
     'ColumnarExecState'
 );
 """
 sql = """
-SELECT id, category FROM test WHERE message ||| 'beer' AND id <= 200;
+SELECT id, category FROM test WHERE message ||| 'beer';
 """
 
 [[jobs]]

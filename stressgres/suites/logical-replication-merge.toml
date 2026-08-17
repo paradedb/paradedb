@@ -127,31 +127,28 @@ destination = "Subscriber"
 log_columns = ["pages", "relation_size:MB", "segment_count"]
 log_tps = false
 sql = """
-SELECT count(*) FILTER (WHERE visible)         AS visible,
-       count(*) FILTER (WHERE recyclable)      AS recyclable,
-       count(*)                                AS segment_count,
-       pg_relation_size('idxtest') / 8192      AS pages,
-       pg_relation_size('idxtest')             AS relation_size,
+SELECT count(*) FILTER (WHERE visible) AS visible,
+       count(*) FILTER (WHERE recyclable) AS recyclable,
+       count(*) AS segment_count,
+       pg_relation_size('idxtest') / 8192 AS pages,
+       pg_relation_size('idxtest') AS relation_size,
        pg_size_pretty(pg_relation_size('idxtest'))
 FROM paradedb.index_info('idxtest', true);
 """
 destinations = ["Subscriber"]
 
-# Keep the original merge-heavy write pattern, but make each read job express the workload it is
-# meant to cover. Assertions protect coverage; they no longer compensate for count(*) being
-# swallowed by newer executor paths.
 [[jobs]]
 refresh_ms = 5
 title = "Custom Search"
 on_connect = """
 SET max_parallel_workers_per_gather = 0;
 SELECT assert_plan_contains(
-    $q$ SELECT id, message, old_message FROM test WHERE id @@@ 'message:beer' LIMIT 50 $q$,
+    $q$ SELECT id, message, old_message FROM test WHERE message &&& 'beer wine' LIMIT 50 $q$,
     'NormalScanExecState'
 );
 """
 sql = """
-SELECT id, message, old_message FROM test WHERE id @@@ 'message:beer' LIMIT 50;
+SELECT id, message, old_message FROM test WHERE message &&& 'beer wine' LIMIT 50;
 """
 destinations = ["Subscriber"]
 
@@ -160,11 +157,11 @@ refresh_ms = 5
 title = "Top K Search"
 on_connect = """
 SELECT assert_plan_contains(
-    $q$ SELECT id, message FROM test WHERE id @@@ 'message:wine' ORDER BY id DESC LIMIT 25 $q$,
+    $q$ SELECT id, message FROM test WHERE message ||| 'wine' ORDER BY id DESC LIMIT 25 $q$,
     'TopKScanExecState'
 );
 """
-sql = "SELECT id, message FROM test WHERE id @@@ 'message:wine' ORDER BY id DESC LIMIT 25"
+sql = "SELECT id, message FROM test WHERE message ||| 'wine' ORDER BY id DESC LIMIT 25"
 destinations = ["Subscriber"]
 
 [[jobs]]
@@ -174,12 +171,12 @@ on_connect = """
 SET debug_parallel_query TO ON;
 SET max_parallel_workers_per_gather = 2;
 SELECT assert_plan_contains(
-    $q$ SELECT id, message, old_message FROM test WHERE id @@@ 'message:cheese' $q$,
+    $q$ SELECT id, message, old_message FROM test WHERE message ||| 'cheese' $q$,
     'Parallel Custom Scan'
 );
 """
 sql = """
-SELECT id, message, old_message FROM test WHERE id @@@ 'message:cheese';
+SELECT id, message, old_message FROM test WHERE message ||| 'cheese';
 """
 destinations = ["Subscriber"]
 
@@ -188,31 +185,29 @@ refresh_ms = 5
 title = "Aggregate Search"
 on_connect = """
 SELECT assert_plan_contains(
-    $q$ SELECT count(*) FROM test WHERE id @@@ 'message:beer' $q$,
+    $q$ SELECT count(*) FROM test WHERE message ||| 'beer' $q$,
     'ParadeDB Aggregate Scan'
 );
 """
 sql = """
-SELECT assert(count(*), 51), count(*) FROM test WHERE id @@@ 'message:beer';
+SELECT assert(count(*), 51), count(*) FROM test WHERE message ||| 'beer';
 """
 destinations = ["Subscriber"]
 
 [[jobs]]
 refresh_ms = 5
 title = "Index Only Search"
-# This suite intentionally stays tiny to reproduce the merge race, so disabling seqscan is still
-# useful here. The important change is that the query is genuinely index-only rather than count(*).
 on_connect = """
 SET max_parallel_workers = 0;
 SET paradedb.enable_custom_scan = off;
 SET enable_seqscan = off;
 SELECT assert_plan_contains(
-    $q$ SELECT id FROM test WHERE id @@@ 'message:bread' LIMIT 25 $q$,
+    $q$ SELECT id FROM test WHERE message ||| 'bread' LIMIT 25 $q$,
     'Index Only Scan'
 );
 """
 sql = """
-SELECT id FROM test WHERE id @@@ 'message:bread' LIMIT 25;
+SELECT id FROM test WHERE message ||| 'bread' LIMIT 25;
 """
 destinations = ["Subscriber"]
 

@@ -65,8 +65,9 @@ render() {
       BEGIN { include = 1 }
       /^# %%ANTITHESIS_BEGIN%%$/ { include = flavor == "antithesis"; next }
       /^# %%BARMAN_BEGIN%%$/ { include = flavor != "official"; next }
+      /^# %%OFFICIAL_BEGIN%%$/ { include = flavor == "official"; next }
       /^# %%STANDARD_BEGIN%%$/ { include = flavor != "antithesis"; next }
-      /^# %%(ANTITHESIS|BARMAN|STANDARD)_END%%$/ { include = 1; next }
+      /^# %%(ANTITHESIS|BARMAN|OFFICIAL|STANDARD)_END%%$/ { include = 1; next }
       !include { next }
       {
         gsub(/@@PG_VERSION_MAJOR@@/, pg_version)

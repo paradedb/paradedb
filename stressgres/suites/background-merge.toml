@@ -47,11 +47,8 @@ DECLARE
     plan_line text;
     full_plan text := '';
 BEGIN
-    -- Accumulate the EXPLAIN output as we go so we can show the plan we actually
-    -- got if the assertion fails (invaluable when a fault-injection run flips the plan).
     FOR plan_line IN EXECUTE 'EXPLAIN (VERBOSE) ' || p_query LOOP
         full_plan := full_plan || plan_line || chr(10);
-        -- Check if the current line contains the expected text
         IF plan_line ILIKE '%' || p_expected_text || '%' THEN
             RETURN true;
         END IF;
@@ -79,7 +76,6 @@ DROP EXTENSION pg_search CASCADE;
 refresh_ms = 100
 title = "Watch Segment Count"
 
-# Combined query returning both columns
 sql = """
 SELECT segno, num_docs, num_deleted, pg_size_pretty(byte_size) FROM paradedb.index_info('idxtest') ORDER BY num_docs DESC;
 """
@@ -89,7 +85,6 @@ refresh_ms = 100
 title = "Monitor Segment Count"
 log_columns = ["block_count", "segment_count"]
 log_tps = false
-# Combined query returning both columns
 sql = """
 SELECT
     pg_relation_size('idxtest') / current_setting('block_size')::int AS block_count,
@@ -101,18 +96,29 @@ SELECT
 
 [[jobs]]
 refresh_ms = 5
-title = "Custom scan"
+title = "Custom Search"
 log_tps = true
-# The aggregate custom scan is on by default and swallows `count(*)` queries whole, so without
-# turning it off this job plans as a ParadeDB Aggregate Scan and never reaches the scan exec
-# states it is named for. Assert on `NormalScanExecState` rather than the plan node text: this
-# table is large enough that the planner picks a Parallel Custom Scan, and the exec method line
-# is present in both the serial and parallel shapes.
+# This job used to run count(*), which now correctly belongs to Aggregate Scan. Retrieve actual
+# rows instead so background merges continuously race the normal/parallel custom-scan executor.
 on_connect = """
-SET paradedb.enable_aggregate_custom_scan = off;
+SELECT assert_plan_contains(
+    $q$ SELECT id, message, severity FROM test WHERE message @@@ 'drink' LIMIT 100 $q$,
+    'NormalScanExecState'
+);
+"""
+sql = """
+SELECT id, message, severity FROM test WHERE message @@@ 'drink' LIMIT 100;
+"""
+
+[[jobs]]
+refresh_ms = 5
+title = "Aggregate Search"
+log_tps = true
+# Keep the old count workload, but test the modern executor that is supposed to own it.
+on_connect = """
 SELECT assert_plan_contains(
     $q$ SELECT COUNT(*) FROM test WHERE message @@@ 'drink' $q$,
-    'NormalScanExecState'
+    'ParadeDB Aggregate Scan'
 );
 """
 sql = """

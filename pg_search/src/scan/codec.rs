@@ -27,6 +27,7 @@ use datafusion_proto::logical_plan::LogicalExtensionCodec;
 use datafusion_proto::protobuf::DfSchema;
 use pgrx::pg_sys::{ExprContext, Oid, PlanState};
 
+use crate::index::mvcc::SegmentView;
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterNode;
 use crate::scan::late_materialization::{DeferredField, LateMaterializeNode};
@@ -44,6 +45,10 @@ struct PgSearchExtensionCodec {
     expr_context: Option<*mut ExprContext>,
     /// Executor planstate, needed to initialize runtime Postgres expressions in source queries.
     planstate: Option<*mut PlanState>,
+    /// The leader's segment view of every join source, indexed by plan_position. Every reader
+    /// a decoded plan opens for a source replays its view, so packed addresses stay comparable
+    /// across the leader and its workers.
+    index_segment_views: Vec<SegmentView>,
 }
 
 unsafe impl Send for PgSearchExtensionCodec {}
@@ -216,6 +221,11 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         if provider.source_idx().is_some() {
             provider.set_parallel_state(self.parallel_state);
         }
+        if let Some(plan_position) = provider.segment_view_position()
+            && let Some(view) = self.index_segment_views.get(plan_position)
+        {
+            provider.set_segment_view(view.clone());
+        }
         provider.set_expr_context(self.expr_context);
         provider.set_planstate(self.planstate);
         Ok(Arc::new(provider))
@@ -298,11 +308,13 @@ pub fn deserialize_logical_plan_with_runtime(
     parallel_state: Option<*mut ParallelScanState>,
     expr_context: Option<*mut ExprContext>,
     planstate: Option<*mut PlanState>,
+    index_segment_views: Vec<SegmentView>,
 ) -> Result<LogicalPlan> {
     let codec = PgSearchExtensionCodec {
         parallel_state,
         expr_context,
         planstate,
+        index_segment_views,
     };
     datafusion_proto::bytes::logical_plan_from_bytes_with_extension_codec(bytes, ctx, &codec)
 }

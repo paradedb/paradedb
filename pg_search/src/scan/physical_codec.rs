@@ -37,10 +37,10 @@ use datafusion_proto::physical_plan::{
     PhysicalPlanNodeExt, PhysicalProtoConverterExtension,
 };
 use datafusion_proto::protobuf::PhysicalPlanNode;
-use tantivy::index::SegmentId;
 
-use crate::api::{HashMap, HashSet};
+use crate::api::HashMap;
 use crate::index::fast_fields_helper::FFHelper;
+use crate::index::mvcc::SegmentView;
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::datafusion::numeric_agg;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
@@ -67,8 +67,9 @@ pub struct PgSearchPhysicalExtensionCodec {
     /// Worker's `ParallelScanState`, used to resolve the scan's MVCC segment set and to claim
     /// segments at runtime.
     parallel_state: Option<*mut ParallelScanState>,
-    /// Canonical segment ID sets for all join sources, indexed by `plan_position`.
-    index_segment_ids: Vec<HashSet<SegmentId>>,
+    /// The leader's segment view of every join source, indexed by `plan_position`, for the
+    /// rebuilt ctid resolvers on decode.
+    index_segment_views: Vec<SegmentView>,
     /// The `ExprContext` workers use to evaluate heap filters.
     expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
 }
@@ -111,7 +112,7 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
                     payload,
                     input,
                     resolvers,
-                    &self.index_segment_ids,
+                    &self.index_segment_views,
                 )
             }
             TAG_TANTIVY_LOOKUP => {
@@ -136,7 +137,7 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
                     ffhelpers,
                     resolvers,
                     ctx,
-                    &self.index_segment_ids,
+                    &self.index_segment_views,
                     self.parallel_state,
                     proto_converter,
                 )
@@ -388,13 +389,13 @@ pub fn deserialize_physical_plan_with_runtime(
     bytes: &[u8],
     ctx: &TaskContext,
     parallel_state: Option<*mut ParallelScanState>,
-    index_segment_ids: Vec<HashSet<SegmentId>>,
+    index_segment_views: Vec<SegmentView>,
     expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
     proto_converter: &dyn PhysicalProtoConverterExtension,
 ) -> Result<Arc<dyn ExecutionPlan>> {
     let codec = combined_codec(PgSearchPhysicalExtensionCodec {
         parallel_state,
-        index_segment_ids,
+        index_segment_views,
         expr_context,
     });
     let proto = <PhysicalPlanNode as prost::Message>::decode(bytes).map_err(|e| {

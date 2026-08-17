@@ -201,7 +201,7 @@ pub(crate) fn rebuild_mvcc(
             )
         })?;
         Ok(MvccSatisfies::ParallelWorker(unsafe {
-            (*ps).segment_ids_for_source(source_idx)
+            (*ps).segment_view_for_source(source_idx)
         }))
     } else {
         Ok(MvccSatisfies::Snapshot)

@@ -71,6 +71,7 @@ use datafusion::physical_planner::{ExtensionPlanner, PhysicalPlanner};
 use pgrx::pg_sys;
 
 use crate::index::fast_fields_helper::{FFHelper, for_each_segment};
+use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::postgres::customscan::joinscan::CtidColumn;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
@@ -756,13 +757,13 @@ impl VisibilityFilterExec {
 
     /// Rebuild from a dispatch descriptor, re-wiring the per-plan_position ctid resolvers from
     /// the scans the worker decoded below this node. A position whose scan sits behind a network
-    /// boundary rebuilds its resolver instead: a helper over that index's canonical segment view
+    /// boundary rebuilds its resolver instead: a helper replaying that source's segment view
     /// resolves any address a producer packed (ctid access needs no field layout).
     pub(crate) fn decode_for_dispatch(
         buf: &[u8],
         input: Arc<dyn ExecutionPlan>,
         ctid_resolvers: Vec<(usize, u32, Arc<FFHelper>)>,
-        index_segment_ids: &[crate::api::HashSet<tantivy::index::SegmentId>],
+        index_segment_views: &[SegmentView],
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let (plan_pos_oids, table_names, resolver_indexes): VisibilityDispatchPayload =
             serde_json::from_slice(buf).map_err(|e| {
@@ -778,16 +779,16 @@ impl VisibilityFilterExec {
             if ctid_resolvers.iter().any(|(pos, _, _)| *pos == plan_pos) {
                 continue;
             }
-            let ids = index_segment_ids.get(plan_pos).cloned().ok_or_else(|| {
+            let view = index_segment_views.get(plan_pos).cloned().ok_or_else(|| {
                 DataFusionError::Internal(format!(
-                    "VisibilityFilterExec dispatch: missing canonical segment ids for \
+                    "VisibilityFilterExec dispatch: missing segment view for \
                      plan_position {plan_pos}"
                 ))
             })?;
             let ffhelper = crate::scan::tantivy_lookup_exec::open_rebuilt_ffhelper(
                 indexrelid,
                 &[],
-                crate::index::mvcc::MvccSatisfies::ParallelWorker(ids),
+                MvccSatisfies::ParallelWorker(view),
             )?;
             exec.set_ctid_resolver(plan_pos, indexrelid, ffhelper);
         }
@@ -1554,7 +1555,7 @@ mod tests {
         let bytes =
             serialize_logical_plan(&wrapped).expect("VisibilityFilterNode should serialize");
         let ctx = TaskContext::default();
-        let decoded = deserialize_logical_plan_with_runtime(&bytes, &ctx, None, None, None)
+        let decoded = deserialize_logical_plan_with_runtime(&bytes, &ctx, None, None, None, vec![])
             .expect("VisibilityFilterNode should deserialize");
 
         let LogicalPlan::Extension(ext) = &decoded else {

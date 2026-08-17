@@ -25,7 +25,7 @@ use crate::aggregate::interrupt_collector::InterruptableCollector;
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::HashSet;
 use crate::api::version::VersionInfo;
-use crate::index::mvcc::MvccSatisfies;
+use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::index::reader::index::SearchIndexReader;
 use crate::launch_parallel_process;
 use crate::parallel_worker::ParallelStateManager;
@@ -263,7 +263,7 @@ impl<'a> ParallelAggregationWorker<'a> {
             &indexrel,
             self.query.clone(),
             false,
-            MvccSatisfies::ParallelWorker(segment_ids.clone()),
+            MvccSatisfies::ParallelWorker(SegmentView::from_ids(segment_ids.iter().copied())),
             NonNull::new(context_ptr),
             planstate.and_then(NonNull::new),
             self.query.needs_tokenizer(),

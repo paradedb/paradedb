@@ -31,7 +31,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::HashSet;
 use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, WhichFastField};
-use crate::index::mvcc::MvccSatisfies;
+use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::ParallelScanState;
 use crate::postgres::heap::VisibilityChecker;
@@ -123,6 +123,12 @@ pub struct PgSearchTableProvider {
     /// Explicit range partitioning configuration. When present, the provider
     /// ignores parallel state segments and yields statically partitioned streams.
     range_sample: Option<RangePartitioningSample>,
+
+    /// The segment view this source's reader replays when it is one of a JoinScan's sources.
+    /// Backend-local (a plan's readers do not travel), so re-injected by the codec on
+    /// deserialization; see [`Self::segment_view_position`].
+    #[serde(skip)]
+    segment_view: Option<SegmentView>,
 }
 
 mod atomic_bool_serde {
@@ -162,6 +168,7 @@ impl Clone for PgSearchTableProvider {
             ),
             source_idx: self.source_idx,
             range_sample: self.range_sample.clone(),
+            segment_view: self.segment_view.clone(),
         }
     }
 }
@@ -187,6 +194,7 @@ impl PgSearchTableProvider {
             late_materialization_active: AtomicBool::new(false),
             source_idx,
             range_sample: None,
+            segment_view: None,
         }
     }
 
@@ -225,6 +233,17 @@ impl PgSearchTableProvider {
 
     pub(crate) fn source_idx(&self) -> Option<usize> {
         self.source_idx
+    }
+
+    /// The JoinScan plan position whose segment view this source replays, if any. An MPP source
+    /// is addressed by `source_idx`; a serial source only takes part in an address exchange
+    /// (with `SearchPredicateUDF`) when its visibility is deferred.
+    pub(crate) fn segment_view_position(&self) -> Option<usize> {
+        self.source_idx.or(self.deferred_ctid_plan_position())
+    }
+
+    pub(crate) fn set_segment_view(&mut self, view: SegmentView) {
+        self.segment_view = Some(view);
     }
 
     fn enable_deferred_columns(&mut self, required_early_columns: &HashSet<String>) {
@@ -654,27 +673,27 @@ impl PgSearchTableProvider {
             query.init_postgres_expressions(planstate);
             query.solve_postgres_expressions(expr_context);
         }
-        // MVCC dispatch by `source_idx`:
+        // MVCC dispatch:
         //
-        // Parallel worker or leader (`source_idx` Some):
-        // Retrieve the specific frozen segment IDs for this source from `ParallelScanState`.
+        // Parallel worker (`parallel_state` Some, not the leader): replay this source's segment
+        // view from `ParallelScanState`.
         //
-        // Serial (otherwise): Snapshot.
-
-        let mvcc_style = if let Some(parallel_state) = parallel_state {
-            unsafe {
-                if pg_sys::ParallelWorkerNumber == -1 {
-                    // Leader only sees snapshot-visible segments
-                    MvccSatisfies::Snapshot
-                } else {
-                    let ids = (*parallel_state).segment_ids_for_source(
+        // Otherwise, replay the view the codec injected for this source, when there is one: the
+        // leader's reader then matches the manifest the DSM was populated from, and a serial
+        // reader matches the predicate UDF's. Any other reader opens a plain snapshot.
+        let mvcc_style = match parallel_state {
+            Some(parallel_state) if unsafe { pg_sys::ParallelWorkerNumber } != -1 => {
+                let view = unsafe {
+                    (*parallel_state).segment_view_for_source(
                         self.source_idx.expect("parallel_state implies source_idx"),
-                    );
-                    MvccSatisfies::ParallelWorker(ids)
-                }
+                    )
+                };
+                MvccSatisfies::ParallelWorker(view)
             }
-        } else {
-            MvccSatisfies::Snapshot
+            _ => match self.segment_view.clone() {
+                Some(view) => MvccSatisfies::ParallelWorker(view),
+                None => MvccSatisfies::Snapshot,
+            },
         };
 
         let reader = SearchIndexReader::open_with_context(

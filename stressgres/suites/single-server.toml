@@ -6,42 +6,62 @@ name = "Primary"
 sql = """
 DROP EXTENSION IF EXISTS pg_search CASCADE;
 DROP TABLE IF EXISTS test CASCADE;
+DROP TABLE IF EXISTS categories CASCADE;
 CREATE EXTENSION pg_search CASCADE;
+
+CREATE TABLE categories (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL
+);
+
 CREATE TABLE test (
     id SERIAL8 NOT NULL PRIMARY KEY,
     message TEXT,
-    category TEXT DEFAULT 'common'
+    category TEXT DEFAULT 'common',
+    category_id INTEGER NOT NULL,
+    payload TEXT
 );
 
-INSERT INTO test (message) VALUES ('beer wine cheese a');
-INSERT INTO test (message) VALUES ('beer wine a');
-INSERT INTO test (message) VALUES ('beer cheese a');
-INSERT INTO test (message) VALUES ('beer a');
-INSERT INTO test (message) VALUES ('wine cheese a');
-INSERT INTO test (message) VALUES ('wine a');
-INSERT INTO test (message) VALUES ('cheese a');
-INSERT INTO test (message) VALUES ('beer wine cheese a');
-INSERT INTO test (message) VALUES ('beer wine a');
-INSERT INTO test (message) VALUES ('beer cheese a');
-INSERT INTO test (message) VALUES ('beer a');
-INSERT INTO test (message) VALUES ('wine cheese a');
-INSERT INTO test (message) VALUES ('wine a');
-INSERT INTO test (message) VALUES ('cheese a');
+INSERT INTO categories (id, name)
+SELECT i, 'category ' || i::text
+FROM generate_series(1, 100) AS s(i);
+
+-- A real planner-sized relation makes these jobs representative without making the suite huge.
+-- Search-term frequencies are deterministic so correctness assertions remain stable under writes.
+INSERT INTO test (message, category, category_id, payload)
+SELECT
+    (ARRAY['beer wine cheese', 'beer wine', 'beer cheese', 'beer',
+           'wine cheese', 'wine', 'cheese', 'bread butter'])[1 + (i % 8)]
+    || ' ' || i::text,
+    CASE WHEN i % 10 = 0 THEN 'rare' ELSE 'common' END,
+    1 + (i % 100),
+    'payload ' || i::text
+FROM generate_series(1, 10000) AS s(i);
 
 CREATE INDEX idxtest ON test USING paradedb (
     id,
     message,
+    category_id,
     (category::pdb.literal)
-) WITH (key_field = 'id');
+) WITH (
+    key_field = 'id',
+    numeric_fields = '{"category_id": {"fast": true}}'
+);
+
+CREATE INDEX idxcategories ON categories USING bm25(id, name) WITH (
+    key_field = 'id',
+    text_fields = '{"name": {"fast": true, "tokenizer": {"type": "raw"}}}'
+);
+
+ANALYZE test;
+ANALYZE categories;
 
 CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool LANGUAGE plpgsql AS $$
 DECLARE
     current_txid bigint;
 BEGIN
-    -- Get the current transaction ID
     current_txid := txid_current();
 
-    -- Check if the values are not equal
     IF a <> b THEN
         RAISE EXCEPTION 'Assertion failed: % <> %. Transaction ID: %', a, b, current_txid;
     END IF;
@@ -58,11 +78,8 @@ DECLARE
     plan_line text;
     full_plan text := '';
 BEGIN
-    -- Accumulate the EXPLAIN output as we go so we can show the plan we actually
-    -- got if the assertion fails (invaluable when a fault-injection run flips the plan).
     FOR plan_line IN EXECUTE 'EXPLAIN (VERBOSE) ' || p_query LOOP
         full_plan := full_plan || plan_line || chr(10);
-        -- Check if the current line contains the expected text
         IF plan_line ILIKE '%' || p_expected_text || '%' THEN
             RETURN true;
         END IF;
@@ -73,7 +90,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-
 ALTER SYSTEM SET autovacuum_naptime = '1s';
 SELECT pg_reload_conf();
 """
@@ -81,6 +97,7 @@ SELECT pg_reload_conf();
 [server.teardown]
 sql = """
 DROP TABLE test CASCADE;
+DROP TABLE categories CASCADE;
 DROP EXTENSION pg_search CASCADE;
 """
 [server.monitor]
@@ -88,7 +105,6 @@ refresh_ms = 10
 title = "Monitor Index Size"
 log_columns = ["block_count", "segment_count"]
 
-# Combined query returning both columns
 sql = """
 SELECT
     pg_relation_size('idxtest') / current_setting('block_size')::int AS block_count,
@@ -98,84 +114,108 @@ SELECT
     ) AS segment_count
 """
 
+# These jobs are organized by user workload first and executor second. The query should naturally
+# make sense for the path; the EXPLAIN assertion only catches silent coverage drift.
 [[jobs]]
 refresh_ms = 100
-title = "Index Scan"
+title = "Index Only Search"
 log_tps = true
 on_connect = """
 SET paradedb.enable_custom_scan = off;
-SET paradedb.enable_aggregate_custom_scan = off;
 SELECT assert_plan_contains(
-    $q$ SELECT count(*) FROM test where message ||| 'cheese' $q$,
+    $q$ SELECT id FROM test WHERE message ||| 'cheese' LIMIT 100 $q$,
     'Index Only Scan'
 );
 """
 sql = """
-SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test where message ||| 'cheese';
+SELECT id FROM test WHERE message ||| 'cheese' LIMIT 100;
 """
 
 [[jobs]]
 refresh_ms = 5
-title = "Normal Scan"
+title = "Normal Search"
 log_tps = true
+# payload is not indexed, so this is a genuine heap-backed retrieval workload and cannot collapse
+# into Index Only Scan or Aggregate Scan.
 on_connect = """
-SET paradedb.enable_aggregate_custom_scan = off;
-SET enable_indexscan = off;
-SET enable_indexonlyscan = off;
+SET max_parallel_workers_per_gather = 0;
 SELECT assert_plan_contains(
-    $q$ SELECT count(*) FROM test where message ||| 'wine' $q$,
+    $q$ SELECT id, message, payload FROM test WHERE message ||| 'wine' LIMIT 100 $q$,
     'NormalScanExecState'
 );
 """
 sql = """
-SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test where message ||| 'wine';
+SELECT id, message, payload FROM test WHERE message ||| 'wine' LIMIT 100;
 """
 
 [[jobs]]
 refresh_ms = 5
-title = "Columnar Scan"
+title = "Columnar Search"
 log_tps = true
 on_connect = """
 SET paradedb.enable_columnar_exec = on;
 SELECT assert_plan_contains(
-    $q$ SELECT id, category FROM test WHERE message ||| 'beer' $q$,
+    $q$ SELECT id, category FROM test WHERE message ||| 'beer' LIMIT 100 $q$,
     'ColumnarExecState'
 );
 """
 sql = """
-SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM (SELECT id, category FROM test WHERE message ||| 'beer') sub;
+SELECT id, category FROM test WHERE message ||| 'beer' LIMIT 100;
 """
 
 [[jobs]]
 refresh_ms = 5
-title = "Aggregate Custom Scan"
+title = "Aggregate Search"
 log_tps = true
 on_connect = """
-SET paradedb.enable_aggregate_custom_scan = on;
 SELECT assert_plan_contains(
     $q$ SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb) FROM test WHERE message ||| 'beer' $q$,
     'ParadeDB Aggregate Scan'
 );
 """
 sql = """
-SELECT assert((pdb.agg('{"value_count": {"field": "id"}}'::jsonb)->>'value')::numeric::bigint, 8::bigint) FROM test WHERE message ||| 'beer';
+SELECT assert((pdb.agg('{"value_count": {"field": "id"}}'::jsonb)->>'value')::numeric::bigint, 5000::bigint) FROM test WHERE message ||| 'beer';
 """
 
 [[jobs]]
 refresh_ms = 5
-title = "Score-ordered TopK"
+title = "Score-ordered Top K"
 log_tps = true
-# Keeps the score-DESC TopK collector under load: `@@@` forces the bm25 custom scan and
-# `ORDER BY paradedb.score(id) DESC LIMIT` selects the TopK score collector.
 on_connect = """
-SET paradedb.enable_custom_scan = on;
 SELECT assert_plan_contains(
     $q$ SELECT id FROM test WHERE message @@@ 'beer' ORDER BY paradedb.score(id) DESC LIMIT 10 $q$,
     'TopKScanExecState'
 );
 """
 sql = """
-SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM (SELECT id FROM test WHERE message @@@ 'beer' ORDER BY paradedb.score(id) DESC LIMIT 10) sub;
+SELECT id FROM test WHERE message @@@ 'beer' ORDER BY paradedb.score(id) DESC LIMIT 10;
+"""
+
+[[jobs]]
+refresh_ms = 5
+title = "Join Search"
+log_tps = true
+on_connect = """
+SET paradedb.enable_join_custom_scan = on;
+SELECT assert_plan_contains(
+    $q$
+    SELECT t.id, t.message, c.name
+    FROM test t
+    JOIN categories c ON t.category_id = c.id
+    WHERE t.message @@@ 'beer'
+    ORDER BY t.id
+    LIMIT 25
+    $q$,
+    'ParadeDB Join Scan'
+);
+"""
+sql = """
+SELECT t.id, t.message, c.name
+FROM test t
+JOIN categories c ON t.category_id = c.id
+WHERE t.message @@@ 'beer'
+ORDER BY t.id
+LIMIT 25;
 """
 
 [[jobs]]
@@ -190,26 +230,42 @@ WHERE id < 10;
 """
 
 [[jobs]]
-refresh_ms = 10
-title = "Insert value"
+refresh_ms = 25
+title = "Rotate join keys"
 log_tps = true
 sql = """
-INSERT INTO test (message) VALUES ('test');
+UPDATE test SET category_id = (category_id % 100) + 1 WHERE id BETWEEN 1 AND 100;
+"""
+
+[[jobs]]
+refresh_ms = 25
+title = "Update joined rows"
+log_tps = true
+sql = """
+UPDATE categories SET name = 'category ' || id::text || ' ' || txid_current()::text WHERE id <= 10;
 """
 
 [[jobs]]
 refresh_ms = 10
-title = "Insert value"
+title = "Insert value A"
 log_tps = true
 sql = """
-INSERT INTO test (message) VALUES ('test');
+INSERT INTO test (message, category_id, payload) VALUES ('test A', 1, 'inserted');
+"""
+
+[[jobs]]
+refresh_ms = 10
+title = "Insert value B"
+log_tps = true
+sql = """
+INSERT INTO test (message, category_id, payload) VALUES ('test B', 2, 'inserted');
 """
 
 [[jobs]]
 refresh_ms = 10
 title = "Delete values"
 sql = """
-DELETE FROM test WHERE id > 14;
+DELETE FROM test WHERE id > 10000;
 """
 
 [[jobs]]

@@ -216,11 +216,6 @@ SELECT id FROM test WHERE id @@@ 'message:bread' LIMIT 25;
 """
 destinations = ["Subscriber"]
 
-##
-## These UPDATE/INSERT/DELETE jobs run on the primary, which has no pg_search index, so there's no need for us to
-## log their tps -- nothing we can do about that
-##
-
 [[jobs]]
 refresh_ms = 50
 log_tps = false

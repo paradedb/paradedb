@@ -94,16 +94,16 @@ SELECT
 
 [[jobs]]
 refresh_ms = 5
-title = "Custom Search"
+title = "Top K Search"
 log_tps = true
 on_connect = """
 SELECT assert_plan_contains(
-    $q$ SELECT id, message, severity FROM test WHERE message @@@ 'drink' LIMIT 100 $q$,
-    'NormalScanExecState'
+    $q$ SELECT id, message, severity FROM test WHERE message ||| 'drink' LIMIT 100 $q$,
+    'TopKScanExecState'
 );
 """
 sql = """
-SELECT id, message, severity FROM test WHERE message @@@ 'drink' LIMIT 100;
+SELECT id, message, severity FROM test WHERE message ||| 'drink' LIMIT 100;
 """
 
 [[jobs]]
@@ -112,12 +112,12 @@ title = "Aggregate Search"
 log_tps = true
 on_connect = """
 SELECT assert_plan_contains(
-    $q$ SELECT COUNT(*) FROM test WHERE message @@@ 'drink' $q$,
+    $q$ SELECT COUNT(*) FROM test WHERE message ||| 'drink' $q$,
     'ParadeDB Aggregate Scan'
 );
 """
 sql = """
-SELECT assert(COUNT(*), 333333) FROM test WHERE message @@@ 'drink';
+SELECT assert(COUNT(*), 333333) FROM test WHERE message ||| 'drink';
 """
 
 [[jobs]]

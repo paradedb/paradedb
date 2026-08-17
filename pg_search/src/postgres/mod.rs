@@ -50,6 +50,7 @@ mod vacuum;
 mod validate;
 
 mod build_parallel;
+mod build_partitioning;
 pub mod catalog;
 pub mod composite;
 mod condition_variable;

@@ -26,8 +26,6 @@ INSERT INTO categories (id, name)
 SELECT i, 'category ' || i::text
 FROM generate_series(1, 100) AS s(i);
 
--- A real planner-sized relation makes these jobs representative without making the suite huge.
--- Search-term frequencies are deterministic so correctness assertions remain stable under writes.
 INSERT INTO test (message, category, category_id, payload)
 SELECT
     (ARRAY['beer wine cheese', 'beer wine', 'beer cheese', 'beer',
@@ -48,7 +46,7 @@ CREATE INDEX idxtest ON test USING paradedb (
     numeric_fields = '{"category_id": {"fast": true}}'
 );
 
-CREATE INDEX idxcategories ON categories USING bm25(id, name) WITH (
+CREATE INDEX idxcategories ON categories USING paradedb (id, name) WITH (
     key_field = 'id',
     text_fields = '{"name": {"fast": true, "tokenizer": {"type": "raw"}}}'
 );
@@ -61,11 +59,9 @@ DECLARE
     current_txid bigint;
 BEGIN
     current_txid := txid_current();
-
     IF a <> b THEN
         RAISE EXCEPTION 'Assertion failed: % <> %. Transaction ID: %', a, b, current_txid;
     END IF;
-
     RETURN true;
 END;
 $$;
@@ -114,8 +110,6 @@ SELECT
     ) AS segment_count
 """
 
-# These jobs are organized by user workload first and executor second. The query should naturally
-# make sense for the path; the EXPLAIN assertion only catches silent coverage drift.
 [[jobs]]
 refresh_ms = 100
 title = "Index Only Search"
@@ -135,8 +129,6 @@ SELECT id FROM test WHERE message ||| 'cheese' LIMIT 100;
 refresh_ms = 5
 title = "Normal Search"
 log_tps = true
-# payload is not indexed, so this is a genuine heap-backed retrieval workload and cannot collapse
-# into Index Only Scan or Aggregate Scan.
 on_connect = """
 SET max_parallel_workers_per_gather = 0;
 SELECT assert_plan_contains(

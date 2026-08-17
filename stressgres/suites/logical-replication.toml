@@ -91,12 +91,12 @@ DROP SUBSCRIPTION IF EXISTS stressgres_sub;
 CREATE SUBSCRIPTION stressgres_sub CONNECTION '@Publisher_CONNSTR@' PUBLICATION stressgres_pub;
 SELECT pg_sleep(5);
 
-CREATE INDEX idxtest ON test USING paradedb(id, message, category_id) WITH (
+CREATE INDEX idxtest ON test USING paradedb (id, message, category_id) WITH (
     key_field = 'id',
     layer_sizes = '10kb, 100kb, 1mb, 100mb',
     numeric_fields = '{"category_id": {"fast": true}}'
 );
-CREATE INDEX idxcategories ON categories USING paradedb(id, name) WITH (
+CREATE INDEX idxcategories ON categories USING paradedb (id, name) WITH (
     key_field = 'id',
     text_fields = '{"name": {"fast": true, "tokenizer": {"type": "raw"}}}'
 );
@@ -108,7 +108,6 @@ CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool LANGUAGE plpg
 DECLARE
     current_txid bigint;
 BEGIN
-    -- Check if the values are not equal
     IF a <> b THEN
         RAISE EXCEPTION 'Assertion failed: % <> %', a, b;
     END IF;
@@ -205,9 +204,6 @@ destinations = ["Subscriber"]
 [[jobs]]
 refresh_ms = 5
 title = "Parallel Custom Search"
-# debug_parallel_query is retained because this job exists specifically to keep the parallel
-# executor under fault. The query itself is a retrieval workload and cannot be absorbed by
-# Aggregate Scan or Index Only Scan.
 on_connect = """
 SET debug_parallel_query TO ON;
 SET max_parallel_workers_per_gather = 2;
@@ -224,8 +220,6 @@ destinations = ["Subscriber"]
 [[jobs]]
 refresh_ms = 5
 title = "Aggregate Search"
-# count(*) is exactly the workload Aggregate Scan is intended to consume; keep it as its own
-# first-class workload instead of disabling Aggregate Scan to reach another executor.
 on_connect = """
 SELECT assert_plan_contains(
     $q$ SELECT count(*) FROM test WHERE id @@@ 'message:beer' $q$,
@@ -240,8 +234,6 @@ destinations = ["Subscriber"]
 [[jobs]]
 refresh_ms = 5
 title = "Index Only Search"
-# This is intentionally fallback-path coverage: turn off ParadeDB's custom scan, then ask only
-# for the indexed key. Unlike the old count(*) query, the query shape itself is index-only.
 on_connect = """
 SET max_parallel_workers = 0;
 SET paradedb.enable_custom_scan = off;
@@ -258,7 +250,6 @@ destinations = ["Subscriber"]
 [[jobs]]
 refresh_ms = 5
 title = "Sort over Normal Scan"
-# old_message is not indexed, so this intentionally covers a non-pushdown ORDER BY fallback.
 on_connect = """
 SELECT assert_plan_contains(
     $q$ SELECT id, message, old_message FROM test WHERE message @@@ 'wine' OR message @@@ 'beer' ORDER BY old_message LIMIT 20 $q$,
@@ -277,8 +268,6 @@ destinations = ["Subscriber"]
 [[jobs]]
 refresh_ms = 5
 title = "Join Search"
-# Both sides are replicated and indexed. The write jobs below mutate both the join key and the
-# joined row so JoinScan sees MVCC/replication churn rather than a static lookup table.
 on_connect = """
 SET paradedb.enable_join_custom_scan = on;
 SELECT assert_plan_contains(
@@ -312,11 +301,6 @@ sql = """
 select ctid::text, id, message, old_message, paradedb.find_ctid('idxtest', ctid) as segment_ids, now()::text, txid_current()::numeric from test where message ilike '%beer%' order by id limit 100;
 """
 destinations = ["Subscriber"]
-
-##
-## These UPDATE/INSERT/DELETE jobs run on the primary, which has no pg_search index, so there's no need for us to
-## log their tps -- nothing we can do about that
-##
 
 [[jobs]]
 refresh_ms = 100

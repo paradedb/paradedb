@@ -323,7 +323,7 @@ mod tests {
 
     #[test]
     fn nested_coalesce_destination_is_width_independent() {
-        // This invariant is why the dispatch payload can be built while workers attach and reused
+        // This invariant is why the dispatch payload can be built before worker launch and reused
         // unchanged after a viable short launch.
         for worker_count in 1..=8 {
             assert_eq!(proc_for_task(worker_count, 0), FIRST_WORKER_PROC);

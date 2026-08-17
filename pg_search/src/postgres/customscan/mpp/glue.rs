@@ -69,13 +69,13 @@ pub(super) fn mpp_queue_size() -> usize {
     gucs_mpp_queue_size()
 }
 
-/// Total DSM bytes the leader will need for the mesh header, the worker plan, and one MPSC
+/// Total DSM bytes the leader will need for the mesh header, the dispatch payload, and one MPSC
 /// inbox per process. `n_procs` is the total proc count (leader + launched producers) the
 /// plan-first launch computed from the physical plan — the mesh grows as `n_procs²`, so this
 /// is sized from the plan's needs, not the GUC ceiling (#5667). A short launch may initialize a
 /// narrower logical mesh in this allocation, but never a wider one.
-pub fn estimate_dsm_size(n_procs: u32, plan_bytes_len: usize) -> Result<usize, String> {
-    shm::dsm_region_bytes(n_procs, mpp_queue_size(), plan_bytes_len).map_err(|e| e.to_string())
+pub fn estimate_dsm_size(n_procs: u32, payload_len: usize) -> Result<usize, String> {
+    shm::dsm_region_bytes(n_procs, mpp_queue_size(), payload_len).map_err(|e| e.to_string())
 }
 
 /// Maximum number of producer workers a launch may spawn:
@@ -97,7 +97,7 @@ pub fn producer_worker_cap() -> u32 {
 /// decode and first scan.
 #[derive(Default, Clone, Copy, Debug)]
 pub struct MppLaunchTiming {
-    /// DSM alloc and scan-state populate, before the dispatch payload is built.
+    /// DSM alloc and scan-state populate, after the exact dispatch payload is sized.
     pub prepare_us: u64,
     /// Leader physical planning.
     pub plan_us: u64,
@@ -171,12 +171,12 @@ unsafe fn self_receiver_token() -> u64 {
 ///   plus the launched producer workers. It must not exceed the count passed to
 ///   [`estimate_dsm_size`] for this region. A short launch may use fewer processes than the
 ///   preallocated region was sized for.
-/// - `plan_bytes` must have the same length passed to [`estimate_dsm_size`]
+/// - `dispatch_payload` must have the same length passed to [`estimate_dsm_size`]
 ///   so the leader doesn't overrun the region.
 pub unsafe fn leader_setup(
     coordinate: *mut c_void,
     n_procs: u32,
-    plan_bytes: Vec<u8>,
+    dispatch_payload: Vec<u8>,
 ) -> Result<MppLeaderState, String> {
     let wakeup: Arc<dyn Wakeup> = Arc::new(PgWakeup);
     let interrupt: Arc<dyn Interrupt> = Arc::new(PgInterrupt);
@@ -191,7 +191,7 @@ pub unsafe fn leader_setup(
             coordinate,
             n_procs,
             mpp_queue_size(),
-            &plan_bytes,
+            &dispatch_payload,
             wakeup,
             token,
             interrupt,

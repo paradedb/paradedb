@@ -81,9 +81,9 @@ pub struct DataFusionAggState {
     /// output RecordBatch. Needed because DataFusion deduplicates grouping
     /// expressions (e.g. metadata.brand).
     pub group_df_indices: Vec<usize>,
-    /// Where MPP sits in its launch lifecycle for this scan: plan bytes stashed at begin,
-    /// launched on first exec once the built plan's stages are committed (#5667: the plan
-    /// comes first; workers spawn only after it exists). Stays `Inactive` on the serial path.
+    /// Where MPP sits in its launch lifecycle for this scan: marked pending at begin, launched
+    /// on first exec once the built plan's stages are committed (#5667: the plan comes first;
+    /// workers spawn only after it exists). Stays `Inactive` on the serial path.
     /// Applies only when parallel execution is enabled and the query qualifies (binary join +
     /// supported aggregate).
     pub mpp: MppLifecycle,

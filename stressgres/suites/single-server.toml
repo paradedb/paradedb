@@ -203,7 +203,6 @@ refresh_ms = 5
 title = "Join Search"
 log_tps = true
 on_connect = """
-SET max_parallel_workers_per_gather = 0;
 SET paradedb.enable_join_custom_scan = on;
 SELECT assert_plan_contains(
     $q$

@@ -31,9 +31,6 @@ INSERT INTO categories (id, name)
 SELECT i, 'category ' || i::text
 FROM generate_series(1, 100) AS s(i);
 
--- Keep the distribution deterministic so result-count assertions stay stable while still giving
--- the planner enough rows to make realistic choices. The write jobs below mutate a small hot set
--- and append rows that do not contain the search terms, so these baseline counts remain stable.
 INSERT INTO test (message, category_id, unique_id)
 SELECT
     (ARRAY['beer wine cheese', 'beer wine', 'beer cheese', 'beer',
@@ -111,7 +108,6 @@ BEGIN
     IF a <> b THEN
         RAISE EXCEPTION 'Assertion failed: % <> %', a, b;
     END IF;
-
     RETURN true;
 END;
 $$;
@@ -130,7 +126,6 @@ BEGIN
             RETURN true;
         END IF;
     END LOOP;
-
     RAISE EXCEPTION 'Plan assertion failed: expected "%" not found in plan for query: %. Actual plan:%',
         p_expected_text, p_query, chr(10) || full_plan;
 END;
@@ -160,44 +155,40 @@ destination = "Subscriber"
 log_columns = ["pages", "relation_size:MB", "segment_count"]
 log_tps = false
 sql = """
-SELECT count(*) FILTER (WHERE visible)         AS visible,
-       count(*) FILTER (WHERE recyclable)      AS recyclable,
-       count(*)                                AS segment_count,
-       pg_relation_size('idxtest') / 8192      AS pages,
-       pg_relation_size('idxtest')             AS relation_size,
+SELECT count(*) FILTER (WHERE visible) AS visible,
+       count(*) FILTER (WHERE recyclable) AS recyclable,
+       count(*) AS segment_count,
+       pg_relation_size('idxtest') / 8192 AS pages,
+       pg_relation_size('idxtest') AS relation_size,
        pg_size_pretty(pg_relation_size('idxtest'))
 FROM paradedb.index_info('idxtest', true);
 """
 destinations = ["Subscriber"]
 
-# Query semantics choose the path first; the plan assertion is only a coverage guard. In
-# particular, retrieval jobs retrieve rows, while count(*) is reserved for Aggregate Scan.
 [[jobs]]
 refresh_ms = 5
 title = "Top K Search"
 on_connect = """
 SELECT assert_plan_contains(
-    $q$ SELECT id, message FROM test WHERE id @@@ 'message:beer' ORDER BY id DESC LIMIT 25 $q$,
+    $q$ SELECT id, message FROM test WHERE message ||| 'beer' ORDER BY id DESC LIMIT 25 $q$,
     'TopKScanExecState'
 );
 """
-sql = "SELECT id, message FROM test WHERE id @@@ 'message:beer' ORDER BY id DESC LIMIT 25"
+sql = "SELECT id, message FROM test WHERE message ||| 'beer' ORDER BY id DESC LIMIT 25"
 destinations = ["Subscriber"]
 
 [[jobs]]
 refresh_ms = 5
 title = "Custom Search"
-# old_message is deliberately not in the ParadeDB index. Projecting it makes this a real
-# heap-backed retrieval workload rather than disguising an aggregate or index-only workload.
 on_connect = """
 SET max_parallel_workers_per_gather = 0;
 SELECT assert_plan_contains(
-    $q$ SELECT id, message, old_message FROM test WHERE id @@@ 'message:beer' LIMIT 100 $q$,
+    $q$ SELECT id, message, old_message FROM test WHERE message &&& 'beer wine' LIMIT 100 $q$,
     'NormalScanExecState'
 );
 """
 sql = """
-SELECT id, message, old_message FROM test WHERE id @@@ 'message:beer' LIMIT 100;
+SELECT id, message, old_message FROM test WHERE message &&& 'beer wine' LIMIT 100;
 """
 destinations = ["Subscriber"]
 
@@ -208,12 +199,12 @@ on_connect = """
 SET debug_parallel_query TO ON;
 SET max_parallel_workers_per_gather = 2;
 SELECT assert_plan_contains(
-    $q$ SELECT id, message, old_message FROM test WHERE id @@@ 'message:cheese' $q$,
+    $q$ SELECT id, message, old_message FROM test WHERE message ||| 'cheese' $q$,
     'Parallel Custom Scan'
 );
 """
 sql = """
-SELECT id, message, old_message FROM test WHERE id @@@ 'message:cheese';
+SELECT id, message, old_message FROM test WHERE message ||| 'cheese';
 """
 destinations = ["Subscriber"]
 
@@ -222,12 +213,12 @@ refresh_ms = 5
 title = "Aggregate Search"
 on_connect = """
 SELECT assert_plan_contains(
-    $q$ SELECT count(*) FROM test WHERE id @@@ 'message:beer' $q$,
+    $q$ SELECT count(*) FROM test WHERE message ||| 'beer' $q$,
     'ParadeDB Aggregate Scan'
 );
 """
 sql = """
-SELECT assert(count(*), 5000), count(*) FROM test WHERE id @@@ 'message:beer';
+SELECT assert(count(*), 5000), count(*) FROM test WHERE message ||| 'beer';
 """
 destinations = ["Subscriber"]
 
@@ -238,12 +229,12 @@ on_connect = """
 SET max_parallel_workers = 0;
 SET paradedb.enable_custom_scan = off;
 SELECT assert_plan_contains(
-    $q$ SELECT id FROM test WHERE id @@@ 'message:wine' LIMIT 100 $q$,
+    $q$ SELECT id FROM test WHERE message ||| 'wine' LIMIT 100 $q$,
     'Index Only Scan'
 );
 """
 sql = """
-SELECT id FROM test WHERE id @@@ 'message:wine' LIMIT 100;
+SELECT id FROM test WHERE message ||| 'wine' LIMIT 100;
 """
 destinations = ["Subscriber"]
 
@@ -252,14 +243,14 @@ refresh_ms = 5
 title = "Sort over Normal Scan"
 on_connect = """
 SELECT assert_plan_contains(
-    $q$ SELECT id, message, old_message FROM test WHERE message @@@ 'wine' OR message @@@ 'beer' ORDER BY old_message LIMIT 20 $q$,
+    $q$ SELECT id, message, old_message FROM test WHERE message ||| 'wine beer' ORDER BY old_message LIMIT 20 $q$,
     'NormalScanExecState'
 );
 """
 sql = """
 SELECT id, message, old_message
 FROM test
-WHERE message @@@ 'wine' OR message @@@ 'beer'
+WHERE message ||| 'wine beer'
 ORDER BY old_message
 LIMIT 20;
 """
@@ -275,7 +266,7 @@ SELECT assert_plan_contains(
     SELECT t.id, t.message, c.name
     FROM test t
     JOIN categories c ON t.category_id = c.id
-    WHERE t.message @@@ 'beer'
+    WHERE t.message ||| 'beer'
     ORDER BY t.id
     LIMIT 25
     $q$,
@@ -286,7 +277,7 @@ sql = """
 SELECT t.id, t.message, c.name
 FROM test t
 JOIN categories c ON t.category_id = c.id
-WHERE t.message @@@ 'beer'
+WHERE t.message ||| 'beer'
 ORDER BY t.id
 LIMIT 25;
 """

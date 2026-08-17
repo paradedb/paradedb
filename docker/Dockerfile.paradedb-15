@@ -12,11 +12,11 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates curl && \
     arch="$(dpkg --print-architecture)" && \
     case "$arch" in \
-        amd64) checksum="4059be91b771368be1764db22007d8a0c92346e1b1b25830192fa139a992a4a8" ;; \
-        arm64) checksum="a5ed45f10973d1505c4b76a320856f5371c471d00780bfc8d63abb4a7a7081ed" ;; \
+        amd64) checksum="a20c99b1bfa4572039eb7e338b8fd7da9db0e77597583c7c812991371c98e292" ;; \
+        arm64) checksum="3312620746e60867368711df94883d9a99ba72cc1d4a607bc870339dbdcc4861" ;; \
         *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
     esac && \
-    curl -fsSL -o /tmp/pg_search.deb "https://github.com/paradedb/paradedb/releases/download/v0.25.2/postgresql-15-pg-search_0.25.2-1PARADEDB-trixie_${arch}.deb" && \
+    curl -fsSL -o /tmp/pg_search.deb "https://github.com/paradedb/paradedb/releases/download/v0.25.3/postgresql-15-pg-search_0.25.3-1PARADEDB-trixie_${arch}.deb" && \
     echo "${checksum}  /tmp/pg_search.deb" | sha256sum -c - && \
     apt-get install -y --no-install-recommends /tmp/pg_search.deb && \
     rm /tmp/pg_search.deb && \

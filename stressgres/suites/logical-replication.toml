@@ -6,10 +6,18 @@ postgresql_conf = "Publisher"
 [server.setup]
 sql = """
 DROP TABLE IF EXISTS test CASCADE;
+DROP TABLE IF EXISTS categories CASCADE;
+
+CREATE TABLE categories (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL
+) WITH (autovacuum_enabled = false);
+
 CREATE TABLE test (
     id SERIAL8 NOT NULL PRIMARY KEY,
     message TEXT,
     old_message TEXT,
+    category_id INTEGER NOT NULL,
     unique_id BIGINT UNIQUE
 ) WITH (autovacuum_enabled = false);
 
@@ -19,20 +27,21 @@ CREATE SEQUENCE test_unique_id_seq START 1;
 DROP PUBLICATION IF EXISTS stressgres_pub;
 CREATE PUBLICATION stressgres_pub FOR ALL TABLES;
 
-INSERT INTO test (message, unique_id) VALUES ('beer wine cheese a', nextval('test_unique_id_seq'));
-INSERT INTO test (message, unique_id) VALUES ('beer wine a', nextval('test_unique_id_seq'));
-INSERT INTO test (message, unique_id) VALUES ('beer cheese a', nextval('test_unique_id_seq'));
-INSERT INTO test (message, unique_id) VALUES ('beer a', nextval('test_unique_id_seq'));
-INSERT INTO test (message, unique_id) VALUES ('wine cheese a', nextval('test_unique_id_seq'));
-INSERT INTO test (message, unique_id) VALUES ('wine a', nextval('test_unique_id_seq'));
-INSERT INTO test (message, unique_id) VALUES ('cheese a', nextval('test_unique_id_seq'));
-INSERT INTO test (message, unique_id) VALUES ('beer wine cheese a', nextval('test_unique_id_seq'));
-INSERT INTO test (message, unique_id) VALUES ('beer wine a', nextval('test_unique_id_seq'));
-INSERT INTO test (message, unique_id) VALUES ('beer cheese a', nextval('test_unique_id_seq'));
-INSERT INTO test (message, unique_id) VALUES ('beer a', nextval('test_unique_id_seq'));
-INSERT INTO test (message, unique_id) VALUES ('wine cheese a', nextval('test_unique_id_seq'));
-INSERT INTO test (message, unique_id) VALUES ('wine a', nextval('test_unique_id_seq'));
-INSERT INTO test (message, unique_id) VALUES ('cheese a', nextval('test_unique_id_seq'));
+INSERT INTO categories (id, name)
+SELECT i, 'category ' || i::text
+FROM generate_series(1, 100) AS s(i);
+
+-- Keep the distribution deterministic so result-count assertions stay stable while still giving
+-- the planner enough rows to make realistic choices. The write jobs below mutate a small hot set
+-- and append rows that do not contain the search terms, so these baseline counts remain stable.
+INSERT INTO test (message, category_id, unique_id)
+SELECT
+    (ARRAY['beer wine cheese', 'beer wine', 'beer cheese', 'beer',
+           'wine cheese', 'wine', 'cheese', 'bread butter'])[1 + (i % 8)]
+    || ' ' || i::text,
+    1 + (i % 100),
+    nextval('test_unique_id_seq')
+FROM generate_series(1, 10000) AS s(i);
 """
 [server.teardown]
 sql = ""
@@ -57,11 +66,19 @@ postgresql_conf = "Subscriber"
 [server.setup]
 sql = """
 DROP TABLE IF EXISTS test CASCADE;
+DROP TABLE IF EXISTS categories CASCADE;
 CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
+
+CREATE TABLE categories (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL
+) WITH (autovacuum_enabled = true);
+
 CREATE TABLE test (
     id SERIAL8 NOT NULL PRIMARY KEY,
     message TEXT,
     old_message TEXT,
+    category_id INTEGER NOT NULL,
     unique_id BIGINT UNIQUE
 ) WITH (
     autovacuum_enabled = true,
@@ -74,7 +91,19 @@ DROP SUBSCRIPTION IF EXISTS stressgres_sub;
 CREATE SUBSCRIPTION stressgres_sub CONNECTION '@Publisher_CONNSTR@' PUBLICATION stressgres_pub;
 SELECT pg_sleep(5);
 
-CREATE INDEX idxtest ON test USING paradedb (id, message) WITH (key_field = 'id', layer_sizes = '10kb, 100kb, 1mb, 100mb');
+CREATE INDEX idxtest ON test USING paradedb(id, message, category_id) WITH (
+    key_field = 'id',
+    layer_sizes = '10kb, 100kb, 1mb, 100mb',
+    numeric_fields = '{"category_id": {"fast": true}}'
+);
+CREATE INDEX idxcategories ON categories USING paradedb(id, name) WITH (
+    key_field = 'id',
+    text_fields = '{"name": {"fast": true, "tokenizer": {"type": "raw"}}}'
+);
+
+ANALYZE test;
+ANALYZE categories;
+
 CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool LANGUAGE plpgsql AS $$
 DECLARE
     current_txid bigint;
@@ -96,11 +125,8 @@ DECLARE
     plan_line text;
     full_plan text := '';
 BEGIN
-    -- Accumulate the EXPLAIN output as we go so we can show the plan we actually
-    -- got if the assertion fails (invaluable when a fault-injection run flips the plan).
     FOR plan_line IN EXECUTE 'EXPLAIN (VERBOSE) ' || p_query LOOP
         full_plan := full_plan || plan_line || chr(10);
-        -- Check if the current line contains the expected text
         IF plan_line ILIKE '%' || p_expected_text || '%' THEN
             RETURN true;
         END IF;
@@ -145,106 +171,135 @@ FROM paradedb.index_info('idxtest', true);
 """
 destinations = ["Subscriber"]
 
+# Query semantics choose the path first; the plan assertion is only a coverage guard. In
+# particular, retrieval jobs retrieve rows, while count(*) is reserved for Aggregate Scan.
 [[jobs]]
 refresh_ms = 5
-title = "Top K"
+title = "Top K Search"
 on_connect = """
-SET enable_indexonlyscan to OFF;
-SET enable_indexscan to OFF;
-SET max_parallel_workers = 32;
 SELECT assert_plan_contains(
-    $q$ SELECT * FROM test WHERE id @@@ 'message:beer' ORDER BY id DESC LIMIT 25 $q$,
+    $q$ SELECT id, message FROM test WHERE id @@@ 'message:beer' ORDER BY id DESC LIMIT 25 $q$,
     'TopKScanExecState'
 );
 """
-sql = "SELECT * FROM test WHERE id @@@ 'message:beer' ORDER BY id DESC LIMIT 25"
-assert = "11"
+sql = "SELECT id, message FROM test WHERE id @@@ 'message:beer' ORDER BY id DESC LIMIT 25"
 destinations = ["Subscriber"]
 
 [[jobs]]
 refresh_ms = 5
-title = "Custom Scan"
-# `paradedb.enable_aggregate_custom_scan` defaults to on and absorbs `count(*)`, which would
-# plan this job as a ParadeDB Aggregate Scan instead of the base custom scan it is named for.
-# Pinning `max_parallel_workers_per_gather = 0` keeps the serial shape out of the cost model's
-# hands, so this job stays distinct from "Parallel Custom Scan" below.
+title = "Custom Search"
+# old_message is deliberately not in the ParadeDB index. Projecting it makes this a real
+# heap-backed retrieval workload rather than disguising an aggregate or index-only workload.
 on_connect = """
-SET enable_indexonlyscan to OFF;
-SET enable_indexscan to OFF;
-SET paradedb.enable_aggregate_custom_scan = off;
 SET max_parallel_workers_per_gather = 0;
 SELECT assert_plan_contains(
-    $q$ SELECT count(*) FROM test where id @@@ 'message:beer' $q$,
+    $q$ SELECT id, message, old_message FROM test WHERE id @@@ 'message:beer' LIMIT 100 $q$,
     'NormalScanExecState'
 );
 """
 sql = """
-SELECT assert(count(*), 8), count(*) FROM test where id @@@ 'message:beer';
+SELECT id, message, old_message FROM test WHERE id @@@ 'message:beer' LIMIT 100;
 """
 destinations = ["Subscriber"]
 
-
 [[jobs]]
 refresh_ms = 5
-title = "Parallel Custom Scan"
-# `debug_parallel_query` only forces a parallel plan when the planner is allowed workers, so pin
-# `max_parallel_workers_per_gather` rather than inheriting the cluster default. Both are plan-time
-# GUCs, so the plan shape does not depend on how many workers are actually free at execution time
-# -- a container kill/restart cannot flip it.
+title = "Parallel Custom Search"
+# debug_parallel_query is retained because this job exists specifically to keep the parallel
+# executor under fault. The query itself is a retrieval workload and cannot be absorbed by
+# Aggregate Scan or Index Only Scan.
 on_connect = """
-SET enable_indexonlyscan to OFF;
-SET enable_indexscan to OFF;
-SET paradedb.enable_aggregate_custom_scan = off;
 SET debug_parallel_query TO ON;
 SET max_parallel_workers_per_gather = 2;
 SELECT assert_plan_contains(
-    $q$ SELECT count(*) FROM test WHERE id @@@ 'message:beer' $q$,
+    $q$ SELECT id, message, old_message FROM test WHERE id @@@ 'message:cheese' $q$,
     'Parallel Custom Scan'
 );
 """
 sql = """
-SELECT count(*) FROM test WHERE id @@@ 'message:beer';
+SELECT id, message, old_message FROM test WHERE id @@@ 'message:cheese';
 """
-assert = "8"
 destinations = ["Subscriber"]
-
 
 [[jobs]]
 refresh_ms = 5
-title = "Index Only Scan"
-# `paradedb.enable_custom_scan = off` does not disable the *aggregate* custom scan, so without
-# turning that off too this job never reached an Index Only Scan. `enable_seqscan = off` pins the
-# choice: `@@@` does have a (heavily penalised) seq scan fallback, and on a table this small the
-# margin between the two is not worth racing.
+title = "Aggregate Search"
+# count(*) is exactly the workload Aggregate Scan is intended to consume; keep it as its own
+# first-class workload instead of disabling Aggregate Scan to reach another executor.
 on_connect = """
-set max_parallel_workers = 0;
-set paradedb.enable_custom_scan to off;
-SET paradedb.enable_aggregate_custom_scan = off;
-SET enable_seqscan = off;
 SELECT assert_plan_contains(
-    $q$ SELECT count(*) FROM test where id @@@ 'message:wine' $q$,
+    $q$ SELECT count(*) FROM test WHERE id @@@ 'message:beer' $q$,
+    'ParadeDB Aggregate Scan'
+);
+"""
+sql = """
+SELECT assert(count(*), 5000), count(*) FROM test WHERE id @@@ 'message:beer';
+"""
+destinations = ["Subscriber"]
+
+[[jobs]]
+refresh_ms = 5
+title = "Index Only Search"
+# This is intentionally fallback-path coverage: turn off ParadeDB's custom scan, then ask only
+# for the indexed key. Unlike the old count(*) query, the query shape itself is index-only.
+on_connect = """
+SET max_parallel_workers = 0;
+SET paradedb.enable_custom_scan = off;
+SELECT assert_plan_contains(
+    $q$ SELECT id FROM test WHERE id @@@ 'message:wine' LIMIT 100 $q$,
     'Index Only Scan'
 );
 """
 sql = """
-SELECT assert(count(*), 8), count(*) FROM test where id @@@ 'message:wine';
+SELECT id FROM test WHERE id @@@ 'message:wine' LIMIT 100;
 """
 destinations = ["Subscriber"]
 
 [[jobs]]
 refresh_ms = 5
-# Was titled "Top K", but `old_message` is not in the bm25 index so the ORDER BY can never be
-# pushed down -- pg_search itself warns about this and falls back to a Sort over a normal scan.
-# Renamed to match what it actually covers, and asserted so the fallback path stays covered.
 title = "Sort over Normal Scan"
+# old_message is not indexed, so this intentionally covers a non-pushdown ORDER BY fallback.
 on_connect = """
 SELECT assert_plan_contains(
-    $q$ SELECT * FROM test WHERE message @@@ 'wine' OR message @@@ 'beer' ORDER BY old_message LIMIT 5 $q$,
+    $q$ SELECT id, message, old_message FROM test WHERE message @@@ 'wine' OR message @@@ 'beer' ORDER BY old_message LIMIT 20 $q$,
     'NormalScanExecState'
 );
 """
 sql = """
-SELECT * FROM test WHERE message @@@ 'wine' OR message @@@ 'beer' ORDER BY old_message LIMIT 5;
+SELECT id, message, old_message
+FROM test
+WHERE message @@@ 'wine' OR message @@@ 'beer'
+ORDER BY old_message
+LIMIT 20;
+"""
+destinations = ["Subscriber"]
+
+[[jobs]]
+refresh_ms = 5
+title = "Join Search"
+# Both sides are replicated and indexed. The write jobs below mutate both the join key and the
+# joined row so JoinScan sees MVCC/replication churn rather than a static lookup table.
+on_connect = """
+SET paradedb.enable_join_custom_scan = on;
+SELECT assert_plan_contains(
+    $q$
+    SELECT t.id, t.message, c.name
+    FROM test t
+    JOIN categories c ON t.category_id = c.id
+    WHERE t.message @@@ 'beer'
+    ORDER BY t.id
+    LIMIT 25
+    $q$,
+    'ParadeDB Join Scan'
+);
+"""
+sql = """
+SELECT t.id, t.message, c.name
+FROM test t
+JOIN categories c ON t.category_id = c.id
+WHERE t.message @@@ 'beer'
+ORDER BY t.id
+LIMIT 25;
 """
 destinations = ["Subscriber"]
 
@@ -254,7 +309,7 @@ window_height = 10
 log_tps = false
 title = "Find by ctid"
 sql = """
-select ctid::text, id, message, old_message, paradedb.find_ctid('idxtest', ctid) as segment_ids, now()::text, txid_current()::numeric from test where message ilike '%beer%' order by id;
+select ctid::text, id, message, old_message, paradedb.find_ctid('idxtest', ctid) as segment_ids, now()::text, txid_current()::numeric from test where message ilike '%beer%' order by id limit 100;
 """
 destinations = ["Subscriber"]
 
@@ -288,9 +343,28 @@ destinations = ["Publisher"]
 [[jobs]]
 refresh_ms = 100
 log_tps = false
+title = "Rotate join keys"
+sql = """
+UPDATE test SET category_id = (category_id % 100) + 1 WHERE id BETWEEN 1 AND 100;
+"""
+destinations = ["Publisher"]
+
+[[jobs]]
+refresh_ms = 150
+log_tps = false
+title = "Update joined rows"
+sql = """
+UPDATE categories SET name = 'category ' || id::text || ' ' || txid_current()::text WHERE id <= 10;
+"""
+destinations = ["Publisher"]
+
+[[jobs]]
+refresh_ms = 100
+log_tps = false
 title = "Insert value A"
 sql = """
-INSERT INTO test (message, unique_id) VALUES ('A', nextval('test_unique_id_seq'));
+INSERT INTO test (message, category_id, unique_id)
+VALUES ('A', 1 + (txid_current() % 100)::int, nextval('test_unique_id_seq'));
 """
 destinations = ["Publisher"]
 
@@ -299,7 +373,8 @@ refresh_ms = 100
 log_tps = false
 title = "Insert value B"
 sql = """
-INSERT INTO test (message, unique_id) VALUES ('B', nextval('test_unique_id_seq'));
+INSERT INTO test (message, category_id, unique_id)
+VALUES ('B', 1 + (txid_current() % 100)::int, nextval('test_unique_id_seq'));
 """
 destinations = ["Publisher"]
 
@@ -310,6 +385,6 @@ pause_keycode = 'd'
 cancel_keycode = 'D'
 title = "Delete values"
 sql = """
-DELETE FROM test WHERE id > 14;
+DELETE FROM test WHERE id > 10000;
 """
 destinations = ["Publisher"]

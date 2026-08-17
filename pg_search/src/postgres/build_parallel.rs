@@ -18,6 +18,7 @@
 use crate::api::version::Version;
 use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
+use crate::index::partition_tree::PartitionTree;
 use crate::index::writer::index::{
     DiskSpaceGuard, IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
 };
@@ -27,6 +28,7 @@ use crate::parallel_worker::{
     ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType, ParallelWorker,
     WorkerStyle, chunk_range,
 };
+use crate::postgres::build_partitioning::plan_partition_tree;
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::locks::Spinlock;
 use crate::postgres::merge::garbage_collect_index;
@@ -119,6 +121,9 @@ struct ParallelBuild {
     config: WorkerConfig,
     scandesc: ScanDesc,
     coordination: WorkerCoordination,
+    /// The leader's `Option<PartitionTree>`, JSON-encoded so it can travel through the DSM
+    /// as a plain byte array.
+    partition_tree: Vec<u8>,
 }
 
 impl ParallelState for ScanDesc {
@@ -138,12 +143,9 @@ impl ParallelState for ScanDesc {
 impl ParallelBuild {
     fn new(
         heaprel: &PgSearchRelation,
-        indexrel: &PgSearchRelation,
         snapshot: pg_sys::Snapshot,
-        concurrent: bool,
-        current_xid: pg_sys::FullTransactionId,
-        need_wal: bool,
-        next_xid: pg_sys::FullTransactionId,
+        config: WorkerConfig,
+        partition_tree: Option<&PartitionTree>,
     ) -> Self {
         let scandesc = unsafe {
             let size = size_of::<pg_sys::ParallelTableScanDescData>()
@@ -153,23 +155,23 @@ impl ParallelBuild {
             (size, scandesc)
         };
         Self {
-            config: WorkerConfig {
-                heaprelid: heaprel.oid(),
-                indexrelid: indexrel.oid(),
-                concurrent,
-                current_xid,
-                need_wal,
-                next_xid,
-            },
+            config,
             scandesc,
             coordination: Default::default(),
+            partition_tree: serde_json::to_vec(&partition_tree)
+                .expect("partition tree should be serializable"),
         }
     }
 }
 
 impl ParallelProcess for ParallelBuild {
     fn state_values(&self) -> Vec<&dyn ParallelState> {
-        vec![&self.config, &self.scandesc, &self.coordination]
+        vec![
+            &self.config,
+            &self.scandesc,
+            &self.coordination,
+            &self.partition_tree,
+        ]
     }
 }
 
@@ -185,6 +187,9 @@ struct BuildWorker<'a> {
     coordination: &'a mut WorkerCoordination,
     heaprel: PgSearchRelation,
     indexrel: PgSearchRelation,
+    /// The leader's global partition boundaries. Every worker gets the same tree, so the
+    /// segments they write line up in the `partition_by` space.
+    partition_tree: Option<PartitionTree>,
 }
 
 impl ParallelWorker for BuildWorker<'_> {
@@ -204,6 +209,12 @@ impl ParallelWorker for BuildWorker<'_> {
             .object::<WorkerCoordination>(2)
             .expect("should be able to get ProcessCoordination")
             .expect("ProcessCoordination should not be NULL");
+        let partition_tree = state_manager
+            .slice::<u8>(3)
+            .expect("should be able to get the partition tree")
+            .expect("partition tree should not be NULL");
+        let partition_tree = serde_json::from_slice::<Option<PartitionTree>>(partition_tree)
+            .expect("partition tree should deserialize");
 
         unsafe {
             let (heap_lock, index_lock) = if !config.concurrent {
@@ -227,6 +238,7 @@ impl ParallelWorker for BuildWorker<'_> {
                 coordination,
                 heaprel,
                 indexrel,
+                partition_tree,
             }
         }
     }
@@ -252,6 +264,7 @@ impl<'a> BuildWorker<'a> {
         indexrel: &PgSearchRelation,
         config: WorkerConfig,
         coordination: &'a mut WorkerCoordination,
+        partition_tree: Option<PartitionTree>,
     ) -> Self {
         Self {
             config,
@@ -259,6 +272,7 @@ impl<'a> BuildWorker<'a> {
             heaprel: Clone::clone(heaprel),
             indexrel: Clone::clone(indexrel),
             coordination,
+            partition_tree,
         }
     }
 
@@ -277,6 +291,13 @@ impl<'a> BuildWorker<'a> {
             pgrx::debug1!(
                 "build_worker {worker_number}: target_segment_count: {target_segment_count}, nlaunched: {nlaunched}, worker_segment_target: {worker_segment_target}"
             );
+            if let Some(tree) = &self.partition_tree {
+                pgrx::debug1!(
+                    "build_worker {worker_number}: routing over {} partitions of {:?}",
+                    tree.num_partitions(),
+                    tree.dimensions()
+                );
+            }
 
             let mut build_state = WorkerBuildState::new(
                 &self.heaprel,
@@ -663,18 +684,22 @@ pub(super) fn build_index(
         }
     });
 
-    let current_xid = unsafe { pg_sys::GetCurrentFullTransactionId() };
-    let need_wal = indexrel.need_wal();
-    let next_xid = unsafe { pg_sys::ReadNextFullTransactionId() };
-    let process = ParallelBuild::new(
+    let config = WorkerConfig {
+        heaprelid: heaprel.oid(),
+        indexrelid: indexrel.oid(),
+        concurrent,
+        current_xid: unsafe { pg_sys::GetCurrentFullTransactionId() },
+        need_wal: indexrel.need_wal(),
+        next_xid: unsafe { pg_sys::ReadNextFullTransactionId() },
+    };
+    // One segment per partition is what the build converges to, so the partition count follows
+    // the segment target.
+    let partition_tree = plan_partition_tree(
         &heaprel,
         &indexrel,
-        snapshot.0,
-        concurrent,
-        current_xid,
-        need_wal,
-        next_xid,
-    );
+        plan::adjusted_target_segment_count(&heaprel, &indexrel),
+    )?;
+    let process = ParallelBuild::new(&heaprel, snapshot.0, config, partition_tree.as_ref());
     let nworkers = plan::create_index_nworkers(&heaprel, &indexrel);
     pgrx::debug1!("build_index: asked for {nworkers} workers");
 
@@ -743,24 +768,15 @@ pub(super) fn build_index(
         pgrx::debug1!("build_index: not doing a parallel build");
         // not doing a parallel build, so directly instantiate a BuildWorker and serially run the
         // whole build here in this connected backend
-        let heaprelid = heaprel.oid();
-        let indexrelid = indexrel.oid();
-
         let mut coordination: WorkerCoordination = Default::default();
         coordination.set_nlaunched(1);
 
         let mut worker = BuildWorker::new(
             &heaprel,
             &indexrel,
-            WorkerConfig {
-                heaprelid,
-                indexrelid,
-                concurrent,
-                current_xid,
-                need_wal,
-                next_xid,
-            },
+            config,
             &mut coordination,
+            partition_tree,
         );
 
         let (total_tuples, total_merges) = worker.do_build(1, true)?;

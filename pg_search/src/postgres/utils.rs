@@ -30,7 +30,7 @@ use crate::postgres::composite::{
 use crate::postgres::customscan::orderby::text_lower_funcoid;
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::types::TantivyValue;
+use crate::postgres::types::{TantivyValue, TantivyValueError};
 use crate::postgres::var::find_vars;
 use crate::schema::{CategorizedFieldData, SearchField, SearchFieldType};
 use crate::vector::PgVector;
@@ -832,22 +832,11 @@ pub unsafe fn row_to_search_document<'a>(
             };
             document.add_vector(search_field.field(), &vec);
         } else {
-            let tv = match search_field.field_type() {
-                SearchFieldType::Numeric64(_, scale) => {
-                    TantivyValue::try_from_numeric_i64(actual_datum, scale)
-                }
-                SearchFieldType::NumericBytes(..) => {
-                    TantivyValue::try_from_numeric_bytes(actual_datum)
-                }
-                // Legacy pre-v0.22.0 indexes stored NUMERIC as F64 in the tantivy schema.
-                SearchFieldType::F64(oid) if oid == pg_sys::NUMERICOID => {
-                    TantivyValue::try_from_numeric_f64(actual_datum)
-                }
-                _ => TantivyValue::try_from_datum(actual_datum, *base_oid),
-            }
-            .unwrap_or_else(|e| {
-                panic!("could not parse field `{}`: {e}", search_field.field_name())
-            });
+            let tv =
+                scalar_datum_to_tantivy_value(actual_datum, search_field.field_type(), *base_oid)
+                    .unwrap_or_else(|e| {
+                        panic!("could not parse field `{}`: {e}", search_field.field_name())
+                    });
             document.add_field_value(
                 search_field.field(),
                 &tv.into_tantivy_value(created_by_version),
@@ -855,6 +844,24 @@ pub unsafe fn row_to_search_document<'a>(
         }
     }
     Ok(())
+}
+
+/// Converts a non-NULL, non-array, non-JSON index datum (already unwrapped from any
+/// `pdb.alias`/tokenizer type) into the value the index stores for `field_type`.
+pub unsafe fn scalar_datum_to_tantivy_value(
+    datum: pg_sys::Datum,
+    field_type: SearchFieldType,
+    base_oid: PgOid,
+) -> Result<TantivyValue, TantivyValueError> {
+    match field_type {
+        SearchFieldType::Numeric64(_, scale) => TantivyValue::try_from_numeric_i64(datum, scale),
+        SearchFieldType::NumericBytes(..) => TantivyValue::try_from_numeric_bytes(datum),
+        // Legacy pre-v0.22.0 indexes stored NUMERIC as F64 in the tantivy schema.
+        SearchFieldType::F64(oid) if oid == pg_sys::NUMERICOID => {
+            TantivyValue::try_from_numeric_f64(datum)
+        }
+        _ => TantivyValue::try_from_datum(datum, base_oid),
+    }
 }
 
 pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> PostgresDateTime {

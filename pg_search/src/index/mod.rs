@@ -18,6 +18,7 @@
 pub mod directory;
 pub mod fast_fields_helper;
 pub mod merge_policy;
+pub mod partition_tree;
 pub mod reader;
 pub mod search;
 pub mod writer;

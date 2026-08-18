@@ -33,8 +33,8 @@ use std::ops::Bound;
 use serde::{Deserialize, Serialize};
 
 use crate::api::FieldName;
+use crate::postgres::datetime::PG_EPOCH_DIFF_FROM_UNIX_EPOCH_MICROS;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
-use crate::postgres::types::TantivyValue;
 use crate::scan::range_partitioning::RangePartitioning;
 
 /// One row projected onto the `partition_by` fields, in the same order as [`KdTree::dims`].
@@ -76,10 +76,14 @@ enum KdNode {
 /// `PdbOwnedValue`'s own serde form goes through tantivy's untagged `OwnedValue`, which turns
 /// every non-negative `I64` into a `U64` on the way back. A split value that changed variant
 /// would no longer compare like the column it came from, so split values travel tagged.
+///
+/// Dates travel as their raw microsecond count. Their string form goes through Postgres's
+/// datetime output, which the tree must not depend on: it is also built and tested outside a
+/// backend.
 mod wire_value {
     use std::net::Ipv6Addr;
 
-    use serde::{Deserialize, Deserializer, Serialize, Serializer, ser::Error};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer, de, ser};
 
     use crate::postgres::datetime::PostgresDateTime;
     use crate::postgres::pdb_owned_value::PdbOwnedValue;
@@ -91,7 +95,7 @@ mod wire_value {
         I64(i64),
         F64(f64),
         Bool(bool),
-        Date(PostgresDateTime),
+        Date(i64),
         Bytes(Vec<u8>),
         IpAddr(Ipv6Addr),
     }
@@ -103,11 +107,11 @@ mod wire_value {
             PdbOwnedValue::I64(v) => WireValue::I64(*v),
             PdbOwnedValue::F64(v) => WireValue::F64(*v),
             PdbOwnedValue::Bool(v) => WireValue::Bool(*v),
-            PdbOwnedValue::Date(v) => WireValue::Date(*v),
+            PdbOwnedValue::Date(v) => WireValue::Date(v.into_inner()),
             PdbOwnedValue::Bytes(v) => WireValue::Bytes(v.clone()),
             PdbOwnedValue::IpAddr(v) => WireValue::IpAddr(*v),
             other => {
-                return Err(S::Error::custom(format!(
+                return Err(ser::Error::custom(format!(
                     "unsupported partition split value: {other:?}"
                 )));
             }
@@ -122,7 +126,10 @@ mod wire_value {
             WireValue::I64(v) => PdbOwnedValue::I64(v),
             WireValue::F64(v) => PdbOwnedValue::F64(v),
             WireValue::Bool(v) => PdbOwnedValue::Bool(v),
-            WireValue::Date(v) => PdbOwnedValue::Date(v),
+            WireValue::Date(v) => PdbOwnedValue::Date(
+                PostgresDateTime::try_from_raw(v)
+                    .map_err(|e| de::Error::custom(format!("invalid split date: {e:?}")))?,
+            ),
             WireValue::Bytes(v) => PdbOwnedValue::Bytes(v),
             WireValue::IpAddr(v) => PdbOwnedValue::IpAddr(v),
         })
@@ -291,16 +298,41 @@ impl fmt::Display for BoundsListing<'_> {
                 .expect("partitions are numbered contiguously");
             for (dim, (lower, upper)) in tree.dims.iter().zip(bounds) {
                 match lower {
-                    Bound::Included(v) => write!(f, " {dim}=[{}", TantivyValue(v))?,
+                    Bound::Included(v) => write!(f, " {dim}=[{}", PlainValue(&v))?,
                     _ => write!(f, " {dim}=[..")?,
                 }
                 match upper {
-                    Bound::Excluded(v) => write!(f, ", {})", TantivyValue(v))?,
+                    Bound::Excluded(v) => write!(f, ", {})", PlainValue(&v))?,
                     _ => write!(f, ", ..)")?,
                 }
             }
         }
         Ok(())
+    }
+}
+
+/// Formats a split value for logs without calling into Postgres, so the tree can be printed
+/// (and unit-tested) outside a backend. Dates render in UTC RFC 3339.
+struct PlainValue<'a>(&'a PdbOwnedValue);
+
+impl fmt::Display for PlainValue<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            PdbOwnedValue::Str(v) => write!(f, "{v:?}"),
+            PdbOwnedValue::U64(v) => write!(f, "{v}"),
+            PdbOwnedValue::I64(v) => write!(f, "{v}"),
+            PdbOwnedValue::F64(v) => write!(f, "{v}"),
+            PdbOwnedValue::Bool(v) => write!(f, "{v}"),
+            PdbOwnedValue::IpAddr(v) => write!(f, "{v}"),
+            PdbOwnedValue::Date(v) => {
+                let unix_micros = v.into_inner() + PG_EPOCH_DIFF_FROM_UNIX_EPOCH_MICROS;
+                match chrono::DateTime::from_timestamp_micros(unix_micros) {
+                    Some(dt) => write!(f, "{}", dt.to_rfc3339()),
+                    None => write!(f, "{v:?}"),
+                }
+            }
+            other => write!(f, "{other:?}"),
+        }
     }
 }
 
@@ -315,9 +347,9 @@ fn fmt_node(node: &KdNode, tree: &KdTree, depth: usize, f: &mut fmt::Formatter<'
         } => {
             let indent = "  ".repeat(depth);
             let dim = &tree.dims[*dim];
-            write!(f, "\n{indent}{dim} < {value:?}")?;
+            write!(f, "\n{indent}{dim} < {}", PlainValue(value))?;
             fmt_node(left, tree, depth + 1, f)?;
-            write!(f, "\n{indent}{dim} >= {value:?}")?;
+            write!(f, "\n{indent}{dim} >= {}", PlainValue(value))?;
             fmt_node(right, tree, depth + 1, f)
         }
     }
@@ -454,6 +486,7 @@ impl Builder<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::postgres::datetime::PostgresDateTime;
 
     fn dims(names: &[&str]) -> Vec<FieldName> {
         names
@@ -720,10 +753,18 @@ mod tests {
                     PdbOwnedValue::F64(i as f64 / 7.0),
                     PdbOwnedValue::Bool(i % 3 == 0),
                     PdbOwnedValue::I64(i),
+                    // One day apart, starting at the Postgres epoch (2000-01-01).
+                    PdbOwnedValue::Date(
+                        PostgresDateTime::try_from_raw(i * 86_400_000_000).unwrap(),
+                    ),
                 ]
             })
             .collect();
-        let tree = KdTree::from_sample(dims(&["name", "score", "flag", "id"]), sample.clone(), 6);
+        let tree = KdTree::from_sample(
+            dims(&["name", "score", "flag", "id", "day"]),
+            sample.clone(),
+            6,
+        );
         assert_eq!(tree.partition_count(), 6, "{tree}");
         check_invariants(&tree, &sample);
 
@@ -766,6 +807,24 @@ mod tests {
              partition 1: x=[.., 20) y=[20, ..)\n\
              partition 2: x=[20, ..) y=[.., 20)\n\
              partition 3: x=[20, ..) y=[20, ..)"
+        );
+
+        // Dates and strings render readably, without a Postgres backend.
+        let sample: Vec<Point> = (0..100)
+            .map(|i| {
+                vec![
+                    PdbOwnedValue::Date(
+                        PostgresDateTime::try_from_raw(i * 86_400_000_000).unwrap(),
+                    ),
+                    PdbOwnedValue::Str(format!("k{:02}", i / 10)),
+                ]
+            })
+            .collect();
+        let tree = KdTree::from_sample(dims(&["day", "key"]), sample, 2);
+        assert_eq!(
+            tree.bounds_listing().to_string(),
+            "partition 0: day=[.., 2000-02-20T00:00:00+00:00) key=[.., ..)\n\
+             partition 1: day=[2000-02-20T00:00:00+00:00, ..) key=[.., ..)"
         );
     }
 }

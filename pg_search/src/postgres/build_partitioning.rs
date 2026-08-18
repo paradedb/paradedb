@@ -29,6 +29,7 @@
 
 use std::ptr::addr_of_mut;
 
+use pgrx::itemptr::item_pointer_set_all;
 use pgrx::{PgMemoryContexts, check_for_interrupts, pg_sys};
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
@@ -194,13 +195,14 @@ unsafe fn sample_partition_fields(
                         continue;
                     }
 
+                    let mut t_self = pg_sys::ItemPointerData::default();
+                    item_pointer_set_all(&mut t_self, blockno, offset);
                     let mut tuple = pg_sys::HeapTupleData {
                         t_len: (*item_id).lp_len(),
-                        t_self: pg_sys::ItemPointerData::default(),
+                        t_self,
                         t_tableOid: heaprel.oid(),
                         t_data: pg_sys::PageGetItem(page, item_id).cast(),
                     };
-                    pg_sys::ItemPointerSet(addr_of_mut!(tuple.t_self), blockno, offset);
                     if !is_indexed(addr_of_mut!(tuple), buffer) {
                         continue;
                     }

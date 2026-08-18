@@ -94,6 +94,7 @@ use crate::postgres::customscan::exec::{
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::hook::query_has_paradedb_agg;
 use crate::postgres::customscan::joinscan::JoinScan;
+use crate::postgres::customscan::joinscan::planning::transparent_path_subpath;
 use crate::postgres::customscan::joinscan::scan_state::{build_physical_plan, build_task_context};
 use crate::postgres::customscan::orderby::is_collation_pushdown_safe;
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
@@ -213,18 +214,21 @@ unsafe fn resolve_decline_alias(args: &CreateUpperPathsHookArgs) -> String {
 /// Whether `JoinScan` already offered a path for this join relation.
 ///
 /// The upper-paths hook runs after the join relation is complete, so its
-/// pathlist answers the question directly. A JoinScan path can sit under a
-/// projection when the join output needs one, so unwrap those first.
+/// pathlist answers the question directly. JoinScan's path can sit under any of
+/// the row-preserving wrappers, a `Gather` above a parallel join in particular,
+/// so peel with the same helper JoinScan itself uses. Matching on the node tag
+/// rather than `pathtype` matters: `GroupResultPath` and `MinMaxAggPath` also
+/// plan to `T_Result`, and their second field is a `List`, not a subpath.
 unsafe fn joinrel_has_joinscan_path(input_rel: &pg_sys::RelOptInfo) -> bool {
     let joinscan_methods = JoinScan::custom_path_methods();
     PgList::<pg_sys::Path>::from_pg(input_rel.pathlist)
         .iter_ptr()
         .any(|mut path| {
-            while !path.is_null() && (*path).pathtype == pg_sys::NodeTag::T_Result {
-                path = (*(path as *mut pg_sys::ProjectionPath)).subpath;
+            while let Some(subpath) = transparent_path_subpath(path) {
+                path = subpath;
             }
             !path.is_null()
-                && (*path).pathtype == pg_sys::NodeTag::T_CustomScan
+                && (*path).type_ == pg_sys::NodeTag::T_CustomPath
                 && (*(path as *mut pg_sys::CustomPath)).methods == joinscan_methods
         })
 }

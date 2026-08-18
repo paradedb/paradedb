@@ -58,7 +58,7 @@ fn setup_parameterized_joinscan_schema(conn: &mut sqlx::PgConnection) {
 
     r#"
     CREATE INDEX js_param_categories_bm25 ON js_param_categories
-    USING bm25 (id, name)
+    USING paradedb (id, name)
     WITH (
         key_field = 'id',
         target_segment_count = 4,
@@ -69,7 +69,7 @@ fn setup_parameterized_joinscan_schema(conn: &mut sqlx::PgConnection) {
 
     r#"
     CREATE INDEX js_param_items_bm25 ON js_param_items
-    USING bm25 (id, name, content, category_id)
+    USING paradedb (id, name, content, category_id)
     WITH (
         key_field = 'id',
         numeric_fields = '{"category_id": {"fast": true}}',

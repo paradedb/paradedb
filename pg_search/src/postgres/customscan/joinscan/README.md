@@ -15,7 +15,7 @@ ProjectionExec
         PgSearchScan (files)          ← lazy scan, deferred columns, receives dynamic filters
 ```
 
-When parallel execution is enabled in PostgreSQL, JoinScan exclusively relies on Massively Parallel Processing (MPP) via `datafusion-distributed` to parallelize queries. DataFusion's in-process multithreading is completely bypassed because PostgreSQL has already launched independent parallel worker processes. Instead, the above physical plan is intercepted by the `DistributedPlanner` and sliced into network stages (`DistributedExec`), mapping distributed tasks 1:1 with PostgreSQL workers.
+When a viable PostgreSQL parallel launch is available, JoinScan uses Massively Parallel Processing (MPP) via `datafusion-distributed` to parallelize queries. DataFusion's in-process multithreading is bypassed because PostgreSQL has already launched independent parallel worker processes. For a viable MPP launch, `DistributedPlanner` slices the physical plan into network stages (`DistributedExec`); logical tasks are assigned round-robin across the workers that attached, so one worker may host multiple tasks.
 
 [`SegmentedTopKExec`][topk-exec] publishes dynamic filter thresholds that are pushed down through the join to the probe-side scan, pruning rows at the scanner level. It also performs the final materialized sort and LIMIT, so `TantivyLookupExec` only decodes K rows (not K×segments).
 
@@ -41,10 +41,9 @@ The planner hook builds a [`JoinCSClause`][joincsc] — a serializable IR captur
 1. **[`RangePartitioningRule`](range_partitioning_rule.rs)** — coordinates split points across joins for MPP range partitioning, sampling both sides of the join and injecting the merged sample into both `PgSearchTableProvider`s
 2. **`LateMaterializationRule`** — injects [`TantivyLookupExec`][lookup-exec] to defer string materialization
 3. **[`RangeCoPartitionedJoinRule`](range_partitioning_rule.rs)** — flips a `CollectLeft` inner hash join to `Partitioned` mode when both sides declare compatible `Partitioning::Range` layouts, so MPP joins partition pairs task-locally instead of broadcasting the build side
-4. **[`SegmentedTopKRule`][topk-rule]** — injects [`SegmentedTopKExec`][topk-exec] for Top K on deferred columns, removes the now-redundant `SortExec(TopK)`, [wraps blocking nodes][wrap-blocking] with [`FilterPassthroughExec`][filter-passthrough]
-5. **FilterPushdown (Post)** — pushes `SegmentedTopKExec`'s `DynamicFilterPhysicalExpr` down to the scan
+4. **[`SegmentedTopKRule`][topk-rule]** — injects [`SegmentedTopKExec`][topk-exec] for Top K on deferred columns, removes the now-redundant `SortExec(TopK)` and transfers ownership of its already pushed-down `DynamicFilterPhysicalExpr` into the injected node, [wraps blocking nodes][wrap-blocking] with [`FilterPassthroughExec`][filter-passthrough]
 
-If `max_parallel_workers_per_gather > 0` and PostgreSQL has planned parallel execution, `DistributedPlanner` converts the finalized physical plan into an MPP execution tree (`DistributedExec`), slicing it into isolated tasks.
+When MPP is eligible, `DistributedPlanner` builds an MPP execution tree (`DistributedExec`), slicing it into isolated tasks. Plans with fewer than two producer tasks, or launches with fewer than two attached workers, run serially.
 
 ### 4. Deferred Columns
 
@@ -66,11 +65,11 @@ After all input is consumed, `SegmentedTopKExec` materializes sort column values
 
 JoinScan does not use DataFusion's standard in-process multithreading. Since PostgreSQL already coordinates execution across independent backend processes via the `Gather` node, relying on thread-level parallelism inside a Postgres worker would result in `Workers * Threads` explosions, and Postgres does not support interacting with its APIs anywhere but on the `main` thread.
 
-Instead, MPP via `datafusion-distributed` is our only mechanism for parallelizing joins. We map PostgreSQL parallel workers to distributed tasks based on segment count:
+Instead, MPP via `datafusion-distributed` is our only mechanism for parallelizing joins. It assigns logical tasks across PostgreSQL parallel workers based on segment count:
 
 1. **Partition Output Definition**: Because index segments are checked out atomically from shared memory, [`PgSearchScanPlan`][scan-plan] natively partitions its output by the number of segments. In [`table_provider.rs`](../../scan/table_provider.rs), we formally expose the scan's output partition count as `min(segment_count, target_partitions)`. When the `RangePartitioningRule` has injected a range sample, the scan instead declares `Partitioning::Range` with the sample's split points, which lets DataFusion treat the two sides of a join as co-partitioned.
 2. **Task Estimation**: During MPP planning, [`PgSearchScanTaskEstimator`](../../../scan/execution_plan.rs) intercepts the leaf nodes and requests exactly this `partition_count` number of tasks.
-3. **Execution Routing**: This routes large multi-segment tables to scale out across all available PostgreSQL parallel workers, where each parallel worker uses `ParallelScanState` to lazily claim segments. Conversely, tables with a single segment evaluate to exactly 1 task; `datafusion-distributed` detects the absence of parallel work, avoids MPP planning overhead entirely, and falls back to running the query via local serial execution on a single worker.
+3. **Execution Routing**: For a viable MPP launch, tasks are assigned round-robin across the workers PostgreSQL attached, and each worker uses `ParallelScanState` to lazily claim segments. A one-task plan does not launch MPP workers and runs serially.
 
 ## Key Files
 
@@ -100,10 +99,11 @@ Execution-layer files under [`pg_search/src/scan/`](../../scan/):
 
 ## GUCs
 
-| GUC                                | Default | Effect                        |
-| ---------------------------------- | ------- | ----------------------------- |
-| `paradedb.enable_join_custom_scan` | `on`    | Master switch                 |
-| `paradedb.enable_segmented_topk`   | `true`  | `SegmentedTopKExec` injection |
+| GUC                                      | Default | Effect                        |
+| ---------------------------------------- | ------- | ----------------------------- |
+| `paradedb.enable_join_custom_scan`       | `on`    | Master switch                 |
+| `paradedb.enable_range_partitioned_join` | `false` | Range co-partitioned joins    |
+| `paradedb.enable_segmented_topk`         | `true`  | `SegmentedTopKExec` injection |
 
 [activation]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/postgres/customscan/joinscan/mod.rs#L317
 [relnode]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/postgres/customscan/joinscan/build.rs#L575

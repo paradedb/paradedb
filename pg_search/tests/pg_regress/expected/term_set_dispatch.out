@@ -50,19 +50,19 @@ DROP TABLE IF EXISTS ts_multi CASCADE;
 DROP TABLE IF EXISTS ts_sorted CASCADE;
 CREATE TABLE ts_outer (id INTEGER PRIMARY KEY, val TEXT);
 INSERT INTO ts_outer SELECT i, 'doc' FROM generate_series(1, 100) i;
-CREATE INDEX ts_outer_idx ON ts_outer USING bm25 (id, val)
+CREATE INDEX ts_outer_idx ON ts_outer USING paradedb (id, val)
 WITH (key_field = 'id', text_fields = '{"val": {"fast": true}}');
 CREATE TABLE ts_unique (id INTEGER PRIMARY KEY, fk INTEGER, val TEXT);
 INSERT INTO ts_unique SELECT i, i, 'doc' FROM generate_series(1, 10000) i;
-CREATE INDEX ts_unique_idx ON ts_unique USING bm25 (id, fk, val)
+CREATE INDEX ts_unique_idx ON ts_unique USING paradedb (id, fk, val)
 WITH (key_field = 'id', numeric_fields = '{"fk": {"fast": true}}');
 CREATE TABLE ts_multi (id INTEGER PRIMARY KEY, fk INTEGER, val TEXT);
 INSERT INTO ts_multi SELECT i, ((i - 1) % 100) + 1, 'doc' FROM generate_series(1, 10000) i;
-CREATE INDEX ts_multi_idx ON ts_multi USING bm25 (id, fk, val)
+CREATE INDEX ts_multi_idx ON ts_multi USING paradedb (id, fk, val)
 WITH (key_field = 'id', numeric_fields = '{"fk": {"fast": true}}');
 CREATE TABLE ts_sorted (id INTEGER PRIMARY KEY, fk INTEGER, val TEXT);
 INSERT INTO ts_sorted SELECT i, i, 'doc' FROM generate_series(1, 10000) i;
-CREATE INDEX ts_sorted_idx ON ts_sorted USING bm25 (id, fk, val)
+CREATE INDEX ts_sorted_idx ON ts_sorted USING paradedb (id, fk, val)
 WITH (
     key_field = 'id',
     numeric_fields = '{"fk": {"fast": true}}',

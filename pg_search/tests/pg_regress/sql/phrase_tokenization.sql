@@ -11,7 +11,7 @@ INSERT INTO test_phrase_table (flavour) VALUES
     ('apple, cherry, banana');
 
 
-CREATE INDEX test_phrase_index ON test_phrase_table USING bm25 (id, flavour)
+CREATE INDEX test_phrase_index ON test_phrase_table USING paradedb (id, flavour)
     WITH (
     key_field = 'id',
     text_fields = '{

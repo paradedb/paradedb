@@ -1,9 +1,9 @@
 DROP TABLE IF EXISTS notpdball;
-CALL paradedb.create_bm25_test_table(
+CALL paradedb.create_paradedb_test_table(
         schema_name => 'public',
         table_name => 'notpdball'
      );
-CREATE INDEX idxnotpdball ON notpdball USING bm25 (id, description, category) WITH (key_field='id');
+CREATE INDEX idxnotpdball ON notpdball USING paradedb (id, description, category) WITH (key_field='id');
 
 
 SELECT id

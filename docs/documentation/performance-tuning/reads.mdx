@@ -15,7 +15,7 @@ First, `max_worker_processes` is a global limit for the number of workers.
 Next, `max_parallel_workers` is a subset of `max_worker_processes`, and sets the limit for workers used in
 parallel queries. Finally, `max_parallel_workers_per_gather` limits how many workers a _single query_ can receive.
 
-```init postgresql.conf
+```ini postgresql.conf
 max_worker_processes = 72
 max_parallel_workers = 64
 max_parallel_workers_per_gather = 4
@@ -27,7 +27,7 @@ set to `72` to give headroom for other workers like autovacuum and replication.
 
 This is a good starting point:
 
-```
+```ini postgresql.conf
 max_parallel_workers = 5 * CPUs
 max_worker_processes = max_parallel_workers + 8
 max_parallel_workers_per_gather = CPUs / 2
@@ -47,7 +47,7 @@ query patterns, and volume of data.
 
 `shared_buffers` controls how much memory is available to the Postgres buffer cache. We recommend starting with 25% of total memory for `shared_buffers` and no more than 40% of total memory.
 
-```bash postgresql.conf
+```ini postgresql.conf
 shared_buffers = 8GB
 ```
 

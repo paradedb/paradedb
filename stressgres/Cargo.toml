@@ -34,8 +34,8 @@ serde_json = { version = "1.0.149", features = [
   "arbitrary_precision",
 ] }
 shutdown_hooks = "0.1.0"
-sysinfo = "0.33.1"
-toml = "0.8.23"
+sysinfo = { version = "0.39.6", features = ["multithread"] }
+toml = "1.1"
 url = "2.5.8"
 postgres-openssl = "0.5.3"
 openssl = "0.10.78"

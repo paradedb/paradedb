@@ -39,7 +39,7 @@ FROM generate_series(1, 100) AS i;
 -- Create BM25 index with fast fields
 DROP INDEX IF EXISTS benchmark_data_idx CASCADE;
 CREATE INDEX benchmark_data_idx ON benchmark_data 
-USING bm25(
+USING paradedb (
     id, 
     string_field1,
     string_field2,

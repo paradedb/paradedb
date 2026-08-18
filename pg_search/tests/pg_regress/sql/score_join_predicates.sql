@@ -42,13 +42,13 @@ INSERT INTO books (id, author_id,content, titles, metadata) VALUES
 
 
 -- Create BM25 indexes
-CREATE INDEX ON authors USING bm25 (
+CREATE INDEX ON authors USING paradedb (
     id,
     name,
     age
 ) WITH (key_field = 'id');
 
-CREATE INDEX ON books USING bm25 (
+CREATE INDEX ON books USING paradedb (
     id,
     author_id,
     content,

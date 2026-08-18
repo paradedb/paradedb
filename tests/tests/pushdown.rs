@@ -59,7 +59,7 @@ fn pushdown_is_true_doesnt_require_scores_with_parallel_custom_scan(mut conn: Pg
         id serial8 not null primary key,
         bool_field bool
     );
-    CREATE INDEX idxpushdown_is_true ON pushdown_is_true USING bm25 (id, bool_field) WITH (key_field = 'id');
+    CREATE INDEX idxpushdown_is_true ON pushdown_is_true USING paradedb (id, bool_field) WITH (key_field = 'id');
     INSERT INTO pushdown_is_true (bool_field) SELECT true FROM generate_series(1, 100);
     INSERT INTO pushdown_is_true (bool_field) SELECT true FROM generate_series(1, 100);
     INSERT INTO pushdown_is_true (bool_field) SELECT true FROM generate_series(1, 100);
@@ -123,7 +123,7 @@ fn pushdown(mut conn: PgConnection) {
         r#"
             CREATE INDEX idxtest
                       ON test
-                   USING bm25 (id, col_boolean, {})
+                   USING paradedb (id, col_boolean, {})
                    WITH (
                     key_field='id',
                         text_fields = '{{
@@ -228,7 +228,7 @@ fn issue2301_is_null_with_joins(mut conn: PgConnection) {
             removed_at timestamp with time zone
         );
         CREATE INDEX mcp_server_search_idx ON mcp_server
-        USING bm25 (id, name, description, synced_at, removed_at)
+        USING paradedb (id, name, description, synced_at, removed_at)
         WITH (key_field='id');
     "#
     .execute(&mut conn);
@@ -268,7 +268,7 @@ fn setup_test_table(mut conn: PgConnection) -> PgConnection {
     sql.execute(&mut conn);
 
     let sql = r#"
-        CREATE INDEX idxtest ON test USING bm25 (id, col_boolean, col_text, col_int8)
+        CREATE INDEX idxtest ON test USING paradedb (id, col_boolean, col_text, col_int8)
         WITH (key_field='id', text_fields = '{"col_text": {"fast": true, "tokenizer": {"type":"raw"}}}');
     "#;
     sql.execute(&mut conn);
@@ -454,7 +454,7 @@ mod pushdown_is_not_null {
         "CREATE TABLE test2 (id SERIAL8 NOT NULL PRIMARY KEY, ref_id int8, ref_text text);"
             .execute(&mut conn);
         let sql = r#"
-            CREATE INDEX idxtest2 ON test2 USING bm25 (id, ref_id, ref_text)
+            CREATE INDEX idxtest2 ON test2 USING paradedb (id, ref_id, ref_text)
             WITH (key_field='id', text_fields = '{"ref_text": {"fast": true, "tokenizer": {"type":"raw"}}}');
         "#;
         sql.execute(&mut conn);
@@ -655,7 +655,7 @@ mod pushdown_is_null {
         "CREATE TABLE test2 (id SERIAL8 NOT NULL PRIMARY KEY, ref_id int8, ref_text text);"
             .execute(&mut conn);
         let sql = r#"
-            CREATE INDEX idxtest2 ON test2 USING bm25 (id, ref_id, ref_text)
+            CREATE INDEX idxtest2 ON test2 USING paradedb (id, ref_id, ref_text)
             WITH (key_field='id', text_fields = '{"ref_text": {"fast": true, "tokenizer": {"type":"raw"}}}');
         "#;
         sql.execute(&mut conn);
@@ -805,7 +805,7 @@ mod pushdown_is_bool_operator {
         message text
     );
 
-    CREATE INDEX idxis_true ON is_true USING bm25 (id, bool_field, message) WITH (key_field = 'id');
+    CREATE INDEX idxis_true ON is_true USING paradedb (id, bool_field, message) WITH (key_field = 'id');
 
     INSERT INTO is_true (bool_field, message) VALUES (true, 'beer');
     INSERT INTO is_true (bool_field, message) VALUES (false, 'beer');
@@ -837,7 +837,7 @@ mod pushdown_is_bool_operator {
         message text
     );
 
-    CREATE INDEX idxis_true ON is_true USING bm25 (id, bool_field, message) WITH (key_field = 'id');
+    CREATE INDEX idxis_true ON is_true USING paradedb (id, bool_field, message) WITH (key_field = 'id');
 
     INSERT INTO is_true (bool_field, message) VALUES (true, 'beer');
     INSERT INTO is_true (bool_field, message) VALUES (false, 'beer');
@@ -876,7 +876,7 @@ mod pushdown_is_bool_operator {
             message text
         );
 
-        CREATE INDEX idx_bool_null_test ON bool_null_test USING bm25 (id, bool_field, message) WITH (key_field = 'id');
+        CREATE INDEX idx_bool_null_test ON bool_null_test USING paradedb (id, bool_field, message) WITH (key_field = 'id');
 
         -- Insert values: true, false, and NULL
         INSERT INTO bool_null_test (bool_field, message) VALUES (true, 'beer');

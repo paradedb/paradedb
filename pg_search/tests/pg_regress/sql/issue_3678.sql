@@ -56,7 +56,7 @@ FROM generate_series(1, 300000) gs;
 -- Suppress PG18's "only N parallel workers were available for index build" warning
 SET client_min_messages = error;
 
-CREATE INDEX nhfs_big_bm25_idx ON nhfs_big USING bm25 (
+CREATE INDEX nhfs_big_bm25_idx ON nhfs_big USING paradedb (
     id,
     ((title)::pdb.simple('stemmer=english', 'ascii_folding=true')),
     ((description)::pdb.simple('stemmer=english', 'ascii_folding=true')),

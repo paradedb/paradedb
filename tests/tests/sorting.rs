@@ -25,10 +25,10 @@ fn field_sort_fixture(conn: &mut PgConnection) -> Value {
     // ensure our custom scan wins against our small test table
     r#"
         SET enable_indexscan TO off;
-        CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
+        CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
         CREATE INDEX bm25_search_idx ON paradedb.bm25_search
-        USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
+        USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
         WITH (
             key_field = 'id',
             text_fields = '{
@@ -114,7 +114,7 @@ fn parallel_topk_limit_visibility_retry(mut conn: PgConnection) {
     r#"
         CREATE EXTENSION IF NOT EXISTS pg_search;
         CREATE TABLE t (id bigint NOT NULL PRIMARY KEY, name text, sortk int);
-        CREATE INDEX idx ON t USING bm25 (id, (name::pdb.literal), sortk) WITH (
+        CREATE INDEX idx ON t USING paradedb (id, (name::pdb.literal), sortk) WITH (
             key_field = 'id',
             sort_by = 'sortk DESC NULLS LAST',
             target_segment_count = 1
@@ -164,10 +164,10 @@ fn sort_by_raw(mut conn: PgConnection) {
     // ensure our custom scan wins against our small test table
     r#"
         SET enable_indexscan TO off;
-        CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
+        CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
         CREATE INDEX bm25_search_idx ON paradedb.bm25_search
-        USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
+        USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
         WITH (
             key_field = 'id',
             text_fields = '{
@@ -204,6 +204,7 @@ fn sort_by_raw(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn test_compound_sort(mut conn: PgConnection) {
     "SET max_parallel_workers to 0;".execute(&mut conn);
 
@@ -225,6 +226,7 @@ async fn test_compound_sort(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn compound_sort_expression(mut conn: PgConnection) {
     "SET max_parallel_workers to 0;".execute(&mut conn);
 
@@ -247,6 +249,7 @@ async fn compound_sort_expression(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn compound_sort_partitioned(mut conn: PgConnection) {
     "SET max_parallel_workers to 0;".execute(&mut conn);
 

@@ -51,7 +51,7 @@ INSERT INTO dex_suppliers (id, name, info, country) VALUES
 (3, 'FastParts', 'fast delivery of electronics parts', 'Germany');
 
 CREATE INDEX dex_products_bm25 ON dex_products
-    USING bm25 (id, name, description, category, supplier_id)
+    USING paradedb (id, name, description, category, supplier_id)
     WITH (
     key_field = 'id',
     text_fields = '{"name": {"fast": true}, "category": {"fast": true}}',
@@ -59,7 +59,7 @@ CREATE INDEX dex_products_bm25 ON dex_products
     );
 
 CREATE INDEX dex_suppliers_bm25 ON dex_suppliers
-    USING bm25 (id, name, info, country)
+    USING paradedb (id, name, info, country)
     WITH (
     key_field = 'id',
     text_fields = '{"name": {"fast": true}}'

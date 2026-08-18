@@ -40,7 +40,7 @@ INSERT INTO rls_score_bug_test (org_id, title) VALUES
     ('00000000-0000-0000-0000-000000000001', 'sheriff office county records'),
     ('00000000-0000-0000-0000-000000000002', 'unrelated document about nothing');
 CREATE INDEX rls_score_bug_bm25 ON rls_score_bug_test
-    USING bm25 (id, title) WITH (key_field=id);
+    USING paradedb (id, title) WITH (key_field=id);
 GRANT SELECT ON rls_score_bug_test TO authenticated;
 ALTER TABLE rls_score_bug_test ENABLE ROW LEVEL SECURITY;
 CREATE FUNCTION rls_bug_check_invoker(uuid)

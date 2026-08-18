@@ -40,6 +40,7 @@ public sealed class SnippetDbContext(DbContextOptions<SnippetDbContext> options)
             entity.Property(item => item.CreatedAt).HasColumnName("created_at");
             entity.Property(item => item.Metadata).HasColumnName("metadata").HasColumnType("jsonb");
             entity.Property(item => item.WeightRange).HasColumnName("weight_range");
+            entity.Property(item => item.Embedding).HasColumnName("embedding").HasColumnType("vector(8)");
         });
 
         modelBuilder.Entity<ArrayDemo>(entity =>
@@ -73,6 +74,7 @@ public sealed class MockItem
     public DateTime CreatedAt { get; set; }
     public string Metadata { get; set; } = "{}";
     public NpgsqlRange<int> WeightRange { get; set; }
+    public float[]? Embedding { get; set; }
 }
 
 public sealed class ArrayDemo

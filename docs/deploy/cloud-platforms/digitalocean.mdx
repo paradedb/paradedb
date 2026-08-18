@@ -12,7 +12,7 @@ canonical: https://docs.paradedb.com/deploy/cloud-platforms/digitalocean
 </Note>
 
 [DigitalOcean](https://www.digitalocean.com) is a cloud platform for deploying and managing applications. This guide walks through
-deploying ParadeDB on a DigitalOcean Droplet using Docker. Docker packages PostgreSQL and `pg_search` together, so you don't need to install them manually.
+deploying ParadeDB on a DigitalOcean Droplet using Docker. Docker packages Postgres and `pg_search` together, so you don't need to install them manually.
 
 ## Prerequisites
 
@@ -38,7 +38,7 @@ curl -fsSL https://get.docker.com | sh
 The `tag` query parameter pins the ParadeDB version. See the [Docker Hub page](https://hub.docker.com/r/paradedb/paradedb/tags) for available tags.
 
 ```bash
-curl -fsSL "https://paradedb.com/install.sh?tag=0.25.0-pg18" | sh
+curl -fsSL "https://paradedb.com/install.sh?tag=0.25.3-pg18" | sh
 ```
 
 Once the install completes, note the password printed to the terminal — you will need it for the `psql` connection string below.

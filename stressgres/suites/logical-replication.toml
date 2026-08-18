@@ -74,7 +74,7 @@ DROP SUBSCRIPTION IF EXISTS stressgres_sub;
 CREATE SUBSCRIPTION stressgres_sub CONNECTION '@Publisher_CONNSTR@' PUBLICATION stressgres_pub;
 SELECT pg_sleep(5);
 
-CREATE INDEX idxtest ON test USING bm25(id, message) WITH (key_field = 'id', layer_sizes = '10kb, 100kb, 1mb, 100mb');
+CREATE INDEX idxtest ON test USING paradedb (id, message) WITH (key_field = 'id', layer_sizes = '10kb, 100kb, 1mb, 100mb');
 CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool LANGUAGE plpgsql AS $$
 DECLARE
     current_txid bigint;

@@ -1,9 +1,6 @@
 require "active_record"
 require "parade_db"
 
-ParadeDB::Arel::Visitor.install!
-ParadeDB::Arel::Predications.install!
-
 module RailsSnippetHarness
   database_user = ENV.fetch("PARADEDB_USER", ENV.fetch("USER", "postgres"))
   database_password = ENV.fetch("PARADEDB_PASSWORD", "")

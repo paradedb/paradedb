@@ -25,14 +25,14 @@ INSERT INTO tech_installs (unique_id, company_id, technology_name) VALUES (1, 1,
 -- expression on the same column. This triggers the attno dedup
 -- false-positive in ORDER BY field collection.
 CREATE INDEX contacts_idx ON contacts
-USING bm25 (
+USING paradedb (
     contact_id,
     company_id,
     (lower(company_name::text)::pdb.literal_normalized('ascii_folding=true')),
     (company_name::pdb.simple('alias=company_name_words', 'ascii_folding=true', 'columnar=true'))
 ) WITH (key_field=contact_id, numeric_fields='{"company_id": {"fast": true}}');
 CREATE INDEX tech_installs_idx ON tech_installs
-USING bm25 (
+USING paradedb (
     unique_id,
     company_id,
     technology_name
@@ -66,7 +66,7 @@ LIMIT 10;
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"technology_name","query_string":"java","lenient":null,"conjunction_mode":null}}}}
                  :         CooperativeExec
-                 :           PgSearchScan: segments=1, dynamic_filters=3, query="all"
+                 :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
 (16 rows)
 
 SELECT cccf.*

@@ -23,7 +23,7 @@
 
 use anyhow::Result;
 use rstest::*;
-use sqlx::{Executor, PgConnection};
+use sqlx::{AssertSqlSafe, Executor, PgConnection};
 use std::time::{Duration, Instant};
 use tests::fixtures::*;
 use tokio::time::sleep;
@@ -39,13 +39,13 @@ CREATE TABLE mpp_users    (id bigserial primary key, uuid uuid, name text, age i
 CREATE TABLE mpp_products (id bigserial primary key, uuid uuid, name text, age int);
 CREATE TABLE mpp_orders   (id bigserial primary key, uuid uuid, name text, age int);
 
-CREATE INDEX mpp_users_idx ON mpp_users USING bm25 (id, uuid, name, age, category)
+CREATE INDEX mpp_users_idx ON mpp_users USING paradedb (id, uuid, name, age, category)
 WITH (key_field='id', text_fields='{"uuid":{"tokenizer":{"type":"keyword"},"fast":true},"name":{"tokenizer":{"type":"keyword"},"fast":true},"category":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
 
-CREATE INDEX mpp_products_idx ON mpp_products USING bm25 (id, uuid, name, age)
+CREATE INDEX mpp_products_idx ON mpp_products USING paradedb (id, uuid, name, age)
 WITH (key_field='id', text_fields='{"uuid":{"tokenizer":{"type":"keyword"},"fast":true},"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
 
-CREATE INDEX mpp_orders_idx ON mpp_orders USING bm25 (id, uuid, name, age)
+CREATE INDEX mpp_orders_idx ON mpp_orders USING paradedb (id, uuid, name, age)
 WITH (key_field='id', text_fields='{"uuid":{"tokenizer":{"type":"keyword"},"fast":true},"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
 
 SET paradedb.global_mutable_segment_rows = 0;
@@ -117,9 +117,11 @@ const VICTIM_LOOP_TIMEOUT: Duration = Duration::from_secs(30);
 
 async fn assert_query_plans_as_mpp(conn: &mut PgConnection) -> Result<()> {
     conn.execute(MPP_GUCS).await?;
-    let rows: Vec<(String,)> = sqlx::query_as(&format!("EXPLAIN (COSTS OFF, VERBOSE) {MPP_QUERY}"))
-        .fetch_all(&mut *conn)
-        .await?;
+    let rows: Vec<(String,)> = sqlx::query_as(AssertSqlSafe(format!(
+        "EXPLAIN (COSTS OFF, VERBOSE) {MPP_QUERY}"
+    )))
+    .fetch_all(&mut *conn)
+    .await?;
     let explain = rows
         .into_iter()
         .map(|(line,)| line)
@@ -155,7 +157,7 @@ async fn signal_running_mpp_backend(
         if let Some(pid) = pid {
             // Let execution get well inside the MPP join (senders live) before signalling.
             sleep(SIGNAL_DELAY).await;
-            sqlx::query(&format!("SELECT {signal_fn}($1)"))
+            sqlx::query(AssertSqlSafe(format!("SELECT {signal_fn}($1)")))
                 .bind(pid)
                 .execute(&mut *killer)
                 .await?;
@@ -172,7 +174,9 @@ async fn signal_running_mpp_backend(
 /// the backend busy so the killer has a wide window to land the signal mid-query.
 async fn run_until_signalled(mut victim: PgConnection, app_name: String) -> Result<()> {
     if victim
-        .execute(format!("SET application_name = '{app_name}';").as_str())
+        .execute(AssertSqlSafe(format!(
+            "SET application_name = '{app_name}';"
+        )))
         .await
         .is_err()
     {

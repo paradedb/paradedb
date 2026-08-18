@@ -3,12 +3,12 @@
 \i common/common_setup.sql
 
 -- Create test tables
-CALL paradedb.create_bm25_test_table(
+CALL paradedb.create_paradedb_test_table(
   schema_name => 'public',
   table_name => 'mock_items_rrf',
   table_type => 'Items'
 );
-CALL paradedb.create_bm25_test_table(
+CALL paradedb.create_paradedb_test_table(
   schema_name => 'public',
   table_name => 'orders_rrf',
   table_type => 'Orders'
@@ -20,11 +20,11 @@ FOREIGN KEY (product_id)
 REFERENCES mock_items_rrf(id);
 
 CREATE INDEX orders_rrf_idx ON orders_rrf
-USING bm25 (order_id, product_id, order_quantity, order_total, customer_name)
+USING paradedb (order_id, product_id, order_quantity, order_total, customer_name)
 WITH (key_field = 'order_id');
 
 CREATE INDEX mock_items_rrf_idx ON mock_items_rrf
-USING bm25 (id, description, category, rating)
+USING paradedb (id, description, category, rating)
 WITH (key_field = 'id');
 
 -- RRF Query

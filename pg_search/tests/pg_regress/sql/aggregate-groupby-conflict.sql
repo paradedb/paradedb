@@ -35,7 +35,7 @@ INSERT INTO groupby_conflict_test (title, category, rating, price, views) VALUES
 
 -- Create BM25 index with fast fields
 CREATE INDEX groupby_conflict_idx ON groupby_conflict_test 
-USING bm25(id, title, category, rating, price, views)
+USING paradedb (id, title, category, rating, price, views)
 WITH (
     key_field='id',
     text_fields='{"title": {}, "category": {"fast": true}}',

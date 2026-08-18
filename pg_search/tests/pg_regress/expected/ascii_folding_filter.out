@@ -20,7 +20,7 @@ INSERT INTO ascii (id, description) VALUES
     (9, 'São Paulo açúcar português'),
     (10, 'Beyoncé déjà vu touché fiancé');
 CREATE INDEX ON ascii
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (
     key_field='id',
     text_fields='{

@@ -16,7 +16,7 @@ CREATE TABLE trunc_guard (id bigint, cat text) WITH (autovacuum_enabled = false)
 -- cat has ~2 distinct values.
 INSERT INTO trunc_guard SELECT g, 'seed_' || (g % 2) FROM generate_series(1, 100) g;
 CREATE INDEX trunc_guard_idx ON trunc_guard
-USING bm25 (id, (cat::pdb.literal)) WITH (key_field='id');
+USING paradedb (id, (cat::pdb.literal)) WITH (key_field='id');
 ANALYZE trunc_guard;
 -- Add 200 genuinely-distinct cat values WITHOUT re-analyzing. The stale estimate
 -- (~2) stays below the cap, so routing keeps these queries on Tantivy even

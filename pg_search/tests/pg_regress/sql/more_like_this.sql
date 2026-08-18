@@ -14,7 +14,7 @@ INSERT INTO mlt (text_field_a, text_field_b, json_field, numeric_field) VALUES
     ('ddd eee fff', 'foo foo foo', '{"color": "ddd eee fff"}', 2),
     ('aaa aaa', 'baz baz', '{"color": "aaa aaa"}', 3);
 
-CREATE INDEX ON mlt USING bm25 (id, text_field_a, text_field_b, json_field, numeric_field) WITH (key_field = 'id');
+CREATE INDEX ON mlt USING paradedb (id, text_field_a, text_field_b, json_field, numeric_field) WITH (key_field = 'id');
 
 SELECT * from mlt where id @@@ pdb.more_like_this(1);
 SELECT * FROM mlt where id @@@ pdb.more_like_this(1, ARRAY['text_field_a']);
@@ -49,3 +49,26 @@ SELECT * FROM mlt where id @@@ pdb.more_like_this(1, ARRAY['json_field']);
 SELECT * FROM mlt where id @@@ pdb.more_like_this(100);
 
 DROP TABLE mlt;
+
+-- Field-less more_like_this skips vector columns (issue #5826)
+CREATE EXTENSION IF NOT EXISTS vector;
+
+CREATE TABLE mlt_vec (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    embedding vector(3)
+);
+
+INSERT INTO mlt_vec (description, embedding) VALUES
+    ('aaa bbb ccc', '[1,2,3]'),
+    ('aaa aaa', '[4,5,6]'),
+    ('ddd eee fff', '[7,8,9]');
+
+CREATE INDEX ON mlt_vec USING paradedb (id, description, embedding) WITH (key_field = 'id');
+
+SELECT id, description FROM mlt_vec WHERE id @@@ pdb.more_like_this(1);
+SELECT id, description FROM mlt_vec WHERE id @@@ pdb.more_like_this(1, ARRAY['description']);
+-- Vector not supported
+SELECT id FROM mlt_vec WHERE id @@@ pdb.more_like_this(1, ARRAY['embedding']);
+
+DROP TABLE mlt_vec;

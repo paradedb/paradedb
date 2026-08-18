@@ -21,7 +21,7 @@
 //!
 //! [`collect_stages`] walks the distributed physical plan and visits every
 //! [`datafusion_distributed::NetworkBoundary`]; [`classify_stages`] turns each into one
-//! [`StageEntry`] (`input_stage.num`, `task_count`, `routing`) once the worker count is known.
+//! [`StageEntry`] (`input_stage.num`, `task_count`, `routing`) from the unchanged physical plan.
 //! The stage plans travel separately, serialized by the coordinator's dispatch; each worker later
 //! expands a stage into one [`FragmentAssignment`] per `task_idx` it owns under `proc_for_task`.
 //!
@@ -47,10 +47,13 @@ use std::sync::Arc;
 
 use datafusion::common::DataFusionError;
 use datafusion::physical_plan::ExecutionPlan;
-use datafusion_distributed::shm::proc_for_task;
 use datafusion_distributed::{
     NetworkBoundaryExt, NetworkBroadcastExec, NetworkCoalesceExec, NetworkShuffleExec,
 };
+
+/// Proc 0 is the leader. Task 0 always belongs to the first producer proc, independent of how
+/// many producers PostgreSQL actually attached.
+const FIRST_WORKER_PROC: u32 = 1;
 
 /// One worker fragment to run for `this_proc`. The fragment is one task of a
 /// producer stage; the dispatcher runs `plan` with the matching
@@ -62,8 +65,8 @@ pub struct FragmentAssignment {
     /// belongs to. Frames the fragment emits carry this in the
     /// `MppFrameHeader::stage_id` field.
     pub stage_id: u32,
-    /// Task index within the stage (0..task_count).
-    pub task_idx: usize,
+    /// Task index within the stage (0..task_count), validated for the shared-memory transport.
+    pub task_idx: u32,
     /// Total task count for this stage (= `input_stage.tasks.len()`).
     pub task_count: usize,
     /// How to route each output partition to a destination proc.
@@ -78,9 +81,8 @@ pub enum FragmentRouting {
     /// output partition, so the crate's `route_partition` does not describe it;
     /// the dispatcher sends every partition to `dest_proc`.
     Coalesce {
-        /// Destination proc index. `0` for the leader (top-level gather), or a
-        /// `proc_for_task(n_workers, 0)` lookup for a nested coalesce that lands
-        /// on a single consumer task.
+        /// Destination proc index. `0` for the leader (top-level gather), or
+        /// [`FIRST_WORKER_PROC`] for a nested coalesce that lands on consumer task 0.
         dest_proc: u32,
     },
     /// Hash-partitioned mesh ([`NetworkShuffleExec`] / [`NetworkBroadcastExec`]). Output
@@ -123,8 +125,8 @@ pub(crate) struct DiscoveredStage {
 
 /// Every producer stage, once per boundary. The launch walks before forking and hands the result
 /// to both [`max_producer_task_count`] and [`classify_stages`], so the two cannot disagree about
-/// which stages exist (#5667). Routing is not derived here: it needs the worker count that sizing
-/// produces.
+/// which stages exist (#5667). [`classify_stages`] derives logical task routing from this list;
+/// worker ownership remains deferred until each worker applies the actual attached width.
 pub(crate) fn collect_stages(root: &Arc<dyn ExecutionPlan>) -> Vec<DiscoveredStage> {
     let mut out = Vec::new();
     walk_stages(root, /* nested = */ false, &mut out);
@@ -168,18 +170,18 @@ pub(crate) fn max_producer_task_count(stages: &[DiscoveredStage]) -> usize {
         .unwrap_or(0)
 }
 
-/// Classify each discovered stage's routing, once the worker count is known. The leader runs this
-/// (replacing the worker-side re-plan) to derive routing from the boundary type. Not filtered by
-/// proc; the blob is shared and each worker selects its own `(stage, task)` slots.
+/// Classify each discovered stage's routing from the physical-plan boundary type. The routing blob
+/// contains task IDs, not worker ownership, so it remains valid when PostgreSQL attaches fewer
+/// workers than requested. Not filtered by proc; each worker later selects its own `(stage, task)`
+/// slots with the actual attached-worker count.
 pub(crate) fn classify_stages(
     stages: &[DiscoveredStage],
-    n_workers: u32,
 ) -> Result<Vec<StageEntry>, DataFusionError> {
     let mut out = Vec::new();
     for stage in stages {
         // Classified before the `dispatchable` check so an unroutable shape is rejected whether or
         // not it carries a local plan.
-        let routing = classify_routing(stage, n_workers)?;
+        let routing = classify_routing(stage)?;
         if stage.dispatchable {
             out.push(StageEntry {
                 stage_num: stage.stage_num,
@@ -191,10 +193,7 @@ pub(crate) fn classify_stages(
     Ok(out)
 }
 
-fn classify_routing(
-    discovered: &DiscoveredStage,
-    n_workers: u32,
-) -> Result<FragmentRouting, DataFusionError> {
+fn classify_routing(discovered: &DiscoveredStage) -> Result<FragmentRouting, DataFusionError> {
     let plan = &discovered.boundary;
     let stage_id = discovered.stage_num;
     let nested = discovered.nested;
@@ -229,11 +228,9 @@ fn classify_routing(
         // top-level (`nested == false`) routes to the leader.
         let routing = if plan.is::<NetworkCoalesceExec>() {
             if nested {
-                // Nested NetworkCoalesceExec: consumer is a single task in the parent stage. The
-                // receive math collapses to task 0 of the parent group, so the destination proc
-                // is `proc_for_task(n_workers, 0)`.
+                // Nested NetworkCoalesceExec: consumer is task 0 of the parent stage.
                 FragmentRouting::Coalesce {
-                    dest_proc: proc_for_task(n_workers, 0),
+                    dest_proc: FIRST_WORKER_PROC,
                 }
             } else {
                 // Top-level NetworkCoalesceExec (gather to leader): consumer is leader proc 0.
@@ -281,12 +278,13 @@ mod tests {
     use super::*;
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::physical_plan::empty::EmptyExec;
+    use datafusion_distributed::shm::proc_for_task;
 
     #[test]
     fn boundary_free_plan_yields_no_stages() {
         let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int32, false)]));
         let plan: Arc<dyn ExecutionPlan> = Arc::new(EmptyExec::new(schema));
-        let out = classify_stages(&collect_stages(&plan), 3).unwrap();
+        let out = classify_stages(&collect_stages(&plan)).unwrap();
         assert!(out.is_empty());
     }
 
@@ -320,6 +318,15 @@ mod tests {
                 assert_eq!(consumer_task, vec![0, 0, 1]);
             }
             _ => panic!("expected Hashed"),
+        }
+    }
+
+    #[test]
+    fn nested_coalesce_destination_is_width_independent() {
+        // This invariant is why the dispatch payload can be built before worker launch and reused
+        // unchanged after a viable short launch.
+        for worker_count in 1..=8 {
+            assert_eq!(proc_for_task(worker_count, 0), FIRST_WORKER_PROC);
         }
     }
 }

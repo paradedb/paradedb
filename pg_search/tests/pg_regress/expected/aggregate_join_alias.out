@@ -31,13 +31,13 @@ INSERT INTO repro_ti VALUES (1), (2), (3);
 -- "company_name_words", so the planner must resolve GROUP BY / aggregate
 -- arg / aggregate ORDER BY names through the BM25 index too.
 CREATE INDEX repro_cccf_idx ON repro_cccf
-USING bm25 (
+USING paradedb (
     company_id,
     (lower(company_domain)::pdb.literal_normalized('ascii_folding=true')),
     (company_name::pdb.simple('alias=company_name_words', 'columnar=true'))
 ) WITH (key_field=company_id);
 CREATE INDEX repro_ti_idx ON repro_ti
-USING bm25 (company_id) WITH (key_field=company_id);
+USING paradedb (company_id) WITH (key_field=company_id);
 -- =====================================================================
 -- Test 1: GROUP BY on the aliased column
 -- Previously crashed with "No field named cccf_0.company_name".

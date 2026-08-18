@@ -59,7 +59,7 @@ runs:
       working-directory: benchmarks/
       shell: bash
       run: |
-        POSTGRES_URL="postgresql://localhost:288${{ env.pg_version }}/postgres"
+        POSTGRES_URL="postgresql://$(whoami)@localhost:288${{ env.pg_version }}/postgres"
 
         # The heap is assumed to already be restored from a snapshot; the benchmark builds the
         # index and runs queries against it.

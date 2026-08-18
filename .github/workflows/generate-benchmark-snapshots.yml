@@ -110,7 +110,7 @@ jobs:
           cargo run --release -- load-heap \
             --dataset "${{ matrix.dataset }}" \
             --size "${{ matrix.size }}" \
-            --url "postgresql://localhost:288${{ env.pg_version }}/postgres" \
+            --url "postgresql://$(whoami)@localhost:288${{ env.pg_version }}/postgres" \
             --data-source "s3://${BACKREST_REPO_BUCKET}/datasets/${{ matrix.dataset }}"
 
       # Clear any pre-existing snapshot at this path. Each run inits a fresh cluster (new system

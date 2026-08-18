@@ -8,7 +8,7 @@ noindex: true
   a future version. Please use the [v2 API](/) where possible.
 </Danger>
 
-Adding filters to text search is as simple as using PostgreSQL's built-in `WHERE` clauses and operators.
+Adding filters to text search is as simple as using Postgres's built-in `WHERE` clauses and operators.
 For instance, the following query filters out results that do not meet `rating > 2`.
 
 ```sql
@@ -28,7 +28,7 @@ For example, if `rating` and `created_at` are frequently used in filters, they c
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25(id, description, rating, created_at)
+USING paradedb (id, description, rating, created_at)
 WITH (key_field = 'id');
 ```
 
@@ -99,7 +99,7 @@ To push down the `category = 'Footwear'` filter, `category` must be indexed usin
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25(id, description, category)
+USING paradedb (id, description, category)
 WITH (key_field = 'id', text_fields = '{"category": {"tokenizer": {"type": "keyword"}}}');
 ```
 

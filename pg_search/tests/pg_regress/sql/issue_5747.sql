@@ -2,7 +2,7 @@
 --
 -- The trigger is a join between two BM25-indexed tables whose indexes have
 -- DIFFERENT physical segment counts. Equal segment counts do not reproduce it.
--- It requires MPP to be enabled (max_parallel_workers_per_gather > 0).
+-- It requires an MPP-eligible worker configuration.
 --
 -- To get the asymmetry deterministically without needing much data:
 --   * pc_big   uses mutable_segment_rows='0', so every INSERT lands in its own
@@ -14,9 +14,9 @@ SET max_parallel_workers_per_gather = 4;
 DROP TABLE IF EXISTS pc_big, pc_small CASCADE;
 CREATE TABLE pc_big   (id bigint PRIMARY KEY, state text);
 CREATE TABLE pc_small (id bigint PRIMARY KEY, series_id bigint, user_id text);
-CREATE INDEX pc_big_idx ON pc_big USING bm25 (id, state)
+CREATE INDEX pc_big_idx ON pc_big USING paradedb (id, state)
   WITH (key_field = 'id', target_segment_count = '3', mutable_segment_rows = '0');
-CREATE INDEX pc_small_idx ON pc_small USING bm25 (id, series_id, user_id)
+CREATE INDEX pc_small_idx ON pc_small USING paradedb (id, series_id, user_id)
   WITH (key_field = 'id', target_segment_count = '3');
 -- Two separate statements, so pc_big ends up with two immutable segments.
 INSERT INTO pc_big SELECT g, 'active' FROM generate_series(1, 50) g;

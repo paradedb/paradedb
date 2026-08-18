@@ -4,7 +4,7 @@ description: Optimize JOIN queries in ParadeDB
 canonical: https://docs.paradedb.com/documentation/joins/overview
 ---
 
-ParadeDB supports all standard PostgreSQL `JOIN` types, including:
+ParadeDB supports all standard Postgres `JOIN` types, including:
 
 - `INNER JOIN`
 - `LEFT JOIN`
@@ -17,7 +17,7 @@ ParadeDB optimizes standard `JOIN` queries involving search operations through a
 
 Our goal is to support and accelerate all `JOIN` queries shaped like Top-K or aggregate queries. Because join pushdown is enabled by default, ParadeDB automatically executes parts of a `JOIN` directly inside the ParadeDB executor for queries that meet the requirements.
 
-If a query does not meet the requirements, ParadeDB falls back to PostgreSQL’s native row-based execution.
+If a query does not meet the requirements, ParadeDB falls back to Postgres’s native row-based execution.
 
 ## Join Pushdown
 
@@ -30,7 +30,7 @@ Join pushdown reduces query latency by answering as much of the query as possibl
 
 ## Requirements for Join Pushdown
 
-Join pushdown is automatically used when a query meets several conditions. If any of these are not satisfied, PostgreSQL will simply execute the join normally.
+Join pushdown is automatically used when a query meets several conditions. If any of these are not satisfied, Postgres will simply execute the join normally.
 
 | Requirement      | Description                                                                                                                                                      |
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -45,7 +45,7 @@ If any checks fail, ParadeDB will emit a `NOTICE` explaining why and fall back t
 To demonstrate, let's create a second table called `orders` that can be joined with `mock_items`:
 
 ```sql
-CALL paradedb.create_bm25_test_table(
+CALL paradedb.create_paradedb_test_table(
   schema_name => 'public',
   table_name => 'orders',
   table_type => 'Orders'

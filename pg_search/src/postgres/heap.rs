@@ -15,12 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::ops::Deref;
+
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::buffer::BufferManager;
+use crate::postgres::storage::buffer::{BorrowedBuffer, BufferManager, PinnedBuffer};
 use crate::postgres::utils;
 use pgrx::PgList;
 use pgrx::pg_sys;
-use std::ops::Deref;
 
 /// Helper to validate that a "ctid" is currently visible to a snapshot.
 ///
@@ -48,6 +49,11 @@ pub struct VisibilityChecker {
     /// Cached relation size (in blocks) at scan start. Used to cheaply skip
     /// stale ctids pointing to pages truncated by a previous VACUUM.
     nblocks: pg_sys::BlockNumber,
+
+    /// Pin on the heap block last checked by `resolve_visible`, held across
+    /// calls since consecutive checks tend to hit the same block.
+    cached_heap_block: pg_sys::BlockNumber,
+    cached_heap_pin: Option<PinnedBuffer>,
 
     pub heap_tuple_check_count: usize,
     pub invisible_tuple_count: usize,
@@ -88,6 +94,8 @@ impl VisibilityChecker {
                 vmbuff: pg_sys::InvalidBuffer as pg_sys::Buffer,
                 blockvis: (pg_sys::InvalidBlockNumber, false),
                 nblocks,
+                cached_heap_block: pg_sys::InvalidBlockNumber,
+                cached_heap_pin: None,
                 heap_tuple_check_count: 0,
                 invisible_tuple_count: 0,
             }
@@ -108,13 +116,13 @@ impl VisibilityChecker {
         slot: *mut pg_sys::TupleTableSlot,
         mut func: F,
     ) -> Option<T> {
-        self.heap_tuple_check_count += 1;
         unsafe {
             let blockno = (ctid >> 16) as pg_sys::BlockNumber;
             if blockno >= self.nblocks {
                 self.invisible_tuple_count += 1;
                 return None;
             }
+            self.heap_tuple_check_count += 1;
 
             utils::u64_to_item_pointer(ctid, &mut self.tid);
 
@@ -203,31 +211,10 @@ impl VisibilityChecker {
         self.blockvis.1
     }
 
-    /// If the specified `ctid` is visible in the heap, return the visible `ctid`.
-    /// The returned `ctid` might differ from the input `ctid` if a HOT chain was followed.
-    fn check_visibility_with_buffer(&mut self, ctid: u64, buffer: pg_sys::Buffer) -> Option<u64> {
-        unsafe {
-            utils::u64_to_item_pointer(ctid, &mut self.tid);
-
-            let mut heap_tuple_data: pg_sys::HeapTupleData = std::mem::zeroed();
-            let mut all_dead = false;
-
-            let found = pg_sys::heap_hot_search_buffer(
-                &mut self.tid,
-                self.heaprel.as_ptr(),
-                buffer,
-                self.snapshot,
-                &mut heap_tuple_data,
-                &mut all_dead,
-                true, // first_call
-            );
-
-            if found {
-                Some(utils::item_pointer_to_u64(self.tid))
-            } else {
-                None
-            }
-        }
+    /// Single-ctid visibility check for callers probing one doc at a time
+    /// (e.g. the cardinality fast path's visibility filter).
+    pub fn check_one(&mut self, ctid: u64) -> bool {
+        self.resolve_visible(ctid, None).is_some()
     }
 
     /// Checks if a batch of rows are visible, and computes their updated ctid (by following a HOT
@@ -250,38 +237,79 @@ impl VisibilityChecker {
         let mut current_buffer: Option<crate::postgres::storage::buffer::Buffer> = None;
         let mut current_block = pg_sys::InvalidBlockNumber;
 
-        for (idx, mut ctid) in sorted_indices {
+        for (idx, ctid) in sorted_indices {
             let blockno = (ctid >> 16) as pg_sys::BlockNumber;
-
-            if blockno >= self.nblocks {
-                self.invisible_tuple_count += 1;
-                results[idx] = None;
-                continue;
-            }
-
-            if self.is_block_all_visible(blockno) {
-                results[idx] = Some(ctid);
-                continue;
-            }
-
-            self.heap_tuple_check_count += 1;
-
-            if current_block != blockno {
-                drop(current_buffer.take());
-                current_buffer = Some(self.bman.get_buffer(blockno));
-                current_block = blockno;
-            }
-
-            if let Some(visible_ctid) =
-                self.check_visibility_with_buffer(ctid, *current_buffer.as_ref().unwrap().deref())
-            {
-                if visible_ctid != ctid {
-                    ctid = visible_ctid;
+            // acquire the block's buffer once per run of same-block ctids and
+            // hold its lock across the run; resolve_visible's own VM re-check
+            // hits the blockvis cache
+            let needs_heap_check = blockno < self.nblocks && !self.is_block_all_visible(blockno);
+            let locked_buffer = if needs_heap_check {
+                if current_block != blockno {
+                    drop(current_buffer.take());
+                    current_buffer = Some(self.bman.get_buffer(blockno));
+                    current_block = blockno;
                 }
-                results[idx] = Some(ctid);
+                Some(*current_buffer.as_ref().unwrap().deref())
+            } else {
+                None
+            };
+            results[idx] = self.resolve_visible(ctid, locked_buffer);
+        }
+    }
+
+    /// Resolves a ctid to its visible ctid under the checker's snapshot,
+    /// following any HOT chain; `None` if invisible or stale. A caller
+    /// already holding a pin and share lock on the ctid's block passes the
+    /// buffer; otherwise the tuple is checked under a short share lock,
+    /// reusing a cached pin on the heap block across calls since consecutive
+    /// checks tend to hit the same block.
+    fn resolve_visible(&mut self, ctid: u64, locked_buffer: Option<pg_sys::Buffer>) -> Option<u64> {
+        let blockno = (ctid >> 16) as pg_sys::BlockNumber;
+        if blockno >= self.nblocks {
+            self.invisible_tuple_count += 1;
+            return None;
+        }
+        if self.is_block_all_visible(blockno) {
+            return Some(ctid);
+        }
+        self.heap_tuple_check_count += 1;
+        let (buffer, _lock) = match locked_buffer {
+            Some(buffer) => (buffer, None),
+            None => {
+                if self.cached_heap_block != blockno {
+                    drop(self.cached_heap_pin.take());
+                    self.cached_heap_pin = Some(self.bman.pinned_buffer(blockno));
+                    self.cached_heap_block = blockno;
+                }
+                let pg_buffer = self.cached_heap_pin.as_ref().unwrap().pg_buffer();
+                (
+                    pg_buffer,
+                    Some(unsafe { BorrowedBuffer::from_pg(pg_buffer) }),
+                )
+            }
+        };
+
+        unsafe {
+            utils::u64_to_item_pointer(ctid, &mut self.tid);
+
+            let mut heap_tuple_data: pg_sys::HeapTupleData = std::mem::zeroed();
+            let mut all_dead = false;
+
+            let found = pg_sys::heap_hot_search_buffer(
+                &mut self.tid,
+                self.heaprel.as_ptr(),
+                buffer,
+                self.snapshot,
+                &mut heap_tuple_data,
+                &mut all_dead,
+                true, // first_call
+            );
+
+            if found {
+                Some(utils::item_pointer_to_u64(self.tid))
             } else {
                 self.invisible_tuple_count += 1;
-                results[idx] = None;
+                None
             }
         }
     }

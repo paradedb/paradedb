@@ -64,6 +64,14 @@ fn get_free_port() -> u16 {
     }
 }
 
+// Superuser created by `initdb` for every ephemeral instance.
+//
+// This is pinned rather than left to `initdb`'s default (the OS user) because sqlx
+// resolves an omitted username via `whoami`, which reports `anonymous` when neither
+// `USER` nor `LOGNAME` is set — as is the case in our CI containers. Naming the role on
+// both sides keeps the tests independent of the ambient environment.
+const SUPERUSER: &str = "postgres";
+
 // Struct to manage an ephemeral PostgreSQL instance
 struct EphemeralPostgres {
     pub tempdir_path: String,
@@ -175,7 +183,7 @@ impl EphemeralPostgres {
         let tempdir_path = tempdir.keep();
 
         // Initialize PostgreSQL data directory
-        run_cmd!($init_db_path -D $tempdir_path &> /dev/null)
+        run_cmd!($init_db_path -D $tempdir_path --username $SUPERUSER &> /dev/null)
             .expect("Failed to initialize Postgres data directory");
 
         Self::new_from_initialized(tempdir_path.as_path(), postgresql_conf, pg_hba_conf)
@@ -184,8 +192,8 @@ impl EphemeralPostgres {
     // Method to establish a connection to the PostgreSQL instance
     async fn connection(&self) -> Result<PgConnection> {
         Ok(PgConnection::connect(&format!(
-            "postgresql://{}:{}/{}",
-            self.host, self.port, self.dbname
+            "postgresql://{}@{}:{}/{}",
+            SUPERUSER, self.host, self.port, self.dbname
         ))
         .await?)
     }
@@ -193,6 +201,7 @@ impl EphemeralPostgres {
 
 // Test function to test the ephemeral PostgreSQL setup
 #[rstest]
+#[async_std::test]
 async fn test_logical_replication() -> Result<()> {
     let config = "
         wal_level = logical
@@ -244,11 +253,11 @@ async fn test_logical_replication() -> Result<()> {
 
     // Create the bm25 index on the description field
     "CREATE INDEX mock_items_bm25_idx ON public.mock_items
-    USING bm25 (id, description) WITH (key_field='id');
+    USING paradedb (id, description) WITH (key_field='id');
     "
     .execute(&mut source_conn);
     "CREATE INDEX mock_items_bm25_idx ON public.mock_items
-    USING bm25 (id, description) WITH (key_field='id');
+    USING paradedb (id, description) WITH (key_field='id');
     "
     .execute(&mut target_conn);
 
@@ -256,9 +265,9 @@ async fn test_logical_replication() -> Result<()> {
     "CREATE PUBLICATION mock_items_pub FOR TABLE mock_items".execute(&mut source_conn);
     format!(
         "CREATE SUBSCRIPTION mock_items_sub
-         CONNECTION 'host={} port={} dbname={}'
+         CONNECTION 'host={} port={} dbname={} user={}'
          PUBLICATION mock_items_pub;",
-        source_postgres.host, source_postgres.port, source_postgres.dbname
+        source_postgres.host, source_postgres.port, source_postgres.dbname, SUPERUSER
     )
     .execute(&mut target_conn);
 
@@ -379,6 +388,7 @@ async fn test_logical_replication() -> Result<()> {
 }
 
 #[rstest]
+#[async_std::test]
 async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
     let config = "
         wal_level = logical
@@ -421,7 +431,7 @@ async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
 
     "
     CREATE INDEX text_array_table_idx ON text_array_table
-    USING bm25 (id, text_array)
+    USING paradedb (id, text_array)
     WITH (key_field = 'id');
     "
     .execute(&mut source_conn);
@@ -477,6 +487,7 @@ async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
 }
 
 #[rstest]
+#[async_std::test]
 async fn test_physical_streaming_replication() -> Result<()> {
     // Create a unique directory for WAL archiving
     let archive_dir = TempDir::new().expect("Failed to create archive dir for WALs");
@@ -635,6 +646,7 @@ async fn test_physical_streaming_replication() -> Result<()> {
 }
 
 #[rstest]
+#[async_std::test]
 async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     // Primary Postgres setup + insert data
     let postgresql_conf = "
@@ -727,7 +739,7 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     // standby replays it, rm_redo aborts recovery with our "not supported" error.
     "
     CREATE INDEX items_search_idx ON items
-    USING bm25 (id, description, category)
+    USING paradedb (id, description, category)
     WITH (key_field = 'id');
     "
     .execute(&mut source_conn);
@@ -754,8 +766,8 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
 
     // The FATAL during recovery should also have brought the standby down: reconnects fail.
     let reconnect = PgConnection::connect(&format!(
-        "postgresql://{}:{}/{}",
-        standby_postgres.host, standby_postgres.port, standby_postgres.dbname
+        "postgresql://{}@{}:{}/{}",
+        SUPERUSER, standby_postgres.host, standby_postgres.port, standby_postgres.dbname
     ))
     .await;
     assert!(

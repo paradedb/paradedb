@@ -23,6 +23,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY, INT4RANGE, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from paradedb.sqlalchemy.vector import Vector
+
 
 def build_database_url() -> str:
     """Build a SQLAlchemy connection string for the docs verification database."""
@@ -61,6 +63,7 @@ class MockItem(Base):
     last_updated_date: Mapped[Any] = mapped_column(Date, nullable=True)
     latest_available_time: Mapped[Any] = mapped_column(Time, nullable=True)
     weight_range: Mapped[Any] = mapped_column(INT4RANGE, nullable=True)
+    embedding: Mapped[Any] = mapped_column(Vector(8), nullable=True)
 
 
 class Order(Base):
@@ -87,9 +90,9 @@ class ArrayDemo(Base):
 engine = create_engine(DATABASE_URL, future=True)
 
 __all__ = [
-    "Base",
     "DATABASE_URL",
     "ArrayDemo",
+    "Base",
     "MockItem",
     "Order",
     "engine",

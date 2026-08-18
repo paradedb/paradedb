@@ -153,8 +153,9 @@ jobs:
         if: steps.release_gate.outputs.skip != 'true'
         run: |
           echo "Waiting for PostgreSQL to accept connections..."
+          # The temporary init server only listens on the Unix socket; TCP starts after initialization completes.
           for i in $(seq 1 60); do
-            if docker exec paradedb pg_isready -U myuser -d mydatabase > /dev/null 2>&1; then
+            if docker exec paradedb pg_isready -h localhost -U myuser -d mydatabase > /dev/null 2>&1; then
               echo "PostgreSQL is ready after ${i}s"
               break
             fi
@@ -165,7 +166,7 @@ jobs:
             fi
             sleep 1
           done
-          if ! docker exec paradedb pg_isready -U myuser -d mydatabase > /dev/null 2>&1; then
+          if ! docker exec paradedb pg_isready -h localhost -U myuser -d mydatabase > /dev/null 2>&1; then
             echo "Error: PostgreSQL did not become ready within 60s"
             docker logs paradedb
             exit 1
@@ -186,17 +187,21 @@ jobs:
       - name: Verify PostgreSQL accepts queries and extensions are available
         if: steps.release_gate.outputs.skip != 'true'
         run: |
-          docker exec paradedb psql -U myuser -d mydatabase -c "SELECT 1;"
-          docker exec paradedb psql -U myuser -d mydatabase -c "CREATE EXTENSION IF NOT EXISTS vector;"
-          docker exec paradedb psql -U myuser -d mydatabase -c "CREATE EXTENSION IF NOT EXISTS pg_search;"
-          docker exec paradedb psql -U myuser -d mydatabase -c "SELECT extname, extversion FROM pg_extension ORDER BY extname;"
+          set -euo pipefail
+          for database in mydatabase template1 paradedb; do
+            extensions="$(docker exec paradedb psql -At -v ON_ERROR_STOP=1 -U myuser -d "$database" -c "SELECT extname FROM pg_extension WHERE extname IN ('pg_search', 'vector') ORDER BY extname;")"
+            [ "$extensions" = $'pg_search\nvector' ] || {
+              printf 'Expected pg_search and vector in %s, got:\n%s\n' "$database" "$extensions"
+              exit 1
+            }
+          done
 
       - name: Verify barman-cloud is functional
         if: steps.release_gate.outputs.skip != 'true' && matrix.flavor == 'paradedb'
         run: docker exec paradedb barman-cloud-wal-archive --help
 
       - name: Test Postgres Auto-tuning
-        if: steps.release_gate.outputs.skip != 'true'
+        if: steps.release_gate.outputs.skip != 'true' && matrix.flavor == 'paradedb'
         run: |
           set -euo pipefail
           assert_not_tuned() {
@@ -422,7 +427,7 @@ jobs:
       - cpu=4
       - ram=16
       - image=${{ matrix.runner_image }}
-      - volume=40gb
+      - volume=80gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
       - extras=s3-cache
     strategy:
       fail-fast: false

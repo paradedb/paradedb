@@ -28,9 +28,9 @@ INSERT INTO products_4531 VALUES
     (4, 'Doohicky','Another widget',  2),
     (5, 'Thingamajig', 'Yet another widget', 999);
 
-CREATE INDEX ON products_4531 USING bm25 (id, name, description, supplier_id)
+CREATE INDEX ON products_4531 USING paradedb (id, name, description, supplier_id)
     WITH (key_field='id', numeric_fields='{"supplier_id": {"fast": true}}');
-CREATE INDEX ON suppliers_4531 USING bm25 (id, name)
+CREATE INDEX ON suppliers_4531 USING paradedb (id, name)
     WITH (key_field='id');
 
 -- ============================================================

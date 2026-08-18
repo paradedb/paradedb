@@ -22,8 +22,8 @@ use sqlx::postgres::types::PgRange;
 use sqlx::types::time::{Date, OffsetDateTime, PrimitiveDateTime};
 use std::fmt::{Debug, Display};
 use std::ops::Bound;
+use strum::EnumIter;
 use strum::IntoEnumIterator;
-use strum_macros::EnumIter;
 use tests::fixtures::*;
 use time::macros::{date, datetime};
 
@@ -138,6 +138,7 @@ pub enum RangeRelation {
 }
 
 #[rstest]
+#[async_std::test]
 async fn range_term_contains_int4range(mut conn: PgConnection) {
     execute_range_test(
         &mut conn,
@@ -153,6 +154,7 @@ async fn range_term_contains_int4range(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn range_term_contains_int8range(mut conn: PgConnection) {
     execute_range_test(
         &mut conn,
@@ -168,6 +170,7 @@ async fn range_term_contains_int8range(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn range_term_contains_numrange(mut conn: PgConnection) {
     execute_range_test(
         &mut conn,
@@ -183,6 +186,7 @@ async fn range_term_contains_numrange(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn range_term_contains_daterange(mut conn: PgConnection) {
     execute_range_test(
         &mut conn,
@@ -198,6 +202,7 @@ async fn range_term_contains_daterange(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn range_term_contains_tsrange(mut conn: PgConnection) {
     execute_range_test(
         &mut conn,
@@ -213,6 +218,7 @@ async fn range_term_contains_tsrange(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn range_term_contains_tstzrange(mut conn: PgConnection) {
     execute_range_test(
         &mut conn,
@@ -228,6 +234,7 @@ async fn range_term_contains_tstzrange(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn range_term_within_int4range(mut conn: PgConnection) {
     execute_range_test(
         &mut conn,
@@ -243,6 +250,7 @@ async fn range_term_within_int4range(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn range_term_within_int8range(mut conn: PgConnection) {
     execute_range_test(
         &mut conn,
@@ -258,6 +266,7 @@ async fn range_term_within_int8range(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn range_term_within_numrange(mut conn: PgConnection) {
     execute_range_test(
         &mut conn,
@@ -273,6 +282,7 @@ async fn range_term_within_numrange(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn range_term_within_daterange(mut conn: PgConnection) {
     execute_range_test(
         &mut conn,
@@ -288,6 +298,7 @@ async fn range_term_within_daterange(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn range_term_within_tsrange(mut conn: PgConnection) {
     execute_range_test(
         &mut conn,
@@ -303,6 +314,7 @@ async fn range_term_within_tsrange(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn range_term_within_tstzrange(mut conn: PgConnection) {
     execute_range_test(
         &mut conn,
@@ -318,6 +330,7 @@ async fn range_term_within_tstzrange(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn range_term_intersects_int4range(mut conn: PgConnection) {
     execute_range_test(
         &mut conn,
@@ -333,6 +346,7 @@ async fn range_term_intersects_int4range(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn range_term_intersects_int8range(mut conn: PgConnection) {
     execute_range_test(
         &mut conn,
@@ -348,6 +362,7 @@ async fn range_term_intersects_int8range(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn range_term_intersects_numrange(mut conn: PgConnection) {
     execute_range_test(
         &mut conn,
@@ -363,6 +378,7 @@ async fn range_term_intersects_numrange(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn range_term_intersects_daterange(mut conn: PgConnection) {
     execute_range_test(
         &mut conn,
@@ -378,6 +394,7 @@ async fn range_term_intersects_daterange(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn range_term_intersects_tsrange(mut conn: PgConnection) {
     execute_range_test(
         &mut conn,
@@ -393,6 +410,7 @@ async fn range_term_intersects_tsrange(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn range_term_intersects_tstzrange(mut conn: PgConnection) {
     execute_range_test(
         &mut conn,

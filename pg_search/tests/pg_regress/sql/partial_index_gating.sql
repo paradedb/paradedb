@@ -19,9 +19,9 @@ INSERT INTO pig_right (left_id) SELECT g FROM generate_series(1, 900) g;
 
 -- Partial index on the left table: only rows WHERE active. `active` is not indexed.
 CREATE INDEX pig_left_idx ON pig_left
-USING bm25 (id, category) WITH (key_field = 'id') WHERE active;
+USING paradedb (id, category) WITH (key_field = 'id') WHERE active;
 CREATE INDEX pig_right_idx ON pig_right
-USING bm25 (id, left_id) WITH (key_field = 'id');
+USING paradedb (id, left_id) WITH (key_field = 'id');
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 

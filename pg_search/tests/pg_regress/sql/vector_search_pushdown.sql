@@ -33,7 +33,7 @@ INSERT INTO vsp VALUES
 -- vector_l2_ops
 -- ============================================================
 CREATE INDEX vsp_idx ON vsp
-    USING bm25 (id, label, vec vector_l2_ops)
+    USING paradedb (id, label, vec vector_l2_ops)
     WITH (key_field = id);
 
 -- match: <-> pushes down
@@ -58,7 +58,7 @@ DROP INDEX vsp_idx;
 -- vector_cosine_ops
 -- ============================================================
 CREATE INDEX vsp_idx ON vsp
-    USING bm25 (id, label, vec vector_cosine_ops)
+    USING paradedb (id, label, vec vector_cosine_ops)
     WITH (key_field = id);
 
 -- mismatch: <-> falls back, planner warns
@@ -83,7 +83,7 @@ DROP INDEX vsp_idx;
 -- vector_ip_ops
 -- ============================================================
 CREATE INDEX vsp_idx ON vsp
-    USING bm25 (id, label, vec vector_ip_ops)
+    USING paradedb (id, label, vec vector_ip_ops)
     WITH (key_field = id);
 
 -- mismatch: <-> falls back, planner warns
@@ -111,7 +111,7 @@ DROP INDEX vsp_idx;
 -- down through TopK (evaluated once at execution start), and must reflect the
 -- GUC's current value rather than a stale plan-time fold.
 CREATE INDEX vsp_idx ON vsp
-    USING bm25 (id, label, vec vector_cosine_ops)
+    USING paradedb (id, label, vec vector_cosine_ops)
     WITH (key_field = id);
 
 SET vsp.q = '[1,0,0]';
@@ -140,7 +140,7 @@ DROP INDEX vsp_idx;
 -- Param unfolded in the plan; a custom plan would inline it as a Const and
 -- never exercise this path.
 CREATE INDEX vsp_idx ON vsp
-    USING bm25 (id, label, vec vector_cosine_ops)
+    USING paradedb (id, label, vec vector_cosine_ops)
     WITH (key_field = id);
 
 SET plan_cache_mode = force_generic_plan;
@@ -209,7 +209,7 @@ DROP INDEX vsp_idx;
 -- combined with a vector ORDER BY must still push down through TopK,
 -- ranking only the rows the predicate matches.
 CREATE INDEX vsp_idx ON vsp
-    USING bm25 (id, label, vec vector_cosine_ops)
+    USING paradedb (id, label, vec vector_cosine_ops)
     WITH (key_field = id);
 
 -- === (term): rows 1 and 3 contain 'wind'; ranked 1 then 3 by distance
@@ -256,7 +256,7 @@ INSERT INTO vsp_tie VALUES
     (6, 'y', '[0,0.9,0.1]');
 
 CREATE INDEX vsp_tie_idx ON vsp_tie
-    USING bm25 (id, (cat::pdb.literal), vec vector_l2_ops)
+    USING paradedb (id, (cat::pdb.literal), vec vector_l2_ops)
     WITH (key_field = id);
 
 -- pushes down: both pathkeys are absorbed by the TopK scan (no Sort node)

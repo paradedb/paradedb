@@ -37,7 +37,7 @@ fn refresh_matview_concurrently_issue2308(mut conn: PgConnection) {
     -- 4) Setup materialized view
     CREATE MATERIALIZED VIEW TEST_mv AS (SELECT * FROM TEST_tbl);
     CREATE UNIQUE INDEX test_idx ON TEST_mv (id); -- required for `CONCURRENTLY` to work
-    CREATE INDEX TEST_bm25 ON TEST_mv USING bm25 (id) WITH (key_field='id');
+    CREATE INDEX TEST_bm25 ON TEST_mv USING paradedb (id) WITH (key_field='id');
 
     -- 5) Refresh the view concurrently
     REFRESH MATERIALIZED VIEW CONCURRENTLY TEST_mv;

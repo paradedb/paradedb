@@ -50,7 +50,7 @@ If you prefer to configure the deployment yourself:
 
 ParadeDB runs as a **private service** on Render, which means it is not exposed to the public internet.
 
-### From another Render service
+### From Another Render Service
 
 Connect from any other service in your Render private network using the service name as the host:
 
@@ -58,7 +58,7 @@ Connect from any other service in your Render private network using the service 
 psql -h paradedb -U postgres -d paradedb
 ```
 
-### From your local machine
+### From Your Local Machine
 
 Since the service isn't exposed publicly, [SSH into the service](https://render.com/docs/ssh) and run `psql` from inside the container:
 

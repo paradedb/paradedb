@@ -21,7 +21,7 @@ CREATE TABLE empty_test (
 );
 -- Create index with fast fields for aggregation
 CREATE INDEX empty_test_idx ON empty_test
-USING bm25 (id, value, category, price, created_at)
+USING paradedb (id, value, category, price, created_at)
 WITH (
     key_field='id',
     numeric_fields='{"value": {"fast": true}, "price": {"fast": true}}',
@@ -39,7 +39,7 @@ CREATE TABLE empty_logs (
     metadata JSONB
 );
 CREATE INDEX empty_logs_idx ON empty_logs
-USING bm25 (id, message, country, severity, timestamp, metadata)
+USING paradedb (id, message, country, severity, timestamp, metadata)
 WITH (
     key_field = 'id',
     text_fields = '{"country": {"fast": true, "tokenizer": {"type": "raw", "lowercase": true}}}',

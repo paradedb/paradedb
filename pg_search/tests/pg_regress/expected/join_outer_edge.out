@@ -18,10 +18,10 @@ INSERT INTO oj_dim
 SELECT g, 'beta item ' || g, g * 10
 FROM generate_series(1, 60) g;
 CREATE INDEX oj_fact_idx ON oj_fact
-USING bm25 (id, dim_id, txt)
+USING paradedb (id, dim_id, txt)
 WITH (key_field='id', numeric_fields='{"dim_id":{"fast":true}}', text_fields='{"txt":{"fast":true}}');
 CREATE INDEX oj_dim_idx ON oj_dim
-USING bm25 (id, txt, price)
+USING paradedb (id, txt, price)
 WITH (key_field='id', numeric_fields='{"price":{"fast":true}}', text_fields='{"txt":{"fast":true}}');
 ANALYZE oj_fact;
 ANALYZE oj_dim;

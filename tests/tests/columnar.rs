@@ -124,7 +124,7 @@ fn complex_aggregation_setup() -> &'static str {
           FROM generate_series(1, 1000)
         ) sub;
 
-        create index expected_payments_idx on expected_payments using bm25 (
+        create index expected_payments_idx on expected_payments using paradedb (
             id,
             organization_id,
             live_mode,
@@ -278,7 +278,7 @@ fn fast_fields_setup() -> &'static str {
             ARRAY['tag' || (i % 3), 'tag' || (i % 5)]
         FROM generate_series(1, 100) i;
 
-        CREATE INDEX mixed_ff_v2_idx ON mixed_ff_v2 USING bm25 (
+        CREATE INDEX mixed_ff_v2_idx ON mixed_ff_v2 USING paradedb (
             id,
             title,
             content,
@@ -412,7 +412,7 @@ fn columnar_exec_order_by(
         );
 
         CREATE INDEX test_mff_sorted_idx ON test_mff_sorted
-        USING bm25 (id, name, category, score)
+        USING paradedb (id, name, category, score)
         WITH (
             key_field = 'id',
             text_fields = '{{"name": {{"fast": true}}, "category": {{"fast": true, "tokenizer": {{"type": "keyword"}}}}}}',
@@ -505,7 +505,7 @@ fn columnar_disabled_still_works(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_mff_disabled_idx ON test_mff_disabled
-        USING bm25 (id, text_col, str_col, num_col)
+        USING paradedb (id, text_col, str_col, num_col)
         WITH (
             key_field = 'id',
             text_fields = '{"text_col": {"fast": true}, "str_col": {"fast": true, "tokenizer": {"type": "keyword"}}}',

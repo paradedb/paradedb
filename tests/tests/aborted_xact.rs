@@ -29,7 +29,7 @@ fn aborted_segments_not_visible(mut conn: PgConnection) {
         INSERT INTO test_table (value) VALUES ('committed');
 
         CREATE INDEX idxtest_table ON public.test_table
-        USING bm25 (id, value)
+        USING paradedb (id, value)
         WITH (
             key_field = 'id',
             text_fields = '{

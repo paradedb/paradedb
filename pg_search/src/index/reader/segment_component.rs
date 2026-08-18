@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::index::reader::io_stats;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::FileEntry;
 
@@ -30,13 +31,22 @@ use tantivy::directory::OwnedBytes;
 pub struct SegmentComponentReader {
     block_list: LinkedBytesList,
     entry: FileEntry,
+    component: Option<tantivy::index::SegmentComponent>,
 }
 
 impl SegmentComponentReader {
-    pub unsafe fn new(indexrel: &PgSearchRelation, entry: FileEntry) -> Self {
+    pub unsafe fn new(
+        indexrel: &PgSearchRelation,
+        entry: FileEntry,
+        component: Option<tantivy::index::SegmentComponent>,
+    ) -> Self {
         let block_list = LinkedBytesList::open(indexrel, entry.starting_block);
 
-        Self { block_list, entry }
+        Self {
+            block_list,
+            entry,
+            component,
+        }
     }
 
     fn read_bytes_raw(&self, range: Range<usize>) -> Result<OwnedBytes, Error> {
@@ -52,11 +62,18 @@ impl SegmentComponentReader {
 
 impl FileHandle for SegmentComponentReader {
     fn read_bytes(&self, range: Range<usize>) -> Result<OwnedBytes, Error> {
-        self.read_bytes_raw(range)
+        match &self.component {
+            Some(component) => io_stats::record(component, || self.read_bytes_raw(range)),
+            None => self.read_bytes_raw(range),
+        }
     }
 
     fn read_byte(&self, offset: usize) -> Result<u8, Error> {
-        Ok(unsafe { self.block_list.get_byte(offset) })
+        let read = || Ok(unsafe { self.block_list.get_byte(offset) });
+        match &self.component {
+            Some(component) => io_stats::record(component, read),
+            None => read(),
+        }
     }
 }
 
@@ -81,7 +98,8 @@ mod tests {
     #[pg_test]
     unsafe fn test_segment_component_read_bytes() {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
-        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING paradedb (id, data) WITH (key_field = 'id')")
+            .unwrap();
         let relation_oid: pg_sys::Oid =
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
                 .expect("spi should succeed")
@@ -97,7 +115,7 @@ mod tests {
         let file_entry = writer.file_entry();
         writer.terminate().unwrap();
 
-        let reader = SegmentComponentReader::new(&indexrel, file_entry);
+        let reader = SegmentComponentReader::new(&indexrel, file_entry, None);
 
         assert_eq!(reader.len(), 100_000);
         assert_eq!(

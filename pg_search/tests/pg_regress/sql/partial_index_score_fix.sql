@@ -23,7 +23,7 @@ INSERT INTO partial_test (description, category, rating) VALUES
 
 -- Create partial index with WHERE clause
 CREATE INDEX partial_test_idx ON partial_test
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (key_field = 'id')
 WHERE category = 'Electronics';
 
@@ -84,11 +84,11 @@ DROP TABLE partial_test;
 -- ============================================================
 
 -- Setup test table
-CALL paradedb.create_bm25_test_table(table_name => 'test_partial_index', schema_name => 'paradedb');
+CALL paradedb.create_paradedb_test_table(table_name => 'test_partial_index', schema_name => 'paradedb');
 
 -- Create partial index with predicate WHERE category = 'Electronics'
 CREATE INDEX partial_idx ON paradedb.test_partial_index
-USING bm25 (id, description, category, rating)
+USING paradedb (id, description, category, rating)
 WITH (
     key_field = 'id',
     text_fields = '{
@@ -183,7 +183,7 @@ INSERT INTO profiles (id, headline, deleted_at) VALUES
 
 -- Create partial index with WHERE deleted_at IS NULL
 CREATE INDEX profiles_search_idx ON profiles
-USING bm25 (id, headline)
+USING paradedb (id, headline)
 WITH (key_field = 'id')
 WHERE deleted_at IS NULL;
 

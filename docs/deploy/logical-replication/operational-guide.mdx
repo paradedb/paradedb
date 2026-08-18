@@ -17,7 +17,7 @@ the link is established and ParadeDB is staying in sync continuously.
 When ParadeDB is used as a logical subscriber:
 
 1. Your application writes to tables on the publisher
-2. PostgreSQL logical replication applies those row changes to matching tables
+2. Postgres logical replication applies those row changes to matching tables
    on ParadeDB
 3. ParadeDB maintains ParadeDB indexes locally on the subscriber
 4. Search and analytics queries run against ParadeDB instead of the primary
@@ -36,7 +36,7 @@ OLTP traffic.
 
 ### 1. Wait for the Initial Copy to Finish
 
-Let PostgreSQL finish copying the base table data before you build ParadeDB indexes.
+Let Postgres finish copying the base table data before you build ParadeDB indexes.
 This avoids extra indexing work during the bootstrap phase.
 
 On ParadeDB, you can check whether the initial copy is still running with:
@@ -99,7 +99,7 @@ For large or high-churn production tables, use one publication and one
 subscription per large table, or group only small related tables together.
 
 This gives each subscription its own main apply worker and replication slot.
-In normal steady-state replication, PostgreSQL does not parallelize ordinary
+In normal steady-state replication, Postgres does not parallelize ordinary
 change application across tables within a single subscription, so one hot table
 can delay other tables that share that apply worker. A publication per table
 alone does not provide that isolation unless it also has its own subscription.
@@ -163,7 +163,7 @@ workflow.
 
 ### Roll Out DDL Safely
 
-PostgreSQL logical replication does not replicate schema changes. That means
+Postgres logical replication does not replicate schema changes. That means
 the publisher and ParadeDB must be kept in sync manually.
 
 In practice, most teams do this through their existing migration runner or
@@ -177,7 +177,7 @@ For additive changes such as `ADD COLUMN`, the safest rollout is usually:
 3. Let replication continue normally
 4. Rebuild any ParadeDB indexes whose indexed column list changed
 
-This follows PostgreSQL's recommendation to apply additive schema changes on the
+This follows Postgres's recommendation to apply additive schema changes on the
 subscriber first whenever possible, which avoids intermittent apply failures.
 Logical replication can tolerate extra columns on the subscriber, so adding a
 column on ParadeDB first will not stop replication by itself. Those extra
@@ -212,7 +212,7 @@ ALTER SUBSCRIPTION marketplace_sub ENABLE;
 
 ### Handle Tables Without Primary Keys
 
-PostgreSQL needs a replica identity to replicate `UPDATE` and `DELETE`
+Postgres needs a replica identity to replicate `UPDATE` and `DELETE`
 operations. A primary key is best. Another suitable unique index can also be
 used as the replica identity. If a table has no suitable key, you can use the
 per-table fallback:
@@ -225,7 +225,7 @@ Do not think of this as a server-wide setting. `REPLICA IDENTITY FULL` is set
 per published table and should be treated as a fallback rather than the default
 design.
 
-PostgreSQL explicitly warns that subscriber-side `UPDATE` and `DELETE` can
+Postgres explicitly warns that subscriber-side `UPDATE` and `DELETE` can
 become very inefficient under `FULL`, because the subscriber must locate the
 matching row using the entire old row image rather than a compact key.
 `FULL` also increases WAL volume and replication traffic on the publisher,
@@ -297,7 +297,7 @@ background worker "logical replication apply worker" (PID 2570238) exited with e
 ```
 
 The first message is the root cause. The second means the apply worker crashed
-after hitting that error and PostgreSQL will try to restart it.
+after hitting that error and Postgres will try to restart it.
 
 When you see these messages:
 
@@ -321,7 +321,7 @@ CONTEXT: processing remote data during INSERT for replication target relation ..
 When you suspect a replication conflict:
 
 1. Inspect the subscriber logs for the first conflict error and note the finish
-   LSN and replication origin if PostgreSQL logged them
+   LSN and replication origin if Postgres logged them
 2. Resolve the underlying issue on the subscriber, such as conflicting local
    data, missing privileges, or row-level security policy interference
 3. Resume replication normally once the conflict is removed
@@ -330,7 +330,7 @@ When you suspect a replication conflict:
 
 Skipping a conflicting transaction can leave the subscriber inconsistent, so it
 should be treated as a last resort rather than the default fix. For conflict
-types and the PostgreSQL recovery workflow, see the [PostgreSQL logical
+types and the Postgres recovery workflow, see the [PostgreSQL logical
 replication conflicts
 documentation](https://www.postgresql.org/docs/current/logical-replication-conflicts.html).
 

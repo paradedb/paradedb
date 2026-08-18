@@ -188,7 +188,7 @@ jobs:
 
       - name: Install required system tools
         run: |
-          sudo apt-get update && sudo apt-get install -y lsof fontconfig pkg-config libfontconfig1-dev libopenblas-dev
+          sudo apt-get update && sudo apt-get install -y lsof fontconfig pkg-config libfontconfig1-dev libopenblas-dev lld
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |

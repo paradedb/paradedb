@@ -93,7 +93,7 @@ can be pushed down.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description, category)
+USING paradedb (id, description, category)
 WITH (
     key_field='id',
     text_fields='{
@@ -135,9 +135,9 @@ Not all `ORDER BY`s are pushed down. The following queries are not pushed down:
 
 ## Partial Ordering with Multiple Sort Fields
 
-When using `ORDER BY` with multiple sort fields, ParadeDB can partially push down the sorting operation. In this case, only the first column is pushed down to the BM25 index, and PostgreSQL handles the additional columns using sort operations.
+When using `ORDER BY` with multiple sort fields, ParadeDB can partially push down the sorting operation. In this case, only the first column is pushed down to the BM25 index, and Postgres handles the additional columns using sort operations.
 
-For example, in the following query with multiple sort fields, sorting by `sale_date` is pushed down to the BM25 index, while sorting by `amount` is handled by PostgreSQL:
+For example, in the following query with multiple sort fields, sorting by `sale_date` is pushed down to the BM25 index, while sorting by `amount` is handled by Postgres:
 
 ```sql
 SELECT description, sale_date, amount, pdb.score(id) as score
@@ -178,7 +178,7 @@ You can verify if partial ORDER BY pushdown occurred by running `EXPLAIN` on the
 ```
 </Accordion>
 
-This feature significantly improves performance when sorting by multiple columns, as the index is used for the first level of sorting, requiring PostgreSQL to perform less work to produce the final ordered results.
+This feature significantly improves performance when sorting by multiple columns, as the index is used for the first level of sorting, requiring Postgres to perform less work to produce the final ordered results.
 
 <Note>
 Limitations for partial `ORDER BY` pushdown:

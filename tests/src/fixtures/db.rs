@@ -20,13 +20,40 @@ use async_std::prelude::Stream;
 use async_std::stream::StreamExt;
 use async_std::task::block_on;
 use bytes::Bytes;
-use rand::Rng;
+use rand::RngExt;
 use sqlx::{
-    ConnectOptions, Connection, Decode, Error, Executor, FromRow, PgConnection, Postgres, Type,
+    AssertSqlSafe, ConnectOptions, Connection, Decode, Error, Executor, FromRow, PgConnection,
+    Postgres, Type,
     postgres::PgRow,
     testing::{TestArgs, TestContext, TestSupport},
 };
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+fn lost_connection(e: &Error) -> bool {
+    use crate::fixtures::fault_grace::{TransientKind, classify_transient};
+    classify_transient(e) == Some(TransientKind::ConnectionLost)
+}
+
+/// Awaits `$op`, retrying lost connections per [`crate::fixtures::fault_grace::FaultRetry`].
+/// Panics on any other error. The async twin of `fault_grace::retry_transient`, without a pool.
+macro_rules! tolerate_transient_setup {
+    ($what:literal, $op:expr) => {{
+        let mut retry = crate::fixtures::fault_grace::FaultRetry::default();
+        loop {
+            match $op.await {
+                Ok(value) => break value,
+                Err(err) => {
+                    if !lost_connection(&err) {
+                        panic!(concat!($what, ": {:#?}"), err);
+                    }
+                    if let Err(reason) = retry.record($what, &err) {
+                        panic!("{}", reason);
+                    }
+                }
+            }
+        }
+    }};
+}
 
 pub struct Db {
     context: TestContext<Postgres>,
@@ -56,19 +83,19 @@ impl Db {
                 });
 
         let args = TestArgs::new(Box::leak(path.into_boxed_str()));
-        let context = Postgres::test_context(&args)
-            .await
-            .unwrap_or_else(|err| panic!("could not create test database: {err:#?}"));
+        let context = tolerate_transient_setup!(
+            "could not create test database",
+            Postgres::test_context(&args)
+        );
 
         Self { context }
     }
 
     pub async fn connection(&self) -> PgConnection {
-        self.context
-            .connect_opts
-            .connect()
-            .await
-            .unwrap_or_else(|err| panic!("failed to connect to test database: {err:#?}"))
+        tolerate_transient_setup!(
+            "failed to connect to test database",
+            self.context.connect_opts.connect()
+        )
     }
 }
 
@@ -105,13 +132,13 @@ where
     #[allow(async_fn_in_trait)]
     async fn execute_async(self, connection: &mut PgConnection) {
         connection
-            .execute(self.as_ref())
+            .execute(AssertSqlSafe(self.as_ref()))
             .await
             .expect("query execution should succeed");
     }
 
     fn execute_result(self, connection: &mut PgConnection) -> Result<(), sqlx::Error> {
-        block_on(async { connection.execute(self.as_ref()).await })?;
+        block_on(async { connection.execute(AssertSqlSafe(self.as_ref())).await })?;
         Ok(())
     }
 
@@ -120,7 +147,7 @@ where
         T: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin,
     {
         block_on(async {
-            sqlx::query_as::<_, T>(self.as_ref())
+            sqlx::query_as::<_, T>(AssertSqlSafe(self.as_ref()))
                 .fetch_all(connection)
                 .await
                 .unwrap_or_else(|e| panic!("{e}:  error in query '{}'", self.as_ref()))
@@ -139,7 +166,7 @@ where
     {
         for attempt in 0..retries {
             match block_on(async {
-                sqlx::query_as::<_, T>(self.as_ref())
+                sqlx::query_as::<_, T>(AssertSqlSafe(self.as_ref()))
                     .fetch_all(&mut *connection)
                     .await
                     .map_err(anyhow::Error::from)
@@ -162,10 +189,22 @@ where
 
     fn fetch_dynamic(self, connection: &mut PgConnection) -> Vec<PgRow> {
         block_on(async {
-            sqlx::query(self.as_ref())
+            sqlx::query(AssertSqlSafe(self.as_ref()))
                 .fetch_all(connection)
                 .await
                 .unwrap_or_else(|e| panic!("{e}:  error in query '{}'", self.as_ref()))
+        })
+    }
+
+    /// Like [`Query::fetch_dynamic`], but surfaces the `sqlx::Error` instead of panicking.
+    fn fetch_dynamic_result(
+        self,
+        connection: &mut PgConnection,
+    ) -> Result<Vec<PgRow>, sqlx::Error> {
+        block_on(async {
+            sqlx::query(AssertSqlSafe(self.as_ref()))
+                .fetch_all(connection)
+                .await
         })
     }
 
@@ -174,7 +213,7 @@ where
         T: Type<Postgres> + for<'a> Decode<'a, sqlx::Postgres> + Send + Unpin,
     {
         block_on(async {
-            sqlx::query_scalar(self.as_ref())
+            sqlx::query_scalar(AssertSqlSafe(self.as_ref()))
                 .fetch_all(connection)
                 .await
                 .unwrap_or_else(|e| panic!("{e}:  error in query '{}'", self.as_ref()))
@@ -186,10 +225,22 @@ where
         T: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin,
     {
         block_on(async {
-            sqlx::query_as::<_, T>(self.as_ref())
+            sqlx::query_as::<_, T>(AssertSqlSafe(self.as_ref()))
                 .fetch_one(connection)
                 .await
                 .unwrap_or_else(|e| panic!("{e}:  error in query '{}'", self.as_ref()))
+        })
+    }
+
+    /// Like [`Query::fetch_one`], but surfaces the `sqlx::Error` instead of panicking.
+    fn fetch_one_result<T>(self, connection: &mut PgConnection) -> Result<T, sqlx::Error>
+    where
+        T: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin,
+    {
+        block_on(async {
+            sqlx::query_as::<_, T>(AssertSqlSafe(self.as_ref()))
+                .fetch_one(connection)
+                .await
         })
     }
 
@@ -198,7 +249,7 @@ where
         T: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin,
     {
         block_on(async {
-            sqlx::query_as::<_, T>(self.as_ref())
+            sqlx::query_as::<_, T>(AssertSqlSafe(self.as_ref()))
                 .fetch_all(connection)
                 .await
         })

@@ -51,7 +51,7 @@ fn self_referencing_var(mut conn: PgConnection) {
     INSERT INTO test (id, value) SELECT x, md5(x::text) FROM generate_series(1, 100) x;
     UPDATE test SET value = 'value contains id = ' || id WHERE id BETWEEN 10 and 20;
 
-    CREATE INDEX idxtest ON test USING bm25 (id, value) WITH (key_field='id');
+    CREATE INDEX idxtest ON test USING paradedb (id, value) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -94,7 +94,7 @@ fn parallel_with_subselect(mut conn: PgConnection) {
     INSERT INTO test (id, value) SELECT x, md5(x::text) FROM generate_series(1, 100) x;
     UPDATE test SET value = 'value contains id = ' || id WHERE id BETWEEN 10 and 20;
 
-    CREATE INDEX idxtest ON test USING bm25 (id, value) WITH (key_field='id');
+    CREATE INDEX idxtest ON test USING paradedb (id, value) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -131,7 +131,7 @@ fn parallel_function_with_agg_subselect(mut conn: PgConnection) {
     INSERT INTO test (id, value) SELECT x, md5(x::text) FROM generate_series(1, 100) x;
     UPDATE test SET value = 'value contains id = ' || id WHERE id BETWEEN 10 and 20;
 
-    CREATE INDEX idxtest ON test USING bm25 (id, value) WITH (key_field='id');
+    CREATE INDEX idxtest ON test USING paradedb (id, value) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -166,7 +166,7 @@ fn parallel_function_with_agg_subselect(mut conn: PgConnection) {
 #[rstest]
 fn test_issue2061(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     )
@@ -175,7 +175,7 @@ fn test_issue2061(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
+    USING paradedb (id, description, category, rating, in_stock, created_at, metadata, weight_range)
     WITH (key_field='id');
     "#
     .execute(&mut conn);
@@ -222,7 +222,7 @@ fn generic_plan_consistent_results_issue_4665(mut conn: PgConnection) {
     FROM generate_series(1, 200) AS i;
 
     CREATE INDEX issue_4665_idx ON issue_4665
-    USING bm25 (id, content) WITH (key_field = 'id');
+    USING paradedb (id, content) WITH (key_field = 'id');
     "#
     .execute(&mut conn);
 
@@ -287,7 +287,7 @@ fn generic_plan_parameterized_limit_issue_4665(mut conn: PgConnection) {
     FROM generate_series(1, 200) AS i;
 
     CREATE INDEX issue_4665_plim_idx ON issue_4665_plim
-    USING bm25 (id, content) WITH (key_field = 'id');
+    USING paradedb (id, content) WITH (key_field = 'id');
     "#
     .execute(&mut conn);
 
@@ -356,7 +356,7 @@ fn generic_plan_natural_transition_issue_4665(mut conn: PgConnection) {
     FROM generate_series(1, 200) AS i;
 
     CREATE INDEX issue_4665_nat_idx ON issue_4665_nat
-    USING bm25 (id, content) WITH (key_field = 'id');
+    USING paradedb (id, content) WITH (key_field = 'id');
     "#
     .execute(&mut conn);
 
@@ -419,7 +419,7 @@ fn generic_plan_parameterized_offset(
     SELECT 'document about technology number ' || i
     FROM generate_series(1, 200) AS i;
     CREATE INDEX param_offset_idx ON param_offset_test
-    USING bm25 (id, content) WITH (key_field = 'id');
+    USING paradedb (id, content) WITH (key_field = 'id');
     "#
     .execute(&mut conn);
 
@@ -489,9 +489,9 @@ fn joinscan_survives_parameterized_limit(
     SELECT 'product ' || i || ' in electronics', 1 + (i % 3)
     FROM generate_series(1, 100) AS i;
     CREATE INDEX js_prods_idx ON js_prods
-    USING bm25 (id, name, cat_id) WITH (key_field = 'id');
+    USING paradedb (id, name, cat_id) WITH (key_field = 'id');
     CREATE INDEX js_cats_idx ON js_cats
-    USING bm25 (id, label) WITH (key_field = 'id');
+    USING paradedb (id, label) WITH (key_field = 'id');
     "#
     .execute(&mut conn);
 
@@ -560,7 +560,7 @@ fn snippet_with_parameterized_args(mut conn: PgConnection) {
     ('a technology document about computers and technology advances'),
     ('science is great for learning new things about the world');
     CREATE INDEX snippet_param_idx ON snippet_param_test
-    USING bm25 (id, content) WITH (key_field = 'id');
+    USING paradedb (id, content) WITH (key_field = 'id');
     "#
     .execute(&mut conn);
 
@@ -645,7 +645,7 @@ fn pdb_agg_with_parameterized_json(mut conn: PgConnection) {
     SELECT 'document ' || i, (ARRAY['a','b','c'])[1 + (i % 3)]
     FROM generate_series(1, 100) AS i;
     CREATE INDEX agg_param_idx ON agg_param_test
-    USING bm25 (id, content, category) WITH (
+    USING paradedb (id, content, category) WITH (
         key_field = 'id',
         text_fields = '{"category": {"fast": true}}'
     );
@@ -687,4 +687,70 @@ fn pdb_agg_with_parameterized_json(mut conn: PgConnection) {
 
     "DEALLOCATE agg_g".execute(&mut conn);
     "RESET plan_cache_mode".execute(&mut conn);
+}
+
+/// Regression for #5727. Base Scan below a Gather with a heap filter that
+/// references an InitPlan (uncorrelated scalar subquery) output silently
+/// returned wrong results because the basescan left `CustomScan.custom_exprs`
+/// empty, so `finalize_plan` never saw the Param reference and
+/// `SerializeParamExecParams` never shipped the InitPlan value to workers.
+#[rstest]
+fn parallel_with_initplan_param_in_heap_filter(mut conn: PgConnection) {
+    r#"
+    DROP TABLE IF EXISTS bsp_pages;
+    DROP TABLE IF EXISTS bsp_files;
+
+    CREATE TABLE bsp_files (
+        id SERIAL PRIMARY KEY,
+        title TEXT,
+        content TEXT
+    );
+
+    CREATE TABLE bsp_pages (
+        id SERIAL PRIMARY KEY,
+        file_id INTEGER,
+        page_text TEXT,
+        size_bytes INTEGER
+    );
+
+    INSERT INTO bsp_files (title, content)
+    SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
+    FROM generate_series(1, 200) AS g;
+
+    INSERT INTO bsp_pages (file_id, page_text, size_bytes)
+    SELECT (g % 200) + 1, 'Page text for page ' || g, (g * 17) % 4096
+    FROM generate_series(1, 1000) AS g;
+
+    CREATE INDEX bsp_files_idx ON bsp_files USING paradedb (id, title, content)
+    WITH (key_field = 'id', text_fields = '{"title": {"fast": true}, "content": {}}');
+
+    ANALYZE bsp_files;
+    ANALYZE bsp_pages;
+    "#
+    .execute(&mut conn);
+
+    "SET paradedb.enable_join_custom_scan TO off".execute(&mut conn);
+    "SET paradedb.enable_aggregate_custom_scan TO off".execute(&mut conn);
+    "SET parallel_setup_cost TO 0".execute(&mut conn);
+    "SET parallel_tuple_cost TO 0".execute(&mut conn);
+    "SET min_parallel_table_scan_size TO 0".execute(&mut conn);
+    "SET max_parallel_workers_per_gather TO 4".execute(&mut conn);
+
+    let query = "SELECT count(*) FROM bsp_files f JOIN bsp_pages p ON f.id = p.file_id \
+                 WHERE f.content @@@ 'Section' \
+                   AND length(f.title) > (SELECT min(length(title)) + 1 FROM bsp_files)";
+
+    "SET parallel_leader_participation TO on".execute(&mut conn);
+    let (leader_on,) = query.fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(
+        leader_on, 505,
+        "parallel_leader_participation=on: expected 505, got {leader_on}"
+    );
+
+    "SET parallel_leader_participation TO off".execute(&mut conn);
+    let (leader_off,) = query.fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(
+        leader_off, 505,
+        "parallel_leader_participation=off: expected 505, got {leader_off}"
+    );
 }

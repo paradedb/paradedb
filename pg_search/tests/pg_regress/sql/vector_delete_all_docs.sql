@@ -26,7 +26,7 @@ CREATE TABLE delvec (
 -- below is tuned to the on-disk vector footprint, which replica cells would
 -- inflate. This test exercises the empty-slots merge path, not replication.
 CREATE INDEX delvec_idx ON delvec
-    USING bm25 (id, label, vec vector_l2_ops)
+    USING paradedb (id, label, vec vector_l2_ops)
     WITH (
         key_field = id,
         target_segment_count = 1,

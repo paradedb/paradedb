@@ -13,7 +13,7 @@ INSERT INTO exists_json (description, data) VALUES ('Engineer', '{"last_name": "
 INSERT INTO exists_json (description, data) VALUES ('CEO', NULL);
 INSERT INTO exists_json (description, data) VALUES ('CTO', '{"first_name": "Jim", "last_name": "Johnson"}');
 
-CREATE INDEX idx_exists_json_data ON exists_json USING bm25 (id, description, data)
+CREATE INDEX idx_exists_json_data ON exists_json USING paradedb (id, description, data)
 WITH (key_field = 'id', json_fields = '{"data": {"fast": true}}');
 
 SELECT * FROM exists_json WHERE id @@@ paradedb.exists('data.first_name');

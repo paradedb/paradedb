@@ -299,6 +299,16 @@ impl<'a> PredicateTranslator<'a> {
             return None;
         }
 
+        // A List is an implicit conjunction container, so reaching here means a
+        // caller skipped normalization. `translate` doubles as a capability
+        // probe, so decline rather than abort an otherwise valid query.
+        if (*node).type_ == pg_sys::NodeTag::T_List {
+            pgrx::debug1!(
+                "PredicateTranslator received an unnormalized PostgreSQL List; implicit AND conjuncts must be normalized before translation"
+            );
+            return None;
+        }
+
         let native = match (*node).type_ {
             pg_sys::NodeTag::T_OpExpr => self.translate_op_expr(node as *mut pg_sys::OpExpr),
             pg_sys::NodeTag::T_Var => self.translate_var(node as *mut pg_sys::Var),
@@ -691,7 +701,7 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
 }
 
 #[cfg(test)]
-mod tests {
+mod unit_tests {
     use super::build_null_aware_anti_join;
     use datafusion::arrow::array::Int64Array;
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
@@ -761,5 +771,26 @@ mod tests {
             JoinType::LeftAnti,
             "join type must remain LeftAnti after physical planning"
         );
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::PredicateTranslator;
+    use pgrx::PgList;
+    use pgrx::prelude::*;
+
+    #[pg_test]
+    fn unnormalized_list_is_a_non_throwing_capability_miss() {
+        unsafe {
+            let mut list = PgList::<pg_sys::Node>::new();
+            list.push(pg_sys::makeBoolConst(true, false).cast());
+
+            assert!(!PredicateTranslator::can_translate(
+                &[],
+                list.into_pg().cast()
+            ));
+        }
     }
 }

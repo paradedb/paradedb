@@ -16,7 +16,7 @@ CREATE TABLE tbl_ltree (
     id SERIAL,
     category ltree
 );
-CREATE INDEX idx_ltree ON tbl_ltree USING bm25 (id, category) WITH (key_field = 'id');
+CREATE INDEX idx_ltree ON tbl_ltree USING paradedb (id, category) WITH (key_field = 'id');
 
 -- Insert test data with various ltree paths
 INSERT INTO tbl_ltree (category) VALUES 
@@ -48,7 +48,7 @@ CREATE TABLE tbl_ltree_key (
     path ltree,
     name TEXT
 );
-CREATE INDEX idx_ltree_key ON tbl_ltree_key USING bm25 (path, name) WITH (key_field = 'path');
+CREATE INDEX idx_ltree_key ON tbl_ltree_key USING paradedb (path, name) WITH (key_field = 'path');
 
 INSERT INTO tbl_ltree_key (path, name) VALUES 
     ('Root.Branch1', 'First Branch'),

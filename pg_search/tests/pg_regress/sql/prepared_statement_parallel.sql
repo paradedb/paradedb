@@ -36,15 +36,20 @@ FROM generate_series(1, 20000) i;
 
 -- Create BM25 indexes
 CREATE INDEX idx_parade_core ON core
-USING bm25 (dwf_doid, author)
+USING paradedb (dwf_doid, author)
 WITH (key_field='dwf_doid');
 
 CREATE INDEX idx_parade_document_text ON document_text
-USING bm25 (dwf_doid, full_text)
+USING paradedb (dwf_doid, full_text)
 WITH (key_field='dwf_doid');
 
 -- Enable parallel workers
 SET max_parallel_workers_per_gather = 2;
+
+-- Keep the join cases on their original parallel lower-plan path. AggregateScan
+-- can otherwise absorb these aggregate-on-join queries, so the test would stop
+-- exercising prepared parallel scans even though its row counts still pass.
+SET paradedb.enable_aggregate_custom_scan = false;
 
 -- Test 1: Prepared statement with join and date filter
 -- This mimics the customer's scenario
@@ -94,6 +99,8 @@ EXECUTE test_parallel_join_generic('ea', '2024-06-01', '2025-01-01');
 
 DEALLOCATE test_parallel_join_generic;
 
+RESET paradedb.enable_aggregate_custom_scan;
+
 -- Test 2: Simple parallel index scan with parameters
 RESET plan_cache_mode;
 
@@ -119,4 +126,3 @@ DEALLOCATE test_simple_parallel;
 -- Clean up
 DROP TABLE document_text;
 DROP TABLE core;
-

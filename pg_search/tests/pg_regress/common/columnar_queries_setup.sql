@@ -47,7 +47,7 @@ CREATE TABLE pages (
 );
 
 -- Create BM25 indexes with fast fields
-CREATE INDEX documents_search ON documents USING bm25 (
+CREATE INDEX documents_search ON documents USING paradedb (
     id,
     title,
     parents,
@@ -57,7 +57,7 @@ CREATE INDEX documents_search ON documents USING bm25 (
     text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
 
-CREATE INDEX files_search ON files USING bm25 (
+CREATE INDEX files_search ON files USING paradedb (
     id,
     documentId,
     title,
@@ -68,7 +68,7 @@ CREATE INDEX files_search ON files USING bm25 (
     text_fields = '{"documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
 
-CREATE INDEX pages_search ON pages USING bm25 (
+CREATE INDEX pages_search ON pages USING paradedb (
     id,
     fileId,
     content,

@@ -236,11 +236,11 @@ fn with_limit_and_offset(mut conn: PgConnection) {
 
 #[rstest]
 fn default_tokenizer_config(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'tokenizer_config', schema_name => 'paradedb')"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'tokenizer_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX tokenizer_config_idx ON paradedb.tokenizer_config
-        USING bm25 (id, description)
+        USING paradedb (id, description)
         WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "default"}}}')"#
         .execute(&mut conn);
 
@@ -254,11 +254,11 @@ fn default_tokenizer_config(mut conn: PgConnection) {
 
 #[rstest]
 fn ngram_tokenizer_config(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'tokenizer_config', schema_name => 'paradedb')"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'tokenizer_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX tokenizer_config_idx ON paradedb.tokenizer_config
-        USING bm25 (id, description)
+        USING paradedb (id, description)
         WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "ngram", "min_gram": 3, "max_gram": 8, "prefix_only": false}}}')"#
         .execute(&mut conn);
 
@@ -274,11 +274,11 @@ fn ngram_tokenizer_config(mut conn: PgConnection) {
 
 #[rstest]
 fn chinese_compatible_tokenizer_config(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'tokenizer_config', schema_name => 'paradedb')"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'tokenizer_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX tokenizer_config_idx ON paradedb.tokenizer_config
-        USING bm25 (id, description)
+        USING paradedb (id, description)
         WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "chinese_compatible"}}}')"#
         .execute(&mut conn);
 
@@ -295,10 +295,10 @@ fn chinese_compatible_tokenizer_config(mut conn: PgConnection) {
 #[rstest]
 fn whitespace_tokenizer_config(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
+    CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
     CREATE INDEX bm25_search_idx ON paradedb.bm25_search
-        USING bm25 (id, description)
+        USING paradedb (id, description)
         WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "whitespace"}}}')"#
         .execute(&mut conn);
 
@@ -312,10 +312,10 @@ fn whitespace_tokenizer_config(mut conn: PgConnection) {
 #[rstest]
 fn raw_tokenizer_config(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
+    CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
     CREATE INDEX bm25_search_idx ON paradedb.bm25_search
-        USING bm25 (id, description)
+        USING paradedb (id, description)
         WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "raw"}}}');
     "#
     .execute(&mut conn);
@@ -341,11 +341,11 @@ fn raw_tokenizer_config(mut conn: PgConnection) {
 
 #[rstest]
 fn regex_tokenizer_config(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb')"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX bm25_search_idx ON paradedb.bm25_search
-        USING bm25 (id, description)
+        USING paradedb (id, description)
         WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "regex", "pattern": "\\b\\w{4,}\\b"}}}');
     INSERT INTO paradedb.bm25_search (id, description) VALUES
         (11001, 'This is a simple test'),
@@ -387,7 +387,7 @@ fn language_stem_filter(mut conn: PgConnection) {
             INSERT INTO test_table (author, title, message)
             VALUES {data};
             CREATE INDEX stem_test ON test_table
-                USING bm25 (id, author, title, message)
+                USING paradedb (id, author, title, message)
                 WITH (key_field='id', text_fields='{{
                     "author": {{"tokenizer": {{"type": "default", "stemmer": "{language_str}"}}}},
                     "title": {{"tokenizer": {{"type": "default", "stemmer": "{language_str}"}}}},
@@ -427,10 +427,10 @@ fn language_stem_filter(mut conn: PgConnection) {
 #[rstest]
 fn default_config_is_stored_false(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
+    CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
     CREATE INDEX bm25_search_idx ON paradedb.bm25_search
-        USING bm25 (id, description)
+        USING paradedb (id, description)
         WITH (key_field='id');
     "#
     .execute(&mut conn);
@@ -445,10 +445,10 @@ fn default_config_is_stored_false(mut conn: PgConnection) {
 #[rstest]
 fn stopwords_language_tokenizer_config(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
+    CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
     CREATE INDEX bm25_search_idx ON paradedb.bm25_search
-        USING bm25 (id, description)
+        USING paradedb (id, description)
         WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "default", "stopwords_language": "English"}}}');
     "#
     .execute(&mut conn);
@@ -469,10 +469,10 @@ fn stopwords_language_tokenizer_config(mut conn: PgConnection) {
 #[rstest]
 fn stopwords_tokenizer_config(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
+    CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
     CREATE INDEX bm25_search_idx ON paradedb.bm25_search
-        USING bm25 (id, description)
+        USING paradedb (id, description)
         WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "default", "stopwords": ["shoes"]}}}');
     "#
     .execute(&mut conn);

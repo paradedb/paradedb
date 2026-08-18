@@ -32,7 +32,7 @@ INSERT INTO transactions (organization_id, live_mode, discarded_at, internal_acc
     ('org1', TRUE, '2025-01-01', 'account1', 500, '2025-12-31', 'Discarded'),
     ('org1', TRUE, NULL, 'account1', 600, NULL, 'Null date');
 CREATE INDEX transactions_search_index ON transactions
-USING bm25 (id, organization_id, live_mode, discarded_at, internal_account_id, unledgered_amount, as_of_date, description)
+USING paradedb (id, organization_id, live_mode, discarded_at, internal_account_id, unledgered_amount, as_of_date, description)
 WITH (
     key_field='id',
     text_fields='{"description": {}, "organization_id": {"fast": true}, "internal_account_id": {"fast": true}}',

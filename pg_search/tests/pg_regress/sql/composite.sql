@@ -25,7 +25,7 @@ CREATE TABLE products (
 -- Create index using composite type expression
 CREATE INDEX idx_products
 ON products
-USING bm25 (id, (ROW(name, description, price)::product_info))
+USING paradedb (id, (ROW(name, description, price)::product_info))
 WITH (key_field='id');
 
 -- Insert test data
@@ -64,7 +64,7 @@ CREATE TABLE articles_fast (
 
 CREATE INDEX idx_articles_fast_bm25
 ON articles_fast
-USING bm25 (id, (ROW(title, body)::fast_article_search))
+USING paradedb (id, (ROW(title, body)::fast_article_search))
 WITH (key_field='id');
 
 INSERT INTO articles_fast (title, body) VALUES
@@ -108,7 +108,7 @@ CREATE TABLE large_table (
     field_31 TEXT, field_32 TEXT, field_33 TEXT, field_34 TEXT, field_35 TEXT
 );
 
-CREATE INDEX idx_large ON large_table USING bm25 (id, (ROW(
+CREATE INDEX idx_large ON large_table USING paradedb (id, (ROW(
     field_1, field_2, field_3, field_4, field_5,
     field_6, field_7, field_8, field_9, field_10,
     field_11, field_12, field_13, field_14, field_15,
@@ -153,7 +153,7 @@ BEGIN
 
     EXECUTE type_def;
     EXECUTE table_def;
-    EXECUTE format('CREATE INDEX idx_huge ON huge_table USING bm25 (id, (ROW(%s)::huge_composite)) WITH (key_field=''id'')', index_cols);
+    EXECUTE format('CREATE INDEX idx_huge ON huge_table USING paradedb (id, (ROW(%s)::huge_composite)) WITH (key_field=''id'')', index_cols);
 END $$;
 
 INSERT INTO huge_table (f001, f050, f100) VALUES ('first_field', 'middle_field', 'last_field');
@@ -182,7 +182,7 @@ CREATE TABLE anon_test (
 
 -- This should fail: anonymous ROW without type cast
 \set ON_ERROR_STOP off
-CREATE INDEX idx_anon_test ON anon_test USING bm25 (id, ROW(a, b)) WITH (key_field='id');
+CREATE INDEX idx_anon_test ON anon_test USING paradedb (id, ROW(a, b)) WITH (key_field='id');
 \set ON_ERROR_STOP on
 
 DROP TABLE anon_test;
@@ -210,7 +210,7 @@ CREATE TABLE nested_test (
 
 -- This should fail: nested composite
 \set ON_ERROR_STOP off
-CREATE INDEX idx_nested_test ON nested_test USING bm25 (id, (ROW(field1, field2)::outer_composite)) WITH (key_field='id');
+CREATE INDEX idx_nested_test ON nested_test USING paradedb (id, (ROW(field1, field2)::outer_composite)) WITH (key_field='id');
 \set ON_ERROR_STOP on
 
 DROP TABLE nested_test;
@@ -237,7 +237,7 @@ CREATE TABLE domain_test (
 -- Use function to catch error and return standardized message
 CREATE OR REPLACE FUNCTION test_domain_rejection() RETURNS TEXT AS $$
 BEGIN
-    EXECUTE 'CREATE INDEX idx_domain_test ON domain_test USING bm25 (id, data) WITH (key_field=''id'')';
+    EXECUTE 'CREATE INDEX idx_domain_test ON domain_test USING paradedb (id, data) WITH (key_field=''id'')';
     RETURN 'UNEXPECTED: No error raised for domain over composite';
 EXCEPTION
     WHEN OTHERS THEN
@@ -274,7 +274,7 @@ CREATE TABLE dup_comp_test (
 
 -- This should fail: 'shared_name' appears in both composites
 \set ON_ERROR_STOP off
-CREATE INDEX idx_dup_comp ON dup_comp_test USING bm25 (
+CREATE INDEX idx_dup_comp ON dup_comp_test USING paradedb (
     id,
     (ROW(a_field, b_field)::comp_a),
     (ROW(c_field, d_field)::comp_b)
@@ -299,7 +299,7 @@ CREATE TABLE dup_field_test (
 
 -- This should fail: 'name' appears both as column and composite field
 \set ON_ERROR_STOP off
-CREATE INDEX idx_dup_field ON dup_field_test USING bm25 (
+CREATE INDEX idx_dup_field ON dup_field_test USING paradedb (
     id,
     name,
     (ROW(name, description)::dup_field_comp)
@@ -322,7 +322,7 @@ CREATE TABLE nullable_test (
     price FLOAT
 );
 
-CREATE INDEX idx_nullable ON nullable_test USING bm25 (
+CREATE INDEX idx_nullable ON nullable_test USING paradedb (
     id, (ROW(name, description, price)::nullable_comp)
 ) WITH (key_field='id');
 
@@ -349,7 +349,7 @@ CREATE TABLE reindex_test (
     price FLOAT
 );
 
-CREATE INDEX idx_reindex ON reindex_test USING bm25 (
+CREATE INDEX idx_reindex ON reindex_test USING paradedb (
     id, (ROW(name, description, price)::reindex_comp)
 ) WITH (key_field='id');
 
@@ -376,7 +376,7 @@ CREATE TABLE large_val_test (
     metadata TEXT
 );
 
-CREATE INDEX idx_large_val ON large_val_test USING bm25 (
+CREATE INDEX idx_large_val ON large_val_test USING paradedb (
     id, (ROW(title, content, metadata)::large_val_comp)
 ) WITH (key_field='id');
 
@@ -407,7 +407,7 @@ CREATE TABLE full_pipeline_test (
     tags TEXT
 );
 
-CREATE INDEX idx_full_pipeline ON full_pipeline_test USING bm25 (
+CREATE INDEX idx_full_pipeline ON full_pipeline_test USING paradedb (
     id, (ROW(name, description, category, tags)::full_pipeline_comp)
 ) WITH (key_field='id');
 
@@ -462,7 +462,7 @@ CREATE TABLE multi_comp_test (
     category TEXT
 );
 
-CREATE INDEX idx_multi_comp ON multi_comp_test USING bm25 (
+CREATE INDEX idx_multi_comp ON multi_comp_test USING paradedb (
     id,
     (ROW(title, body)::multi_comp_a),
     (ROW(author, category)::multi_comp_b)
@@ -511,7 +511,7 @@ CREATE TABLE hybrid_test (
     keywords TEXT
 );
 
-CREATE INDEX idx_hybrid ON hybrid_test USING bm25 (
+CREATE INDEX idx_hybrid ON hybrid_test USING paradedb (
     id,
     name,
     (ROW(description, notes)::hybrid_comp_a),
@@ -568,7 +568,7 @@ CREATE TABLE articles (
 -- Mix simple columns (title, body) with expression (upper - IMMUTABLE function)
 CREATE INDEX idx_articles
 ON articles
-USING bm25 (
+USING paradedb (
     id,
     (ROW(title, body, upper(title))::article_search)
 )
@@ -607,7 +607,7 @@ CREATE TABLE mixed_data (
 
 CREATE INDEX idx_mixed
 ON mixed_data
-USING bm25 (id, (ROW(small, medium, large)::mixed_composite))
+USING paradedb (id, (ROW(small, medium, large)::mixed_composite))
 WITH (key_field='id');
 
 -- Test with mixed sizes: empty, small, medium, large, NULL
@@ -645,7 +645,7 @@ CREATE TABLE verify_table (
 
 CREATE INDEX verify_idx
 ON verify_table
-USING bm25 (id, (ROW(first_field, second_field)::verify_composite))
+USING paradedb (id, (ROW(first_field, second_field)::verify_composite))
 WITH (key_field='id');
 
 -- Verify the composite fields exist in the index schema
@@ -682,7 +682,7 @@ CREATE TABLE products_schema (
 
 CREATE INDEX idx_products_schema
 ON products_schema
-USING bm25 (id, (ROW(product_name, product_desc, product_price)::product_schema))
+USING paradedb (id, (ROW(product_name, product_desc, product_price)::product_schema))
 WITH (key_field='id');
 
 -- Query the index schema to verify composite fields exist
@@ -721,7 +721,7 @@ CREATE TABLE tokenized_test (
     title TEXT
 );
 
-CREATE INDEX idx_tokenized ON tokenized_test USING bm25 (
+CREATE INDEX idx_tokenized ON tokenized_test USING paradedb (
     id,
     (ROW(title, title)::tokenized_fields)
 ) WITH (key_field='id');
@@ -755,7 +755,7 @@ CREATE TABLE ngram_test (
     content TEXT
 );
 
-CREATE INDEX idx_ngram ON ngram_test USING bm25 (
+CREATE INDEX idx_ngram ON ngram_test USING paradedb (
     id,
     (ROW(content, content)::ngram_fields)
 ) WITH (key_field='id');
@@ -789,7 +789,7 @@ CREATE TABLE stemmer_test (
     content TEXT
 );
 
-CREATE INDEX idx_stemmer ON stemmer_test USING bm25 (
+CREATE INDEX idx_stemmer ON stemmer_test USING paradedb (
     id,
     (ROW(content, content)::stemmer_fields)
 ) WITH (key_field='id');
@@ -821,7 +821,7 @@ SELECT COUNT(*) AS default_no_stem FROM stemmer_test WHERE id @@@ pdb.parse('con
 -- text[] field with typmod
 CREATE TYPE arr_search AS (b pdb.literal_normalized('fieldnorms=false'));
 CREATE TABLE arr_test (id int PRIMARY KEY, b text[]);
-CREATE INDEX arr_idx ON arr_test USING bm25 (
+CREATE INDEX arr_idx ON arr_test USING paradedb (
     id,
     (ROW((b)::pdb.literal_normalized('fieldnorms=false'))::arr_search)
 ) WITH (key_field='id');
@@ -833,7 +833,7 @@ SELECT id FROM arr_test WHERE id @@@ 'b:nope';
 -- Implicit cast (no explicit cast in ROW; PG inserts it from composite type)
 CREATE TYPE arr_search_imp AS (b pdb.literal_normalized('fieldnorms=false'));
 CREATE TABLE arr_test_imp (id int PRIMARY KEY, b text[]);
-CREATE INDEX arr_idx_imp ON arr_test_imp USING bm25 (
+CREATE INDEX arr_idx_imp ON arr_test_imp USING paradedb (
     id, (ROW(b)::arr_search_imp)
 ) WITH (key_field='id');
 INSERT INTO arr_test_imp VALUES (1, ARRAY['hello']);
@@ -846,7 +846,7 @@ CREATE TYPE multi_search AS (
     n   bigint
 );
 CREATE TABLE multi_test (id int PRIMARY KEY, txt text, arr text[], n int);
-CREATE INDEX multi_idx ON multi_test USING bm25 (
+CREATE INDEX multi_idx ON multi_test USING paradedb (
     id,
     (ROW(
         (txt)::pdb.simple,
@@ -898,7 +898,7 @@ INSERT INTO smoke_test (name, description, category, rating, price, in_stock) VA
 -- FLOAT fields (rating, price) are automatically fast
 -- category uses pdb.literal (keyword tokenizer with fast) defined in composite type
 CREATE INDEX smoke_idx ON smoke_test
-USING bm25 (id, (ROW(name, description, category)::smoke_product), rating, price)
+USING paradedb (id, (ROW(name, description, category)::smoke_product), rating, price)
 WITH (key_field = 'id');
 
 ------------------------------------------------------------
@@ -1356,7 +1356,7 @@ CREATE TABLE json_test (
     tags TEXT[]
 );
 
-CREATE INDEX idx_json_composite ON json_test USING bm25 (
+CREATE INDEX idx_json_composite ON json_test USING paradedb (
     id,
     (ROW(metadata, tags)::json_composite)
 ) WITH (key_field='id');
@@ -1416,7 +1416,7 @@ CREATE TABLE multi_tokenizer_test (
     description TEXT
 );
 
-CREATE INDEX idx_multi_tokenizer ON multi_tokenizer_test USING bm25 (
+CREATE INDEX idx_multi_tokenizer ON multi_tokenizer_test USING paradedb (
     id,
     (ROW(description, description::pdb.ngram(3,3))::multi_tokenizer_composite)
 ) WITH (key_field='id');
@@ -1463,7 +1463,7 @@ CREATE TABLE numeric_expr_test (
     price FLOAT
 );
 
-CREATE INDEX idx_numeric_expr ON numeric_expr_test USING bm25 (
+CREATE INDEX idx_numeric_expr ON numeric_expr_test USING paradedb (
     id,
     (ROW(price, price * 0.9)::numeric_expr_composite)
 ) WITH (key_field='id');

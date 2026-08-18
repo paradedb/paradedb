@@ -40,7 +40,7 @@ jobs:
       - cpu=${{ matrix.cpu }}
       - ram=${{ matrix.ram }}
       - image=${{ matrix.runner_image }}
-      - volume=64gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
+      - volume=80gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
       - extras=s3-cache
     if: ${{ !cancelled() }}
     strategy:
@@ -114,7 +114,7 @@ jobs:
       - name: Install required system tools
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-            lsof build-essential clang flex bison pkg-config ca-certificates git \
+            lsof build-essential clang lld flex bison pkg-config ca-certificates git \
             libreadline-dev zlib1g-dev libssl-dev libkrb5-dev liblz4-dev libzstd-dev \
             libcurl4-openssl-dev libopenblas-dev
 
@@ -175,7 +175,7 @@ jobs:
       - name: Build & install Citus 13 (PG 15)
         if: matrix.pg_version == 15
         env:
-          CITUS_VERSION: v13.0.1
+          CITUS_VERSION: v13.3.0
         run: |
           set -euxo pipefail
 
@@ -195,7 +195,7 @@ jobs:
       - name: Build & install Citus 14 (PG 16-18)
         if: matrix.pg_version >= 16
         env:
-          CITUS_VERSION: v14.0.0
+          CITUS_VERSION: v14.1.0
         run: |
           set -euxo pipefail
 
@@ -273,7 +273,7 @@ jobs:
       - name: Run pg_search Integration Tests (system)
         if: matrix.pg_impl == 'system'
         run: |
-          export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
+          export DATABASE_URL=postgresql://$(whoami)@localhost:288${{ matrix.pg_version }}/postgres
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
           if [[ "${{ github.event_name }}" == "pull_request" && "${{ matrix.pg_version }}" != "18" ]]; then
             RUST_BACKTRACE=1 cargo test --jobs $(nproc) --package tests --package tokenizers
@@ -286,7 +286,7 @@ jobs:
         working-directory: pg_search/
         run: |
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/
-          export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
+          export DATABASE_URL=postgresql://$(whoami)@localhost:288${{ matrix.pg_version }}/postgres
           if [[ "${{ github.event_name }}" == "pull_request" && "${{ matrix.pg_version }}" != "18" ]]; then
             RUST_BACKTRACE=1 cargo test --jobs $(nproc) --features pg${{ matrix.pg_version }} --no-default-features
           else
@@ -295,7 +295,7 @@ jobs:
 
       - name: Run pg_search Integration Tests (pgrx-managed)
         if: matrix.pg_impl == 'pgrx'
-        run: RUST_BACKTRACE=1 DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search cargo test --jobs $(nproc) --no-default-features --package tests --package tokenizers -- --skip replication --skip ephemeral
+        run: RUST_BACKTRACE=1 DATABASE_URL=postgresql://$(whoami)@localhost:288${{ matrix.pg_version }}/pg_search cargo test --jobs $(nproc) --no-default-features --package tests --package tokenizers -- --skip replication --skip ephemeral
 
       - name: Run pg_search Regression Tests (pgrx-managed)
         if: matrix.pg_impl == 'pgrx'
@@ -305,7 +305,19 @@ jobs:
           # with a non-zero status code on failure. We catch this failure to print the diffs
           # so they show up in CI, and then manually exit with an error.
           cargo pgrx regress --package pg_search pg${{ matrix.pg_version }} --auto || {
-            git diff
+            git diff | tee regress.diff
+            # Also write the diffs to the job summary. The Postgres log dump at the end of
+            # this job runs to tens of thousands of lines, which is enough to push these
+            # diffs out of the tail of the log that the API will hand back, so the summary
+            # is the only place they are reliably reachable. Cap the excerpt: the summary
+            # has a 1 MiB budget and is dropped wholesale if we blow it.
+            {
+              echo "### pg_regress diffs (PG ${{ matrix.pg_version }})"
+              echo
+              echo "\`\`\`diff"
+              head -c 900000 regress.diff
+              echo "\`\`\`"
+            } >> "$GITHUB_STEP_SUMMARY"
             exit 1
           }
 
@@ -334,9 +346,39 @@ jobs:
           path: coverage-*.lcov
           retention-days: 1
 
+      # Print only the tail. These logs routinely run past 50k lines, and dumping all of
+      # them buries whatever the failing step reported far enough up the log that the
+      # Actions API will no longer return it. The full log goes up as an artifact below
+      # whenever the job fails, so nothing is actually lost.
       - name: Print the Postgres Logs
         if: always()
-        run: cat ~/.pgrx/${{ matrix.pg_version}}.log
+        env:
+          MAX_LINES: 2000
+        run: |
+          LOG=~/.pgrx/${{ matrix.pg_version }}.log
+          if [ ! -f "$LOG" ]; then
+            echo "(log file not present)"
+            exit 0
+          fi
+          cp "$LOG" postgres-${{ matrix.pg_version }}.log
+          TOTAL=$(wc -l < "$LOG")
+          if [ "$TOTAL" -gt "$MAX_LINES" ]; then
+            echo "===== last ${MAX_LINES} of ${TOTAL} lines; full log in the postgres-log-* artifact ====="
+          fi
+          tail -n "$MAX_LINES" "$LOG"
+
+      - name: Upload Postgres Log Artifact
+        if: failure()
+        env:
+          # Same runs-on s3-cache workaround as the coverage upload above.
+          ACTIONS_RESULTS_URL: https://results-receiver.actions.githubusercontent.com/
+          ACTIONS_CACHE_SERVICE_V2: ""
+        uses: actions/upload-artifact@v7
+        with:
+          name: postgres-log-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}
+          path: postgres-${{ matrix.pg_version }}.log
+          retention-days: 1
+          if-no-files-found: ignore
 
   upload-coverage:
     name: Upload Combined Coverage to Codecov

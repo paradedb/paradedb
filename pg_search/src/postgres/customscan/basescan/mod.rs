@@ -299,6 +299,9 @@ impl BaseScan {
             }
         }
 
+        let allow_without_operator =
+            gucs::enable_custom_scan_without_operator() || query_has_window_agg_functions(root);
+
         // If we couldn't push down quals, try to push down quals from the join
         // This is only done if we have a join predicate, and only if we have used our operator
         let quals = if quals.is_none() {
@@ -315,7 +318,8 @@ impl BaseScan {
                 attempt_pushdown,
             );
 
-            let quals = Self::handle_heap_expr_optimization(&state, &mut quals);
+            let quals =
+                Self::handle_heap_expr_optimization(&state, &mut quals, allow_without_operator);
 
             // If we have found something to push down in the join, then we can use the join quals
             // Note: these Join quals won't help in filtering down the data (as they contain
@@ -333,7 +337,7 @@ impl BaseScan {
                 None
             }
         } else {
-            Self::handle_heap_expr_optimization(&state, &mut quals)
+            Self::handle_heap_expr_optimization(&state, &mut quals, allow_without_operator)
         };
 
         // Finally, decide whether we can actually use the extracted quals.
@@ -345,9 +349,7 @@ impl BaseScan {
         //    their own, OR
         // 2. enable_custom_scan_without_operator is true, OR
         // 3. The query has window aggregates (pdb.agg()) that we must handle.
-        let has_window_aggs = query_has_window_agg_functions(root);
-        if state.uses_our_operator || gucs::enable_custom_scan_without_operator() || has_window_aggs
-        {
+        if state.uses_our_operator || allow_without_operator {
             quals
         } else {
             None
@@ -357,8 +359,9 @@ impl BaseScan {
     unsafe fn handle_heap_expr_optimization(
         state: &QualExtractState,
         quals: &mut Option<Qual>,
+        allow_without_operator: bool,
     ) -> Option<Qual> {
-        if state.uses_heap_expr && !state.uses_our_operator {
+        if state.uses_heap_expr && !state.uses_our_operator && !allow_without_operator {
             return None;
         }
 
@@ -558,33 +561,55 @@ unsafe fn unnest_arg_is_paradedb_srf(unnest_expr: *mut pg_sys::FuncExpr) -> bool
     snippets_funcoids().contains(&inner_oid) || snippet_positions_funcoids().contains(&inner_oid)
 }
 
-/// Returns `true` if any predicate in `baserestrictinfo` cannot be fully
-/// evaluated inside Tantivy — meaning Postgres will apply a post-filter
-/// above the scan. Pushing LIMIT into the scan in that case would cap
-/// the output before post-filtering, producing fewer rows than correct.
+pub struct BaseScanDeclineReason {
+    pub message: &'static str,
+}
+
+impl BaseScanDeclineReason {
+    pub fn new(message: &'static str) -> Self {
+        Self { message }
+    }
+}
+
+/// Returns `Ok(())` if all predicates in `baserestrictinfo` can be fully
+/// evaluated inside custom scan. Returns `Err` if Postgres will need to apply a
+/// post-filter above the scan.
+///
+/// Used to gate:
+///   1. LIMIT pushdown: pushing LIMIT below a post-filter would cap output prematurely.
+///   2. Window aggregates (`pdb.agg()`): window aggregates require full pushdown to avoid data loss.
 unsafe fn has_non_pushable_predicates(
     rel: *mut pg_sys::RelOptInfo,
     quals_pushed: &Option<Qual>,
-) -> bool {
+) -> Result<(), BaseScanDeclineReason> {
     let restrict_list = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
 
     for ri in restrict_list.iter_ptr() {
         let clause = (*ri).clause as *mut pg_sys::Node;
         if pg_sys::contain_subplans(clause) {
-            return true;
+            return Err(BaseScanDeclineReason::new(
+                "WHERE clause contains subqueries which cannot be evaluated in a custom scan",
+            ));
         }
         if pg_sys::contain_volatile_functions(clause) {
-            return true;
+            return Err(BaseScanDeclineReason::new(
+                "WHERE clause contains volatile functions which cannot be safely evaluated in a custom scan",
+            ));
         }
     }
 
     // If qual extraction returned None but restrictions exist,
     // something is being left as a post-filter.
     if quals_pushed.is_none() && !restrict_list.is_empty() {
-        return true;
+        let message = if crate::gucs::enable_filter_pushdown() {
+            "WHERE clause contains predicates that cannot be pushed down"
+        } else {
+            "WHERE clause contains predicates that cannot be pushed down, and paradedb.enable_filter_pushdown is disabled"
+        };
+        return Err(BaseScanDeclineReason::new(message));
     }
 
-    false
+    Ok(())
 }
 
 /// Returns true if the query's LIMIT can safely be pushed into this scan node.
@@ -611,7 +636,7 @@ unsafe fn is_limit_pushdown_safe(
         is_left_join_lateral(root, rel) && where_clause_only_references_left(root, rti);
 
     (rel_is_single_or_partitioned || is_left_driven_lateral)
-        && !has_non_pushable_predicates(rel, quals)
+        && has_non_pushable_predicates(rel, quals).is_ok()
         && !classify_target_list_srf(root).is_unsafe()
 }
 
@@ -673,7 +698,7 @@ impl CustomScan for BaseScan {
                     return None;
                 }
 
-                // and that relation must have a `USING bm25` index
+                // and that relation must have a `USING paradedb` index
                 let (table, bm25_index) = rel_get_bm25_index(rte.relid)?;
 
                 (table, bm25_index)
@@ -705,36 +730,22 @@ impl CustomScan for BaseScan {
                 is_select,
             );
 
-            // If we have window aggregates but no quals, we must still create the custom path
-            // because pdb.agg() can only be executed by our custom scan
-            let quals = if let Some(q) = quals {
-                q
-            } else if has_window_aggs {
-                // We have window aggregates but couldn't extract quals.
-                // This can happen in two cases:
-                // 1. No WHERE clause at all -> safe to use Qual::All
-                // 2. WHERE clause exists but couldn't be extracted:
-                //    a. filter_pushdown enabled -> HeapExpr was created during extraction, safe to use Qual::All
-                //    b. filter_pushdown disabled -> unsafe, reject the query
-                let has_where_clause = !(*root).parse.is_null()
-                    && !(*(*root).parse).jointree.is_null()
-                    && !(*(*(*root).parse).jointree).quals.is_null();
+            // If window aggregates are present, validate that the WHERE clause contains no
+            // non-pushable predicates (e.g. subqueries, volatile functions, or unpushable
+            // filters when filter pushdown is disabled) that would cause silent data loss or incorrect results.
+            if has_window_aggs && let Err(reason) = has_non_pushable_predicates(rel, &quals) {
+                pgrx::error!("Cannot execute window aggregate: {}", reason.message);
+            }
 
-                if has_where_clause && !crate::gucs::enable_filter_pushdown() {
-                    // There's a WHERE clause but we couldn't extract quals and filter_pushdown is disabled.
-                    // This means qual extraction failed without creating HeapExpr, so we cannot handle
-                    // this query safely - the WHERE clause would be silently ignored.
-                    return None;
-                }
-
-                // Safe to use Qual::All because:
-                // - Either there's no WHERE clause (nothing to filter), OR
-                // - filter_pushdown is enabled, meaning HeapExpr was created during qual extraction
-                //   and will be evaluated by PostgreSQL's executor after we return results
-                Qual::All
-            } else {
-                // No quals and no window aggregates - we can't help
-                return None;
+            // Resolve quals for the custom scan path:
+            // - `Some(q)`: Use extracted pushdown or HeapExpr quals.
+            // - `None` with `has_window_aggs`: No quals were extracted (e.g., no WHERE clause),
+            //   but pdb.agg() window functions require ParadeDB custom scan execution, so default to Qual::All.
+            // - `None` without `has_window_aggs`: Neither quals nor window aggs exist; decline custom path.
+            let quals = match quals {
+                Some(q) => q,
+                None if has_window_aggs => Qual::All,
+                None => return None,
             };
 
             if missing_partial_index_predicate(bm25_index.rd_indpred, &restrict_info) {
@@ -1249,9 +1260,27 @@ impl CustomScan for BaseScan {
                     .set_exec_method_type(ExecMethodType::Normal);
             }
 
+            // #5727: collect heap-filter and PostgresExpression nodes so we can
+            // hand them to `custom_exprs` below. `finalize_plan` walks that field
+            // for Param references; without it, `Gather.initParam` omits InitPlan
+            // outputs and parallel workers execute with empty param slots.
+            let expr_nodes = builder
+                .custom_private_mut()
+                .query_mut()
+                .as_mut()
+                .map(|q| q.collect_expression_nodes())
+                .unwrap_or_default();
+
             let mut scan = builder.build();
             if !subplan_quals.is_empty() {
                 scan.scan.plan.qual = subplan_quals.into_pg();
+            }
+            if !expr_nodes.is_empty() {
+                let mut expr_list = PgList::<pg_sys::Node>::new();
+                for node in expr_nodes {
+                    expr_list.push(node);
+                }
+                scan.custom_exprs = expr_list.into_pg();
             }
             scan
         }

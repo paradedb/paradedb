@@ -55,11 +55,11 @@ CREATE TABLE jnns_exclude_set (
 );
 INSERT INTO jnns_exclude_set (val) SELECT s FROM generate_series(50, 60) s;
 INSERT INTO jnns_exclude_set (val) VALUES (NULL);
-CREATE INDEX jnns_items_idx       ON jnns_items       USING bm25 (id, txt)
+CREATE INDEX jnns_items_idx       ON jnns_items       USING paradedb (id, txt)
   WITH (key_field=id, text_fields='{"txt":{"fast":true}}');
-CREATE INDEX jnns_include_set_idx ON jnns_include_set USING bm25 (id, val)
+CREATE INDEX jnns_include_set_idx ON jnns_include_set USING paradedb (id, val)
   WITH (key_field=id, numeric_fields='{"val":{"fast":true}}');
-CREATE INDEX jnns_exclude_set_idx ON jnns_exclude_set USING bm25 (id, val)
+CREATE INDEX jnns_exclude_set_idx ON jnns_exclude_set USING paradedb (id, val)
   WITH (key_field=id, numeric_fields='{"val":{"fast":true}}');
 ANALYZE jnns_items; ANALYZE jnns_include_set; ANALYZE jnns_exclude_set;
 -- =====================================================================

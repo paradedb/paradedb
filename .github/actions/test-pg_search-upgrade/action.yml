@@ -71,8 +71,9 @@ runs:
       working-directory: pg_search/
       shell: bash
       run: |
-        psql -h localhost -p 288${{ inputs.pg_version }} postgres -c 'CREATE EXTENSION IF NOT EXISTS vector;'
-        psql -h localhost -p 288${{ inputs.pg_version }} postgres -c 'CREATE EXTENSION pg_search;'
+        set -euo pipefail
+        psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} postgres -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+        psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} postgres -c 'CREATE EXTENSION pg_search;'
 
     - name: Create Upgrade Test Databases
       working-directory: pg_search/
@@ -147,12 +148,12 @@ runs:
         set -euo pipefail
         VERSION=$(grep "^version" ../Cargo.toml | head -1 | awk -F '"' '{print $2}')
         psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} postgres -c "CREATE EXTENSION IF NOT EXISTS vector;"
-        psql -h localhost -p 288${{ inputs.pg_version }} postgres -c "ALTER EXTENSION pg_search UPDATE TO '$VERSION';"
+        psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} postgres -c "ALTER EXTENSION pg_search UPDATE TO '$VERSION';"
         for case_dir in "$UPGRADE_SQL_DIR"/*; do
           db="$(basename "$case_dir")"
           echo "Creating database $db"
           psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} "$db" -c "CREATE EXTENSION IF NOT EXISTS vector;"
-          psql -h localhost -p 288${{ inputs.pg_version }} "$db" -c "ALTER EXTENSION pg_search UPDATE TO '$VERSION';"
+          psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} "$db" -c "ALTER EXTENSION pg_search UPDATE TO '$VERSION';"
         done
 
     # An `ALTER EXTENSION ... UPDATE` must leave the schema identical to a fresh
@@ -200,7 +201,7 @@ runs:
       working-directory: tests/
       shell: bash
       run: |
-        export DATABASE_URL=postgresql://localhost:288${{ inputs.pg_version }}/postgres
+        export DATABASE_URL=postgresql://$(whoami)@localhost:288${{ inputs.pg_version }}/postgres
         export PG_CONFIG=/usr/lib/postgresql/${{ inputs.pg_version }}/bin/pg_config
         RUST_BACKTRACE=1 cargo test --jobs $(nproc)
 

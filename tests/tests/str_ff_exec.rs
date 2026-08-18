@@ -32,7 +32,7 @@ fn setup_test_table(mut conn: PgConnection) -> PgConnection {
     sql.execute(&mut conn);
 
     let sql = r#"
-        CREATE INDEX idxtest ON test USING bm25 (id, col_boolean, col_text, col_int8)
+        CREATE INDEX idxtest ON test USING paradedb (id, col_boolean, col_text, col_int8)
         WITH (key_field='id', text_fields = '{"col_text": {"fast": true, "tokenizer": {"type":"raw"}}}');
     "#;
     sql.execute(&mut conn);
@@ -160,7 +160,7 @@ mod string_fast_field_exec {
         sql.execute(&mut conn);
 
         let sql = r#"
-            CREATE INDEX another_idxtest ON another_test USING bm25 (id, col_boolean, col_text, col_int8)
+            CREATE INDEX another_idxtest ON another_test USING paradedb (id, col_boolean, col_text, col_int8)
             WITH (key_field='id', text_fields = '{"col_text": {"fast": true, "tokenizer": {"type":"raw"}}}');
         "#;
         sql.execute(&mut conn);

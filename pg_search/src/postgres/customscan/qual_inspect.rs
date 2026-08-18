@@ -1512,27 +1512,78 @@ pub unsafe fn contains_correlated_param(
     walker(node, root as *mut core::ffi::c_void)
 }
 
-/// Returns true if the expression contains any `PARAM_EXEC` parameter.
-/// `PARAM_EXEC` parameters are evaluated at execution time, often for subqueries.
-pub unsafe fn contains_exec_param(root: *mut pg_sys::Node) -> bool {
+unsafe fn contains_param_of_kind(root: *mut pg_sys::Node, kind: pg_sys::ParamKind::Type) -> bool {
     #[pg_guard]
     unsafe extern "C-unwind" fn walker(
         node: *mut pg_sys::Node,
-        _data: *mut core::ffi::c_void,
+        data: *mut core::ffi::c_void,
     ) -> bool {
+        let kind = &*data.cast::<pg_sys::ParamKind::Type>();
         if let Some(param) = nodecast!(Param, T_Param, node)
-            && (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC
+            && (*param).paramkind == *kind
         {
             return true;
         }
-        pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut())
+        pg_sys::expression_tree_walker(node, Some(walker), data)
     }
 
     if root.is_null() {
         return false;
     }
 
-    walker(root, std::ptr::null_mut())
+    walker(root, std::ptr::from_ref(&kind).cast_mut().cast())
+}
+
+/// Returns true if the expression contains any `PARAM_EXEC` parameter.
+/// `PARAM_EXEC` parameters are evaluated at execution time, often for subqueries.
+pub unsafe fn contains_exec_param(root: *mut pg_sys::Node) -> bool {
+    contains_param_of_kind(root, pg_sys::ParamKind::PARAM_EXEC)
+}
+
+/// Returns true if the expression contains a prepared-statement parameter.
+///
+/// `PARAM_EXTERN` values are bound when a generic prepared plan executes, so a
+/// custom scan needs an executor-side contract for resolving them; planner-time
+/// translation alone is not sufficient.
+pub unsafe fn contains_extern_param(root: *mut pg_sys::Node) -> bool {
+    contains_param_of_kind(root, pg_sys::ParamKind::PARAM_EXTERN)
+}
+
+/// Flatten PostgreSQL's two representations of an implicit conjunction into
+/// individual semantic predicates.
+///
+/// `preprocess_qual_conditions()` applies `make_ands_implicit()`, which can
+/// leave a bare `T_List` where callers might otherwise expect a `BoolExpr(AND)`.
+/// Relation classification and expression translation must operate on each
+/// conjunct, never on the container. `OR` and `NOT` expressions deliberately
+/// remain intact.
+pub unsafe fn collect_implicit_and_conjuncts(
+    node: *mut pg_sys::Node,
+    conjuncts: &mut Vec<*mut pg_sys::Node>,
+) {
+    if node.is_null() {
+        return;
+    }
+
+    if (*node).type_ == pg_sys::NodeTag::T_List {
+        let list = PgList::<pg_sys::Node>::from_pg(node.cast::<pg_sys::List>());
+        for item in list.iter_ptr() {
+            collect_implicit_and_conjuncts(item, conjuncts);
+        }
+        return;
+    }
+
+    if let Some(bool_expr) = nodecast!(BoolExpr, T_BoolExpr, node)
+        && (*bool_expr).boolop == pg_sys::BoolExprType::AND_EXPR
+    {
+        let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
+        for arg in args.iter_ptr() {
+            collect_implicit_and_conjuncts(arg, conjuncts);
+        }
+        return;
+    }
+
+    conjuncts.push(node);
 }
 
 unsafe fn contains_var(root: *mut pg_sys::Node) -> bool {
@@ -2179,7 +2230,7 @@ mod tests {
                 description TEXT
             );
             CREATE INDEX exists_guard_test_idx ON exists_guard_test
-            USING bm25 (id, color, description) WITH (
+            USING paradedb (id, color, description) WITH (
                 key_field = 'id',
                 text_fields = '{
                     "color": {"tokenizer": {"type": "keyword"}, "fast": true},

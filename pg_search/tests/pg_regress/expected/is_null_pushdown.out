@@ -13,7 +13,7 @@ INSERT INTO products SELECT i, i % 10, NULL FROM generate_series(1, 300) i;
 INSERT INTO products SELECT i, i % 10, '2024-01-01 00:00:00'::timestamp FROM generate_series(301, 1000) i;
 -- Create index with deleted_at as an indexed field
 CREATE INDEX idx_products_bm25 ON products
-USING bm25 (id, category_id, deleted_at)
+USING paradedb (id, category_id, deleted_at)
 WITH (key_field='id');
 -- IS NOT NULL works (pushes to index via PushdownIsNotNull)
 -- Should show Custom Scan with Tantivy Query containing "exists"
@@ -102,7 +102,7 @@ DROP INDEX idx_products_bm25;
 -- When the query includes the partial index predicate, Custom Scan should work
 -- ============================================================
 CREATE INDEX idx_products_bm25_partial ON products
-USING bm25 (id, category_id)
+USING paradedb (id, category_id)
 WITH (key_field='id')
 WHERE deleted_at IS NULL;
 -- Query that includes the partial index predicate (deleted_at IS NULL)

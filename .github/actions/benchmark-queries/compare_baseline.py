@@ -166,11 +166,13 @@ def write_alert_report(path, suite, baseline, alerts):
     lines = [
         f"## :warning: Possible performance regression vs `{baseline['commit']['id'][:7]}`",
         "",
-        "Percentile series with paired per-query samples alert when the bootstrapped "
-        "one-sided lower 95% bound of the paired percentile ratio exceeds "
-        f"{EFFECT_FLOOR:.2f}x. Without samples, a series alerts when its 95% CI sits "
-        f"entirely above the baseline's and the value regressed >{EFFECT_FLOOR:.2f}x; "
-        f"without CIs, when the value regressed >{FALLBACK_RATIO:.2f}x.",
+        (
+            "Percentile series with paired per-query samples alert when the bootstrapped "
+            "one-sided lower 95% bound of the paired percentile ratio exceeds "
+            f"{EFFECT_FLOOR:.2f}x. Without samples, a series alerts when its 95% CI sits "
+            f"entirely above the baseline's and the value regressed >{EFFECT_FLOOR:.2f}x; "
+            f"without CIs, when the value regressed >{FALLBACK_RATIO:.2f}x."
+        ),
         "",
         f"### {suite}",
         "",

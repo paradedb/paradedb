@@ -93,10 +93,15 @@ pgrx::pg_module_magic!();
 
 extension_sql!(
     r#"
-        GRANT ALL ON SCHEMA paradedb TO PUBLIC;
-        GRANT ALL ON SCHEMA pdb TO PUBLIC;
+        -- PUBLIC needs USAGE to reference the extension's objects (types, casts,
+        -- operators, functions in `pdb`, and helpers in `paradedb`), but not
+        -- CREATE: every object in these schemas is created here at install time
+        -- by the extension owner, so granting CREATE to PUBLIC would only let
+        -- any role squat objects inside the extension's own schemas.
+        GRANT USAGE ON SCHEMA paradedb TO PUBLIC;
+        GRANT USAGE ON SCHEMA pdb TO PUBLIC;
     "#,
-    name = "paradedb_grant_all",
+    name = "paradedb_grant_usage",
     finalize
 );
 
@@ -170,7 +175,7 @@ pub unsafe extern "C-unwind" fn _PG_init() {
 
 #[pg_extern]
 fn random_words(num_words: i32) -> String {
-    use rand::Rng;
+    use rand::RngExt;
 
     let mut rng = rand::rng();
     let letters = "abcdefghijklmnopqrstuvwxyz";

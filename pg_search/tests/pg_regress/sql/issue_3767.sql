@@ -51,7 +51,7 @@ FROM (
 LATERAL generate_series(1, t.ct);
 
 CREATE INDEX textidx_parade_core ON testcore
-USING bm25 (dwf_doid, author)
+USING paradedb (dwf_doid, author)
 WITH (key_field='dwf_doid');
 
 -- Running this repeatedly with pauses is the best way to repro the issue

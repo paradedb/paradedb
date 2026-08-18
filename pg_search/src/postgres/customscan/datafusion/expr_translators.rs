@@ -875,14 +875,14 @@ mod tests {
                 ('alpha', 5), (NULL, 10), ('', 15),
                 ('BETA', 20), ('gamma', 25), ('  trimme  ', 30);
             CREATE INDEX prop_items_idx ON prop_items
-                USING bm25 (id, name, value)
+                USING paradedb (id, name, value)
                 WITH (
                     key_field='id',
                     text_fields='{"name": {"fast": true}}',
                     numeric_fields='{"value": {"fast": true}}'
                 );
             CREATE INDEX prop_exclusions_idx ON prop_exclusions
-                USING bm25 (id, pattern, threshold)
+                USING paradedb (id, pattern, threshold)
                 WITH (
                     key_field='id',
                     text_fields='{"pattern": {"fast": true}}',

@@ -36,11 +36,11 @@ INSERT INTO t_main_4779 SELECT i, 'val_' || i FROM generate_series(1, 100) i;
 INSERT INTO t_a_4779 SELECT i, (i % 100) + 1 FROM generate_series(1, 200) i;
 INSERT INTO t_b_4779 SELECT i, (i % 100) + 1 FROM generate_series(1, 200) i;
 CREATE INDEX t_main_4779_idx ON t_main_4779
-  USING bm25 (id, (val::pdb.literal)) WITH (key_field = 'id');
+  USING paradedb (id, (val::pdb.literal)) WITH (key_field = 'id');
 CREATE INDEX t_a_4779_idx ON t_a_4779
-  USING bm25 (id, main_id) WITH (key_field = 'id');
+  USING paradedb (id, main_id) WITH (key_field = 'id');
 CREATE INDEX t_b_4779_idx ON t_b_4779
-  USING bm25 (id, main_id) WITH (key_field = 'id');
+  USING paradedb (id, main_id) WITH (key_field = 'id');
 ANALYZE t_main_4779;
 ANALYZE t_a_4779;
 ANALYZE t_b_4779;

@@ -12,12 +12,12 @@
 -- Also covers the pre-existing fuzzy/slop -> boost chain casts and the
 -- newly added fuzzy/slop -> const chain casts.
 
-CALL paradedb.create_bm25_test_table(
+CALL paradedb.create_paradedb_test_table(
   schema_name => 'public',
   table_name => 'mock_items'
 );
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description, rating, category, in_stock, metadata, created_at, weight_range)
+USING paradedb (id, description, rating, category, in_stock, metadata, created_at, weight_range)
 WITH (key_field='id');
 
 --

@@ -45,7 +45,7 @@ VALUES
 -- Create search index with columnar storage
 DROP INDEX IF EXISTS score_test_idx;
 CREATE INDEX score_test_idx ON score_test
-USING bm25 (id, title, content, author, rating, views, is_featured)
+USING paradedb (id, title, content, author, rating, views, is_featured)
 WITH (
     key_field = 'id',
     text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',

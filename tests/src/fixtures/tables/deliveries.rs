@@ -41,14 +41,14 @@ impl DeliveriesTable {
 
 static DELIVERIES_TABLE_SETUP: &str = r#"
 BEGIN;
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
         schema_name => 'public',
         table_name => 'deliveries',
         table_type => 'Deliveries'
     );
    
     CREATE INDEX deliveries_idx ON deliveries
-    USING bm25 (delivery_id, weights, quantities, prices, ship_dates, facility_arrival_times, delivery_times)
+    USING paradedb (delivery_id, weights, quantities, prices, ship_dates, facility_arrival_times, delivery_times)
     WITH (key_field='delivery_id');
 COMMIT;
 "#;

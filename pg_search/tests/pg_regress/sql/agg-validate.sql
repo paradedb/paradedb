@@ -40,7 +40,7 @@ INSERT INTO mock_items (description, rating, created_at) VALUES
 
 -- Create index with specific fields
 CREATE INDEX mock_items_idx ON mock_items
-USING bm25 (id, description, rating, created_at)
+USING paradedb (id, description, rating, created_at)
 WITH (
     key_field = 'id',
     text_fields = '{"description": {}}',

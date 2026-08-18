@@ -218,3 +218,17 @@ SELECT pdb.agg('{"value_count": {"field": "id"}}')
 FROM mock_items
 WHERE id @@@ pdb.all();
 
+
+DO $$
+BEGIN
+    IF has_schema_privilege('public', 'paradedb', 'CREATE')
+        OR has_schema_privilege('public', 'pdb', 'CREATE') THEN
+        RAISE EXCEPTION 'PUBLIC still holds CREATE on the extension schemas after upgrade';
+    END IF;
+
+    IF NOT has_schema_privilege('public', 'paradedb', 'USAGE')
+        OR NOT has_schema_privilege('public', 'pdb', 'USAGE') THEN
+        RAISE EXCEPTION 'PUBLIC lost USAGE on the extension schemas after upgrade';
+    END IF;
+END;
+$$;

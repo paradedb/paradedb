@@ -10,7 +10,7 @@ INSERT INTO pushdown(description)
 VALUES (ARRAY['dog', 'cat', 'bird']), (ARRAY['fox', 'rabbit', 'squirrel']);
 
 -- Test with literal tokenizer (should pushdown)
-CREATE INDEX pushdown_idx ON pushdown USING bm25 (
+CREATE INDEX pushdown_idx ON pushdown USING paradedb (
     id, (description::pdb.literal)
 ) WITH (key_field = 'id');
 
@@ -30,7 +30,7 @@ LIMIT 10;
 DROP INDEX pushdown_idx;
 
 -- Test with non-literal tokenizer (should NOT pushdown)
-CREATE INDEX pushdown_idx ON pushdown USING bm25 (
+CREATE INDEX pushdown_idx ON pushdown USING paradedb (
     id, description
 ) WITH (key_field = 'id');
 

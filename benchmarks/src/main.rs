@@ -20,7 +20,7 @@ use clap::{Parser, Subcommand};
 use paradedb::{
     Window, confidence_interval_half_width, fnv1a, mean, percentile, percentile_confidence_interval,
 };
-use sqlx::{Connection, PgConnection, Row};
+use sqlx::{AssertSqlSafe, Connection, PgConnection, Row};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::Write;
@@ -498,7 +498,7 @@ async fn eval_param(
     vars: &HashMap<String, String>,
 ) -> anyhow::Result<String> {
     let expr = substitute_vars(expr, vars).with_context(|| format!("In [params] `{name}`"))?;
-    sqlx::query_scalar(&format!("SELECT ({expr})::numeric::text"))
+    sqlx::query_scalar(AssertSqlSafe(format!("SELECT ({expr})::numeric::text")))
         .fetch_one(&mut *conn)
         .await
         .with_context(|| format!("Failed to evaluate [params] `{name}` = `{expr}`"))
@@ -540,7 +540,7 @@ async fn process_index_creation(args: &BenchmarkArgs) -> anyhow::Result<Vec<Inde
         println!("{statement}");
 
         let start = Instant::now();
-        sqlx::query(&statement)
+        sqlx::query(AssertSqlSafe(statement.as_str()))
             .execute(&mut conn)
             .await
             .with_context(|| "Failed to execute index creation SQL")?;
@@ -559,9 +559,9 @@ async fn process_index_creation(args: &BenchmarkArgs) -> anyhow::Result<Vec<Inde
         // `paradedb.index_info()` (segment count) only applies to pg_search (bm25) indexes;
         // other access methods (e.g. pgvector's hnsw/ivfflat) have no segments.
         let result = if amname == "bm25" {
-            let segment_count = sqlx::query_scalar(&format!(
+            let segment_count = sqlx::query_scalar(AssertSqlSafe(format!(
                 "SELECT count(*) FROM paradedb.index_info('{index_name}')"
-            ))
+            )))
             .fetch_one(&mut conn)
             .await
             .with_context(|| "Failed to get segment count")?;
@@ -601,7 +601,7 @@ async fn process_after_create_index_sql(args: &BenchmarkArgs) -> anyhow::Result<
             .await?;
     for statement in statements {
         let statement = substitute_vars(&statement, &params)?;
-        sqlx::query(&statement)
+        sqlx::query(AssertSqlSafe(statement.as_str()))
             .execute(&mut conn)
             .await
             .with_context(|| {
@@ -699,7 +699,7 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
 
     // Apply the query file's SET statements so recall runs at the latency query's operating point.
     for stmt in &set_statements {
-        sqlx::query(stmt)
+        sqlx::query(AssertSqlSafe(stmt.as_str()))
             .execute(&mut conn)
             .await
             .with_context(|| format!("Failed to apply query setting: {stmt}"))?;
@@ -747,7 +747,7 @@ async fn load_recall_fixtures(
     // (Keying on the CREATE statement, not table existence, avoids loading a leftover table from a
     // prior run before recall.sql drops/recreates it.)
     for statement in queries(Path::new(&recall_sql)) {
-        sqlx::query(&statement)
+        sqlx::query(AssertSqlSafe(statement.as_str()))
             .execute(&mut *conn)
             .await
             .with_context(|| format!("Failed to run recall setup statement: {statement}"))?;
@@ -802,11 +802,11 @@ async fn score_recall(
 ) -> anyhow::Result<f64> {
     let mut total_hits = 0usize;
     for (id, emb_text) in &fixtures.vectors {
-        sqlx::raw_sql(&format!("SET {QVEC_GUC} = '{emb_text}';"))
+        sqlx::raw_sql(AssertSqlSafe(format!("SET {QVEC_GUC} = '{emb_text}';")))
             .execute(&mut *conn)
             .await
             .with_context(|| format!("Failed to set {QVEC_GUC} for query {id}"))?;
-        let rows = sqlx::raw_sql(knn_query)
+        let rows = sqlx::raw_sql(AssertSqlSafe(knn_query))
             .fetch_all(&mut *conn)
             .await
             .with_context(|| format!("Failed to run recall query for query {id}"))?;
@@ -938,7 +938,7 @@ async fn sweep_query(
         let query = substitute_vars(raw_variant, &params)?;
         let (sets, knn_query) = split_operating_point(&query)?;
         for stmt in &sets {
-            sqlx::query(stmt)
+            sqlx::query(AssertSqlSafe(stmt.as_str()))
                 .execute(&mut *conn)
                 .await
                 .with_context(|| format!("Failed to apply sweep setting: {stmt}"))?;
@@ -1277,7 +1277,7 @@ async fn root_table_row_count(args: &BenchmarkArgs) -> anyhow::Result<i64> {
         .await
         .with_context(|| "Failed to connect to database")?;
     let table = &config.root_table.name;
-    let row = sqlx::query(&format!("SELECT count(*) FROM \"{table}\""))
+    let row = sqlx::query(AssertSqlSafe(format!("SELECT count(*) FROM \"{table}\"")))
         .fetch_one(&mut conn)
         .await
         .with_context(|| format!("Failed to count rows in '{table}'"))?;
@@ -1327,7 +1327,7 @@ async fn write_postgres_settings_csv(url: &str) -> anyhow::Result<()> {
         .await
         .with_context(|| "Failed to connect to database")?;
     for setting in settings {
-        let row = sqlx::query(&format!("SHOW {setting}"))
+        let row = sqlx::query(AssertSqlSafe(format!("SHOW {setting}")))
             .fetch_one(&mut conn)
             .await
             .with_context(|| "Failed to get postgres setting")?;
@@ -1443,7 +1443,7 @@ async fn write_postgres_settings(file: &mut File, url: &str) -> anyhow::Result<(
         .await
         .with_context(|| "Failed to connect to database")?;
     for setting in settings {
-        let row = sqlx::query(&format!("SHOW {setting}"))
+        let row = sqlx::query(AssertSqlSafe(format!("SHOW {setting}")))
             .fetch_one(&mut conn)
             .await
             .with_context(|| "Failed to get postgres setting")?;
@@ -1785,7 +1785,7 @@ fn benchmark_queries(file: &Path) -> Vec<(String, String)> {
 async fn prewarm_indexes(conn: &mut PgConnection, dataset: &str) -> anyhow::Result<()> {
     let prewarm_sql = format!("datasets/{dataset}/prewarm.sql");
     for statement in queries(Path::new(&prewarm_sql)) {
-        sqlx::query(&statement)
+        sqlx::query(AssertSqlSafe(statement.as_str()))
             .execute(&mut *conn)
             .await
             .with_context(|| "Failed to prewarm indexes")?;
@@ -1796,7 +1796,9 @@ async fn prewarm_indexes(conn: &mut PgConnection, dataset: &str) -> anyhow::Resu
 async fn get_query_id(query: &str, conn: &mut PgConnection) -> anyhow::Result<i64> {
     let explain_str = format!("EXPLAIN (VERBOSE, FORMAT JSON) {query}");
     let sqlx::types::Json(res): sqlx::types::Json<serde_json::Value> =
-        sqlx::query_scalar(&explain_str).fetch_one(conn).await?;
+        sqlx::query_scalar(AssertSqlSafe(explain_str.as_str()))
+            .fetch_one(conn)
+            .await?;
 
     let query_id = res[0]["Query Identifier"]
         .as_i64()
@@ -1826,7 +1828,7 @@ async fn get_query_id(query: &str, conn: &mut PgConnection) -> anyhow::Result<i6
 /// `current_setting`, so the SQL text -- and therefore its `pg_stat_statements` queryid -- is
 /// identical for every vector.
 async fn set_query_vector(conn: &mut PgConnection, vector: &str) -> anyhow::Result<()> {
-    sqlx::raw_sql(&format!("SET {QVEC_GUC} = '{vector}';"))
+    sqlx::raw_sql(AssertSqlSafe(format!("SET {QVEC_GUC} = '{vector}';")))
         .execute(&mut *conn)
         .await
         .with_context(|| format!("Failed to set {QVEC_GUC}"))?;
@@ -1840,18 +1842,19 @@ async fn run_once(
     stats_reset_query: &str,
     stats_query: &str,
 ) -> anyhow::Result<(f64, i64)> {
-    sqlx::raw_sql(stats_reset_query)
+    sqlx::raw_sql(AssertSqlSafe(stats_reset_query))
         .execute(&mut *conn)
         .await
         .with_context(|| format!("Failed to execute query: {stats_reset_query}"))?;
-    sqlx::raw_sql(query)
+    sqlx::raw_sql(AssertSqlSafe(query))
         .execute(&mut *conn)
         .await
         .with_context(|| format!("Failed to execute query: {query}"))?;
-    let (exec_time_ms, plan_time_ms, rows): (f64, f64, i64) = sqlx::query_as(stats_query)
-        .fetch_one(&mut *conn)
-        .await
-        .with_context(|| format!("Failed to execute query: {stats_query}"))?;
+    let (exec_time_ms, plan_time_ms, rows): (f64, f64, i64) =
+        sqlx::query_as(AssertSqlSafe(stats_query))
+            .fetch_one(&mut *conn)
+            .await
+            .with_context(|| format!("Failed to execute query: {stats_query}"))?;
     Ok((exec_time_ms + plan_time_ms, rows))
 }
 
@@ -1906,7 +1909,7 @@ async fn execute_query_multiple_times(
     for stmt in query.split(';') {
         let stmt = stmt.trim();
         if stmt.len() >= 4 && stmt[..4].eq_ignore_ascii_case("set ") {
-            sqlx::raw_sql(&format!("{stmt};"))
+            sqlx::raw_sql(AssertSqlSafe(format!("{stmt};")))
                 .execute(&mut conn)
                 .await
                 .with_context(|| format!("Failed to apply query setting: {stmt}"))?;
@@ -1940,13 +1943,19 @@ async fn execute_query_multiple_times(
     // prefix.
     {
         use sqlx::Row;
-        sqlx::raw_sql(query).execute(&mut conn).await.ok();
+        sqlx::raw_sql(AssertSqlSafe(query))
+            .execute(&mut conn)
+            .await
+            .ok();
         // VERBOSE because the JoinScan renderer only includes per-node `elapsed_compute`
         // timing for verbose EXPLAINs.
         let explain = format!(
             "EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF, SUMMARY OFF) {measured_query}"
         );
-        match sqlx::raw_sql(&explain).fetch_all(&mut conn).await {
+        match sqlx::raw_sql(AssertSqlSafe(explain.as_str()))
+            .fetch_all(&mut conn)
+            .await
+        {
             Ok(rows) => {
                 println!("plan for `{query_type}`:");
                 for row in rows {

@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Check if all schema changes from pg-schema-diff are present in the migration file.
 Compares SQL statements in an order-independent way since pg-schema-diff output order
 is non-deterministic. Comments are stripped for comparison.
 """
 
-import sys
 import re
+import sys
 
 
 def normalize_array_defaults(stmt):

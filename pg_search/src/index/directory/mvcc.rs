@@ -49,7 +49,7 @@ use tantivy::directory::{
     DirectoryLock, DirectoryPanicHandler, FileHandle, InnerWritePtr, Lock, RamDirectory,
     WatchCallback, WatchHandle,
 };
-use tantivy::index::{SegmentId, SegmentMetaInventory};
+use tantivy::index::{SegmentComponent, SegmentId, SegmentMetaInventory};
 use tantivy::{Directory, IndexMeta, SegmentMeta, TantivyError};
 
 /// By default Tantivy writes 8192 bytes at a time (the `BufWriter` default).
@@ -197,7 +197,13 @@ impl MVCCDirectory {
                     ));
                 };
                 Ok(Arc::new(unsafe {
-                    SegmentComponentReader::new(&self.indexrel, file_entry)
+                    SegmentComponentReader::new(
+                        &self.indexrel,
+                        file_entry,
+                        path.extension()
+                            .and_then(|ext| ext.to_str())
+                            .and_then(|ext| SegmentComponent::try_from(ext).ok()),
+                    )
                 }))
             }
             LoadedSegmentMetaEntry::Memory {
@@ -347,7 +353,13 @@ impl Directory for MVCCDirectory {
                         };
                     Ok(vacant
                         .insert(Arc::new(unsafe {
-                            SegmentComponentReader::new(&self.indexrel, file_entry)
+                            SegmentComponentReader::new(
+                                &self.indexrel,
+                                file_entry,
+                                path.extension()
+                                    .and_then(|ext| ext.to_str())
+                                    .and_then(|ext| SegmentComponent::try_from(ext).ok()),
+                            )
                         }))
                         .clone())
                 }
@@ -996,7 +1008,8 @@ mod tests {
     unsafe fn test_list_meta_entries() {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
         Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
-        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING paradedb (id, data) WITH (key_field = 'id')")
+            .unwrap();
         let relation_oid: pg_sys::Oid =
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
                 .expect("spi should succeed")

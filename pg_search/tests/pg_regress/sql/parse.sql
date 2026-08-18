@@ -1,6 +1,6 @@
 \i common/common_setup.sql
 
-CALL paradedb.create_bm25_test_table(
+CALL paradedb.create_paradedb_test_table(
   schema_name => 'public',
   table_name => 'mock_items'
 );
@@ -9,7 +9,7 @@ ALTER TABLE mock_items ADD COLUMN created_at_tz TIMESTAMPTZ, ADD COLUMN latest_a
 UPDATE mock_items SET created_at_tz = created_at AT TIME ZONE 'UTC', latest_available_time_tz = (latest_available_time || '+00')::timetz;
 
 CREATE INDEX on mock_items
-USING bm25 (id, description, rating, category, metadata, created_at, last_updated_date, latest_available_time, created_at_tz, latest_available_time_tz)
+USING paradedb (id, description, rating, category, metadata, created_at, last_updated_date, latest_available_time, created_at_tz, latest_available_time_tz)
 WITH (key_field='id');
 
 SELECT id, description, category FROM mock_items

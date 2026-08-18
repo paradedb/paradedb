@@ -172,6 +172,8 @@ unsafe fn sample_partition_fields(
 
     let mut sample: Vec<Point> = Vec::new();
     let mut seen_rows = 0usize;
+    let mut indexed_offsets: Vec<pg_sys::OffsetNumber> = Vec::new();
+    let mut result: anyhow::Result<()> = Ok(());
     unsafe {
         while pg_sys::BlockSampler_HasMore(addr_of_mut!(sampler)) {
             check_for_interrupts!();
@@ -184,29 +186,38 @@ unsafe fn sample_partition_fields(
                 pg_sys::ReadBufferMode::RBM_NORMAL,
                 std::ptr::null_mut(),
             );
+
+            // Under the content lock, only test visibility (which also sets hint bits) and record
+            // the offsets to index. Detoast, expression evaluation, and projection run afterward
+            // under the pin alone, so a concurrent writer or a re-entrant index expression never
+            // waits on this page's lock across that work.
             pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
             let page = pg_sys::BufferGetPage(buffer);
             let max_offset = pg_sys::PageGetMaxOffsetNumber(page);
+            indexed_offsets.clear();
+            for offset in pg_sys::FirstOffsetNumber..=max_offset {
+                let item_id = pg_sys::PageGetItemId(page, offset);
+                if (*item_id).lp_flags() != pg_sys::LP_NORMAL {
+                    continue;
+                }
+                let mut t_self = pg_sys::ItemPointerData::default();
+                item_pointer_set_all(&mut t_self, blockno, offset);
+                let mut tuple = pg_sys::HeapTupleData {
+                    t_len: (*item_id).lp_len(),
+                    t_self,
+                    t_tableOid: heaprel.oid(),
+                    t_data: pg_sys::PageGetItem(page, item_id).cast(),
+                };
+                if is_indexed(addr_of_mut!(tuple), buffer) {
+                    indexed_offsets.push(offset);
+                }
+            }
+            pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_UNLOCK as i32);
 
-            per_block_context.switch_to(|_| {
-                for offset in pg_sys::FirstOffsetNumber..=max_offset {
-                    let item_id = pg_sys::PageGetItemId(page, offset);
-                    if (*item_id).lp_flags() != pg_sys::LP_NORMAL {
-                        continue;
-                    }
-
-                    let mut t_self = pg_sys::ItemPointerData::default();
-                    item_pointer_set_all(&mut t_self, blockno, offset);
-                    let mut tuple = pg_sys::HeapTupleData {
-                        t_len: (*item_id).lp_len(),
-                        t_self,
-                        t_tableOid: heaprel.oid(),
-                        t_data: pg_sys::PageGetItem(page, item_id).cast(),
-                    };
-                    if !is_indexed(addr_of_mut!(tuple), buffer) {
-                        continue;
-                    }
-
+            // The pin blocks pruning and eviction, so the line pointers and tuple data recorded
+            // above stay valid while we read them here.
+            let block_result = per_block_context.switch_to(|_| {
+                for &offset in &indexed_offsets {
                     // Decide whether this row makes the sample before paying to project it.
                     seen_rows += 1;
                     let target_slot = if sample.len() < MAX_SAMPLE_ROWS {
@@ -219,6 +230,15 @@ unsafe fn sample_partition_fields(
                         Some(j)
                     };
 
+                    let item_id = pg_sys::PageGetItemId(page, offset);
+                    let mut t_self = pg_sys::ItemPointerData::default();
+                    item_pointer_set_all(&mut t_self, blockno, offset);
+                    let mut tuple = pg_sys::HeapTupleData {
+                        t_len: (*item_id).lp_len(),
+                        t_self,
+                        t_tableOid: heaprel.oid(),
+                        t_data: pg_sys::PageGetItem(page, item_id).cast(),
+                    };
                     pg_sys::ExecStoreBufferHeapTuple(addr_of_mut!(tuple), slot, buffer);
                     pg_sys::slot_getallattrs(slot);
                     let values = std::slice::from_raw_parts((*slot).tts_values, natts);
@@ -228,10 +248,11 @@ unsafe fn sample_partition_fields(
                         .map(|state| state.evaluate(slot))
                         .unwrap_or_default();
 
-                    let point = project_row(&fields, values, isnull, &expr_results)?;
-                    // The stored pointer targets this iteration's `tuple`; drop it before that
-                    // goes out of scope.
+                    let point = project_row(&fields, values, isnull, &expr_results);
+                    // The stored pointer targets this iteration's `tuple`; clear it before that
+                    // goes out of scope, on the error path too.
                     pg_sys::ExecClearTuple(slot);
+                    let point = point?;
 
                     match target_slot {
                         None => sample.push(point),
@@ -239,15 +260,19 @@ unsafe fn sample_partition_fields(
                     }
                 }
                 anyhow::Ok(())
-            })?;
+            });
             per_block_context.reset();
-
-            pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_UNLOCK as i32);
             pg_sys::ReleaseBuffer(buffer);
+
+            if let Err(e) = block_result {
+                result = Err(e);
+                break;
+            }
         }
         pg_sys::ExecDropSingleTupleTableSlot(slot);
     }
 
+    result?;
     Ok(sample)
 }
 
@@ -378,7 +403,7 @@ mod tests {
             .unwrap();
         assert_eq!(again, tree);
 
-        // Under 1024 blocks and 30k rows, the sample is the whole table, so every partition
+        // Under 4096 blocks and 30k rows, the sample is the whole table, so every partition
         // gets an equal share of the real rows.
         let counts = route_all(&tree, "sample_src", "id, tenant_id");
         for count in &counts {
@@ -487,5 +512,63 @@ mod tests {
         .unwrap()
         .unwrap();
         assert_eq!(count, 800);
+    }
+
+    /// A wide, externally TOASTed text key plus a timestamp key, with NULLs in both dimensions.
+    /// Confirms the sampler detoasts under the pin, converts a timestamp, and routes NULLs low.
+    #[pg_test]
+    fn boundaries_detoast_text_and_timestamp_keys_with_nulls() {
+        Spi::run(
+            r#"
+            CREATE TABLE sample_wide (id BIGSERIAL PRIMARY KEY, label TEXT, created TIMESTAMP);
+            ALTER TABLE sample_wide ALTER COLUMN label SET STORAGE EXTERNAL;
+            INSERT INTO sample_wide (label, created)
+            SELECT
+                CASE WHEN i % 11 = 0 THEN NULL
+                     ELSE repeat(md5(i::text) || md5((i * 3)::text), 40) || lpad(i::text, 10, '0')
+                END,
+                CASE WHEN i % 7 = 0 THEN NULL
+                     ELSE timestamp '2020-01-01' + make_interval(mins => i)
+                END
+            FROM generate_series(1, 4000) i;
+            CREATE INDEX sample_wide_idx ON sample_wide
+                USING paradedb (id, (label::pdb.literal), created)
+                WITH (key_field = 'id', partition_by = 'label, created');
+            "#,
+        )
+        .unwrap();
+
+        let (heaprel, indexrel) = open_rels("sample_wide", "sample_wide_idx");
+        let tree = plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 4)
+            .unwrap()
+            .expect("index declares partition_by");
+        assert_eq!(tree.dims().len(), 2);
+        assert!((2..=4).contains(&tree.partition_count()), "{tree}");
+        // NULLs in both dimensions route to the lowest partition.
+        assert_eq!(tree.route(&[PdbOwnedValue::Null, PdbOwnedValue::Null]), 0);
+
+        // Every `label` split value is a fully detoasted string of the generated width, not a
+        // truncated or corrupt copy. `32 * 2` hex chars, repeated 40 times, plus a 10-char tail.
+        let label_width = 32 * 2 * 40 + 10;
+        let mut saw_label_split = false;
+        for p in 0..tree.partition_count() {
+            for (dim, (lower, upper)) in tree.partition_bounds(p).unwrap().into_iter().enumerate() {
+                for bound in [lower, upper] {
+                    let value = match bound {
+                        std::ops::Bound::Included(v) | std::ops::Bound::Excluded(v) => Some(v),
+                        std::ops::Bound::Unbounded => None,
+                    };
+                    if let Some(PdbOwnedValue::Str(s)) = value {
+                        assert_eq!(dim, 0, "only the label dimension carries string splits");
+                        assert_eq!(s.len(), label_width, "detoasted label has the wrong length");
+                        saw_label_split = true;
+                    }
+                }
+            }
+        }
+        assert!(
+            saw_label_split,
+            "expected at least one label split value: {tree}"
+        );
     }
 }

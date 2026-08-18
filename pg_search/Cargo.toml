@@ -23,6 +23,7 @@ deferred_wal = []
 dst = ["dst/enabled", "dep:antithesis-instrumentation"]
 unsafe-postgres = ["pgrx/unsafe-postgres"]
 block_tracker = [] # for debugging when blocks are acquired and released
+io_stats = [] # per-component buffer hit/read counts in EXPLAIN Segment Info
 debug-logging = [
   "dep:env_logger",
 ] # enables env_logger for dependency debug output
@@ -83,7 +84,8 @@ lazy_static = "1.5.0"
 macros = { path = "../macros" }
 half = "2.7.1"
 bytemuck = { version = "1.25.0", features = ["derive", "min_const_generics"] }
-decimal-bytes = "0.4.2"
+decimal-bytes = "0.4.3"
+bigdecimal = "0.4.10"
 paste = "1.0.15"
 typetag = "0.2"
 tokio = { version = "1", features = ["rt"] }

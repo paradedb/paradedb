@@ -447,8 +447,8 @@ impl<'a> WorkerBuildState<'a> {
         let writer = self.writer.take().expect("writer should be set");
         if let Some((segment_meta, _)) = writer.commit()? {
             self.unmerged_metas.push(segment_meta);
-            self.try_merge(true)?;
         }
+        self.try_merge(true)?;
 
         unsafe { set_ps_display_remove_suffix() };
         Ok(())
@@ -1058,5 +1058,33 @@ mod tests {
         }
 
         cleanup_parallel_build_large_table();
+    }
+
+    /// A row count that is an exact multiple of the vector doc-count cap leaves the writer with
+    /// no pending segment at commit; the final merge must still run.
+    #[pg_test]
+    fn test_single_segment_build_exact_doc_cap_multiple() {
+        let nrows = crate::index::writer::index::DEFAULT_MAX_DOCS_PER_SEGMENT * 5;
+        Spi::run("CREATE EXTENSION IF NOT EXISTS vector;").unwrap();
+        Spi::run(&format!(
+            r#"
+            CREATE TABLE exact_cap_multiple (id SERIAL8, emb vector(8));
+            INSERT INTO exact_cap_multiple (emb)
+            SELECT ('[' || array_to_string(array(SELECT random() FROM generate_series(1, 8)), ',') || ']')::vector
+            FROM generate_series(1, {nrows});
+            "#
+        ))
+        .unwrap();
+        Spi::run(
+            "CREATE INDEX exact_cap_multiple_idx ON exact_cap_multiple USING paradedb (id, emb vector_cosine_ops) WITH (key_field = 'id', target_segment_count = 1);",
+        )
+        .unwrap();
+
+        let count: i64 = Spi::get_one(
+            "SELECT COUNT(*)::bigint FROM paradedb.index_info('exact_cap_multiple_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(count, 1, "expected a single segment, got {count}");
     }
 }

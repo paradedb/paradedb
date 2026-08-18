@@ -24,8 +24,11 @@
 //! - Type conversion is limited to aggregate-relevant types
 
 use super::join_targetlist::{AggKind, JoinAggregateTargetList};
+use crate::postgres::customscan::datafusion::numeric_agg::decode_avg_blob;
+use crate::postgres::types_arrow::decimal_bytes_to_anynumeric;
+use arrow_array::cast::AsArray;
 use arrow_array::{Array, RecordBatch};
-use pgrx::{IntoDatum, pg_sys};
+use pgrx::{AnyNumeric, IntoDatum, pg_sys};
 
 /// Project a single row from an aggregate `RecordBatch` into a Postgres `TupleTableSlot`.
 ///
@@ -79,7 +82,7 @@ pub unsafe fn project_aggregate_row_to_slot(
                 col.as_ref(),
                 row_idx,
                 pgrx::PgOid::from(expected_type),
-                None,
+                gc.numeric_scale,
             ) {
                 Ok(Some(datum)) => {
                     datums[pg_idx] = datum;
@@ -125,22 +128,43 @@ pub unsafe fn project_aggregate_row_to_slot(
                 }
             }
         } else {
-            match crate::postgres::types_arrow::arrow_array_to_datum(
-                col.as_ref(),
-                row_idx,
-                pgrx::PgOid::from(agg.result_type_oid),
-                None,
-            ) {
-                Ok(Some(datum)) => {
+            // Aggregate results arrive in the fast field's storage encoding. A
+            // numeric AVG carries its row count beside the sum as
+            // `[count u64 BE, decimal-bytes sum]` and divides through
+            // `AnyNumeric` so the result scale follows Postgres' numeric
+            // division rules, matching a non-pushed-down AVG. Everything else
+            // converts straight out of Arrow with the column's declared scale.
+            let datum = match (&agg.agg_kind, agg.numeric) {
+                (AggKind::Avg, Some(_)) => {
+                    let blob = col.as_binary::<i32>().value(row_idx);
+                    let (count, sum_bytes) = decode_avg_blob(blob)
+                        .unwrap_or_else(|e| panic!("BUG: failed to decode numeric AVG blob: {e}"));
+                    (count != 0)
+                        .then(|| {
+                            let sum =
+                                decimal_bytes_to_anynumeric(sum_bytes, None).unwrap_or_else(|e| {
+                                    panic!("BUG: failed to decode numeric AVG sum: {e}")
+                                });
+                            (sum / AnyNumeric::from(count as i64)).into_datum()
+                        })
+                        .flatten()
+                }
+                (_, numeric) => crate::postgres::types_arrow::arrow_array_to_datum(
+                    col.as_ref(),
+                    row_idx,
+                    pgrx::PgOid::from(agg.result_type_oid),
+                    numeric.and_then(|field_type| field_type.numeric_scale()),
+                )
+                .unwrap_or_else(|e| panic!("BUG: Aggregate projection failed: {e}")),
+            };
+            match datum {
+                Some(datum) => {
                     datums[pg_idx] = datum;
                     isnull[pg_idx] = false;
                 }
-                Ok(None) => {
+                None => {
                     isnull[pg_idx] = true;
                     datums[pg_idx] = pg_sys::Datum::null();
-                }
-                Err(e) => {
-                    panic!("BUG: Aggregate projection failed: {}", e);
                 }
             }
         }

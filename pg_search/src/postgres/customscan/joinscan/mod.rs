@@ -177,7 +177,9 @@ use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::joinscan::planning::distinct_columns_are_fast_fields;
+use crate::postgres::customscan::joinscan::planning::{
+    distinct_collations_are_deterministic, distinct_columns_are_fast_fields,
+};
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::mpp::glue::mpp_is_active;
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
@@ -605,9 +607,15 @@ impl JoinScan {
             ));
         }
 
+        if has_distinct && !distinct_collations_are_deterministic(root) {
+            return Err(JoinDeclineReason::new(
+                "JoinScan not used: DISTINCT on a nondeterministic collation is not supported",
+            ));
+        }
+
         if has_distinct && distinct_columns_are_fast_fields(root, &all_sources).is_none() {
             return Err(JoinDeclineReason::new(
-                "JoinScan not used: DISTINCT columns must be fast fields",
+                "JoinScan not used: DISTINCT columns must be columnar indexed",
             ));
         }
 

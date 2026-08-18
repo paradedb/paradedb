@@ -101,7 +101,8 @@ JOIN typmod_suppliers s ON p.supplier_id = s.id
 WHERE p.description === 'widget'
 ORDER BY s.name
 LIMIT 10;
-WARNING:  JoinScan not used: DISTINCT columns must be fast fields (tables: p, s)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column s.name is not columnar indexed (table: join)
+WARNING:  JoinScan not used: DISTINCT columns must be columnar indexed (tables: p, s)
                                                      QUERY PLAN                                                      
 ---------------------------------------------------------------------------------------------------------------------
  Limit
@@ -127,7 +128,8 @@ JOIN typmod_suppliers s ON p.supplier_id = s.id
 WHERE p.description === 'widget'
 ORDER BY s.name
 LIMIT 10;
-WARNING:  JoinScan not used: DISTINCT columns must be fast fields (tables: p, s)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column s.name is not columnar indexed (table: join)
+WARNING:  JoinScan not used: DISTINCT columns must be columnar indexed (tables: p, s)
  name  
 -------
  Alpha

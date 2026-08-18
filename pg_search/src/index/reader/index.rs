@@ -1628,7 +1628,8 @@ impl SearchIndexReader {
                     direction,
                 } => {
                     // NOTE: The list of supported field types for `SortByErasedType` must be synced with
-                    // `SearchField::is_sortable`.
+                    // `SearchField::is_sortable`, except Range: `is_sortable` accepts it, but only as
+                    // the leading key, which `sortable_at_position` enforces before we get here.
                     erased_features
                         .push_feature(SortByErasedType::for_field(sort_field), *direction);
                 }

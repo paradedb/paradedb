@@ -750,6 +750,8 @@ impl SearchField {
         // `JsonObject` arm below. They are sortable via `SortByRange`, which reads the bound
         // sub-columns and compares them the way Postgres' `range_cmp` does. Only raw sorting:
         // range bounds are never tokenized, so there is no lowercased variant to sort by.
+        // A true here is not enough on its own: `SortByErasedType` can't read a range, so
+        // `sortable_at_position` restricts it to the leading key.
         if matches!(self.field_type, SearchFieldType::Range(_)) {
             return matches!(desired_normalizer, SearchNormalizer::Raw) && self.is_fast();
         }

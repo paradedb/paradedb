@@ -509,8 +509,9 @@ pub fn is_collation_pushdown_safe(collation: pg_sys::Oid) -> bool {
 /// Range fields are only supported as the leading sort key: every key after the first is
 /// collected via `SortByErasedType`, which reads a single dynamic column, whereas a range
 /// compares by a composite of its bound sub-columns (see
-/// [`crate::index::reader::sort_by_range`]). A range in a later position yields a usable prefix,
-/// so Postgres sorts the remaining keys itself.
+/// [`crate::index::reader::sort_by_range`]). A range in a later position makes the whole
+/// ORDER BY unpushable: Top K can't run on a prefix of the pathkeys, so Postgres sorts the
+/// unsorted scan itself.
 fn sortable_at_position(search_field: &SearchField, position: usize) -> bool {
     position == 0 || !matches!(search_field.field_type(), SearchFieldType::Range(_))
 }

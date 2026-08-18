@@ -48,8 +48,8 @@ jobs:
     name: Run Benchmarker Suite
     runs-on:
       - runs-on=${{ github.run_id }}
-      # 8 vCPU / 32 GiB Graviton4 + NVMe. The dataset compose caps the DB at 4
-      # cores, leaving ~4 for the k6 client; bump the size for wider concurrency.
+      # 8 vCPU / 32 GiB Graviton4 + NVMe. The DB gets cores 0-3, pgbouncer 4,
+      # and k6 5-7 (see the repin step); bump the size for wider concurrency.
       - family=m8gd.2xlarge
       - image=ubuntu24-full-arm64
       - extras=s3-cache # S3-backed cache; https://runs-on.com/caching/magic-cache/
@@ -143,6 +143,21 @@ jobs:
         working-directory: benchmarker
         run: ./bin/loader pull --dataset "${DATASET}" --anonymous --source "${DATASET_S3}"
 
+      # The dataset compose pins pgbouncer to cores 8-11 for the dedicated
+      # 12-core benchmark host; this runner only has 0-7. Repin through a
+      # compose override rather than editing the dataset: paradedb keeps 0-3,
+      # pgbouncer gets 4, and k6 is tasksetted onto the rest (5-7).
+      - name: Repin containers for the 8-core runner
+        working-directory: benchmarker/datasets/${{ env.DATASET }}
+        run: |
+          cat > docker-compose.override.yml <<'EOF'
+          services:
+            paradedb:
+              cpuset: "0-3"
+            pgbouncer-pdb:
+              cpuset: "4"
+          EOF
+
       # The paradedb service sits behind the `paradedb` compose profile.
       # PARADEDB_IMAGE points the compose at our source build and must be set on
       # every compose call, or config drift recreates it with the release image.
@@ -186,9 +201,9 @@ jobs:
             # Warm-up pass (discarded) fills page cache + shared_buffers; the
             # second pass is the measured, exported one.
             echo "== warming ${name} (discarded) =="
-            ( cd "$root/results" && "$root/k6" run "$script" >/dev/null )
+            ( cd "$root/results" && taskset -c 5-7 "$root/k6" run "$script" >/dev/null )
             echo "== measuring ${name} =="
-            ( cd "$root/results" && "$root/k6" run --out dashboard=json,html "$script" )
+            ( cd "$root/results" && taskset -c 5-7 "$root/k6" run --out dashboard=json,html "$script" )
             mv "$(ls -t "$root"/results/dashboard_*.json | head -1)" "$root/results/${name}.json"
             mv "$(ls -t "$root"/results/dashboard_*.html | head -1)" "$root/results/${name}.html"
           done

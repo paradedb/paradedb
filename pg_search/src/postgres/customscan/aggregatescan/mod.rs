@@ -259,13 +259,16 @@ impl GroupingShape {
         } else {
             args.output_rel().reltarget
         };
-        // A grouped path must advertise a positive row estimate: planner stages
-        // above (e.g. a DISTINCT's Unique/HashAggregate) derive numGroups from
-        // path->rows, and ExecInitAgg asserts numGroups > 0.
+        // Neither upper rel has its own `rows` filled in yet; both read ~0 here.
         //
-        // `create_distinct_paths` leaves `distinct_rel->rows` at zero, but it has
-        // already costed its own Unique paths against `estimate_num_groups`, so
-        // borrow the estimate from one of those instead of advertising a single row.
+        // DISTINCT borrows the estimate from the Unique paths Postgres already
+        // costed onto the same relation, because a DISTINCT that claims one row
+        // misprices every node above it. GROUP BY keeps the bare clamp: its
+        // estimate would come from table statistics, and one expected-output file
+        // is shared across PG 15 through 18, so a stats-derived number is not
+        // stable enough to assert. The clamp is what keeps `numGroups` positive
+        // for a DISTINCT planned above a pushed-down GROUP BY, which `ExecInitAgg`
+        // asserts on.
         let rows = if is_distinct {
             PgList::<pg_sys::Path>::from_pg(args.output_rel().pathlist)
                 .get_ptr(0)

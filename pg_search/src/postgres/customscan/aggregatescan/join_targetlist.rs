@@ -317,6 +317,11 @@ pub unsafe fn extract_aggregate_targetlist(
     // Arrow type. Postgres deduplicates the expression itself, so DISTINCT takes
     // plain columns and nothing else.
     let plain_columns_only = shape.is_distinct();
+    let clause = if plain_columns_only {
+        "DISTINCT"
+    } else {
+        "GROUP BY"
+    };
 
     let outer_root_id =
         crate::postgres::customscan::joinscan::build::PlannerRootId::from(args.root);
@@ -333,13 +338,13 @@ pub unsafe fn extract_aggregate_targetlist(
             let rti = (*var).varno as pg_sys::Index;
             let attno = (*var).varattno;
 
-            let source = find_source_by_rti(sources, rti, "GROUP BY column")?;
+            let source = find_source_by_rti(sources, rti, clause)?;
 
             let field_name = source.column_name(attno).ok_or_else(|| {
                 let alias =
                     RelationAlias::new(source.alias.as_deref()).display(source.rti as usize);
                 format!(
-                    "GROUP BY column {} is not columnar indexed",
+                    "{clause} column {} is not columnar indexed",
                     get_attname_safe(Some(source.relid), attno, &alias)
                 )
             })?;

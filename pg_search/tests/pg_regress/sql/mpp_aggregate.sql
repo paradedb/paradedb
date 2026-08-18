@@ -126,6 +126,14 @@ SELECT COUNT(*) FROM (
     WHERE f.content @@@ 'Section'
 ) t;
 
+-- Values, not just the cardinality: a shuffle that drops or duplicates a group
+-- while keeping the count right would slip past a COUNT-only check.
+SELECT DISTINCT f.title
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title
+LIMIT 5;
+
 -- =====================================================================
 -- Pass 2: MPP path (max_parallel_workers_per_gather = 3). Same queries, same expected results.
 --
@@ -174,6 +182,14 @@ SELECT COUNT(*) FROM (
     FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
     WHERE f.content @@@ 'Section'
 ) t;
+
+-- Values, not just the cardinality: a shuffle that drops or duplicates a group
+-- while keeping the count right would slip past a COUNT-only check.
+SELECT DISTINCT f.title
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title
+LIMIT 5;
 
 -- =====================================================================
 -- Cleanup

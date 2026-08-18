@@ -58,6 +58,11 @@ impl PdbOwnedValue {
     /// with `f64::total_cmp` (so NaN has a fixed place), and integer variants compare by value
     /// across `I64`/`U64`/`F64`, since the same column can surface as either through
     /// deserialization. Everything else follows the derived `PartialOrd`.
+    ///
+    /// Not a true total order once a set mixes `F64` with integers past 2^53: the `as f64` casts
+    /// lose precision, so two distinct integers can tie with the same float. Callers today never
+    /// mix those variants inside one dimension (`SearchFieldType` keys the conversion, and the
+    /// wire round trip only swaps `I64`/`U64`, which the `i128` arms compare exactly).
     pub fn total_cmp(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering;
         match (self, other) {

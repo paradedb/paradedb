@@ -102,7 +102,7 @@ WHERE p.description === 'widget'
 ORDER BY s.name
 LIMIT 10;
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column s.name is not columnar indexed (table: join)
-WARNING:  JoinScan not used: DISTINCT columns must be fast fields (tables: p, s)
+WARNING:  JoinScan not used: DISTINCT columns must be columnar indexed (tables: p, s)
                                                      QUERY PLAN                                                      
 ---------------------------------------------------------------------------------------------------------------------
  Limit
@@ -129,7 +129,7 @@ WHERE p.description === 'widget'
 ORDER BY s.name
 LIMIT 10;
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column s.name is not columnar indexed (table: join)
-WARNING:  JoinScan not used: DISTINCT columns must be fast fields (tables: p, s)
+WARNING:  JoinScan not used: DISTINCT columns must be columnar indexed (tables: p, s)
  name  
 -------
  Alpha

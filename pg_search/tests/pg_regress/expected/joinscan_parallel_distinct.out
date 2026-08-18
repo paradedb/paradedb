@@ -6,7 +6,7 @@
 -- to stop at the intervening `Sort`, so `is_join_path` returned false, the
 -- sub-join failed to reconstruct, and the third relation was never absorbed.
 -- JoinScan then declined the whole join -- surfacing (misleadingly) as
--- "DISTINCT columns must be fast fields" -- and the query fell back to a
+-- "DISTINCT columns must be columnar indexed" -- and the query fell back to a
 -- native plan.
 --
 -- The fix peels `SortPath` too (see `unwrap_path_wrappers`). This test guards

@@ -1086,7 +1086,7 @@ WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
-WARNING:  JoinScan not used: DISTINCT columns must be fast fields (tables: p, s)
+WARNING:  JoinScan not used: DISTINCT columns must be columnar indexed (tables: p, s)
                                                                                     QUERY PLAN                                                                                     
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -1118,7 +1118,7 @@ WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
-WARNING:  JoinScan not used: DISTINCT columns must be fast fields (tables: p, s)
+WARNING:  JoinScan not used: DISTINCT columns must be columnar indexed (tables: p, s)
  supplier_json |      name       
 ---------------+-----------------
  "TechCorp"    | 

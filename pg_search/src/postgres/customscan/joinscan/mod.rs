@@ -607,7 +607,7 @@ impl JoinScan {
 
         if has_distinct && distinct_columns_are_fast_fields(root, &all_sources).is_none() {
             return Err(JoinDeclineReason::new(
-                "JoinScan not used: DISTINCT columns must be fast fields",
+                "JoinScan not used: DISTINCT columns must be columnar indexed",
             ));
         }
 

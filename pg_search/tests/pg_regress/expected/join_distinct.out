@@ -532,7 +532,7 @@ WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 10;
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column p.description is not columnar indexed (table: join)
-WARNING:  JoinScan not used: DISTINCT columns must be fast fields (tables: p, s)
+WARNING:  JoinScan not used: DISTINCT columns must be columnar indexed (tables: p, s)
                                                                                       QUERY PLAN                                                                                       
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit

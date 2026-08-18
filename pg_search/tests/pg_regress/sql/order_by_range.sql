@@ -96,12 +96,17 @@ DECLARE
     line text;
     pushed_down bool := false;
 BEGIN
+    -- The EXPLAIN and the two EXECUTEs share one statement text on purpose. If
+    -- they drifted, the plan check could pass on one shape while the values
+    -- came from another, and a lost pushdown would compare native to native.
     query := format(
-        'SELECT %I::text AS v FROM %I WHERE title @@@ ''doc'' ORDER BY %I %s LIMIT %s OFFSET %s',
+        'SELECT array_agg(v) FROM ('
+        '  SELECT %I::text AS v FROM %I WHERE title @@@ ''doc'' ORDER BY %I %s LIMIT %s OFFSET %s'
+        ') s',
         col, tbl, col, dir, lim, off);
 
     SET paradedb.enable_custom_scan = on;
-    EXECUTE format('SELECT array_agg(v) FROM (%s) s', query) INTO pushed;
+    EXECUTE query INTO pushed;
     FOR line IN EXECUTE 'EXPLAIN (COSTS OFF) ' || query LOOP
         IF line LIKE '%TopK%' THEN
             pushed_down := true;
@@ -109,7 +114,7 @@ BEGIN
     END LOOP;
 
     SET paradedb.enable_custom_scan = off;
-    EXECUTE format('SELECT array_agg(v) FROM (%s) s', query) INTO native;
+    EXECUTE query INTO native;
     SET paradedb.enable_custom_scan = on;
 
     IF pushed IS DISTINCT FROM native THEN
@@ -146,6 +151,14 @@ EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT id FROM range_items WHERE title @@@ 'doc' ORDER BY id, nr LIMIT 5;
 
 SELECT id, nr FROM range_items WHERE title @@@ 'doc' ORDER BY id, nr LIMIT 5;
+
+-- `lower(anyrange)` is a different function from the `lower(text)` the planner
+-- recognises, and a scalar bound orders differently from the whole range, so this
+-- must not be mistaken for a sort on `nr`. It stays a Postgres Sort.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT id FROM range_items WHERE title @@@ 'doc' ORDER BY lower(nr) LIMIT 5;
+
+SELECT id, lower(nr) FROM range_items WHERE title @@@ 'doc' ORDER BY lower(nr), id LIMIT 5;
 
 -- =============================================================================
 -- Cross-segment merge. Within a segment, a `numrange` bound compares by term
@@ -250,10 +263,19 @@ END;
 $$;
 
 -- Guards the two checks below. Without a Gather they would silently re-test the
--- serial path, which the rest of the file already covers.
+-- serial path, which the rest of the file already covers. The statement is the
+-- same wrapped shape `check_range_order` measures, so the plan being asserted is
+-- the plan whose values get compared.
 SELECT plan_contains(
-    'SELECT nr FROM range_segments WHERE title @@@ ''doc'' ORDER BY nr LIMIT 5',
-    'Gather') AS parallel_plan;
+    'SELECT array_agg(v) FROM ('
+    '  SELECT nr::text AS v FROM range_segments WHERE title @@@ ''doc'' ORDER BY nr LIMIT 5'
+    ') s',
+    'Gather') AS parallel_plan,
+    plan_contains(
+    'SELECT array_agg(v) FROM ('
+    '  SELECT nr::text AS v FROM range_segments WHERE title @@@ ''doc'' ORDER BY nr LIMIT 5'
+    ') s',
+    'TopK') AS topk_plan;
 
 SELECT check_range_order('range_segments', 'nr', 'ASC', 5, 0);
 SELECT check_range_order('range_segments', 'tzr', 'DESC NULLS LAST', 4, 0);

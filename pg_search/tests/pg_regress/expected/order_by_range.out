@@ -297,12 +297,17 @@ DECLARE
     line text;
     pushed_down bool := false;
 BEGIN
+    -- The EXPLAIN and the two EXECUTEs share one statement text on purpose. If
+    -- they drifted, the plan check could pass on one shape while the values
+    -- came from another, and a lost pushdown would compare native to native.
     query := format(
-        'SELECT %I::text AS v FROM %I WHERE title @@@ ''doc'' ORDER BY %I %s LIMIT %s OFFSET %s',
+        'SELECT array_agg(v) FROM ('
+        '  SELECT %I::text AS v FROM %I WHERE title @@@ ''doc'' ORDER BY %I %s LIMIT %s OFFSET %s'
+        ') s',
         col, tbl, col, dir, lim, off);
 
     SET paradedb.enable_custom_scan = on;
-    EXECUTE format('SELECT array_agg(v) FROM (%s) s', query) INTO pushed;
+    EXECUTE query INTO pushed;
     FOR line IN EXECUTE 'EXPLAIN (COSTS OFF) ' || query LOOP
         IF line LIKE '%TopK%' THEN
             pushed_down := true;
@@ -310,7 +315,7 @@ BEGIN
     END LOOP;
 
     SET paradedb.enable_custom_scan = off;
-    EXECUTE format('SELECT array_agg(v) FROM (%s) s', query) INTO native;
+    EXECUTE query INTO native;
     SET paradedb.enable_custom_scan = on;
 
     IF pushed IS DISTINCT FROM native THEN
@@ -383,6 +388,36 @@ WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). 
   3 | (,10)
   4 | [4,10)
   5 | [5,10)
+(5 rows)
+
+-- `lower(anyrange)` is a different function from the `lower(text)` the planner
+-- recognises, and a scalar bound orders differently from the whole range, so this
+-- must not be mistaken for a sort on `nr`. It stays a Postgres Sort.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT id FROM range_items WHERE title @@@ 'doc' ORDER BY lower(nr) LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: range_items)
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: (lower(nr))
+         ->  Custom Scan (ParadeDB Base Scan) on range_items
+               Table: range_items
+               Index: range_items_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"doc","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
+
+SELECT id, lower(nr) FROM range_items WHERE title @@@ 'doc' ORDER BY lower(nr), id LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: range_items)
+ id |    lower     
+----+--------------
+ 13 |     -0.00001
+ 14 | 0.0000000001
+  4 |            4
+  5 |            5
+  6 |            5
 (5 rows)
 
 -- =============================================================================
@@ -514,13 +549,22 @@ BEGIN
 END;
 $$;
 -- Guards the two checks below. Without a Gather they would silently re-test the
--- serial path, which the rest of the file already covers.
+-- serial path, which the rest of the file already covers. The statement is the
+-- same wrapped shape `check_range_order` measures, so the plan being asserted is
+-- the plan whose values get compared.
 SELECT plan_contains(
-    'SELECT nr FROM range_segments WHERE title @@@ ''doc'' ORDER BY nr LIMIT 5',
-    'Gather') AS parallel_plan;
- parallel_plan 
----------------
- t
+    'SELECT array_agg(v) FROM ('
+    '  SELECT nr::text AS v FROM range_segments WHERE title @@@ ''doc'' ORDER BY nr LIMIT 5'
+    ') s',
+    'Gather') AS parallel_plan,
+    plan_contains(
+    'SELECT array_agg(v) FROM ('
+    '  SELECT nr::text AS v FROM range_segments WHERE title @@@ ''doc'' ORDER BY nr LIMIT 5'
+    ') s',
+    'TopK') AS topk_plan;
+ parallel_plan | topk_plan 
+---------------+-----------
+ t             | t
 (1 row)
 
 SELECT check_range_order('range_segments', 'nr', 'ASC', 5, 0);

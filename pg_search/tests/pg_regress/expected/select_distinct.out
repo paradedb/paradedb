@@ -272,7 +272,7 @@ SELECT DISTINCT name
 FROM dist_products
 WHERE name @@@ 'laptop'
 ORDER BY name;
-WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column dist_products.name is not columnar indexed (table: dist_products)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column dist_products.name is not columnar indexed (table: dist_products)
                                                                          QUERY PLAN                                                                         
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
  Unique
@@ -290,7 +290,7 @@ SELECT DISTINCT name
 FROM dist_products
 WHERE name @@@ 'laptop'
 ORDER BY name;
-WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column dist_products.name is not columnar indexed (table: dist_products)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column dist_products.name is not columnar indexed (table: dist_products)
      name      
 ---------------
  Gaming Laptop
@@ -1262,6 +1262,97 @@ SELECT COUNT(*) FROM (
 SET paradedb.enable_aggregate_custom_scan TO on;
 DROP TABLE IF EXISTS dist_ci CASCADE;
 DROP COLLATION IF EXISTS dist_ci_coll;
+-- =============================================================================
+-- TEST 21: inheritance parent - declines to native PG
+-- The parent's index holds only the parent's own rows, so grouping it would
+-- drop every child row. `FROM ONLY` names just the parent and still pushes down.
+-- =============================================================================
+DROP TABLE IF EXISTS dist_inh_child CASCADE;
+DROP TABLE IF EXISTS dist_inh_parent CASCADE;
+CREATE TABLE dist_inh_parent (
+    id       SERIAL PRIMARY KEY,
+    name     TEXT,
+    category TEXT
+);
+CREATE TABLE dist_inh_child () INHERITS (dist_inh_parent);
+INSERT INTO dist_inh_parent (name, category) VALUES ('parent row', 'FromParent');
+INSERT INTO dist_inh_child  (name, category) VALUES ('child row',  'FromChild');
+CREATE INDEX dist_inh_parent_idx ON dist_inh_parent
+USING bm25 (id, name, category)
+WITH (
+    key_field = 'id',
+    text_fields = '{"name": {}, "category": {"fast": true}}'
+);
+ANALYZE dist_inh_parent;
+ANALYZE dist_inh_child;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT DISTINCT category
+FROM dist_inh_parent
+ORDER BY category;
+                           QUERY PLAN                            
+-----------------------------------------------------------------
+ Unique
+   ->  Sort
+         Sort Key: dist_inh_parent.category
+         ->  Append
+               ->  Seq Scan on dist_inh_parent dist_inh_parent_1
+               ->  Seq Scan on dist_inh_child dist_inh_parent_2
+(6 rows)
+
+-- Both child and parent categories must come back.
+SELECT DISTINCT category
+FROM dist_inh_parent
+ORDER BY category;
+  category  
+------------
+ FromChild
+ FromParent
+(2 rows)
+
+-- Correctness: must match native PG
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT DISTINCT category
+FROM dist_inh_parent
+ORDER BY category;
+  category  
+------------
+ FromChild
+ FromParent
+(2 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- ONLY excludes the children, so the pushdown is sound and must still fire.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT DISTINCT category
+FROM ONLY dist_inh_parent
+ORDER BY category;
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: dist_inh_parent_idx (dist_inh_parent)
+         Group By: category
+         DataFusion Physical Plan: 
+           : CoalescePartitionsExec
+           :   AggregateExec: mode=FinalPartitioned, gby=[category@0 as category], aggr=[]
+           :     RepartitionExec: partitioning=Hash([category@0], 2), input_partitions=2
+           :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[]
+           :         RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
+           :           PgSearchScan: segments=1, query="all"
+(13 rows)
+
+SELECT DISTINCT category
+FROM ONLY dist_inh_parent
+ORDER BY category;
+  category  
+------------
+ FromParent
+(1 row)
+
+DROP TABLE IF EXISTS dist_inh_child CASCADE;
+DROP TABLE IF EXISTS dist_inh_parent CASCADE;
 -- =============================================================================
 -- Cleanup
 -- =============================================================================

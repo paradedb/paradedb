@@ -29,6 +29,13 @@ pub unsafe fn get_plain_relation_relid(rte: *mut pg_sys::RangeTblEntry) -> Optio
         return None;
     }
 
+    // An inheritance parent stands for itself plus its children, but its index
+    // covers only its own rows. Scanning it would drop every child row.
+    // `FROM ONLY parent` clears `inh` and stays eligible.
+    if (*rte).inh {
+        return None;
+    }
+
     let relid = (*rte).relid;
     let relkind = pg_sys::get_rel_relkind(relid) as u8;
 

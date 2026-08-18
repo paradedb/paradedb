@@ -838,6 +838,68 @@ DROP TABLE IF EXISTS dist_ci CASCADE;
 DROP COLLATION IF EXISTS dist_ci_coll;
 
 -- =============================================================================
+-- TEST 21: inheritance parent - declines to native PG
+-- The parent's index holds only the parent's own rows, so grouping it would
+-- drop every child row. `FROM ONLY` names just the parent and still pushes down.
+-- =============================================================================
+
+DROP TABLE IF EXISTS dist_inh_child CASCADE;
+DROP TABLE IF EXISTS dist_inh_parent CASCADE;
+
+CREATE TABLE dist_inh_parent (
+    id       SERIAL PRIMARY KEY,
+    name     TEXT,
+    category TEXT
+);
+
+CREATE TABLE dist_inh_child () INHERITS (dist_inh_parent);
+
+INSERT INTO dist_inh_parent (name, category) VALUES ('parent row', 'FromParent');
+INSERT INTO dist_inh_child  (name, category) VALUES ('child row',  'FromChild');
+
+CREATE INDEX dist_inh_parent_idx ON dist_inh_parent
+USING bm25 (id, name, category)
+WITH (
+    key_field = 'id',
+    text_fields = '{"name": {}, "category": {"fast": true}}'
+);
+
+ANALYZE dist_inh_parent;
+ANALYZE dist_inh_child;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT DISTINCT category
+FROM dist_inh_parent
+ORDER BY category;
+
+-- Both child and parent categories must come back.
+SELECT DISTINCT category
+FROM dist_inh_parent
+ORDER BY category;
+
+-- Correctness: must match native PG
+SET paradedb.enable_aggregate_custom_scan TO off;
+
+SELECT DISTINCT category
+FROM dist_inh_parent
+ORDER BY category;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- ONLY excludes the children, so the pushdown is sound and must still fire.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT DISTINCT category
+FROM ONLY dist_inh_parent
+ORDER BY category;
+
+SELECT DISTINCT category
+FROM ONLY dist_inh_parent
+ORDER BY category;
+
+DROP TABLE IF EXISTS dist_inh_child CASCADE;
+DROP TABLE IF EXISTS dist_inh_parent CASCADE;
+
+-- =============================================================================
 -- Cleanup
 -- =============================================================================
 

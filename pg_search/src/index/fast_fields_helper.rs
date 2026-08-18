@@ -91,7 +91,8 @@ impl FFHelper {
                         | WhichFastField::TableOid
                         | WhichFastField::Score
                         | WhichFastField::Junk(_)
-                        | WhichFastField::DeferredCtid(_) => {
+                        | WhichFastField::DeferredCtid(_)
+                        | WhichFastField::MatchTag(_) => {
                             lookup.push((String::from("junk"), None, OnceLock::from(FFType::Junk)))
                         }
                     }
@@ -354,6 +355,8 @@ pub enum WhichFastField {
     /// Packed DocAddress ctid for deferred visibility (joinscan path only).
     /// The String is the ctid column alias (e.g. "ctid_0").
     DeferredCtid(String),
+    /// Synthetic match tag column (e.g. "__users_tag_0") for disjunctive search join filtering.
+    MatchTag(String),
 }
 
 impl<S: AsRef<str>> From<(S, SearchFieldType)> for WhichFastField {
@@ -386,6 +389,7 @@ impl WhichFastField {
             WhichFastField::Named(s, _) => s.clone(),
             WhichFastField::Deferred(s, _) => s.clone(),
             WhichFastField::DeferredCtid(alias) => alias.clone(),
+            WhichFastField::MatchTag(alias) => alias.clone(),
         }
     }
 
@@ -394,7 +398,7 @@ impl WhichFastField {
         match self {
             WhichFastField::Named(_, field_type) => Some(field_type),
             WhichFastField::Deferred(_, field_type) => Some(field_type),
-            WhichFastField::DeferredCtid(_) => None,
+            WhichFastField::DeferredCtid(_) | WhichFastField::MatchTag(_) => None,
             _ => None,
         }
     }
@@ -412,6 +416,7 @@ impl WhichFastField {
                 crate::scan::deferred_encode::deferred_union_data_type()
             }
             WhichFastField::DeferredCtid(_) => DataType::UInt64,
+            WhichFastField::MatchTag(_) => DataType::Boolean,
         }
     }
 }

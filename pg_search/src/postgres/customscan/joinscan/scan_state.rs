@@ -519,7 +519,6 @@ struct RelNodeBuildCtx<'a> {
     is_parallel: bool,
     join_clause: &'a JoinCSClause,
     translated_exprs: &'a [Expr],
-    ctid_map: &'a crate::api::HashMap<pg_sys::Index, Expr>,
     output_columns: &'a [OutputColumnInfo],
 }
 
@@ -533,7 +532,7 @@ struct RelNodeBuildCtx<'a> {
 ///   dynamically ensuring `Expr::eq(Expr)` assignments map left-bound columns to the left side
 ///   of the equality expression to avoid `SchemaError`s in DataFusion.
 /// - **Filter**: Maps complex, cross-table PostgreSQL scalar expressions down to the DataFusion
-///   engine using a pre-constructed `ctid_map` for row-level execution.
+///   engine for row-level execution.
 ///
 /// All references that don't change between recursive calls are bundled into
 /// [`RelNodeBuildCtx`] so the recursive sites can stay terse.
@@ -569,23 +568,11 @@ fn build_relnode_df<'a>(
             }
             RelNode::Filter(filter) => {
                 let df = build_relnode_df(rctx, &filter.input).await?;
-
-                // Compute per-plan_position deferred visibility. A plan_position's
-                // ctid is "deferred" (packed DocAddress) if it flows through inner
-                // joins or the preserved side of a left/right/semi/anti join from the leaf
-                // scan. Other non-inner joins (full, etc.) trigger per-child
-                // visibility barriers that resolve ctids to real heap TIDs, while
-                // left/right/semi/anti joins only force the null-supplying side.
-                let deferred_positions =
-                    super::visibility_filter::deferred_plan_positions(&filter.input);
                 let sources = filter.input.sources();
                 apply_join_level_filter(
                     df,
                     &filter.predicate,
                     rctx.translated_exprs,
-                    rctx.ctid_map,
-                    &rctx.join_clause.join_level_predicates,
-                    &deferred_positions,
                     &sources,
                     /* handle_mark = */ true,
                 )
@@ -626,18 +613,11 @@ fn build_clause_df<'a>(
         // stages re-borrow `plan_sources` for projection / output assembly.
         drop(translator);
 
-        let mut ctid_map: crate::api::HashMap<pg_sys::Index, Expr> = Default::default();
-        for (i, _) in plan_sources.iter().enumerate() {
-            let ctid_name = CtidColumn::new(i).to_string();
-            ctid_map.insert(i as pg_sys::Index, col(&ctid_name));
-        }
-
         let rctx = RelNodeBuildCtx {
             ctx,
             is_parallel,
             join_clause,
             translated_exprs: &translated_exprs,
-            ctid_map: &ctid_map,
             output_columns: &private_data.output_columns,
         };
         let df = build_relnode_df(&rctx, &join_clause.plan).await?;
@@ -1057,6 +1037,11 @@ fn build_source_df<'a>(
         };
         let mut provider =
             PgSearchTableProvider::new(scan_info.clone(), fields.clone(), source_idx);
+        if let crate::scan::ScanMode::Tagged { local_queries, .. } = &source.scan_info.mode {
+            for tq in local_queries {
+                provider.add_match_tag_column(&tq.tag_name);
+            }
+        }
 
         // When DISTINCT is present, PostgreSQL expands the query path-keys
         // to include all DISTINCT columns.

@@ -764,16 +764,6 @@ impl CustomScan for AggregateScan {
                     explainer.add_text("Group By", groups.join(", "));
                 }
 
-                // Show join-level search predicates (cross-table WHERE filters)
-                if !df_state.join_level_predicates.is_empty() {
-                    let preds: Vec<String> = df_state
-                        .join_level_predicates
-                        .iter()
-                        .map(|p| p.display_string.clone())
-                        .collect();
-                    explainer.add_text("Search Filter", preds.join(" AND "));
-                }
-
                 // Show multi-table predicates (non-@@@ cross-table filters)
                 if !df_state.multi_table_predicates.is_empty() {
                     let preds: Vec<String> = df_state

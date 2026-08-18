@@ -36,7 +36,6 @@ use crate::postgres::customscan::datafusion::explain::format_expr_for_explain;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::pullup::resolve_fast_field;
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
-use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{expr_collect_rtis, expr_collect_vars, expr_contains_any_operator};
@@ -164,6 +163,30 @@ pub unsafe fn extract_join_level_conditions(
         join_clause = join_clause.with_join_level_expr(final_expr);
     }
 
+    if !join_clause.join_level_predicates.is_empty() {
+        use crate::postgres::customscan::joinscan::build::RelationAlias;
+        use crate::scan::{ScanMode, TaggedQuery};
+        for source in join_clause.plan.sources_mut() {
+            let alias =
+                RelationAlias::new(source.scan_info.alias.as_deref()).display(source.plan_position);
+            let local_queries: Vec<TaggedQuery> = join_clause
+                .join_level_predicates
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| p.rti == source.scan_info.heap_rti)
+                .enumerate()
+                .map(|(local_idx, (global_idx, p))| TaggedQuery {
+                    tag_name: format!("__{alias}_tag_{local_idx}"),
+                    tag_idx: crate::scan::TagIndex(local_idx),
+                    predicate_idx: crate::scan::GlobalPredicateIndex(global_idx),
+                    query: Box::new(p.query.clone()),
+                })
+                .collect();
+            let base_query = source.scan_info.mode.query().clone();
+            source.scan_info.mode = ScanMode::tagged(base_query, local_queries);
+        }
+    }
+
     Ok((join_clause, multi_table_predicate_clauses))
 }
 
@@ -227,7 +250,9 @@ pub unsafe fn transform_to_search_expr(
         }
     }
 
-    // If this is a single-table expression with search predicate, extract as Predicate
+    // If this is a single-table expression with search predicate, extract as a single
+    // Tantivy search predicate so that table-local negation (with NULL-preserving exists guards),
+    // conjunctions, and disjunctions are evaluated natively by Tantivy.
     if has_search_op && rtis.len() == 1 && referenced_source_indices.len() == 1 {
         let rti = *rtis.iter().next().unwrap();
         let source = &sources[referenced_source_indices[0]];
@@ -246,23 +271,8 @@ pub unsafe fn transform_to_search_expr(
         return None;
     }
 
-    // If this is a cross-relation expression WITHOUT search predicate, create MultiTablePredicate
-    if !has_search_op && referenced_source_indices.len() > 1 {
-        if !all_vars_are_fast_fields_recursive(node, sources) {
-            return None;
-        }
-
-        let translator = PredicateTranslator::new(sources);
-        translator.translate(node)?;
-
-        let description = format_expr_for_explain(node);
-        let predicate_idx =
-            join_clause.add_multi_table_predicate(description, multi_table_predicate_clauses.len());
-        multi_table_predicate_clauses.push(node as *mut pg_sys::Expr);
-        return Some(JoinLevelExpr::MultiTablePredicate { predicate_idx });
-    }
-
-    // Handle BoolExpr
+    // If this is a cross-table BoolExpr, preserve its boolean structure (AND, OR, NOT)
+    // in JoinLevelExpr so it can be translated into DataFusion's boolean expressions.
     if node_type == pg_sys::NodeTag::T_BoolExpr {
         let boolexpr = node as *mut pg_sys::BoolExpr;
         let boolop = (*boolexpr).boolop;
@@ -307,6 +317,20 @@ pub unsafe fn transform_to_search_expr(
             }
             _ => None,
         }
+    } else if !has_search_op && referenced_source_indices.len() > 1 {
+        // If this is a cross-relation expression WITHOUT search predicate, create MultiTablePredicate
+        if !all_vars_are_fast_fields_recursive(node, sources) {
+            return None;
+        }
+
+        let translator = PredicateTranslator::new(sources);
+        translator.translate(node)?;
+
+        let description = format_expr_for_explain(node);
+        let predicate_idx =
+            join_clause.add_multi_table_predicate(description, multi_table_predicate_clauses.len());
+        multi_table_predicate_clauses.push(node as *mut pg_sys::Expr);
+        Some(JoinLevelExpr::MultiTablePredicate { predicate_idx })
     } else {
         None
     }
@@ -359,15 +383,7 @@ pub unsafe fn extract_single_table_predicate(
     )?;
 
     let query = SearchQueryInput::from(&qual);
-
-    // Eagerly deparse the expression for EXPLAIN output while planner pointers are valid
-    let display_str = {
-        let context = PlannerContext::from_planner(root);
-        let index_rel = PgSearchRelation::open(indexrelid);
-        deparse_expr(Some(&context), &index_rel, expr)
-    };
-
-    let idx = join_clause.add_join_level_predicate(rti, indexrelid, heaprelid, query, display_str);
+    let idx = join_clause.add_join_level_predicate(rti, indexrelid, heaprelid, query);
     Some(idx)
 }
 

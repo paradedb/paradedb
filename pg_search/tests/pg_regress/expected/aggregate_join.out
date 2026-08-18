@@ -1163,6 +1163,7 @@ SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE (t.id = 1 OR p.id = 1) AND p.description @@@ 'laptop';
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate cannot be pushed into the aggregate scan (table: join)
  count 
 -------
      2

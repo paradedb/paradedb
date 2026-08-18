@@ -72,7 +72,6 @@ use pgrx::pg_sys;
 
 use crate::index::fast_fields_helper::{FFHelper, for_each_segment};
 use crate::postgres::customscan::joinscan::CtidColumn;
-use crate::postgres::customscan::joinscan::build::{JoinType, RelNode};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::execution_plan::UnsafeSendStream;
@@ -282,40 +281,6 @@ impl OptimizerRule for VisibilityFilterOptimizerRule {
             wrapped.transformed || result.transformed,
         ))
     }
-}
-
-/// Returns the plan_positions whose ctid columns are still packed DocAddresses
-/// at the output of this join subtree.
-///
-/// This shared barrier analysis is used while translating join-level search
-/// predicates so each `SearchPredicateUDF` knows whether to emit packed or real
-/// ctids at the point where it is attached.
-pub fn deferred_plan_positions(node: &RelNode) -> crate::api::HashSet<usize> {
-    fn collect(node: &RelNode, acc: &mut crate::api::HashSet<usize>) {
-        match node {
-            RelNode::Scan(source) => {
-                acc.insert(source.plan_position);
-            }
-            RelNode::Join(join) => match join.join_type {
-                JoinType::Inner => {
-                    collect(&join.left, acc);
-                    collect(&join.right, acc);
-                }
-                JoinType::Left => collect(&join.left, acc),
-                JoinType::Semi => collect(&join.left, acc),
-                JoinType::Anti { .. } => collect(&join.left, acc),
-                JoinType::Right => collect(&join.right, acc),
-                JoinType::RightSemi => collect(&join.right, acc),
-                JoinType::RightAnti => collect(&join.right, acc),
-                _ => (),
-            },
-            RelNode::Filter(filter) => collect(&filter.input, acc),
-        }
-    }
-
-    let mut deferred = crate::api::HashSet::default();
-    collect(node, &mut deferred);
-    deferred
 }
 
 // ---------------------------------------------------------------------------
@@ -1204,16 +1169,16 @@ mod tests {
         heap_oid: pg_sys::Oid,
         alias: Option<&str>,
     ) -> Result<LogicalPlan> {
-        let mut provider = PgSearchTableProvider::new(
-            ScanInfo {
-                heap_rti: 1,
-                heaprelid: heap_oid,
-                alias: alias.map(str::to_string),
-                ..Default::default()
-            },
-            vec![WhichFastField::Ctid],
-            None,
+        let mut scan_info = ScanInfo::new(
+            1,
+            heap_oid,
+            pgrx::pg_sys::InvalidOid,
+            crate::scan::ScanMode::all(),
         );
+        if let Some(alias) = alias {
+            scan_info = scan_info.with_alias(alias);
+        }
+        let mut provider = PgSearchTableProvider::new(scan_info, vec![WhichFastField::Ctid], None);
         provider.configure_deferred_outputs(
             &crate::api::HashSet::default(),
             VisibilityMode::Deferred { plan_position },
@@ -1589,7 +1554,7 @@ mod tests {
         let bytes =
             serialize_logical_plan(&wrapped).expect("VisibilityFilterNode should serialize");
         let ctx = TaskContext::default();
-        let decoded = deserialize_logical_plan_with_runtime(&bytes, &ctx, None, None, None, vec![])
+        let decoded = deserialize_logical_plan_with_runtime(&bytes, &ctx, None, None, None)
             .expect("VisibilityFilterNode should deserialize");
 
         let LogicalPlan::Extension(ext) = &decoded else {

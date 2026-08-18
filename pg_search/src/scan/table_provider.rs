@@ -285,6 +285,15 @@ impl PgSearchTableProvider {
         self.visibility_mode
     }
 
+    pub fn add_match_tag_column(&mut self, tag_name: &str) {
+        if !self.fields.iter().any(|f| f.name() == tag_name) {
+            self.fields
+                .push(WhichFastField::MatchTag(tag_name.to_string()));
+            self.schema = OnceLock::new();
+            self.late_materialization_schema = OnceLock::new();
+        }
+    }
+
     /// Returns the JoinScan source identity when visibility has been deferred.
     pub(crate) fn deferred_ctid_plan_position(&self) -> Option<usize> {
         self.visibility_mode().deferred_plan_position()
@@ -406,16 +415,15 @@ impl PgSearchTableProvider {
         // applied at the base relation level. The filters we analyze here are join-level
         // predicates that couldn't be applied earlier - they are different predicates,
         // not duplicates.
-        FilterAnalyzer::new(&self.fields, self.scan_info.indexrelid)
+        FilterAnalyzer::new(&self.fields)
     }
 
     /// Combine the base query with any pushed-down filters.
     ///
     /// The base query comes from scan_info.query (single-table predicates from baserestrictinfo).
     /// The filters come from DataFusion's supports_filters_pushdown mechanism - these are
-    /// join-level predicates that couldn't be applied at the base relation level, including:
-    /// - SearchPredicateUDF: @@@ predicates from cross-table conditions
-    /// - Regular SQL predicates: equality, range, IN list on indexed columns
+    /// join-level predicates that couldn't be applied at the base relation level (e.g. regular
+    /// SQL predicates: equality, range, IN list on indexed columns).
     fn combine_query_with_filters(
         &self,
         base_query: SearchQueryInput,
@@ -519,6 +527,7 @@ impl PgSearchTableProvider {
             heap_relid: heap_relid.into(),
             batch_size_hint: None,
             score_needed: self.scan_info.score_needed,
+            scan_mode: self.scan_info.mode.clone(),
         };
         let state = ScanState {
             source_idx,
@@ -624,7 +633,9 @@ impl PgSearchTableProvider {
         // rather than earlier because each process (leader and workers) independently
         // deserializes the logical plan in its own executor context. The
         // planstate and expr_context are injected by the execution codec.
-        let mut query = self.combine_query_with_filters(self.scan_info.query.clone(), filters);
+        let base_query = self.scan_info.mode.query().clone();
+        let needs_tokenizer = self.scan_info.mode.needs_tokenizer();
+        let mut query = self.combine_query_with_filters(base_query, filters);
         if query.has_postgres_expressions() || query.has_parameters() {
             let Some(planstate) = planstate else {
                 return Err(DataFusionError::Internal(
@@ -669,7 +680,7 @@ impl PgSearchTableProvider {
             mvcc_style,
             expr_context.and_then(std::ptr::NonNull::new),
             None,
-            query.needs_tokenizer(),
+            query.needs_tokenizer() || needs_tokenizer,
         )
         .map_err(|e| DataFusionError::Internal(format!("Failed to open reader: {e}")))?;
 

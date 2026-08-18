@@ -271,6 +271,28 @@ pub unsafe fn extract_join_tree_from_parse(
             &mut multi_table_clauses,
         )?;
     }
+    if !join_level_predicates.is_empty() {
+        use crate::postgres::customscan::joinscan::build::RelationAlias;
+        use crate::scan::{ScanMode, TaggedQuery};
+        for source in plan.sources_mut() {
+            let alias =
+                RelationAlias::new(source.scan_info.alias.as_deref()).display(source.plan_position);
+            let local_queries: Vec<TaggedQuery> = join_level_predicates
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| p.rti == source.scan_info.heap_rti)
+                .enumerate()
+                .map(|(local_idx, (global_idx, p))| TaggedQuery {
+                    tag_name: format!("__{alias}_tag_{local_idx}"),
+                    tag_idx: crate::scan::TagIndex(local_idx),
+                    predicate_idx: crate::scan::GlobalPredicateIndex(global_idx),
+                    query: Box::new(p.query.clone()),
+                })
+                .collect();
+            let base_query = source.scan_info.mode.query().clone();
+            source.scan_info.mode = ScanMode::tagged(base_query, local_queries);
+        }
+    }
 
     Ok((
         plan,

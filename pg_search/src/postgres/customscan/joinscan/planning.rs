@@ -314,7 +314,7 @@ pub unsafe fn classify_base_restrictinfo(
     // has pushed down to the base relation level.
     //
     // Note: Cross-table predicates (e.g., involving multiple tables in a join)
-    // are handled separately via SearchPredicateUDF through filter pushdown.
+    // are handled separately at the join level.
     let baserestrictinfo = PgList::<pg_sys::RestrictInfo>::from_pg(baserestrictinfo);
     if baserestrictinfo.is_empty() {
         return classified;

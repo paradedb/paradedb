@@ -28,6 +28,13 @@ inputs:
     description: Extra cargo features to enable (space-separated, optional).
     required: false
     default: ""
+  target:
+    description: >-
+      Rust target triple to build for (optional). Passing an explicit --target
+      also scopes any CARGO_TARGET_<triple>_RUSTFLAGS set on the calling step to
+      the extension itself, keeping them off host build scripts.
+    required: false
+    default: ""
 
 outputs:
   artifacts-dir:
@@ -102,8 +109,14 @@ runs:
         if [ -n "${{ inputs.features }}" ]; then
           features_arg=(--features "${{ inputs.features }}")
         fi
+        target_arg=()
+        target_dir="target/${{ inputs.profile }}"
+        if [ -n "${{ inputs.target }}" ]; then
+          target_arg=(--target "${{ inputs.target }}")
+          target_dir="target/${{ inputs.target }}/${{ inputs.profile }}"
+        fi
         cargo pgrx package --package pg_search --profile "${{ inputs.profile }}" \
-          --pg-config "${PG_CONFIG}" "${features_arg[@]}"
+          --pg-config "${PG_CONFIG}" "${target_arg[@]}" "${features_arg[@]}"
 
         # Stage the install tree the way the release .deb lays it out, so a
         # consumer can COPY artifacts/usr/ over a released image.
@@ -111,8 +124,8 @@ runs:
         libdir="${out}/usr/lib/postgresql/${{ inputs.pg-version }}/lib"
         extdir="${out}/usr/share/postgresql/${{ inputs.pg-version }}/extension"
         mkdir -p "$libdir" "$extdir"
-        find "target/${{ inputs.profile }}" -type f -name 'pg_search*.so'      -exec cp {} "$libdir/" \;
-        find "target/${{ inputs.profile }}" -type f -name 'pg_search*.control' -exec cp {} "$extdir/" \;
-        find "target/${{ inputs.profile }}" -type f -name 'pg_search*.sql'     -exec cp {} "$extdir/" \;
+        find "$target_dir" -type f -name 'pg_search*.so'      -exec cp {} "$libdir/" \;
+        find "$target_dir" -type f -name 'pg_search*.control' -exec cp {} "$extdir/" \;
+        find "$target_dir" -type f -name 'pg_search*.sql'     -exec cp {} "$extdir/" \;
         echo "Staged artifacts:"; find "$out" -type f
         echo "artifacts-dir=$out" >> "$GITHUB_OUTPUT"

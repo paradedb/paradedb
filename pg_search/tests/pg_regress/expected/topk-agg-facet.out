@@ -1678,7 +1678,7 @@ GROUP BY category
 HAVING AVG(price) > 1000
 ORDER BY avg_price DESC
 LIMIT 3;
-WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column products.category is not columnar indexed (table: join)
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column products.category is not columnar indexed (table: products)
                                                                                      QUERY PLAN                                                                                      
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -1716,7 +1716,7 @@ GROUP BY category
 HAVING AVG(price) > 1000
 ORDER BY avg_price DESC
 LIMIT 3;
-WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column products.category is not columnar indexed (table: join)
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column products.category is not columnar indexed (table: products)
  category | avg_price | total_count 
 ----------+-----------+-------------
  Laptops  |      1849 |           1

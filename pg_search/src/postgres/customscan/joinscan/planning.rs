@@ -37,7 +37,9 @@ use crate::nodecast;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::opexpr::lookup_operator;
-use crate::postgres::customscan::orderby::is_collation_pushdown_safe;
+use crate::postgres::customscan::orderby::{
+    collation_is_deterministic, is_collation_pushdown_safe,
+};
 use crate::postgres::customscan::pullup::{
     field_type_for_pullup, get_attno_by_name, resolve_fast_field,
 };
@@ -1684,6 +1686,36 @@ unsafe fn column_name_for_var(
 ///
 /// Returns `Some(entries)` if all DISTINCT columns are fast fields, `None` otherwise.
 /// When there is no DISTINCT clause, returns `Some(vec![])`.
+/// Whether every DISTINCT column settles equality the way the join dedup does.
+///
+/// JoinScan deduplicates on bytes. A nondeterministic collation can call two
+/// different byte strings equal, and the `Unique` Postgres plans above the scan
+/// cannot merge rows the scan already emitted apart.
+pub(super) unsafe fn distinct_collations_are_deterministic(root: *mut pg_sys::PlannerInfo) -> bool {
+    let parse = (*root).parse;
+    if parse.is_null() || (*parse).distinctClause.is_null() {
+        return true;
+    }
+
+    let distinct_list = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause);
+    let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+
+    distinct_list.iter_ptr().all(|clause| {
+        let tle_ref = (*clause).tleSortGroupRef;
+        match target_list
+            .iter_ptr()
+            .find(|te| (**te).ressortgroupref == tle_ref)
+        {
+            // Read the collation before any stripping: `COLLATE` reaches the
+            // planner as a `RelabelType` that `strip_wrappers` would discard.
+            Some(te) => {
+                collation_is_deterministic(pg_sys::exprCollation((*te).expr as *mut pg_sys::Node))
+            }
+            None => true,
+        }
+    })
+}
+
 pub(super) unsafe fn distinct_columns_are_fast_fields(
     root: *mut pg_sys::PlannerInfo,
     sources: &[&JoinSource],

@@ -531,7 +531,7 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: grouping column "description" exists, but is not a fast field (table: join)
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column p.description is not columnar indexed (table: join)
 WARNING:  JoinScan not used: DISTINCT columns must be fast fields (tables: p, s)
                                                                                       QUERY PLAN                                                                                       
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------

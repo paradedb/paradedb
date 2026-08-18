@@ -213,6 +213,11 @@ FROM (
     GROUP BY GROUPING SETS ((name_c), ())
 ) AS grouped;
 
+SELECT name_c, pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
+FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY GROUPING SETS ((name_c), ());
+
 \echo 'Test 2.7: constant-equality GROUP BY key with no pathkeys -> AggregateScan declined'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_c, COUNT(*)

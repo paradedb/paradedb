@@ -370,6 +370,12 @@ FROM (
            6
 (1 row)
 
+SELECT name_c, pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
+FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY GROUPING SETS ((name_c), ());
+WARNING:  Aggregate Scan not used: GROUPING SETS are not supported
+ERROR:  pdb.agg() must be handled by ParadeDB's custom scan. This error usually means the query syntax is not supported. Try adding '@@@ pdb.all()' to your WHERE clause to force custom scan usage, or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported.
 \echo 'Test 2.7: constant-equality GROUP BY key with no pathkeys -> AggregateScan declined'
 Test 2.7: constant-equality GROUP BY key with no pathkeys -> AggregateScan declined
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

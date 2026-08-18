@@ -309,8 +309,6 @@ impl CustomScan for AggregateScan {
             }
         };
 
-        // If ParadeDB cannot preserve GROUP BY equality, do not offer an
-        // AggregateScan path; PostgreSQL must aggregate the original rows.
         if let Err(reason) = unsafe { grouping_collations_are_pushdown_safe(builder.args()) } {
             if has_paradedb_agg {
                 Self::add_planner_warning(reason.planner_warning(), ());

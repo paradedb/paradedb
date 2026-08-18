@@ -4,7 +4,7 @@ CREATE TABLE stopwords_lang(
     t text
 );
 
-CREATE INDEX idxstopwords_lang ON stopwords_lang USING bm25 (id, (t::pdb.simple('stopwords_language=english'))) WITH (key_field = 'id');
+CREATE INDEX idxstopwords_lang ON stopwords_lang USING paradedb (id, (t::pdb.simple('stopwords_language=english'))) WITH (key_field = 'id');
 
 INSERT INTO stopwords_lang (t) VALUES ('how many of these are in the stopwords list?');
 

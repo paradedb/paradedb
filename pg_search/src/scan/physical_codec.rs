@@ -30,8 +30,6 @@ use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
 use datafusion::logical_expr::ScalarUDF;
-use datafusion::physical_optimizer::PhysicalOptimizerRule;
-use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::DistributedCodec;
 use datafusion_proto::physical_plan::{
@@ -44,6 +42,7 @@ use tantivy::index::SegmentId;
 use crate::api::{HashMap, HashSet};
 use crate::index::fast_fields_helper::FFHelper;
 use crate::postgres::ParallelScanState;
+use crate::postgres::customscan::datafusion::numeric_agg;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
@@ -140,6 +139,7 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
                     ctx,
                     &self.index_segment_ids,
                     self.parallel_state,
+                    proto_converter,
                 )
             }
             other => Err(DataFusionError::NotImplemented(format!(
@@ -171,7 +171,7 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
         }
         if let Some(topk) = node.downcast_ref::<SegmentedTopKExec>() {
             buf.push(TAG_SEGMENTED_TOPK);
-            buf.extend_from_slice(&topk.encode_for_dispatch()?);
+            buf.extend_from_slice(&topk.encode_for_dispatch(proto_converter)?);
             return Ok(());
         }
         Err(DataFusionError::NotImplemented(format!(
@@ -190,6 +190,30 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
         // Not ours: encode nothing so the expression travels by name and the decoding session
         // resolves it from its registry (DataFusion built-ins are registered there).
         try_encode_pg_search_udf(node, buf)?;
+        Ok(())
+    }
+
+    fn try_decode_udaf(
+        &self,
+        name: &str,
+        _buf: &[u8],
+    ) -> Result<Arc<datafusion::logical_expr::AggregateUDF>> {
+        // The numeric aggregate UDAFs are stateless singletons resolved by
+        // name; they are not in any session registry, so a dispatched plan
+        // that references them must decode through here.
+        numeric_agg::udaf_by_name(name).ok_or_else(|| {
+            DataFusionError::NotImplemented(format!(
+                "UDAF '{name}' deserialization not implemented"
+            ))
+        })
+    }
+
+    fn try_encode_udaf(
+        &self,
+        _node: &datafusion::logical_expr::AggregateUDF,
+        _buf: &mut Vec<u8>,
+    ) -> Result<()> {
+        // Name-only encoding; decode resolves by name.
         Ok(())
     }
 }
@@ -300,6 +324,24 @@ impl PhysicalExtensionCodec for DistributedCodecHostingPgSearchUdfs {
         Ok(())
     }
 
+    fn try_encode_udaf(
+        &self,
+        node: &datafusion::logical_expr::AggregateUDF,
+        _buf: &mut Vec<u8>,
+    ) -> Result<()> {
+        // Same shadowing hazard as `try_encode_udf`: accepting the encode here
+        // would record this codec's index, and its decode has no resolver for
+        // the numeric aggregate UDAFs. Decline ours so composition falls
+        // through to `PgSearchPhysicalExtensionCodec`.
+        if numeric_agg::udaf_by_name(node.name()).is_some() {
+            return Err(DataFusionError::NotImplemented(format!(
+                "UDAF '{}' is encoded by the pg_search codec",
+                node.name()
+            )));
+        }
+        Ok(())
+    }
+
     fn try_decode_udf(&self, name: &str, _buf: &[u8]) -> Result<Arc<ScalarUDF>> {
         Err(DataFusionError::NotImplemented(format!(
             "UDF '{name}' is not registered on the decoding session and carries no definition"
@@ -361,19 +403,5 @@ pub fn deserialize_physical_plan_with_runtime(
     })?;
     let decode_ctx = PhysicalPlanDecodeContext::new(ctx, &codec);
     let plan = proto_converter.proto_to_execution_plan(&proto, &decode_ctx)?;
-    // Dynamic filters (hash-join keys, top-k bounds) are process-local Arcs shared between an
-    // operator and the scans below it, and the two link mechanisms differ:
-    //
-    // - HashJoinExec/AggregateExec links ride the wire by identity: the scan ships its
-    //   installed filters (`ScanDispatchDescriptor::dynamic_filters`) and the deduplicating
-    //   converter re-shares each with the operator's own decoded copy via `expr_id` (the
-    //   apache/datafusion#20416 machinery; design discussion in
-    //   https://github.com/apache/datafusion/issues/21207). Those operators skip re-pushing
-    //   when they already carry a filter, so this pass cannot relink them.
-    // - SegmentedTopKExec recreates its filter fresh on decode and re-pushes it every Post
-    //   phase, so this pass is what wires the worker's top-k threshold into its scans.
-    //
-    // Both mechanisms are fragment-local; a link that crossed fragments would need the filter
-    // values shipped between processes.
-    FilterPushdown::new_post_optimization().optimize(plan, ctx.session_config().options())
+    Ok(plan)
 }

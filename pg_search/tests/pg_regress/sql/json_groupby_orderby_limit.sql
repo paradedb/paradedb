@@ -30,7 +30,7 @@ INSERT INTO json_test_single (metadata, data) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_single ON json_test_single
-USING bm25 (id, metadata, data)
+USING paradedb (id, metadata, data)
 WITH (
     key_field = 'id',
     json_fields = '{

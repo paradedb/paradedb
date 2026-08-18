@@ -9,7 +9,7 @@ CREATE TABLE numeric_conversion (
     amount numeric(36,0)
 );
 
-CREATE INDEX idx_numeric_conversion ON numeric_conversion USING bm25 (id, description, amount)
+CREATE INDEX idx_numeric_conversion ON numeric_conversion USING paradedb (id, description, amount)
 WITH (key_field = 'id');
 
 --

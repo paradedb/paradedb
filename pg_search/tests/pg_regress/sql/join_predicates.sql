@@ -53,9 +53,9 @@ INSERT INTO products (id, name, description, supplier_id, price) VALUES
 
 -- Create BM25 indexes on both tables
 -- Note: JoinScan requires all join key columns and ORDER BY columns to be fast fields
-CREATE INDEX products_bm25_idx ON products USING bm25 (id, name, description, supplier_id, price)
+CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price)
 WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}}');
-CREATE INDEX suppliers_bm25_idx ON suppliers USING bm25 (id, name, contact_info, country)
+CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, contact_info, country)
 WITH (key_field = 'id');
 
 -- Make sure the GUC is enabled
@@ -300,13 +300,13 @@ CREATE TABLE qgen_products (
 -- Create index BEFORE inserting data (this is the key difference from other tests)
 -- This causes multiple segments to be created as data is inserted
 -- Note: age must be a fast field for the join key
-CREATE INDEX qgen_users_bm25_idx ON qgen_users USING bm25 (id, name, age) WITH (
+CREATE INDEX qgen_users_bm25_idx ON qgen_users USING paradedb (id, name, age) WITH (
     key_field = 'id',
     text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true } }',
     numeric_fields = '{ "age": { "fast": true } }'
 );
 
-CREATE INDEX qgen_products_bm25_idx ON qgen_products USING bm25 (id, name, age) WITH (
+CREATE INDEX qgen_products_bm25_idx ON qgen_products USING paradedb (id, name, age) WITH (
     key_field = 'id',
     text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true } }',
     numeric_fields = '{ "age": { "fast": true } }'
@@ -419,10 +419,10 @@ UPDATE suppliers SET min_order_value = 100.00 WHERE id = 154; -- QualityFirst
 DROP INDEX IF EXISTS products_bm25_idx;
 DROP INDEX IF EXISTS suppliers_bm25_idx;
 
-CREATE INDEX products_bm25_idx ON products USING bm25 (id, name, description, supplier_id, price)
+CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price)
 WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}}');
 
-CREATE INDEX suppliers_bm25_idx ON suppliers USING bm25 (id, name, contact_info, country, min_order_value)
+CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, contact_info, country, min_order_value)
 WITH (key_field = 'id', numeric_fields = '{"min_order_value": {"fast": true}}');
 
 -- Test case: Search predicate AND multi-table predicate (both columns are fast fields)

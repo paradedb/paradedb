@@ -1031,7 +1031,7 @@ mod tests {
 
     #[test]
     fn test_avl_map_stress_delete_reinsert_tags() {
-        use rand::Rng;
+        use rand::RngExt;
 
         let mut header = AvlTreeMapHeader::default();
         let mut buf = vec![Slot::<i32, i32, i32>::default(); 1024];

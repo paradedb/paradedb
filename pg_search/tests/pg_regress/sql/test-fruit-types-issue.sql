@@ -15,7 +15,7 @@ CREATE TABLE users (
 );
 
 -- Create BM25 index with fast fields (exact reproduction)
-CREATE INDEX idxusers ON users USING bm25 (id, uuid, name, color, age, price, rating)
+CREATE INDEX idxusers ON users USING paradedb (id, uuid, name, color, age, price, rating)
 WITH (
     key_field = 'id',
     text_fields = '{

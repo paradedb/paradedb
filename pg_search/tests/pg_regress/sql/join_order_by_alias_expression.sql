@@ -30,7 +30,7 @@ INSERT INTO tech_installs (unique_id, company_id, technology_name) VALUES (1, 1,
 -- expression on the same column. This triggers the attno dedup
 -- false-positive in ORDER BY field collection.
 CREATE INDEX contacts_idx ON contacts
-USING bm25 (
+USING paradedb (
     contact_id,
     company_id,
     (lower(company_name::text)::pdb.literal_normalized('ascii_folding=true')),
@@ -38,7 +38,7 @@ USING bm25 (
 ) WITH (key_field=contact_id, numeric_fields='{"company_id": {"fast": true}}');
 
 CREATE INDEX tech_installs_idx ON tech_installs
-USING bm25 (
+USING paradedb (
     unique_id,
     company_id,
     technology_name

@@ -30,14 +30,14 @@ INSERT INTO et_exclusions (pattern) VALUES
     ('alpha'), ('beta');
 
 CREATE INDEX et_items_idx ON et_items
-    USING bm25 (id, name, value)
+    USING paradedb (id, name, value)
     WITH (
         key_field = 'id',
         text_fields = '{"name":{"fast":true}}',
         numeric_fields = '{"value":{"fast":true}}'
     );
 CREATE INDEX et_exclusions_idx ON et_exclusions
-    USING bm25 (id, pattern)
+    USING paradedb (id, pattern)
     WITH (
         key_field = 'id',
         text_fields = '{"pattern":{"fast":true}}'

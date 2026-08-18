@@ -39,7 +39,7 @@ fn json_datatype(mut conn: PgConnection) {
     // if we don't segfault postgres here, we're good
     r#"
     CREATE INDEX test_index ON test_table
-    USING bm25 (id, value) WITH (key_field='id', json_fields='{"value": {"indexed": true, "fast": true}}');
+    USING paradedb (id, value) WITH (key_field='id', json_fields='{"value": {"indexed": true, "fast": true}}');
     "#
     .execute(&mut conn);
 }
@@ -59,7 +59,7 @@ fn simple_jsonb_string_array_crash(mut conn: PgConnection) {
     INSERT INTO crash (j) SELECT '["one-element-string-array"]' FROM generate_series(1, 10000);
     
     CREATE INDEX crash_idx ON crash
-    USING bm25 (id, j) WITH (key_field='id', json_fields='{"j": {"indexed": true, "fast": true}}');
+    USING paradedb (id, j) WITH (key_field='id', json_fields='{"j": {"indexed": true, "fast": true}}');
     "#
     .execute(&mut conn);
 }
@@ -76,7 +76,7 @@ fn json_date_query_with_date_in_path(mut conn: PgConnection) {
         ('{"a": {"date": "2023-05-01T09:12:34Z"}}');
 
     CREATE INDEX json_date_collapse_test_idx ON json_date_collapse_test
-        USING bm25 (id, metadata)
+        USING paradedb (id, metadata)
         WITH (key_field = 'id');
     "#
     .execute(&mut conn);

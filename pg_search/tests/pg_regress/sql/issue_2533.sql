@@ -31,7 +31,7 @@ CREATE TABLE orders
 );
 
 
-CREATE INDEX idxusers ON users USING bm25 (id, name, color, age)
+CREATE INDEX idxusers ON users USING paradedb (id, name, color, age)
     WITH (
     key_field = 'id',
     text_fields = '
@@ -41,7 +41,7 @@ CREATE INDEX idxusers ON users USING bm25 (id, name, color, age)
                 "age": { "tokenizer": { "type": "keyword" } }
             }'
     );
-CREATE INDEX idxproducts ON products USING bm25 (id, name, color, age)
+CREATE INDEX idxproducts ON products USING paradedb (id, name, color, age)
     WITH (
     key_field = 'id',
     text_fields = '
@@ -51,7 +51,7 @@ CREATE INDEX idxproducts ON products USING bm25 (id, name, color, age)
                 "age": { "tokenizer": { "type": "keyword" } }
             }'
     );
-CREATE INDEX idxorders ON orders USING bm25 (id, name, color, age)
+CREATE INDEX idxorders ON orders USING paradedb (id, name, color, age)
     WITH (
     key_field = 'id',
     text_fields = '
@@ -144,9 +144,8 @@ VALUES (11, 'brandy', 'green', '92');
 
 ANALYZE;
 
--- This regression covers a known aggregate-planning failure, not MPP behavior.
--- Keep MPP disabled so it does not emit the duplicate diagnostic tracked by #5783.
-SET max_parallel_workers_per_gather = 0;
+-- Keep MPP active: the known aggregate-planning failure must be built and reported only once.
+SET max_parallel_workers_per_gather = 2;
 -- TODO: See https://github.com/paradedb/paradedb/issues/5266.
 SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT (SELECT COUNT(*)

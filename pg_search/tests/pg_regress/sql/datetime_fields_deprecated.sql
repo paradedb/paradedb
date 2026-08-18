@@ -20,7 +20,7 @@ INSERT INTO deprecated_dt (ts, tstz) VALUES
 
 -- Warns that the option is deprecated, but must not fail
 CREATE INDEX deprecated_dt_idx ON deprecated_dt
-USING bm25 (id, ts, tstz)
+USING paradedb (id, ts, tstz)
 WITH (
     key_field = 'id',
     datetime_fields = '{"ts": {"fast": true}, "tstz": {"fast": true}}'

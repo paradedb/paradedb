@@ -93,7 +93,7 @@ can be pushed down.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description, category)
+USING paradedb (id, description, category)
 WITH (
     key_field='id',
     text_fields='{

@@ -23,13 +23,13 @@ use tests::fixtures::*;
 #[rstest]
 fn hybrid_deprecated(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     );
 
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description, category, rating, in_stock, created_at, metadata)
+    USING paradedb (id, description, category, rating, in_stock, created_at, metadata)
     WITH (
         key_field = 'id',
         text_fields = '{"description": {}, "category": {}}',

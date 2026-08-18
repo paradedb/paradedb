@@ -34,12 +34,16 @@ use crate::postgres::customscan::joinscan::build::{
     lookup_base_rel_info, try_extract_equi_key,
 };
 use crate::postgres::customscan::joinscan::planning::{
-    ClassifiedBaseRestrictInfo, classify_base_restrictinfo, wrap_with_semi_anti,
+    ClassifiedBaseRestrictInfo, classify_base_restrictinfo, transparent_path_subpath,
+    wrap_with_semi_anti,
 };
 use crate::postgres::customscan::pullup::{
     get_attno_by_name, resolve_fast_field, resolve_fast_field_by_name,
 };
-use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
+use crate::postgres::customscan::qual_inspect::{
+    PlannerContext, QualExtractState, collect_implicit_and_conjuncts, contains_extern_param,
+    extract_quals,
+};
 use crate::postgres::customscan::range_table::bms_iter;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{
@@ -169,21 +173,19 @@ pub unsafe fn collect_join_agg_sources(
 ///    comma-separated `FROM`, and the join type (INNER, LEFT, etc.). This is
 ///    walked via [`build_relnode_from_fromexpr`] to produce the `RelNode` skeleton.
 ///
-/// 2. **Cheapest path** (`input_rel.cheapest_total_path`): provides the equi-join
-///    **keys** (e.g., `a.id = b.id`). By the time we reach `UPPERREL_GROUP_AGG`,
-///    the planner has absorbed WHERE-clause quals into `RestrictInfo` lists on
-///    the planned `JoinPath` nodes - so `(*from).quals` can be null even for
-///    `SELECT ... FROM a, b WHERE a.id = b.id`. We recursively walk the path
-///    tree via `extract_equi_keys_from_path`, inspecting each `JoinPath`'s
-///    `joinrestrictinfo` for `OpExpr` nodes with merge-joinable (equality)
-///    operators whose two sides reference different base relations.
+/// 2. **Selected path** (`path_info`): provides the equi-join **keys** (e.g.,
+///    `a.id = b.id`). By the time we reach `UPPERREL_GROUP_AGG`, the planner has
+///    distributed quals into `RestrictInfo` lists on the selected path. That
+///    walk happens in [`check_join_path_predicates`], which hands its result
+///    here so the classification eligibility was decided on is the one the plan
+///    is built from.
 ///
 /// The parse tree gives the skeleton, the path gives the keys, and
 /// [`RelNode::inject_equi_keys`] attaches the keys to the correct join levels.
 pub unsafe fn extract_join_tree_from_parse(
     root: *mut pg_sys::PlannerInfo,
     sources: &[JoinAggSource],
-    input_rel: &pg_sys::RelOptInfo,
+    path_info: PathRestrictInfo,
 ) -> Result<JoinTreeResult, String> {
     let parse = (*root).parse;
     if parse.is_null() {
@@ -197,12 +199,18 @@ pub unsafe fn extract_join_tree_from_parse(
 
     let mut plan = build_relnode_from_fromexpr(root, jointree, sources)?;
 
-    // Walk the cheapest path's joinrestrictinfo once to extract both equi-join
-    // keys and cross-table @@@ search predicates (mirrors JoinScan's approach).
-    let path_info = analyze_join_path_restrictinfo(input_rel, sources);
-
+    // Wrapper-only keys supplement the query tree, which already supplies every
+    // syntactic equality. They are injected as a set once any join level is
+    // keyless, so an already-keyed level can pick up extras - safe because each
+    // key routes to the level whose sides straddle its two RTIs and dedups
+    // there, and because these come from the chosen path's own joinrestrictinfo
+    // rather than being derived here. The gate keeps plan shape from deciding
+    // the key set; it does not target levels.
     if !path_info.equi_keys.is_empty() {
         plan.inject_equi_keys(path_info.equi_keys);
+    }
+    if plan.has_join_without_keys() && !path_info.wrapped_equi_keys.is_empty() {
+        plan.inject_equi_keys(path_info.wrapped_equi_keys);
     }
 
     // Fix plan_positions (they default to 0 from JoinSourceCandidate)
@@ -215,10 +223,8 @@ pub unsafe fn extract_join_tree_from_parse(
     // Handles both @@@ predicates and non-@@@ cross-table predicates
     // (like `b.id > 5`) that reference fast fields.
     //
-    // Try path-based extraction first, then fall back to the parse tree's
-    // FromExpr.quals. The path walk can miss predicates when the cheapest
-    // path isn't a standard join type (e.g. with certain GUC combinations),
-    // while the parse tree is always available.
+    // The earlier coverage check guarantees an opaque path cannot reach the
+    // FromExpr.quals fallback below.
     let mut join_level_predicates = Vec::new();
     let mut multi_table_predicates = Vec::new();
     let mut multi_table_clauses: Vec<*mut pg_sys::Expr> = Vec::new();
@@ -228,10 +234,15 @@ pub unsafe fn extract_join_tree_from_parse(
     // is a fallback that only runs when Path 1 produced no predicates.
 
     // 1. Path-based: predicates classified by `walk_path_restrictinfo`.
+    let path_search_clauses: Vec<_> = path_info
+        .search_clauses
+        .iter()
+        .map(|search_clause| search_clause.clause)
+        .collect();
     apply_search_filter_or_decline(
         root,
         sources,
-        &path_info.search_clauses,
+        &path_search_clauses,
         "path joinrestrictinfo",
         "cross-table predicate cannot be pushed into the aggregate scan",
         &mut plan,
@@ -289,6 +300,17 @@ unsafe fn apply_search_filter_or_decline(
     if clauses.is_empty() {
         return Ok(());
     }
+
+    // Custom prepared plans substitute Const nodes before this hook. Generic
+    // plans retain PARAM_EXTERN nodes, but the DataFusion aggregate-on-join
+    // executor has no runtime binding contract for these expressions. Preserve
+    // supported PARAM_EXEC paths by rejecting only PARAM_EXTERN here.
+    if clauses.iter().any(|&clause| contains_extern_param(clause)) {
+        return Err(
+            "generic prepared-plan parameters are not supported for aggregate joins".into(),
+        );
+    }
+
     let Some((filter_expr, predicates, mt_predicates, mt_clauses)) =
         build_search_filter(root, clauses, sources, plan)
     else {
@@ -407,10 +429,12 @@ unsafe fn build_scan_node(
         )
     })?;
 
-    // Build a JoinSourceCandidate progressively
+    // Build a JoinSourceCandidate progressively. `with_index` attaches index metadata
+    // and `partition_by` so RangePartitioningRule can co-partition equi-joins
+    // under AggregateScan (matches JoinScan planning).
     let mut candidate = JoinSourceCandidate::new(PlannerRootId::from(root), rti)
         .with_heaprelid(source.relid)
-        .with_indexrelid(bm25_index.oid());
+        .with_index(bm25_index);
 
     // Propagate the eagerly resolved BM25 fields so the downstream JoinSource
     // (and everything built on it - AggregateIndexVarMapper, build_source_df)
@@ -656,71 +680,170 @@ unsafe fn extract_equi_keys_from_quals(
 }
 
 /// Result of a single walk over the cheapest path's `joinrestrictinfo`.
-struct PathRestrictInfo {
-    /// Equi-join keys (`a.id = b.id`).
+pub(crate) struct PathRestrictInfo {
+    /// Equi-join keys from directly inspected JoinPaths (`a.id = b.id`).
     equi_keys: Vec<JoinKeyPair>,
-    /// Cross-table @@@ clause pointers (will be transformed via
-    /// `build_search_filter` after plan_positions are assigned).
-    search_clauses: Vec<*mut pg_sys::Node>,
-    /// Number of RestrictInfo entries we couldn't classify as equi-keys or
-    /// @@@ predicates. Non-zero means unhandled quals that would be silently
-    /// dropped - the caller should reject the DataFusion path.
-    unhandled: usize,
+    /// Supplemental equality keys found only after traversing a transparent
+    /// path wrapper.
+    wrapped_equi_keys: Vec<JoinKeyPair>,
+    /// Cross-table residuals (transformed via `build_search_filter` after
+    /// plan_positions are assigned), together with their planner identity.
+    search_clauses: Vec<PathSearchClause>,
+    /// First reason the selected path cannot be reconstructed safely. `None`
+    /// means every inspected predicate has been accounted for.
+    decline_reason: Option<PathPredicateDeclineReason>,
+    /// Whether every join-level path node was either inspected directly or
+    /// traversed through a known transparent wrapper.
+    coverage: PathPredicateCoverage,
 }
 
-/// Walk `input_rel.cheapest_total_path` once, classifying every
-/// `joinrestrictinfo` entry as an equi-join key, a cross-table
-/// predicate (@@@ or non-@@@), or unhandled.
+#[derive(Clone, Copy, Debug)]
+enum PathPredicateCoverage {
+    Complete,
+    Incomplete(pg_sys::NodeTag),
+}
+
+#[derive(Clone, Copy, Debug)]
+enum EquiKeySource {
+    Ignore,
+    Direct,
+    BehindWrapper,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RestrictInfoOrigin {
+    JoinRestrictInfo,
+    ParamPathInfo,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct PathSearchClause {
+    clause: *mut pg_sys::Node,
+    /// Which planner list this clause was reached through. Only PG15 reads it,
+    /// in `overlap`; PG16+ discriminates by `rinfo_serial`. Recorded on every
+    /// version anyway so the constructor takes one plain parameter rather than
+    /// a cfg-split `origin`/`_origin` pair.
+    #[cfg_attr(not(feature = "pg15"), allow(dead_code))]
+    origin: RestrictInfoOrigin,
+    // PG15 has no planner-assigned RestrictInfo identity to compare.
+    #[cfg(not(feature = "pg15"))]
+    rinfo_serial: i32,
+}
+
+enum PathSearchClauseOverlap {
+    Duplicate,
+    #[cfg(feature = "pg15")]
+    Ambiguous,
+}
+
+impl PathSearchClause {
+    /// Whether `other` is the same predicate this clause already stands for.
+    ///
+    /// One predicate can reach the walk twice: through a parent join's
+    /// `joinrestrictinfo` and through a child's `ppi_clauses`. Identical
+    /// pointers settle that on every version.
+    ///
+    /// PG16+ then compares `rinfo_serial`, which survives copying, so copies
+    /// and genuinely repeated conjuncts are told apart exactly. PG15 has no
+    /// such identity and uses `origin` as a proxy - different lists mean one
+    /// predicate seen twice, the same list means the query really did ask for
+    /// it twice, as a repeated volatile conjunct wants two independent draws.
+    /// That proxy assumes the planner never delivers two copies of one clause
+    /// through the same list.
+    unsafe fn overlap(&self, other: &Self) -> Option<PathSearchClauseOverlap> {
+        if std::ptr::eq(self.clause, other.clause) {
+            return Some(PathSearchClauseOverlap::Duplicate);
+        }
+
+        #[cfg(feature = "pg15")]
+        {
+            if self.origin == other.origin
+                || !pg_sys::equal(self.clause.cast(), other.clause.cast())
+            {
+                return None;
+            }
+
+            if pg_sys::contain_volatile_functions(other.clause) {
+                Some(PathSearchClauseOverlap::Ambiguous)
+            } else {
+                Some(PathSearchClauseOverlap::Duplicate)
+            }
+        }
+
+        #[cfg(not(feature = "pg15"))]
+        {
+            (self.rinfo_serial == other.rinfo_serial).then_some(PathSearchClauseOverlap::Duplicate)
+        }
+    }
+}
+
+impl PathRestrictInfo {
+    fn decline(&mut self, reason: PathPredicateDeclineReason) {
+        self.decline_reason.get_or_insert(reason);
+    }
+
+    fn mark_incomplete(&mut self, tag: pg_sys::NodeTag) {
+        if matches!(self.coverage, PathPredicateCoverage::Complete) {
+            self.coverage = PathPredicateCoverage::Incomplete(tag);
+        }
+    }
+}
+
+/// Result of validating the selected lower path's join-predicate inventory.
+pub enum JoinPathPredicateCheck {
+    /// Carries the walk that proved coverage. `extract_join_tree_from_parse`
+    /// consumes it rather than re-walking, so the classification the decision
+    /// was made on is the one the plan is built from.
+    Complete(PathRestrictInfo),
+    Unsupported(PathPredicateDeclineReason),
+    IncompletePath(pg_sys::NodeTag),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PathPredicateDeclineReason {
+    ExternParam,
+    #[cfg(feature = "pg15")]
+    AmbiguousVolatileOverlap,
+    OuterJoinOnResidual,
+    UnclassifiedClause,
+}
+
+/// Walk `input_rel.cheapest_total_path` once, traversing transparent wrappers
+/// and classifying every `joinrestrictinfo` and `ppi_clauses` entry as an
+/// equi-join key, a supported cross-table predicate, or a specific decline.
 ///
 /// For LEFT/RIGHT JOINs, ON-clause predicates (`is_pushed_down=false`)
 /// affect matching and NULL-extension semantics - they cannot be
-/// correctly applied as post-join filters. These are counted as
-/// "unhandled", causing `has_non_equi_join_quals` to reject the
-/// DataFusion path for such queries.
+/// correctly applied as post-join filters, so the DataFusion path declines.
 unsafe fn analyze_join_path_restrictinfo(
     input_rel: &pg_sys::RelOptInfo,
     sources: &[JoinAggSource],
 ) -> PathRestrictInfo {
     let mut info = PathRestrictInfo {
         equi_keys: Vec::new(),
+        wrapped_equi_keys: Vec::new(),
         search_clauses: Vec::new(),
-        unhandled: 0,
+        decline_reason: None,
+        coverage: PathPredicateCoverage::Complete,
     };
     let path = input_rel.cheapest_total_path;
     if !path.is_null() {
         let search_op = anyelement_query_input_opoid();
-        walk_path_restrictinfo(path, sources, search_op, &mut info);
+        walk_path_restrictinfo(path, false, sources, search_op, &mut info);
     }
     info
 }
 
-unsafe fn walk_path_restrictinfo(
-    path: *mut pg_sys::Path,
+unsafe fn classify_path_restrictinfo(
+    restrictinfo: *mut pg_sys::List,
+    allow_unpushed_cross_table: bool,
+    equi_key_source: EquiKeySource,
+    origin: RestrictInfoOrigin,
     sources: &[JoinAggSource],
     search_op: pg_sys::Oid,
     info: &mut PathRestrictInfo,
 ) {
-    if path.is_null() {
-        return;
-    }
-    let tag = (*path).type_;
-    let is_join_path = matches!(
-        tag,
-        pg_sys::NodeTag::T_NestPath | pg_sys::NodeTag::T_MergePath | pg_sys::NodeTag::T_HashPath
-    );
-    if !is_join_path {
-        return;
-    }
-
-    let join_path = path as *mut pg_sys::JoinPath;
-    let restrict_list = PgList::<pg_sys::RestrictInfo>::from_pg((*join_path).joinrestrictinfo);
-
-    // For outer joins (LEFT/RIGHT), ON-clause predicates affect matching
-    // and NULL-extension - they must NOT be applied as post-join filters.
-    // PostgreSQL marks ON-clause restrictions with is_pushed_down=false
-    // and a non-null outer_relids. We only accept cross-table predicates
-    // that are pushed down (WHERE-clause) for non-inner joins.
-    let is_inner = (*join_path).jointype == pg_sys::JoinType::JOIN_INNER;
+    let restrict_list = PgList::<pg_sys::RestrictInfo>::from_pg(restrictinfo);
 
     for ri in restrict_list.iter_ptr() {
         let clause = (*ri).clause as *mut pg_sys::Node;
@@ -728,22 +851,36 @@ unsafe fn walk_path_restrictinfo(
             continue;
         }
 
+        // No ParamListInfo binding for DataFusion join predicates; see
+        // apply_search_filter_or_decline.
+        if contains_extern_param(clause) {
+            info.decline(PathPredicateDeclineReason::ExternParam);
+            continue;
+        }
+
         // 1. Equi-join key?
         if (*clause).type_ == pg_sys::NodeTag::T_OpExpr
             && let Some(key) = try_extract_one_equi_key(clause as *mut pg_sys::OpExpr, sources)
         {
-            let dup = info.equi_keys.iter().any(|k| {
-                (k.outer_rti == key.outer_rti
-                    && k.outer_attno == key.outer_attno
-                    && k.inner_rti == key.inner_rti
-                    && k.inner_attno == key.inner_attno)
-                    || (k.outer_rti == key.inner_rti
-                        && k.outer_attno == key.inner_attno
-                        && k.inner_rti == key.outer_rti
-                        && k.inner_attno == key.outer_attno)
-            });
-            if !dup {
-                info.equi_keys.push(key);
+            let destination = match equi_key_source {
+                EquiKeySource::Ignore => None,
+                EquiKeySource::Direct => Some(&mut info.equi_keys),
+                EquiKeySource::BehindWrapper => Some(&mut info.wrapped_equi_keys),
+            };
+            if let Some(destination) = destination {
+                let dup = destination.iter().any(|k| {
+                    (k.outer_rti == key.outer_rti
+                        && k.outer_attno == key.outer_attno
+                        && k.inner_rti == key.inner_rti
+                        && k.inner_attno == key.inner_attno)
+                        || (k.outer_rti == key.inner_rti
+                            && k.outer_attno == key.inner_attno
+                            && k.inner_rti == key.outer_rti
+                            && k.inner_attno == key.outer_attno)
+                });
+                if !dup {
+                    destination.push(key);
+                }
             }
             continue;
         }
@@ -757,13 +894,12 @@ unsafe fn walk_path_restrictinfo(
         //
         // Single-table @@@ predicates (rtis.len() == 1) are already handled
         // via baserestrictinfo in build_scan_node - they don't appear here
-        // under normal planning. If one does, it's counted as unhandled
-        // (conservative: reject the path rather than risk double-applying).
-        if !is_inner && !(*ri).is_pushed_down {
+        // under normal planning. If one does, reject the path rather than risk
+        // double-applying it.
+        if !allow_unpushed_cross_table && !(*ri).is_pushed_down {
             // ON-clause predicate for an outer join - can't apply as post-join
-            // filter without changing NULL-extension semantics. Count as unhandled
-            // so has_non_equi_join_quals rejects the DataFusion path.
-            info.unhandled += 1;
+            // filter without changing NULL-extension semantics.
+            info.decline(PathPredicateDeclineReason::OuterJoinOnResidual);
             continue;
         }
 
@@ -776,27 +912,146 @@ unsafe fn walk_path_restrictinfo(
                 all_vars_are_fast_fields_for_agg(clause, sources)
             };
             if acceptable {
-                if !info.search_clauses.iter().any(|&c| std::ptr::eq(c, clause)) {
-                    info.search_clauses.push(clause);
+                let candidate = PathSearchClause {
+                    clause,
+                    origin,
+                    #[cfg(not(feature = "pg15"))]
+                    rinfo_serial: (*ri).rinfo_serial,
+                };
+                let overlap = info
+                    .search_clauses
+                    .iter()
+                    .find_map(|existing| existing.overlap(&candidate));
+
+                match overlap {
+                    Some(PathSearchClauseOverlap::Duplicate) => continue,
+                    #[cfg(feature = "pg15")]
+                    Some(PathSearchClauseOverlap::Ambiguous) => {
+                        info.decline(PathPredicateDeclineReason::AmbiguousVolatileOverlap);
+                        continue;
+                    }
+                    None => {}
                 }
+
+                info.search_clauses.push(candidate);
                 continue;
             }
         }
 
         // 3. Unhandled
-        info.unhandled += 1;
+        info.decline(PathPredicateDeclineReason::UnclassifiedClause);
     }
-
-    walk_path_restrictinfo((*join_path).outerjoinpath, sources, search_op, info);
-    walk_path_restrictinfo((*join_path).innerjoinpath, sources, search_op, info);
 }
 
-/// Check whether the join path has quals we can't handle.
-pub unsafe fn has_non_equi_join_quals(
+unsafe fn walk_path_restrictinfo(
+    path: *mut pg_sys::Path,
+    behind_transparent_wrapper: bool,
+    sources: &[JoinAggSource],
+    search_op: pg_sys::Oid,
+    info: &mut PathRestrictInfo,
+) {
+    if path.is_null() {
+        return;
+    }
+
+    // Parameterized nested-loop clauses can be removed from the parent
+    // JoinPath.joinrestrictinfo once the inner path enforces them. Inventory
+    // ppi_clauses at every path node before following wrappers or children.
+    let param_info = (*path).param_info;
+    if !param_info.is_null() {
+        // PostgreSQL marks WHERE and INNER JOIN clauses is_pushed_down=true, so
+        // the conservative `false` still accepts inner-join residuals; it
+        // rejects only outer-join ON clauses, which would change NULL-extension
+        // semantics as a post-join filter.
+        //
+        // Equality keys come from the retained query tree, so ppi equalities are
+        // coverage-only - recording them would add transitively redundant keys
+        // to a multi-table join. Residual ppi clauses are still retained.
+        classify_path_restrictinfo(
+            (*param_info).ppi_clauses,
+            false,
+            EquiKeySource::Ignore,
+            RestrictInfoOrigin::ParamPathInfo,
+            sources,
+            search_op,
+            info,
+        );
+    }
+
+    if let Some(subpath) = transparent_path_subpath(path) {
+        if subpath.is_null() || subpath == path {
+            info.mark_incomplete((*path).type_);
+            return;
+        }
+        walk_path_restrictinfo(subpath, true, sources, search_op, info);
+        return;
+    }
+
+    let tag = (*path).type_;
+    let is_join_path = matches!(
+        tag,
+        pg_sys::NodeTag::T_NestPath | pg_sys::NodeTag::T_MergePath | pg_sys::NodeTag::T_HashPath
+    );
+    if !is_join_path {
+        // Base-relation paths are leaves for this inventory; their predicates
+        // are covered separately by baserestrictinfo. A non-transparent path
+        // over a join relation is opaque and cannot be reconstructed safely.
+        let parent = (*path).parent;
+        if !parent.is_null() && pg_sys::bms_num_members((*parent).relids) > 1 {
+            info.mark_incomplete(tag);
+        }
+        return;
+    }
+
+    let join_path = path as *mut pg_sys::JoinPath;
+
+    // For outer joins, ON-clause residuals affect matching and NULL-extension;
+    // only inner joins may lower an unpushed residual as a post-join filter.
+    let allow_unpushed_cross_table = (*join_path).jointype == pg_sys::JoinType::JOIN_INNER;
+    classify_path_restrictinfo(
+        (*join_path).joinrestrictinfo,
+        allow_unpushed_cross_table,
+        if behind_transparent_wrapper {
+            EquiKeySource::BehindWrapper
+        } else {
+            EquiKeySource::Direct
+        },
+        RestrictInfoOrigin::JoinRestrictInfo,
+        sources,
+        search_op,
+        info,
+    );
+
+    walk_path_restrictinfo(
+        (*join_path).outerjoinpath,
+        behind_transparent_wrapper,
+        sources,
+        search_op,
+        info,
+    );
+    walk_path_restrictinfo(
+        (*join_path).innerjoinpath,
+        behind_transparent_wrapper,
+        sources,
+        search_op,
+        info,
+    );
+}
+
+/// Validate that the selected lower path has complete, supported
+/// join-predicate coverage.
+pub unsafe fn check_join_path_predicates(
     input_rel: &pg_sys::RelOptInfo,
     sources: &[JoinAggSource],
-) -> bool {
-    analyze_join_path_restrictinfo(input_rel, sources).unhandled > 0
+) -> JoinPathPredicateCheck {
+    let info = analyze_join_path_restrictinfo(input_rel, sources);
+    match info.coverage {
+        PathPredicateCoverage::Incomplete(tag) => JoinPathPredicateCheck::IncompletePath(tag),
+        PathPredicateCoverage::Complete if let Some(reason) = info.decline_reason => {
+            JoinPathPredicateCheck::Unsupported(reason)
+        }
+        PathPredicateCoverage::Complete => JoinPathPredicateCheck::Complete(info),
+    }
 }
 
 /// Build-phase context for translating PG expression trees to [`FilterExpr`].
@@ -1331,8 +1586,8 @@ unsafe fn build_search_filter(
 
     for &clause in clauses {
         // If any clause can't be fully transformed, bail out.
-        // Returning None leaves the clause as "unhandled", which causes
-        // has_non_equi_join_quals to reject the DataFusion path.
+        // Returning None causes the caller to decline the DataFusion path;
+        // silently omitting any one clause would compute incorrect rows.
         let expr = transform_to_search_expr(
             root,
             clause,
@@ -1368,24 +1623,16 @@ unsafe fn collect_cross_table_search_quals(
     node: *mut pg_sys::Node,
     clauses: &mut Vec<*mut pg_sys::Node>,
 ) {
-    if node.is_null() {
-        return;
-    }
-    // Flatten top-level ANDs
-    if (*node).type_ == pg_sys::NodeTag::T_BoolExpr {
-        let boolexpr = node as *mut pg_sys::BoolExpr;
-        if (*boolexpr).boolop == pg_sys::BoolExprType::AND_EXPR {
-            let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-            for arg in args.iter_ptr() {
-                collect_cross_table_search_quals(arg, clauses);
-            }
-            return;
+    let mut conjuncts = Vec::new();
+    collect_implicit_and_conjuncts(node, &mut conjuncts);
+
+    for conjunct in conjuncts {
+        // Keep cross-table conjuncts (both @@@ and non-@@@). Single-table
+        // conjuncts are already owned by the corresponding baserestrictinfo.
+        let rtis = expr_collect_rtis(conjunct);
+        if rtis.len() > 1 {
+            clauses.push(conjunct);
         }
-    }
-    // Keep cross-table conjuncts (both @@@ and non-@@@)
-    let rtis = expr_collect_rtis(node);
-    if rtis.len() > 1 {
-        clauses.push(node);
     }
 }
 

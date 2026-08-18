@@ -22,7 +22,7 @@ CREATE TABLE items (id int PRIMARY KEY, kind text);
 INSERT INTO items
 SELECT g, CASE WHEN g % 3 = 0 THEN 'novel' ELSE 'manga' END
 FROM generate_series(1, 2000) g;
-CREATE INDEX items_bm25 ON items USING bm25 (id, kind) WITH (key_field = 'id');
+CREATE INDEX items_bm25 ON items USING paradedb (id, kind) WITH (key_field = 'id');
 ANALYZE items;
 
 SET paradedb.enable_custom_scan = on;

@@ -102,7 +102,7 @@ For example, if `rating` and `created_at` are frequently used in filters, they c
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING paradedb(id, description, rating, created_at)
+USING paradedb (id, description, rating, created_at)
 WITH (key_field = 'id');
 ```
 
@@ -235,7 +235,7 @@ To push down the `category = 'Footwear'` filter, `category` must be indexed usin
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING paradedb(id, description, (category::pdb.literal))
+USING paradedb (id, description, (category::pdb.literal))
 WITH (key_field = 'id');
 ```
 

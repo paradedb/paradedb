@@ -9,7 +9,7 @@ INSERT INTO expr (t) VALUES ('This is a TEST');
 INSERT INTO expr (t) VALUES ('This is also a TEST');
 CREATE INDEX idxexpr
     ON expr
-        USING bm25 (
+        USING paradedb (
                     id,
                     -- will cause an ERROR as it needs to be cast to a tokenizer
                     (lower(t))
@@ -18,7 +18,7 @@ CREATE INDEX idxexpr
 
 CREATE INDEX idxexpr
     ON expr
-        USING bm25 (
+        USING paradedb (
                     id,
                     (lower(t)::pdb.literal)
             )

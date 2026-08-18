@@ -19,7 +19,7 @@ INSERT INTO docs (title, body) VALUES
     ('unrelated document',    'no match');
 
 CREATE INDEX docs_idx ON docs
-USING bm25 (id, title, body)
+USING paradedb (id, title, body)
 WITH (key_field = 'id');
 
 -- Test 1: minimum_should_match => 2 with 3 should clauses

@@ -1,11 +1,11 @@
 \i common/common_setup.sql
 
-CALL paradedb.create_bm25_test_table(
+CALL paradedb.create_paradedb_test_table(
   schema_name => 'public',
   table_name => 'mock_items'
 );
 
-CREATE INDEX on mock_items USING bm25 (id, description, rating) WITH (key_field='id');
+CREATE INDEX on mock_items USING paradedb (id, description, rating) WITH (key_field='id');
 
 -- TODO: Many of these will not get Top K due to https://github.com/paradedb/paradedb/issues/3303
 

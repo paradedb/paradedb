@@ -38,11 +38,11 @@ CREATE TABLE document_text (
 -- Create BM25 indexes BEFORE inserting data, then insert in batches
 -- to create multiple segments (critical for reproducing the race)
 CREATE INDEX idx_parade_core ON core
-USING bm25 (dwf_doid, author)
+USING paradedb (dwf_doid, author)
 WITH (key_field='dwf_doid');
 
 CREATE INDEX idx_parade_document_text ON document_text
-USING bm25 (dwf_doid, full_text)
+USING paradedb (dwf_doid, full_text)
 WITH (key_field='dwf_doid');
 
 -- Insert data in batches to create multiple segments
@@ -110,9 +110,11 @@ FROM generate_series(16, 20) i;
 -- Create regular index on date (not in BM25 index - key part of customer scenario)
 CREATE INDEX idx_date_time_combined_date ON core (DATE(date_time_combined));
 
--- CRITICAL: Disable Custom Scan to force the use of Index Only Scan (Index AM path)
--- This is key to reproducing the customer's issue which occurs with Parallel Index Only Scan
+-- CRITICAL: Disable both custom-scan layers to force the Index AM path.
+-- AggregateScan can otherwise absorb the aggregate-on-join query and bypass
+-- the parallel Index Only Scan whose race this regression covers.
 SET paradedb.enable_custom_scan = false;
+SET paradedb.enable_aggregate_custom_scan = false;
 
 -- Enable parallel workers
 SET max_parallel_workers_per_gather = 2;
@@ -287,6 +289,7 @@ RESET parallel_tuple_cost;
 RESET parallel_setup_cost;
 RESET min_parallel_table_scan_size;
 RESET min_parallel_index_scan_size;
+RESET paradedb.enable_aggregate_custom_scan;
 RESET paradedb.enable_custom_scan;
 
 -- Clean up

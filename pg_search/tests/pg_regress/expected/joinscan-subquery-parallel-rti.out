@@ -40,13 +40,13 @@ CREATE TABLE js_rti_excluded (
 ) WITH (autovacuum_enabled = false);
 SET paradedb.global_mutable_segment_rows = 0;
 CREATE INDEX js_rti_items_bm25 ON js_rti_items
-USING bm25 (id, category_id, overview)
+USING paradedb (id, category_id, overview)
 WITH (key_field = 'id', numeric_fields = '{"category_id": {"fast": true}}', target_segment_count = 64, background_layer_sizes = '0');
 CREATE INDEX js_rti_people_bm25 ON js_rti_people
-USING bm25 (id, company_id)
+USING paradedb (id, company_id)
 WITH (key_field = 'id', numeric_fields = '{"company_id": {"fast": true}}', target_segment_count = 64, background_layer_sizes = '0');
 CREATE INDEX js_rti_excluded_bm25 ON js_rti_excluded
-USING bm25 (id, company_id, technology_name)
+USING paradedb (id, company_id, technology_name)
 WITH (key_field = 'id', numeric_fields = '{"company_id": {"fast": true}}', target_segment_count = 64, background_layer_sizes = '0');
 -- Insert in batches to create multiple segments for parallel execution.
 INSERT INTO js_rti_items SELECT i, i%10, CASE WHEN i%2=0 THEN 'software platform' ELSE 'hardware device' END FROM generate_series(1, 10000) i;
@@ -131,7 +131,7 @@ LIMIT 10;
            :     │         t0: PgSearchScan: segments=2, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"with_index":{"query":{"term_set":{"field":"technology_name","terms":["Marketo"]}}}}]}}
            :     └──────────────────────────────────────────────────
            :     ┌───── Stage 2 ── tasks=4, partitions=16
-           :     │ RepartitionExec: partitioning=Hash([company_id@0], 16), input_partitions=4
+           :     │ RepartitionExec: partitioning=Hash([company_id@0], 16), input_partitions=1
            :     │   DistributedLeafExec:
            :     │     t0: PgSearchScan: segments=30, dynamic_filters=1, query="all"
            :     │     t1: PgSearchScan: segments=30, dynamic_filters=1, query="all"

@@ -38,6 +38,9 @@ static CHECK_AGGREGATE_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// Allows the user to toggle the use of our "ParadeDB Join Scan".
 static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Allows the user to toggle range co-partitioning for joins.
+static ENABLE_RANGE_PARTITIONED_JOIN: GucSetting<bool> = GucSetting::<bool>::new(false);
+
 /// Allows the user to toggle the use of the custom scan without use of the `@@@` operator. The
 /// default is `false`.
 static ENABLE_CUSTOM_SCAN_WITHOUT_OPERATOR: GucSetting<bool> = GucSetting::<bool>::new(false);
@@ -134,6 +137,9 @@ static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// the Postgres server log (and in CI benchmark logs). When off, `mpp_log!()` is a no-op.
 static MPP_DEBUG: GucSetting<bool> = GucSetting::<bool>::new(false);
 
+#[cfg(debug_assertions)]
+static MPP_TEST_PANIC_IN_WORKER: GucSetting<bool> = GucSetting::<bool>::new(false);
+
 /// Dedicated diagnostic GUC for per-shuffle EOF row counts. These lines emit concurrently
 /// from every participant and can reorder between runs, so they're kept off `mpp_debug` to
 /// avoid flaking regress expected files. Turn this on in long-running benchmark queries to
@@ -156,6 +162,13 @@ static MPP_TRACE: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// changes shape, the right user knob is more likely a per-query DSM cap than
 /// a raw per-inbox byte count.
 static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(8 * 1024 * 1024);
+
+/// Longest a worker fragment waits for its next partition-execution request with none
+/// of its partitions running. Consumers issue every request while building their
+/// streams, so the wait is normally over in milliseconds; a stall this long means a
+/// consumer stopped requesting and the fragment (and the leader waiting on it) would
+/// otherwise wait forever. `0` disables the guard.
+static MPP_REQUEST_TIMEOUT: GucSetting<i32> = GucSetting::<i32>::new(300);
 
 /// The maximum size of an InList that can be pushed down to a TermSet Query.
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
@@ -216,6 +229,16 @@ pub fn vector_cluster_max_probe() -> f32 {
     VECTOR_CLUSTER_MAX_PROBE.get() as f32
 }
 
+/// Fixed per-probe cost — the IVF cluster OPEN — in rows of full work.
+/// Testing knob for calibrating the probe-budget work model; defaults to
+/// the fitted value in tantivy.
+static VECTOR_FIXED_PROBE_COST_ROWS: GucSetting<f64> =
+    GucSetting::<f64>::new(tantivy::vector::DEFAULT_FIXED_PROBE_COST_ROWS);
+
+pub fn vector_fixed_probe_cost_rows() -> f64 {
+    VECTOR_FIXED_PROBE_COST_ROWS.get()
+}
+
 /// Doc-count boundary at which a merged segment's vector storage switches
 /// from flat (exact scan) to IVF (clustered). Captured into the index's
 /// stored `IndexSettings` at CREATE INDEX time, so it applies to every merge
@@ -271,6 +294,15 @@ pub fn init() {
         c"Enable ParadeDB's join custom scan",
         c"Enable ParadeDB's join custom scan, which pushes eligible joins down into the ParadeDB executor. Default is true.",
         &ENABLE_JOIN_CUSTOM_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_range_partitioned_join",
+        c"Allows the user to enable or disable range co-partitioned joins",
+        c"When enabled, DataFusion optimizer rules sample and co-partition inner joins across tables. Note that participating tables must also have a partition_by index option defined. Default is false.",
+        &ENABLE_RANGE_PARTITIONED_JOIN,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -440,6 +472,17 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_fixed_probe_cost_rows",
+        c"Fixed per-probe cost (the cluster OPEN) in rows of full work, for the IVF probe budget (testing knob)",
+        c"How many rows of full work the fixed component of an IVF probe - opening the cluster - is modeled to cost in the probe-budget work model. Runtime-settable for testing and calibration only; the default is the value fitted on the reference fixture.",
+        &VECTOR_FIXED_PROBE_COST_ROWS,
+        0.001,
+        10_000.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     GucRegistry::define_int_guc(
         c"paradedb.vector_clustering_threshold",
         c"Doc-count boundary at which merged segments switch from flat to IVF vector storage",
@@ -596,6 +639,16 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    #[cfg(debug_assertions)]
+    GucRegistry::define_bool_guc(
+        c"paradedb.mpp_test_panic_in_worker",
+        c"Trigger a panic in the MPP worker",
+        c"Used for testing error propagation.",
+        &MPP_TEST_PANIC_IN_WORKER,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     GucRegistry::define_bool_guc(
         c"paradedb.mpp_trace",
         c"Emit MPP setup timing at WARNING level",
@@ -625,6 +678,22 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::UNIT_BYTE,
     );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.mpp_request_timeout",
+        c"Longest an MPP worker fragment waits for its next partition request",
+        c"Bounds how long an MPP worker fragment waits for the next partition-execution \
+          request while none of its partitions are running. Consumers issue every \
+          request while building their streams, so the wait is normally over in \
+          milliseconds; a stall this long means a consumer stopped requesting and the \
+          query would otherwise hang. Accepts standard Postgres time units. 0 disables \
+          the guard.",
+        &MPP_REQUEST_TIMEOUT,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::UNIT_S,
+    );
 }
 
 pub fn enable_custom_scan() -> bool {
@@ -641,6 +710,10 @@ pub fn check_aggregate_scan() -> bool {
 
 pub fn enable_join_custom_scan() -> bool {
     ENABLE_JOIN_CUSTOM_SCAN.get()
+}
+
+pub fn enable_range_partitioned_join() -> bool {
+    ENABLE_RANGE_PARTITIONED_JOIN.get()
 }
 
 pub fn enable_custom_scan_without_operator() -> bool {
@@ -822,12 +895,21 @@ pub fn mpp_debug() -> bool {
     MPP_DEBUG.get()
 }
 
+#[cfg(debug_assertions)]
+pub fn mpp_test_panic_in_worker() -> bool {
+    MPP_TEST_PANIC_IN_WORKER.get()
+}
+
 pub fn mpp_trace() -> bool {
     MPP_TRACE.get()
 }
 
 pub fn mpp_queue_size() -> usize {
     MPP_QUEUE_SIZE.get() as usize
+}
+
+pub fn mpp_request_timeout_secs() -> i32 {
+    MPP_REQUEST_TIMEOUT.get()
 }
 
 pub fn hash_join_inlist_pushdown_max_size() -> i32 {
@@ -960,7 +1042,7 @@ mod tests {
         // global override
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
         Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
-        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id', mutable_segment_rows = 500)").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING paradedb (id, data) WITH (key_field = 'id', mutable_segment_rows = 500)").unwrap();
         let relation_oid: pg_sys::Oid =
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
                 .expect("spi should succeed")

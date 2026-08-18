@@ -21,3 +21,9 @@ SET paradedb.enable_aggregate_custom_scan TO on; SET work_mem = '4GB'; SELECT ta
 
 -- high-cardinality aggregate scan using pdb.agg (mvcc disabled)
 SET paradedb.enable_aggregate_custom_scan TO off; SET work_mem = '4GB'; SELECT tags, pdb.agg('{"value_count": {"field": "tags"}}', false) as count, pdb.agg('{"min": {"field": "score"}}', false) as min, pdb.agg('{"max": {"field": "score"}}', false) as max, pdb.agg('{"sum": {"field": "score"}}', false) as sum FROM stackoverflow_posts WHERE body ||| 'javascript' GROUP BY tags LIMIT 65000;
+
+-- tantivy cardinality agg on a string field (mvcc enabled -> lazy vischeck)
+SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO off; SELECT pdb.agg('{"cardinality": {"field": "tags"}}', true) FROM stackoverflow_posts WHERE body ||| 'javascript';
+
+-- tantivy cardinality agg on a string field (mvcc disabled baseline)
+SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO off; SELECT pdb.agg('{"cardinality": {"field": "tags"}}', false) FROM stackoverflow_posts WHERE body ||| 'javascript';

@@ -1,0 +1,488 @@
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+
+CREATE TABLE issue_5751_series (
+    id bigint PRIMARY KEY,
+    state text
+);
+CREATE TABLE issue_5751_entries (
+    id bigint PRIMARY KEY,
+    series_id bigint,
+    user_id text
+);
+
+INSERT INTO issue_5751_series VALUES
+    (1, 'active'),
+    (2, 'inactive'),
+    (3, 'active');
+INSERT INTO issue_5751_entries VALUES
+    (1, 1, 'u1'),
+    (2, 1, 'u2'),
+    (3, 2, 'u1'),
+    (4, 3, 'u1');
+
+CREATE INDEX issue_5751_series_idx
+ON issue_5751_series USING paradedb (id, ((state)::pdb.literal))
+WITH (key_field = 'id');
+CREATE INDEX issue_5751_entries_idx
+ON issue_5751_entries USING paradedb (id, series_id, ((user_id)::pdb.literal))
+WITH (key_field = 'id');
+
+-- Keep the plan assertion stable without recording DataFusion's physical plan.
+CREATE FUNCTION issue_5751_plan_uses(q text, needle text) RETURNS boolean AS $$
+DECLARE r record;
+BEGIN
+  FOR r IN EXECUTE 'EXPLAIN (COSTS OFF) ' || q LOOP
+    IF r."QUERY PLAN" LIKE '%' || needle || '%' THEN RETURN true; END IF;
+  END LOOP;
+  RETURN false;
+END $$ LANGUAGE plpgsql;
+
+-- Compare the extension path against PostgreSQL's answer instead of blessing a
+-- newly generated literal result. Each dynamic statement is planned after its
+-- AggregateScan setting is applied.
+CREATE FUNCTION issue_5751_result(q text, use_aggregate_scan boolean)
+RETURNS jsonb AS $$
+DECLARE
+  r record;
+  result jsonb := '[]'::jsonb;
+BEGIN
+  PERFORM set_config(
+    'paradedb.enable_aggregate_custom_scan',
+    use_aggregate_scan::text,
+    true
+  );
+  FOR r IN EXECUTE q LOOP
+    result := result || jsonb_build_array(to_jsonb(r));
+  END LOOP;
+  RETURN result;
+END $$ LANGUAGE plpgsql;
+
+-- PostgreSQL retains the two WHERE conjuncts in an implicit-AND List. Each
+-- item is a base predicate even though the container references both tables.
+SELECT issue_5751_plan_uses(
+  $$SELECT count(*)
+    FROM issue_5751_entries e
+    JOIN issue_5751_series s ON s.id = e.series_id
+    WHERE s.state = 'active' AND e.user_id = 'u1'$$,
+  'ParadeDB Aggregate Scan') AS uses_aggregate_scan;
+
+-- Both filters must remain effective: dropping either one returns three rows.
+SELECT count(*) AS filtered_count
+FROM issue_5751_entries e
+JOIN issue_5751_series s ON s.id = e.series_id
+WHERE s.state = 'active' AND e.user_id = 'u1';
+
+SELECT issue_5751_result(
+  $$SELECT count(*)
+    FROM issue_5751_entries e
+    JOIN issue_5751_series s ON s.id = e.series_id
+    WHERE s.state = 'active' AND e.user_id = 'u1'$$,
+  true
+) = issue_5751_result(
+  $$SELECT count(*)
+    FROM issue_5751_entries e
+    JOIN issue_5751_series s ON s.id = e.series_id
+    WHERE s.state = 'active' AND e.user_id = 'u1'$$,
+  false
+) AS matches_postgres;
+
+-- The same semantic query can place the equality in the implicit-join WHERE
+-- list. The equality is a join key; the other two conjuncts remain owned by
+-- their base scans.
+SELECT issue_5751_plan_uses(
+  $$SELECT count(*)
+    FROM issue_5751_entries e, issue_5751_series s
+    WHERE s.id = e.series_id
+      AND s.state = 'active'
+      AND e.user_id = 'u1'$$,
+  'ParadeDB Aggregate Scan') AS implicit_uses_aggregate_scan;
+
+SELECT count(*) AS implicit_filtered_count
+FROM issue_5751_entries e, issue_5751_series s
+WHERE s.id = e.series_id
+  AND s.state = 'active'
+  AND e.user_id = 'u1';
+
+-- Only implicit AND containers are normalized.  OR remains one semantic
+-- predicate; flattening it would incorrectly require both states at once.
+SELECT count(*) AS preserved_or_count
+FROM issue_5751_entries e
+JOIN issue_5751_series s ON s.id = e.series_id
+WHERE (s.state = 'active' OR s.state = 'inactive')
+  AND e.user_id = 'u1';
+
+-- The planner error was independent of row count.
+TRUNCATE issue_5751_entries, issue_5751_series;
+SELECT count(*) AS empty_count
+FROM issue_5751_entries e
+JOIN issue_5751_series s ON s.id = e.series_id
+WHERE s.state = 'active' AND e.user_id = 'u1';
+
+-- Custom prepared plans replace PARAM_EXTERN with Const nodes. Preserve that
+-- existing supported path and verify that this fix does not merely fall back to
+-- PostgreSQL for every prepared statement.
+INSERT INTO issue_5751_series VALUES
+    (1, 'active'),
+    (2, 'inactive'),
+    (3, 'active');
+INSERT INTO issue_5751_entries VALUES
+    (1, 1, 'u1'),
+    (2, 1, 'u2'),
+    (3, 2, 'u1'),
+    (4, 3, 'u1');
+
+PREPARE issue_5751_generic(text, text) AS
+SELECT count(*)
+FROM issue_5751_entries e
+JOIN issue_5751_series s ON s.id = e.series_id
+WHERE s.state = $1 AND e.user_id = $2;
+
+SET plan_cache_mode = force_custom_plan;
+SELECT issue_5751_plan_uses(
+  $$EXECUTE issue_5751_generic('active', 'u1')$$,
+  'ParadeDB Aggregate Scan') AS custom_uses_aggregate_scan;
+EXECUTE issue_5751_generic('active', 'u1');
+
+-- A generic plan with parameters on both inputs chooses a wrapped lower path.
+-- AggregateScan must traverse the transparent wrapper, account for the
+-- parameterized-path clauses, and remain selected.
+SET plan_cache_mode = force_generic_plan;
+SELECT issue_5751_plan_uses(
+  $$EXECUTE issue_5751_generic('active', 'u1')$$,
+  'ParadeDB Aggregate Scan') AS generic_uses_aggregate_scan;
+EXECUTE issue_5751_generic('active', 'u1');
+
+DEALLOCATE issue_5751_generic;
+
+-- Main already supports a single generic base-filter parameter through that
+-- runtime path. Keep an explicit compatibility assertion so a future safety
+-- guard cannot turn this working AggregateScan into fallback or an error.
+PREPARE issue_5751_main_compatible(text) AS
+SELECT count(*)
+FROM issue_5751_entries e
+JOIN issue_5751_series s ON s.id = e.series_id
+WHERE s.state = $1;
+
+SELECT issue_5751_plan_uses(
+  $$EXECUTE issue_5751_main_compatible('active')$$,
+  'ParadeDB Aggregate Scan') AS main_compatible_uses_aggregate_scan;
+EXECUTE issue_5751_main_compatible('active');
+DEALLOCATE issue_5751_main_compatible;
+
+-- Cross-table DataFusion predicates have no executor-side ParamListInfo
+-- binding. Decline this shape rather than raising "no value found for
+-- parameter" or evaluating an incomplete predicate.
+PREPARE issue_5751_cross_param(bigint) AS
+SELECT count(*)
+FROM issue_5751_entries e
+JOIN issue_5751_series s ON s.id = e.series_id
+WHERE s.id + $1 > e.series_id;
+
+SELECT issue_5751_plan_uses(
+  $$EXECUTE issue_5751_cross_param(0)$$,
+  'ParadeDB Aggregate Scan') AS cross_param_uses_aggregate_scan;
+EXECUTE issue_5751_cross_param(0);
+
+SELECT issue_5751_result(
+  $$EXECUTE issue_5751_cross_param(0)$$,
+  true
+) = issue_5751_result(
+  $$SELECT count(*)
+    FROM issue_5751_entries e
+    JOIN issue_5751_series s ON s.id = e.series_id
+    WHERE s.id + 0 > e.series_id$$,
+  false
+) AS cross_param_matches_postgres;
+
+DEALLOCATE issue_5751_cross_param;
+
+-- A present HAVING or aggregate FILTER must not be represented as None merely
+-- because its PARAM_EXTERN cannot be translated. Both shapes decline and
+-- PostgreSQL evaluates the original expression.
+PREPARE issue_5751_having(bigint) AS
+SELECT s.state, count(*)
+FROM issue_5751_entries e
+JOIN issue_5751_series s ON s.id = e.series_id
+GROUP BY s.state
+HAVING count(*) > $1
+ORDER BY s.state;
+
+SELECT issue_5751_plan_uses(
+  $$EXECUTE issue_5751_having(1)$$,
+  'ParadeDB Aggregate Scan') AS having_uses_aggregate_scan;
+EXECUTE issue_5751_having(1);
+
+PREPARE issue_5751_filter(text) AS
+SELECT count(*) FILTER (WHERE e.user_id = $1) AS filtered_aggregate_count
+FROM issue_5751_entries e
+JOIN issue_5751_series s ON s.id = e.series_id;
+
+SELECT issue_5751_plan_uses(
+  $$EXECUTE issue_5751_filter('u1')$$,
+  'ParadeDB Aggregate Scan') AS filter_uses_aggregate_scan;
+EXECUTE issue_5751_filter('u1');
+
+-- Cross-check the values against literal equivalents. The decline itself is
+-- asserted by the plan checks above.
+SELECT issue_5751_result(
+  $$EXECUTE issue_5751_having(1)$$,
+  true
+) = issue_5751_result(
+  $$SELECT s.state, count(*)
+    FROM issue_5751_entries e
+    JOIN issue_5751_series s ON s.id = e.series_id
+    GROUP BY s.state
+    HAVING count(*) > 1
+    ORDER BY s.state$$,
+  false
+) AS having_matches_postgres;
+
+SELECT issue_5751_result(
+  $$EXECUTE issue_5751_filter('u1')$$,
+  true
+) = issue_5751_result(
+  $$SELECT count(*) FILTER (WHERE e.user_id = 'u1') AS filtered_aggregate_count
+    FROM issue_5751_entries e
+    JOIN issue_5751_series s ON s.id = e.series_id$$,
+  false
+) AS filter_matches_postgres;
+
+DEALLOCATE issue_5751_having;
+DEALLOCATE issue_5751_filter;
+
+RESET plan_cache_mode;
+
+-- PostgreSQL may enforce an inner-join predicate on a parameterized inner
+-- index path and remove it from the parent NestPath.joinrestrictinfo. The
+-- predicate remains in ParamPathInfo.ppi_clauses and must be inventoried when
+-- AggregateScan reconstructs the DataFusion join.  Equality-only execution
+-- would incorrectly count all five rows instead of the three qualifying rows.
+CREATE TABLE issue_5751_ppi_series (
+    id bigint PRIMARY KEY,
+    threshold bigint
+);
+CREATE TABLE issue_5751_ppi_entries (
+    id bigint PRIMARY KEY,
+    series_id bigint,
+    amount bigint
+);
+
+INSERT INTO issue_5751_ppi_series VALUES (1, 10), (2, 20);
+INSERT INTO issue_5751_ppi_entries VALUES
+    (1, 1, 5),
+    (2, 1, 15),
+    (3, 1, 25),
+    (4, 2, 15),
+    (5, 2, 25);
+
+CREATE INDEX issue_5751_ppi_series_bm25
+ON issue_5751_ppi_series USING paradedb (id, threshold)
+WITH (key_field = 'id');
+CREATE INDEX issue_5751_ppi_entries_bm25
+ON issue_5751_ppi_entries USING paradedb (id, series_id, amount)
+WITH (key_field = 'id');
+CREATE INDEX issue_5751_ppi_lookup
+ON issue_5751_ppi_series (id, threshold);
+
+SET enable_hashjoin = off;
+SET enable_mergejoin = off;
+SET enable_seqscan = off;
+
+SET paradedb.enable_aggregate_custom_scan = off;
+SELECT issue_5751_plan_uses(
+  $$SELECT count(*)
+    FROM issue_5751_ppi_entries e
+    JOIN issue_5751_ppi_series s
+      ON s.id = e.series_id AND s.threshold < e.amount$$,
+  'Nested Loop') AS lower_uses_parameterized_nestloop;
+
+SET paradedb.enable_aggregate_custom_scan = on;
+SELECT issue_5751_plan_uses(
+  $$SELECT count(*)
+    FROM issue_5751_ppi_entries e
+    JOIN issue_5751_ppi_series s
+      ON s.id = e.series_id AND s.threshold < e.amount$$,
+  'ParadeDB Aggregate Scan') AS ppi_uses_aggregate_scan;
+
+SELECT count(*) AS ppi_filtered_count
+FROM issue_5751_ppi_entries e
+JOIN issue_5751_ppi_series s
+  ON s.id = e.series_id AND s.threshold < e.amount;
+
+SELECT issue_5751_result(
+  $$SELECT count(*)
+    FROM issue_5751_ppi_entries e
+    JOIN issue_5751_ppi_series s
+      ON s.id = e.series_id AND s.threshold < e.amount$$,
+  true
+) = issue_5751_result(
+  $$SELECT count(*)
+    FROM issue_5751_ppi_entries e
+    JOIN issue_5751_ppi_series s
+      ON s.id = e.series_id AND s.threshold < e.amount$$,
+  false
+) AS ppi_matches_postgres;
+
+-- Exercise generic-plan parameters and ParamPathInfo.ppi_clauses together.
+-- The parameter remains a supported base filter while the cross-table
+-- inequality is recovered from the parameterized lower path.
+SET plan_cache_mode = force_generic_plan;
+PREPARE issue_5751_ppi_generic(bigint) AS
+SELECT count(*)
+FROM issue_5751_ppi_entries e
+JOIN issue_5751_ppi_series s
+  ON s.id = e.series_id AND s.threshold < e.amount
+WHERE e.amount > $1;
+
+SELECT issue_5751_plan_uses(
+  $$EXECUTE issue_5751_ppi_generic(20)$$,
+  'ParadeDB Aggregate Scan') AS generic_ppi_uses_aggregate_scan;
+
+SELECT issue_5751_result(
+  $$EXECUTE issue_5751_ppi_generic(20)$$,
+  true
+) = issue_5751_result(
+  $$SELECT count(*)
+    FROM issue_5751_ppi_entries e
+    JOIN issue_5751_ppi_series s
+      ON s.id = e.series_id AND s.threshold < e.amount
+    WHERE e.amount > 20$$,
+  false
+) AS generic_ppi_matches_postgres;
+
+DEALLOCATE issue_5751_ppi_generic;
+RESET plan_cache_mode;
+
+-- A volatile cross-table residual enforced through a parameterized inner path.
+-- For this selected nested-loop path, PostgreSQL records the clause in the
+-- inner path's `ParamPathInfo.ppi_clauses`. `create_nestloop_path()` then omits
+-- the clause assigned to the inner path from the `JoinPath.joinrestrictinfo`
+-- embedded in the parent `NestPath`.
+--
+-- This verifies that AggregateScan inventories and translates a volatile
+-- residual from `ppi_clauses` without dropping it. `random() * 0` keeps the
+-- expected result deterministic.
+SELECT issue_5751_plan_uses(
+  $$SELECT count(*)
+    FROM issue_5751_ppi_entries e
+    JOIN issue_5751_ppi_series s
+      ON s.id = e.series_id AND s.threshold < e.amount + (random() * 0)::bigint$$,
+  'ParadeDB Aggregate Scan') AS volatile_residual_uses_aggregate_scan;
+
+SELECT issue_5751_result(
+  $$SELECT count(*)
+    FROM issue_5751_ppi_entries e
+    JOIN issue_5751_ppi_series s
+      ON s.id = e.series_id AND s.threshold < e.amount + (random() * 0)::bigint$$,
+  true
+) = issue_5751_result(
+  $$SELECT count(*)
+    FROM issue_5751_ppi_entries e
+    JOIN issue_5751_ppi_series s
+      ON s.id = e.series_id AND s.threshold < e.amount + (random() * 0)::bigint$$,
+  false
+) AS volatile_residual_matches_postgres;
+
+RESET enable_hashjoin;
+RESET enable_mergejoin;
+RESET enable_seqscan;
+
+-- JoinScan and AggregateScan proposing for the same joinrel, with `@@@` on
+-- both sides so JoinScan genuinely competes.
+CREATE TABLE issue_5751_js_left (id bigint PRIMARY KEY, body text);
+CREATE TABLE issue_5751_js_right (id bigint PRIMARY KEY, left_id bigint, body text);
+INSERT INTO issue_5751_js_left SELECT g, 'alpha beta' FROM generate_series(1, 20) g;
+INSERT INTO issue_5751_js_right SELECT g, g, 'gamma delta' FROM generate_series(1, 20) g;
+CREATE INDEX issue_5751_js_left_bm25
+ON issue_5751_js_left USING paradedb (id, body) WITH (key_field = 'id');
+CREATE INDEX issue_5751_js_right_bm25
+ON issue_5751_js_right USING paradedb (id, left_id, body) WITH (key_field = 'id');
+
+SET paradedb.enable_join_custom_scan = on;
+
+-- Both enabled: AggregateScan claims the query outright.
+SELECT issue_5751_plan_uses(
+  $$SELECT count(*)
+    FROM issue_5751_js_right r
+    JOIN issue_5751_js_left l ON l.id = r.left_id
+    WHERE l.body @@@ 'alpha' AND r.body @@@ 'gamma'$$,
+  'ParadeDB Aggregate Scan') AS both_scans_on_uses_aggregate_scan;
+
+-- With AggregateScan out of the way, JoinScan still declines: it does not
+-- support aggregates (`JoinDeclineReason::ContainsAggregate`), so it never
+-- offers a CustomPath for this joinrel and AggregateScan's opaque-path check
+-- is never reached through it. The warning below is the anchor - #5285 will
+-- let JoinScan propose here, and this case then becomes a real interaction
+-- test rather than a record of why it cannot happen yet.
+SET paradedb.enable_aggregate_custom_scan = off;
+SELECT issue_5751_plan_uses(
+  $$SELECT count(*)
+    FROM issue_5751_js_right r
+    JOIN issue_5751_js_left l ON l.id = r.left_id
+    WHERE l.body @@@ 'alpha' AND r.body @@@ 'gamma'$$,
+  'ParadeDB Base Scan') AS joinscan_declines_falls_back_to_base_scans;
+SET paradedb.enable_aggregate_custom_scan = on;
+
+SELECT issue_5751_result(
+  $$SELECT count(*)
+    FROM issue_5751_js_right r
+    JOIN issue_5751_js_left l ON l.id = r.left_id
+    WHERE l.body @@@ 'alpha' AND r.body @@@ 'gamma'$$,
+  true
+) = issue_5751_result(
+  $$SELECT count(*)
+    FROM issue_5751_js_right r
+    JOIN issue_5751_js_left l ON l.id = r.left_id
+    WHERE l.body @@@ 'alpha' AND r.body @@@ 'gamma'$$,
+  false
+) AS joinscan_interaction_matches_postgres;
+RESET paradedb.enable_join_custom_scan;
+
+-- Partitionwise join: the other opaque path shape. Partitioned parents are
+-- ineligible well before the opaque-path check runs, so an Append over
+-- per-partition joins never reaches it either. Recorded so that adding
+-- partitioned support surfaces this case instead of silently changing it.
+CREATE TABLE issue_5751_pw_a (id bigint, k bigint, s text) PARTITION BY RANGE (id);
+CREATE TABLE issue_5751_pw_a1 PARTITION OF issue_5751_pw_a FOR VALUES FROM (0) TO (100);
+CREATE TABLE issue_5751_pw_a2 PARTITION OF issue_5751_pw_a FOR VALUES FROM (100) TO (200);
+CREATE TABLE issue_5751_pw_b (id bigint, k bigint, t text) PARTITION BY RANGE (id);
+CREATE TABLE issue_5751_pw_b1 PARTITION OF issue_5751_pw_b FOR VALUES FROM (0) TO (100);
+CREATE TABLE issue_5751_pw_b2 PARTITION OF issue_5751_pw_b FOR VALUES FROM (100) TO (200);
+INSERT INTO issue_5751_pw_a SELECT g, g, 'x' FROM generate_series(1, 199) g;
+INSERT INTO issue_5751_pw_b SELECT g, g, 'y' FROM generate_series(1, 199) g;
+CREATE INDEX issue_5751_pw_a_bm25
+ON issue_5751_pw_a USING paradedb (id, k, ((s)::pdb.literal)) WITH (key_field = 'id');
+CREATE INDEX issue_5751_pw_b_bm25
+ON issue_5751_pw_b USING paradedb (id, k, ((t)::pdb.literal)) WITH (key_field = 'id');
+
+SET enable_partitionwise_join = on;
+SELECT issue_5751_plan_uses(
+  $$SELECT count(*)
+    FROM issue_5751_pw_a a
+    JOIN issue_5751_pw_b b ON a.id = b.id AND a.k = b.k
+    WHERE a.s = 'x' AND b.t = 'y'$$,
+  'ParadeDB Aggregate Scan') AS partitionwise_uses_aggregate_scan;
+
+SELECT issue_5751_result(
+  $$SELECT count(*)
+    FROM issue_5751_pw_a a
+    JOIN issue_5751_pw_b b ON a.id = b.id AND a.k = b.k
+    WHERE a.s = 'x' AND b.t = 'y'$$,
+  true
+) = issue_5751_result(
+  $$SELECT count(*)
+    FROM issue_5751_pw_a a
+    JOIN issue_5751_pw_b b ON a.id = b.id AND a.k = b.k
+    WHERE a.s = 'x' AND b.t = 'y'$$,
+  false
+) AS partitionwise_matches_postgres;
+RESET enable_partitionwise_join;
+
+DROP FUNCTION issue_5751_plan_uses(text, text), issue_5751_result(text, boolean);
+DROP TABLE issue_5751_js_left, issue_5751_js_right;
+DROP TABLE issue_5751_pw_a, issue_5751_pw_b;
+DROP TABLE issue_5751_entries, issue_5751_series,
+           issue_5751_ppi_entries, issue_5751_ppi_series;

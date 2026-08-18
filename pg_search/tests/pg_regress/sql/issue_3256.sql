@@ -1,11 +1,11 @@
 \i common/common_setup.sql
 
-CALL paradedb.create_bm25_test_table(
+CALL paradedb.create_paradedb_test_table(
   schema_name => 'public',
   table_name => 'mock_items'
 );
 
-CREATE INDEX on mock_items USING bm25 (id, description, rating, category, metadata) WITH (key_field='id');
+CREATE INDEX on mock_items USING paradedb (id, description, rating, category, metadata) WITH (key_field='id');
 SELECT
     pdb.snippet(description, start_tag => '<b>', end_tag => '</b>', max_num_chars => 10),
     pdb.snippet(description, start_tag => '<i>', end_tag => '</i>'),

@@ -68,16 +68,16 @@ INSERT INTO reviews (id, item_id, body, rating) VALUES
 (107, 7, 'nice large mouse pad', 4),
 (108, 8, 'keeps cables organized and tidy', 4);
 
-CREATE INDEX items_idx ON items USING bm25 (id, name, description, tag_id)
+CREATE INDEX items_idx ON items USING paradedb (id, name, description, tag_id)
 WITH (
     key_field = 'id',
     numeric_fields = '{"tag_id": {"fast": true}}'
 );
 
-CREATE INDEX tags_idx ON tags USING bm25 (id, label, category)
+CREATE INDEX tags_idx ON tags USING paradedb (id, label, category)
 WITH (key_field = 'id');
 
-CREATE INDEX reviews_idx ON reviews USING bm25 (id, item_id, body, rating)
+CREATE INDEX reviews_idx ON reviews USING paradedb (id, item_id, body, rating)
 WITH (
     key_field = 'id',
     numeric_fields = '{"item_id": {"fast": true}, "rating": {"fast": true}}'

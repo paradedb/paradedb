@@ -39,9 +39,9 @@ SELECT
     'File Title ' || LPAD(i::TEXT, 3, '0'),
     'file content for item ' || i
 FROM generate_series(1, 100) AS i;
-CREATE INDEX stk_documents_bm25_idx ON stk_documents USING bm25 (id, category)
+CREATE INDEX stk_documents_bm25_idx ON stk_documents USING paradedb (id, category)
 WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
-CREATE INDEX stk_files_bm25_idx ON stk_files USING bm25 (id, document_id, title, content)
+CREATE INDEX stk_files_bm25_idx ON stk_files USING paradedb (id, document_id, title, content)
 WITH (key_field = 'id', text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}, "content": {"fast": true}}');
 SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
@@ -73,7 +73,7 @@ LIMIT 3;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=3, query="all"
+           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
 (17 rows)
 
 SELECT f.id, f.title
@@ -119,7 +119,7 @@ LIMIT 3;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=3, query="all"
+           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
 (17 rows)
 
 SELECT f.id, f.title
@@ -163,7 +163,7 @@ LIMIT 3;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=5, output_bytes=152.0 B, output_batches=1]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=3, dynamic_filter_pushdown=automaton, query="all", metrics=[output_rows=50, output_bytes=1882.0 B, output_batches=1, rows_pruned=0, rows_scanned=50]
+           :           PgSearchScan: segments=1, dynamic_filters=2, dynamic_filter_pushdown=automaton, query="all", metrics=[output_rows=50, output_bytes=1882.0 B, output_batches=1, rows_pruned=0, rows_scanned=50]
 (15 rows)
 
 -- =============================================================================
@@ -427,7 +427,7 @@ LIMIT 5;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=3, query="all"
+           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
 (17 rows)
 
 SELECT f.id, f.title
@@ -493,7 +493,7 @@ LIMIT 5;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=3, query="all"
+           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
 (17 rows)
 
 SELECT f.id, f.title, f.content
@@ -609,9 +609,9 @@ CREATE TABLE stk_files (
 );
 -- Create indexes BEFORE inserting data so inserts go through the mutable
 -- segment pathway, producing multiple segments.
-CREATE INDEX stk_documents_bm25_idx ON stk_documents USING bm25 (id, category)
+CREATE INDEX stk_documents_bm25_idx ON stk_documents USING paradedb (id, category)
 WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
-CREATE INDEX stk_files_bm25_idx ON stk_files USING bm25 (id, document_id, title, content)
+CREATE INDEX stk_files_bm25_idx ON stk_files USING paradedb (id, document_id, title, content)
 WITH (key_field = 'id', text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}, "content": {"fast": true}}', mutable_segment_rows = 5000);
 -- Insert 50K files across multiple segments (mutable_segment_rows=5000).
 -- Round-robin across the 5 documents. Titles zero-padded for clean sort.
@@ -667,7 +667,7 @@ LIMIT 5;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=3, output_bytes=104.0 B, output_batches=1]
            :         CooperativeExec
-           :           PgSearchScan: segments=4, dynamic_filters=3, dynamic_filter_pushdown=bitset_from_postings, query="all", metrics=[output_rows=25.81 K, output_bytes=932.8 KB, output_batches=4, rows_pruned=4.19 K, rows_scanned=30.00 K]
+           :           PgSearchScan: segments=4, dynamic_filters=2, dynamic_filter_pushdown=bitset_from_postings, query="all", metrics=[output_rows=25.81 K, output_bytes=932.8 KB, output_batches=4, rows_pruned=4.19 K, rows_scanned=30.00 K]
 (15 rows)
 
 SELECT f.id, f.title

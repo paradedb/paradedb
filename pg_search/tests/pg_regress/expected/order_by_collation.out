@@ -77,7 +77,7 @@ VALUES ('apple', 'apple', 'Electronics', 'apple', 10),
         'elderberry',
         50
     );
-CREATE INDEX collation_test_idx ON collation_test USING bm25 (
+CREATE INDEX collation_test_idx ON collation_test USING paradedb (
     id,
     name_c,
     name_icu,
@@ -482,7 +482,7 @@ VALUES ('berlin', 3600000),
     ('chicago', 2700000),
     ('Delhi', 32000000),
     ('edmonton', 1000000);
-CREATE INDEX collation_sortby_test_idx ON collation_sortby_test USING bm25 (id, city, population)
+CREATE INDEX collation_sortby_test_idx ON collation_sortby_test USING paradedb (id, city, population)
 WITH (
         key_field = 'id',
         text_fields = '{"city": {"indexed": true, "fast": true}}',
@@ -625,7 +625,7 @@ VALUES (1, 1, 'TechCorp'),
     (3, 3, 'TechCorp'),
     (4, 4, 'FurniPro'),
     (5, 5, 'TechCorp');
-CREATE INDEX collation_join_products_idx ON collation_join_products USING bm25 (
+CREATE INDEX collation_join_products_idx ON collation_join_products USING paradedb (
     id,
     name_c,
     name_icu,
@@ -635,7 +635,7 @@ WITH (
         key_field = 'id',
         text_fields = '{"name_c": {"fast": true}, "name_icu": {"fast": true}, "description": {}}'
     );
-CREATE INDEX collation_join_suppliers_idx ON collation_join_suppliers USING bm25 (id, product_id, supplier_name)
+CREATE INDEX collation_join_suppliers_idx ON collation_join_suppliers USING paradedb (id, product_id, supplier_name)
 WITH (
         key_field = 'id',
         text_fields = '{"supplier_name": {"fast": true}}',
@@ -666,7 +666,7 @@ LIMIT 5;
            :     SegmentedTopKExec: expr=[name_c@2 ASC NULLS LAST], k=5, visibility_checks=[s, p]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@3, ctid_1@0, name_c@2]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (15 rows)

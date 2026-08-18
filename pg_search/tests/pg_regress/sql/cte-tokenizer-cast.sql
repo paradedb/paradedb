@@ -1,14 +1,14 @@
 \i common/common_setup.sql
 
 -- Test CTE queries with tokenizer cast in index definition
-CALL paradedb.create_bm25_test_table(
+CALL paradedb.create_paradedb_test_table(
   schema_name => 'public',
   table_name => 'mock_items'
 );
 
 -- Create index with tokenizer cast on description field
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (description::pdb.simple), category, rating, in_stock, created_at, metadata, weight_range)
+USING paradedb (id, (description::pdb.simple), category, rating, in_stock, created_at, metadata, weight_range)
 WITH (key_field='id');
 
 -- Test 1: Direct query

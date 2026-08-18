@@ -37,7 +37,7 @@ CREATE TABLE items (
 
 -- Create BM25 index BEFORE inserting data to create multiple segments
 CREATE INDEX items_bm25_idx ON items
-USING bm25 (id, name)
+USING paradedb (id, name)
 WITH (key_field = 'id');
 
 -- Insert first batch of data (creates segment 1)
@@ -105,10 +105,10 @@ DROP TABLE items;
 CREATE TABLE items (
     id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name TEXT NOT NULL
-);
+) WITH (autovacuum_enabled = off);
 
 CREATE INDEX items_bm25_idx ON items
-USING bm25 (id, name)
+USING paradedb (id, name)
 WITH (key_field = 'id');
 
 -- Insert data in two batches but DON'T analyze

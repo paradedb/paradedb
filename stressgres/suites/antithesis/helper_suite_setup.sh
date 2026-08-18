@@ -66,10 +66,8 @@ setup() {
     *) echo "unknown topology: ${topology}" >&2; exit 1 ;;
   esac
 
-  echo ""
-  echo "Waiting 60s for the ParadeDB cluster to initialize..."
-  sleep 60
-
+  # antithesis-bootstrap-gate.yaml holds the fault-free bootstrap phase open until paradedb-rw
+  # accepts connections, so no fixed wait is needed here.
   echo ""
   echo "Building schema for ${toml}..."
   "${STRESSGRES}" headless "${path}" --setup-only --reconnect-grace 200000

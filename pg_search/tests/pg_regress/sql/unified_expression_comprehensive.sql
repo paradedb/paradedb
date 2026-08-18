@@ -44,7 +44,7 @@ INSERT INTO products (name, description, price, category_id, category_name, in_s
 
 -- Create BM25 index that only includes some columns (name, description)
 -- Note: price, category_id, category_name, in_stock, rating, tags are NOT in the BM25 index
-CREATE INDEX products_bm25_idx ON products USING bm25 (
+CREATE INDEX products_bm25_idx ON products USING paradedb (
     id,
     name,
     description

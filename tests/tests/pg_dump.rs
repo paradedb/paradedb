@@ -72,7 +72,7 @@ fn test_pg_dump_restore(mut conn: PgConnection) -> Result<()> {
 
     r#"
     CREATE INDEX lt_search_index_v3
-        ON lt USING bm25 (
+        ON lt USING paradedb (
           id,
           organization_id,
           is_live,

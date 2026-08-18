@@ -19,7 +19,7 @@ INSERT INTO json_term_set_test (metadata) VALUES
     ('{"attributes": {"tstz": "2023-05-01T10:12:34Z"}}');
 
 CREATE INDEX json_term_set_test_idx ON json_term_set_test
-USING bm25 (id, metadata)
+USING paradedb (id, metadata)
 WITH (
     key_field = 'id',
     json_fields = '{"metadata": {"fast": true}}'

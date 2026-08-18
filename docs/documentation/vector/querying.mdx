@@ -29,26 +29,75 @@ LIMIT 5;
 ```
 
 ```ts Drizzle
-// Vector search support for Drizzle is coming very soon.
+import { search } from "@paradedb/drizzle-paradedb";
+
+const queryEmbedding = [1, 2, 3, 4, 5, 6, 7, 8];
+
+await db
+  .select({ id: mockItems.id, description: mockItems.description })
+  .from(mockItems)
+  .where(search.all(mockItems.id))
+  .orderBy(search.cosineDistance(mockItems.embedding, queryEmbedding))
+  .limit(5);
 ```
 
 ```python Django
-# Vector search support for Django is coming very soon.
+from paradedb import All, ParadeDB
+from paradedb.vector import CosineDistance
+
+query_embedding = [1, 2, 3, 4, 5, 6, 7, 8]
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).order_by(
+    CosineDistance('embedding', query_embedding)
+).values('id', 'description')[:5]
 ```
 
 ```python SQLAlchemy
-# Vector search support for SQLAlchemy is coming very soon.
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search, vector
+
+query_embedding = [1, 2, 3, 4, 5, 6, 7, 8]
+
+stmt = (
+    select(MockItem.id, MockItem.description)
+    .where(search.all(MockItem.id))
+    .order_by(vector.cosine_distance(MockItem.embedding, query_embedding))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
 ```
 
 ```ruby Rails
-# Vector search support for Rails is coming very soon.
+query_embedding = [1, 2, 3, 4, 5, 6, 7, 8]
+
+MockItem.nearest(:embedding, query_embedding, metric: :cosine)
+        .select(:id, :description)
+        .limit(5)
 ```
 
 ```cs EF Core
-// Vector search support for EF Core is coming very soon.
+var queryEmbedding = new float[] { 1, 2, 3, 4, 5, 6, 7, 8 };
+
+await dbContext
+    .MockItems.Where(item => EF.Functions.All(item.Id))
+    .OrderBy(item => EF.Functions.CosineDistance(item.Embedding, queryEmbedding))
+    .Select(item => new { item.Id, item.Description })
+    .Take(5)
+    .ToListAsync();
 ```
 
 </CodeGroup>
+
+<Note>
+  Rails' `nearest` adds the match-all predicate automatically when the relation
+  has no other search predicate, and defaults the metric to the one the index
+  was built with.
+</Note>
 
 The `<=>` operator computes cosine distance, so this returns the five rows whose embeddings are nearest the query vector `[1, 2, 3, 4, 5, 6, 7, 8]`.
 
@@ -76,23 +125,68 @@ LIMIT 5;
 ```
 
 ```ts Drizzle
-// Vector search support for Drizzle is coming very soon.
+import { search } from "@paradedb/drizzle-paradedb";
+
+const queryEmbedding = [1, 2, 3, 4, 5, 6, 7, 8];
+
+await db
+  .select({ id: mockItems.id, description: mockItems.description })
+  .from(mockItems)
+  .where(search.term(mockItems.category, "footwear"))
+  .orderBy(search.cosineDistance(mockItems.embedding, queryEmbedding))
+  .limit(5);
 ```
 
 ```python Django
-# Vector search support for Django is coming very soon.
+from paradedb import ParadeDB, Term
+from paradedb.vector import CosineDistance
+
+query_embedding = [1, 2, 3, 4, 5, 6, 7, 8]
+
+MockItem.objects.filter(
+    category=ParadeDB(Term('footwear'))
+).order_by(
+    CosineDistance('embedding', query_embedding)
+).values('id', 'description')[:5]
 ```
 
 ```python SQLAlchemy
-# Vector search support for SQLAlchemy is coming very soon.
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search, vector
+
+query_embedding = [1, 2, 3, 4, 5, 6, 7, 8]
+
+stmt = (
+    select(MockItem.id, MockItem.description)
+    .where(search.term(MockItem.category, "footwear"))
+    .order_by(vector.cosine_distance(MockItem.embedding, query_embedding))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
 ```
 
 ```ruby Rails
-# Vector search support for Rails is coming very soon.
+query_embedding = [1, 2, 3, 4, 5, 6, 7, 8]
+
+MockItem.search(:category)
+        .term("footwear")
+        .nearest(:embedding, query_embedding, metric: :cosine)
+        .select(:id, :description)
+        .limit(5)
 ```
 
 ```cs EF Core
-// Vector search support for EF Core is coming very soon.
+var queryEmbedding = new float[] { 1, 2, 3, 4, 5, 6, 7, 8 };
+
+await dbContext
+    .MockItems.Where(item => EF.Functions.Term(item.Category, "footwear"))
+    .OrderBy(item => EF.Functions.CosineDistance(item.Embedding, queryEmbedding))
+    .Select(item => new { item.Id, item.Description })
+    .Take(5)
+    .ToListAsync();
 ```
 
 </CodeGroup>
@@ -106,15 +200,88 @@ LIMIT 5;
 
 ## Deterministic Results
 
+<Note>Tiebreaker columns require version `0.25.1` and above.</Note>
+
 Rows whose embeddings are equidistant from the query vector are returned in an arbitrary order. When the `LIMIT` cuts through such a group, which of the tied rows come back can change between runs. Add a tiebreaker column after the distance to make the order stable:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT id, description
 FROM mock_items
 WHERE id @@@ pdb.all()
 ORDER BY embedding <=> '[1, 2, 3, 4, 5, 6, 7, 8]', id
 LIMIT 5;
 ```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+const queryEmbedding = [1, 2, 3, 4, 5, 6, 7, 8];
+
+await db
+  .select({ id: mockItems.id, description: mockItems.description })
+  .from(mockItems)
+  .where(search.all(mockItems.id))
+  .orderBy(
+    search.cosineDistance(mockItems.embedding, queryEmbedding),
+    mockItems.id,
+  )
+  .limit(5);
+```
+
+```python Django
+from paradedb import All, ParadeDB
+from paradedb.vector import CosineDistance
+
+query_embedding = [1, 2, 3, 4, 5, 6, 7, 8]
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).order_by(
+    CosineDistance('embedding', query_embedding), 'id'
+).values('id', 'description')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search, vector
+
+query_embedding = [1, 2, 3, 4, 5, 6, 7, 8]
+
+stmt = (
+    select(MockItem.id, MockItem.description)
+    .where(search.all(MockItem.id))
+    .order_by(vector.cosine_distance(MockItem.embedding, query_embedding), MockItem.id)
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+query_embedding = [1, 2, 3, 4, 5, 6, 7, 8]
+
+MockItem.nearest(:embedding, query_embedding, metric: :cosine)
+        .order(:id)
+        .select(:id, :description)
+        .limit(5)
+```
+
+```cs EF Core
+var queryEmbedding = new float[] { 1, 2, 3, 4, 5, 6, 7, 8 };
+
+await dbContext
+    .MockItems.Where(item => EF.Functions.All(item.Id))
+    .OrderBy(item => EF.Functions.CosineDistance(item.Embedding, queryEmbedding))
+    .ThenBy(item => item.Id)
+    .Select(item => new { item.Id, item.Description })
+    .Take(5)
+    .ToListAsync();
+```
+
+</CodeGroup>
 
 The tiebreaker is applied only within a group of equal distances, so it never changes which rows are nearest. Multiple tiebreakers and `DESC` are both supported, and every tiebreaker column must be in the ParadeDB index to keep the Top K optimization.
 

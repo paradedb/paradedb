@@ -19,7 +19,7 @@ CREATE TABLE large_agg_test (
 );
 
 CREATE INDEX large_agg_test_idx ON large_agg_test
-USING bm25 (id, data)
+USING paradedb (id, data)
 WITH (
     key_field = 'id',
     text_fields = '{"data": {"fast": true}}'
@@ -70,7 +70,7 @@ CREATE TABLE delete_agg_test (
 );
 
 CREATE INDEX delete_agg_test_idx ON delete_agg_test
-USING bm25 (id, name)
+USING paradedb (id, name)
 WITH (
     key_field = 'id',
     text_fields = '{"name": {}}'
@@ -132,7 +132,7 @@ CREATE TABLE mvcc_agg_test (
 );
 
 CREATE INDEX mvcc_agg_test_idx ON mvcc_agg_test
-USING bm25 (id, category)
+USING paradedb (id, category)
 WITH (
     key_field = 'id',
     text_fields = '{"category": {"fast": true}}'
@@ -175,7 +175,7 @@ CREATE TABLE triple_pipe_agg_test (
 );
 
 CREATE INDEX triple_pipe_agg_test_idx ON triple_pipe_agg_test
-USING bm25 (id, description, category)
+USING paradedb (id, description, category)
 WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
 
 INSERT INTO triple_pipe_agg_test (description, category) VALUES

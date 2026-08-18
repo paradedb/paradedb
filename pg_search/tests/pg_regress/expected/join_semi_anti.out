@@ -25,7 +25,7 @@ SELECT
     CASE WHEN i % 2 = 0 THEN 'target_category' ELSE 'other_category' END
 FROM generate_series(1, 2000) as i;
 CREATE INDEX table_a_idx ON table_a
-USING bm25 (id, category)
+USING paradedb (id, category)
 WITH (
     key_field = id,
     text_fields = '{
@@ -35,7 +35,7 @@ WITH (
 CREATE INDEX table_b_group_id_idx ON table_b USING btree (group_id);
 CREATE INDEX table_b_group_id_a_id_idx ON table_b USING btree (group_id, a_id);
 CREATE INDEX table_b_idx ON table_b
-USING bm25 (id, group_id, a_id, category)
+USING paradedb (id, group_id, a_id, category)
 WITH (
     key_field = id,
     text_fields = '{
@@ -325,7 +325,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1"}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=3, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 SELECT *

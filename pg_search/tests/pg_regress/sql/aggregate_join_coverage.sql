@@ -44,7 +44,7 @@ INSERT INTO cov_items (order_id, item_name, unit_price) VALUES
     (5, 'tablet-case', 39);
 
 CREATE INDEX cov_orders_idx ON cov_orders
-USING bm25 (id, description, customer, quantity, amount)
+USING paradedb (id, description, customer, quantity, amount)
 WITH (
     key_field='id',
     text_fields='{"description": {}, "customer": {"fast": true}}',
@@ -52,7 +52,7 @@ WITH (
 );
 
 CREATE INDEX cov_items_idx ON cov_items
-USING bm25 (id, order_id, item_name, unit_price)
+USING paradedb (id, order_id, item_name, unit_price)
 WITH (
     key_field='id',
     numeric_fields='{"order_id": {"fast": true}, "unit_price": {"fast": true}}',
@@ -217,7 +217,7 @@ INSERT INTO cov_logs (sensor_id, log_type) VALUES
     (4, 'info');
 
 CREATE INDEX cov_sensors_idx ON cov_sensors
-USING bm25 (id, description, reading, priority)
+USING paradedb (id, description, reading, priority)
 WITH (
     key_field='id',
     text_fields='{"description": {}}',
@@ -225,7 +225,7 @@ WITH (
 );
 
 CREATE INDEX cov_logs_idx ON cov_logs
-USING bm25 (id, sensor_id, log_type)
+USING paradedb (id, sensor_id, log_type)
 WITH (
     key_field='id',
     numeric_fields='{"sensor_id": {"fast": true}}',
@@ -287,7 +287,7 @@ INSERT INTO cov_big_tags (big_id, tag) VALUES
     (1, 'a'), (2, 'b');
 
 CREATE INDEX cov_big_idx ON cov_big
-USING bm25 (id, description, qty)
+USING paradedb (id, description, qty)
 WITH (
     key_field='id',
     text_fields='{"description": {}}',
@@ -295,7 +295,7 @@ WITH (
 );
 
 CREATE INDEX cov_big_tags_idx ON cov_big_tags
-USING bm25 (id, big_id, tag)
+USING paradedb (id, big_id, tag)
 WITH (
     key_field='id',
     numeric_fields='{"big_id": {"fast": true}}',

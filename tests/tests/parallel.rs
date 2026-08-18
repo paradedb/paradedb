@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::Result;
 use futures::future::join_all;
 use pretty_assertions::assert_eq;
-use rand::Rng;
+use rand::RngExt;
 use rstest::*;
 use sqlx::{AssertSqlSafe, Row};
 use tests::fixtures::*;
@@ -47,7 +47,7 @@ async fn test_simultaneous_commits_with_bm25(database: Db) -> Result<()> {
     );
 
     CREATE INDEX concurrent_items_bm25 ON public.concurrent_items
-    USING bm25 (id, description)
+    USING paradedb (id, description)
     WITH (
         key_field = 'id',
         text_fields = '{
@@ -117,7 +117,7 @@ async fn test_statement_level_locking(database: Db) -> Result<()> {
     );
 
     CREATE INDEX index_a_bm25 ON public.index_a
-    USING bm25 (id, content)
+    USING paradedb (id, content)
     WITH (
         key_field = 'id',
         text_fields = '{
@@ -126,7 +126,7 @@ async fn test_statement_level_locking(database: Db) -> Result<()> {
     );
 
     CREATE INDEX index_b_bm25 ON public.index_b
-    USING bm25 (id, content)
+    USING paradedb (id, content)
     WITH (
         key_field = 'id',
         text_fields = '{
@@ -235,11 +235,11 @@ async fn test_parallel_hash_join_race_condition(database: Db) -> Result<()> {
 
     -- Create BM25 indexes BEFORE inserting data
     CREATE INDEX idx_parade_core ON core
-    USING bm25 (dwf_doid, author)
+    USING paradedb (dwf_doid, author)
     WITH (key_field='dwf_doid');
 
     CREATE INDEX idx_parade_document_text ON document_text
-    USING bm25 (dwf_doid, full_text)
+    USING paradedb (dwf_doid, full_text)
     WITH (key_field='dwf_doid');
     "#
     .execute(&mut conn);
@@ -272,10 +272,14 @@ async fn test_parallel_hash_join_race_condition(database: Db) -> Result<()> {
     "CREATE INDEX idx_date_time_combined_date ON core (DATE(date_time_combined))"
         .execute(&mut conn);
 
-    // CRITICAL: Disable Custom Scan to force the use of Index Only Scan (Index AM path)
-    // Enable parallel workers and force parallel plans
+    // CRITICAL: Disable both custom-scan layers to force the native PostgreSQL
+    // parallel Index AM path. AggregateScan can otherwise satisfy COUNT over
+    // this join itself, which would bypass the parallel-hash behavior this test
+    // is specifically intended to exercise.
+    // Enable parallel workers and force parallel plans.
     r#"
     SET paradedb.enable_custom_scan = false;
+    SET paradedb.enable_aggregate_custom_scan = false;
     SET max_parallel_workers_per_gather = 2;
     SET parallel_tuple_cost = 0;
     SET parallel_setup_cost = 0;
@@ -391,7 +395,7 @@ async fn test_parallel_scan_with_segments_exceeding_target(database: Db) -> Resu
     );
 
     CREATE INDEX idx_test ON test
-    USING bm25 (column_a, column_b)
+    USING paradedb (column_a, column_b)
     WITH (
         key_field='column_a',
         target_segment_count = 1

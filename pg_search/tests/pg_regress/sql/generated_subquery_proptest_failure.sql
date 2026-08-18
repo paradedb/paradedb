@@ -20,7 +20,7 @@ CREATE TABLE orders
 );
 
 -- Note: Create the indexes before inserting rows to encourage multiple segments being created.
-CREATE INDEX idxproducts ON products USING bm25 (id, uuid, name, color, age)
+CREATE INDEX idxproducts ON products USING paradedb (id, uuid, name, color, age)
     WITH (
     target_segment_count = 2,
     key_field = 'id',
@@ -32,7 +32,7 @@ CREATE INDEX idxproducts ON products USING bm25 (id, uuid, name, color, age)
                 "age": { "tokenizer": { "type": "keyword" }, "fast": true }
             }'
     );
-CREATE INDEX idxorders ON orders USING bm25 (id, uuid, name, color, age)
+CREATE INDEX idxorders ON orders USING paradedb (id, uuid, name, color, age)
     WITH (
     target_segment_count = 2,
     key_field = 'id',

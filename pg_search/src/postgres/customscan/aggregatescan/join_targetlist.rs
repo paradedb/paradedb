@@ -26,7 +26,10 @@ use super::datafusion_build::{FilterExprBuildContext, JoinAggSource};
 use super::privdat::FilterExpr;
 use crate::api::SortDirection;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
+use crate::postgres::customscan::datafusion::explain::get_attname_safe;
+use crate::postgres::customscan::joinscan::build::RelationAlias;
 use crate::postgres::var::{VarContext, find_one_aggref, find_one_var_and_fieldname};
+use crate::schema::SearchFieldType;
 use pgrx::PgList;
 use pgrx::pg_sys;
 use pgrx::pg_sys::{
@@ -112,6 +115,49 @@ pub struct JoinGroupColumn {
     pub field_name: String,
     /// Position in the output tuple (index into `output_rel.reltarget.exprs`).
     pub output_index: usize,
+    /// Declared scale when this is a NUMERIC field. Grouping itself works on
+    /// the stored representation; the scale is needed to render group keys
+    /// with the column's display scale.
+    #[serde(default)]
+    pub numeric_scale: Option<i16>,
+}
+
+/// The NUMERIC field type an aggregate has to handle, or `None` when the
+/// aggregate needs no numeric-specific treatment.
+///
+/// COUNT variants work on the stored representation directly, since both
+/// encodings are canonical and byte-distinct means value-distinct.
+/// SUM/AVG/MIN/MAX need the declared scale to render their result, so an
+/// unbounded NUMERIC declines. Everything else declines as well, which lands
+/// the query on Postgres instead of failing when DataFusion rejects the
+/// storage type.
+fn numeric_agg_field_type(
+    agg_kind: &AggKind,
+    field_refs: &[JoinAggColRef],
+    has_distinct: bool,
+) -> Result<Option<SearchFieldType>, String> {
+    let Some(field_type) = field_refs.iter().find_map(|r| r.numeric) else {
+        return Ok(None);
+    };
+
+    match agg_kind {
+        AggKind::CountStar | AggKind::Count | AggKind::CountDistinct => Ok(None),
+        AggKind::Sum | AggKind::Avg | AggKind::Min | AggKind::Max => {
+            if has_distinct {
+                return Err(format!(
+                    "{agg_kind} with DISTINCT is not supported on NUMERIC columns"
+                ));
+            }
+            if field_type.numeric_scale().is_none() {
+                return Err(format!(
+                    "{agg_kind} on an unbounded NUMERIC column is not supported; declare a \
+                     precision and scale to enable aggregate pushdown"
+                ));
+            }
+            Ok(Some(field_type))
+        }
+        _ => Err(format!("{agg_kind} is not supported on NUMERIC columns")),
+    }
 }
 
 /// Aggregate-argument column reference. Same identity model as
@@ -121,6 +167,9 @@ pub struct JoinAggColRef {
     pub plan_position: usize,
     pub attno: pg_sys::AttrNumber,
     pub field_name: String,
+    /// Set when the referenced field is NUMERIC.
+    #[serde(default)]
+    pub numeric: Option<SearchFieldType>,
 }
 
 /// Aggregate ORDER BY entry (e.g. `STRING_AGG(col, ',' ORDER BY col2)`).
@@ -164,6 +213,10 @@ pub struct JoinAggregateEntry {
     /// `None` when the aggregate has no FILTER.
     #[serde(default)]
     pub filter: Option<FilterExpr>,
+    /// Set for SUM/AVG/MIN/MAX over a NUMERIC field. COUNT works on the
+    /// stored representation and leaves this `None`.
+    #[serde(default)]
+    pub numeric: Option<SearchFieldType>,
 }
 
 /// The complete aggregate target list for a join aggregate query. Each
@@ -274,9 +327,11 @@ pub unsafe fn extract_aggregate_targetlist(
             let source = find_source_by_rti(sources, rti, "GROUP BY column")?;
 
             let field_name = source.column_name(attno).ok_or_else(|| {
+                let alias =
+                    RelationAlias::new(source.alias.as_deref()).display(source.rti as usize);
                 format!(
-                    "could not resolve field name for GROUP BY column (RTI={}, attno={})",
-                    rti, attno
+                    "GROUP BY column {} is not columnar indexed",
+                    get_attname_safe(Some(source.relid), attno, &alias)
                 )
             })?;
 
@@ -289,11 +344,31 @@ pub unsafe fn extract_aggregate_targetlist(
                     )
                 })?;
 
+            // Grouping compares the stored representation, which is order- and
+            // equality-preserving for both NUMERIC storages, but rendering the
+            // keys needs the declared scale. Unbounded NUMERIC drops per-value
+            // display scale at index time, so it declines.
+            let numeric_scale = source
+                .bm25_index
+                .as_ref()
+                .and_then(|i| i.schema().ok())
+                .and_then(|s| s.numeric_field_type(&field_name))
+                .map(|(_, scale)| {
+                    scale.ok_or_else(|| {
+                        format!(
+                            "GROUP BY column {field_name} is an unbounded NUMERIC; declare a \
+                             precision and scale to enable aggregate pushdown"
+                        )
+                    })
+                })
+                .transpose()?;
+
             group_columns.push(JoinGroupColumn {
                 plan_position,
                 attno,
                 field_name,
                 output_index: idx,
+                numeric_scale,
             });
         } else if let Some((var, field_name)) = find_one_var_and_fieldname(
             VarContext::from_planner(args.root),
@@ -318,11 +393,31 @@ pub unsafe fn extract_aggregate_targetlist(
                     )
                 })?;
 
+            // A missing source happens for rti-aliased JSON group keys from
+            // sub-PlannerInfos; their fields are JSON paths, never NUMERIC.
+            // Bare NUMERIC columns are plain Vars and take the branch above,
+            // which propagates the lookup failure.
+            let numeric_scale = find_source_by_rti(sources, rti, "GROUP BY expression")
+                .ok()
+                .and_then(|source| source.bm25_index.as_ref())
+                .and_then(|i| i.schema().ok())
+                .and_then(|s| s.numeric_field_type(&field_name))
+                .map(|(_, scale)| {
+                    scale.ok_or_else(|| {
+                        format!(
+                            "GROUP BY column {field_name} is an unbounded NUMERIC; declare a \
+                             precision and scale to enable aggregate pushdown"
+                        )
+                    })
+                })
+                .transpose()?;
+
             group_columns.push(JoinGroupColumn {
                 plan_position,
                 attno,
                 field_name,
                 output_index: idx,
+                numeric_scale,
             });
         } else if let Some(aggref) = find_one_aggref(expr as *mut pg_sys::Node) {
             // Aggregate function (possibly wrapped in COALESCE, etc.)
@@ -333,13 +428,18 @@ pub unsafe fn extract_aggregate_targetlist(
             let filter = if (*aggref).aggfilter.is_null() {
                 None
             } else {
-                FilterExpr::from_pg_node(
-                    (*aggref).aggfilter as *mut pg_sys::Node,
-                    &FilterExprBuildContext::Filter {
-                        sources,
-                        plan,
-                        outer_root_id,
-                    },
+                Some(
+                    FilterExpr::from_pg_node(
+                        (*aggref).aggfilter as *mut pg_sys::Node,
+                        &FilterExprBuildContext::Filter {
+                            sources,
+                            plan,
+                            outer_root_id,
+                        },
+                    )
+                    .ok_or_else(|| {
+                        "aggregate FILTER cannot be translated for aggregate-on-join".to_string()
+                    })?,
                 )
             };
 
@@ -377,6 +477,8 @@ pub unsafe fn extract_aggregate_targetlist(
             // not a guessed type - this avoids segfaults from type mismatches
             let result_type_oid = (*aggref).aggtype;
 
+            let numeric = numeric_agg_field_type(&agg_kind, &field_refs, has_distinct)?;
+
             aggregates.push(JoinAggregateEntry {
                 func_oid: aggfnoid,
                 agg_kind,
@@ -386,6 +488,7 @@ pub unsafe fn extract_aggregate_targetlist(
                 filter,
                 distinct: has_distinct,
                 order_by,
+                numeric,
             });
         } else {
             return Err(format!(
@@ -478,9 +581,10 @@ unsafe fn extract_aggref_field_refs(
         let source = find_source_by_rti(sources, rti, "aggregate argument")?;
 
         let field_name = source.column_name(attno).ok_or_else(|| {
+            let alias = RelationAlias::new(source.alias.as_deref()).display(source.rti as usize);
             format!(
-                "could not resolve field name for aggregate argument (RTI={}, attno={})",
-                rti, attno
+                "aggregate argument {} is not columnar indexed",
+                get_attname_safe(Some(source.relid), attno, &alias)
             )
         })?;
 
@@ -493,10 +597,18 @@ unsafe fn extract_aggref_field_refs(
                 )
             })?;
 
+        let numeric = source
+            .bm25_index
+            .as_ref()
+            .and_then(|i| i.schema().ok())
+            .and_then(|s| s.numeric_field_type(&field_name))
+            .map(|(field_type, _)| field_type);
+
         refs.push(JoinAggColRef {
             plan_position,
             attno,
             field_name,
+            numeric,
         });
     }
 
@@ -589,7 +701,9 @@ unsafe fn extract_aggref_order_by(
 /// Unwrap an expression to a bare `Var`, allowing only `RelabelType` wrappers.
 /// Returns `None` for anything more complex (COALESCE, FuncExpr, etc.)
 /// so the caller can reject and fall back to native Postgres.
-unsafe fn unwrap_to_var(mut node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
+pub(in crate::postgres::customscan) unsafe fn unwrap_to_var(
+    mut node: *mut pg_sys::Node,
+) -> Option<*mut pg_sys::Var> {
     while !node.is_null() {
         match (*node).type_ {
             pg_sys::NodeTag::T_Var => return Some(node as *mut pg_sys::Var),

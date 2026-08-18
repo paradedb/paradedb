@@ -14,7 +14,7 @@ The `record` option specifies how much information is recorded with an indexed f
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (
     key_field='id',
     text_fields='{

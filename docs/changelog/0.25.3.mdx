@@ -1,0 +1,33 @@
+---
+title: 0.25.3
+noindex: true
+---
+
+## New Features 🎉
+
+- Aggregates over `NUMERIC` columns are now pushed down into the ParadeDB index.
+- Queries containing `Param` and `SubPlan` expressions are now solved on the leader before MPP dispatch, so more
+  plan shapes execute over MPP.
+- `EXPLAIN (ANALYZE, VERBOSE)` now attributes vector search buffer hits and reads to cluster routing versus
+  cluster probing.
+
+## Performance Improvements 🚀
+
+- Faster counts for unfiltered and single-term-filter queries.
+- Cardinality aggregations over string fields now defer visibility checks, speeding up aggregations over
+  fully-visible segments.
+
+## Stability Improvements 💪
+
+- Fixed dropped `pdb.agg` filters, and improved the warnings emitted when an aggregate cannot be pushed down.
+- Unsortable `top_hits.sort` fields are now rejected at plan time instead of failing during execution.
+- `partition_by` is now preserved on AggregateScan for range co-partitioned joins.
+- Scaling a PgSearchScan node now declares only the partition assigned to it.
+- The final index build merge now runs even when the last insert flushed at the document cap.
+- Prebuilt binaries are now published for macOS 26 (Tahoe). macOS 14 (Sonoma) binaries are no longer published.
+
+## New Contributors 👋
+
+- [**nshah067**](https://github.com/nshah067)
+
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.25.3).

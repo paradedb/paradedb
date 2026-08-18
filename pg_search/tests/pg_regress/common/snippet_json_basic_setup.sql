@@ -26,7 +26,7 @@ INSERT INTO snippet_test (content, metadata_json, metadata_jsonb) VALUES
  '{"id": 4, "metadata": {"created_at": "2023-12-01", "updated_at": "2023-12-31", "versions": [1, 2, 3]}, "settings": {"notifications": {"email": true, "push": false}, "theme": "dark"}}'
 );
 
-CREATE INDEX ON snippet_test USING bm25 (
+CREATE INDEX ON snippet_test USING paradedb (
     id,
     metadata_json,
     metadata_jsonb

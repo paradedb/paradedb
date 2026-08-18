@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """Extract verification snippets from docs CodeGroups."""
 
-from pathlib import Path
 import re
 import shutil
 import sys
+from pathlib import Path
 
-
-CODEGROUP_PATTERN = re.compile(r"<CodeGroup[ >].*?</CodeGroup>", re.S)
-FENCE_PATTERN = re.compile(r"^```([^\n]*)\n(.*?)^```[ \t]*$", re.M | re.S)
+CODEGROUP_PATTERN = re.compile(r"<CodeGroup[ >].*?</CodeGroup>", re.DOTALL)
+FENCE_PATTERN = re.compile(r"^```([^\n]*)\n(.*?)^```[ \t]*$", re.MULTILINE | re.DOTALL)
 TARGET_SUFFIXES = {
     "sql": "sql",
     "django": "py",
@@ -21,6 +20,8 @@ IGNORED_CODEGROUPS = {
     # CodeGroup is used here to switch between Chinese, Korean, and Japanese
     # not SQL vs ORMs
     "documentation__tokenizers__available-tokenizers__lindera__group-001",
+    # Non-executable fragments showing the distance metric spelling per ORM
+    "documentation__indexing__indexing-vectors__group-002",
 }
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent

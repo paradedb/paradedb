@@ -77,10 +77,10 @@ FROM generate_series(1, 10) i;
 -- lj_excluded_emails and lj_job_openings intentionally have NO BM25 index
 -- so JoinScan cannot absorb them and must bail out for Tests 8, 9, 12.
 CREATE INDEX lj_companies_bm25 ON lj_companies
-USING bm25 (id, name)
+USING paradedb (id, name)
 WITH (key_field = 'id');
 CREATE INDEX lj_people_bm25 ON lj_people
-USING bm25 (id, company_id, name, dept_id, email, seniority_slug)
+USING paradedb (id, company_id, name, dept_id, email, seniority_slug)
 WITH (key_field = 'id', numeric_fields = '{"company_id": {"fast": true}, "dept_id": {"fast": true}}');
 -- No BM25 index on lj_excluded_contacts — must remain non-BM25 for Test 13.
 ANALYZE;

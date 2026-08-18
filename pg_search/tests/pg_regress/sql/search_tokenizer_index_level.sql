@@ -17,7 +17,7 @@ CREATE TABLE autocomplete (
 INSERT INTO autocomplete (title) VALUES
     ('shoes'), ('shirt'), ('shorts'), ('shoelaces'), ('socks');
 
-CREATE INDEX idx_autocomplete ON autocomplete USING bm25
+CREATE INDEX idx_autocomplete ON autocomplete USING paradedb
     (id, (title::pdb.ngram(1, 10, 'prefix_only=true')))
     WITH (key_field = 'id', search_tokenizer = 'unicode_words');
 
@@ -49,7 +49,7 @@ CREATE TABLE param_test (
 INSERT INTO param_test (content) VALUES
     ('Running Fast'), ('running slow'), ('RUNNING late');
 
-CREATE INDEX idx_param ON param_test USING bm25
+CREATE INDEX idx_param ON param_test USING paradedb
     (id, content)
     WITH (key_field = 'id', search_tokenizer = 'simple(lowercase=false)');
 
@@ -65,7 +65,7 @@ SELECT id, content FROM param_test WHERE content ||| 'running' ORDER BY id;
 
 -- search_tokenizer should only be set as a WITH option, not per-field
 CREATE INDEX idx_bad ON autocomplete
-    USING bm25 (id, (title::pdb.ngram(1, 10, 'search_tokenizer=unicode_words')))
+    USING paradedb (id, (title::pdb.ngram(1, 10, 'search_tokenizer=unicode_words')))
     WITH (key_field = 'id');
 
 -------------------------------------------------------------

@@ -23,6 +23,7 @@ deferred_wal = []
 dst = ["dst/enabled", "dep:antithesis-instrumentation"]
 unsafe-postgres = ["pgrx/unsafe-postgres"]
 block_tracker = [] # for debugging when blocks are acquired and released
+io_stats = [] # per-component buffer hit/read counts in EXPLAIN Segment Info
 debug-logging = [
   "dep:env_logger",
 ] # enables env_logger for dependency debug output
@@ -58,13 +59,16 @@ tantivy.workspace = true
 thiserror = "2.0.18"
 ordered-float = "5.3.0"
 uuid = "1.23.1"
-strum = { version = "0.27.2" }
+strum = { version = "0.28.0" }
 serde_path_to_error = "0.1.20"
+# Do not "upgrade" this: bincode is unmaintained and 3.0.0 is a tombstone whose
+# lib.rs is a single compile_error!. `legacy()` also encodes to disk, so any
+# replacement must be byte-compatible.
 bincode = { version = "2.0.1", features = [
   "serde",
   "std",
 ], default-features = false }
-rand = "0.9.4"
+rand = "0.10.2"
 proptest = { version = "1.11.0", optional = true }
 postcard = { version = "1.1.3", features = [
   "use-std",
@@ -80,16 +84,18 @@ lazy_static = "1.5.0"
 macros = { path = "../macros" }
 half = "2.7.1"
 bytemuck = { version = "1.25.0", features = ["derive", "min_const_generics"] }
-decimal-bytes = "0.4.2"
+decimal-bytes = "0.4.3"
+bigdecimal = "0.4.10"
 paste = "1.0.15"
 typetag = "0.2"
 tokio = { version = "1", features = ["rt"] }
+tokio-util = "0.7"
 bytes = { version = "1", features = ["serde"] }
 # Here and the equivalent in our datafusion-distributed fork will need to be updated in sync so that
 # both point to the same datafusion ref.
 datafusion = { git = "https://github.com/apache/datafusion", rev = "8d680db14a9134837bbd3d53497dd58c985c51a7", default-features = false }
 datafusion-proto = { git = "https://github.com/apache/datafusion", rev = "8d680db14a9134837bbd3d53497dd58c985c51a7", default-features = false }
-datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed", tag = "snapshot-main-2026-07-30-083335", default-features = false }
+datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed", tag = "snapshot-main-2026-08-11-004258", default-features = false }
 futures = "0.3"
 async-stream = "0.3.6"
 prost = "0.14.3"

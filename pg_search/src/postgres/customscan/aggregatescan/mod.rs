@@ -107,7 +107,6 @@ use crate::postgres::types::{TantivyValue, is_datetime_type};
 use crate::postgres::utils::{
     ExprContextGuard, add_vars_to_tlist, is_unnest_func, make_text_const,
 };
-use crate::scan::codec::serialize_logical_plan;
 use pgrx::{PgList, PgMemoryContexts, PgTupleDesc, pg_sys};
 use std::ffi::CStr;
 
@@ -224,11 +223,10 @@ enum AggregatePathDecline {
     Warn(AggregateDeclineReason),
 }
 
-/// Specific reason a `Warn` decline was raised. Each variant maps 1:1 to a
-/// planner-warning string the inline code used to emit.
+/// Specific reason a `Warn` decline was raised.
 enum AggregateDeclineReason {
     NotAllBm25,
-    NonEquiJoinQuals,
+    JoinPredicate(datafusion_build::PathPredicateDeclineReason),
     CrossJoin,
     /// Errors carrying a free-form message (parse-tree extraction, target-list
     /// extraction, fast-field population) — the underlying helper already
@@ -237,26 +235,38 @@ enum AggregateDeclineReason {
 }
 
 impl AggregateDeclineReason {
-    fn emit(&self) {
-        let alias = "join".to_string();
+    fn detail(&self) -> std::borrow::Cow<'static, str> {
         match self {
-            AggregateDeclineReason::NotAllBm25 => AggregateScan::add_planner_warning(
-                "Aggregate Scan (DataFusion) not used: all tables in the join must have BM25 indexes",
-                alias,
-            ),
-            AggregateDeclineReason::NonEquiJoinQuals => AggregateScan::add_planner_warning(
-                "Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be pushed to individual table scans",
-                alias,
-            ),
-            AggregateDeclineReason::CrossJoin => AggregateScan::add_planner_warning(
-                "Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys)",
-                alias,
-            ),
-            AggregateDeclineReason::Other(msg) => AggregateScan::add_planner_warning(
-                format!("Aggregate Scan (DataFusion) not used: {}", msg),
-                alias,
-            ),
+            Self::NotAllBm25 => "all tables in the join must have BM25 indexes".into(),
+            Self::JoinPredicate(reason) => match reason {
+                datafusion_build::PathPredicateDeclineReason::ExternParam => {
+                    "generic prepared-plan parameters in join predicates are not supported".into()
+                }
+                #[cfg(feature = "pg15")]
+                datafusion_build::PathPredicateDeclineReason::AmbiguousVolatileOverlap => {
+                    "a volatile join predicate cannot be reconstructed safely on PostgreSQL 15".into()
+                }
+                datafusion_build::PathPredicateDeclineReason::OuterJoinOnResidual => {
+                    "outer-join ON residual predicates are not supported".into()
+                }
+                datafusion_build::PathPredicateDeclineReason::UnclassifiedClause => {
+                    "the selected lower join path contains a predicate that AggregateScan cannot classify".into()
+                }
+            },
+            Self::CrossJoin => "CROSS JOINs are not supported (no equi-join keys)".into(),
+            Self::Other(msg) => msg.clone().into(),
         }
+    }
+
+    fn emit(&self) {
+        AggregateScan::add_planner_warning(
+            format!("Aggregate Scan (DataFusion) not used: {}", self.detail()),
+            "join".to_string(),
+        );
+    }
+
+    fn emit_error(&self) {
+        pgrx::error!("Cannot execute pdb.agg: {}", self.detail());
     }
 }
 
@@ -287,9 +297,16 @@ impl CustomScan for AggregateScan {
     }
 
     fn create_custom_path(builder: CustomPathBuilder<Self>) -> Vec<pg_sys::CustomPath> {
-        let has_paradedb_agg = unsafe {
+        let (has_paradedb_agg_recursive, has_paradedb_agg) = unsafe {
             let parse = builder.args().root().parse;
-            !parse.is_null() && query_has_paradedb_agg(parse, true)
+            if parse.is_null() {
+                (false, false)
+            } else {
+                (
+                    query_has_paradedb_agg(parse, true),
+                    query_has_paradedb_agg(parse, false),
+                )
+            }
         };
 
         // If ParadeDB cannot preserve GROUP BY equality, do not offer an
@@ -328,20 +345,31 @@ impl CustomScan for AggregateScan {
                         // ORDER BY aggregate + LIMIT: route to DataFusion which has
                         // no bucket cap and provides native TopK via SortExec(fetch=K).
                         || build::has_aggregate_orderby_with_limit(builder.args())
+                        // NUMERIC aggregates and NUMERIC group keys only work on
+                        // the DataFusion backend: Tantivy aggregations compute in
+                        // f64 and cannot read the decimal-bytes storage.
+                        //
+                        // `pdb.agg()` is excluded because its argument is a
+                        // Tantivy aggregation spec, and only the Tantivy backend
+                        // can execute that JSON. Routing it here would produce a
+                        // plan with no way to run the spec. A `pdb.agg()` over a
+                        // NUMERIC field therefore keeps declining until the spec
+                        // gains a DataFusion translation.
+                        || (!has_paradedb_agg && builder.args().has_numeric_aggregate())
                 };
                 if use_datafusion {
-                    if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg {
+                    if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg_recursive {
                         return Vec::new();
                     }
-                    return Self::build_datafusion_aggregate_path(builder);
+                    return Self::build_datafusion_aggregate_path(builder, has_paradedb_agg);
                 }
                 Self::build_tantivy_aggregate_path(builder, has_paradedb_agg)
             }
             pg_sys::RelOptKind::RELOPT_JOINREL => {
-                if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg {
+                if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg_recursive {
                     return Vec::new();
                 }
-                Self::build_datafusion_aggregate_path(builder)
+                Self::build_datafusion_aggregate_path(builder, has_paradedb_agg)
             }
             _ => Vec::new(),
         }
@@ -670,12 +698,14 @@ impl CustomScan for AggregateScan {
                 );
                 state.custom_state_mut().scan_slot = Some(scan_slot);
             }
-            // MPP: serialize the logical plan now, while the source manifests are alive; the
-            // first exec call's launch sizes the DSM dispatch-payload region from its length.
-            // Only the leader runs this branch (`ParallelWorkerNumber == -1` in the leader
-            // backend).
-            if mpp_is_active() && unsafe { pg_sys::ParallelWorkerNumber } == -1 {
-                Self::stash_mpp_plan_bytes(state);
+            // MPP: pin the source manifests and mark one launch attempt. The real logical and
+            // physical plan is built once, on first execution; its finished stages provide the
+            // exact dispatch-payload size. Plain EXPLAIN never executes and must not prepare MPP.
+            if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) == 0
+                && mpp_is_active()
+                && unsafe { pg_sys::ParallelWorkerNumber } == -1
+            {
+                Self::prepare_mpp(state);
             }
             return;
         }
@@ -742,14 +772,6 @@ impl CustomScan for AggregateScan {
         // query so blocked producers stop).
         if let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() {
             df_state.stream = None;
-            // Release the DSM-backed control senders before `recv`. A producer's `work_mem`
-            // overflow (or any worker error) is re-raised in the leader from inside `recv`, which
-            // longjmps out of this hook; a release placed after it would never run, leaving the
-            // senders for the detach callback, which clears them while the mapping is still live.
-            // The query is done producing here, so the senders aren't needed.
-            if let Some(leader) = df_state.mpp.leader() {
-                leader.release_control_senders();
-            }
             // Drain the workers' metrics frames off the mesh BEFORE joining the workers. On an
             // early-terminated query the rings still hold data the leader will never read; a
             // worker's bounded metrics send spins on the full ring until the leader frees slots.
@@ -759,7 +781,10 @@ impl CustomScan for AggregateScan {
             if let Some(leader) = df_state.mpp.leader()
                 && let Some(plan) = df_state.physical_plan.as_ref()
             {
-                crate::postgres::customscan::mpp::glue::drain_worker_metrics(plan, &leader.mesh);
+                crate::postgres::customscan::mpp::glue::drain_worker_metrics(
+                    plan,
+                    &leader.session.mesh,
+                );
             }
             // Join the producer workers so their metrics land before the EXPLAIN render (which runs
             // before end_custom_scan, where the context is finally destroyed). A worker error is
@@ -904,67 +929,16 @@ impl AggregateScan {
         state.custom_state_mut().source_manifests = manifests;
     }
 
-    /// Serialize the leader's logical plan (already on `df_state`) and move the MPP lifecycle
-    /// to `PlanBytes`. `launch_mpp` uses the byte length to size the DSM payload region; the
-    /// dispatched stage plans themselves are derived later, from the leader's physical plan.
-    fn stash_mpp_plan_bytes(state: &mut CustomScanStateWrapper<Self>) {
-        // Capture source manifests BEFORE building the logical plan.
-        // We pass `is_mpp: false` below because this plan is only serialized to compute `.len()`
-        // to size the DSM payload. The actual dispatched payload is derived later from the
-        // leader's physical plan. The resulting byte length is a close approximation, and
-        // `DISPATCH_BLOAT_FACTOR` absorbs any difference from omitted `source_idx` fields.
+    /// Pin the MPP source manifests and mark one launch attempt for the first execution call.
+    /// Planning remains lazy: the finished physical stages provide the exact dispatch payload
+    /// before DSM allocation, so begin never needs a throwaway logical plan.
+    fn prepare_mpp(state: &mut CustomScanStateWrapper<Self>) {
         Self::ensure_source_manifests(state);
 
         let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() else {
             return;
         };
-        // Build a logical plan eagerly. The DataFusion exec path normally
-        // builds it lazily on first `exec_custom_scan` call; MPP serializes
-        // it at begin time so the launch can size the dispatch payload.
-        let runtime = match tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        {
-            Ok(rt) => rt,
-            Err(e) => {
-                pgrx::warning!("mpp: tokio runtime build failed: {e}; skipping MPP");
-                return;
-            }
-        };
-        let ctx = create_aggregate_session_context();
-        let custom_exprs = df_state.custom_exprs;
-        let custom_scan_tlist = df_state.custom_scan_tlist;
-        let logical = runtime.block_on(async {
-            build_join_aggregate_plan(
-                &df_state.plan,
-                &df_state.targetlist,
-                df_state.topk.as_ref(),
-                &df_state.join_level_predicates,
-                custom_exprs,
-                custom_scan_tlist,
-                df_state.having_filter.as_ref(),
-                &ctx,
-                None,
-                None,
-                false,
-            )
-            .await
-        });
-        let logical = match logical {
-            Ok((lp, _group_df_indices)) => lp,
-            Err(e) => {
-                pgrx::warning!("mpp: build_join_aggregate_plan failed: {e}; skipping MPP");
-                return;
-            }
-        };
-        let bytes = match serialize_logical_plan(&logical) {
-            Ok(b) => b,
-            Err(e) => {
-                pgrx::warning!("mpp: serialize_logical_plan failed: {e}; skipping MPP");
-                return;
-            }
-        };
-        df_state.mpp = MppLifecycle::PlanBytes(bytes.to_vec());
+        df_state.mpp = MppLifecycle::Pending;
     }
 
     /// Plan-first MPP launch (#5667). Called with the leader's already-built physical plan:
@@ -974,10 +948,8 @@ impl AggregateScan {
     fn launch_mpp(
         state: &mut CustomScanStateWrapper<Self>,
         physical: &Arc<dyn ExecutionPlan>,
-        plan_bytes_len: usize,
     ) -> Option<crate::postgres::customscan::mpp::glue::MppLeaderState> {
-        // Manifests were captured in `stash_mpp_plan_bytes` (begin); `ensure`
-        // is idempotent.
+        // Manifests were captured in `prepare_mpp` (begin); `ensure` is idempotent.
         Self::ensure_source_manifests(state);
 
         let all_sources: Vec<&[tantivy::SegmentReader]> = state
@@ -992,11 +964,7 @@ impl AggregateScan {
             with_aggregates: false,
         };
 
-        crate::postgres::customscan::mpp::launch::launch_mpp_aggregate(
-            physical,
-            plan_bytes_len,
-            args,
-        )
+        crate::postgres::customscan::mpp::launch::launch_mpp_aggregate(physical, args)
     }
 
     /// Build the aggregate's DataFusion physical plan under `ctx`. `is_mpp` marks that parallel
@@ -1156,9 +1124,8 @@ impl AggregateScan {
         // Parent partitioned tables are not yet supported for aggregate pushdown.
         let Some(heap_relid) = (unsafe { range_table::get_plain_relation_relid(heap_rte) }) else {
             if has_paradedb_agg {
-                Self::add_planner_warning(
-                    "Aggregate Scan not used: unsupported relation type (e.g., partitioned table or view)",
-                    unsafe { rte_alias_or_unknown(heap_rte) },
+                pgrx::error!(
+                    "Cannot execute pdb.agg: unsupported relation type (e.g., partitioned table or view)"
                 );
             }
             return Vec::new();
@@ -1166,10 +1133,7 @@ impl AggregateScan {
 
         let Some((_table, index)) = rel_get_bm25_index(heap_relid) else {
             if has_paradedb_agg {
-                Self::add_planner_warning(
-                    "Aggregate Scan not used: table must have a BM25 index",
-                    unsafe { rte_alias_or_unknown(heap_rte) },
-                );
+                pgrx::error!("Cannot execute pdb.agg: table must have a BM25 index");
             }
             return Vec::new();
         };
@@ -1185,18 +1149,14 @@ impl AggregateScan {
                 })]
             }
             Err(CustomScanBuildError::Incompatible(e)) => {
-                if has_paradedb_agg
-                    || (gucs::enable_aggregate_custom_scan() && gucs::check_aggregate_scan())
-                {
-                    let warning_msg = if has_paradedb_agg {
-                        format!("Aggregate Scan not used: {}", e)
-                    } else {
-                        format!(
-                            "Aggregate Scan not used: {}. \
-                             To disable this warning: SET paradedb.check_aggregate_scan = false",
-                            e,
-                        )
-                    };
+                if has_paradedb_agg {
+                    pgrx::error!("Cannot execute pdb.agg: {}", e);
+                } else if gucs::enable_aggregate_custom_scan() && gucs::check_aggregate_scan() {
+                    let warning_msg = format!(
+                        "Aggregate Scan not used: {}. \
+                         To disable this warning: SET paradedb.check_aggregate_scan = false",
+                        e,
+                    );
                     Self::add_planner_warning(warning_msg, _table.name().to_string());
                 }
                 Vec::new()
@@ -1208,12 +1168,17 @@ impl AggregateScan {
     /// New DataFusion-backed aggregate path for JOINs.
     fn build_datafusion_aggregate_path(
         builder: CustomPathBuilder<Self>,
+        has_paradedb_agg: bool,
     ) -> Vec<pg_sys::CustomPath> {
         match Self::try_build_datafusion_aggregate_path(builder) {
             Ok(path) => vec![path],
             Err(AggregatePathDecline::Quiet) => Vec::new(),
             Err(AggregatePathDecline::Warn(reason)) => {
-                reason.emit();
+                if has_paradedb_agg {
+                    reason.emit_error();
+                } else if gucs::check_aggregate_scan() {
+                    reason.emit();
+                }
                 Vec::new()
             }
         }
@@ -1294,17 +1259,26 @@ impl AggregateScan {
             return Err(warn(AggregateDeclineReason::NotAllBm25));
         }
 
-        // Reject joins with non-equi quals (OR across tables, cross-table
-        // filters, non-@@@ conditions). Check both the cheapest path's
-        // joinrestrictinfo AND the parse tree's WHERE quals for cross-table
-        // references that our DataFusion backend can't apply.
-        if unsafe { datafusion_build::has_non_equi_join_quals(input_rel, &sources) } {
-            return Err(warn(AggregateDeclineReason::NonEquiJoinQuals));
-        }
+        let path_info = match unsafe {
+            datafusion_build::check_join_path_predicates(input_rel, &sources)
+        } {
+            datafusion_build::JoinPathPredicateCheck::Complete(info) => info,
+            datafusion_build::JoinPathPredicateCheck::Unsupported(reason) => {
+                return Err(warn(AggregateDeclineReason::JoinPredicate(reason)));
+            }
+            datafusion_build::JoinPathPredicateCheck::IncompletePath(tag) => {
+                pgrx::debug1!(
+                    "AggregateScan declined because the selected lower join path contains an opaque node: {tag:?}"
+                );
+                return Err(warn(AggregateDeclineReason::Other(
+                    "the selected lower join path cannot be inspected completely".into(),
+                )));
+            }
+        };
 
         // Extract the join tree from the parse tree
         let (mut plan, join_level_predicates, multi_table_predicates, multi_table_clauses) =
-            unsafe { extract_join_tree_from_parse(root, &sources, builder.args().input_rel()) }
+            unsafe { extract_join_tree_from_parse(root, &sources, path_info) }
                 .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
         // Extract aggregate target list (GROUP BY + aggregates)
@@ -1349,7 +1323,7 @@ impl AggregateScan {
         let having_filter = unsafe {
             let parse = builder.args().root().parse;
             if !parse.is_null() && !(*parse).havingQual.is_null() {
-                privdat::FilterExpr::from_pg_node(
+                let having = privdat::FilterExpr::from_pg_node(
                     (*parse).havingQual,
                     &datafusion_build::FilterExprBuildContext::Having {
                         targetlist: &targetlist,
@@ -1357,6 +1331,24 @@ impl AggregateScan {
                         outer_root_id,
                     },
                 )
+                .ok_or_else(|| {
+                    warn(AggregateDeclineReason::Other(
+                        "HAVING clause cannot be translated for aggregate-on-join".into(),
+                    ))
+                })?;
+                // HAVING literals compare as f64, but numeric SUM/AVG results
+                // are decimal-bytes blobs; the comparison would be garbage.
+                if having.any_agg_ref(&|idx| {
+                    targetlist
+                        .aggregates
+                        .get(idx)
+                        .is_some_and(|a| a.numeric.is_some())
+                }) {
+                    return Err(warn(AggregateDeclineReason::Other(
+                        "HAVING on a NUMERIC aggregate is not supported".into(),
+                    )));
+                }
+                Some(having)
             } else {
                 None
             }
@@ -1599,13 +1591,13 @@ impl AggregateScan {
             .as_ref()
             .is_some_and(|d| d.runtime.is_none());
 
-        // Taken up front (not inside the df_state borrow below) because the launch needs
-        // `state` for the source manifests.
-        let mpp_plan_bytes = state
+        // Taken up front (not inside the df_state borrow below) because the launch needs `state`
+        // for the source manifests.
+        let mpp_pending = state
             .custom_state_mut()
             .datafusion_state
             .as_mut()
-            .and_then(|d| d.mpp.take_plan_bytes());
+            .is_some_and(|d| d.mpp.take_pending());
 
         // First call: build and execute the DataFusion plan
         if first_call {
@@ -1619,7 +1611,7 @@ impl AggregateScan {
             // `producer_worker_cap()` acting as the planner's ceiling. The mesh and the
             // dispatch source are execute-time concerns; the exec session below carries them
             // once the workers are committed.
-            let is_mpp = mpp_plan_bytes.is_some();
+            let is_mpp = mpp_pending;
             let plan_ctx = if is_mpp {
                 Self::build_mpp_session_context(None)
             } else {
@@ -1644,11 +1636,13 @@ impl AggregateScan {
             };
             let plan_us = t_plan.elapsed().as_micros() as u64;
 
-            // On a launch fallback (nothing to distribute, short launch) no workers remain and
-            // the `DistributedExec` shape has no mesh to read from, so replan serially below.
-            let leader = match &mpp_plan_bytes {
-                Some(bytes) => Self::launch_mpp(state, &physical_plan, bytes.len()),
-                None => None,
+            // On a launch fallback (nothing to distribute, or too few attached workers) no workers
+            // remain and the `DistributedExec` shape has no mesh to read from, so replan serially
+            // below.
+            let leader = if mpp_pending {
+                Self::launch_mpp(state, &physical_plan)
+            } else {
+                None
             };
 
             let df_state = state
@@ -1662,7 +1656,7 @@ impl AggregateScan {
                         let source =
                             crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::default();
                         let exec_ctx =
-                            Self::build_mpp_session_context(Some(Arc::clone(&leader.mesh)))
+                            Self::build_mpp_session_context(Some(Arc::clone(&leader.session.mesh)))
                                 .with_distributed_dispatch_plan_source(source);
                         let mut timing = leader.timing;
                         timing.plan_us = plan_us;
@@ -2086,6 +2080,15 @@ unsafe fn detect_join_aggregate_topk(
         if targetlist::find_single_aggref_in_expr(sort_expr)
             .is_none_or(|a| a as *mut pg_sys::Node != sort_expr)
         {
+            return None;
+        }
+        // A numeric AVG evaluates to a [count, sum] blob whose byte order
+        // does not follow the quotient, so DataFusion cannot TopK on it.
+        // Skipping TopK is correct: all groups are returned and Postgres
+        // applies its own Sort + Limit above the scan. Numeric SUM/MIN/MAX
+        // sort fine: decimal-bytes ordering matches numeric ordering.
+        let agg = &targetlist.aggregates[agg_idx];
+        if matches!(agg.agg_kind, join_targetlist::AggKind::Avg) && agg.numeric.is_some() {
             return None;
         }
         return Some(privdat::DataFusionTopK {

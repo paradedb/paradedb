@@ -47,11 +47,11 @@ SELECT g,
 FROM generate_series(1, 10) g;
 
 CREATE INDEX repro_5525_parent_idx ON repro_5525_parent
-USING bm25 (id, child_id, (owner::pdb.literal), updated_at)
+USING paradedb (id, child_id, (owner::pdb.literal), updated_at)
 WITH (key_field='id');
 
 CREATE INDEX repro_5525_child_idx ON repro_5525_child
-USING bm25 (id, (state::pdb.literal))
+USING paradedb (id, (state::pdb.literal))
 WITH (key_field='id');
 
 ANALYZE repro_5525_parent;

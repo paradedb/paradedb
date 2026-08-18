@@ -158,7 +158,7 @@ fn quoted_table_name(mut conn: PgConnection) {
     INSERT INTO "Activity" (name, age) VALUES ('Ivan', 30);
     INSERT INTO "Activity" (name, age) VALUES ('Julia', 25);
     CREATE INDEX activity ON "Activity"
-    USING bm25 ("key", name) WITH (key_field='key')"#
+    USING paradedb ("key", name) WITH (key_field='key')"#
         .execute(&mut conn);
     let row: (i32, String, i32) =
         "SELECT * FROM \"Activity\" WHERE \"Activity\" @@@ 'name:alice' ORDER BY key"
@@ -179,7 +179,7 @@ fn text_arrays(mut conn: PgConnection) {
     ('{"another", "array", "of", "texts"}', '{"vtext3", "vtext4", "vtext5"}'),
     ('{"single element"}', '{"single varchar element"}');
     CREATE INDEX example_table_idx ON public.example_table
-    USING bm25 (id, text_array, varchar_array)
+    USING paradedb (id, text_array, varchar_array)
     WITH (
         key_field = 'id',
         text_fields = '{
@@ -219,7 +219,7 @@ fn int_arrays(mut conn: PgConnection) {
     ('{4, 5, 6}', '{300, 400, 500}'),
     ('{7, 8, 9}', '{600, 700, 800, 900}');
     CREATE INDEX example_table_idx ON public.example_table
-    USING bm25 (id, int_array, bigint_array)
+    USING paradedb (id, int_array, bigint_array)
     WITH (key_field = 'id');"#
         .execute(&mut conn);
 
@@ -248,7 +248,7 @@ fn boolean_arrays(mut conn: PgConnection) {
     ('{true, true, false}');
 
     CREATE INDEX example_table_idx ON example_table
-    USING bm25 (id, bool_array) WITH (key_field='id')
+    USING paradedb (id, bool_array) WITH (key_field='id')
     "#
     .execute(&mut conn);
 
@@ -279,7 +279,7 @@ fn datetime_arrays(mut conn: PgConnection) {
     (ARRAY['2023-03-01'::DATE, '2023-04-01'::DATE], ARRAY['2023-04-01 14:00:00'::TIMESTAMP, '2023-04-01 15:00:00'::TIMESTAMP]),
     (ARRAY['2023-05-01'::DATE, '2023-06-01'::DATE], ARRAY['2023-06-01 16:00:00'::TIMESTAMP, '2023-06-01 17:00:00'::TIMESTAMP]);
     CREATE INDEX example_table_idx ON example_table
-    USING bm25 (id, date_array, timestamp_array) WITH (key_field='id')
+    USING paradedb (id, date_array, timestamp_array) WITH (key_field='id')
     "#.execute(&mut conn);
 
     let rows: Vec<(i32,)> =
@@ -307,7 +307,7 @@ fn json_arrays(mut conn: PgConnection) {
     (ARRAY['{"name": "Mike", "age": 50}'::JSONB, '{"name": "Lisa", "age": 45}'::JSONB]);"#
         .execute(&mut conn);
 
-    match "CREATE INDEX example_table_idx ON example_table USING bm25 (id, json_array) WITH (key_field='id')"
+    match "CREATE INDEX example_table_idx ON example_table USING paradedb (id, json_array) WITH (key_field='id')"
     .execute_result(&mut conn)
     {
         Ok(_) => panic!("json arrays should not yet be supported"),
@@ -336,14 +336,14 @@ fn uuid(mut conn: PgConnection) {
     INSERT INTO uuid_table (random_uuid, some_text) VALUES ('02f9789d-4963-47d5-a189-d9c114f5cba4', 'some text');
 
     CREATE INDEX uuid_table_bm25_index ON uuid_table
-    USING bm25 (id, some_text) WITH (key_field='id');
+    USING paradedb (id, some_text) WITH (key_field='id');
 
     DROP INDEX uuid_table_bm25_index CASCADE;"#
         .execute(&mut conn);
 
     r#"
     CREATE INDEX uuid_table_bm25_index ON uuid_table
-    USING bm25 (id, some_text, random_uuid) WITH (key_field='id')
+    USING paradedb (id, some_text, random_uuid) WITH (key_field='id')
     "#
     .execute(&mut conn);
 
@@ -424,7 +424,7 @@ fn snippet_text_array(mut conn: PgConnection) {
     ('{"Alice", "Bob", "Charlie"}', '{"New York", "Los Angeles"}'),
     ('{"Diana", "Eve", "Fiona"}', '{"Chicago", "Houston"}'),
     ('{"George", "Hannah", "Ivan"}', '{"Miami", "Seattle"}');
-    CREATE INDEX people_idx ON people USING bm25 (id, names, locations) WITH (key_field='id');
+    CREATE INDEX people_idx ON people USING paradedb (id, names, locations) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -445,14 +445,14 @@ fn snippet_text_array(mut conn: PgConnection) {
 #[rstest]
 fn hybrid_with_single_result(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     );
 
     CREATE INDEX search_idx
     ON mock_items
-    USING bm25 (id, description, category, rating, in_stock, metadata, created_at)
+    USING paradedb (id, description, category, rating, in_stock, metadata, created_at)
     WITH (
         key_field='id',
         text_fields='{"description": {}, "category": {}}',
@@ -516,7 +516,7 @@ fn update_non_indexed_column(mut conn: PgConnection) -> Result<()> {
     // drop the embedding column (and rewrite the heap to reclaim its space) to keep the tuple
     // layout free of the vector column.
     r#"
-    CALL paradedb.create_bm25_test_table(table_name => 'mock_items', schema_name => 'public');
+    CALL paradedb.create_paradedb_test_table(table_name => 'mock_items', schema_name => 'public');
     ALTER TABLE mock_items DROP COLUMN embedding;
     "#
     .execute(&mut conn);
@@ -530,7 +530,7 @@ fn update_non_indexed_column(mut conn: PgConnection) -> Result<()> {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description)
+    USING paradedb (id, description)
     WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "default", "lowercase": true, "remove_long": 255}}}')
     "#
       .execute(&mut conn);
@@ -670,11 +670,11 @@ async fn json_nested_arrays(mut conn: PgConnection) {
 fn bm25_partial_index_search(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    "CALL paradedb.create_bm25_test_table(table_name => 'test_partial_index', schema_name => 'paradedb');".execute(&mut conn);
+    "CALL paradedb.create_paradedb_test_table(table_name => 'test_partial_index', schema_name => 'paradedb');".execute(&mut conn);
 
     let ret = r#"
     CREATE INDEX partial_idx ON paradedb.test_partial_index
-    USING bm25 (id, description, category, rating)
+    USING paradedb (id, description, category, rating)
     WITH (
         key_field = 'id',
         text_fields = '{
@@ -766,14 +766,10 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
     assert_eq!(rows.len(), 6);
 }
 
-// TODO: This test is currently ignored because hybrid plans did not reliably trigger the custom
-// scan on a partial BM25 index. The issue this pointed at (#2747) has since been closed, so the
-// test should be re-run and un-ignored if it now passes.
-#[ignore]
 #[rstest]
 fn bm25_partial_index_hybrid(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     );
@@ -790,7 +786,7 @@ fn bm25_partial_index_hybrid(mut conn: PgConnection) {
 
     let ret = r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description, category, rating)
+    USING paradedb (id, description, category, rating)
     WITH (
         key_field='id',
         text_fields='{
@@ -888,13 +884,13 @@ fn bm25_partial_index_hybrid(mut conn: PgConnection) {
 fn bm25_partial_index_invalid_statement(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    "CALL paradedb.create_bm25_test_table(table_name => 'test_partial_index', schema_name => 'paradedb');".execute(&mut conn);
+    "CALL paradedb.create_paradedb_test_table(table_name => 'test_partial_index', schema_name => 'paradedb');".execute(&mut conn);
 
     // Ensure report error when predicate is invalid
     // unknown column
     let ret = r#"
     CREATE INDEX partial_idx ON paradedb.test_partial_index
-    USING bm25 (id, description, category, rating)
+    USING paradedb (id, description, category, rating)
     WITH (
         key_field = 'id',
         text_fields = '{
@@ -910,7 +906,7 @@ fn bm25_partial_index_invalid_statement(mut conn: PgConnection) {
     // mismatch type
     let ret = r#"
     CREATE INDEX partial_idx ON paradedb.test_partial_index
-    USING bm25 (id, description, category, rating)
+    USING paradedb (id, description, category, rating)
     WITH (
         key_field = 'id',
         text_fields = '{
@@ -925,7 +921,7 @@ fn bm25_partial_index_invalid_statement(mut conn: PgConnection) {
 
     let ret = r#"
     CREATE INDEX partial_idx ON paradedb.test_partial_index
-    USING bm25 (id, description, category, rating)
+    USING paradedb (id, description, category, rating)
     WITH (
         key_field = 'id',
         text_fields = '{
@@ -943,11 +939,11 @@ fn bm25_partial_index_invalid_statement(mut conn: PgConnection) {
 fn bm25_partial_index_alter_and_drop(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    "CALL paradedb.create_bm25_test_table(table_name => 'test_partial_index', schema_name => 'paradedb');".execute(&mut conn);
+    "CALL paradedb.create_paradedb_test_table(table_name => 'test_partial_index', schema_name => 'paradedb');".execute(&mut conn);
 
     r#"
     CREATE INDEX partial_idx ON paradedb.test_partial_index
-    USING bm25 (id, description, category, rating)
+    USING paradedb (id, description, category, rating)
     WITH (
         key_field='id',
         text_fields='{
@@ -975,7 +971,7 @@ fn bm25_partial_index_alter_and_drop(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX partial_idx ON paradedb.test_partial_index
-    USING bm25 (id, description, rating)
+    USING paradedb (id, description, rating)
     WITH (
         key_field='id',
         text_fields='{
@@ -1004,7 +1000,7 @@ fn high_limit_rows(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX large_series_idx ON public.large_series
-    USING bm25 (id, description)
+    USING paradedb (id, description)
     WITH (key_field = 'id');
     "#
     .execute(&mut conn);
@@ -1144,10 +1140,10 @@ fn json_match(mut conn: PgConnection) {
 
 #[rstest]
 fn json_range(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');"
         .execute(&mut conn);
     "CREATE INDEX bm25_search_idx ON paradedb.bm25_search
-    USING bm25 (id, metadata)
+    USING paradedb (id, metadata)
     WITH (
         key_field='id',
         json_fields='{\"metadata\": {\"fast\": true}}'
@@ -1192,7 +1188,7 @@ fn json_range(mut conn: PgConnection) {
 
 #[rstest]
 fn test_customers_table(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(
+    "CALL paradedb.create_paradedb_test_table(
         table_name => 'customers',
         schema_name => 'public',
         table_type => 'Customers'
@@ -1200,7 +1196,7 @@ fn test_customers_table(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"CREATE INDEX customers_idx ON customers
-    USING bm25 (id, name, crm_data)
+    USING paradedb (id, name, crm_data)
     WITH (
         key_field='id',
         text_fields='{"name": {}}',
@@ -1227,7 +1223,7 @@ fn json_array_term(mut conn: PgConnection) {
         ('["red", "green", "blue"]'::JSON, '["red", "green", "blue"]'::JSONB),
         ('["red", "orange"]'::JSON, '["red", "orange"]'::JSONB);
     CREATE INDEX colors_bm25_index ON colors
-    USING bm25 (id, colors_json, colors_jsonb)
+    USING paradedb (id, colors_json, colors_jsonb)
     WITH (
         key_field='id',
         json_fields='{"colors_json": {}, "colors_jsonb": {}}'
@@ -1295,7 +1291,7 @@ fn multiple_tokenizers_with_alias(mut conn: PgConnection) {
 
     // Create the BM25 index
     r#"CREATE INDEX products_index ON products
-    USING bm25 (id, name, description)
+    USING paradedb (id, name, description)
     WITH (
         key_field='id',
         text_fields='{
@@ -1391,7 +1387,7 @@ fn alias_cannot_be_key_field(mut conn: PgConnection) {
     // Test alias cannot be the same as key_field
     let result = r#"
     CREATE INDEX products_index ON products
-    USING bm25 (id, name, description)
+    USING paradedb (id, name, description)
     WITH (
         key_field='id',
         text_fields='{
@@ -1415,7 +1411,7 @@ fn alias_cannot_be_key_field(mut conn: PgConnection) {
     // Test valid configuration where alias is different from key_field
     r#"
     CREATE INDEX products_index ON products
-    USING bm25 (id, name, description)
+    USING paradedb (id, name, description)
     WITH (
         key_field='id',
         text_fields='{
@@ -1461,7 +1457,7 @@ fn multiple_tokenizers_same_field_in_query(mut conn: PgConnection) {
 
     // Create the BM25 index with multiple tokenizers
     r#"CREATE INDEX product_reviews_index ON product_reviews
-    USING bm25 (id, product_name, review_text)
+    USING paradedb (id, product_name, review_text)
     WITH (
         key_field='id',
         text_fields='{
@@ -1532,7 +1528,7 @@ fn more_like_this_with_alias(mut conn: PgConnection) {
     // Create the BM25 index with aliased fields
     r#"
     CREATE INDEX test_more_like_this_alias_index ON test_more_like_this_alias
-    USING bm25 (id, flavour, description)
+    USING paradedb (id, flavour, description)
     WITH (
         key_field='id',
         text_fields='{
@@ -1582,7 +1578,7 @@ fn multiple_aliases_same_column(mut conn: PgConnection) {
 
     // Create index with multiple aliases for same column
     r#"CREATE INDEX multi_alias_idx ON multi_alias
-    USING bm25 (id, content)
+    USING paradedb (id, content)
     WITH (
         key_field='id',
         text_fields='{
@@ -1624,7 +1620,7 @@ fn cant_name_a_field_ctid(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let result = r#"CREATE INDEX missing_source_idx ON missing_source
-    USING bm25 (id, text_field)
+    USING paradedb (id, text_field)
     WITH (
         key_field='id',
         text_fields='{
@@ -1656,7 +1652,7 @@ fn can_index_only_key_field(mut conn: PgConnection) {
         INSERT INTO can_index_only_key_field (text_field) VALUES ('hello world');
 
         CREATE INDEX idxcan_index_only_key_field ON can_index_only_key_field
-        USING bm25 (id)
+        USING paradedb (id)
         WITH (key_field='id');
     "#
     .execute_result(&mut conn);
@@ -1677,7 +1673,7 @@ fn missing_source_column(mut conn: PgConnection) {
 
     // Attempt to create index with alias pointing to non-existent column
     let result = r#"CREATE INDEX missing_source_idx ON missing_source
-    USING bm25 (id, text_field)
+    USING paradedb (id, text_field)
     WITH (
         key_field='id',
         text_fields='{
@@ -1707,7 +1703,7 @@ fn alias_type_mismatch(mut conn: PgConnection) {
 
     // Try to create text alias pointing to numeric column
     let result = r#"CREATE INDEX type_mismatch_idx ON type_mismatch
-    USING bm25 (id, numeric_field, text_field)
+    USING paradedb (id, numeric_field, text_field)
     WITH (
         key_field='id',
         text_fields='{
@@ -1732,7 +1728,7 @@ fn alias_chain_validation(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let result = r#"CREATE INDEX alias_chain_idx ON alias_chain
-    USING bm25 (id, base_field)
+    USING paradedb (id, base_field)
     WITH (
         key_field='id',
         text_fields='{
@@ -1767,7 +1763,7 @@ fn mixed_field_types_with_aliases(mut conn: PgConnection) {
         .execute(&mut conn);
 
     r#"CREATE INDEX mixed_fields_idx ON mixed_fields
-    USING bm25 (id, text_content, json_content)
+    USING paradedb (id, text_content, json_content)
     WITH (
         key_field='id',
         text_fields='{

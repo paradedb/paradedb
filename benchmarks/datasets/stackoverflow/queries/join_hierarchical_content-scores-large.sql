@@ -60,3 +60,15 @@ WHERE
   users.about_me ||| 'java' AND stackoverflow_posts.title ||| 'error' AND comments.text ||| 'question'
 ORDER BY pdb_score DESC
 LIMIT 1000;
+
+-- Directly, without a CTE.
+SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SET paradedb.enable_range_partitioned_join TO on; SELECT
+  *,
+  pdb.score(users.id) + pdb.score(stackoverflow_posts.id) + pdb.score(comments.id) AS pdb_score
+FROM
+  users JOIN stackoverflow_posts ON users.id = stackoverflow_posts.owner_user_id JOIN comments ON comments.post_id = stackoverflow_posts.id
+WHERE
+  users.about_me ||| 'java' AND stackoverflow_posts.title ||| 'error' AND comments.text ||| 'question'
+ORDER BY pdb_score DESC
+LIMIT 1000;
+

@@ -51,7 +51,7 @@ INSERT INTO topk_tags (product_id, tag_name) VALUES
     (10, 'cooking');
 
 CREATE INDEX topk_products_idx ON topk_products
-USING bm25 (id, description, category, price, rating)
+USING paradedb (id, description, category, price, rating)
 WITH (
     key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}',
@@ -59,7 +59,7 @@ WITH (
 );
 
 CREATE INDEX topk_tags_idx ON topk_tags
-USING bm25 (id, product_id, tag_name)
+USING paradedb (id, product_id, tag_name)
 WITH (
     key_field='id',
     numeric_fields='{"product_id": {"fast": true}}',

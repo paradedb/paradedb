@@ -222,15 +222,12 @@ pub(super) unsafe fn collect_join_sources_base_rel(
     let mut classified = ClassifiedBaseRestrictInfo::empty();
 
     if let Some((_, bm25_index)) = rel_get_bm25_index(relid) {
-        side_info = side_info.with_indexrelid(bm25_index.oid());
+        side_info = side_info.with_index(&bm25_index);
 
         let baserestrictinfo = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
         if missing_partial_index_predicate(bm25_index.rd_indpred, &baserestrictinfo) {
             return None;
         }
-
-        let partition_by = bm25_index.options().partition_by();
-        side_info = side_info.with_partition_by(partition_by);
 
         classified = classify_base_restrictinfo(root, (*rel).baserestrictinfo);
 
@@ -766,25 +763,47 @@ unsafe fn unwrap_path_wrappers(mut path: *mut pg_sys::Path) -> *mut pg_sys::Path
         if path.is_null() {
             return path;
         }
-        let next = match (*path).type_ {
-            // Parallel-to-serial bridge: same row set, same schema.
-            pg_sys::NodeTag::T_GatherPath => (*(path as *mut pg_sys::GatherPath)).subpath,
-            // Sorted parallel-to-serial bridge: same rows, preserves order.
-            pg_sys::NodeTag::T_GatherMergePath => (*(path as *mut pg_sys::GatherMergePath)).subpath,
-            // Required below GatherMerge when PG sorts each worker's partial
-            // path before merging: same rows, only adds ordering.
-            pg_sys::NodeTag::T_SortPath => (*(path as *mut pg_sys::SortPath)).subpath,
-            // Cached materialisation for inner-side replay: same rows, same schema.
-            pg_sys::NodeTag::T_MaterialPath => (*(path as *mut pg_sys::MaterialPath)).subpath,
-            // Adjusts the target list above the underlying path; the join
-            // structure (RTIs, equi-keys, jointype) we read below is unchanged.
-            pg_sys::NodeTag::T_ProjectionPath => (*(path as *mut pg_sys::ProjectionPath)).subpath,
-            _ => return path,
+        let Some(next) = transparent_path_subpath(path) else {
+            return path;
         };
         if next.is_null() || next == path {
             return path;
         }
         path = next;
+    }
+}
+
+/// Return the child of a PostgreSQL path wrapper that preserves the same row
+/// set and join-predicate semantics.
+///
+/// This is shared by JoinScan reconstruction and AggregateScan predicate
+/// coverage. Keep the list deliberately narrow: a caller may inspect the
+/// returned subpath as the semantic source of join predicates, so wrappers
+/// that filter, deduplicate, limit, or otherwise change rows do not belong
+/// here.
+pub(crate) unsafe fn transparent_path_subpath(
+    path: *mut pg_sys::Path,
+) -> Option<*mut pg_sys::Path> {
+    if path.is_null() {
+        return None;
+    }
+
+    match (*path).type_ {
+        // Parallel-to-serial bridge: same row set, same schema.
+        pg_sys::NodeTag::T_GatherPath => Some((*(path as *mut pg_sys::GatherPath)).subpath),
+        // Sorted parallel-to-serial bridge: same rows, preserves order.
+        pg_sys::NodeTag::T_GatherMergePath => {
+            Some((*(path as *mut pg_sys::GatherMergePath)).subpath)
+        }
+        // Required below GatherMerge when PG sorts each worker's partial
+        // path before merging: same rows, only adds ordering.
+        pg_sys::NodeTag::T_SortPath => Some((*(path as *mut pg_sys::SortPath)).subpath),
+        // Cached materialisation for inner-side replay: same rows, same schema.
+        pg_sys::NodeTag::T_MaterialPath => Some((*(path as *mut pg_sys::MaterialPath)).subpath),
+        // Adjusts the target list above the underlying path; the join
+        // structure (RTIs, equi-keys, jointype) remains unchanged.
+        pg_sys::NodeTag::T_ProjectionPath => Some((*(path as *mut pg_sys::ProjectionPath)).subpath),
+        _ => None,
     }
 }
 

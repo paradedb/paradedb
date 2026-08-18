@@ -2091,8 +2091,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-distributed"
-version = "2.0.0"
-source = "git+https://github.com/paradedb/datafusion-distributed?tag=snapshot-main-2026-08-11-004258#aaf1a8129623ad7e1991173fe0fa5cb22a6d1656"
+version = "3.0.0"
+source = "git+https://github.com/paradedb/datafusion-distributed?branch=moe%2Fselfloop-unbounded-channel#5b1fc3f5b0853716be1b3aebe406d7abd5776149"
 dependencies = [
  "async-stream",
  "async-trait",

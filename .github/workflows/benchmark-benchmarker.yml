@@ -1,9 +1,9 @@
 # Benchmark pg_search (Benchmarker)
 #
-# Runs the benchmarker suite (github.com/paradedb/benchmarker) against a
-# pg_search built from this repo's source, on the hn-benchmarker dataset:
-# build pg_search -> overlay onto a released ParadeDB image -> load the dataset
-# -> run every k6 script -> publish dashboards + QPS/latency to gh-pages.
+# Runs the benchmarker suite (github.com/paradedb/benchmarker) on the
+# hn-benchmarker dataset, against a pg_search compiled from this repo's source
+# and overlaid onto a released ParadeDB image. Dashboards and QPS/latency
+# history are published to gh-pages.
 # https://www.paradedb.com/blog/benchmarker-iteration
 
 name: Benchmark pg_search (Benchmarker)
@@ -17,6 +17,7 @@ on:
       - "**/*.rs"
       - "**/*.toml"
       - ".github/workflows/benchmark-benchmarker.yml"
+      - ".github/actions/build-pg_search-source/**"
       - "docker/Dockerfile.benchmarker"
   # Opt in on a PR with the `benchmark-benchmarker` label.
   pull_request:
@@ -45,8 +46,6 @@ permissions:
 jobs:
   benchmark-benchmarker:
     name: Run Benchmarker Suite
-    # RunsOn provisions an ephemeral EC2 instance from these labels (us-east-1).
-    # https://runs-on.com/configuration/job-labels/
     runs-on:
       - runs-on=${{ github.run_id }}
       # 8 vCPU / 32 GiB Graviton4 + NVMe. The dataset compose caps the DB at 4
@@ -94,15 +93,13 @@ jobs:
           ref: ${{ steps.determine-ref.outputs.ref }}
           fetch-depth: 0
 
+      # HEAD is the benchmarked commit, even for a custom ref.
       - name: Derive Short Commit
         id: commit_info
-        # HEAD is the benchmarked commit, even for a custom ref.
         run: echo "short_commit=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
 
       # ---- Build the ParadeDB image from source ----------------------------
 
-      # Native build (no Docker stage) so cargo's mtime fingerprinting and the
-      # action's target/ cache give real incremental compiles across runs.
       - name: Build pg_search from source
         id: build-pg_search
         uses: ./.github/actions/build-pg_search-source
@@ -131,7 +128,6 @@ jobs:
           repository: ${{ env.BENCHMARKER_REPO }}
           ref: ${{ inputs.benchmarker_ref || 'main' }}
           path: benchmarker
-          # benchmarker is public, so checkout's default token reads it.
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -147,11 +143,11 @@ jobs:
         working-directory: benchmarker
         run: ./bin/loader pull --dataset "${DATASET}" --anonymous --source "${DATASET_S3}"
 
+      # The paradedb service sits behind the `paradedb` compose profile.
+      # PARADEDB_IMAGE points the compose at our source build and must be set on
+      # every compose call, or config drift recreates it with the release image.
       - name: Start database
         working-directory: benchmarker/datasets/${{ env.DATASET }}
-        # The paradedb service sits behind the `paradedb` compose profile.
-        # PARADEDB_IMAGE points the compose at our source build and must be set on
-        # every compose call, or config drift recreates it with the release image.
         env:
           PARADEDB_IMAGE: ${{ env.IMAGE_TAG }}
           COMPOSE_PROFILES: paradedb
@@ -185,7 +181,6 @@ jobs:
             echo "No k6 scripts found under datasets/${DATASET}/k6/" >&2
             exit 1
           fi
-          # Run every script the dataset ships, named by basename.
           for script in "${scripts[@]}"; do
             name="$(basename "$script" .js)"
             # Warm-up pass (discarded) fills page cache + shared_buffers; the
@@ -202,19 +197,17 @@ jobs:
         if: failure()
         run: docker logs paradedb || true
 
+      # runs-on's s3-cache proxies ACTIONS_RESULTS_URL; upload-artifact POSTs
+      # there and fails, so pin it back to GitHub's receiver (see test-pg_search.yml).
       - name: Upload dashboards
         if: always()
-        # Best effort: the gh-pages HTML + comment are the real deliverables.
-        continue-on-error: true
-        # runs-on's s3-cache proxies ACTIONS_RESULTS_URL; upload-artifact POSTs
-        # there and fails, so pin it back to GitHub's receiver (see test-pg_search.yml).
+        continue-on-error: true # Best effort: the gh-pages HTML + comment are the real deliverables.
         env:
           ACTIONS_RESULTS_URL: https://results-receiver.actions.githubusercontent.com/
           ACTIONS_CACHE_SERVICE_V2: ""
         uses: actions/upload-artifact@v7
         with:
           name: benchmarker-dashboards-${{ steps.commit_info.outputs.short_commit }}
-          # Separate patterns: @actions/glob doesn't expand {json,html}.
           path: |
             benchmarker/results/*.json
             benchmarker/results/*.html
@@ -262,8 +255,7 @@ jobs:
         run: rm -rf ./benchmark-data-repository
 
       - name: Publish Throughput (QPS)
-        # Don't let a publish hiccup block the dashboards/comment below.
-        continue-on-error: true
+        continue-on-error: true # Don't let a publish hiccup block the dashboards/comment below.
         uses: benchmark-action/github-action-benchmark@v1
         with:
           name: "benchmarker hn-benchmarker (QPS)"
@@ -314,15 +306,15 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./_ghpages_html
-          # keep_files preserves other runs' dashboards + the benchmark data.
           destination_dir: benchmarker-runs/${{ steps.commit_info.outputs.short_commit }}
-          keep_files: true
+          keep_files: true # keep_files preserves other runs' dashboards + the benchmark data.
           user_name: "github-actions[bot]"
           user_email: "github-actions[bot]@users.noreply.github.com"
           commit_message: "benchmarker dashboards for ${{ steps.commit_info.outputs.short_commit }}"
 
-      - name: Comment dashboard links on PR
-        if: github.event_name == 'pull_request'
+      # On a PR the links land as a PR comment; on a push to main, as a commit comment.
+      - name: Comment dashboard links
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -330,44 +322,31 @@ jobs:
           shopt -s nullglob
           BASE="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/benchmarker-runs/${{ steps.commit_info.outputs.short_commit }}"
           OVERTIME="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/benchmarker/"
-          # One link per published dashboard.
           links=""
           for h in _ghpages_html/*.html; do
             nm="$(basename "$h" .html)"
             links="${links}- [${nm}](${BASE}/${nm}.html)"$'\n'
           done
           {
-            printf '### 📊 Benchmarker dashboards — `%s`\n\n' "${{ steps.commit_info.outputs.short_commit }}"
+            printf '### 📊 Benchmarker dashboards: `%s`\n\n' "${{ steps.commit_info.outputs.short_commit }}"
             printf 'Interactive per-script graphs (latency timeline, throughput, per-container **CPU %%** / **memory**):\n\n'
             printf '%s\n' "$links"
             printf 'Over-time tracking (QPS + latency percentiles across commits): [%s](%s)\n\n' "$OVERTIME" "$OVERTIME"
             printf '_gh-pages may take ~a minute to deploy after this run._\n'
           } > _comment.md
-          gh pr comment ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --body-file _comment.md
-
-      - name: Comment dashboard links on commit (push)
-        if: github.event_name == 'push'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          BASE="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/benchmarker-runs/${{ steps.commit_info.outputs.short_commit }}"
-          links=""
-          for h in _ghpages_html/*.html; do
-            nm="$(basename "$h" .html)"
-            links="${links}[${nm}](${BASE}/${nm}.html) · "
-          done
-          gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
-            -f body="📊 Benchmarker dashboards: ${links%· }"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            gh pr comment ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --body-file _comment.md
+          else
+            gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" -F 'body=@_comment.md'
+          fi
 
       # Publishes run continue-on-error, so gate here: fail loudly if k6 recorded
-      # no samples (empty QPS) instead of a silently-masked green. Runs last.
+      # no samples (empty QPS) instead of a silently-masked green.
       - name: Fail if no metrics were extracted
         if: always()
         run: |
           f=benchmarker/benchmarker_qps.json
-          # No file => an earlier stage already failed; don't pile on.
+          # No metrics file means an earlier stage already failed; don't pile on.
           [ -f "$f" ] || { echo "no metrics file (earlier stage failed); skipping guard"; exit 0; }
           n=$(jq 'length' "$f")
           echo "extracted QPS series: ${n}"

@@ -3028,3 +3028,55 @@ unsafe fn where_clause_only_references_left(
 fn limit_bounds_scan(method: &ExecMethodType, query_needs_ordering: bool) -> bool {
     matches!(method, ExecMethodType::TopK { .. }) || !query_needs_ordering
 }
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use crate::postgres::customscan::limit_offset::LimitOffset;
+    use crate::postgres::customscan::parameterized_value::ParameterizedValue;
+    use pgrx::pg_test;
+
+    fn topk() -> ExecMethodType {
+        ExecMethodType::TopK {
+            heaprelid: pg_sys::Oid::INVALID,
+            limit_offset: LimitOffset {
+                limit: ParameterizedValue::Static(10),
+                offset: None,
+            },
+            orderby_info: None,
+            window_aggregates: Vec::new(),
+        }
+    }
+
+    // `pg_test` rather than `test`: `ExecMethodType` pulls the customscan machinery and its
+    // `Drop` glue into the binary, so the Postgres symbols have to be resolved by a backend
+    // instead of at link time. A plain `#[test]` here is what turned the `system` matrix red
+    // on this PR's first run.
+    #[pg_test]
+    fn a_limit_bounds_only_the_scans_that_can_stop_at_it() {
+        // TopK produces the ordering and stops at k, so the LIMIT bounds it either way.
+        assert!(limit_bounds_scan(&topk(), true));
+        assert!(limit_bounds_scan(&topk(), false));
+
+        // Without an ordering to satisfy, the Limit node stops pulling from any method.
+        assert!(limit_bounds_scan(&ExecMethodType::Normal, false));
+        assert!(limit_bounds_scan(
+            &ExecMethodType::Columnar {
+                which_fast_fields: Default::default(),
+                limit_offset: None,
+            },
+            false
+        ));
+
+        // With an ordering they cannot supply, a Sort drains them: the LIMIT bounds neither.
+        assert!(!limit_bounds_scan(&ExecMethodType::Normal, true));
+        assert!(!limit_bounds_scan(
+            &ExecMethodType::Columnar {
+                which_fast_fields: Default::default(),
+                limit_offset: None,
+            },
+            true
+        ));
+    }
+}

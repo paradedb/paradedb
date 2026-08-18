@@ -34,6 +34,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::FieldName;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
+use crate::postgres::types::TantivyValue;
 use crate::scan::range_partitioning::RangePartitioning;
 
 /// One row projected onto the `partition_by` fields, in the same order as [`KdTree::dims`].
@@ -241,6 +242,12 @@ impl KdTree {
         }
     }
 
+    /// One line per partition with its bounding box, for logs: `partition 3: id=[150, 300)
+    /// tenant_id=[.., 42)`. [`Display`](fmt::Display) shows the same tree by its splits instead.
+    pub fn bounds_listing(&self) -> impl fmt::Display + '_ {
+        BoundsListing(self)
+    }
+
     /// For a tree over a single field, the equivalent [`RangePartitioning`]: its split points
     /// are this tree's split values in ascending order, and both route every row identically.
     pub fn to_range_partitioning(&self) -> Option<RangePartitioning> {
@@ -266,6 +273,34 @@ impl fmt::Display for KdTree {
             .join(", ");
         write!(f, "partition_by=[{dims}], partitions={}", self.partitions)?;
         fmt_node(&self.root, self, 0, f)
+    }
+}
+
+struct BoundsListing<'a>(&'a KdTree);
+
+impl fmt::Display for BoundsListing<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let tree = self.0;
+        for partition in 0..tree.partitions {
+            if partition > 0 {
+                writeln!(f)?;
+            }
+            write!(f, "partition {partition}:")?;
+            let bounds = tree
+                .partition_bounds(partition)
+                .expect("partitions are numbered contiguously");
+            for (dim, (lower, upper)) in tree.dims.iter().zip(bounds) {
+                match lower {
+                    Bound::Included(v) => write!(f, " {dim}=[{}", TantivyValue(v))?,
+                    _ => write!(f, " {dim}=[..")?,
+                }
+                match upper {
+                    Bound::Excluded(v) => write!(f, ", {})", TantivyValue(v))?,
+                    _ => write!(f, ", ..)")?,
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -714,5 +749,23 @@ mod tests {
             assert!(text.contains(&format!("-> {p}")), "{text}");
         }
         assert_eq!(text.matches("id <").count(), 2, "{text}");
+    }
+
+    #[test]
+    fn bounds_listing_shows_one_box_per_partition() {
+        let mut sample = Vec::new();
+        for x in 0..40 {
+            for y in 0..40 {
+                sample.push(vec![PdbOwnedValue::I64(x), PdbOwnedValue::I64(y)]);
+            }
+        }
+        let tree = KdTree::from_sample(dims(&["x", "y"]), sample, 4);
+        assert_eq!(
+            tree.bounds_listing().to_string(),
+            "partition 0: x=[.., 20) y=[.., 20)\n\
+             partition 1: x=[.., 20) y=[20, ..)\n\
+             partition 2: x=[20, ..) y=[.., 20)\n\
+             partition 3: x=[20, ..) y=[20, ..)"
+        );
     }
 }

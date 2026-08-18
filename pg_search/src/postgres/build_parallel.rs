@@ -704,7 +704,11 @@ pub(super) fn build_index(
         plan::adjusted_target_segment_count(&heaprel, &indexrel),
     )?;
     if let Some(partitioning) = &partitioning {
-        pgrx::debug1!("build_index: partition boundaries: {partitioning}");
+        pgrx::debug1!(
+            "build_index: {} partition boundaries:\n{}",
+            partitioning.partition_count(),
+            partitioning.bounds_listing()
+        );
     }
     let partitioning_bytes = match &partitioning {
         Some(partitioning) => serde_json::to_vec(partitioning)?,

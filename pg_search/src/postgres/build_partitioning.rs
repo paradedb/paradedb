@@ -30,7 +30,8 @@
 use std::ptr::addr_of_mut;
 
 use pgrx::{PgMemoryContexts, check_for_interrupts, pg_sys};
-use rand::RngExt;
+use rand::rngs::StdRng;
+use rand::{RngExt, SeedableRng};
 
 use crate::api::FieldName;
 use crate::index::kdtree::{KdTree, Point};
@@ -50,6 +51,9 @@ const MAX_SAMPLE_BLOCKS: u32 = 4096;
 /// default statistics target. Rows beyond it are reservoir-sampled so the kept set stays
 /// uniform over the visited blocks.
 const MAX_SAMPLE_ROWS: usize = 30_000;
+
+/// A fixed seed makes a rebuild over an unchanged heap reproduce the same boundaries.
+const SAMPLE_SEED: u32 = 0x5EED_1D0C;
 
 /// Computes the global partition boundaries for a build of `indexrel`, or `None` when the
 /// index does not declare `partition_by`.
@@ -153,12 +157,12 @@ unsafe fn sample_partition_fields(
             addr_of_mut!(sampler),
             nblocks,
             nblocks.min(MAX_SAMPLE_BLOCKS) as i32,
-            rand::random::<u32>(),
+            SAMPLE_SEED,
         );
         sampler
     };
 
-    let mut rng = rand::rng();
+    let mut rng = StdRng::seed_from_u64(SAMPLE_SEED as u64);
     let mut per_block_context = PgMemoryContexts::new("pg_search partition sampling");
     let slot = unsafe {
         pg_sys::MakeTupleTableSlot(heaprel.rd_att, &raw const pg_sys::TTSOpsBufferHeapTuple)
@@ -365,6 +369,12 @@ mod tests {
             .expect("index declares partition_by");
         assert_eq!(tree.partition_count(), 8, "{tree}");
         assert_eq!(tree.dims().len(), 2);
+
+        // Same heap, same seed, same boundaries.
+        let again = plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 8)
+            .unwrap()
+            .unwrap();
+        assert_eq!(again, tree);
 
         // Under 1024 blocks and 30k rows, the sample is the whole table, so every partition
         // gets an equal share of the real rows.

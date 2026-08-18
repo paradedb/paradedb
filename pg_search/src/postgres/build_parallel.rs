@@ -121,7 +121,7 @@ struct ParallelBuild {
     config: WorkerConfig,
     scandesc: ScanDesc,
     coordination: WorkerCoordination,
-    /// The leader's global partition boundaries, serialized with `serde_json`. Empty when the
+    /// The leader's global partition boundaries, serialized with `postcard`. Empty when the
     /// index has no `partition_by`.
     partitioning: Vec<u8>,
 }
@@ -185,7 +185,7 @@ fn deserialize_partitioning(bytes: &[u8]) -> Option<KdTree> {
         return None;
     }
     Some(
-        serde_json::from_slice(bytes)
+        postcard::from_bytes(bytes)
             .unwrap_or_else(|e| panic!("could not deserialize partition boundaries: {e}")),
     )
 }
@@ -711,7 +711,7 @@ pub(super) fn build_index(
         );
     }
     let partitioning_bytes = match &partitioning {
-        Some(partitioning) => serde_json::to_vec(partitioning)?,
+        Some(partitioning) => postcard::to_allocvec(partitioning)?,
         None => Vec::new(),
     };
 

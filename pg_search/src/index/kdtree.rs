@@ -93,9 +93,10 @@ mod wire_value {
         Str(String),
         U64(u64),
         I64(i64),
-        F64(f64),
         Bool(bool),
         Date(i64),
+        // `f64::to_bits`, so `NaN` and the infinities survive any codec, text or binary.
+        F64Bits(u64),
         Bytes(Vec<u8>),
         IpAddr(Ipv6Addr),
     }
@@ -105,7 +106,7 @@ mod wire_value {
             PdbOwnedValue::Str(v) => WireValue::Str(v.clone()),
             PdbOwnedValue::U64(v) => WireValue::U64(*v),
             PdbOwnedValue::I64(v) => WireValue::I64(*v),
-            PdbOwnedValue::F64(v) => WireValue::F64(*v),
+            PdbOwnedValue::F64(v) => WireValue::F64Bits(v.to_bits()),
             PdbOwnedValue::Bool(v) => WireValue::Bool(*v),
             PdbOwnedValue::Date(v) => WireValue::Date(v.into_inner()),
             PdbOwnedValue::Bytes(v) => WireValue::Bytes(v.clone()),
@@ -124,7 +125,7 @@ mod wire_value {
             WireValue::Str(v) => PdbOwnedValue::Str(v),
             WireValue::U64(v) => PdbOwnedValue::U64(v),
             WireValue::I64(v) => PdbOwnedValue::I64(v),
-            WireValue::F64(v) => PdbOwnedValue::F64(v),
+            WireValue::F64Bits(v) => PdbOwnedValue::F64(f64::from_bits(v)),
             WireValue::Bool(v) => PdbOwnedValue::Bool(v),
             WireValue::Date(v) => PdbOwnedValue::Date(
                 PostgresDateTime::try_from_raw(v)
@@ -151,14 +152,16 @@ impl KdTree {
 
     /// Builds a tree with at most `target_partitions` leaves from a sample of the data.
     ///
-    /// Each split cuts a box at the quantile that gives both children a share of the sample
-    /// proportional to the number of leaves they will hold, so leaves come out with roughly
-    /// equal row counts even when `target_partitions` is not a power of two. The dimension to
-    /// cut is the one whose values inside the box still span the widest slice of that
-    /// dimension's global distribution (measured by rank, so dimensions of different types are
-    /// comparable); ties go to the earlier `partition_by` field. A box whose points are all
-    /// equal on every dimension cannot be cut and stays a leaf, so the tree can end up with
-    /// fewer partitions than requested when the sample has too few distinct values.
+    /// Each split goes on the dimension whose values inside the box still span the widest slice
+    /// of that dimension's global distribution (measured by rank, so dimensions of different
+    /// types are comparable); ties go to the earlier `partition_by` field. The cut sits at the
+    /// quantile that gives both children a share of the sample proportional to the leaves they
+    /// will hold, so a single wide dimension splits into roughly equal leaves even when
+    /// `target_partitions` is not a power of two. Leaf sizes can still come out uneven when a
+    /// low-cardinality dimension wins a split: cutting it buys pruning on that dimension, at the
+    /// cost of balance. A box whose points are all equal on every dimension cannot be cut and
+    /// stays a leaf, so the tree can end up with fewer partitions than requested when the sample
+    /// has too few distinct values.
     ///
     /// Split values are never NULL, so every leaf's box is expressible as plain range bounds.
     pub fn from_sample(dims: Vec<FieldName>, sample: Vec<Point>, target_partitions: usize) -> Self {
@@ -325,8 +328,13 @@ impl fmt::Display for PlainValue<'_> {
             PdbOwnedValue::Bool(v) => write!(f, "{v}"),
             PdbOwnedValue::IpAddr(v) => write!(f, "{v}"),
             PdbOwnedValue::Date(v) => {
-                let unix_micros = v.into_inner() + PG_EPOCH_DIFF_FROM_UNIX_EPOCH_MICROS;
-                match chrono::DateTime::from_timestamp_micros(unix_micros) {
+                // `infinity`/`-infinity` timestamps sit at `i64::MIN/MAX`, so the epoch shift
+                // can overflow; fall back to the raw value rather than abort the build.
+                match v
+                    .into_inner()
+                    .checked_add(PG_EPOCH_DIFF_FROM_UNIX_EPOCH_MICROS)
+                    .and_then(chrono::DateTime::from_timestamp_micros)
+                {
                     Some(dt) => write!(f, "{}", dt.to_rfc3339()),
                     None => write!(f, "{v:?}"),
                 }
@@ -770,11 +778,44 @@ mod tests {
 
         // The tree carries an `I64` split (`id` is unique, so it is the widest dimension); the
         // round trip must hand it back as `I64`, not as tantivy's untagged `U64`.
-        let bytes = serde_json::to_vec(&tree).unwrap();
-        let back: KdTree = serde_json::from_slice(&bytes).unwrap();
+        let bytes = postcard::to_allocvec(&tree).unwrap();
+        let back: KdTree = postcard::from_bytes(&bytes).unwrap();
         assert_eq!(back, tree);
         for p in &sample {
             assert_eq!(back.route(p), tree.route(p));
+        }
+    }
+
+    #[test]
+    fn non_finite_float_split_values_round_trip() {
+        // A float column can hold `Infinity`/`NaN`, and `total_cmp` sorts them to the ends, so
+        // they can become split values. The wire form must reproduce them bit for bit.
+        let mut sample: Vec<Point> = (0..200)
+            .map(|i| vec![PdbOwnedValue::F64(i as f64)])
+            .collect();
+        sample.extend(std::iter::repeat_n(
+            vec![PdbOwnedValue::F64(f64::INFINITY)],
+            50,
+        ));
+        sample.extend(std::iter::repeat_n(
+            vec![PdbOwnedValue::F64(f64::NEG_INFINITY)],
+            50,
+        ));
+        sample.extend(std::iter::repeat_n(vec![PdbOwnedValue::F64(f64::NAN)], 50));
+        let tree = KdTree::from_sample(dims(&["x"]), sample.clone(), 6);
+        check_invariants(&tree, &sample);
+
+        // `PartialEq` treats `NaN != NaN`, so compare the re-serialized bytes rather than the
+        // trees: equal bytes means every split value, `NaN` included, round-tripped bit for bit.
+        let bytes = postcard::to_allocvec(&tree).unwrap();
+        let back: KdTree = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(postcard::to_allocvec(&back).unwrap(), bytes);
+        for probe in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN, 0.0, 199.0] {
+            assert_eq!(
+                back.route(&[PdbOwnedValue::F64(probe)]),
+                tree.route(&[PdbOwnedValue::F64(probe)]),
+                "probe {probe}"
+            );
         }
     }
 

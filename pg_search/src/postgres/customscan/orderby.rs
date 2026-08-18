@@ -466,6 +466,19 @@ fn normalize_collation_name(mut collation_name: String) -> String {
 // This helper function tells us whether a collation is "safe", for the purposes of pushing down ORDER BY
 // If a field does not have a collation (ex: integers, non-text data), it's considered safe
 // Otherwise, for collatable fields, if the collation is C-like it's safe
+/// Whether a collation settles equality by comparing bytes.
+///
+/// Deterministic collations fall back to a byte comparison when their rules
+/// call two strings equal, so a backend that groups by bytes still produces
+/// Postgres's groups. A nondeterministic one can call two different byte
+/// strings equal, and nothing above a scan can merge groups it already emitted
+/// apart. This is weaker than [`is_collation_pushdown_safe`], which also
+/// demands byte *ordering*.
+pub fn collation_is_deterministic(collation: pg_sys::Oid) -> bool {
+    // Non-collatable types carry InvalidOid and never disagree.
+    collation == pg_sys::Oid::INVALID || unsafe { pg_sys::get_collation_isdeterministic(collation) }
+}
+
 pub fn is_collation_pushdown_safe(collation: pg_sys::Oid) -> bool {
     const NORMALIZED_SAFE_COLLATION_NAMES: &[&str] = &["C", "POSIX", "C.UTF8", "POSIX.UTF8"];
 

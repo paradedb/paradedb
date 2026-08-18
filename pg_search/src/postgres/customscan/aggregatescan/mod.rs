@@ -96,7 +96,9 @@ use crate::postgres::customscan::hook::query_has_paradedb_agg;
 use crate::postgres::customscan::joinscan::JoinScan;
 use crate::postgres::customscan::joinscan::planning::transparent_path_subpath;
 use crate::postgres::customscan::joinscan::scan_state::{build_physical_plan, build_task_context};
-use crate::postgres::customscan::orderby::is_collation_pushdown_safe;
+use crate::postgres::customscan::orderby::{
+    collation_is_deterministic, is_collation_pushdown_safe,
+};
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, range_table};
@@ -320,8 +322,7 @@ impl GroupingShape {
     /// scan can merge groups the scan already emitted apart.
     unsafe fn has_nondeterministic_collation(&self) -> bool {
         self.target_exprs().iter_ptr().any(|expr| {
-            let collation = pg_sys::exprCollation(expr as *mut pg_sys::Node);
-            collation != pg_sys::Oid::INVALID && !pg_sys::get_collation_isdeterministic(collation)
+            !collation_is_deterministic(pg_sys::exprCollation(expr as *mut pg_sys::Node))
         })
     }
 }

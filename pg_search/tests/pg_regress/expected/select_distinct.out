@@ -1260,6 +1260,81 @@ SELECT COUNT(*) FROM (
 (1 row)
 
 SET paradedb.enable_aggregate_custom_scan TO on;
+-- The same column reached through a join: JoinScan absorbs the DISTINCT and
+-- dedups on bytes too, so it has to decline for the same reason.
+DROP TABLE IF EXISTS dist_ci_join CASCADE;
+CREATE TABLE dist_ci_join (
+    id    SERIAL PRIMARY KEY,
+    label TEXT
+);
+INSERT INTO dist_ci_join (label) VALUES ('one'), ('two');
+CREATE INDEX dist_ci_join_idx ON dist_ci_join
+USING bm25 (id, label)
+WITH (key_field = 'id', text_fields = '{"label": {"fast": true}}');
+ALTER TABLE dist_ci ADD COLUMN join_id INT;
+UPDATE dist_ci SET join_id = CASE WHEN value = 'b' THEN 2 ELSE 1 END;
+ANALYZE dist_ci;
+ANALYZE dist_ci_join;
+SET paradedb.enable_join_custom_scan TO on;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT DISTINCT c.value
+FROM dist_ci c
+JOIN dist_ci_join j ON c.join_id = j.id
+WHERE c.id @@@ paradedb.all()
+LIMIT 10;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on a nondeterministic collation is not supported (table: join)
+WARNING:  JoinScan not used: DISTINCT on a nondeterministic collation is not supported (tables: c, j)
+                               QUERY PLAN                                
+-------------------------------------------------------------------------
+ Limit
+   ->  Unique
+         ->  Sort
+               Sort Key: c.value COLLATE dist_ci_coll
+               ->  Nested Loop
+                     Join Filter: (j.id = c.join_id)
+                     ->  Custom Scan (ParadeDB Base Scan) on dist_ci c
+                           Table: dist_ci
+                           Index: dist_ci_idx
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Full Index Scan: true
+                           Tantivy Query: {"with_index":{"query":"all"}}
+                     ->  Materialize
+                           ->  Seq Scan on dist_ci_join j
+(15 rows)
+
+SELECT COUNT(*) FROM (
+    SELECT DISTINCT c.value
+    FROM dist_ci c
+    JOIN dist_ci_join j ON c.join_id = j.id
+    WHERE c.id @@@ paradedb.all()
+    LIMIT 10
+) t;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on a nondeterministic collation is not supported (table: join)
+WARNING:  JoinScan not used: DISTINCT on a nondeterministic collation is not supported (tables: c, j)
+ count 
+-------
+     2
+(1 row)
+
+-- Correctness: must match native PG
+SET paradedb.enable_join_custom_scan TO off;
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT COUNT(*) FROM (
+    SELECT DISTINCT c.value
+    FROM dist_ci c
+    JOIN dist_ci_join j ON c.join_id = j.id
+    WHERE c.id @@@ paradedb.all()
+    LIMIT 10
+) t;
+ count 
+-------
+     2
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+RESET paradedb.enable_join_custom_scan;
+DROP TABLE IF EXISTS dist_ci_join CASCADE;
 DROP TABLE IF EXISTS dist_ci CASCADE;
 DROP COLLATION IF EXISTS dist_ci_coll;
 -- =============================================================================

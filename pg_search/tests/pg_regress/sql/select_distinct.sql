@@ -834,6 +834,60 @@ SELECT COUNT(*) FROM (
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 
+-- The same column reached through a join: JoinScan absorbs the DISTINCT and
+-- dedups on bytes too, so it has to decline for the same reason.
+DROP TABLE IF EXISTS dist_ci_join CASCADE;
+
+CREATE TABLE dist_ci_join (
+    id    SERIAL PRIMARY KEY,
+    label TEXT
+);
+
+INSERT INTO dist_ci_join (label) VALUES ('one'), ('two');
+
+CREATE INDEX dist_ci_join_idx ON dist_ci_join
+USING bm25 (id, label)
+WITH (key_field = 'id', text_fields = '{"label": {"fast": true}}');
+
+ALTER TABLE dist_ci ADD COLUMN join_id INT;
+UPDATE dist_ci SET join_id = CASE WHEN value = 'b' THEN 2 ELSE 1 END;
+
+ANALYZE dist_ci;
+ANALYZE dist_ci_join;
+
+SET paradedb.enable_join_custom_scan TO on;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT DISTINCT c.value
+FROM dist_ci c
+JOIN dist_ci_join j ON c.join_id = j.id
+WHERE c.id @@@ paradedb.all()
+LIMIT 10;
+
+SELECT COUNT(*) FROM (
+    SELECT DISTINCT c.value
+    FROM dist_ci c
+    JOIN dist_ci_join j ON c.join_id = j.id
+    WHERE c.id @@@ paradedb.all()
+    LIMIT 10
+) t;
+
+-- Correctness: must match native PG
+SET paradedb.enable_join_custom_scan TO off;
+SET paradedb.enable_aggregate_custom_scan TO off;
+
+SELECT COUNT(*) FROM (
+    SELECT DISTINCT c.value
+    FROM dist_ci c
+    JOIN dist_ci_join j ON c.join_id = j.id
+    WHERE c.id @@@ paradedb.all()
+    LIMIT 10
+) t;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+RESET paradedb.enable_join_custom_scan;
+
+DROP TABLE IF EXISTS dist_ci_join CASCADE;
 DROP TABLE IF EXISTS dist_ci CASCADE;
 DROP COLLATION IF EXISTS dist_ci_coll;
 

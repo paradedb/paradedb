@@ -37,8 +37,9 @@ use tantivy::collector::sort_key::ComparatorEnum;
 use tantivy::collector::sort_key::shared_threshold::SharedThresholdArcOpt;
 use tantivy::collector::{SegmentSortKeyComputer, SortKeyComputer};
 use tantivy::columnar::{Column, ColumnType, StrColumn};
+use tantivy::fastfield::FastFieldReaders;
 use tantivy::termdict::TermOrdinal;
-use tantivy::{DocId, Score, SegmentReader};
+use tantivy::{DocId, Score, SegmentReader, TantivyError};
 
 /// Ranks for the discriminant components of [`RangeSortKey`]. Named rather than inlined because
 /// the whole correctness argument of this module is that these values are in `range_cmp` order.
@@ -105,6 +106,29 @@ impl SortByRange {
     fn path(&self, key: &str) -> String {
         format!("{}.{key}", self.column_name)
     }
+
+    /// Opens the numeric column behind one bound, or none when the segment holds no finite value
+    /// for it. Errors when the column exists under a type this computer can't order, so a stale
+    /// or foreign encoding surfaces as an error instead of a wrong sort.
+    fn numeric_bound(
+        &self,
+        fast_fields: &FastFieldReaders,
+        key: &str,
+    ) -> tantivy::Result<Option<Column<u64>>> {
+        const ACCEPTED: &[ColumnType] = &[ColumnType::I64, ColumnType::DateTime];
+        let path = self.path(key);
+        let mut column = None;
+        for handle in fast_fields.dynamic_column_handles(&path)? {
+            if !ACCEPTED.contains(&handle.column_type()) {
+                return Err(TantivyError::SchemaError(format!(
+                    "range bound `{path}` is stored as {:?}; reindex to sort by this column",
+                    handle.column_type()
+                )));
+            }
+            column = handle.open_u64_lenient()?;
+        }
+        Ok(column)
+    }
 }
 
 impl SortKeyComputer for SortByRange {
@@ -134,28 +158,24 @@ impl SortKeyComputer for SortByRange {
         // `SortableDecimal`); every other range type indexes its bounds as a numeric or date
         // column. Probe for the string form first and fall back to the numeric form.
         //
-        // The `u64_lenient_for_type` mapping is monotonic within one column type, and a range
-        // column's subtype fixes that type (integer bounds are always `i64`, date/timestamp
-        // bounds always `Date`), so the same value maps to the same `u64` in every segment.
-        // Pinning the accepted types ties that to the write side: bounds stored under any other
-        // type resolve to no column and would then read as unbounded, so this list has to move
-        // whenever the writer does.
+        // The `u64_lenient` mapping is monotonic within one column type, and a range column's
+        // subtype fixes that type: integer bounds are `I64`, and date/timestamp bounds are `I64`
+        // microseconds on current indexes or `DateTime` on ones built before the switch to `I64`
+        // storage. `created_by_version` is fixed per index, so every segment of one index agrees,
+        // and the same value maps to the same `u64` everywhere.
         //
-        // A segment holding no finite bounds at all also resolves to no columns, which is
-        // harmless: its keys are all unbounded or empty, and the bounded/unbounded discriminant
-        // is compared first.
-        const RANGE_BOUND_COLUMN_TYPES: &[ColumnType] = &[ColumnType::I64, ColumnType::DateTime];
+        // A segment holding no finite bounds at all resolves to no columns, which is harmless:
+        // its keys are all unbounded or empty, and the bounded/unbounded discriminant is compared
+        // first. A bound column of any other type is a different matter. Reading it as absent
+        // would make every finite range in the segment tie, so the scan would return a wrong
+        // order instead of falling back to Postgres. Refuse it instead.
         let bounds = match (
             fast_fields.str(&self.path("lower"))?,
             fast_fields.str(&self.path("upper"))?,
         ) {
             (None, None) => SegmentBounds::Numeric {
-                lower: fast_fields
-                    .u64_lenient_for_type(Some(RANGE_BOUND_COLUMN_TYPES), &self.path("lower"))?
-                    .map(|(column, _)| column),
-                upper: fast_fields
-                    .u64_lenient_for_type(Some(RANGE_BOUND_COLUMN_TYPES), &self.path("upper"))?
-                    .map(|(column, _)| column),
+                lower: self.numeric_bound(fast_fields, "lower")?,
+                upper: self.numeric_bound(fast_fields, "upper")?,
             },
             (lower, upper) => SegmentBounds::Text { lower, upper },
         };

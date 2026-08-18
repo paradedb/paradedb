@@ -147,12 +147,11 @@ jobs:
       - name: Build pg_search from source
         id: build
         uses: ./.github/actions/build-pg_search-source
-        env:
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: "-Ccodegen-units=1 -Cpasses=sancov-module -Cllvm-args=-sanitizer-coverage-level=3 -Cllvm-args=-sanitizer-coverage-trace-pc-guard -Clink-args=-Wl,--build-id"
         with:
           pg-version: ${{ env.PG_VERSION }}
           profile: dst
           target: x86_64-unknown-linux-gnu
+          target-rustflags: "-Ccodegen-units=1 -Cpasses=sancov-module -Cllvm-args=-sanitizer-coverage-level=3 -Cllvm-args=-sanitizer-coverage-trace-pc-guard -Clink-args=-Wl,--build-id"
           features: dst
 
       # Catch a broken .so before shipping to Antithesis.

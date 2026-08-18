@@ -29,10 +29,14 @@ inputs:
     required: false
     default: ""
   target:
+    description: Rust target triple to build for (optional).
+    required: false
+    default: ""
+  target-rustflags:
     description: >-
-      Rust target triple to build for (optional). Passing an explicit --target
-      also scopes any CARGO_TARGET_<triple>_RUSTFLAGS set on the calling step to
-      the extension itself, keeping them off host build scripts.
+      Extra RUSTFLAGS for the pg_search build (optional, requires target).
+      Applied as CARGO_TARGET_<triple>_RUSTFLAGS on the package step only, so
+      they stay off cargo-pgrx and host build scripts.
     required: false
     default: ""
 
@@ -100,6 +104,8 @@ runs:
     - name: Build and stage pg_search
       id: stage
       shell: bash
+      env:
+        TARGET_RUSTFLAGS: ${{ inputs.target-rustflags }}
       run: |
         set -euo pipefail
         PG_CONFIG="/usr/lib/postgresql/${{ inputs.pg-version }}/bin/pg_config"
@@ -114,6 +120,14 @@ runs:
         if [ -n "${{ inputs.target }}" ]; then
           target_arg=(--target "${{ inputs.target }}")
           target_dir="target/${{ inputs.target }}/${{ inputs.profile }}"
+        fi
+        if [ -n "${TARGET_RUSTFLAGS}" ]; then
+          if [ -z "${{ inputs.target }}" ]; then
+            echo "::error::target-rustflags requires the target input" >&2
+            exit 1
+          fi
+          var="CARGO_TARGET_$(echo "${{ inputs.target }}" | tr '[:lower:]-' '[:upper:]_')_RUSTFLAGS"
+          export "${var}=${TARGET_RUSTFLAGS}"
         fi
         cargo pgrx package --package pg_search --profile "${{ inputs.profile }}" \
           --pg-config "${PG_CONFIG}" "${target_arg[@]}" "${features_arg[@]}"

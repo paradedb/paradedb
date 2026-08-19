@@ -520,3 +520,141 @@ impl TryFrom<serde_json::Value> for PdbOwnedValue {
         Ok(pdb_value)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cmp::Ordering;
+    use std::net::Ipv6Addr;
+
+    #[test]
+    fn total_cmp_orders_across_numeric_variants() {
+        // NULL sorts first.
+        assert_eq!(
+            PdbOwnedValue::Null.total_cmp(&PdbOwnedValue::I64(0)),
+            Ordering::Less
+        );
+        // `I64`/`U64` compare by value, not by variant.
+        assert_eq!(
+            PdbOwnedValue::I64(-1).total_cmp(&PdbOwnedValue::U64(0)),
+            Ordering::Less
+        );
+        assert_eq!(
+            PdbOwnedValue::U64(5).total_cmp(&PdbOwnedValue::I64(5)),
+            Ordering::Equal
+        );
+        assert_eq!(
+            PdbOwnedValue::I64(10).total_cmp(&PdbOwnedValue::U64(3)),
+            Ordering::Greater
+        );
+        // Integers compare against floats by value.
+        assert_eq!(
+            PdbOwnedValue::I64(2).total_cmp(&PdbOwnedValue::F64(2.5)),
+            Ordering::Less
+        );
+        assert_eq!(
+            PdbOwnedValue::F64(2.5).total_cmp(&PdbOwnedValue::I64(2)),
+            Ordering::Greater
+        );
+        assert_eq!(
+            PdbOwnedValue::U64(2).total_cmp(&PdbOwnedValue::F64(2.0)),
+            Ordering::Equal
+        );
+        assert_eq!(
+            PdbOwnedValue::F64(2.0).total_cmp(&PdbOwnedValue::U64(2)),
+            Ordering::Equal
+        );
+        // `NaN` has a fixed place (via `f64::total_cmp`, so no panic and no `Equal` surprise).
+        assert_eq!(
+            PdbOwnedValue::F64(f64::NAN).total_cmp(&PdbOwnedValue::F64(1.0)),
+            Ordering::Greater
+        );
+        // Non-numeric variants fall through to the derived order.
+        assert_eq!(
+            PdbOwnedValue::Str("a".into()).total_cmp(&PdbOwnedValue::Str("b".into())),
+            Ordering::Less
+        );
+    }
+
+    // Round-trips a value through `exact_scalar_wire` and `postcard`, the way a partition split
+    // value travels over the DSM.
+    #[derive(serde::Serialize, serde::Deserialize)]
+    struct Wire(#[serde(with = "super::exact_scalar_wire")] PdbOwnedValue);
+
+    fn round_trip(value: &PdbOwnedValue) -> PdbOwnedValue {
+        let bytes = postcard::to_allocvec(&Wire(value.clone())).unwrap();
+        postcard::from_bytes::<Wire>(&bytes).unwrap().0
+    }
+
+    #[test]
+    fn exact_scalar_wire_preserves_every_scalar_variant() {
+        let cases = [
+            PdbOwnedValue::Str("héllo \"world\"".into()),
+            PdbOwnedValue::U64(u64::MAX),
+            // A non-negative `I64` must not come back as `U64` (the tantivy default serde bug).
+            PdbOwnedValue::I64(1000),
+            PdbOwnedValue::I64(-42),
+            PdbOwnedValue::F64(3.5),
+            PdbOwnedValue::F64(f64::INFINITY),
+            PdbOwnedValue::F64(f64::NEG_INFINITY),
+            PdbOwnedValue::Bool(true),
+            PdbOwnedValue::Bytes(vec![0, 1, 255]),
+            PdbOwnedValue::IpAddr(Ipv6Addr::LOCALHOST),
+            PdbOwnedValue::Date(PostgresDateTime::try_from_raw(123_456).unwrap()),
+        ];
+        for value in &cases {
+            assert_eq!(&round_trip(value), value, "did not round-trip: {value:?}");
+        }
+        // `PartialEq` treats `NaN != NaN`, so check the bit pattern survived instead.
+        assert!(matches!(
+            round_trip(&PdbOwnedValue::F64(f64::NAN)),
+            PdbOwnedValue::F64(f) if f.is_nan()
+        ));
+    }
+
+    #[test]
+    fn exact_scalar_wire_rejects_non_scalar_variants() {
+        #[derive(serde::Serialize)]
+        struct W(#[serde(with = "super::exact_scalar_wire")] PdbOwnedValue);
+        for value in [PdbOwnedValue::Null, PdbOwnedValue::Array(vec![])] {
+            assert!(postcard::to_allocvec(&W(value)).is_err());
+        }
+    }
+
+    #[test]
+    fn plain_display_renders_without_a_backend() {
+        assert_eq!(
+            PdbOwnedValue::Str("x\"y".into())
+                .plain_display()
+                .to_string(),
+            "\"x\\\"y\""
+        );
+        assert_eq!(PdbOwnedValue::I64(-7).plain_display().to_string(), "-7");
+        assert_eq!(PdbOwnedValue::U64(7).plain_display().to_string(), "7");
+        assert_eq!(
+            PdbOwnedValue::Bool(false).plain_display().to_string(),
+            "false"
+        );
+        assert_eq!(PdbOwnedValue::F64(1.5).plain_display().to_string(), "1.5");
+        assert_eq!(
+            PdbOwnedValue::IpAddr(Ipv6Addr::LOCALHOST)
+                .plain_display()
+                .to_string(),
+            "::1"
+        );
+        // A date at the Postgres epoch renders as RFC 3339 UTC.
+        let epoch = PostgresDateTime::try_from_raw(0).unwrap();
+        assert_eq!(
+            PdbOwnedValue::Date(epoch).plain_display().to_string(),
+            "2000-01-01T00:00:00+00:00"
+        );
+        // NULL and composites fall back to `Debug` rather than panic.
+        assert_eq!(PdbOwnedValue::Null.plain_display().to_string(), "Null");
+        assert!(
+            !PdbOwnedValue::Object(vec![])
+                .plain_display()
+                .to_string()
+                .is_empty()
+        );
+    }
+}

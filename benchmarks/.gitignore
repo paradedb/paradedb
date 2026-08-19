@@ -1,2 +1,3 @@
 *.md
 *.csv
+!anti_join_regression/README.md

@@ -263,7 +263,9 @@ impl<'a> ParallelAggregationWorker<'a> {
             &indexrel,
             self.query.clone(),
             false,
-            MvccSatisfies::ParallelWorker(SegmentView::from_ids(segment_ids.iter().copied())),
+            MvccSatisfies::ParallelWorker(SegmentView::from_unordered_ids(
+                segment_ids.iter().copied(),
+            )),
             NonNull::new(context_ptr),
             planstate.and_then(NonNull::new),
             self.query.needs_tokenizer(),

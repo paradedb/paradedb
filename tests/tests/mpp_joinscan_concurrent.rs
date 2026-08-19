@@ -15,13 +15,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! An MPP JoinScan whose broadcast build side keeps rows in a mutable segment, run while another
-//! connection keeps updating that side. The node that checks visibility resolves the build side's
-//! packed `DocAddress`es with a reader it opened itself (here the leader, whose reader opens at
-//! plan time, well before the workers open theirs). A mutable segment is materialized per open, so
-//! unless every reader replays the leader's segment view, the addresses one reader packed land in
-//! another reader's shorter (or differently ordered) `DocId` space: a bitpacker overflow panic, or
-//! a silently wrong ctid.
+//! MPP JoinScans whose broadcast build side keeps rows in a mutable segment, run while another
+//! connection keeps updating that side. The node that checks visibility resolves the build
+//! side's packed `DocAddress`es with a reader it opened itself, and a mutable segment is
+//! materialized per open, so unless every reader replays the leader's segment view the
+//! addresses one reader packed land in another reader's shorter (or differently ordered)
+//! `DocId` space: a bitpacker overflow panic, or a silently wrong ctid.
+//!
+//! Two probe tables give the two consumer placements. The single-segment probe keeps the join
+//! and its visibility check on the leader, whose `categories` reader opens at plan time, well
+//! before the workers open theirs; that wide window is what makes this test fail fast without
+//! the replay. The multi-segment probe pushes the join into a worker stage, so the resolver is
+//! rebuilt in a worker, the shape from the original report.
 
 use anyhow::Result;
 use rstest::*;
@@ -33,10 +38,8 @@ use tests::fixtures::*;
 use tokio::time::sleep;
 
 // The build side (`categories`) has two immutable segments plus the mutable one the writer keeps
-// growing, so its scan is distributed and broadcast. The probe side stays in one segment, which
-// keeps the join and its visibility check on the leader: the leader opened its `categories`
-// reader at plan time, and the workers open theirs only after they attach, so an update between
-// the two is easy to land.
+// growing, so its scan is distributed and broadcast. `mppc_test` stays in one segment (the
+// leader-hosted shape); `mppc_test_multi` spans three (the worker-hosted shape).
 const SETUP_SQL: &str = r#"
 CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
 
@@ -46,8 +49,15 @@ CREATE TABLE mppc_test (
     message TEXT,
     category_id INTEGER NOT NULL
 );
+CREATE TABLE mppc_test_multi (
+    id SERIAL8 NOT NULL PRIMARY KEY,
+    message TEXT,
+    category_id INTEGER NOT NULL
+);
 
 CREATE INDEX mppc_test_idx ON mppc_test USING paradedb (id, message, category_id)
+WITH (key_field = 'id', numeric_fields = '{"category_id": {"fast": true}}');
+CREATE INDEX mppc_test_multi_idx ON mppc_test_multi USING paradedb (id, message, category_id)
 WITH (key_field = 'id', numeric_fields = '{"category_id": {"fast": true}}');
 CREATE INDEX mppc_categories_idx ON mppc_categories USING paradedb (id, name)
 WITH (key_field = 'id', text_fields = '{"name": {"fast": true, "tokenizer": {"type": "raw"}}}',
@@ -63,12 +73,28 @@ SELECT (ARRAY['beer wine cheese', 'beer wine', 'beer cheese', 'beer',
               'wine cheese', 'wine', 'cheese', 'bread butter'])[1 + (i % 8)] || ' ' || i::text,
        1 + (i % 100)
 FROM generate_series(1, 5000) AS s(i);
+INSERT INTO mppc_test_multi (message, category_id)
+SELECT (ARRAY['beer wine cheese', 'beer wine', 'beer cheese', 'beer',
+              'wine cheese', 'wine', 'cheese', 'bread butter'])[1 + (i % 8)] || ' ' || i::text,
+       1 + (i % 100)
+FROM generate_series(1, 5000) AS s(i);
+INSERT INTO mppc_test_multi (message, category_id)
+SELECT (ARRAY['beer wine cheese', 'beer wine', 'beer cheese', 'beer',
+              'wine cheese', 'wine', 'cheese', 'bread butter'])[1 + (i % 8)] || ' ' || i::text,
+       1 + (i % 100)
+FROM generate_series(5001, 10000) AS s(i);
+INSERT INTO mppc_test_multi (message, category_id)
+SELECT (ARRAY['beer wine cheese', 'beer wine', 'beer cheese', 'beer',
+              'wine cheese', 'wine', 'cheese', 'bread butter'])[1 + (i % 8)] || ' ' || i::text,
+       1 + (i % 100)
+FROM generate_series(10001, 15000) AS s(i);
 RESET paradedb.global_mutable_segment_rows;
 
 -- Start the build side's mutable log before the readers do.
 UPDATE mppc_categories SET name = 'category ' || id::text || ' v0' WHERE id <= 10;
 
 ANALYZE mppc_test;
+ANALYZE mppc_test_multi;
 ANALYZE mppc_categories;
 "#;
 
@@ -82,7 +108,7 @@ SET parallel_setup_cost TO 0;
 SET parallel_tuple_cost TO 0;
 "#;
 
-const JOIN_QUERY: &str = r#"
+const LEADER_QUERY: &str = r#"
 SELECT t.id, c.name
 FROM mppc_test t
 JOIN mppc_categories c ON t.category_id = c.id
@@ -91,31 +117,43 @@ ORDER BY t.id
 LIMIT 25
 "#;
 
-// Every category id in 1..=100 exists, so the join never drops a `beer` row and the answer is the
-// 25 smallest matching ids whatever the writers do to the category names.
-const EXPECTED_IDS_QUERY: &str = r#"
-SELECT id FROM mppc_test WHERE message LIKE '%beer%' ORDER BY id LIMIT 25
+const WORKER_QUERY: &str = r#"
+SELECT t.id, c.name
+FROM mppc_test_multi t
+JOIN mppc_categories c ON t.category_id = c.id
+WHERE t.message @@@ 'beer'
+ORDER BY t.id
+LIMIT 25
 "#;
+
+// Every category id in 1..=100 exists, so the join never drops a `beer` row and the answer is the
+// 25 smallest matching ids whatever the writer does to the category names.
+const LEADER_EXPECTED_IDS: &str =
+    "SELECT id FROM mppc_test WHERE message LIKE '%beer%' ORDER BY id LIMIT 25";
+const WORKER_EXPECTED_IDS: &str =
+    "SELECT id FROM mppc_test_multi WHERE message LIKE '%beer%' ORDER BY id LIMIT 25";
 
 const RUN_FOR: Duration = Duration::from_secs(20);
 const READERS: usize = 3;
+// Every Nth reader iteration runs the query under EXPLAIN ANALYZE instead, whose output shows
+// whether the launch actually went distributed or fell back to serial (a worker-starved host).
+const EXPLAIN_EVERY: usize = 25;
 
-async fn assert_query_plans_as_mpp(conn: &mut PgConnection) -> Result<()> {
-    let rows: Vec<(String,)> = sqlx::query_as(AssertSqlSafe(format!(
-        "EXPLAIN (COSTS OFF, VERBOSE) {JOIN_QUERY}"
-    )))
-    .fetch_all(&mut *conn)
-    .await?;
-    let explain = rows
+async fn explain(conn: &mut PgConnection, analyze: bool, query: &str) -> Result<String> {
+    let options = if analyze {
+        "ANALYZE, VERBOSE, COSTS OFF, TIMING OFF, SUMMARY OFF"
+    } else {
+        "VERBOSE, COSTS OFF"
+    };
+    let rows: Vec<(String,)> =
+        sqlx::query_as(AssertSqlSafe(format!("EXPLAIN ({options}) {query}")))
+            .fetch_all(&mut *conn)
+            .await?;
+    Ok(rows
         .into_iter()
         .map(|(line,)| line)
         .collect::<Vec<_>>()
-        .join("\n");
-    assert!(
-        explain.contains("DistributedExec"),
-        "the join must plan as DistributedExec:\n{explain}"
-    );
-    Ok(())
+        .join("\n"))
 }
 
 #[rstest]
@@ -124,16 +162,31 @@ async fn mpp_joinscan_survives_mutable_build_side_churn(database: Db) -> Result<
     let mut setup = database.connection().await;
     setup.execute(SETUP_SQL).await?;
     setup.execute(MPP_GUCS).await?;
-    assert_query_plans_as_mpp(&mut setup).await?;
 
-    let expected_ids: Vec<i64> = sqlx::query_scalar(EXPECTED_IDS_QUERY)
+    let leader_plan = explain(&mut setup, false, LEADER_QUERY).await?;
+    assert!(
+        leader_plan.contains("DistributedExec"),
+        "the leader-hosted join must plan as DistributedExec:\n{leader_plan}"
+    );
+    let worker_plan = explain(&mut setup, false, WORKER_QUERY).await?;
+    assert!(
+        worker_plan.contains("DistributedExec") && worker_plan.contains("Stage 2"),
+        "the worker-hosted join must plan with the join in a worker stage:\n{worker_plan}"
+    );
+
+    let expected_leader: Vec<i64> = sqlx::query_scalar(LEADER_EXPECTED_IDS)
         .fetch_all(&mut setup)
         .await?;
-    assert_eq!(expected_ids.len(), 25);
+    let expected_worker: Vec<i64> = sqlx::query_scalar(WORKER_EXPECTED_IDS)
+        .fetch_all(&mut setup)
+        .await?;
+    assert_eq!(expected_leader.len(), 25);
+    assert_eq!(expected_worker.len(), 25);
 
     let stop = Arc::new(AtomicBool::new(false));
     let queries = Arc::new(AtomicUsize::new(0));
     let updates = Arc::new(AtomicUsize::new(0));
+    let distributed = Arc::new(AtomicUsize::new(0));
     let failures = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
 
     // One writer keeps the build side's mutable segment growing: every UPDATE appends to its
@@ -164,12 +217,39 @@ async fn mpp_joinscan_survives_mutable_build_side_churn(database: Db) -> Result<
         conn.execute(MPP_GUCS).await?;
         let stop = Arc::clone(&stop);
         let queries = Arc::clone(&queries);
+        let distributed = Arc::clone(&distributed);
         let failures = Arc::clone(&failures);
-        let expected_ids = expected_ids.clone();
+        let expected_leader = expected_leader.clone();
+        let expected_worker = expected_worker.clone();
         readers.push(tokio::spawn(async move {
+            let mut i = 0usize;
             while !stop.load(Ordering::Relaxed) {
+                i += 1;
+                let (query, expected) = if i.is_multiple_of(2) {
+                    (LEADER_QUERY, &expected_leader)
+                } else {
+                    (WORKER_QUERY, &expected_worker)
+                };
+                if i.is_multiple_of(EXPLAIN_EVERY) {
+                    // EXPLAIN ANALYZE executes the query too; a serial fallback shows a plan
+                    // without DistributedExec. Count rather than fail: a starved host may
+                    // legitimately fall back sometimes, but never going distributed at all
+                    // means this test exercised nothing.
+                    match explain(&mut conn, true, query).await {
+                        Ok(plan) if plan.contains("DistributedExec") => {
+                            distributed.fetch_add(1, Ordering::Relaxed);
+                        }
+                        Ok(_) => {}
+                        Err(e) => failures
+                            .lock()
+                            .unwrap()
+                            .push(format!("reader {reader_id}: explain analyze failed: {e}")),
+                    }
+                    queries.fetch_add(1, Ordering::Relaxed);
+                    continue;
+                }
                 let rows: Result<Vec<(i64, String)>, _> =
-                    sqlx::query_as(JOIN_QUERY).fetch_all(&mut conn).await;
+                    sqlx::query_as(query).fetch_all(&mut conn).await;
                 match rows {
                     Err(e) => failures
                         .lock()
@@ -177,9 +257,9 @@ async fn mpp_joinscan_survives_mutable_build_side_churn(database: Db) -> Result<
                         .push(format!("reader {reader_id}: query failed: {e}")),
                     Ok(rows) => {
                         let ids: Vec<i64> = rows.iter().map(|(id, _)| *id).collect();
-                        if ids != expected_ids {
+                        if &ids != expected {
                             failures.lock().unwrap().push(format!(
-                                "reader {reader_id}: ids {ids:?} != expected {expected_ids:?}"
+                                "reader {reader_id}: ids {ids:?} != expected {expected:?}"
                             ));
                         }
                         if let Some((id, name)) =
@@ -221,6 +301,12 @@ async fn mpp_joinscan_survives_mutable_build_side_churn(database: Db) -> Result<
     assert!(
         queries.load(Ordering::Relaxed) > 0 && updates.load(Ordering::Relaxed) > 0,
         "the readers and the writer must both have run"
+    );
+    assert!(
+        distributed.load(Ordering::Relaxed) > 0,
+        "no query ran distributed; the test exercised nothing (queries={}, updates={})",
+        queries.load(Ordering::Relaxed),
+        updates.load(Ordering::Relaxed)
     );
     Ok(())
 }

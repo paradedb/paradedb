@@ -57,11 +57,13 @@ use tantivy::{Directory, IndexMeta, SegmentMeta, TantivyError};
 /// which creates less lock contention than allocating one block at a time.
 pub const BUFWRITER_CAPACITY: usize = bm25_max_free_space() * MAX_BUFFERS_TO_EXTEND_BY;
 
-/// The meta-entry header of a mutable segment as one reader loaded it. A mutable segment is
-/// materialized from the heap on open, from the prefix of its add/remove log these two counts
-/// bound, so two opens agree on the segment's `DocId` space only if they use the same pair.
+/// The `(max_doc, num_deleted_docs)` pair of a mutable segment's meta entry as one reader
+/// loaded it. A mutable segment is materialized from the heap on open, from the prefix of its
+/// add/remove log these two counts bound, so two opens agree on the segment's `DocId` space
+/// only if they use the same pair. Distinct from [`SegmentMetaEntry::mutable_snapshot`], which
+/// returns the ctid set a bound selects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MutableSegmentSnapshot {
+pub struct MutableSegmentBound {
     pub max_doc: u32,
     pub num_deleted_docs: u32,
 }
@@ -74,8 +76,8 @@ pub struct SegmentViewEntry {
     pub max_doc: u32,
     /// `SegmentReader::num_deleted_docs()` of the origin reader.
     pub num_deleted_docs: u32,
-    /// Set for a mutable segment: the header the origin reader materialized it from.
-    pub mutable: Option<MutableSegmentSnapshot>,
+    /// Set for a mutable segment: the bound the origin reader materialized it from.
+    pub mutable: Option<MutableSegmentBound>,
 }
 
 /// A reader's segment view, frozen so other readers of the same index can replay it.
@@ -86,9 +88,16 @@ pub struct SegmentViewEntry {
 /// meaningful against the reader that produced them, so every reader of one source in one query
 /// must expose the same ordinal order and, for mutable segments, materialize the same document
 /// set. Opening with [`MvccSatisfies::ParallelWorker`] over this view gives that: the listed
-/// segments in the listed order, mutable segments bounded by the origin's header.
+/// segments in the listed order, mutable segments bounded by the origin's view.
+///
+/// The data sits behind an `Arc`, so clones are cheap even at thousands of segments.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SegmentView {
+    inner: Arc<SegmentViewInner>,
+}
+
+#[derive(Debug, PartialEq, Eq, Default)]
+struct SegmentViewInner {
     entries: Vec<SegmentViewEntry>,
     ordinals: HashMap<SegmentId, usize>,
 }
@@ -100,13 +109,15 @@ impl SegmentView {
             .enumerate()
             .map(|(ord, e)| (e.id, ord))
             .collect();
-        Self { entries, ordinals }
+        Self {
+            inner: Arc::new(SegmentViewInner { entries, ordinals }),
+        }
     }
 
-    /// Capture the view of `segment_readers` (in ordinal order), taking mutable headers from
+    /// Capture the view of `segment_readers` (in ordinal order), taking mutable bounds from
     /// `directory`. Both must come from the same open.
     pub fn capture(segment_readers: &[tantivy::SegmentReader], directory: &MVCCDirectory) -> Self {
-        let mutable = directory.mutable_snapshots();
+        let mutable = directory.mutable_bounds();
         Self::new(
             segment_readers
                 .iter()
@@ -123,9 +134,10 @@ impl SegmentView {
         )
     }
 
-    /// A view that only pins the segment set. It carries no replay data, so it is only for
-    /// readers whose addresses never leave the process (a `paradedb.aggregate` worker).
-    pub fn from_ids(ids: impl IntoIterator<Item = SegmentId>) -> Self {
+    /// A view that only pins the segment set. Ordinal order is the iterator's (arbitrary for a
+    /// set), and it carries no replay data, so it is only for readers whose addresses never
+    /// leave the process (a `paradedb.aggregate` worker).
+    pub fn from_unordered_ids(ids: impl IntoIterator<Item = SegmentId>) -> Self {
         Self::new(
             ids.into_iter()
                 .map(|id| SegmentViewEntry {
@@ -139,33 +151,33 @@ impl SegmentView {
     }
 
     pub fn entries(&self) -> &[SegmentViewEntry] {
-        &self.entries
+        &self.inner.entries
     }
 
     pub fn len(&self) -> usize {
-        self.entries.len()
+        self.inner.entries.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.inner.entries.is_empty()
     }
 
     pub fn contains(&self, id: &SegmentId) -> bool {
-        self.ordinals.contains_key(id)
+        self.inner.ordinals.contains_key(id)
     }
 
     pub fn ids(&self) -> impl Iterator<Item = SegmentId> + '_ {
-        self.entries.iter().map(|e| e.id)
+        self.inner.entries.iter().map(|e| e.id)
     }
 
     /// The origin reader's ordinal for `id`.
     pub fn ordinal_of(&self, id: &SegmentId) -> Option<usize> {
-        self.ordinals.get(id).copied()
+        self.inner.ordinals.get(id).copied()
     }
 
-    pub fn mutable_snapshot(&self, id: &SegmentId) -> Option<MutableSegmentSnapshot> {
+    pub fn mutable_bound(&self, id: &SegmentId) -> Option<MutableSegmentBound> {
         self.ordinal_of(id)
-            .and_then(|ord| self.entries[ord].mutable)
+            .and_then(|ord| self.inner.entries[ord].mutable)
     }
 }
 
@@ -271,8 +283,8 @@ impl MVCCDirectory {
         }
     }
 
-    /// The header each loaded mutable segment was materialized from.
-    pub fn mutable_snapshots(&self) -> HashMap<SegmentId, MutableSegmentSnapshot> {
+    /// The bound each loaded mutable segment was materialized from.
+    pub fn mutable_bounds(&self) -> HashMap<SegmentId, MutableSegmentBound> {
         self.all_entries
             .lock()
             .iter()
@@ -280,7 +292,7 @@ impl MVCCDirectory {
                 LoadedSegmentMetaEntry::Persisted { .. } => None,
                 LoadedSegmentMetaEntry::Memory { meta, .. } => Some((
                     *id,
-                    MutableSegmentSnapshot {
+                    MutableSegmentBound {
                         max_doc: meta.max_doc(),
                         num_deleted_docs: meta.num_deleted_docs() as u32,
                     },
@@ -682,7 +694,7 @@ impl Directory for MVCCDirectory {
                         // doc-count sort would break ties in list order, and both the list order
                         // and the counts can have moved since the view was captured.
                         MvccSatisfies::ParallelWorker(view) => {
-                            loaded.meta.segments.sort_by_key(|meta| {
+                            loaded.meta.segments.sort_unstable_by_key(|meta| {
                                 view.ordinal_of(&meta.id())
                                     .expect("load_metas: segment not in the parallel view")
                             });

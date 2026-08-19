@@ -383,11 +383,10 @@ pub unsafe fn load_metas(
             // Replay the view's materialization bound so this reader's `DocId`s for the mutable
             // segment line up with the reader that captured the view.
             if let MvccSatisfies::ParallelWorker(view) = solve_mvcc
-                && let Some(snapshot) = view.mutable_snapshot(&entry.segment_id())
+                && let Some(bound) = view.mutable_bound(&entry.segment_id())
             {
                 let segment_id = entry.segment_id();
-                if let Err(e) = entry.rewind_mutable(snapshot.max_doc, snapshot.num_deleted_docs)
-                {
+                if let Err(e) = entry.rewind_mutable(bound.max_doc, bound.num_deleted_docs) {
                     panic!("load_metas: cannot replay the parallel view for segment {segment_id}: {e}");
                 }
             }

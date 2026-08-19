@@ -219,14 +219,14 @@ pub struct JoinScanState {
     pub stream_built_at: Option<std::time::Instant>,
 
     /// Captured source manifests held by the leader. Serves two purposes:
-    /// 1. Provides the segment readers `launch_mpp` needs (via `ParallelScanArgs`) to size
+    /// 1. Provides the segment views `launch_mpp` needs (via `ParallelScanArgs`) to size
     ///    and populate the shared `ParallelScanState` in DSM.
     /// 2. Keeps the underlying Tantivy buffer pins alive for the full duration of the
     ///    scan, preventing background merges from recycling the canonical segments.
     ///
     /// Must live on `JoinScanState` (not as a local in the launch) because the
     /// buffer pins must survive from DSM population through `exec_custom_scan`,
-    /// where workers reopen the same segments via `MvccSatisfies::ParallelWorker(ids)`.
+    /// where workers reopen the same segments via `MvccSatisfies::ParallelWorker(view)`.
     /// Dropping manifests early would release the pins and allow segment recycling
     /// before workers can open them.
     pub source_manifests: Vec<SearchIndexManifest>,

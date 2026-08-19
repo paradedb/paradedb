@@ -21,7 +21,7 @@ use std::io::Write;
 use std::ops::Range;
 
 use crate::gucs;
-use crate::index::mvcc::{MutableSegmentSnapshot, SegmentView, SegmentViewEntry};
+use crate::index::mvcc::{MutableSegmentBound, SegmentView, SegmentViewEntry};
 use crate::postgres::build::is_bm25_index;
 use crate::postgres::condition_variable::ConditionVariable;
 use crate::postgres::locks::Spinlock;
@@ -516,7 +516,7 @@ impl ParallelScanPayload {
                     max_doc: max_docs[i],
                     num_deleted_docs: deleted[i],
                     mutable: (flags[i] & SEGMENT_FLAG_MUTABLE != 0).then_some(
-                        MutableSegmentSnapshot {
+                        MutableSegmentBound {
                             max_doc: mut_max[i],
                             num_deleted_docs: mut_del[i],
                         },
@@ -1195,8 +1195,9 @@ impl ParallelScanState {
     }
 
     /// Read-only sibling of [`Self::segment_view_for_source`] for callers that already
-    /// know initialization is complete. No mutex acquire because the view is immutable
-    /// after `populate`.
+    /// know initialization is complete. No mutex acquire: only `populate` writes the payload,
+    /// and a repopulate (a parallel rescan) happens after PostgreSQL has finished every
+    /// worker, so no reader can overlap the rewrite.
     pub fn segment_view_for_source_unlocked(&self, source_idx: usize) -> SegmentView {
         self.payload.source_view(source_idx)
     }

@@ -47,16 +47,16 @@ jobs:
           fi
           shopt -u globstar nullglob
 
-      - name: Check Bash Scripts for bash shebang
+      - name: Check Shell Scripts for shebang
         run: |
           while read -r file
           do
             shebang="$(head -n 1 "$file")"
-            if [[ "$shebang" = "#!/bin/bash" || "$shebang" = "#!/usr/bin/env bash" ]]
+            if [[ "$shebang" = "#!/bin/bash" || "$shebang" = "#!/bin/sh" || "$shebang" = "#!/usr/bin/env bash" ]]
             then
-              echo "[bash shebang -> Present] $file"
+              echo "[shebang -> Present] $file"
             else
-              echo "[bash shebang -> NOT FOUND] $file" && exit 1
+              echo "[shebang -> NOT FOUND] $file" && exit 1
             fi
           done < <(find . -name '*.sh')
 
@@ -74,7 +74,10 @@ jobs:
             else
               echo "[strict mode -> NOT FOUND] $file" && exit 1
             fi
-          done < <(find . -name '*.sh')
+            # bootstrap_official uses sh not bash, so it doesn't support pipefail. I don't want to
+            # clutter it with a skip annotation since its part of Docker Official Images, so it's
+            # ignored here in CI instead.
+          done < <(find . -name '*.sh' ! -path './docker/bootstrap_official.sh')
 
       - name: Run ShellCheck
         run: |

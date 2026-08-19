@@ -1,9 +1,9 @@
 # Benchmark pg_search (Benchmarker)
 #
-# Runs the benchmarker suite (github.com/paradedb/benchmarker) on the
-# hn-benchmarker dataset, against a pg_search compiled from this repo's source
-# and overlaid onto a released ParadeDB image. Dashboards and QPS/latency
-# history are published to gh-pages.
+# Runs the benchmarker suite (github.com/paradedb/benchmarker) on the hn-ci
+# dataset, against a pg_search compiled from this repo's source and overlaid
+# onto a released ParadeDB image. Dashboards and QPS/latency history are
+# published to gh-pages.
 # https://www.paradedb.com/blog/benchmarker-iteration
 
 name: Benchmark pg_search (Benchmarker)
@@ -48,8 +48,9 @@ jobs:
     name: Run Benchmarker Suite
     runs-on:
       - runs-on=${{ github.run_id }}
-      # 8 vCPU / 32 GiB Graviton4 + NVMe. The DB gets cores 0-3, pgbouncer 4,
-      # and k6 5-7 (see the repin step); bump the size for wider concurrency.
+      # 8 vCPU / 32 GiB Graviton4 + NVMe. The hn-ci compose pins the DB to
+      # cores 0-3 and pgbouncer to 4; k6 is tasksetted onto 5-7 in the run
+      # step. Bump the size for wider concurrency.
       - family=m8gd.2xlarge
       - image=ubuntu24-full-arm64
       - extras=s3-cache # S3-backed cache; https://runs-on.com/caching/magic-cache/
@@ -61,8 +62,8 @@ jobs:
     env:
       pg_version: "18"
       BENCHMARKER_REPO: paradedb/benchmarker
-      DATASET: hn-benchmarker
-      DATASET_S3: s3://paradedb-benchmarker/datasets/hn-benchmarker.tar.gz
+      DATASET: hn-ci
+      DATASET_S3: s3://paradedb-benchmarker/datasets/hn-ci.tar.gz
       IMAGE_TAG: paradedb-source:ci
 
     steps:
@@ -142,21 +143,6 @@ jobs:
       - name: Pull ${{ env.DATASET }} dataset (public S3, anonymous)
         working-directory: benchmarker
         run: ./bin/loader pull --dataset "${DATASET}" --anonymous --source "${DATASET_S3}"
-
-      # The dataset compose pins pgbouncer to cores 8-11 for the dedicated
-      # 12-core benchmark host; this runner only has 0-7. Repin through a
-      # compose override rather than editing the dataset: paradedb keeps 0-3,
-      # pgbouncer gets 4, and k6 is tasksetted onto the rest (5-7).
-      - name: Repin containers for the 8-core runner
-        working-directory: benchmarker/datasets/${{ env.DATASET }}
-        run: |
-          cat > docker-compose.override.yml <<'EOF'
-          services:
-            paradedb:
-              cpuset: "0-3"
-            pgbouncer-pdb:
-              cpuset: "4"
-          EOF
 
       # The paradedb service sits behind the `paradedb` compose profile.
       # PARADEDB_IMAGE points the compose at our source build and must be set on
@@ -273,7 +259,7 @@ jobs:
         continue-on-error: true # Don't let a publish hiccup block the dashboards/comment below.
         uses: benchmark-action/github-action-benchmark@v1
         with:
-          name: "benchmarker hn-benchmarker (QPS)"
+          name: "benchmarker hn-ci (QPS)"
           ref: ${{ steps.determine-ref.outputs.ref }}
           tool: customBiggerIsBetter
           output-file-path: benchmarker/benchmarker_qps.json
@@ -291,7 +277,7 @@ jobs:
         continue-on-error: true
         uses: benchmark-action/github-action-benchmark@v1
         with:
-          name: "benchmarker hn-benchmarker (latency percentiles)"
+          name: "benchmarker hn-ci (latency percentiles)"
           ref: ${{ steps.determine-ref.outputs.ref }}
           tool: customSmallerIsBetter
           output-file-path: benchmarker/benchmarker_latency.json

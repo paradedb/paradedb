@@ -33,6 +33,55 @@ use tantivy::{
     schema::Schema,
 };
 
+/// One index-level vector centroid set: tantivy's `(version, filename)`
+/// meta entry joined with the block-storage location of the file's bytes.
+/// Serialized as JSON into `MetaPage::centroid_sets_bytes`, write-once at
+/// CREATE INDEX (re-publishing does not exist yet).
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct CentroidSetEntry {
+    pub version: u64,
+    pub filename: String,
+    pub file_entry: FileEntry,
+}
+
+/// `true` for tantivy's index-level centroid set files (`centroids.<version>`),
+/// which are index-level, not `<segment-uuid>.<ext>` components.
+pub fn is_centroid_set_path(path: &std::path::Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| {
+            name.strip_prefix("centroids.")
+                .is_some_and(|v| v.parse::<u64>().is_ok())
+        })
+}
+
+/// Persist the centroid set registry, write-once (mirrors `save_schema`).
+pub fn save_centroid_sets(indexrel: &PgSearchRelation, entries: &[CentroidSetEntry]) -> Result<()> {
+    let bytes_list = MetaPage::open(indexrel)
+        .centroid_sets_bytes()
+        .expect("an index writing centroid sets must have been created with a registry block");
+    if bytes_list.is_empty() {
+        let bytes = serde_json::to_vec(entries)?;
+        unsafe {
+            bytes_list.writer().write(&bytes)?;
+        }
+    }
+    Ok(())
+}
+
+/// The persisted centroid set registry; empty when the index has none
+/// (no vector fields, or created before the index-level format).
+pub fn load_centroid_sets(indexrel: &PgSearchRelation) -> Result<Vec<CentroidSetEntry>> {
+    let Some(bytes_list) = MetaPage::open(indexrel).centroid_sets_bytes() else {
+        return Ok(Vec::new());
+    };
+    let bytes = unsafe { bytes_list.read_all() };
+    if bytes.is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(serde_json::from_slice(&bytes)?)
+}
+
 pub fn save_schema(indexrel: &PgSearchRelation, tantivy_schema: &Schema) -> Result<()> {
     let schema = MetaPage::open(indexrel).schema_bytes();
     if schema.is_empty() {
@@ -464,6 +513,15 @@ pub unsafe fn load_metas(
     let settings = metapage.settings_bytes();
     let deserialized_settings = serde_json::from_slice(&settings.read_all())?;
 
+    let centroid_sets = load_centroid_sets(indexrel)
+        .map_err(|e| tantivy::TantivyError::InternalError(e.to_string()))?
+        .into_iter()
+        .map(|entry| tantivy::index::CentroidSetMeta {
+            version: entry.version,
+            filename: entry.filename,
+        })
+        .collect();
+
     Ok(LoadedMetas {
         entries: alive_entries,
         meta: IndexMeta {
@@ -473,6 +531,7 @@ pub unsafe fn load_metas(
             opstamp: opstamp.unwrap_or(0),
             payload: None,
             persisted_custom_extensions: Vec::new(),
+            centroid_sets,
         },
         pin_cushion,
         total_segments,

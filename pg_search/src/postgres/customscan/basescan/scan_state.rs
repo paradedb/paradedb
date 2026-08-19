@@ -44,6 +44,11 @@ use tantivy::snippet::SnippetGenerator;
 
 #[derive(Default)]
 pub struct BaseScanState {
+    /// The global vector probe loop's instrumentation for this scan, one
+    /// JSON blob per query (vector scans are serial; no per-segment or
+    /// DSM breakdown exists). Surfaced in EXPLAIN as "Vector Search".
+    pub vector_search_info: Option<serde_json::Value>,
+
     /// Process-local EXPLAIN metrics (query counts, per-segment JSON, …).
     pub telemetry: ScanTelemetry,
     /// Set when this scan is parallel-aware (DSM attached).

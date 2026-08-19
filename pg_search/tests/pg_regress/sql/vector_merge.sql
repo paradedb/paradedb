@@ -11,6 +11,8 @@
 SET client_min_messages = WARNING;
 CREATE EXTENSION IF NOT EXISTS vector;
 \i common/common_setup.sql
+-- Tiny fixtures: lower the centroid-training floor.
+SET paradedb.vector_min_training_rows = 1;
 
 DROP TABLE IF EXISTS remerge;
 CREATE TABLE remerge (
@@ -22,10 +24,15 @@ CREATE TABLE remerge (
 -- (foreground merges only fire on an insert-cleanup that created a segment);
 -- target_segment_count = 1 keeps the merge policy engaged (merging is
 -- disabled while segment_count <= target); background_layer_sizes = '0'
--- keeps every merge in the foreground, deterministic. Inserts flush ~1000-doc
--- segments of ~70kb, and a 600kb layer closes its first candidate at
--- >= 10000 docs — at or above tantivy's vector_clustering_threshold, so the
--- merge target is written IVF (clustered), with every vector in 3 cells.
+-- keeps every merge in the foreground, deterministic. Every segment —
+-- commit or merged — is clustered against the index-level centroid set,
+-- with every vector in 3 cells (cluster_replication = 3).
+-- Centroids train at CREATE INDEX over existing rows, so seed a corpus
+-- first; the waves below still drive the segment/merge behavior.
+INSERT INTO remerge
+SELECT g, ('[' || repeat((g % 89)::text || ',', 15) || (g % 89)::text || ']')::vector
+FROM generate_series(-999, 0) g;
+
 CREATE INDEX remerge_idx ON remerge
     USING paradedb (id, vec vector_l2_ops)
     WITH (
@@ -43,23 +50,21 @@ INSERT INTO remerge
 SELECT g, ('[' || repeat((g % 89)::text || ',', 15) || (g % 89)::text || ']')::vector
 FROM generate_series(1, 15000) g;
 
--- The merge produced a clustered segment...
-SELECT bool_or(vector_format = 'ivf') AS has_ivf
+-- Every segment is clustered against centroid set v1...
+SELECT bool_and(vector_centroid_set_version = 1) AS all_v1
 FROM paradedb.vector_info('remerge_idx', 'vec');
 
 -- ...whose reported vector count is distinct docs (= its doc count), not the
 -- 3x posting-row total that replication writes...
 SELECT bool_and(v.vector_num_vectors = i.num_docs) AS num_vectors_is_distinct_docs
 FROM paradedb.vector_info('remerge_idx', 'vec') v
-JOIN paradedb.index_info('remerge_idx') i USING (segno)
-WHERE v.vector_format = 'ivf';
+JOIN paradedb.index_info('remerge_idx') i USING (segno);
 
 -- ...while the per-cluster sizes deliberately stay memberships: their total
 -- strictly exceeds the distinct-doc count under replication.
 SELECT sum(vector_total_memberships) > sum(vector_num_vectors)
          AS cluster_sizes_are_memberships
-FROM paradedb.vector_info('remerge_idx', 'vec')
-WHERE vector_format = 'ivf';
+FROM paradedb.vector_info('remerge_idx', 'vec');
 
 -- Wave 2: make the replicated IVF segment a merge SOURCE. The layer must
 -- admit it (it is ~2.5-3.1mb; 3500kb leaves headroom) and the total corpus
@@ -69,13 +74,12 @@ INSERT INTO remerge
 SELECT g, ('[' || repeat((g % 89)::text || ',', 15) || (g % 89)::text || ']')::vector
 FROM generate_series(15001, 50000) g;
 
-SELECT bool_or(vector_format = 'ivf') AS still_has_ivf
+SELECT bool_and(vector_centroid_set_version = 1) AS still_all_v1
 FROM paradedb.vector_info('remerge_idx', 'vec');
 
 SELECT bool_and(v.vector_num_vectors = i.num_docs) AS num_vectors_is_distinct_docs
 FROM paradedb.vector_info('remerge_idx', 'vec') v
-JOIN paradedb.index_info('remerge_idx') i USING (segno)
-WHERE v.vector_format = 'ivf';
+JOIN paradedb.index_info('remerge_idx') i USING (segno);
 
 -- Exhaustive probing: the ceiling clamps to each segment's cluster count,
 -- and LIMIT 60000 widens the candidate floor (4 x top_n) past the corpus so

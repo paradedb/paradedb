@@ -401,6 +401,7 @@ impl ExecMethod for TopKScanExecState {
             let TopKSearch {
                 results,
                 segment_info,
+                vector_search,
             } = self
                 .search_reader
                 .as_ref()
@@ -420,6 +421,11 @@ impl ExecMethod for TopKScanExecState {
             // DSM once at EndCustomScan; the leader merges at Shutdown.
             if !segment_info.is_empty() {
                 state.accumulate_segment_info(segment_info);
+            }
+            // The global vector probe loop reports one blob per query;
+            // vector scans are serial, so no DSM hop is needed.
+            if let Some(vector_search) = vector_search {
+                state.vector_search_info = Some(vector_search);
             }
             results
         } else {

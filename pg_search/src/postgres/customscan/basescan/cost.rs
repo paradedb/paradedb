@@ -76,6 +76,11 @@ pub(super) enum WorkerDecisionReason {
     /// The row-count heuristic (`compute_nworkers`): no ANALYZE stats, or an unsorted scan with no
     /// usable cost estimate. Caps workers so each gets at least `min_rows_per_worker` rows.
     RowHeuristic,
+    /// Vector-distance ORDER BY: the search is ONE global probe loop over
+    /// every segment with a shared kth threshold — splitting segments
+    /// across workers would re-create the per-partition waste the global
+    /// loop exists to remove, so it is always serial.
+    GlobalVectorSearch,
 }
 
 impl WorkerDecisionReason {
@@ -87,6 +92,7 @@ impl WorkerDecisionReason {
             Self::CostModelLimited => "Cost model (LIMIT)",
             Self::SortedPerSegment => "Per-segment",
             Self::RowHeuristic => "Row-capped",
+            Self::GlobalVectorSearch => "Global vector search",
         }
     }
 }
@@ -320,6 +326,10 @@ fn cost_test_limited(
 /// Inputs to [`decide_scan_parallelism`].
 pub(super) struct ScanParallelismInputs<'a> {
     pub(super) prunability: TopKPrunability,
+    /// `true` when the exec method's primary ORDER BY is a vector
+    /// distance: always serial (see
+    /// [`WorkerDecisionReason::GlobalVectorSearch`]).
+    pub(super) is_vector_orderby: bool,
     pub(super) query: &'a SearchQueryInput,
     /// The costable drive cost (see [`costable_drive_cost`]); `Some` marks the scan as costable and
     /// feeds both [`cost_test_limited`] and [`estimate_path_cost`].
@@ -349,6 +359,7 @@ pub(super) struct ScanParallelismInputs<'a> {
 pub(super) unsafe fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> WorkerPathPolicy {
     let ScanParallelismInputs {
         prunability,
+        is_vector_orderby,
         query,
         drive_cost,
         row_estimate,
@@ -363,6 +374,16 @@ pub(super) unsafe fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> W
         is_join_context,
         has_grouping,
     } = inputs;
+
+    // 0. Vector-distance ORDER BY -> serial only, unconditionally. The
+    //    cross-segment probe loop ranks the index-level centroid set once
+    //    and gathers each cluster across ALL segments into one heap;
+    //    per-worker segment partitions would undo exactly that.
+    if is_vector_orderby {
+        return WorkerPathPolicy::SerialOnly {
+            reason: WorkerDecisionReason::GlobalVectorSearch,
+        };
+    }
 
     // 1. Prunable short-circuit -> serial only. Block-WAND keeps primarily score-DESC ordered top-k sublinear
     //    (#4664), so workers would only add overhead. A hard gate: the cost model can't see

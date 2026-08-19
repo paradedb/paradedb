@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
+use super::utils::{load_metas, save_centroid_sets, save_new_metas, save_schema, save_settings};
 use crate::api::{HashMap, HashSet};
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
@@ -174,6 +174,24 @@ impl MVCCDirectory {
     }
 
     fn file_entry(&self, path: &Path) -> tantivy::Result<Arc<dyn FileHandle>> {
+        // Index-level centroid set files (`centroids.<version>`) are not
+        // segment components: resolve them through the persisted registry.
+        if super::utils::is_centroid_set_path(path) {
+            let entries = super::utils::load_centroid_sets(&self.indexrel)
+                .map_err(|e| TantivyError::InternalError(e.to_string()))?;
+            let Some(entry) = entries
+                .iter()
+                .find(|entry| Path::new(&entry.filename) == path)
+            else {
+                return Err(TantivyError::OpenDirectoryError(
+                    OpenDirectoryError::DoesNotExist(path.to_path_buf()),
+                ));
+            };
+            return Ok(Arc::new(unsafe {
+                SegmentComponentReader::new(&self.indexrel, entry.file_entry, None)
+            }));
+        }
+
         let file_name = path
             .file_name()
             .expect("path should have a filename")
@@ -475,6 +493,49 @@ impl Directory for MVCCDirectory {
 
         save_settings(&self.indexrel, &meta.index_settings)
             .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;
+
+        // Route index-level centroid set files OUT of the per-segment
+        // payload (their paths are not `<uuid>.<ext>`) and persist the
+        // registry, write-once, at index creation.
+        let centroid_paths: Vec<PathBuf> = payload
+            .keys()
+            .filter(|path| super::utils::is_centroid_set_path(path))
+            .cloned()
+            .collect();
+        // The registry is write-once at creation; later commits carry
+        // `centroid_sets` forward in the meta but have no set file in
+        // their payload.
+        let registry_saved = MetaPage::open(&self.indexrel)
+            .centroid_sets_bytes()
+            .map(|bytes| !bytes.is_empty())
+            .unwrap_or(false);
+        if !meta.centroid_sets.is_empty() && !registry_saved {
+            let entries: Vec<super::utils::CentroidSetEntry> =
+                meta.centroid_sets
+                    .iter()
+                    .map(|set| {
+                        let file_entry = payload
+                            .get(Path::new(&set.filename))
+                            .copied()
+                            .ok_or_else(|| {
+                                tantivy::TantivyError::InternalError(format!(
+                                    "centroid set file {} was not written through this directory",
+                                    set.filename
+                                ))
+                            })?;
+                        Ok(super::utils::CentroidSetEntry {
+                            version: set.version,
+                            filename: set.filename.clone(),
+                            file_entry,
+                        })
+                    })
+                    .collect::<tantivy::Result<_>>()?;
+            save_centroid_sets(&self.indexrel, &entries)
+                .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;
+        }
+        for path in centroid_paths {
+            payload.remove(&path);
+        }
 
         // If there were no new segments, skip the rest of the work
         if meta.segments.is_empty() {

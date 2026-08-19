@@ -77,7 +77,14 @@ pgrx-tests = "=0.19.2"
 tantivy-jieba = "0.20.0"
 
 [patch.crates-io]
-tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "c3caae3f613d5906c8080a3c3c2845190e749b64" }
+tantivy-tokenizer-api = { path = "/Users/mingying/tantivy/tokenizer-api" }
+
+# Local tantivy with the index-level centroid set + cross-segment vector
+# search (branch index-level-centroid-set). TODO: point back at a pushed
+# rev before merging.
+[patch."https://github.com/paradedb/tantivy.git"]
+tantivy = { path = "/Users/mingying/tantivy" }
+tantivy-tokenizer-api = { path = "/Users/mingying/tantivy/tokenizer-api" }
 
 [workspace.lints.clippy]
 large_futures = "warn"

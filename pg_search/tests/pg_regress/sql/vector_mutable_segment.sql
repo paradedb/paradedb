@@ -1,5 +1,7 @@
 CREATE EXTENSION IF NOT EXISTS vector;
 \i common/common_setup.sql
+-- Tiny fixtures: lower the centroid-training floor.
+SET paradedb.vector_min_training_rows = 1;
 
 DROP TABLE IF EXISTS mv;
 CREATE TABLE mv (
@@ -7,6 +9,12 @@ CREATE TABLE mv (
     label text,
     vec   vector(3)
 );
+
+-- Centroids train at CREATE INDEX over existing rows, so seed a corpus
+-- first; the rows inserted AFTER the index exercise the mutable segment.
+INSERT INTO mv VALUES
+    (1, 'east',  '[1.0,  0.0, 0.0]'),
+    (2, 'east2', '[0.9,  0.0, 0.1]');
 
 CREATE INDEX mv_idx ON mv
     USING paradedb (id, label, vec vector_l2_ops)
@@ -18,8 +26,6 @@ CREATE INDEX mv_idx ON mv
     );
 
 INSERT INTO mv VALUES
-    (1, 'east',  '[1.0,  0.0, 0.0]'),
-    (2, 'east2', '[0.9,  0.0, 0.1]'),
     (3, 'north', '[0.0,  1.0, 0.0]'),
     (4, 'up',    '[0.0,  0.0, 1.0]'),
     (5, 'mid',   '[0.7,  0.7, 0.0]');

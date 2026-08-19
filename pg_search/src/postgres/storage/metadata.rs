@@ -85,6 +85,13 @@ pub struct MetaPageData {
     created_by_version_patch: u16,
 
     created_at: pg_sys::TimestampTz,
+
+    /// Header block of the index-level vector centroid set registry (a
+    /// `LinkedBytesList` of JSON; see `directory::utils::save_centroid_sets`).
+    /// Appended after `created_at`: zero on indexes created before the
+    /// index-level centroid format existed — those cannot hold vector
+    /// fields under the current format and must be reindexed.
+    centroid_sets_start: pg_sys::BlockNumber,
 }
 
 /// Provides read access to the metadata page
@@ -122,6 +129,7 @@ impl MetaPage {
             metadata.settings_start = LinkedBytesList::create_without_fsm(indexrel);
             metadata.segment_metas_start =
                 LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
+            metadata.centroid_sets_start = LinkedBytesList::create_without_fsm(indexrel);
 
             metadata.created_by_version_major =
                 const { parse_version_component(env!("CARGO_PKG_VERSION_MAJOR")) };
@@ -359,6 +367,18 @@ impl MetaPage {
             self.data.settings_start
         };
         LinkedBytesList::open(self.bman.buffer_access().rel(), blockno)
+    }
+
+    /// The index-level vector centroid set registry. `None` on indexes
+    /// created before the field existed — those predate the index-level
+    /// centroid format entirely (their vector segments require reindex).
+    pub fn centroid_sets_bytes(&self) -> Option<LinkedBytesList> {
+        (self.data.centroid_sets_start != 0).then(|| {
+            LinkedBytesList::open(
+                self.bman.buffer_access().rel(),
+                self.data.centroid_sets_start,
+            )
+        })
     }
 
     pub fn segment_metas(&self) -> LinkedItemList<SegmentMetaEntry> {

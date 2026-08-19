@@ -136,7 +136,9 @@ const WORKER_EXPECTED_IDS: &str =
 const RUN_FOR: Duration = Duration::from_secs(20);
 const READERS: usize = 3;
 // Every Nth reader iteration runs the query under EXPLAIN ANALYZE instead, whose output shows
-// whether the launch actually went distributed or fell back to serial (a worker-starved host).
+// whether the launch actually went distributed or fell back to serial. Anchored on the FIRST
+// iteration: a loaded host may only get through a handful of iterations, and the final assert
+// needs at least one sample.
 const EXPLAIN_EVERY: usize = 25;
 
 async fn explain(conn: &mut PgConnection, analyze: bool, query: &str) -> Result<String> {
@@ -207,6 +209,9 @@ async fn mpp_joinscan_survives_mutable_build_side_churn(database: Db) -> Result<
                     panic!("writer failed: {e}");
                 }
                 updates.fetch_add(1, Ordering::Relaxed);
+                // Yield so the writer doesn't starve the readers on a loaded host; the race
+                // window only needs the log to move between two opens, not a firehose.
+                sleep(Duration::from_millis(5)).await;
             }
         })
     };
@@ -230,7 +235,7 @@ async fn mpp_joinscan_survives_mutable_build_side_churn(database: Db) -> Result<
                 } else {
                     (WORKER_QUERY, &expected_worker)
                 };
-                if i.is_multiple_of(EXPLAIN_EVERY) {
+                if i % EXPLAIN_EVERY == 1 {
                     // EXPLAIN ANALYZE executes the query too; a serial fallback shows a plan
                     // without DistributedExec. Count rather than fail: a starved host may
                     // legitimately fall back sometimes, but never going distributed at all

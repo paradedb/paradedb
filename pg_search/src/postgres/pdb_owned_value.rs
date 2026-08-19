@@ -374,6 +374,72 @@ impl<'de> serde::Deserialize<'de> for PdbOwnedValue {
     }
 }
 
+/// The exact, lossless serde form for the scalar variants of [`PdbOwnedValue`], for callers that
+/// must reconstruct a value bit for bit (partition boundaries shipped over the DSM wire). The
+/// `Serialize`/`Deserialize` impls above route through tantivy's `OwnedValue`, which is lossy: a
+/// non-negative `I64` comes back as `U64`, and a non-finite `F64` becomes `null` under JSON.
+///
+/// Scalar values only. It errors on `Null` and the composite variants (`Array`, `Object`,
+/// `Facet`, `PreTokStr`), which never appear as partition split values. `F64` travels as its
+/// bits and dates as their raw microseconds, so both survive any codec without calling into
+/// Postgres. Use through `#[serde(with = "...")]` on a `PdbOwnedValue` field.
+pub(crate) mod exact_scalar_wire {
+    use std::net::Ipv6Addr;
+
+    use serde::{Deserialize, Deserializer, Serialize, Serializer, de, ser};
+
+    use super::PdbOwnedValue;
+    use crate::postgres::datetime::PostgresDateTime;
+
+    #[derive(Serialize, Deserialize)]
+    enum WireValue {
+        Str(String),
+        U64(u64),
+        I64(i64),
+        Bool(bool),
+        Date(i64),
+        // `f64::to_bits`, so `NaN` and the infinities survive any codec, text or binary.
+        F64Bits(u64),
+        Bytes(Vec<u8>),
+        IpAddr(Ipv6Addr),
+    }
+
+    pub(crate) fn serialize<S: Serializer>(value: &PdbOwnedValue, s: S) -> Result<S::Ok, S::Error> {
+        let wire = match value {
+            PdbOwnedValue::Str(v) => WireValue::Str(v.clone()),
+            PdbOwnedValue::U64(v) => WireValue::U64(*v),
+            PdbOwnedValue::I64(v) => WireValue::I64(*v),
+            PdbOwnedValue::F64(v) => WireValue::F64Bits(v.to_bits()),
+            PdbOwnedValue::Bool(v) => WireValue::Bool(*v),
+            PdbOwnedValue::Date(v) => WireValue::Date(v.into_inner()),
+            PdbOwnedValue::Bytes(v) => WireValue::Bytes(v.clone()),
+            PdbOwnedValue::IpAddr(v) => WireValue::IpAddr(*v),
+            other => {
+                return Err(ser::Error::custom(format!(
+                    "unsupported partition split value: {other:?}"
+                )));
+            }
+        };
+        wire.serialize(s)
+    }
+
+    pub(crate) fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<PdbOwnedValue, D::Error> {
+        Ok(match WireValue::deserialize(d)? {
+            WireValue::Str(v) => PdbOwnedValue::Str(v),
+            WireValue::U64(v) => PdbOwnedValue::U64(v),
+            WireValue::I64(v) => PdbOwnedValue::I64(v),
+            WireValue::F64Bits(v) => PdbOwnedValue::F64(f64::from_bits(v)),
+            WireValue::Bool(v) => PdbOwnedValue::Bool(v),
+            WireValue::Date(v) => PdbOwnedValue::Date(
+                PostgresDateTime::try_from_raw(v)
+                    .map_err(|e| de::Error::custom(format!("invalid split date: {e:?}")))?,
+            ),
+            WireValue::Bytes(v) => PdbOwnedValue::Bytes(v),
+            WireValue::IpAddr(v) => PdbOwnedValue::IpAddr(v),
+        })
+    }
+}
+
 impl From<String> for PdbOwnedValue {
     fn from(value: String) -> Self {
         Self::Str(value)

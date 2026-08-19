@@ -326,6 +326,13 @@ impl<CS: CustomScan> CustomPathBuilder<CS> {
         self
     }
 
+    /// Attach child paths; core plans them into `CustomScan.custom_plans` via
+    /// `create_customscan_plan`.
+    pub fn set_custom_paths(mut self, paths: PgList<pg_sys::Path>) -> Self {
+        self.custom_path_node.custom_paths = paths.into_pg();
+        self
+    }
+
     /// Build a CustomPath using the given private data.
     ///
     /// `custom_private` can be used to store the custom path's private data.

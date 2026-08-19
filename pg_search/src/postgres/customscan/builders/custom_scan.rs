@@ -125,6 +125,14 @@ impl<CS: CustomScan> CustomScanBuilder<CS> {
         self.custom_scan_node.scan.scanrelid = scanrelid;
     }
 
+    pub fn custom_plans(&self) -> *mut pg_sys::List {
+        self.custom_scan_node.custom_plans
+    }
+
+    pub fn set_custom_plans(&mut self, custom_plans: *mut pg_sys::List) {
+        self.custom_scan_node.custom_plans = custom_plans;
+    }
+
     pub fn build(self) -> pg_sys::CustomScan {
         let mut node = self.custom_scan_node;
         node.custom_private = self.custom_private.into();

@@ -106,6 +106,12 @@ pub struct BaseScanState {
     pub exec_method_type: ExecMethodType,
     pub ambulkdelete_epoch: u32,
 
+    /// SPIKE (#5702): initialized child BitmapIndexScan/BitmapAnd PlanState, if a
+    /// bitmap intersection source was harvested at plan time.
+    pub bitmap_child_state: Option<*mut pg_sys::PlanState>,
+    /// SPIKE (#5702): the child's TIDBitmap has been consumed this scan.
+    pub bitmap_consumed: bool,
+
     pub doc_from_heap_state: Option<HeapFetchState>,
 
     // Window aggregate support

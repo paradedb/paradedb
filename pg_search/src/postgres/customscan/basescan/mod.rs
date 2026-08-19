@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 #![allow(clippy::unnecessary_cast)] // helps with integer casting differences between postgres versions
+mod bitmap_harvest;
 mod cost;
 pub mod exec_methods;
 pub mod parallel;
@@ -752,6 +753,20 @@ impl CustomScan for BaseScan {
                 return None;
             }
 
+            // SPIKE (#5702): if any quals became HeapExprs, look for a planner-built
+            // BitmapHeapPath over another index that covers them, to be executed as a
+            // child BitmapIndexScan and intersected with the Tantivy result set.
+            let harvested_bitmap_path = {
+                let mut heap_exprs = Vec::new();
+                if bitmap_harvest::collect_heap_expr_nodes(&quals, &mut heap_exprs)
+                    && !heap_exprs.is_empty()
+                {
+                    bitmap_harvest::harvest(root, builder.args().rel, bm25_index.oid(), &heap_exprs)
+                } else {
+                    None
+                }
+            };
+
             //
             // ===================
             // If we make it this far, we're going to submit a path... it better be a good one!
@@ -1066,6 +1081,16 @@ impl CustomScan for BaseScan {
                             path_builder = path_builder.set_pathkeys(pathkeys);
                         }
 
+                        // SPIKE (#5702): serial paths only for now -- a child plan under a
+                        // parallel-aware partial path needs the shared-bitmap design (v2).
+                        if nworkers.is_none()
+                            && let Some(bitmap_path) = harvested_bitmap_path
+                        {
+                            let mut children = PgList::<pg_sys::Path>::new();
+                            children.push(bitmap_path);
+                            path_builder = path_builder.set_custom_paths(children);
+                        }
+
                         let mut method_private = custom_private.clone();
                         method_private.set_exec_method_type(method.clone());
                         method_private.set_use_sorted_path(is_sorted);
@@ -1110,6 +1135,23 @@ impl CustomScan for BaseScan {
 
     fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {
         unsafe {
+            // SPIKE (#5702): core planned our harvested BitmapHeapPath child into a full
+            // BitmapHeapScan plan (create_plan_recurse can't make a bare BitmapIndexScan).
+            // We only want the bitmap-producing side, so swap in its outer plan (the
+            // BitmapIndexScan / BitmapAnd), which is what BitmapHeapScan MultiExec's.
+            let custom_plans = PgList::<pg_sys::Plan>::from_pg(builder.custom_plans());
+            if let Some(child) = custom_plans.get_ptr(0)
+                && (*child).type_ == pg_sys::NodeTag::T_BitmapHeapScan
+            {
+                let mut replacement = PgList::<pg_sys::Plan>::new();
+                replacement.push((*child).lefttree);
+                builder.set_custom_plans(replacement.into_pg());
+                pgrx::notice!(
+                    "[bitmap_harvest] planned child: swapped BitmapHeapScan for its {:?}",
+                    (*(*child).lefttree).type_
+                );
+            }
+
             let mut tlist = PgList::<pg_sys::TargetEntry>::from_pg(builder.args().tlist.as_ptr());
 
             // Store the length of the target list
@@ -1591,6 +1633,21 @@ impl CustomScan for BaseScan {
                 return;
             }
 
+            // SPIKE (#5702): initialize the harvested child BitmapIndexScan, if any.
+            let cscan = state.csstate.ss.ps.plan.cast::<pg_sys::CustomScan>();
+            let custom_plans = PgList::<pg_sys::Plan>::from_pg((*cscan).custom_plans);
+            if let Some(child_plan) = custom_plans.get_ptr(0) {
+                let child_state = pg_sys::ExecInitNode(child_plan, estate, eflags);
+                let mut custom_ps = PgList::<pg_sys::PlanState>::from_pg(state.csstate.custom_ps);
+                custom_ps.push(child_state);
+                state.csstate.custom_ps = custom_ps.into_pg();
+                state.custom_state_mut().bitmap_child_state = Some(child_state);
+                pgrx::notice!(
+                    "[bitmap_harvest] initialized child plan: {:?}",
+                    (*child_plan).type_
+                );
+            }
+
             // setup the structures we need to do mvcc checking and heap fetching
             state.custom_state_mut().visibility_checker =
                 Some(VisibilityChecker::with_rel_and_snap(
@@ -1647,6 +1704,14 @@ impl CustomScan for BaseScan {
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
         if state.custom_state().search_reader.is_none() {
             Self::init_search_reader(state);
+        }
+
+        // SPIKE (#5702): consume the child bitmap scan once, on first execution.
+        if !state.custom_state().bitmap_consumed
+            && let Some(child) = state.custom_state().bitmap_child_state
+        {
+            state.custom_state_mut().bitmap_consumed = true;
+            unsafe { bitmap_harvest::consume_and_report(child) };
         }
 
         loop {
@@ -1795,6 +1860,12 @@ impl CustomScan for BaseScan {
         }
 
         // get some things dropped now
+        // SPIKE (#5702): shut down the child bitmap scan; core's ExecEndCustomScan does
+        // not end custom_ps children for us.
+        if let Some(child) = state.custom_state_mut().bitmap_child_state.take() {
+            unsafe { pg_sys::ExecEndNode(child) };
+        }
+
         drop(state.custom_state_mut().visibility_checker.take());
         drop(state.custom_state_mut().doc_from_heap_state.take());
         drop(state.custom_state_mut().search_reader.take());

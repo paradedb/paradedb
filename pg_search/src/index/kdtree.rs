@@ -33,7 +33,6 @@ use std::ops::Bound;
 use serde::{Deserialize, Serialize};
 
 use crate::api::FieldName;
-use crate::postgres::datetime::PG_EPOCH_DIFF_FROM_UNIX_EPOCH_MICROS;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::scan::range_partitioning::RangePartitioning;
 
@@ -237,46 +236,16 @@ impl fmt::Display for BoundsListing<'_> {
                 .expect("partitions are numbered contiguously");
             for (dim, (lower, upper)) in tree.dims.iter().zip(bounds) {
                 match lower {
-                    Bound::Included(v) => write!(f, " {dim}=[{}", PlainValue(&v))?,
+                    Bound::Included(v) => write!(f, " {dim}=[{}", v.plain_display())?,
                     _ => write!(f, " {dim}=[..")?,
                 }
                 match upper {
-                    Bound::Excluded(v) => write!(f, ", {})", PlainValue(&v))?,
+                    Bound::Excluded(v) => write!(f, ", {})", v.plain_display())?,
                     _ => write!(f, ", ..)")?,
                 }
             }
         }
         Ok(())
-    }
-}
-
-/// Formats a split value for logs without calling into Postgres, so the tree can be printed
-/// (and unit-tested) outside a backend. Dates render in UTC RFC 3339.
-struct PlainValue<'a>(&'a PdbOwnedValue);
-
-impl fmt::Display for PlainValue<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.0 {
-            PdbOwnedValue::Str(v) => write!(f, "{v:?}"),
-            PdbOwnedValue::U64(v) => write!(f, "{v}"),
-            PdbOwnedValue::I64(v) => write!(f, "{v}"),
-            PdbOwnedValue::F64(v) => write!(f, "{v}"),
-            PdbOwnedValue::Bool(v) => write!(f, "{v}"),
-            PdbOwnedValue::IpAddr(v) => write!(f, "{v}"),
-            PdbOwnedValue::Date(v) => {
-                // `infinity`/`-infinity` timestamps sit at `i64::MIN/MAX`, so the epoch shift
-                // can overflow; fall back to the raw value rather than abort the build.
-                match v
-                    .into_inner()
-                    .checked_add(PG_EPOCH_DIFF_FROM_UNIX_EPOCH_MICROS)
-                    .and_then(chrono::DateTime::from_timestamp_micros)
-                {
-                    Some(dt) => write!(f, "{}", dt.to_rfc3339()),
-                    None => write!(f, "{v:?}"),
-                }
-            }
-            other => write!(f, "{other:?}"),
-        }
     }
 }
 
@@ -291,9 +260,9 @@ fn fmt_node(node: &KdNode, tree: &KdTree, depth: usize, f: &mut fmt::Formatter<'
         } => {
             let indent = "  ".repeat(depth);
             let dim = &tree.dims[*dim];
-            write!(f, "\n{indent}{dim} < {}", PlainValue(value))?;
+            write!(f, "\n{indent}{dim} < {}", value.plain_display())?;
             fmt_node(left, tree, depth + 1, f)?;
-            write!(f, "\n{indent}{dim} >= {}", PlainValue(value))?;
+            write!(f, "\n{indent}{dim} >= {}", value.plain_display())?;
             fmt_node(right, tree, depth + 1, f)
         }
     }

@@ -25,7 +25,7 @@ use serde::ser::SerializeMap;
 use tantivy::schema::{Facet, OwnedValue};
 
 use crate::api::version::{Version, VersionInfo};
-use crate::postgres::datetime::PostgresDateTime;
+use crate::postgres::datetime::{PG_EPOCH_DIFF_FROM_UNIX_EPOCH_MICROS, PostgresDateTime};
 use crate::postgres::types::TantivyValueError;
 use crate::schema::SearchFieldType;
 
@@ -437,6 +437,45 @@ pub(crate) mod exact_scalar_wire {
             WireValue::Bytes(v) => PdbOwnedValue::Bytes(v),
             WireValue::IpAddr(v) => PdbOwnedValue::IpAddr(v),
         })
+    }
+}
+
+impl PdbOwnedValue {
+    /// A `Display` that renders this value for logs without calling into Postgres, so it works
+    /// outside a backend. The complementary `TantivyValue` `Display` routes dates through
+    /// Postgres output functions; this one renders dates as UTC RFC 3339 via `chrono` instead.
+    /// Strings are quoted so a value reads unambiguously in a log line, and the composite and
+    /// unsupported variants fall back to `Debug`.
+    pub(crate) fn plain_display(&self) -> impl std::fmt::Display + '_ {
+        PlainDisplay(self)
+    }
+}
+
+struct PlainDisplay<'a>(&'a PdbOwnedValue);
+
+impl std::fmt::Display for PlainDisplay<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
+            PdbOwnedValue::Str(v) => write!(f, "{v:?}"),
+            PdbOwnedValue::U64(v) => write!(f, "{v}"),
+            PdbOwnedValue::I64(v) => write!(f, "{v}"),
+            PdbOwnedValue::F64(v) => write!(f, "{v}"),
+            PdbOwnedValue::Bool(v) => write!(f, "{v}"),
+            PdbOwnedValue::IpAddr(v) => write!(f, "{v}"),
+            PdbOwnedValue::Date(v) => {
+                // `infinity`/`-infinity` timestamps sit at `i64::MIN/MAX`, so the epoch shift can
+                // overflow; fall back to the raw value rather than abort the caller.
+                match v
+                    .into_inner()
+                    .checked_add(PG_EPOCH_DIFF_FROM_UNIX_EPOCH_MICROS)
+                    .and_then(chrono::DateTime::from_timestamp_micros)
+                {
+                    Some(dt) => write!(f, "{}", dt.to_rfc3339()),
+                    None => write!(f, "{v:?}"),
+                }
+            }
+            other => write!(f, "{other:?}"),
+        }
     }
 }
 

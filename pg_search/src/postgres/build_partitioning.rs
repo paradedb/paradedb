@@ -97,6 +97,45 @@ struct SampledField {
     categorized: CategorizedFieldData,
 }
 
+/// Releases the `ReadBufferExtended` pin on drop. `impl_safe_drop!` skips the release while the
+/// thread is unwinding, since the aborting transaction frees the pin itself.
+struct HeapBufferPin(pg_sys::Buffer);
+
+impl HeapBufferPin {
+    unsafe fn read(heaprel: &PgSearchRelation, blockno: pg_sys::BlockNumber) -> Self {
+        Self(pg_sys::ReadBufferExtended(
+            heaprel.as_ptr(),
+            pg_sys::ForkNumber::MAIN_FORKNUM,
+            blockno,
+            pg_sys::ReadBufferMode::RBM_NORMAL,
+            std::ptr::null_mut(),
+        ))
+    }
+
+    fn buffer(&self) -> pg_sys::Buffer {
+        self.0
+    }
+}
+
+crate::impl_safe_drop!(HeapBufferPin, |self| {
+    unsafe { pg_sys::ReleaseBuffer(self.0) };
+});
+
+/// Holds a buffer's shared content lock for its scope, releasing it on drop. The abort path is
+/// covered by `LWLockReleaseAll`, so `impl_safe_drop!` skips the unlock while unwinding.
+struct SharedContentLock(pg_sys::Buffer);
+
+impl SharedContentLock {
+    unsafe fn acquire(buffer: pg_sys::Buffer) -> Self {
+        pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
+        Self(buffer)
+    }
+}
+
+crate::impl_safe_drop!(SharedContentLock, |self| {
+    unsafe { pg_sys::LockBuffer(self.0, pg_sys::BUFFER_LOCK_UNLOCK as i32) };
+});
+
 /// Reads a random subset of `heaprel`'s blocks and projects every row the build will index
 /// onto `partition_by`, in that order.
 unsafe fn sample_partition_fields(
@@ -179,40 +218,36 @@ unsafe fn sample_partition_fields(
             check_for_interrupts!();
             let blockno = pg_sys::BlockSampler_Next(addr_of_mut!(sampler));
 
-            let buffer = pg_sys::ReadBufferExtended(
-                heaprel.as_ptr(),
-                pg_sys::ForkNumber::MAIN_FORKNUM,
-                blockno,
-                pg_sys::ReadBufferMode::RBM_NORMAL,
-                std::ptr::null_mut(),
-            );
+            let buffer = HeapBufferPin::read(heaprel, blockno);
+            let buf = buffer.buffer();
+            let page = pg_sys::BufferGetPage(buf);
 
             // Under the content lock, only test visibility (which also sets hint bits) and record
             // the offsets to index. Detoast, expression evaluation, and projection run afterward
             // under the pin alone, so a concurrent writer or a re-entrant index expression never
             // waits on this page's lock across that work.
-            pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
-            let page = pg_sys::BufferGetPage(buffer);
-            let max_offset = pg_sys::PageGetMaxOffsetNumber(page);
             indexed_offsets.clear();
-            for offset in pg_sys::FirstOffsetNumber..=max_offset {
-                let item_id = pg_sys::PageGetItemId(page, offset);
-                if (*item_id).lp_flags() != pg_sys::LP_NORMAL {
-                    continue;
-                }
-                let mut t_self = pg_sys::ItemPointerData::default();
-                item_pointer_set_all(&mut t_self, blockno, offset);
-                let mut tuple = pg_sys::HeapTupleData {
-                    t_len: (*item_id).lp_len(),
-                    t_self,
-                    t_tableOid: heaprel.oid(),
-                    t_data: pg_sys::PageGetItem(page, item_id).cast(),
-                };
-                if is_indexed(addr_of_mut!(tuple), buffer) {
-                    indexed_offsets.push(offset);
+            {
+                let _content_lock = SharedContentLock::acquire(buf);
+                let max_offset = pg_sys::PageGetMaxOffsetNumber(page);
+                for offset in pg_sys::FirstOffsetNumber..=max_offset {
+                    let item_id = pg_sys::PageGetItemId(page, offset);
+                    if (*item_id).lp_flags() != pg_sys::LP_NORMAL {
+                        continue;
+                    }
+                    let mut t_self = pg_sys::ItemPointerData::default();
+                    item_pointer_set_all(&mut t_self, blockno, offset);
+                    let mut tuple = pg_sys::HeapTupleData {
+                        t_len: (*item_id).lp_len(),
+                        t_self,
+                        t_tableOid: heaprel.oid(),
+                        t_data: pg_sys::PageGetItem(page, item_id).cast(),
+                    };
+                    if is_indexed(addr_of_mut!(tuple), buf) {
+                        indexed_offsets.push(offset);
+                    }
                 }
             }
-            pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_UNLOCK as i32);
 
             // The pin blocks pruning and eviction, so the line pointers and tuple data recorded
             // above stay valid while we read them here.
@@ -239,7 +274,7 @@ unsafe fn sample_partition_fields(
                         t_tableOid: heaprel.oid(),
                         t_data: pg_sys::PageGetItem(page, item_id).cast(),
                     };
-                    pg_sys::ExecStoreBufferHeapTuple(addr_of_mut!(tuple), slot, buffer);
+                    pg_sys::ExecStoreBufferHeapTuple(addr_of_mut!(tuple), slot, buf);
                     pg_sys::slot_getallattrs(slot);
                     let values = std::slice::from_raw_parts((*slot).tts_values, natts);
                     let isnull = std::slice::from_raw_parts((*slot).tts_isnull, natts);
@@ -262,12 +297,12 @@ unsafe fn sample_partition_fields(
                 anyhow::Ok(())
             });
             per_block_context.reset();
-            pg_sys::ReleaseBuffer(buffer);
 
             if let Err(e) = block_result {
                 result = Err(e);
                 break;
             }
+            // `buffer` drops here, releasing the pin, on both the normal and the break paths.
         }
         pg_sys::ExecDropSingleTupleTableSlot(slot);
     }

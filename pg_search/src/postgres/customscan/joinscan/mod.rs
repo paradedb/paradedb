@@ -910,6 +910,7 @@ impl JoinScan {
             all_sources,
             query: vec![],
             with_aggregates: false,
+            with_segment_info: false,
         };
         crate::postgres::customscan::mpp::launch::launch_mpp_join(physical, args)
     }

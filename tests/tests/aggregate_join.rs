@@ -841,3 +841,165 @@ fn test_group_by_key_field_does_not_widen_group_key(mut conn: PgConnection) {
         "ctid leaked into the aggregate group key; plan was:\n{plan}"
     );
 }
+
+/// Fixture for the stale-document tests.
+///
+/// `autovacuum_enabled = off` matters: these tests depend on the superseded index
+/// document still being present, and the autovacuum daemon would otherwise be free to
+/// remove it mid-test.
+fn setup_stale_doc_tables(conn: &mut PgConnection) {
+    r#"
+    CREATE TABLE stale_products (
+        id INTEGER PRIMARY KEY,
+        description TEXT,
+        category TEXT
+    ) WITH (autovacuum_enabled = off);
+    CREATE TABLE stale_tags (
+        id SERIAL PRIMARY KEY,
+        product_id INTEGER,
+        tag_name TEXT
+    ) WITH (autovacuum_enabled = off);
+    INSERT INTO stale_products (id, description, category) VALUES
+        (1, 'Laptop with fast processor', 'Electronics'),
+        (2, 'Gaming laptop with RGB', 'Electronics'),
+        (3, 'Running shoes for athletes', 'Sports');
+    INSERT INTO stale_tags (product_id, tag_name) VALUES
+        (1, 'tech'), (1, 'computer'),
+        (2, 'tech'), (2, 'gaming'),
+        (3, 'fitness'), (3, 'running');
+    CREATE INDEX stale_products_idx ON stale_products
+    USING paradedb (id, description, category)
+    WITH (
+        key_field='id',
+        text_fields='{"description": {}, "category": {"fast": true}}'
+    );
+    CREATE INDEX stale_tags_idx ON stale_tags
+    USING paradedb (id, product_id, tag_name)
+    WITH (
+        key_field='id',
+        numeric_fields='{"product_id": {"fast": true}}',
+        text_fields='{"tag_name": {"fast": true}}'
+    );
+    SET paradedb.enable_aggregate_custom_scan TO on;
+    "#
+    .execute(conn);
+}
+
+/// Non-key UPDATE, no VACUUM: the stale document carries the *same* key as the live one.
+///
+/// This is the direct duplicate-key case. The key field is unique per heap row but not
+/// per index document, and only `VisibilityChecker` — which `VisibilityMode::Eager` runs
+/// in `batch_scanner::next` and `Deferred` skips — collapses the two back down.
+#[rstest]
+fn test_stale_doc_non_key_update_counts(mut conn: PgConnection) {
+    setup_stale_doc_tables(&mut conn);
+
+    "UPDATE stale_products SET category = 'Computers' WHERE id = 1".execute(&mut conn);
+
+    let query = r#"
+        SELECT p.id, p.category, COUNT(*)
+        FROM stale_products p
+        JOIN stale_tags t ON p.id = t.product_id
+        WHERE p.description @@@ 'laptop OR shoes'
+        GROUP BY p.id, p.category
+        ORDER BY p.id
+    "#;
+
+    let with_custom_scan = query.fetch::<(i32, String, i64)>(&mut conn);
+    "SET paradedb.enable_aggregate_custom_scan TO off".execute(&mut conn);
+    let without_custom_scan = query.fetch::<(i32, String, i64)>(&mut conn);
+    "SET paradedb.enable_aggregate_custom_scan TO on".execute(&mut conn);
+
+    assert_eq!(
+        with_custom_scan, without_custom_scan,
+        "a superseded index document must not inflate counts"
+    );
+    assert_eq!(
+        with_custom_scan,
+        vec![
+            (1, "Computers".into(), 2),
+            (2, "Electronics".into(), 2),
+            (3, "Sports".into(), 2),
+        ]
+    );
+}
+
+/// Key-column UPDATE, no VACUUM: the stale document carries a key that no longer exists.
+///
+/// Uniqueness is not violated here — the stale and live keys differ — so this case is
+/// invisible to a count assertion. What it can corrupt is *which rows* come back, since
+/// the stale document still joins against tags for the old key.
+#[rstest]
+fn test_stale_doc_key_update_rows(mut conn: PgConnection) {
+    setup_stale_doc_tables(&mut conn);
+
+    "UPDATE stale_products SET id = 999 WHERE id = 1".execute(&mut conn);
+
+    let query = r#"
+        SELECT p.id, t.tag_name
+        FROM stale_products p
+        JOIN stale_tags t ON p.id = t.product_id
+        WHERE p.description @@@ 'laptop OR shoes'
+        ORDER BY p.id, t.tag_name
+    "#;
+
+    let with_custom_scan = query.fetch::<(i32, String)>(&mut conn);
+    "SET paradedb.enable_aggregate_custom_scan TO off".execute(&mut conn);
+    let without_custom_scan = query.fetch::<(i32, String)>(&mut conn);
+    "SET paradedb.enable_aggregate_custom_scan TO on".execute(&mut conn);
+
+    assert_eq!(
+        with_custom_scan, without_custom_scan,
+        "a superseded document must not contribute join matches on its old key"
+    );
+    assert!(
+        !with_custom_scan.iter().any(|(id, _)| *id == 1),
+        "id 1 no longer exists; rows were: {with_custom_scan:?}"
+    );
+}
+
+/// Key updated away, then reused by a fresh insert — no VACUUM in between.
+///
+/// The heap stays unique on `id`; the index does not. This is the gap between "unique per
+/// row" and "unique per doc" in one fixture: a stale document and a live document share
+/// key 1 while belonging to different rows, so it is both a genuine duplicate key and a
+/// wrong join result.
+///
+/// These three tests characterize the `VisibilityMode::Eager` gate on
+/// `PgSearchTableProvider::constraints`. They pass today because `Eager` scans filter
+/// visibility before emitting. They are here to fail loudly if the declaration is ever
+/// moved somewhere the superseded document is still in flight.
+#[rstest]
+fn test_stale_doc_key_reuse_after_update(mut conn: PgConnection) {
+    setup_stale_doc_tables(&mut conn);
+
+    "UPDATE stale_products SET id = 999 WHERE id = 1".execute(&mut conn);
+    r#"INSERT INTO stale_products (id, description, category)
+       VALUES (1, 'Laptop with fast processor', 'Refurbished')"#
+        .execute(&mut conn);
+
+    let query = r#"
+        SELECT p.id, p.category, t.tag_name
+        FROM stale_products p
+        JOIN stale_tags t ON p.id = t.product_id
+        WHERE p.description @@@ 'laptop OR shoes'
+        ORDER BY p.id, t.tag_name
+    "#;
+
+    let with_custom_scan = query.fetch::<(i32, String, String)>(&mut conn);
+    "SET paradedb.enable_aggregate_custom_scan TO off".execute(&mut conn);
+    let without_custom_scan = query.fetch::<(i32, String, String)>(&mut conn);
+    "SET paradedb.enable_aggregate_custom_scan TO on".execute(&mut conn);
+
+    assert_eq!(
+        with_custom_scan, without_custom_scan,
+        "the superseded doc for key 1 must not be joined alongside the reinserted row"
+    );
+    assert!(
+        with_custom_scan
+            .iter()
+            .filter(|(id, _, _)| *id == 1)
+            .all(|(_, category, _)| category == "Refurbished"),
+        "only the reinserted row should appear under key 1; rows were: {with_custom_scan:?}"
+    );
+}

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787153970909,
+  "lastUpdate": 1787159356744,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -28,6 +28,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) QPS",
             "value": 522.4333333333333,
+            "unit": "QPS"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "45b92e5c6cee1d64839d7c6d0d2c20c6397f752e",
+          "message": "fix: Report dynamic filter pushdown under MPP (#5951)\n\n## What\n\nRecord dynamic filter pushdown via a metric.\n\n## Why\n\nTo allow for accurate reporting under MPP. `dynamic_filter_pushdown` is\ntriggered only after execution has started, and only metrics are\ntransferred back over the wire after MPP execution.\n\n## Tests\n\nSee changed regress tests.",
+          "timestamp": "2026-08-19T09:32:46-07:00",
+          "tree_id": "80143b13afb100c52f85648a131b2fb4084feec8",
+          "url": "https://github.com/paradedb/paradedb/commit/45b92e5c6cee1d64839d7c6d0d2c20c6397f752e"
+        },
+        "date": 1787159011692,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) QPS",
+            "value": 529.3490216992767,
             "unit": "QPS"
           }
         ]

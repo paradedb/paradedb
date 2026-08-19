@@ -898,6 +898,7 @@ impl JoinScan {
     fn launch_mpp(
         state: &mut CustomScanStateWrapper<Self>,
         physical: &Arc<dyn ExecutionPlan>,
+        runtime: &tokio::runtime::Runtime,
     ) -> Option<crate::postgres::customscan::mpp::glue::MppLeaderState> {
         Self::ensure_source_manifests(state);
         let all_sources: Vec<&[tantivy::SegmentReader]> = state
@@ -912,7 +913,7 @@ impl JoinScan {
             with_aggregates: false,
             with_segment_info: false,
         };
-        crate::postgres::customscan::mpp::launch::launch_mpp_join(physical, args)
+        crate::postgres::customscan::mpp::launch::launch_mpp_join(physical, args, runtime)
     }
 
     /// Re-bake the DataFusion logical plan from the current (post-solve) `join_clause`, so the
@@ -959,22 +960,22 @@ impl JoinScan {
     /// EndCustomScan and before a correlated rescan relaunches a fresh worker set.
     fn finish_mpp_execution(state: &mut CustomScanStateWrapper<Self>) {
         state.custom_state_mut().datafusion_stream = None;
-        if let Some(leader) = state.custom_state().mpp.leader()
-            && let Some(plan) = state.custom_state().physical_plan.as_ref()
-        {
-            crate::postgres::customscan::mpp::glue::drain_worker_metrics(
-                plan,
-                &leader.session.mesh,
-            );
+        let mut leader_opt = state.custom_state_mut().mpp.take_leader();
+        if let Some(leader) = leader_opt.as_mut() {
+            leader.mark_detached();
         }
-        let finish = match state.custom_state_mut().mpp.take_leader() {
-            Some(mut leader) => leader.finish.take(),
-            None => None,
-        };
+        let finish = leader_opt.as_mut().and_then(|l| l.finish.take());
         if finish.is_some() {
             let cs = state.custom_state_mut();
             cs.current_batch = None;
-            cs.physical_plan = None;
+            if let Some(plan) = cs.physical_plan.as_ref()
+                && let Some(leader) = leader_opt.as_ref()
+            {
+                crate::postgres::customscan::mpp::glue::drain_worker_metrics(
+                    plan,
+                    &leader.session.mesh,
+                );
+            }
             cs.runtime = None;
         }
         if let Some(finish) = finish {
@@ -1293,12 +1294,7 @@ impl CustomScan for JoinScan {
                 // Under MPP the worker fragments reported their metrics as mesh frames when
                 // they exited; fold them in so the stage boxes show more than the leader's
                 // own nodes.
-                let plan = get_plan_with_merged_metrics(
-                    physical_plan,
-                    state.custom_state().mpp.leader().is_some(),
-                    state.custom_state().runtime.is_some(),
-                    explainer,
-                );
+                let plan = get_plan_with_merged_metrics(physical_plan, explainer);
                 explain_physical_plan(&plan, explainer);
             }
 
@@ -1410,6 +1406,7 @@ impl CustomScan for JoinScan {
                 Self::maybe_solve_and_rebake(state);
 
                 let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
                     .build()
                     .unwrap();
                 let mut join_clause = state.custom_state().join_clause.clone();
@@ -1517,7 +1514,11 @@ impl CustomScan for JoinScan {
                 // workers remain and the `DistributedExec` shape has no mesh to read from, so
                 // replan serially.
                 let (ctx, plan) = if mpp_pending {
-                    match Self::launch_mpp(state, &plan) {
+                    let leader = {
+                        let _guard = runtime.enter();
+                        Self::launch_mpp(state, &plan, &runtime)
+                    };
+                    match leader {
                         Some(leader) => {
                             let source = crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::default();
                             let exec_ctx = Self::build_mpp_session_context(Some(Arc::clone(
@@ -1657,24 +1658,21 @@ impl CustomScan for JoinScan {
     }
 
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // Drop the gather stream first. On an early-terminated query (LIMIT) this fires the
-        // leader-inbox detach, so producers blocked on full rings stop. Harmless when the gather
-        // already reached EOF.
-        state.custom_state_mut().datafusion_stream = None;
+        if let Some(leader) = state.custom_state_mut().mpp.leader_mut() {
+            leader.cancel_workers();
+        }
 
-        // Drain the workers' metrics frames off the mesh BEFORE joining the workers. On an
-        // early-terminated query the rings still hold data the leader will never read; a worker's
-        // bounded metrics send spins on the full ring until the leader frees slots. Draining here
-        // is what frees them: the sends land on the next try, the workers detach, and the `recv`
-        // below returns immediately instead of waiting out the workers' full spin bound.
-        if let Some(leader) = state.custom_state().mpp.leader()
-            && let Some(plan) = state.custom_state().physical_plan.as_ref()
+        // Drain workers' metrics frames off the mesh. Draining here frees space in the ring
+        // so workers waiting to deposit their metrics can land them immediately.
+        if let Some(plan) = state.custom_state().physical_plan.as_ref()
+            && let Some(leader) = state.custom_state().mpp.leader()
         {
             crate::postgres::customscan::mpp::glue::drain_worker_metrics(
                 plan,
                 &leader.session.mesh,
             );
         }
+
         // Join the producer workers so their metrics land before the EXPLAIN render (which runs
         // before end_custom_scan, where the context is finally destroyed). A worker error is
         // re-raised from inside `recv`.
@@ -1682,6 +1680,16 @@ impl CustomScan for JoinScan {
             && let Some(finish) = leader.finish.as_mut()
         {
             let _ = finish.recv();
+        }
+
+        // Final drain after workers have completely finished.
+        if let Some(plan) = state.custom_state().physical_plan.as_ref()
+            && let Some(leader) = state.custom_state().mpp.leader()
+        {
+            crate::postgres::customscan::mpp::glue::drain_worker_metrics(
+                plan,
+                &leader.session.mesh,
+            );
         }
     }
 

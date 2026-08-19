@@ -834,20 +834,19 @@ impl CustomScan for AggregateScan {
         // query so blocked producers stop).
         if let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() {
             df_state.stream = None;
-            // Drain the workers' metrics frames off the mesh BEFORE joining the workers. On an
-            // early-terminated query the rings still hold data the leader will never read; a
-            // worker's bounded metrics send spins on the full ring until the leader frees slots.
-            // Draining here is what frees them, so the `recv` below returns immediately instead
-            // of waiting out the workers' full spin bound. PG destroys the parallel DSM right
-            // after this hook (the EXPLAIN hook runs after teardown and only reads the store).
-            if let Some(leader) = df_state.mpp.leader()
-                && let Some(plan) = df_state.physical_plan.as_ref()
+            if let Some(leader) = df_state.mpp.leader_mut() {
+                leader.cancel_workers();
+            }
+
+            if let Some(plan) = df_state.physical_plan.as_ref()
+                && let Some(leader) = df_state.mpp.leader()
             {
                 crate::postgres::customscan::mpp::glue::drain_worker_metrics(
                     plan,
                     &leader.session.mesh,
                 );
             }
+
             // Join the producer workers so their metrics land before the EXPLAIN render (which runs
             // before end_custom_scan, where the context is finally destroyed). A worker error is
             // re-raised from inside `recv`.
@@ -855,6 +854,16 @@ impl CustomScan for AggregateScan {
                 && let Some(finish) = leader.finish.as_mut()
             {
                 let _ = finish.recv();
+            }
+
+            // Final drain after workers have completely finished.
+            if let Some(plan) = df_state.physical_plan.as_ref()
+                && let Some(leader) = df_state.mpp.leader()
+            {
+                crate::postgres::customscan::mpp::glue::drain_worker_metrics(
+                    plan,
+                    &leader.session.mesh,
+                );
             }
         }
     }
@@ -865,12 +874,12 @@ impl CustomScan for AggregateScan {
         // state wrapper later. Mirrors JoinScan::end_custom_scan.
         if let Some(mut df_state) = state.custom_state_mut().datafusion_state.take() {
             // Pull the builder handle out so we can join the workers and destroy the parallel
-            // context once nothing references the ring mesh anymore. The leader value (and its
-            // own mesh handle) drops at the end of this match arm.
-            let finish = match df_state.mpp.take_leader() {
-                Some(mut leader) => leader.finish.take(),
-                _ => None,
-            };
+            // context once nothing references the ring mesh anymore.
+            let mut leader_opt = df_state.mpp.take_leader();
+            if let Some(leader) = leader_opt.as_mut() {
+                leader.mark_detached();
+            }
+            let finish = leader_opt.as_mut().and_then(|l| l.finish.take());
             // Drop the stream first (tokio + mesh), then everything else holding a mesh reference
             // (physical plan, session) via `drop(df_state)`, before destroying the DSM below.
             df_state.stream = None;
@@ -1010,6 +1019,7 @@ impl AggregateScan {
     fn launch_mpp(
         state: &mut CustomScanStateWrapper<Self>,
         physical: &Arc<dyn ExecutionPlan>,
+        runtime: &tokio::runtime::Runtime,
     ) -> Option<crate::postgres::customscan::mpp::glue::MppLeaderState> {
         // Manifests were captured in `prepare_mpp` (begin); `ensure` is idempotent.
         Self::ensure_source_manifests(state);
@@ -1027,7 +1037,7 @@ impl AggregateScan {
             with_segment_info: false,
         };
 
-        crate::postgres::customscan::mpp::launch::launch_mpp_aggregate(physical, args)
+        crate::postgres::customscan::mpp::launch::launch_mpp_aggregate(physical, args, runtime)
     }
 
     /// Build the aggregate's DataFusion physical plan under `ctx`. `is_mpp` marks that parallel
@@ -1102,12 +1112,7 @@ impl AggregateScan {
             let Some(plan) = df_state.physical_plan.clone() else {
                 return;
             };
-            get_plan_with_merged_metrics(
-                &plan,
-                df_state.mpp.leader().is_some(),
-                df_state.runtime.is_some(),
-                explainer,
-            )
+            get_plan_with_merged_metrics(&plan, explainer)
         } else {
             // Building the physical plan calls PgSearchTableProvider::scan() which opens each index
             // reader and converts the query to a Tantivy query. HeapFilter predicates (e.g. from
@@ -1735,7 +1740,8 @@ impl AggregateScan {
             // remain and the `DistributedExec` shape has no mesh to read from, so replan serially
             // below.
             let leader = if mpp_pending {
-                Self::launch_mpp(state, &physical_plan)
+                let _guard = runtime.enter();
+                Self::launch_mpp(state, &physical_plan, &runtime)
             } else {
                 None
             };

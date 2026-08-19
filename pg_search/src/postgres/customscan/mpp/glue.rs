@@ -36,7 +36,9 @@ use std::sync::Arc;
 use pgrx::pg_sys;
 
 use datafusion_distributed::TaskKey;
-use datafusion_distributed::shm::{self, Interrupt, LeaderSession, MppMesh, Wakeup, WorkerSession};
+use datafusion_distributed::shm::{
+    self, Interrupt, IpcMeshNotifier, LeaderSession, MppMesh, Wakeup, WorkerSession,
+};
 use datafusion_proto::physical_plan::DefaultPhysicalProtoConverter;
 
 use crate::gucs::mpp_queue_size as gucs_mpp_queue_size;
@@ -134,7 +136,7 @@ impl MppLaunchTiming {
     }
 }
 
-/// Returned to the leader from [`leader_setup`]. The customscan stashes this on its execution
+/// State the MPP leader builds at launch. Retained across `prepare_mpp` into customscan
 /// state and consults it during `exec_custom_scan`.
 pub struct MppLeaderState {
     /// Active leader session handle holding the runtime mesh and control senders.
@@ -146,6 +148,8 @@ pub struct MppLeaderState {
     pub finish: Option<crate::parallel_worker::builder::ParallelProcessFinish>,
     /// Per-phase launch timing the leader fills in as it commits, for `EXPLAIN ANALYZE`.
     pub timing: MppLaunchTiming,
+    /// Scoped query socket directory RAII guard.
+    pub socket_scope: Option<datafusion_distributed::shm::QuerySocketScope>,
 }
 
 /// The `(pgprocno, pid)` of this backend, packed into the receiver token the transport stores so a
@@ -160,6 +164,15 @@ unsafe fn self_receiver_token() -> u64 {
     let my_pgprocno: i32 = unsafe { pg_sys::MyProcNumber };
     let my_pid: i32 = unsafe { (*pg_sys::MyProc).pid };
     pack_receiver(my_pgprocno, my_pid)
+}
+
+/// Read `n_procs` out of the DSM header.
+///
+/// # Safety
+/// - `base` must point at the start of a region a leader initialized via [`leader_setup`].
+/// - `base` must be at least 8-byte aligned.
+pub unsafe fn dsm_n_procs(base: *const c_void) -> u32 {
+    datafusion_distributed::shm::dsm_n_procs(base)
 }
 
 /// Initialize the leader's ring mesh in a DSM region and build its [`MppLeaderState`]. Called by
@@ -177,6 +190,7 @@ pub unsafe fn leader_setup(
     coordinate: *mut c_void,
     n_procs: u32,
     dispatch_payload: Vec<u8>,
+    ipc_notifier: Arc<IpcMeshNotifier>,
 ) -> Result<MppLeaderState, String> {
     let wakeup: Arc<dyn Wakeup> = Arc::new(PgWakeup);
     let interrupt: Arc<dyn Interrupt> = Arc::new(PgInterrupt);
@@ -187,7 +201,7 @@ pub unsafe fn leader_setup(
     // tokio runtime spins up.
     let t_setup = crate::gucs::mpp_trace().then(std::time::Instant::now);
     let session = unsafe {
-        shm::leader_setup(
+        shm::leader_setup_with_notifier(
             coordinate,
             n_procs,
             mpp_queue_size(),
@@ -196,6 +210,7 @@ pub unsafe fn leader_setup(
             token,
             interrupt,
             /* attach_senders */ true,
+            ipc_notifier,
         )
     }
     .map_err(|e| e.to_string())?;
@@ -209,6 +224,7 @@ pub unsafe fn leader_setup(
         session,
         finish: None,
         timing: MppLaunchTiming::default(),
+        socket_scope: None,
     })
 }
 
@@ -227,6 +243,17 @@ unsafe extern "C-unwind" fn mark_mesh_detached_on_dsm_detach(
 }
 
 impl MppLeaderState {
+    /// Send in-band cancel frames to all worker inboxes to stop data production.
+    pub fn cancel_workers(&self) {
+        self.session.cancel_workers();
+    }
+
+    /// Mark the leader session as detached and drop all outbound senders targeting peer workers,
+    /// notifying the workers' inbound rings via in-band DSM detach.
+    pub fn mark_detached(&mut self) {
+        self.session.mark_detached();
+    }
+
     /// Register the DSM detach cleanup for the leader mesh liveness flag. PostgreSQL
     /// stores the raw pointer; [`mark_mesh_detached_on_dsm_detach`] turns it back into the same
     /// `Arc` and drops it.
@@ -267,6 +294,7 @@ mod tests {
         let plan = [0_u8; 64];
         let region_bytes = shm::dsm_region_bytes(requested_procs, 64 * 1024, plan.len()).unwrap();
         let mut region = vec![0_u64; region_bytes.div_ceil(std::mem::size_of::<u64>())];
+        let notifiers = IpcMeshNotifier::in_memory_mesh(launched_procs);
 
         let attach = unsafe {
             shm::leader_setup(
@@ -278,6 +306,7 @@ mod tests {
                 1,
                 Arc::new(NoInterrupt),
                 true,
+                notifiers[0].clone(),
             )
             .unwrap()
         };
@@ -296,6 +325,7 @@ mod tests {
         // alive through the final drop.
         let region_bytes = shm::dsm_region_bytes(3, 64 * 1024, 0).unwrap();
         let mut region = vec![0_u64; region_bytes.div_ceil(std::mem::size_of::<u64>())];
+        let notifiers = IpcMeshNotifier::in_memory_mesh(3);
         let session = unsafe {
             shm::leader_setup(
                 region.as_mut_ptr().cast(),
@@ -306,6 +336,7 @@ mod tests {
                 1,
                 Arc::new(NoInterrupt),
                 true,
+                notifiers[0].clone(),
             )
             .unwrap()
         };
@@ -369,6 +400,7 @@ pub unsafe fn worker_setup(
     coordinate: *mut c_void,
     region_total: usize,
     worker_number: i32,
+    ipc_notifier: Arc<IpcMeshNotifier>,
 ) -> Result<WorkerSession, String> {
     if worker_number < 0 {
         return Err("mpp: worker_number < 0".into());
@@ -384,9 +416,18 @@ pub unsafe fn worker_setup(
     // Same backend-thread story as `leader_setup`: this runs on the parallel-worker backend
     // before tokio starts.
     let t_setup = crate::gucs::mpp_trace().then(std::time::Instant::now);
-    let session =
-        unsafe { shm::worker_setup(coordinate, region_total, proc_idx, wakeup, token, interrupt) }
-            .map_err(|e| e.to_string())?;
+    let session = unsafe {
+        shm::worker_setup_with_notifier(
+            coordinate,
+            region_total,
+            proc_idx,
+            wakeup,
+            token,
+            interrupt,
+            ipc_notifier,
+        )
+    }
+    .map_err(|e| e.to_string())?;
     if let Some(t) = t_setup {
         pgrx::warning!(
             "mpp trace: worker_setup (attach) took {:.3} ms",
@@ -413,17 +454,17 @@ pub fn drain_worker_metrics(
     mesh: &Arc<MppMesh>,
 ) -> Option<()> {
     use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
-    use datafusion_distributed::shm::CooperativeDrainSet;
     use datafusion_distributed::{DistributedExec, NetworkBoundaryExt};
 
-    let dist = plan.downcast_ref::<DistributedExec>()?;
-    let store = dist.metrics_store()?;
-
-    // The wire frames carry (stage, task); the query uuid lives on the plan's own stages. Count
-    // the expected reports while walking: one per task of every producer stage.
+    let mut store = None;
     let mut query_id = None;
     let mut expected = 0usize;
     let _ = plan.apply(|node| {
+        if let Some(dist) = node.downcast_ref::<DistributedExec>()
+            && store.is_none()
+        {
+            store = dist.metrics_store();
+        }
         if let Some(nb) = node.as_network_boundary() {
             let stage = nb.input_stage();
             query_id.get_or_insert_with(|| stage.query_id());
@@ -431,16 +472,13 @@ pub fn drain_worker_metrics(
         }
         Ok(TreeNodeRecursion::Continue)
     });
+    let store = store?;
     let query_id = query_id?;
 
-    // The workers send their metrics frames right after their last EOF, which may still be in
-    // flight when shutdown reaches this node; wait briefly, bounded, and stop as soon as every
-    // expected (stage, task) reported. Draining keeps the DSM ring from backing up before detach.
-    let mut rx = mesh.take_task_metrics_receiver()?;
-    let mut got = crate::api::HashSet::default();
+    // The workers send their metrics frames right after their last EOF or cancel.
+    // Wait briefly, bounded, and stop as soon as every expected (stage, task) reported.
     for _ in 0..100 {
-        let _ = mesh.try_drain_pass();
-        while let Ok((stage_id, task_number, metrics)) = rx.try_recv() {
+        mesh.drain_task_metrics(|stage_id, task_number, metrics| {
             // The frames carry proto metrics; the store holds the decoded in-memory form the rewrite
             // reads. A frame that fails to decode is still counted so the wait doesn't spin.
             if let Ok(metrics) = datafusion_distributed::decode_task_metrics(metrics) {
@@ -453,9 +491,27 @@ pub fn drain_worker_metrics(
                     metrics,
                 );
             }
-            got.insert((stage_id, task_number));
-        }
-        if got.len() >= expected {
+        });
+
+        let mut got_count = 0usize;
+        let _ = plan.apply(|node| {
+            if let Some(nb) = node.as_network_boundary() {
+                let stage = nb.input_stage();
+                for task_idx in 0..stage.task_count() {
+                    let key = TaskKey {
+                        query_id,
+                        stage_id: stage.num(),
+                        task_number: task_idx,
+                    };
+                    if store.contains_key(&key) {
+                        got_count += 1;
+                    }
+                }
+            }
+            Ok(TreeNodeRecursion::Continue)
+        });
+
+        if got_count >= expected {
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(1));
@@ -471,9 +527,20 @@ pub fn drain_worker_metrics(
 pub fn merge_worker_metrics(
     plan: &Arc<dyn datafusion::physical_plan::ExecutionPlan>,
 ) -> Option<Arc<dyn datafusion::physical_plan::ExecutionPlan>> {
+    use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
     use datafusion_distributed::DistributedExec;
 
-    plan.downcast_ref::<DistributedExec>()?;
+    let mut has_dist = false;
+    let _ = plan.apply(|node| {
+        if node.downcast_ref::<DistributedExec>().is_some() {
+            has_dist = true;
+        }
+        Ok(TreeNodeRecursion::Continue)
+    });
+    if !has_dist {
+        return None;
+    }
+
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

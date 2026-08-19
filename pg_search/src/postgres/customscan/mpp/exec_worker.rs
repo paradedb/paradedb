@@ -47,9 +47,9 @@ use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::PartitionSink;
 use datafusion_distributed::shm::{
-    CooperativeDrainSet, InProcessWorkerResolver, MppDataStreamKey, MppFrameHeader, MppMesh,
-    MppPartitionSink, ShmChannelResolver, WorkerSession, collect_task_metrics, proc_for_task,
-    run_execute_task_loop, run_worker_fragment,
+    InProcessWorkerResolver, MppDataStreamKey, MppFrameHeader, MppMesh, MppPartitionSink,
+    ShmChannelResolver, WorkerSession, collect_task_metrics, proc_for_task, run_execute_task_loop,
+    run_worker_fragment,
 };
 use datafusion_proto::physical_plan::DeduplicatingProtoConverter;
 use tokio_util::sync::CancellationToken;
@@ -166,24 +166,6 @@ pub(crate) fn build_mpp_session_context(
         .expect("with_distributed_broadcast_joins")
         .with_distributed_planner();
     SessionContext::new_with_state(state_builder.build())
-}
-
-/// Take one fragment's `SetPlan` frame off the mesh, draining this proc's inbox while waiting:
-/// nothing else drains during the plan-wait phase, and the frame can't route itself.
-async fn take_set_plan_draining(
-    mesh: &Arc<MppMesh>,
-    stage_id: u32,
-    task: u32,
-) -> Result<SetPlanFrame, datafusion::common::DataFusionError> {
-    let take = mesh.take_set_plan(stage_id, task);
-    futures::pin_mut!(take);
-    loop {
-        if let std::task::Poll::Ready(result) = futures::poll!(take.as_mut()) {
-            return result;
-        }
-        mesh.try_drain_pass()?;
-        tokio::task::yield_now().await;
-    }
 }
 
 /// All fragment futures share this type. The alias keeps `Vec<FragmentFuture>` legible and silences
@@ -335,7 +317,8 @@ pub(crate) fn run_mpp_worker(
             let mut frames = Vec::with_capacity(fragments.len());
             for fragment in &fragments {
                 frames.push(
-                    take_set_plan_draining(worker_mesh, fragment.stage_id, fragment.task_idx)
+                    worker_mesh
+                        .take_set_plan(fragment.stage_id, fragment.task_idx)
                         .await?,
                 );
             }
@@ -454,18 +437,11 @@ pub(crate) fn run_mpp_worker(
                             )));
                         }
                     };
-                    // Attach the worker mesh as the cooperative drain so a full outbound
-                    // ring doesn't block the backend thread. The spin pulls every inbound
-                    // drain while retrying the send, breaking the symmetric-send stall
-                    // pattern where every peer is blocked sending to a full peer.
                     per_partition_sinks.push(Box::new(MppPartitionSink::new(
                         base.clone_with_header(MppFrameHeader::batch(
                             stream_key,
                             mesh_for_block.this_proc,
-                        ))
-                        .with_cooperative_drain(
-                            Arc::clone(&mesh_for_block) as Arc<dyn CooperativeDrainSet>
-                        ),
+                        )),
                     )));
                 }
             }
@@ -561,7 +537,7 @@ pub(crate) fn run_mpp_worker(
                     *task_idx,
                     this_proc,
                 ));
-                let _ = sender.send_task_metrics_best_effort(&frame).await;
+                let _ = sender.send_task_metrics(&frame).await;
             }
         }
         outcome
@@ -573,6 +549,15 @@ pub(crate) fn run_mpp_worker(
     drop(held);
     check_for_interrupts();
     if let Err(e) = outcome {
-        pgrx::error!("mpp worker: fragment dispatch failed: {e}");
+        let msg = e.to_string();
+        if msg.contains("detached") || msg.contains("Detached") {
+            crate::mpp_log!(
+                "mpp worker dispatch this_proc={this_proc} completed on consumer detachment"
+            );
+        } else {
+            crate::mpp_log!(
+                "mpp worker dispatch this_proc={this_proc} failed: {e} (error propagated to coordinator)"
+            );
+        }
     }
 }

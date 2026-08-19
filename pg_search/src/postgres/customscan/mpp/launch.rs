@@ -42,12 +42,13 @@
 //! reserved, and the plan's tasks multiplex onto the attached producers.
 
 use std::ffi::c_void;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use datafusion::prelude::SessionContext;
 use pgrx::{check_for_interrupts, pg_sys};
 
-use datafusion_distributed::shm::region_total;
+use datafusion_distributed::shm::{IpcMeshNotifier, QuerySocketScope, region_total};
 
 use crate::parallel_worker::builder::ParallelProcessBuilder;
 use crate::parallel_worker::{
@@ -61,16 +62,31 @@ use crate::postgres::customscan::joinscan::scan_state::{
 use crate::postgres::customscan::mpp::dispatch::dispatch_payload_from_stages;
 use crate::postgres::customscan::mpp::exec_worker::{MppWorkerInputs, run_mpp_worker};
 use crate::postgres::customscan::mpp::glue::{
-    MIN_TOTAL_WORKER_COUNT, MppLeaderState, estimate_dsm_size, leader_setup, producer_worker_cap,
-    worker_setup,
+    MIN_TOTAL_WORKER_COUNT, MppLeaderState, dsm_n_procs, estimate_dsm_size, leader_setup,
+    producer_worker_cap, worker_setup,
 };
 use crate::postgres::customscan::mpp::worker_fragments::{collect_stages, max_producer_task_count};
 use crate::postgres::{ParallelScanArgs, ParallelScanState};
+
+/// Base directory for MPP query domain sockets. Uses `/tmp` on Unix to stay well within
+/// `sockaddr_un`'s 104-byte path limit (whereas `std::env::temp_dir()` on macOS is 50+ chars).
+#[inline]
+pub fn mpp_socket_dir() -> std::path::PathBuf {
+    #[cfg(unix)]
+    {
+        std::path::PathBuf::from("/tmp")
+    }
+    #[cfg(not(unix))]
+    {
+        std::env::temp_dir()
+    }
+}
 
 /// `state_values()` order. Each index maps to a `ParallelState` TOC entry the workers look up.
 const MESH_IDX: usize = 0;
 const SCAN_IDX: usize = 1;
 const GO_IDX: usize = 2;
+const QUERY_ID_IDX: usize = 3;
 
 /// Go-flag states. The leader sets `RUN` once the mesh is initialized, or `ABORT` if too few
 /// workers attached for an MPP mesh.
@@ -91,6 +107,7 @@ struct MppParallelProcess {
     mesh_region: crate::parallel_worker::UninitializedBytesParallelState,
     scan_state: Vec<u8>,
     go: u32,
+    query_id: Vec<u8>,
 }
 
 /// The only launch outcomes that preserve the MPP mesh invariant.
@@ -123,7 +140,12 @@ fn mpp_attach_outcome(
 
 impl ParallelProcess for MppParallelProcess {
     fn state_values(&self) -> Vec<&dyn ParallelState> {
-        vec![&self.mesh_region, &self.scan_state, &self.go]
+        vec![
+            &self.mesh_region,
+            &self.scan_state,
+            &self.go,
+            &self.query_id,
+        ]
     }
 }
 
@@ -190,17 +212,64 @@ fn run_launched_worker(state_manager: ParallelStateManager, seed_ctx: fn() -> Se
         }
     }
 
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(e) => pgrx::error!("mpp worker: tokio runtime build failed: {e}"),
+    };
+    let _guard = runtime.enter();
+
     // Attach to the leader's initialized rings.
     let region_ptr = match state_manager.slice_mut::<u8>(MESH_IDX) {
         Ok(Some(s)) => s.as_mut_ptr() as *mut c_void,
         _ => pgrx::error!("mpp worker: mesh region missing from parallel state"),
     };
     let region_bytes = unsafe { region_total(region_ptr) };
+    let total_procs = unsafe { dsm_n_procs(region_ptr) };
     let worker_number = unsafe { pg_sys::ParallelWorkerNumber };
-    let worker = match unsafe { worker_setup(region_ptr, region_bytes, worker_number) } {
+    let proc_idx = (worker_number as u32) + 1;
+
+    let query_id_slice = match state_manager.slice::<u8>(QUERY_ID_IDX) {
+        Ok(Some(s)) => s,
+        _ => pgrx::error!("mpp worker: query id missing from parallel state"),
+    };
+    let query_id_str = match uuid::Uuid::from_slice(query_id_slice) {
+        Ok(u) => u.to_string(),
+        Err(e) => pgrx::error!("mpp worker: invalid query id: {e}"),
+    };
+    let socket_dir = mpp_socket_dir();
+    let (notifier, listener) = match runtime.block_on(IpcMeshNotifier::bind(
+        &socket_dir,
+        &query_id_str,
+        proc_idx,
+        total_procs,
+    )) {
+        Ok(nl) => nl,
+        Err(e) => pgrx::error!("mpp worker: IPC bind failed: {e}"),
+    };
+    notifier.start_listener_loop(listener);
+
+    let worker = match unsafe {
+        worker_setup(
+            region_ptr,
+            region_bytes,
+            worker_number,
+            Arc::clone(&notifier),
+        )
+    } {
         Ok(session) => session,
         Err(e) => pgrx::error!("mpp worker: worker_setup failed: {e}"),
     };
+
+    if let Err(e) = runtime.block_on(notifier.connect_peers(
+        &socket_dir,
+        &query_id_str,
+        std::time::Duration::from_secs(10),
+    )) {
+        pgrx::error!("mpp worker: connect peers failed: {e}");
+    }
 
     // The leader populated the ParallelScanState before launch; read the canonical
     // segment sets from it.
@@ -216,13 +285,6 @@ fn run_launched_worker(state_manager: ParallelStateManager, seed_ctx: fn() -> Se
         session: worker,
     };
 
-    let runtime = match tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-    {
-        Ok(rt) => rt,
-        Err(e) => pgrx::error!("mpp worker: tokio runtime build failed: {e}"),
-    };
     run_mpp_worker(inputs, seed_ctx(), &runtime);
 }
 
@@ -298,6 +360,7 @@ fn launch_mpp(
     physical: &std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
     args: ParallelScanArgs,
     worker_entrypoint: &'static str,
+    runtime: &tokio::runtime::Runtime,
 ) -> Option<MppLeaderState> {
     let mut timing = crate::postgres::customscan::mpp::glue::MppLaunchTiming::default();
 
@@ -336,6 +399,8 @@ fn launch_mpp(
     };
     let scan_size = ParallelScanState::size_of(&args.all_nsegments(), &[], false, false);
 
+    let query_id = *uuid::Uuid::new_v4().as_bytes();
+
     let process = MppParallelProcess {
         // SAFETY: workers can only read the region back as `u8`, and they hold on the go
         // flag until `leader_setup` has written every ring header, so nothing reads the
@@ -345,6 +410,7 @@ fn launch_mpp(
         },
         scan_state: vec![0u8; scan_size],
         go: GO_WAIT,
+        query_id: query_id.to_vec(),
     };
 
     let launcher = ParallelProcessBuilder::build(
@@ -412,6 +478,24 @@ fn launch_mpp(
     // each worker injects its own pointer at decode.
     crate::scan::execution_plan::stamp_parallel_state(physical, scan_ptr);
 
+    let total_procs = launched + 1;
+    let query_id_str = uuid::Uuid::from_bytes(query_id).to_string();
+    let socket_dir = mpp_socket_dir();
+    let socket_scope = match QuerySocketScope::new(&socket_dir, &query_id_str) {
+        Ok(s) => s,
+        Err(e) => pgrx::error!("mpp: create query socket dir failed: {e}"),
+    };
+    let (notifier, listener) = match runtime.block_on(IpcMeshNotifier::bind(
+        &socket_dir,
+        &query_id_str,
+        0,
+        total_procs,
+    )) {
+        Ok(nl) => nl,
+        Err(e) => pgrx::error!("mpp: leader IPC bind failed: {e}"),
+    };
+    notifier.start_listener_loop(listener);
+
     // Initialize the leader's rings now that we're committed to the parallel path. After launch on
     // purpose: the serial fallbacks above never create the DSM-backed control senders.
     let mesh_ptr = match finish.state_manager().slice_mut::<u8>(MESH_IDX) {
@@ -423,10 +507,11 @@ fn launch_mpp(
     // and `wait_for_attach` reports a worker that dies before attaching. Each worker maps
     // its number to `proc_idx = worker_number + 1`, so every attached worker is in this mesh.
     let t_setup = std::time::Instant::now();
-    let mut leader = match unsafe { leader_setup(mesh_ptr, launched + 1, payload) } {
-        Ok(l) => l,
-        Err(e) => pgrx::error!("mpp: leader_setup failed: {e}"),
-    };
+    let mut leader =
+        match unsafe { leader_setup(mesh_ptr, total_procs, payload, Arc::clone(&notifier)) } {
+            Ok(l) => l,
+            Err(e) => pgrx::error!("mpp: leader_setup failed: {e}"),
+        };
     timing.leader_setup_us = t_setup.elapsed().as_micros() as u64;
     leader.timing = timing;
 
@@ -437,7 +522,16 @@ fn launch_mpp(
     // Release the workers into ring attach + plan wait.
     go.store(GO_RUN, Ordering::Release);
 
+    if let Err(e) = runtime.block_on(notifier.connect_peers(
+        &socket_dir,
+        &query_id_str,
+        std::time::Duration::from_secs(10),
+    )) {
+        pgrx::error!("mpp: leader connect peers failed: {e}");
+    }
+
     leader.finish = Some(finish);
+    leader.socket_scope = Some(socket_scope);
     Some(leader)
 }
 
@@ -445,16 +539,18 @@ fn launch_mpp(
 pub fn launch_mpp_aggregate(
     physical: &std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
     args: ParallelScanArgs,
+    runtime: &tokio::runtime::Runtime,
 ) -> Option<MppLeaderState> {
-    launch_mpp(physical, args, "mpp_launched_worker_agg")
+    launch_mpp(physical, args, "mpp_launched_worker_agg", runtime)
 }
 
 /// JoinScan launch entry: join worker symbol.
 pub fn launch_mpp_join(
     physical: &std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
     args: ParallelScanArgs,
+    runtime: &tokio::runtime::Runtime,
 ) -> Option<MppLeaderState> {
-    launch_mpp(physical, args, "mpp_launched_worker_join")
+    launch_mpp(physical, args, "mpp_launched_worker_join", runtime)
 }
 
 #[cfg(any(test, feature = "pg_test"))]

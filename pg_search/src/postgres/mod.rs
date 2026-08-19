@@ -21,7 +21,7 @@ use std::io::Write;
 use std::ops::Range;
 
 use crate::gucs;
-use crate::index::mvcc::{MutableSegmentBound, SegmentView, SegmentViewEntry};
+use crate::index::mvcc::{MutableSegmentBound, SegmentView, SegmentViewDocs, SegmentViewEntry};
 use crate::postgres::build::is_bm25_index;
 use crate::postgres::condition_variable::ConditionVariable;
 use crate::postgres::locks::Spinlock;
@@ -165,8 +165,42 @@ const SEGMENT_ID_SIZE: usize = 16;
 
 const SEGMENT_CLAIM_UNCLAIMED: i32 = -2;
 
-/// `all_flags` bit: the segment is mutable and its header travels in the mutable arrays.
+/// `all_docs_flags` value: `all_max_docs`/`all_deleted_docs` hold the mutable segment's bound.
 const SEGMENT_FLAG_MUTABLE: u8 = 1;
+
+/// `all_docs_flags` value: the entry only pins the segment id; both count slots are zero.
+const SEGMENT_FLAG_ID_ONLY: u8 = 2;
+
+/// The wire format of one [`SegmentViewDocs`] in the payload: a flag byte plus the two `u32`
+/// count slots whose meaning the flag selects. `encode_docs` and `decode_docs` are the only
+/// readers of this convention.
+fn encode_docs(docs: SegmentViewDocs) -> (u8, u32, u32) {
+    match docs {
+        SegmentViewDocs::Immutable {
+            max_doc,
+            num_deleted_docs,
+        } => (0, max_doc, num_deleted_docs),
+        SegmentViewDocs::Mutable(bound) => {
+            (SEGMENT_FLAG_MUTABLE, bound.max_doc, bound.num_deleted_docs)
+        }
+        SegmentViewDocs::IdOnly => (SEGMENT_FLAG_ID_ONLY, 0, 0),
+    }
+}
+
+/// Inverse of [`encode_docs`].
+fn decode_docs(flag: u8, max_doc: u32, num_deleted_docs: u32) -> SegmentViewDocs {
+    match flag {
+        SEGMENT_FLAG_MUTABLE => SegmentViewDocs::Mutable(MutableSegmentBound {
+            max_doc,
+            num_deleted_docs,
+        }),
+        SEGMENT_FLAG_ID_ONLY => SegmentViewDocs::IdOnly,
+        _ => SegmentViewDocs::Immutable {
+            max_doc,
+            num_deleted_docs,
+        },
+    }
+}
 
 /// Max JSON bytes stored per primary segment for EXPLAIN info in DSM.
 const SEGMENT_INFO_MAX_PER_SEG: usize = 1024;
@@ -191,20 +225,14 @@ struct ParallelScanPayloadLayout {
     /// multi-source MPP plan be partitioned across workers, not just the planner-chosen
     /// partitioning source.
     remaining_by_source: Range<usize>,
-    /// One `u32` per segment (all sources, `all_ids` order): the leader reader's
-    /// `num_deleted_docs()`.
-    all_deleted_docs: Range<usize>,
-    /// One `u32` per segment (all sources, `all_ids` order): the leader reader's `max_doc()`.
+    /// One `u32` per segment (all sources, `all_ids` order): the first count slot of the
+    /// segment's [`SegmentViewDocs`]; see [`encode_docs`].
     all_max_docs: Range<usize>,
-    /// One `u8` per segment (all sources, `all_ids` order): [`SEGMENT_FLAG_MUTABLE`] when the
-    /// segment is mutable and the two arrays below hold its header.
-    all_flags: Range<usize>,
-    /// One `u32` per segment (all sources, `all_ids` order): a mutable segment's header
-    /// `max_doc` as the leader loaded it; zero otherwise.
-    all_mutable_max_docs: Range<usize>,
-    /// One `u32` per segment (all sources, `all_ids` order): a mutable segment's header
-    /// `num_deleted_docs` as the leader loaded it; zero otherwise.
-    all_mutable_deleted_docs: Range<usize>,
+    /// One `u32` per segment (all sources, `all_ids` order): the second count slot.
+    all_deleted_docs: Range<usize>,
+    /// One `u8` per segment (all sources, `all_ids` order): which [`SegmentViewDocs`] variant
+    /// the two count slots hold.
+    all_docs_flags: Range<usize>,
     /// One `i32` per segment in the partitioning source: which worker claimed it.
     /// Sized to `primary_nsegments` (the first source), so subsequent sources
     /// have no slot here. Read by [`ParallelScanState::explain_data`] to populate the "Parallel
@@ -254,28 +282,18 @@ impl ParallelScanPayloadLayout {
         let (layout, remaining_offset) = layout.extend(remaining_layout)?;
         let remaining_range = remaining_offset..(remaining_offset + remaining_layout.size());
 
-        // Per-segment view data for every source: [u32; total_segs] x 4 and [u8; total_segs].
-        let all_del_layout = Layout::array::<u32>(total_segs)?;
-        let (layout, all_del_offset) = layout.extend(all_del_layout)?;
-        let all_deleted_docs_range = all_del_offset..(all_del_offset + all_del_layout.size());
-
+        // Per-segment view docs for every source: [u32; total_segs] x 2 and [u8; total_segs].
         let all_max_layout = Layout::array::<u32>(total_segs)?;
         let (layout, all_max_offset) = layout.extend(all_max_layout)?;
         let all_max_docs_range = all_max_offset..(all_max_offset + all_max_layout.size());
 
+        let all_del_layout = Layout::array::<u32>(total_segs)?;
+        let (layout, all_del_offset) = layout.extend(all_del_layout)?;
+        let all_deleted_docs_range = all_del_offset..(all_del_offset + all_del_layout.size());
+
         let all_flags_layout = Layout::array::<u8>(total_segs)?;
         let (layout, all_flags_offset) = layout.extend(all_flags_layout)?;
-        let all_flags_range = all_flags_offset..(all_flags_offset + all_flags_layout.size());
-
-        let all_mut_max_layout = Layout::array::<u32>(total_segs)?;
-        let (layout, all_mut_max_offset) = layout.extend(all_mut_max_layout)?;
-        let all_mutable_max_docs_range =
-            all_mut_max_offset..(all_mut_max_offset + all_mut_max_layout.size());
-
-        let all_mut_del_layout = Layout::array::<u32>(total_segs)?;
-        let (layout, all_mut_del_offset) = layout.extend(all_mut_del_layout)?;
-        let all_mutable_deleted_docs_range =
-            all_mut_del_offset..(all_mut_del_offset + all_mut_del_layout.size());
+        let all_docs_flags_range = all_flags_offset..(all_flags_offset + all_flags_layout.size());
 
         // Claims for the partitioning source only: [i32; primary_nsegments].
         let claims_layout = Layout::array::<i32>(primary_nsegments)?;
@@ -322,11 +340,9 @@ impl ParallelScanPayloadLayout {
             all_counts: all_counts_range,
             all_ids: all_ids_range,
             remaining_by_source: remaining_range,
-            all_deleted_docs: all_deleted_docs_range,
             all_max_docs: all_max_docs_range,
-            all_flags: all_flags_range,
-            all_mutable_max_docs: all_mutable_max_docs_range,
-            all_mutable_deleted_docs: all_mutable_deleted_docs_range,
+            all_deleted_docs: all_deleted_docs_range,
+            all_docs_flags: all_docs_flags_range,
             claims: claims_range,
             segment_info_lens,
             segment_info_data,
@@ -391,37 +407,22 @@ impl ParallelScanPayload {
         for (entry, target) in entries.iter().zip(ids_slice.iter_mut()) {
             target.copy_from_slice(entry.id.uuid_bytes());
         }
-        let del_range = self.layout.all_deleted_docs.clone();
-        let del_slice: &mut [u32] =
-            bytemuck::try_cast_slice_mut(&mut self.data_mut()[del_range]).unwrap();
-        for (entry, target) in entries.iter().zip(del_slice.iter_mut()) {
-            *target = entry.num_deleted_docs;
-        }
+        let encoded: Vec<(u8, u32, u32)> = entries.iter().map(|e| encode_docs(e.docs)).collect();
         let max_range = self.layout.all_max_docs.clone();
         let max_slice: &mut [u32] =
             bytemuck::try_cast_slice_mut(&mut self.data_mut()[max_range]).unwrap();
-        for (entry, target) in entries.iter().zip(max_slice.iter_mut()) {
-            *target = entry.max_doc;
+        for ((_, max, _), target) in encoded.iter().zip(max_slice.iter_mut()) {
+            *target = *max;
         }
-        let flags_range = self.layout.all_flags.clone();
-        for (entry, target) in entries.iter().zip(self.data_mut()[flags_range].iter_mut()) {
-            *target = if entry.mutable.is_some() {
-                SEGMENT_FLAG_MUTABLE
-            } else {
-                0
-            };
+        let del_range = self.layout.all_deleted_docs.clone();
+        let del_slice: &mut [u32] =
+            bytemuck::try_cast_slice_mut(&mut self.data_mut()[del_range]).unwrap();
+        for ((_, _, del), target) in encoded.iter().zip(del_slice.iter_mut()) {
+            *target = *del;
         }
-        let mut_max_range = self.layout.all_mutable_max_docs.clone();
-        let mut_max_slice: &mut [u32] =
-            bytemuck::try_cast_slice_mut(&mut self.data_mut()[mut_max_range]).unwrap();
-        for (entry, target) in entries.iter().zip(mut_max_slice.iter_mut()) {
-            *target = entry.mutable.map_or(0, |m| m.max_doc);
-        }
-        let mut_del_range = self.layout.all_mutable_deleted_docs.clone();
-        let mut_del_slice: &mut [u32] =
-            bytemuck::try_cast_slice_mut(&mut self.data_mut()[mut_del_range]).unwrap();
-        for (entry, target) in entries.iter().zip(mut_del_slice.iter_mut()) {
-            *target = entry.mutable.map_or(0, |m| m.num_deleted_docs);
+        let flags_range = self.layout.all_docs_flags.clone();
+        for ((flag, _, _), target) in encoded.iter().zip(self.data_mut()[flags_range].iter_mut()) {
+            *target = *flag;
         }
 
         // Claims for the partitioning source only.
@@ -495,43 +496,36 @@ impl ParallelScanPayload {
         &all[offset..offset + count]
     }
 
-    fn source_flags(&self, source_idx: usize) -> &[u8] {
+    fn source_docs_flags(&self, source_idx: usize) -> &[u8] {
         let offset = self.source_flat_offset(source_idx);
         let count = self.all_counts()[source_idx] as usize;
-        &self.data()[self.layout.all_flags.clone()][offset..offset + count]
+        &self.data()[self.layout.all_docs_flags.clone()][offset..offset + count]
     }
 
     /// Rebuild the leader's [`SegmentView`] for `source_idx`.
     fn source_view(&self, source_idx: usize) -> SegmentView {
         let ids = self.source_ids(source_idx);
-        let deleted = self.source_u32s(self.layout.all_deleted_docs.clone(), source_idx);
         let max_docs = self.source_u32s(self.layout.all_max_docs.clone(), source_idx);
-        let flags = self.source_flags(source_idx);
-        let mut_max = self.source_u32s(self.layout.all_mutable_max_docs.clone(), source_idx);
-        let mut_del = self.source_u32s(self.layout.all_mutable_deleted_docs.clone(), source_idx);
+        let deleted = self.source_u32s(self.layout.all_deleted_docs.clone(), source_idx);
+        let flags = self.source_docs_flags(source_idx);
         SegmentView::new(
             (0..ids.len())
                 .map(|i| SegmentViewEntry {
                     id: SegmentId::from_bytes(ids[i]),
-                    max_doc: max_docs[i],
-                    num_deleted_docs: deleted[i],
-                    mutable: (flags[i] & SEGMENT_FLAG_MUTABLE != 0).then_some(
-                        MutableSegmentBound {
-                            max_doc: mut_max[i],
-                            num_deleted_docs: mut_del[i],
-                        },
-                    ),
+                    docs: decode_docs(flags[i], max_docs[i], deleted[i]),
                 })
                 .collect(),
         )
     }
 
-    fn primary_deleted_docs(&self) -> &[u32] {
-        self.source_u32s(self.layout.all_deleted_docs.clone(), 0)
-    }
-
-    fn primary_max_docs(&self) -> &[u32] {
-        self.source_u32s(self.layout.all_max_docs.clone(), 0)
+    /// The [`SegmentViewDocs`] of one primary-source segment, for EXPLAIN's per-segment
+    /// reader-level doc counts.
+    fn primary_docs(&self, i: usize) -> SegmentViewDocs {
+        decode_docs(
+            self.source_docs_flags(0)[i],
+            self.source_u32s(self.layout.all_max_docs.clone(), 0)[i],
+            self.source_u32s(self.layout.all_deleted_docs.clone(), 0)[i],
+        )
     }
 
     fn remaining_by_source_mut(&mut self) -> &mut [u32] {
@@ -1158,11 +1152,11 @@ impl ParallelScanState {
     }
 
     fn num_deleted_docs(&self, i: usize) -> u32 {
-        self.payload.primary_deleted_docs()[i]
+        self.payload.primary_docs(i).num_deleted_docs()
     }
 
     fn segment_max_docs(&self, i: usize) -> u32 {
-        self.payload.primary_max_docs()[i]
+        self.payload.primary_docs(i).max_doc()
     }
 
     fn query(&self) -> anyhow::Result<Option<SearchQueryInput>> {

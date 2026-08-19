@@ -68,16 +68,77 @@ pub struct MutableSegmentBound {
     pub num_deleted_docs: u32,
 }
 
+impl MutableSegmentBound {
+    /// Docs the materialized segment exposes: Adds minus Removes.
+    pub fn live_docs(self) -> u32 {
+        self.max_doc - self.num_deleted_docs
+    }
+}
+
 /// One segment of a [`SegmentView`], in the origin reader's ordinal position.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SegmentViewEntry {
     pub id: SegmentId,
-    /// `SegmentReader::max_doc()` of the origin reader.
-    pub max_doc: u32,
-    /// `SegmentReader::num_deleted_docs()` of the origin reader.
-    pub num_deleted_docs: u32,
-    /// Set for a mutable segment: the bound the origin reader materialized it from.
-    pub mutable: Option<MutableSegmentBound>,
+    pub docs: SegmentViewDocs,
+}
+
+/// What the origin reader knew about the segment's documents. Mirrors the
+/// [`SegmentMetaEntryContent`] split: immutable content is fixed on disk, mutable content is
+/// materialized per open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SegmentViewDocs {
+    /// Fixed on disk; the counts only feed stats (EXPLAIN's per-segment doc counts).
+    Immutable { max_doc: u32, num_deleted_docs: u32 },
+    /// Materialized per open from the log prefix the bound selects; every replaying reader
+    /// must use the same bound.
+    Mutable(MutableSegmentBound),
+    /// Nothing known: the view only pins the segment set. See
+    /// [`SegmentView::from_unordered_ids`].
+    IdOnly,
+}
+
+impl SegmentViewDocs {
+    /// What `SegmentReader::max_doc()` reports for this segment under this view.
+    pub fn max_doc(self) -> u32 {
+        match self {
+            SegmentViewDocs::Immutable { max_doc, .. } => max_doc,
+            SegmentViewDocs::Mutable(bound) => bound.live_docs(),
+            SegmentViewDocs::IdOnly => 0,
+        }
+    }
+
+    /// What `SegmentReader::num_deleted_docs()` reports for this segment under this view.
+    /// Zero for a mutable segment: materialization skips removed ctids instead of carrying
+    /// a delete bitset.
+    pub fn num_deleted_docs(self) -> u32 {
+        match self {
+            SegmentViewDocs::Immutable {
+                num_deleted_docs, ..
+            } => num_deleted_docs,
+            SegmentViewDocs::Mutable(_) | SegmentViewDocs::IdOnly => 0,
+        }
+    }
+
+    pub fn mutable_bound(self) -> Option<MutableSegmentBound> {
+        match self {
+            SegmentViewDocs::Mutable(bound) => Some(bound),
+            _ => None,
+        }
+    }
+}
+
+impl SegmentViewEntry {
+    pub fn max_doc(&self) -> u32 {
+        self.docs.max_doc()
+    }
+
+    pub fn num_deleted_docs(&self) -> u32 {
+        self.docs.num_deleted_docs()
+    }
+
+    pub fn mutable_bound(&self) -> Option<MutableSegmentBound> {
+        self.docs.mutable_bound()
+    }
 }
 
 /// A reader's segment view, frozen so other readers of the same index can replay it.
@@ -123,12 +184,14 @@ impl SegmentView {
                 .iter()
                 .map(|reader| {
                     let id = reader.segment_id();
-                    SegmentViewEntry {
-                        id,
-                        max_doc: reader.max_doc(),
-                        num_deleted_docs: reader.num_deleted_docs(),
-                        mutable: mutable.get(&id).copied(),
-                    }
+                    let docs = match mutable.get(&id) {
+                        Some(bound) => SegmentViewDocs::Mutable(*bound),
+                        None => SegmentViewDocs::Immutable {
+                            max_doc: reader.max_doc(),
+                            num_deleted_docs: reader.num_deleted_docs(),
+                        },
+                    };
+                    SegmentViewEntry { id, docs }
                 })
                 .collect(),
         )
@@ -142,9 +205,7 @@ impl SegmentView {
             ids.into_iter()
                 .map(|id| SegmentViewEntry {
                     id,
-                    max_doc: 0,
-                    num_deleted_docs: 0,
-                    mutable: None,
+                    docs: SegmentViewDocs::IdOnly,
                 })
                 .collect(),
         )
@@ -177,7 +238,7 @@ impl SegmentView {
 
     pub fn mutable_bound(&self, id: &SegmentId) -> Option<MutableSegmentBound> {
         self.ordinal_of(id)
-            .and_then(|ord| self.inner.entries[ord].mutable)
+            .and_then(|ord| self.inner.entries[ord].mutable_bound())
     }
 }
 
@@ -1213,10 +1274,10 @@ mod tests {
         let mutable: Vec<_> = view
             .entries()
             .iter()
-            .filter(|e| e.mutable.is_some())
+            .filter(|e| e.mutable_bound().is_some())
             .collect();
         assert_eq!(mutable.len(), 1, "one mutable segment expected");
-        assert_eq!(mutable[0].max_doc, 5);
+        assert_eq!(mutable[0].max_doc(), 5);
         let origin_ids: Vec<_> = origin
             .segment_readers()
             .iter()

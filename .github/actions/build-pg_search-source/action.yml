@@ -21,11 +21,11 @@ inputs:
     required: false
     default: "18"
   profile:
-    description: cargo profile to build (release or dev).
+    description: Cargo profile to build (release or dev).
     required: false
     default: release
   features:
-    description: Extra cargo features to enable (space-separated, optional).
+    description: Extra Cargo features to enable (space-separated, optional).
     required: false
     default: ""
   target:
@@ -83,10 +83,10 @@ runs:
         cache: false # cargo registry + target are cached by rust-cache below
         rustflags: "" # respect .cargo/config.toml
 
+    # Shared across runs of this action regardless of the calling workflow.
     - name: Cache target/ and cargo registry
       uses: Swatinem/rust-cache@v2
       with:
-        # Shared across runs of this action regardless of the calling workflow.
         shared-key: pg_search-source-pg${{ inputs.pg-version }}-${{ inputs.profile }}
 
     - name: Cache cargo-pgrx binary

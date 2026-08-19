@@ -9,19 +9,17 @@
 name: Benchmark pg_search (Benchmarker)
 
 on:
-  # Track history on pushes to main that could move performance.
   push:
     branches:
-      - main
+      - main # Track history on pushes to main that could move performance
     paths:
       - "**/*.rs"
       - "**/*.toml"
       - ".github/workflows/benchmark-benchmarker.yml"
       - ".github/actions/build-pg_search-source/**"
       - "docker/Dockerfile.benchmarker"
-  # Opt in on a PR with the `benchmark-benchmarker` label.
   pull_request:
-    types: [labeled]
+    types: [labeled] # Opt in on a PR with the `benchmark-benchmarker` label
   workflow_dispatch:
     inputs:
       commit:

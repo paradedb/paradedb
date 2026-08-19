@@ -55,8 +55,8 @@ SELECT DISTINCT category
 FROM dist_products
 WHERE name @@@ 'laptop OR jacket OR shoes'
 ORDER BY category;
-                                                                                               QUERY PLAN                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -69,7 +69,7 @@ ORDER BY category;
            :     RepartitionExec: partitioning=Hash([category@0], 2), input_partitions=2
            :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[]
            :         RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=dist_products, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
 (13 rows)
 
 SELECT DISTINCT category
@@ -105,8 +105,8 @@ SELECT DISTINCT rating
 FROM dist_products
 WHERE name @@@ 'laptop OR keyboard'
 ORDER BY rating;
-                                                                                           QUERY PLAN                                                                                            
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: rating
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -119,7 +119,7 @@ ORDER BY rating;
            :     RepartitionExec: partitioning=Hash([rating@0], 2), input_partitions=2
            :       AggregateExec: mode=Partial, gby=[rating@0 as rating], aggr=[]
            :         RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=dist_products, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
 (13 rows)
 
 SELECT DISTINCT rating
@@ -149,8 +149,8 @@ FROM dist_products
 WHERE name @@@ 'laptop OR keyboard OR jacket OR shoes OR headphones OR hub OR monitor OR mat OR chair OR desk'
 ORDER BY rating
 LIMIT 2;
-                                                                                                                                              QUERY PLAN                                                                                                                                               
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                         QUERY PLAN                                                                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: rating
@@ -165,7 +165,7 @@ LIMIT 2;
                  :       RepartitionExec: partitioning=Hash([rating@0], 2), input_partitions=2
                  :         AggregateExec: mode=Partial, gby=[rating@0 as rating], aggr=[], lim=[2]
                  :           RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
-                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard OR jacket OR shoes OR headphones OR hub OR monitor OR mat OR chair OR desk","lenient":null,"conjunction_mode":null}}}}
+                 :             PgSearchScan: table=dist_products, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard OR jacket OR shoes OR headphones OR hub OR monitor OR mat OR chair OR desk","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT DISTINCT rating
@@ -216,8 +216,8 @@ SELECT DISTINCT category, brand
 FROM dist_products
 WHERE name @@@ 'laptop OR keyboard OR headphones'
 ORDER BY category, brand;
-                                                                                                  QUERY PLAN                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                             QUERY PLAN                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: category, brand
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -230,7 +230,7 @@ ORDER BY category, brand;
            :     RepartitionExec: partitioning=Hash([category@0, brand@1], 2), input_partitions=2
            :       AggregateExec: mode=Partial, gby=[category@0 as category, brand@1 as brand], aggr=[]
            :         RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard OR headphones","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=dist_products, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard OR headphones","lenient":null,"conjunction_mode":null}}}}
 (13 rows)
 
 SELECT DISTINCT category, brand
@@ -397,7 +397,7 @@ ORDER BY category;
            :     RepartitionExec: partitioning=Hash([category@0], 2), input_partitions=2
            :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[]
            :         RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
-           :           PgSearchScan: segments=1, query="all"
+           :           PgSearchScan: table=dist_products, segments=1, query="all"
 (13 rows)
 
 SELECT DISTINCT category
@@ -443,8 +443,8 @@ FROM dist_products dp
 JOIN dist_regions dr ON dp.category = dr.category
 WHERE dp.name @@@ 'laptop OR jacket OR shoes'
 ORDER BY dp.category;
-                                                                                                         QUERY PLAN                                                                                                          
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                              QUERY PLAN                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: dp.category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -457,9 +457,9 @@ ORDER BY dp.category;
            :     RepartitionExec: partitioning=Hash([category@0], 2), input_partitions=2
            :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[]
            :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(category@0, category@0)]
-           :           PgSearchScan: segments=1, query="all"
+           :           PgSearchScan: table=dr, segments=1, query="all"
            :           RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
-           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=dp, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT DISTINCT dp.category
@@ -516,8 +516,8 @@ SELECT DISTINCT url
 FROM dist_urls
 WHERE name @@@ 'Page'
 ORDER BY url;
-                                                                                    QUERY PLAN                                                                                     
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                             QUERY PLAN                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: url
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -530,7 +530,7 @@ ORDER BY url;
            :     RepartitionExec: partitioning=Hash([url@0], 2), input_partitions=2
            :       AggregateExec: mode=Partial, gby=[url@0 as url], aggr=[]
            :         RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=dist_urls, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
 (13 rows)
 
 SELECT DISTINCT url
@@ -587,8 +587,8 @@ SELECT DISTINCT category
 FROM dist_nullable
 WHERE name @@@ 'laptop OR keyboard OR widget OR gadget OR thingamajig'
 ORDER BY category;
-                                                                                                             QUERY PLAN                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -601,7 +601,7 @@ ORDER BY category;
            :     RepartitionExec: partitioning=Hash([category@0], 2), input_partitions=2
            :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[]
            :         RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard OR widget OR gadget OR thingamajig","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=dist_nullable, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard OR widget OR gadget OR thingamajig","lenient":null,"conjunction_mode":null}}}}
 (13 rows)
 
 -- DISTINCT must return: Accessories, Electronics, NULL (three rows)
@@ -669,8 +669,8 @@ SELECT DISTINCT url
 FROM dist_highcard
 WHERE name @@@ 'Page'
 ORDER BY url;
-                                                                                    QUERY PLAN                                                                                     
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: url
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -683,7 +683,7 @@ ORDER BY url;
            :     RepartitionExec: partitioning=Hash([url@0], 2), input_partitions=2
            :       AggregateExec: mode=Partial, gby=[url@0 as url], aggr=[]
            :         RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=dist_highcard, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
 (13 rows)
 
 -- Verify all 20 distinct values are returned, not just 10.
@@ -901,8 +901,8 @@ JOIN dist_regions dr ON dp.category = dr.category
 WHERE dp.name @@@ 'laptop OR jacket OR shoes'
 GROUP BY dp.category
 ORDER BY dp.category;
-                                                                                                            QUERY PLAN                                                                                                             
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                 QUERY PLAN                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Unique
    ->  Sort
          Sort Key: dp.category
@@ -917,9 +917,9 @@ ORDER BY dp.category;
                  :     RepartitionExec: partitioning=Hash([category@0], 2), input_partitions=2
                  :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0]
                  :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[category@1]
-                 :           PgSearchScan: segments=1, query="all"
+                 :           PgSearchScan: table=dr, segments=1, query="all"
                  :           RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
-                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
+                 :             PgSearchScan: table=dp, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 SELECT DISTINCT ON (dp.category) dp.category, COUNT(*)
@@ -966,8 +966,8 @@ JOIN dist_regions dr ON dp.category = dr.category
 WHERE dp.name @@@ 'laptop OR jacket OR shoes'
 ORDER BY dp.category;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: dp, dr)
-                                                                                                         QUERY PLAN                                                                                                          
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                              QUERY PLAN                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: dp.category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -980,9 +980,9 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: dp
            :     RepartitionExec: partitioning=Hash([category@0], 2), input_partitions=2
            :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[]
            :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(category@0, category@0)]
-           :           PgSearchScan: segments=1, query="all"
+           :           PgSearchScan: table=dr, segments=1, query="all"
            :           RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
-           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=dp, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT DISTINCT dp.category
@@ -1013,8 +1013,8 @@ WHERE dp.name @@@ 'laptop OR jacket OR shoes'
 ORDER BY dp.category
 LIMIT 10;
 WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to volatile functions (tables: dp, dr)
-                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: dp.category
@@ -1029,9 +1029,9 @@ WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to volatile functions 
                  :       RepartitionExec: partitioning=Hash([category@0], 2), input_partitions=2
                  :         AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[], lim=[10]
                  :           HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(category@0, category@0)]
-                 :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+                 :             PgSearchScan: table=dr, segments=1, dynamic_filters=1, query="all"
                  :             RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
-                 :               PgSearchScan: segments=1, dynamic_filters=2, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(((id)::double precision + random()) > '0'::double precision)"}]}}]}}
+                 :               PgSearchScan: table=dp, segments=1, dynamic_filters=2, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(((id)::double precision + random()) > '0'::double precision)"}]}}]}}
 (17 rows)
 
 SELECT DISTINCT dp.category
@@ -1415,7 +1415,7 @@ ORDER BY category;
            :     RepartitionExec: partitioning=Hash([category@0], 2), input_partitions=2
            :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[]
            :         RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
-           :           PgSearchScan: segments=1, query="all"
+           :           PgSearchScan: table=dist_inh_parent, segments=1, query="all"
 (13 rows)
 
 SELECT DISTINCT category

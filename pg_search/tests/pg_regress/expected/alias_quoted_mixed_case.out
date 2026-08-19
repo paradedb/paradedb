@@ -62,8 +62,8 @@ FROM repro_5525_parent AS "Parent"
 JOIN repro_5525_child  AS "Child"
   ON "Parent"."child_id" = "Child"."id" AND "Child"."state" = 'active'
 WHERE "Parent"."owner" = 'user-1';
-                                                 QUERY PLAN                                                 
-------------------------------------------------------------------------------------------------------------
+                                                        QUERY PLAN                                                        
+--------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: repro_5525_parent_idx (Parent), repro_5525_child_idx (Child)
@@ -72,9 +72,9 @@ WHERE "Parent"."owner" = 'user-1';
      : AggregateExec: mode=Single, gby=[], aggr=[count(parent_0.id) as agg_0]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, child_id@1)], projection=[id@1]
      :     CooperativeExec
-     :       PgSearchScan: segments=1, query={"term":{"field":"state","value":"active"}}
+     :       PgSearchScan: table=Child, segments=1, query={"term":{"field":"state","value":"active"}}
      :     CooperativeExec
-     :       PgSearchScan: segments=1, dynamic_filters=1, query={"term":{"field":"owner","value":"user-1"}}
+     :       PgSearchScan: table=Parent, segments=1, dynamic_filters=1, query={"term":{"field":"owner","value":"user-1"}}
 (11 rows)
 
 SELECT count("Parent"."id")
@@ -140,9 +140,9 @@ LIMIT 12;
            :     VisibilityFilterExec: tables=[Child, Parent]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, child_id@1)], projection=[ctid_0@0, ctid_1@2, updated_at@4]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"term":{"field":"state","value":"active"}}}}
+           :           PgSearchScan: table=Child, segments=1, query={"with_index":{"query":{"term":{"field":"state","value":"active"}}}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"term":{"field":"owner","value":"user-1"}}
+           :           PgSearchScan: table=Parent, segments=1, dynamic_filters=2, query={"term":{"field":"owner","value":"user-1"}}
 (15 rows)
 
 SELECT "Parent"."id"
@@ -270,9 +270,9 @@ LIMIT 5;
                  :   AggregateExec: mode=Single, gby=[owner@1 as owner], aggr=[count(_123_0.id) as agg_0]
                  :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, child_id@1)], projection=[id@1, owner@3]
                  :       CooperativeExec
-                 :         PgSearchScan: segments=1, query={"term":{"field":"state","value":"active"}}
+                 :         PgSearchScan: table=456, segments=1, query={"term":{"field":"state","value":"active"}}
                  :       CooperativeExec
-                 :         PgSearchScan: segments=1, dynamic_filters=2, query="all"
+                 :         PgSearchScan: table=123, segments=1, dynamic_filters=2, query="all"
 (16 rows)
 
 SELECT "123"."owner", count("123"."id")

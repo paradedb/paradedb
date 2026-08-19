@@ -37,9 +37,10 @@ use rand::{RngExt, SeedableRng};
 use crate::api::FieldName;
 use crate::index::kdtree::{KdTree, Point};
 use crate::postgres::composite::CompositeSlotValues;
-use crate::postgres::heap::ExpressionState;
+use crate::postgres::heap::{ExpressionState, HeapBufferPin};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::storage::buffer::BorrowedBuffer;
 use crate::postgres::utils::{FieldSource, scalar_datum_to_tantivy_value, unwrap_alias_datum};
 use crate::schema::{CategorizedFieldData, SearchField};
 
@@ -96,45 +97,6 @@ struct SampledField {
     field: SearchField,
     categorized: CategorizedFieldData,
 }
-
-/// Releases the `ReadBufferExtended` pin on drop. `impl_safe_drop!` skips the release while the
-/// thread is unwinding, since the aborting transaction frees the pin itself.
-struct HeapBufferPin(pg_sys::Buffer);
-
-impl HeapBufferPin {
-    unsafe fn read(heaprel: &PgSearchRelation, blockno: pg_sys::BlockNumber) -> Self {
-        Self(pg_sys::ReadBufferExtended(
-            heaprel.as_ptr(),
-            pg_sys::ForkNumber::MAIN_FORKNUM,
-            blockno,
-            pg_sys::ReadBufferMode::RBM_NORMAL,
-            std::ptr::null_mut(),
-        ))
-    }
-
-    fn buffer(&self) -> pg_sys::Buffer {
-        self.0
-    }
-}
-
-crate::impl_safe_drop!(HeapBufferPin, |self| {
-    unsafe { pg_sys::ReleaseBuffer(self.0) };
-});
-
-/// Holds a buffer's shared content lock for its scope, releasing it on drop. The abort path is
-/// covered by `LWLockReleaseAll`, so `impl_safe_drop!` skips the unlock while unwinding.
-struct SharedContentLock(pg_sys::Buffer);
-
-impl SharedContentLock {
-    unsafe fn acquire(buffer: pg_sys::Buffer) -> Self {
-        pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
-        Self(buffer)
-    }
-}
-
-crate::impl_safe_drop!(SharedContentLock, |self| {
-    unsafe { pg_sys::LockBuffer(self.0, pg_sys::BUFFER_LOCK_UNLOCK as i32) };
-});
 
 /// Reads a random subset of `heaprel`'s blocks and projects every row the build will index
 /// onto `partition_by`, in that order.
@@ -228,7 +190,7 @@ unsafe fn sample_partition_fields(
             // waits on this page's lock across that work.
             indexed_offsets.clear();
             {
-                let _content_lock = SharedContentLock::acquire(buf);
+                let _content_lock = BorrowedBuffer::from_pg(buf);
                 let max_offset = pg_sys::PageGetMaxOffsetNumber(page);
                 for offset in pg_sys::FirstOffsetNumber..=max_offset {
                     let item_id = pg_sys::PageGetItemId(page, offset);

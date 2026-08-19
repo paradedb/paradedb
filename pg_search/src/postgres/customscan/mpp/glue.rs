@@ -182,16 +182,21 @@ pub unsafe fn leader_setup(
     let interrupt: Arc<dyn Interrupt> = Arc::new(PgInterrupt);
     // Register the leader as receiver so producers' wakeups resolve to this backend's procLatch.
     let token = unsafe { self_receiver_token() };
+    // Cap shm drain buffers independently of the per-fragment operator WorkMemMemoryPool.
+    // Over the limit the affected channel errors; the drain never blocks, so cooperative send
+    // cannot deadlock.
+    let drain_buffer_budget_bytes = Some(unsafe { pg_sys::work_mem as usize * 1024 });
     // `mpp_trace` reads a pgrx GucSetting, which requires the backend thread. Safe here
     // because this runs synchronously on the leader backend from `launch_mpp`, before any
     // tokio runtime spins up.
     let t_setup = crate::gucs::mpp_trace().then(std::time::Instant::now);
     let session = unsafe {
-        shm::leader_setup(
+        shm::leader_setup_with_drain_budget(
             coordinate,
             n_procs,
             mpp_queue_size(),
             &dispatch_payload,
+            drain_buffer_budget_bytes,
             wakeup,
             token,
             interrupt,
@@ -381,12 +386,22 @@ pub unsafe fn worker_setup(
     let interrupt: Arc<dyn Interrupt> = Arc::new(PgInterrupt);
     // Register before the transport starts polling, so a producer racing ahead sees a valid token.
     let token = unsafe { self_receiver_token() };
+    let drain_buffer_budget_bytes = Some(unsafe { pg_sys::work_mem as usize * 1024 });
     // Same backend-thread story as `leader_setup`: this runs on the parallel-worker backend
     // before tokio starts.
     let t_setup = crate::gucs::mpp_trace().then(std::time::Instant::now);
-    let session =
-        unsafe { shm::worker_setup(coordinate, region_total, proc_idx, wakeup, token, interrupt) }
-            .map_err(|e| e.to_string())?;
+    let session = unsafe {
+        shm::worker_setup_with_drain_budget(
+            coordinate,
+            region_total,
+            proc_idx,
+            drain_buffer_budget_bytes,
+            wakeup,
+            token,
+            interrupt,
+        )
+    }
+    .map_err(|e| e.to_string())?;
     if let Some(t) = t_setup {
         pgrx::warning!(
             "mpp trace: worker_setup (attach) took {:.3} ms",

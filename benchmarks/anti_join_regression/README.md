@@ -1,8 +1,7 @@
 # Anti-join regression reproduction
 
-The regression analysis, including matched plan excerpts, repeated timing
-distributions, code links, and the evidence-status matrix, is tracked in
-[#5999](https://github.com/paradedb/paradedb/issues/5999).
+The concise regression report and the scope of this reproduction are tracked
+in [#5999](https://github.com/paradedb/paradedb/issues/5999).
 
 This is a synthetic reproduction of a `NOT EXISTS` anti-join over two
 BM25-indexed tables. It is not the original user's dataset.
@@ -50,9 +49,9 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
 Scan)`, with four workers planned and launched. The selective cases emitted
 the issue-4152 suboptimal-partitioning warning.
 
-0.25.3 used `DistributedExec` and reported `MPP Launch: workers=4`. The warmed
-`first_frame` median was 44.315 ms, although that aggregate bucket does not
-isolate worker plan decoding, distributed execution, and transport.
+0.25.3 used `DistributedExec` and reported `MPP Launch: workers=4`. This proves
+that four MPP producers attached in this fixture; it does not reproduce the
+original report that 0.25.3 ran on one core.
 
 Single `EXPLAIN ANALYZE` execution times were:
 
@@ -110,4 +109,4 @@ Scan.
 
 These are performance measurements, not pg_regress assertions. Fixed latency
 thresholds would be too hardware-sensitive for a correctness test; the plan
-markers are the stable execution-path assertions.
+markers provide stable execution-path checks.

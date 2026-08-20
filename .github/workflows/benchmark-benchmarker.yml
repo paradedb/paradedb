@@ -311,9 +311,10 @@ jobs:
           user_email: "github-actions[bot]@users.noreply.github.com"
           commit_message: "benchmarker dashboards for ${{ steps.commit_info.outputs.short_commit }}"
 
-      # On a PR the links land as a PR comment; on a push to main, as a commit comment.
+      # Summary comment, PR-only by convention (see benchmark-queries): main
+      # runs are tracked on the gh-pages charts, alerts still comment anywhere.
       - name: Comment dashboard links
-        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -333,11 +334,7 @@ jobs:
             printf 'Over-time tracking (QPS + latency percentiles across commits): [%s](%s)\n\n' "$OVERTIME" "$OVERTIME"
             printf '_gh-pages may take ~a minute to deploy after this run._\n'
           } > _comment.md
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            gh pr comment ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --body-file _comment.md
-          else
-            gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" -F 'body=@_comment.md'
-          fi
+          gh pr comment ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --body-file _comment.md
 
       # Publishes run continue-on-error, so gate here: fail loudly if k6 recorded
       # no samples (empty QPS) instead of a silently-masked green.

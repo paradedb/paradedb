@@ -269,8 +269,7 @@ jobs:
           alert-threshold: "115%"
           comment-on-alert: true
           alert-comment-cc-users: "@${{ github.actor }}"
-          # No comment-always: the dashboard-links comment below carries the
-          # PR compare table, so only alerts comment from here.
+          comment-always: ${{ github.event_name == 'pull_request' }}
 
       # Each publish clones gh-pages into ./benchmark-data-repository, so clear
       # it again or the latency clone fails on a non-empty destination (and
@@ -294,8 +293,7 @@ jobs:
           alert-threshold: "115%"
           comment-on-alert: true
           alert-comment-cc-users: "@${{ github.actor }}"
-          # No comment-always: the dashboard-links comment below carries the
-          # PR compare table, so only alerts comment from here.
+          comment-always: ${{ github.event_name == 'pull_request' }}
 
       # ---- Publish per-run dashboards to gh-pages and link them -------------
       # The k6 html export is self-contained (data inlined as
@@ -335,46 +333,9 @@ jobs:
             nm="$(basename "$h" .html)"
             links="${links}- [${nm}](${BASE}/${nm}.html)"$'\n'
           done
-          # Compare against the newest gh-pages entry per series (the last main
-          # run). data.js is the github-action-benchmark store with a JS
-          # assignment prefix; strip it and it is plain JSON. The table mirrors
-          # github-action-benchmark's own comment layout (see the queries
-          # benchmarks): Ratio > 1 is a regression for QPS and latency alike.
-          rows=""
-          prev_commit=""
-          if curl -fsSL "https://raw.githubusercontent.com/${{ github.repository }}/gh-pages/benchmarker/data.js" \
-              | sed 's/^window\.BENCHMARK_DATA = //' > _baseline.json; then
-            prev_commit="$(jq -r --arg qps "benchmarker hn-ci (QPS)" \
-              '(.entries[$qps] // []) | if length > 0 then last.commit.id[0:7] else "" end' _baseline.json)"
-            rows="$(jq -r \
-              --arg qps "benchmarker hn-ci (QPS)" \
-              --arg lat "benchmarker hn-ci (latency percentiles)" \
-              --slurpfile cur_q benchmarker/benchmarker_qps.json \
-              --slurpfile cur_l benchmarker/benchmarker_latency.json '
-              def r2: (. * 100 | round) / 100;
-              def basemap($c): ((.entries[$c] // []) | if length > 0 then last.benches else [] end)
-                | map({(.name): .value}) | add // {};
-              basemap($qps) as $bq | basemap($lat) as $bl
-              | (($cur_q[0] | map(. + {prev: $bq[.name]}))
-                 + ($cur_l[0] | map(. + {prev: $bl[.name], lat: true})))[]
-              | .name as $n | .value as $v | .unit as $u | .prev as $p
-              | if ($p != null and $p > 0 and $v > 0) then
-                  "| `\($n)` | `\($v | r2)` \($u) | `\($p | r2)` \($u) | `\((if .lat then $v / $p else $p / $v end) | r2)` |"
-                else
-                  "| `\($n)` | `\($v | r2)` \($u) | | |"
-                end
-            ' _baseline.json)"
-          fi
           {
-            printf '# benchmarker hn-ci\n\n'
-            if [ -n "$rows" ]; then
-              printf '<details>\n\n'
-              printf '| Benchmark suite | Current: %s | Previous: %s | Ratio |\n|-|-|-|-|\n' \
-                "${{ steps.commit_info.outputs.short_commit }}" "${prev_commit:-n/a}"
-              printf '%s\n' "$rows"
-              printf '\n</details>\n\n'
-            fi
-            printf '📊 Dashboards (latency timeline, throughput, per-container CPU / memory):\n\n'
+            printf '### 📊 Benchmarker dashboards: `%s`\n\n' "${{ steps.commit_info.outputs.short_commit }}"
+            printf 'Interactive per-script graphs (latency timeline, throughput, per-container **CPU %%** / **memory**):\n\n'
             printf '%s\n' "$links"
             printf 'Over-time tracking (QPS + latency percentiles across commits): [%s](%s)\n\n' "$OVERTIME" "$OVERTIME"
             printf '_gh-pages may take ~a minute to deploy after this run._\n'

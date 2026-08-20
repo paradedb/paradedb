@@ -326,19 +326,9 @@ pub fn init() {
     );
 
     GucRegistry::define_bool_guc(
-        c"paradedb.enable_legacy_columnar_exec",
-        c"Enable the legacy columnar executors",
-        c"Enable the legacy StringFastFieldsExecState and NumericFastFieldsExecState executors for handling one string columnar field or multiple numeric columnar fields",
-        &ENABLE_FAST_FIELD_EXEC,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
-    // Backward-compatible alias for `paradedb.enable_legacy_columnar_exec`.
-    GucRegistry::define_bool_guc(
         c"paradedb.enable_fast_field_exec",
-        c"Deprecated alias for paradedb.enable_legacy_columnar_exec",
-        c"Deprecated alias for paradedb.enable_legacy_columnar_exec. Prefer the columnar terminology for user-facing configuration",
+        c"Enable StringFastFieldsExecState and NumericFastFieldsExecState executor",
+        c"Enable the StringFastFieldsExecState and NumericFastFieldsExecState executors for handling one string fast field or multiple numeric fast fields",
         &ENABLE_FAST_FIELD_EXEC,
         GucContext::Userset,
         GucFlags::default(),
@@ -347,7 +337,7 @@ pub fn init() {
     GucRegistry::define_bool_guc(
         c"paradedb.enable_columnar_exec",
         c"Enable ColumnarExecState executor",
-        c"Enable the ColumnarExecState executor for handling multiple string columnar fields or mixed string/numeric columnar fields",
+        c"Enable the ColumnarExecState executor for handling multiple string fast fields or mixed string/numeric fast fields",
         &ENABLE_COLUMNAR_EXEC,
         GucContext::Userset,
         GucFlags::default(),

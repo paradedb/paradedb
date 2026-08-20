@@ -49,9 +49,9 @@ use datafusion::common::config::ConfigOptions;
 use datafusion::physical_expr::expressions::Column;
 use datafusion::physical_expr::{LexOrdering, PhysicalExpr, PhysicalSortExpr};
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
-use datafusion::physical_plan::ExecutionPlan;
 use datafusion::physical_plan::sorts::sort::SortExec;
 use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
+use datafusion::physical_plan::{ChildrenPropertiesMode, ExecutionPlan, ReplaceChildrenOptions};
 
 use crate::gucs;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
@@ -99,7 +99,10 @@ fn rewrite_plan(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionPlan>> 
             new_children.push(new_child);
         }
         let plan = if children_changed {
-            plan.with_new_children(new_children)?
+            plan.replace_children(
+                new_children,
+                ReplaceChildrenOptions::new(ChildrenPropertiesMode::Recompute),
+            )?
         } else {
             plan
         };
@@ -129,9 +132,14 @@ fn try_inject_at_sort(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionP
     // therefore reach the same recipients the SortExec would have driven, and no
     // trailing `FilterPushdown(Post)` pass is required to re-push a fresh filter.
     // See #5635.
-    let parent_filter = sort_exec
-        .dynamic_filter_expr()
-        .map(|f| f as Arc<dyn PhysicalExpr>);
+    let dynamic_exprs = sort_exec.dynamic_expressions_produced();
+    debug_assert_eq!(
+        dynamic_exprs.len(),
+        1,
+        "SortExec expected to produce exactly 1 dynamic expression for Top-K, found {}",
+        dynamic_exprs.len()
+    );
+    let parent_filter = dynamic_exprs.into_iter().next();
 
     // Walk down from SortExec to find TantivyLookupExec.
     // If injection succeeds, SegmentedTopKExec now handles the final sort + limit,
@@ -355,13 +363,19 @@ fn try_inject_below_lookup(
                 ));
 
                 // Rebuild TantivyLookupExec with the new child.
-                let new_lookup = Arc::clone(child).with_new_children(vec![segmented_topk])?;
+                let new_lookup = Arc::clone(child).replace_children(
+                    vec![segmented_topk],
+                    ReplaceChildrenOptions::new(ChildrenPropertiesMode::Recompute),
+                )?;
 
                 // Rebuild the parent with the updated child.
                 let mut new_children: Vec<Arc<dyn ExecutionPlan>> =
                     children.iter().map(|c| Arc::clone(c)).collect();
                 new_children[child_idx] = new_lookup;
-                return Ok(Some(plan.clone().with_new_children(new_children)?));
+                return Ok(Some(plan.clone().replace_children(
+                    new_children,
+                    ReplaceChildrenOptions::new(ChildrenPropertiesMode::Recompute),
+                )?));
             }
         }
 
@@ -372,7 +386,10 @@ fn try_inject_below_lookup(
             let mut new_children: Vec<Arc<dyn ExecutionPlan>> =
                 children.iter().map(|c| Arc::clone(c)).collect();
             new_children[child_idx] = rewritten;
-            return Ok(Some(plan.clone().with_new_children(new_children)?));
+            return Ok(Some(plan.clone().replace_children(
+                new_children,
+                ReplaceChildrenOptions::new(ChildrenPropertiesMode::Recompute),
+            )?));
         }
     }
 
@@ -402,7 +419,10 @@ fn wrap_blocking_nodes(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn Execution
     }
 
     let plan = if changed {
-        plan.with_new_children(new_children)?
+        plan.replace_children(
+            new_children,
+            ReplaceChildrenOptions::new(ChildrenPropertiesMode::Recompute),
+        )?
     } else {
         plan
     };

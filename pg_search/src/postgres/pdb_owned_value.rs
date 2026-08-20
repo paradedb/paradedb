@@ -59,7 +59,7 @@ impl PdbOwnedValue {
     /// that read it do, `NaN` included. A merged two-side join sample can tag one integer column
     /// `I64` on one side and `U64` on the other, so those compare by value. Everything else
     /// follows the derived `PartialOrd`; a column never mixes an integer with a float, so that
-    /// pairing does not arise (a `debug_assert!` guards it).
+    /// pairing does not arise (an `assert!` guards it).
     pub fn total_cmp(&self, other: &Self) -> std::cmp::Ordering {
         use tantivy::columnar::MonotonicallyMappableToU64;
         match (self, other) {
@@ -70,7 +70,7 @@ impl PdbOwnedValue {
                 // The derived order ranks by variant, not value, so a float against an integer
                 // would sort by declaration order. That pairing can't reach here, so catch it
                 // rather than rank it wrong in silence.
-                debug_assert!(
+                assert!(
                     !matches!(
                         (self, other),
                         (Self::F64(_), Self::I64(_) | Self::U64(_))

@@ -71,7 +71,9 @@ use datafusion_distributed::shm::SetPlanFrame;
 /// typed state and hand it to [`run_mpp_worker`].
 pub(crate) struct MppWorkerInputs {
     /// The leader's `ParallelScanState`, used to claim the partitioning source's segment slice.
-    pub parallel_state: Option<*mut ParallelScanState>,
+    /// Not optional: a dispatched fragment scanning without it would search every segment and
+    /// duplicate rows across the mesh, so the entrypoint refuses to start without one.
+    pub parallel_state: *mut ParallelScanState,
     /// Total number of sources in the plan. Used to size the codec's per-source segment-ID Vec.
     pub plan_sources_count: usize,
     /// Active worker session handle holding mesh, plan bytes, and outbound senders.
@@ -297,10 +299,8 @@ pub(crate) fn run_mpp_worker(
     // `PgSearchTableProvider`.
     let mut index_segment_ids: Vec<HashSet<SegmentId>> =
         vec![HashSet::default(); plan_sources_count];
-    if let Some(ps) = parallel_state {
-        for (i, slot) in index_segment_ids.iter_mut().enumerate() {
-            *slot = unsafe { (*ps).segment_ids_for_source_unlocked(i) };
-        }
+    for (i, slot) in index_segment_ids.iter_mut().enumerate() {
+        *slot = unsafe { (*parallel_state).segment_ids_for_source_unlocked(i) };
     }
 
     // Build this worker's fragment assignments by decoding the leader's dispatched per-stage
@@ -367,7 +367,7 @@ pub(crate) fn run_mpp_worker(
         match deserialize_physical_plan_with_runtime(
             &set_plan.plan_proto,
             &decode_ctx,
-            parallel_state,
+            Some(parallel_state),
             index_segment_ids.to_vec(),
             Some(expr_context_guard.as_ptr()),
             &DeduplicatingProtoConverter {},

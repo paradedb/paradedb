@@ -1026,16 +1026,12 @@ impl ExecutionPlan for PgSearchScanPlan {
                     // No shared scan state even though the plan may carry per-source claim
                     // markers: the serial fallback (size gate, short launch). The plan was
                     // built while MPP was eligible but executes as a plain serial scan, so
-                    // search everything. Only the leader may take this arm: workers get
-                    // `parallel_state` injected at decode, and a worker that lost it would
-                    // scan every segment and duplicate rows across the mesh.
-                    None => {
-                        assert!(
-                            unsafe { pg_sys::ParallelWorkerNumber } == -1,
-                            "parallel worker scanning without shared parallel scan state"
-                        );
-                        reader.search()
-                    }
+                    // search everything. Two takers are legitimate here: the leader's serial
+                    // fallback, and a parallel-safe scan replicated whole into a PG worker
+                    // (each worker runs the full serial plan, so a full search is correct).
+                    // MPP-dispatched fragments cannot land here: their decode always injects
+                    // the state, and the worker entrypoint errors when the DSM lacks it.
+                    None => reader.search(),
                 }
             };
             let mut scanner = Scanner::new(

@@ -212,7 +212,7 @@ fn run_launched_worker(state_manager: ParallelStateManager, seed_ctx: fn() -> Se
     let plan_sources_count = unsafe { (*scan_ptr).source_count() };
 
     let inputs = MppWorkerInputs {
-        parallel_state: Some(scan_ptr),
+        parallel_state: scan_ptr,
         plan_sources_count,
         session: worker,
     };

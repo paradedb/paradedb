@@ -215,8 +215,8 @@ impl ParallelWorker for BuildWorker<'_> {
             .expect("ParallelTableScanDesc should not be NULL");
         let coordination = state_manager
             .object::<WorkerCoordination>(2)
-            .expect("should be able to get ProcessCoordination")
-            .expect("ProcessCoordination should not be NULL");
+            .expect("should be able to get WorkerCoordination")
+            .expect("WorkerCoordination should not be NULL");
         let partitioning = state_manager
             .slice::<u8>(3)
             .expect("should be able to get partitioning bytes")
@@ -697,6 +697,8 @@ pub(super) fn build_index(
     };
 
     // Boundaries are fixed before any worker starts, so every worker cuts on the same ones.
+    // TODO(M3): the target segment count doubles as the partition count for now; rename the
+    // reloption to `partition_count` once partitioned storage lands.
     let partitioning = plan_partition_boundaries(
         &heaprel,
         &indexrel,

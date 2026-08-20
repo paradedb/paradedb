@@ -51,7 +51,7 @@ SET enable_seqscan = off;
 SET enable_bitmapscan = off;
 SET enable_indexscan = off;
 -- First run with normal execution method
-SET paradedb.enable_legacy_columnar_exec = false;
+SET paradedb.enable_fast_field_exec = false;
 SET paradedb.enable_columnar_exec = false;
 -- Get query plan to verify we're using NormalScanExecState
 EXPLAIN (VERBOSE, COSTS OFF, TIMING OFF)
@@ -97,7 +97,7 @@ ORDER BY numeric_field1;
 (7 rows)
 
 -- Now enable ColumnarExec
-SET paradedb.enable_legacy_columnar_exec = false;
+SET paradedb.enable_fast_field_exec = false;
 SET paradedb.enable_columnar_exec = true;
 -- Get query plan to verify we're using ColumnarExec
 EXPLAIN (VERBOSE, COSTS OFF, TIMING OFF)
@@ -143,7 +143,7 @@ ORDER BY numeric_field1;
             100 |              0 |         100.00
 (7 rows)
 
-RESET paradedb.enable_legacy_columnar_exec;
+RESET paradedb.enable_fast_field_exec;
 RESET paradedb.enable_columnar_exec;
 RESET enable_seqscan;
 RESET enable_bitmapscan;

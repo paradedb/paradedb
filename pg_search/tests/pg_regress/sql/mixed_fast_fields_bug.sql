@@ -58,7 +58,7 @@ SET enable_bitmapscan = off;
 SET enable_indexscan = off;
 
 -- First run with normal execution method
-SET paradedb.enable_legacy_columnar_exec = false;
+SET paradedb.enable_fast_field_exec = false;
 SET paradedb.enable_columnar_exec = false;
 
 -- Get query plan to verify we're using NormalScanExecState
@@ -81,7 +81,7 @@ WHERE
 ORDER BY numeric_field1;
 
 -- Now enable ColumnarExec
-SET paradedb.enable_legacy_columnar_exec = false;
+SET paradedb.enable_fast_field_exec = false;
 SET paradedb.enable_columnar_exec = true;
 SET paradedb.columnar_exec_column_threshold = 100;
 
@@ -104,7 +104,7 @@ WHERE
     string_field2 @@@ 'IN [red blue green]'
 ORDER BY numeric_field1;
 
-RESET paradedb.enable_legacy_columnar_exec;
+RESET paradedb.enable_fast_field_exec;
 RESET paradedb.enable_columnar_exec;
 RESET paradedb.columnar_exec_column_threshold;
 RESET enable_seqscan;

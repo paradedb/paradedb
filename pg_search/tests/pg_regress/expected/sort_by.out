@@ -92,7 +92,7 @@ Test 3.2: sort_by with non-fast field (should error)
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING paradedb (id, name, score)
     WITH (key_field='id', sort_by='name ASC NULLS FIRST');
-ERROR:  sort_by field 'name' must be columnar. Add it to the index with 'fast: true'
+ERROR:  sort_by field 'name' must be columnar. Add it to the index with 'columnar=true'
 \echo 'Test 3.3: sort_by with invalid syntax (should error)'
 Test 3.3: sort_by with invalid syntax (should error)
 CREATE INDEX sort_by_test_idx ON sort_by_test

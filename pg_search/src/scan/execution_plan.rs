@@ -182,6 +182,7 @@ pub struct PgSearchScanPlan {
     /// and cloning the Arc is cheap.
     ffhelper: Option<Arc<FFHelper>>,
     pub indexrelid: u32,
+    pub table_alias: String,
     /// The JoinScan source identity when visibility is deferred.
     deferred_ctid_plan_position: Option<usize>,
     /// Sort order preserved across `with_filter_pushdown` rebuilds so the
@@ -209,6 +210,7 @@ impl Clone for PgSearchScanPlan {
             deferred_fields: self.deferred_fields.clone(),
             ffhelper: self.ffhelper.clone(),
             indexrelid: self.indexrelid,
+            table_alias: self.table_alias.clone(),
             deferred_ctid_plan_position: self.deferred_ctid_plan_position,
             sort_order: self.sort_order.clone(),
             range_sample: self.range_sample.clone(),
@@ -322,6 +324,7 @@ impl PgSearchScanPlan {
             deferred_fields,
             ffhelper,
             indexrelid,
+            table_alias: String::new(),
             deferred_ctid_plan_position,
             sort_order: sort_order.cloned(),
             range_sample,
@@ -329,6 +332,10 @@ impl PgSearchScanPlan {
         }
     }
 
+    pub fn with_table_alias(mut self, table_alias: impl Into<String>) -> Self {
+        self.table_alias = table_alias.into();
+        self
+    }
     /// Returns a new copy of this plan resized to support exactly `target_partitions`.
     ///
     /// This allows a `TaskEstimator` or distributed planner to override the natural
@@ -414,6 +421,7 @@ impl PgSearchScanPlan {
             deferred_fields: self.deferred_fields.clone(),
             ffhelper: self.ffhelper.clone(),
             indexrelid: self.indexrelid,
+            table_alias: self.table_alias.clone(),
             deferred_ctid_plan_position: self.deferred_ctid_plan_position,
             sort_order: self.sort_order.clone(),
             range_sample: self.range_sample.clone(),
@@ -534,6 +542,7 @@ impl PgSearchScanPlan {
             score_needed: scanner_config.score_needed,
             sort_order: self.sort_order.clone(),
             indexrelid: self.indexrelid,
+            table_alias: self.table_alias.clone(),
             deferred_fields: self.deferred_fields.clone(),
             deferred_ctid_plan_position: self.deferred_ctid_plan_position,
             which_fast_fields: scanner_config.which_fast_fields,
@@ -671,7 +680,8 @@ impl PgSearchScanPlan {
             descriptor.global_partition_count,
             parallel_state,
             descriptor.range_sample,
-        );
+        )
+        .with_table_alias(descriptor.table_alias);
         plan.dynamic_filters = dynamic_filters;
         let final_plan = if let Some(assigned) = descriptor.assigned_partition {
             plan.with_assigned_partition(assigned)
@@ -697,6 +707,8 @@ struct ScanDispatchDescriptor {
     score_needed: bool,
     sort_order: Option<SortByField>,
     indexrelid: u32,
+    #[serde(default)]
+    table_alias: String,
     deferred_fields: Vec<DeferredField>,
     deferred_ctid_plan_position: Option<usize>,
     which_fast_fields: Vec<WhichFastField>,
@@ -789,7 +801,11 @@ fn strategy_name(strategy: tantivy::query::StrategyTag) -> &'static str {
 
 impl DisplayAs for PgSearchScanPlan {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "PgSearchScan: segments={}", self.segment_count)?;
+        write!(
+            f,
+            "PgSearchScan: table={}, segments={}",
+            self.table_alias, self.segment_count
+        )?;
         if let Some(range_sample) = &self.range_sample {
             if let Some(assigned) = self.assigned_partition {
                 let partitioning = range_sample.build(self.global_partition_count);

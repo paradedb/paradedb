@@ -58,11 +58,13 @@ impl From<TocKeys> for u64 {
     }
 }
 
-/// Marker for plain-old-data types stored in DSM entries as raw bytes. An entry is written
-/// by copying a live value, and [`ParallelStateManager`] checks the recorded type name
-/// before handing it back, so a reader always sees a valid instance of the type it asked
-/// for.
-pub trait ParallelStateType: Copy {}
+/// Marker for plain-old-data types stored in DSM entries as raw bytes.
+///
+/// Requires [`bytemuck::Pod`], which guarantees: `#[repr(C)]` layout, no
+/// uninitialised padding bytes, and every bit pattern is a valid instance.
+/// These properties let `as_bytes()` and `object()`/`slice()` operate
+/// without undefined behaviour.
+pub trait ParallelStateType: bytemuck::Pod {}
 
 pub trait ParallelState {
     /// A binary representation of the header information necessary to store/retrieve [`ParallelState`]
@@ -162,12 +164,10 @@ impl ParallelStateType for i64 {}
 impl ParallelStateType for isize {}
 impl ParallelStateType for f32 {}
 impl ParallelStateType for f64 {}
-impl ParallelStateType for bool {}
-impl ParallelStateType for () {}
 
 impl<T: ParallelStateType> ParallelState for T {
     fn as_bytes(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self as *const _ as *const u8, self.size_of()) }
+        bytemuck::bytes_of(self)
     }
 }
 
@@ -182,7 +182,7 @@ impl<T: ParallelStateType> ParallelState for Vec<T> {
         self.len()
     }
     fn as_bytes(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self.as_ptr() as *const u8, self.size_of()) }
+        bytemuck::cast_slice(self.as_slice())
     }
 }
 

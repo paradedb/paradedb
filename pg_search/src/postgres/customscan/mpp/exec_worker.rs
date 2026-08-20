@@ -423,20 +423,6 @@ pub(crate) fn run_mpp_worker(
                         proc_for_task(n_workers, task)
                     }
                 };
-                let base = match worker_session
-                    .outbound_senders()
-                    .get(dest_proc as usize)
-                    .and_then(|s| s.as_ref())
-                {
-                    Some(s) => s,
-                    None => {
-                        return Err(datafusion::common::DataFusionError::Internal(format!(
-                            "mpp worker dispatch: outbound_senders[{dest_proc}] is None \
-                             (self-loop or unattached); fragment stage_id={} task_idx={}",
-                            fragment.stage_id, fragment.task_idx,
-                        )));
-                    }
-                };
                 let q_u32 = u32::try_from(q).map_err(|_| {
                     datafusion::common::DataFusionError::Internal(format!(
                         "mpp worker dispatch: output partition {q} exceeds transport u32 \
@@ -444,25 +430,44 @@ pub(crate) fn run_mpp_worker(
                         fragment.stage_id, fragment.task_idx,
                     ))
                 })?;
+                let stream_key = MppDataStreamKey::new(fragment.stage_id, fragment.task_idx, q_u32);
                 crate::mpp_log!(
                     "mpp worker dispatch this_proc={this_proc} fragment(stage_id={}, \
                      task_idx={}) partition={q} → dest_proc={dest_proc}",
                     fragment.stage_id,
                     fragment.task_idx,
                 );
-                // Attach the worker mesh as the cooperative drain so a full outbound
-                // ring doesn't block the backend thread. The spin pulls every inbound
-                // drain while retrying the send, breaking the symmetric-send stall
-                // pattern where every peer is blocked sending to a full peer.
-                per_partition_sinks.push(Box::new(MppPartitionSink::new(
-                    base.clone_with_header(MppFrameHeader::batch(
-                        MppDataStreamKey::new(fragment.stage_id, fragment.task_idx, q_u32),
-                        mesh_for_block.this_proc,
-                    ))
-                    .with_cooperative_drain(
-                        Arc::clone(&mesh_for_block) as Arc<dyn CooperativeDrainSet>
-                    ),
-                )));
+                if dest_proc == mesh_for_block.this_proc {
+                    per_partition_sinks.push(mesh_for_block.open_local_partition_sink(stream_key));
+                } else {
+                    let base = match worker_session
+                        .outbound_senders()
+                        .get(dest_proc as usize)
+                        .and_then(|s| s.as_ref())
+                    {
+                        Some(s) => s,
+                        None => {
+                            return Err(datafusion::common::DataFusionError::Internal(format!(
+                                "mpp worker dispatch: outbound_senders[{dest_proc}] is None \
+                                 (unattached); fragment stage_id={} task_idx={}",
+                                fragment.stage_id, fragment.task_idx,
+                            )));
+                        }
+                    };
+                    // Attach the worker mesh as the cooperative drain so a full outbound
+                    // ring doesn't block the backend thread. The spin pulls every inbound
+                    // drain while retrying the send, breaking the symmetric-send stall
+                    // pattern where every peer is blocked sending to a full peer.
+                    per_partition_sinks.push(Box::new(MppPartitionSink::new(
+                        base.clone_with_header(MppFrameHeader::batch(
+                            stream_key,
+                            mesh_for_block.this_proc,
+                        ))
+                        .with_cooperative_drain(
+                            Arc::clone(&mesh_for_block) as Arc<dyn CooperativeDrainSet>
+                        ),
+                    )));
+                }
             }
 
             // Build a TaskContext seeded with the right `DistributedTaskContext` so the boundary

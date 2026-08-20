@@ -799,7 +799,7 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
   AND p.category_id > s.id  -- category_id is NOT in the BM25 index
 LIMIT 10;
-WARNING:  JoinScan not used: failed to extract join-level conditions (ensure all referenced columns are fast fields) (tables: p, s)
+WARNING:  JoinScan not used: failed to extract join-level conditions (ensure all referenced columns are columnar) (tables: p, s)
                                                                                 QUERY PLAN                                                                                 
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit

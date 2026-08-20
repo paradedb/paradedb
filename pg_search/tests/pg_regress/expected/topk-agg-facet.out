@@ -1746,7 +1746,7 @@ JOIN product_categories pc ON p.category = pc.name
 WHERE p.description @@@ 'laptop'
 ORDER BY p.rating DESC
 LIMIT 3;
-WARNING:  JoinScan not used: join keys must be fast fields (tables: p, pc)
+WARNING:  JoinScan not used: join keys must be columnar (tables: p, pc)
                                                                                   QUERY PLAN                                                                                   
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -1783,7 +1783,7 @@ JOIN product_categories pc ON p.category = pc.name
 WHERE p.description @@@ 'laptop'
 ORDER BY p.rating DESC
 LIMIT 3;
-WARNING:  JoinScan not used: join keys must be fast fields (tables: p, pc)
+WARNING:  JoinScan not used: join keys must be columnar (tables: p, pc)
  id |    name     | rating |       category_desc        | total_count 
 ----+-------------+--------+----------------------------+-------------
   1 | MacBook Pro |    4.8 | Portable computing devices |           4

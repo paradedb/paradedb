@@ -371,7 +371,7 @@ FROM expr_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY upper(p.category) ASC
     LIMIT 5;
-WARNING:  JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation (tables: p, s)
+WARNING:  JoinScan not used: ORDER BY columns must be columnar and have a byte-ordered (C-like) collation (tables: p, s)
                                                                                    QUERY PLAN                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -403,7 +403,7 @@ FROM expr_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY upper(p.category) ASC
     LIMIT 5;
-WARNING:  JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation (tables: p, s)
+WARNING:  JoinScan not used: ORDER BY columns must be columnar and have a byte-ordered (C-like) collation (tables: p, s)
        name       | supplier_name 
 ------------------+---------------
  Mouse Pad        | CableCo
@@ -428,4 +428,3 @@ SELECT 'Common tests cleanup complete' AS status;
 -------------------------------
  Common tests cleanup complete
 (1 row)
-

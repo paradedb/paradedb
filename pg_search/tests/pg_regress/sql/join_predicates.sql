@@ -545,6 +545,39 @@ LIMIT 10;
 SET paradedb.enable_join_custom_scan = on;
 
 -- =============================================================================
+-- TEST 13: Disjunction with negated single-table predicate ((A AND B) OR NOT B)
+-- =============================================================================
+-- Tests that negated single-table predicates inside cross-table disjunctions are
+-- correctly decomposed rather than collapsed into a non-negated match tag column.
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE ((s.country = 'USA') AND (p.name = 'Keyboard'))
+   OR (NOT (p.name = 'Keyboard'))
+ORDER BY p.id
+LIMIT 10;
+SET paradedb.enable_join_custom_scan = on;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE ((s.country @@@ 'USA') AND (p.name @@@ 'Keyboard'))
+   OR (NOT (p.name @@@ 'Keyboard'))
+ORDER BY p.id
+LIMIT 10;
+
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE ((s.country @@@ 'USA') AND (p.name @@@ 'Keyboard'))
+   OR (NOT (p.name @@@ 'Keyboard'))
+ORDER BY p.id
+LIMIT 10;
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 

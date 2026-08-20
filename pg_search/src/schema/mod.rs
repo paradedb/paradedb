@@ -459,7 +459,7 @@ impl SearchIndexSchema {
 
     /// Convert sort_by configuration to Tantivy's IndexSortByField.
     ///
-    /// Validates that the sort field exists in the schema and is a fast field.
+    /// Validates that the sort field exists in the schema and is columnar.
     /// Returns None if sort_by is empty (no segment sorting).
     ///
     /// This is an associated function (not a method) because it's also used during
@@ -485,11 +485,11 @@ impl SearchIndexSchema {
             )
         });
 
-        // Validate field is a fast field
+        // Validate field is columnar
         let field_entry = schema.get_field_entry(field);
         if !field_entry.is_fast() {
             panic!(
-                "sort_by field '{}' must be a fast field. Add it to the index with 'fast: true'",
+                "sort_by field '{}' must be columnar. Add it to the index with 'columnar=true'",
                 field_name
             );
         }

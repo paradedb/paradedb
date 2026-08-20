@@ -45,7 +45,7 @@ WITH (
 
     assert_eq!(
         Some(&Value::String("rating".into())),
-        plan.pointer("/0/Plan/Fast Fields")
+        plan.pointer("/0/Plan/Columnar Fields")
     )
 }
 
@@ -72,7 +72,7 @@ WITH (
 
     assert_eq!(
         Some(&Value::String("id, rating".into())),
-        plan.pointer("/0/Plan/Fast Fields")
+        plan.pointer("/0/Plan/Columnar Fields")
     )
 }
 
@@ -98,7 +98,7 @@ WITH (
     let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT id, pdb.score(id), rating FROM paradedb.bm25_search WHERE id @@@ 'description:keyboard'".fetch_one::<(Value,)>(&mut conn);
     assert_eq!(
         Some(&Value::String("id, rating".into())),
-        plan.pointer("/0/Plan/Fast Fields")
+        plan.pointer("/0/Plan/Columnar Fields")
     )
 }
 
@@ -127,7 +127,7 @@ SET paradedb.enable_aggregate_custom_scan = false;
     let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT category, count(*) FROM paradedb.bm25_search WHERE id @@@ 'description:keyboard' GROUP BY category".fetch_one::<(Value,)>(&mut conn);
     assert_eq!(
         Some(&Value::String("category".into())),
-        plan.pointer("/0/Plan/Plans/0/Plans/0/Fast Fields")
+        plan.pointer("/0/Plan/Plans/0/Plans/0/Columnar Fields")
     )
 }
 

@@ -432,6 +432,6 @@ pub fn explain(state: &CustomScanStateWrapper<BaseScan>, explainer: &mut Explain
             .collect();
         fields.sort();
 
-        explainer.add_text("Fast Fields", fields.join(", "));
+        explainer.add_text("Columnar Fields", fields.join(", "));
     }
 }

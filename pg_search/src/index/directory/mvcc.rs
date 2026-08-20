@@ -679,7 +679,9 @@ pub fn index_memory_segment(
     mvcc_style: &MvccSatisfies,
 ) -> anyhow::Result<RamDirectory> {
     use crate::index::writer::index::SerialIndexWriter;
-    use crate::postgres::utils::{row_to_search_document, u64_to_item_pointer};
+    use crate::postgres::utils::{
+        resolve_field_value, row_to_search_document, u64_to_item_pointer,
+    };
     use pgrx::{
         PgTupleDesc,
         pg_sys::{
@@ -947,26 +949,16 @@ pub fn index_memory_segment(
             );
 
             row_to_search_document(
-                categorized_fields
-                    .iter()
-                    .map(|(field, categorized)| match categorized.source {
-                        FieldSource::Heap { attno } => {
-                            (values[attno], isnull[attno], field, categorized)
-                        }
-                        FieldSource::Expression { att_idx } => {
-                            let (datum, is_null) = expr_results[att_idx];
-                            (datum, is_null, field, categorized)
-                        }
-                        FieldSource::CompositeField {
-                            expression_idx,
-                            field_idx,
-                            ..
-                        } => {
-                            let (datum, is_null) =
-                                unpacked_composites.get(expression_idx, field_idx);
-                            (datum, is_null, field, categorized)
-                        }
-                    }),
+                categorized_fields.iter().map(|(field, categorized)| {
+                    let (datum, is_null) = resolve_field_value(
+                        &categorized.source,
+                        &values,
+                        &isnull,
+                        &expr_results,
+                        &unpacked_composites,
+                    );
+                    (datum, is_null, field, categorized)
+                }),
                 &mut doc,
                 created_by_version,
             )

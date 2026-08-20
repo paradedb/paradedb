@@ -353,6 +353,28 @@ pub unsafe fn get_field_value(
     }
 }
 
+/// Resolves an index field's `(datum, is_null)` from a deformed heap tuple and its evaluated
+/// index expressions. The boundary sampler and the mutable-segment materialization both project
+/// the same field sources, so they share this instead of matching `FieldSource` in each place.
+/// This is not [`get_field_value`], which indexes a single formed-tuple array by index attno.
+pub unsafe fn resolve_field_value(
+    source: &FieldSource,
+    values: &[pg_sys::Datum],
+    isnull: &[bool],
+    expr_results: &[(pg_sys::Datum, bool)],
+    unpacked_composites: &CompositeSlotValues,
+) -> (pg_sys::Datum, bool) {
+    match source {
+        FieldSource::Heap { attno } => (values[*attno], isnull[*attno]),
+        FieldSource::Expression { att_idx } => expr_results[*att_idx],
+        FieldSource::CompositeField {
+            expression_idx,
+            field_idx,
+            ..
+        } => unpacked_composites.get(*expression_idx, *field_idx),
+    }
+}
+
 /// Represents the metadata extracted from an index attribute
 #[derive(Debug)]
 pub struct ExtractedFieldAttribute {

@@ -41,7 +41,9 @@ use crate::postgres::heap::{ExpressionState, HeapBufferPin};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::BorrowedBuffer;
-use crate::postgres::utils::{FieldSource, scalar_datum_to_tantivy_value, unwrap_alias_datum};
+use crate::postgres::utils::{
+    FieldSource, resolve_field_value, scalar_datum_to_tantivy_value, unwrap_alias_datum,
+};
 use crate::schema::{CategorizedFieldData, SearchField};
 
 /// Upper bound on the heap blocks read for the sample. Blocks are chosen uniformly at random,
@@ -300,15 +302,13 @@ unsafe fn project_row(
     fields
         .iter()
         .map(|f| {
-            let (datum, is_null) = match f.categorized.source {
-                FieldSource::Heap { attno } => (values[attno], isnull[attno]),
-                FieldSource::Expression { att_idx } => expr_results[att_idx],
-                FieldSource::CompositeField {
-                    expression_idx,
-                    field_idx,
-                    ..
-                } => unpacked_composites.get(expression_idx, field_idx),
-            };
+            let (datum, is_null) = resolve_field_value(
+                &f.categorized.source,
+                values,
+                isnull,
+                expr_results,
+                &unpacked_composites,
+            );
             if is_null {
                 return Ok(PdbOwnedValue::Null);
             }

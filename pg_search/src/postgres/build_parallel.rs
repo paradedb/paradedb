@@ -76,6 +76,26 @@ unsafe impl bytemuck::Zeroable for WorkerConfig {}
 unsafe impl bytemuck::Pod for WorkerConfig {}
 
 impl WorkerConfig {
+    fn new(
+        heaprelid: pg_sys::Oid,
+        indexrelid: pg_sys::Oid,
+        concurrent: bool,
+        current_xid: pg_sys::FullTransactionId,
+        need_wal: bool,
+        next_xid: pg_sys::FullTransactionId,
+    ) -> Self {
+        Self {
+            heaprelid,
+            indexrelid,
+            concurrent: concurrent as u8,
+            _pad1: [0; 7],
+            current_xid,
+            need_wal: need_wal as u8,
+            _pad2: [0; 7],
+            next_xid,
+        }
+    }
+
     fn concurrent(&self) -> bool {
         self.concurrent != 0
     }

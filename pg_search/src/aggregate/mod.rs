@@ -109,12 +109,40 @@ unsafe impl bytemuck::Zeroable for Config {}
 unsafe impl bytemuck::Pod for Config {}
 
 impl Config {
+    fn new(
+        indexrelid: pg_sys::Oid,
+        total_segments: usize,
+        solve_mvcc: bool,
+        memory_limit: u64,
+        bucket_limit: u32,
+    ) -> Self {
+        Self {
+            indexrelid,
+            _pad1: [0; 4],
+            total_segments,
+            solve_mvcc: solve_mvcc as u8,
+            _pad2: [0; 7],
+            memory_limit,
+            bucket_limit,
+            _pad3: [0; 4],
+        }
+    }
+
     fn solve_mvcc(&self) -> bool {
         self.solve_mvcc != 0
     }
 }
 
 impl State {
+    fn new(nlaunched: usize, remaining_segments: usize) -> Self {
+        Self {
+            mutex: Spinlock::new(),
+            _pad: [0; 4],
+            nlaunched,
+            remaining_segments,
+        }
+    }
+
     fn set_launched_workers(&mut self, nlaunched: usize) {
         let _lock = self.mutex.acquire();
         self.nlaunched = nlaunched;
@@ -191,22 +219,8 @@ impl ParallelAggregation {
         ambulkdelete_epoch: u32,
     ) -> anyhow::Result<Self> {
         Ok(Self {
-            state: State {
-                mutex: Spinlock::new(),
-                _pad: [0; 4],
-                nlaunched: 0,
-                remaining_segments: segment_ids.len(),
-            },
-            config: Config {
-                indexrelid,
-                _pad1: [0; 4],
-                total_segments: segment_ids.len(),
-                solve_mvcc: solve_mvcc as u8,
-                _pad2: [0; 7],
-                memory_limit,
-                bucket_limit,
-                _pad3: [0; 4],
-            },
+            state: State::new(0, segment_ids.len()),
+            config: Config::new(indexrelid, segment_ids.len(), solve_mvcc, memory_limit, bucket_limit),
             agg_req_bytes: serde_json::to_vec(&aggregation)?,
             query_bytes: serde_json::to_vec(query)?,
             segment_ids,
@@ -240,16 +254,7 @@ impl<'a> ParallelAggregationWorker<'a> {
     ) -> Self {
         Self {
             state,
-            config: Config {
-                indexrelid,
-                _pad1: [0; 4],
-                total_segments: segment_ids.len(),
-                solve_mvcc: solve_mvcc as u8,
-                _pad2: [0; 7],
-                memory_limit,
-                bucket_limit,
-                _pad3: [0; 4],
-            },
+            config: Config::new(indexrelid, segment_ids.len(), solve_mvcc, memory_limit, bucket_limit),
             aggregation: Some(aggregation),
             query,
             segment_ids,
@@ -596,12 +601,7 @@ pub fn execute_aggregate(
                 .iter()
                 .map(|r| SegmentDeletedDocs::new(r.segment_id(), r.num_deleted_docs()))
                 .collect::<Vec<_>>();
-            let mut state = State {
-                mutex: Spinlock::default(),
-                _pad: [0; 4],
-                nlaunched: 1,
-                remaining_segments: segment_ids.len(),
-            };
+            let mut state = State::new(1, segment_ids.len());
             let mut worker = ParallelAggregationWorker::new_local(
                 agg_req.clone(),
                 query,
@@ -1226,5 +1226,21 @@ mod tests {
         assert!(config.solve_mvcc());
         config.solve_mvcc = 2;
         assert!(config.solve_mvcc());
+    }
+
+    #[test]
+    fn config_new_zeroes_padding() {
+        let config = Config::new(pg_sys::Oid::INVALID, 10, true, 1024, 50);
+        let bytes = bytemuck::bytes_of(&config);
+        assert_eq!(bytes[4..8], [0; 4]);
+        assert_eq!(bytes[17..24], [0; 7]);
+        assert_eq!(bytes[36..40], [0; 4]);
+    }
+
+    #[test]
+    fn state_new_zeroes_padding() {
+        let state = State::new(0, 5);
+        let bytes = bytemuck::bytes_of(&state);
+        assert_eq!(bytes[4..8], [0; 4]);
     }
 }

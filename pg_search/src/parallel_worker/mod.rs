@@ -306,42 +306,10 @@ impl ParallelStateManager {
         Ok(Some((len, type_name)))
     }
 
-    /// Retrieve a **mutable** reference to the object stored in the state at index `i`.
-    ///
-    /// Returns a [`ValueError`] if the type `T` doesn't match the type of the object at index `i`.
-    /// Returns `None` if `i` is out of bounds
-    pub fn object<T: ParallelStateType>(
+    unsafe fn lookup_entry<T: Copy + 'static>(
         &self,
         i: usize,
-    ) -> Result<Option<&'static mut T>, ValueError> {
-        if i >= self.len {
-            return Ok(None);
-        }
-
-        let i = i * 2;
-        unsafe {
-            let Some((_, _)) = self.decode_info::<T>(i)? else {
-                return Ok(None);
-            };
-
-            let idx: u64 = TocKeys::UserState.into();
-            let idx = idx + i as u64 + 1;
-            let ptr = pg_sys::shm_toc_lookup(self.toc.as_ptr(), idx, true);
-            if ptr.is_null() {
-                return Ok(None);
-            }
-            Ok(Some(&mut *ptr.cast()))
-        }
-    }
-
-    /// Retrieve a slice to the Vec of objects stored in the state at index `i`.
-    ///
-    /// Returns a [`ValueError`] if the type `T` doesn't match the type of the slice elements at index `i`.
-    /// Returns `None` if `i` is out of bounds
-    pub fn slice<T: ParallelStateType>(
-        &self,
-        i: usize,
-    ) -> Result<Option<&'static [T]>, ValueError> {
+    ) -> Result<Option<(usize, *mut T)>, ValueError> {
         if i >= self.len {
             return Ok(None);
         }
@@ -358,8 +326,32 @@ impl ParallelStateManager {
             if ptr.is_null() {
                 return Ok(None);
             }
-            let slice = std::slice::from_raw_parts(ptr.cast(), len);
-            Ok(Some(slice))
+            Ok(Some((len, ptr.cast())))
+        }
+    }
+
+    /// Retrieve a **mutable** reference to the object stored in the state at index `i`.
+    ///
+    /// Returns a [`ValueError`] if the type `T` doesn't match the type of the object at index `i`.
+    /// Returns `None` if `i` is out of bounds
+    pub fn object<T: ParallelStateType>(
+        &self,
+        i: usize,
+    ) -> Result<Option<&'static mut T>, ValueError> {
+        unsafe { self.lookup_entry::<T>(i).map(|opt| opt.map(|(_, p)| &mut *p)) }
+    }
+
+    /// Retrieve a slice to the Vec of objects stored in the state at index `i`.
+    ///
+    /// Returns a [`ValueError`] if the type `T` doesn't match the type of the slice elements at index `i`.
+    /// Returns `None` if `i` is out of bounds
+    pub fn slice<T: ParallelStateType>(
+        &self,
+        i: usize,
+    ) -> Result<Option<&'static [T]>, ValueError> {
+        unsafe {
+            self.lookup_entry::<T>(i)
+                .map(|opt| opt.map(|(len, p)| std::slice::from_raw_parts(p, len)))
         }
     }
 
@@ -371,24 +363,9 @@ impl ParallelStateManager {
         &self,
         i: usize,
     ) -> Result<Option<&'static mut [T]>, ValueError> {
-        if i >= self.len {
-            return Ok(None);
-        }
-
-        let i = i * 2;
         unsafe {
-            let Some((len, _)) = self.decode_info::<T>(i)? else {
-                return Ok(None);
-            };
-
-            let idx: u64 = TocKeys::UserState.into();
-            let idx = idx + i as u64 + 1;
-            let ptr = pg_sys::shm_toc_lookup(self.toc.as_ptr(), idx, true);
-            if ptr.is_null() {
-                return Ok(None);
-            }
-            let slice = std::slice::from_raw_parts_mut(ptr.cast(), len);
-            Ok(Some(slice))
+            self.lookup_entry::<T>(i)
+                .map(|opt| opt.map(|(len, p)| std::slice::from_raw_parts_mut(p, len)))
         }
     }
 
@@ -407,24 +384,7 @@ impl ParallelStateManager {
         &self,
         i: usize,
     ) -> Result<Option<*mut T>, ValueError> {
-        if i >= self.len {
-            return Ok(None);
-        }
-
-        let i = i * 2;
-        unsafe {
-            let Some((_, _)) = self.decode_info::<T>(i)? else {
-                return Ok(None);
-            };
-
-            let idx: u64 = TocKeys::UserState.into();
-            let idx = idx + i as u64 + 1;
-            let ptr = pg_sys::shm_toc_lookup(self.toc.as_ptr(), idx, true);
-            if ptr.is_null() {
-                return Ok(None);
-            }
-            Ok(Some(ptr.cast()))
-        }
+        unsafe { self.lookup_entry::<T>(i).map(|opt| opt.map(|(_, p)| p)) }
     }
 }
 

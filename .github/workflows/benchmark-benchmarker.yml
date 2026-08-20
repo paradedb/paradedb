@@ -272,6 +272,12 @@ jobs:
           # No comment-always: the dashboard-links comment below carries the
           # PR compare table, so only alerts comment from here.
 
+      # Each publish clones gh-pages into ./benchmark-data-repository, so clear
+      # it again or the latency clone fails on a non-empty destination (and
+      # continue-on-error hides it: no latency history ever lands on gh-pages).
+      - name: Cleanup Benchmark Publish Working Directory
+        run: rm -rf ./benchmark-data-repository
+
       - name: Publish Latency (p50/p90/p95/p99)
         continue-on-error: true
         uses: benchmark-action/github-action-benchmark@v1

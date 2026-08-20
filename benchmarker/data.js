@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787193025267,
+  "lastUpdate": 1787196997851,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -86,6 +86,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) QPS",
             "value": 511.1,
+            "unit": "QPS"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ddf7f2f06fd7e6fffd7c7a35d5623c11db7b89a0",
+          "message": "chore: Render table name (or alias) in `PgSearchScan`. (#6009)\n\n## What\n\nRender the table name (or its assigned alias) in `EXPLAIN` for\n`PgSearchScan`.\n\n## Why\n\nBecause otherwise it's necessary to differentiate tables by inspecting\ntheir filters, which is error prone.\n\n## Tests\n\nTons of regress changes; no semantic changes.",
+          "timestamp": "2026-08-19T20:08:21-07:00",
+          "tree_id": "ff181690bd989f2fc653e2071d784668ac3b21ae",
+          "url": "https://github.com/paradedb/paradedb/commit/ddf7f2f06fd7e6fffd7c7a35d5623c11db7b89a0"
+        },
+        "date": 1787196758216,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) QPS",
+            "value": 509.1836394546485,
             "unit": "QPS"
           }
         ]

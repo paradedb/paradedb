@@ -30,7 +30,7 @@ use crate::postgres::composite::{
 use crate::postgres::customscan::orderby::text_lower_funcoid;
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::types::TantivyValue;
+use crate::postgres::types::{TantivyValue, TantivyValueError};
 use crate::postgres::var::find_vars;
 use crate::schema::{CategorizedFieldData, SearchField, SearchFieldType};
 use crate::vector::metric::VectorMetric;
@@ -351,6 +351,28 @@ pub unsafe fn get_field_value(
             field_idx,
             ..
         } => unpacked_composites.get(*comp_index_attno, *field_idx),
+    }
+}
+
+/// Resolves an index field's `(datum, is_null)` from a deformed heap tuple and its evaluated
+/// index expressions. The boundary sampler and the mutable-segment materialization both project
+/// the same field sources, so they share this instead of matching `FieldSource` in each place.
+/// This is not [`get_field_value`], which indexes a single formed-tuple array by index attno.
+pub unsafe fn resolve_field_value(
+    source: &FieldSource,
+    values: &[pg_sys::Datum],
+    isnull: &[bool],
+    expr_results: &[(pg_sys::Datum, bool)],
+    unpacked_composites: &CompositeSlotValues,
+) -> (pg_sys::Datum, bool) {
+    match source {
+        FieldSource::Heap { attno } => (values[*attno], isnull[*attno]),
+        FieldSource::Expression { att_idx } => expr_results[*att_idx],
+        FieldSource::CompositeField {
+            expression_idx,
+            field_idx,
+            ..
+        } => unpacked_composites.get(*expression_idx, *field_idx),
     }
 }
 
@@ -790,11 +812,7 @@ pub unsafe fn row_to_search_document<'a>(
         }
 
         // For pdb.alias/tokenizer types, get the underlying type if it's not a text type.
-        let actual_datum = if type_is_alias(pg_type.value()) || type_is_tokenizer(pg_type.value()) {
-            unsafe { DatumWithType::get_underlying_type(datum).0 }
-        } else {
-            datum
-        };
+        let actual_datum = unsafe { unwrap_alias_datum(datum, *pg_type) };
 
         if *is_array {
             let converted_array = match search_field.field_type() {
@@ -838,18 +856,8 @@ pub unsafe fn row_to_search_document<'a>(
             };
             document.add_vector(search_field.field(), &vec);
         } else {
-            let tv = match search_field.field_type() {
-                SearchFieldType::Numeric64(_, scale) => {
-                    TantivyValue::try_from_numeric_i64(actual_datum, scale)
-                }
-                SearchFieldType::NumericBytes(..) => {
-                    TantivyValue::try_from_numeric_bytes(actual_datum)
-                }
-                // Legacy pre-v0.22.0 indexes stored NUMERIC as F64 in the tantivy schema.
-                SearchFieldType::F64(oid) if oid == pg_sys::NUMERICOID => {
-                    TantivyValue::try_from_numeric_f64(actual_datum)
-                }
-                _ => TantivyValue::try_from_datum(actual_datum, *base_oid),
+            let tv = unsafe {
+                scalar_datum_to_tantivy_value(actual_datum, search_field.field_type(), *base_oid)
             }
             .unwrap_or_else(|e| {
                 panic!("could not parse field `{}`: {e}", search_field.field_name())
@@ -861,6 +869,35 @@ pub unsafe fn row_to_search_document<'a>(
         }
     }
     Ok(())
+}
+
+/// Converts a non-NULL, single-valued (non-array, non-JSON, non-vector) index datum into the
+/// value the index stores for its field. `datum` must already have any `pdb.alias` /
+/// tokenizer wrapper type stripped, see [`unwrap_alias_datum`].
+pub unsafe fn scalar_datum_to_tantivy_value(
+    datum: pg_sys::Datum,
+    field_type: SearchFieldType,
+    base_oid: PgOid,
+) -> Result<TantivyValue, TantivyValueError> {
+    match field_type {
+        SearchFieldType::Numeric64(_, scale) => TantivyValue::try_from_numeric_i64(datum, scale),
+        SearchFieldType::NumericBytes(..) => TantivyValue::try_from_numeric_bytes(datum),
+        // Legacy pre-v0.22.0 indexes stored NUMERIC as F64 in the tantivy schema.
+        SearchFieldType::F64(oid) if oid == pg_sys::NUMERICOID => {
+            TantivyValue::try_from_numeric_f64(datum)
+        }
+        _ => TantivyValue::try_from_datum(datum, base_oid),
+    }
+}
+
+/// For `pdb.alias` / tokenizer typed index attributes, returns the datum of the underlying
+/// type; other datums pass through unchanged.
+pub unsafe fn unwrap_alias_datum(datum: pg_sys::Datum, pg_type: PgOid) -> pg_sys::Datum {
+    if type_is_alias(pg_type.value()) || type_is_tokenizer(pg_type.value()) {
+        DatumWithType::get_underlying_type(datum).0
+    } else {
+        datum
+    }
 }
 
 pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> PostgresDateTime {

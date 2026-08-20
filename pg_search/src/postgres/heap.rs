@@ -23,6 +23,40 @@ use crate::postgres::utils;
 use pgrx::pg_sys;
 use pgrx::PgList;
 
+/// A pinned heap buffer that releases its pin on drop. It stays off the index block tracker
+/// that `PinnedBuffer` feeds. That tracker keys blocks by number with no relation, so a heap
+/// pin would collide with the index's tracked blocks under the `block_tracker` feature, and a
+/// `CREATE INDEX` reads the heap while its own index buffers are tracked.
+pub(crate) struct HeapBufferPin(pg_sys::Buffer);
+
+impl HeapBufferPin {
+    /// Reads and pins `blockno` of `heaprel`'s main fork.
+    ///
+    /// # Safety
+    /// `heaprel` must stay open for the lifetime of the returned pin.
+    pub(crate) unsafe fn read(heaprel: &PgSearchRelation, blockno: pg_sys::BlockNumber) -> Self {
+        Self(pg_sys::ReadBufferExtended(
+            heaprel.as_ptr(),
+            pg_sys::ForkNumber::MAIN_FORKNUM,
+            blockno,
+            pg_sys::ReadBufferMode::RBM_NORMAL,
+            std::ptr::null_mut(),
+        ))
+    }
+
+    pub(crate) fn buffer(&self) -> pg_sys::Buffer {
+        self.0
+    }
+}
+
+crate::impl_safe_drop!(HeapBufferPin, |self| {
+    unsafe {
+        if crate::postgres::utils::IsTransactionState() {
+            pg_sys::ReleaseBuffer(self.0);
+        }
+    }
+});
+
 /// Helper to validate that a "ctid" is currently visible to a snapshot.
 ///
 /// When querying BM25 indexes, individual ctid entries may be stale. After an UPDATE,

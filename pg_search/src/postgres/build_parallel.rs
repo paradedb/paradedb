@@ -96,7 +96,7 @@ type ScanDesc = (usize, *mut pg_sys::ParallelTableScanDescData);
 #[repr(C)]
 struct WorkerCoordination {
     mutex: Spinlock,
-    _pad: [u8; 7],
+    _pad: [u8; 4],
     nstarted: usize,
     nlaunched: usize,
     ntuples_done: usize,
@@ -104,12 +104,16 @@ struct WorkerCoordination {
 }
 
 // SAFETY: WorkerCoordination is #[repr(C)] with explicit padding. All
-// fields are integer types (Spinlock = u8 wrapper, usize). Every bit
+// fields are integer types (Spinlock = i32 wrapper, usize). Every bit
 // pattern is valid.
 unsafe impl bytemuck::Zeroable for WorkerCoordination {}
 unsafe impl bytemuck::Pod for WorkerCoordination {}
 
 impl ParallelStateType for WorkerCoordination {}
+
+const _: () = assert!(size_of::<WorkerConfig>() == 40);
+const _: () = assert!(size_of::<WorkerCoordination>() == 40);
+
 impl WorkerCoordination {
     fn inc_nstarted(&mut self) {
         let _lock = self.mutex.acquire();

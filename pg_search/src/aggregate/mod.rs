@@ -79,13 +79,13 @@ impl TryInto<Aggregations> for AggregateRequest {
 struct State {
     // these require the Spinlock mutex for atomic access (read and write)
     mutex: Spinlock,
-    _pad: [u8; 7],
+    _pad: [u8; 4],
     nlaunched: usize,
     remaining_segments: usize,
 }
 
 // SAFETY: State is #[repr(C)] with explicit padding. All fields are
-// integer types (Spinlock = u8 wrapper, usize). Every bit pattern is valid.
+// integer types (Spinlock = i32 wrapper, usize). Every bit pattern is valid.
 unsafe impl bytemuck::Zeroable for State {}
 unsafe impl bytemuck::Pod for State {}
 
@@ -161,6 +161,10 @@ impl ParallelStateType for State {}
 impl ParallelStateType for Config {}
 impl ParallelStateType for SegmentDeletedDocs {}
 
+const _: () = assert!(size_of::<State>() == 24);
+const _: () = assert!(size_of::<Config>() == 40);
+const _: () = assert!(size_of::<SegmentDeletedDocs>() == 20);
+
 impl ParallelProcess for ParallelAggregation {
     fn state_values(&self) -> Vec<&dyn ParallelState> {
         vec![
@@ -189,7 +193,7 @@ impl ParallelAggregation {
         Ok(Self {
             state: State {
                 mutex: Spinlock::new(),
-                _pad: [0; 7],
+                _pad: [0; 4],
                 nlaunched: 0,
                 remaining_segments: segment_ids.len(),
             },
@@ -594,7 +598,7 @@ pub fn execute_aggregate(
                 .collect::<Vec<_>>();
             let mut state = State {
                 mutex: Spinlock::default(),
-                _pad: [0; 7],
+                _pad: [0; 4],
                 nlaunched: 1,
                 remaining_segments: segment_ids.len(),
             };

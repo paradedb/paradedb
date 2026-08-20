@@ -25,7 +25,7 @@ use serde::ser::SerializeMap;
 use tantivy::schema::{Facet, OwnedValue};
 
 use crate::api::version::{Version, VersionInfo};
-use crate::postgres::datetime::{PG_EPOCH_DIFF_FROM_UNIX_EPOCH_MICROS, PostgresDateTime};
+use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::types::TantivyValueError;
 use crate::schema::SearchFieldType;
 
@@ -54,26 +54,19 @@ pub enum PdbOwnedValue {
 impl Eq for PdbOwnedValue {}
 
 impl PdbOwnedValue {
-    /// A total order usable for sorting and range routing: NULL sorts first, floats compare
-    /// with `f64::total_cmp` (so NaN has a fixed place), and integer variants compare by value
-    /// across `I64`/`U64`/`F64`, since the same column can surface as either through
-    /// deserialization. Everything else follows the derived `PartialOrd`.
-    ///
-    /// Not a true total order once a set mixes `F64` with integers past 2^53: the `as f64` casts
-    /// lose precision, so two distinct integers can tie with the same float. Callers today never
-    /// mix those variants inside one dimension (`SearchFieldType` keys the conversion, and the
-    /// wire round trip only swaps `I64`/`U64`, which the `i128` arms compare exactly).
+    /// A total order for sorting and range routing. NULL sorts first. Floats use the same
+    /// monotonic `u64` mapping as `TopK` and `RangeQuery`, so a boundary orders the way the scans
+    /// that read it do, `NaN` included. A merged two-side join sample can tag one integer column
+    /// `I64` on one side and `U64` on the other, so those compare by value. Everything else
+    /// follows the derived `PartialOrd`; a column never mixes an integer with a float, so that
+    /// pairing does not arise.
     pub fn total_cmp(&self, other: &Self) -> std::cmp::Ordering {
-        use std::cmp::Ordering;
+        use tantivy::columnar::MonotonicallyMappableToU64;
         match (self, other) {
-            (Self::F64(a), Self::F64(b)) => a.total_cmp(b),
+            (Self::F64(a), Self::F64(b)) => a.to_u64().cmp(&b.to_u64()),
             (Self::I64(a), Self::U64(b)) => (*a as i128).cmp(&(*b as i128)),
             (Self::U64(a), Self::I64(b)) => (*a as i128).cmp(&(*b as i128)),
-            (Self::I64(a), Self::F64(b)) => (*a as f64).total_cmp(b),
-            (Self::F64(a), Self::I64(b)) => a.total_cmp(&(*b as f64)),
-            (Self::U64(a), Self::F64(b)) => (*a as f64).total_cmp(b),
-            (Self::F64(a), Self::U64(b)) => a.total_cmp(&(*b as f64)),
-            _ => self.partial_cmp(other).unwrap_or(Ordering::Equal),
+            _ => self.partial_cmp(other).unwrap_or(std::cmp::Ordering::Equal),
         }
     }
 
@@ -398,7 +391,8 @@ pub(crate) mod exact_scalar_wire {
         I64(i64),
         Bool(bool),
         Date(i64),
-        // `f64::to_bits`, so `NaN` and the infinities survive any codec, text or binary.
+        // The wire needs the exact value back, not an order, so it carries `f64::to_bits`
+        // (not the ordering `u64` mapping `total_cmp` uses). `NaN` and the infinities survive.
         F64Bits(u64),
         Bytes(Vec<u8>),
         IpAddr(Ipv6Addr),
@@ -462,18 +456,10 @@ impl std::fmt::Display for PlainDisplay<'_> {
             PdbOwnedValue::F64(v) => write!(f, "{v}"),
             PdbOwnedValue::Bool(v) => write!(f, "{v}"),
             PdbOwnedValue::IpAddr(v) => write!(f, "{v}"),
-            PdbOwnedValue::Date(v) => {
-                // `infinity`/`-infinity` timestamps sit at `i64::MIN/MAX`, so the epoch shift can
-                // overflow; fall back to the raw value rather than abort the caller.
-                match v
-                    .into_inner()
-                    .checked_add(PG_EPOCH_DIFF_FROM_UNIX_EPOCH_MICROS)
-                    .and_then(chrono::DateTime::from_timestamp_micros)
-                {
-                    Some(dt) => write!(f, "{}", dt.to_rfc3339()),
-                    None => write!(f, "{v:?}"),
-                }
-            }
+            PdbOwnedValue::Date(v) => match v.to_rfc3339() {
+                Some(s) => write!(f, "{s}"),
+                None => write!(f, "{v:?}"),
+            },
             other => write!(f, "{other:?}"),
         }
     }
@@ -547,28 +533,19 @@ mod tests {
             PdbOwnedValue::I64(10).total_cmp(&PdbOwnedValue::U64(3)),
             Ordering::Greater
         );
-        // Integers compare against floats by value.
-        assert_eq!(
-            PdbOwnedValue::I64(2).total_cmp(&PdbOwnedValue::F64(2.5)),
-            Ordering::Less
-        );
-        assert_eq!(
-            PdbOwnedValue::F64(2.5).total_cmp(&PdbOwnedValue::I64(2)),
-            Ordering::Greater
-        );
-        assert_eq!(
-            PdbOwnedValue::U64(2).total_cmp(&PdbOwnedValue::F64(2.0)),
-            Ordering::Equal
-        );
-        assert_eq!(
-            PdbOwnedValue::F64(2.0).total_cmp(&PdbOwnedValue::U64(2)),
-            Ordering::Equal
-        );
-        // `NaN` has a fixed place (via `f64::total_cmp`, so no panic and no `Equal` surprise).
-        assert_eq!(
-            PdbOwnedValue::F64(f64::NAN).total_cmp(&PdbOwnedValue::F64(1.0)),
-            Ordering::Greater
-        );
+        // Floats order by the monotonic mapping: -inf < finite < +inf < NaN, with a fixed
+        // place for NaN (no panic, no `Equal` surprise).
+        let ordered = [
+            PdbOwnedValue::F64(f64::NEG_INFINITY),
+            PdbOwnedValue::F64(-1.0),
+            PdbOwnedValue::F64(0.0),
+            PdbOwnedValue::F64(1.0),
+            PdbOwnedValue::F64(f64::INFINITY),
+            PdbOwnedValue::F64(f64::NAN),
+        ];
+        for pair in ordered.windows(2) {
+            assert_eq!(pair[0].total_cmp(&pair[1]), Ordering::Less, "{pair:?}");
+        }
         // Non-numeric variants fall through to the derived order.
         assert_eq!(
             PdbOwnedValue::Str("a".into()).total_cmp(&PdbOwnedValue::Str("b".into())),

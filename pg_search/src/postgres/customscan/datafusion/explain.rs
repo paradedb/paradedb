@@ -229,18 +229,10 @@ pub fn explain_physical_plan(plan: &Arc<dyn ExecutionPlan>, explainer: &mut Expl
 /// it appends a warning to the explainer and returns the original plan.
 pub fn get_plan_with_merged_metrics(
     plan: &Arc<dyn ExecutionPlan>,
-    is_leader: bool,
-    has_runtime: bool,
-    explainer: &mut Explainer,
+    _explainer: &mut Explainer,
 ) -> Arc<dyn ExecutionPlan> {
-    if is_leader && has_runtime {
-        if let Some(merged) = crate::postgres::customscan::mpp::glue::merge_worker_metrics(plan) {
-            return merged;
-        }
-        explainer.add_text(
-            "  (worker metrics incomplete; a worker may not have reported)",
-            "",
-        );
+    if let Some(merged) = crate::postgres::customscan::mpp::glue::merge_worker_metrics(plan) {
+        return merged;
     }
     Arc::clone(plan)
 }

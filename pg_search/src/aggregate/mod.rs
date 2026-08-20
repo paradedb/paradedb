@@ -130,19 +130,40 @@ impl State {
 }
 
 type NumDeletedDocs = u32;
+
+#[derive(Copy, Clone, Debug, bytemuck::Zeroable, bytemuck::Pod)]
+#[repr(C)]
+struct SegmentDeletedDocs {
+    segment_id_bytes: [u8; 16],
+    deleted_docs: u32,
+}
+
+impl SegmentDeletedDocs {
+    fn new(id: SegmentId, deleted: NumDeletedDocs) -> Self {
+        Self {
+            segment_id_bytes: *id.uuid_bytes(),
+            deleted_docs: deleted,
+        }
+    }
+
+    fn segment_id(&self) -> SegmentId {
+        SegmentId::from_bytes(self.segment_id_bytes)
+    }
+}
+
 struct ParallelAggregation {
     state: State,
     config: Config,
     query_bytes: Vec<u8>,
     agg_req_bytes: Vec<u8>,
     bitmap_handle_bytes: Vec<u8>,
-    segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
+    segment_ids: Vec<SegmentDeletedDocs>,
     ambulkdelete_epoch: u32,
 }
 
 impl ParallelStateType for State {}
 impl ParallelStateType for Config {}
-impl ParallelStateType for (SegmentId, NumDeletedDocs) {}
+impl ParallelStateType for SegmentDeletedDocs {}
 
 impl ParallelProcess for ParallelAggregation {
     fn state_values(&self) -> Vec<&dyn ParallelState> {
@@ -167,7 +188,7 @@ impl ParallelAggregation {
         solve_mvcc: bool,
         memory_limit: u64,
         bucket_limit: u32,
-        segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
+        segment_ids: Vec<SegmentDeletedDocs>,
         ambulkdelete_epoch: u32,
         bitmap_handle: Option<SharedBitmapHandle>,
     ) -> anyhow::Result<Self> {
@@ -202,7 +223,7 @@ struct ParallelAggregationWorker<'a> {
     config: Config,
     aggregation: Option<AggregateRequest>,
     query: SearchQueryInput,
-    segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
+    segment_ids: Vec<SegmentDeletedDocs>,
     #[allow(dead_code)]
     ambulkdelete_epoch: u32,
     /// The owner's published claim table, attached lazily by bgworkers (the
@@ -243,7 +264,7 @@ impl<'a> ParallelAggregationWorker<'a> {
     fn new_local(
         aggregation: AggregateRequest,
         query: SearchQueryInput,
-        segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
+        segment_ids: Vec<SegmentDeletedDocs>,
         ambulkdelete_epoch: u32,
         indexrelid: pg_sys::Oid,
         solve_mvcc: bool,
@@ -299,8 +320,7 @@ impl<'a> ParallelAggregationWorker<'a> {
         self.state.remaining_segments -= 1;
         self.segment_ids
             .get(self.state.remaining_segments)
-            .cloned()
-            .map(|(segment_id, _)| segment_id)
+            .map(|entry| entry.segment_id())
     }
 
     fn execute_aggregate(
@@ -396,7 +416,7 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
             .expect("wrong type for query_bytes")
             .expect("missing query_bytes value");
         let segment_ids = state_manager
-            .slice::<(SegmentId, NumDeletedDocs)>(4)
+            .slice::<SegmentDeletedDocs>(4)
             .expect("wrong type for segment_ids")
             .expect("missing segment_ids value");
         let ambulkdelete_epoch = state_manager
@@ -545,7 +565,7 @@ pub fn execute_aggregate(
         let segment_ids = reader
             .segment_readers()
             .iter()
-            .map(|r| (r.segment_id(), r.num_deleted_docs()))
+            .map(|r| SegmentDeletedDocs::new(r.segment_id(), r.num_deleted_docs()))
             .collect::<Vec<_>>();
         // Publish the bitmap claim table for the worker pool: rebuild the
         // leader's bitmap into this scan's own DSA area, prepare one iterator
@@ -665,7 +685,7 @@ pub fn execute_aggregate(
             let segment_ids = reader
                 .segment_readers()
                 .iter()
-                .map(|r| (r.segment_id(), r.num_deleted_docs()))
+                .map(|r| SegmentDeletedDocs::new(r.segment_id(), r.num_deleted_docs()))
                 .collect::<Vec<_>>();
             let mut state = State {
                 mutex: Spinlock::default(),

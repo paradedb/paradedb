@@ -276,7 +276,7 @@ impl ParallelStateManager {
         }
     }
 
-    unsafe fn decode_info<T: ParallelStateType>(
+    unsafe fn decode_info<T: Copy + 'static>(
         &self,
         i: usize,
     ) -> Result<Option<(usize, &str)>, ValueError> {
@@ -389,6 +389,41 @@ impl ParallelStateManager {
             }
             let slice = std::slice::from_raw_parts_mut(ptr.cast(), len);
             Ok(Some(slice))
+        }
+    }
+
+    /// Retrieve a raw pointer to the object stored in the state at index `i`.
+    ///
+    /// Unlike [`Self::object`], this method does not require `T: ParallelStateType`.
+    /// Use it for foreign types that cannot implement `Pod` (e.g. bindgen-generated
+    /// Postgres structs). The type-name check still runs.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the DSM bytes at index `i` form a valid
+    /// instance of `T`. This is satisfied when the leader wrote a valid `T`
+    /// into this slot before workers were launched.
+    pub unsafe fn object_raw<T: Copy + 'static>(
+        &self,
+        i: usize,
+    ) -> Result<Option<*mut T>, ValueError> {
+        if i >= self.len {
+            return Ok(None);
+        }
+
+        let i = i * 2;
+        unsafe {
+            let Some((_, _)) = self.decode_info::<T>(i)? else {
+                return Ok(None);
+            };
+
+            let idx: u64 = TocKeys::UserState.into();
+            let idx = idx + i as u64 + 1;
+            let ptr = pg_sys::shm_toc_lookup(self.toc.as_ptr(), idx, true);
+            if ptr.is_null() {
+                return Ok(None);
+            }
+            Ok(Some(ptr.cast()))
         }
     }
 }

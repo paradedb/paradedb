@@ -89,7 +89,8 @@ impl ParallelStateType for WorkerConfig {}
 /// Type alias that holds a pointer to a [`pg_sys::ParallelTableScanDescData`] which is over-allocated,
 /// so the [`usize`] field tells us how big it really is, in bytes
 type ScanDesc = (usize, *mut pg_sys::ParallelTableScanDescData);
-impl ParallelStateType for pg_sys::ParallelTableScanDescData {}
+// ParallelTableScanDescData is a foreign bindgen type that cannot implement
+// Pod. It is accessed through object_raw() instead of the typed object() path.
 
 #[derive(Copy, Clone, Default)]
 #[repr(C)]
@@ -234,10 +235,14 @@ impl ParallelWorker for BuildWorker<'_> {
             .object::<WorkerConfig>(0)
             .expect("should be able to get ParallelBuildConfig from state manager")
             .expect("ParallelBuildConfig should not be NULL");
-        let scandesc = state_manager
-            .object::<pg_sys::ParallelTableScanDescData>(1)
-            .expect("should be able to get ParallelTableScanDesc")
-            .expect("ParallelTableScanDesc should not be NULL");
+        // SAFETY: the leader wrote a valid ParallelTableScanDescData into
+        // this slot via table_parallelscan_initialize before workers launched.
+        let scandesc = unsafe {
+            state_manager
+                .object_raw::<pg_sys::ParallelTableScanDescData>(1)
+                .expect("should be able to get ParallelTableScanDesc")
+                .expect("ParallelTableScanDesc should not be NULL")
+        };
         let coordination = state_manager
             .object::<WorkerCoordination>(2)
             .expect("should be able to get WorkerCoordination")

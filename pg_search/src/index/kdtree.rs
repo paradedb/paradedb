@@ -23,9 +23,6 @@
 //! bounding box of each segment they write, and later merges rebuild a routing tree from that
 //! per-segment metadata.
 
-// The routing API is consumed by the partitioned build path, which lands separately.
-#![allow(dead_code)]
-
 use std::cmp::Ordering;
 use std::fmt;
 use std::ops::Bound;
@@ -124,7 +121,10 @@ impl KdTree {
         }
     }
 
+    // `dims`, `route`, and `to_range_partitioning` are the routing API the partitioned scan and
+    // merge paths will call. They stay unused here until those land.
     /// The `partition_by` fields, in the order [`Point`]s must be laid out.
+    #[allow(dead_code)]
     pub fn dims(&self) -> &[FieldName] {
         &self.dims
     }
@@ -134,6 +134,7 @@ impl KdTree {
     }
 
     /// The partition a row belongs to. `values` must be laid out like [`Self::dims`].
+    #[allow(dead_code)]
     pub fn route(&self, values: &[PdbOwnedValue]) -> usize {
         debug_assert_eq!(values.len(), self.dims.len());
         let mut node = &self.root;
@@ -195,6 +196,7 @@ impl KdTree {
 
     /// For a tree over a single field, the equivalent [`RangePartitioning`]: its split points
     /// are this tree's split values in ascending order, and both route every row identically.
+    #[allow(dead_code)]
     pub fn to_range_partitioning(&self) -> Option<RangePartitioning> {
         if self.dims.len() != 1 {
             return None;
@@ -268,6 +270,7 @@ fn fmt_node(node: &KdNode, tree: &KdTree, depth: usize, f: &mut fmt::Formatter<'
     }
 }
 
+#[allow(dead_code)] // reached through `route`
 fn goes_left(value: &PdbOwnedValue, split: &PdbOwnedValue) -> bool {
     matches!(value, PdbOwnedValue::Null) || value.total_cmp(split) == Ordering::Less
 }
@@ -281,6 +284,7 @@ fn first_partition(mut node: &KdNode) -> usize {
     }
 }
 
+#[allow(dead_code)] // reached through `to_range_partitioning`
 fn collect_split_values(node: &KdNode, out: &mut Vec<PdbOwnedValue>) {
     if let KdNode::Split {
         value, left, right, ..

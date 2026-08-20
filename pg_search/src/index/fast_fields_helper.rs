@@ -39,7 +39,7 @@ use tantivy::SegmentOrdinal;
 use tantivy::columnar::{BytesColumn, StrColumn};
 use tantivy::fastfield::{Column, FastFieldReaders};
 use tantivy::termdict::TermOrdinal;
-use tantivy::{DocAddress, DocId};
+use tantivy::{DocAddress, DocId, Searcher};
 
 /// A fast-field index position value.
 pub type FFIndex = usize;
@@ -63,8 +63,13 @@ type ColumnCache = Vec<(String, Option<SearchFieldType>, OnceLock<FFType>)>;
 /// possible when looking up the value of a specific fast field.
 #[derive(Default)]
 pub struct FFHelper {
+    // Keep one cheap, Arc-backed Searcher clone for the whole helper. Holding a
+    // FastFieldReaders clone per segment used to clone Tantivy's Schema for every
+    // segment, even though most columns are opened lazily. On indexes with many
+    // segments that made worker-side MPP plan reconstruction dominate execution.
+    searcher: Option<Searcher>,
     // A cache of columns and a ctid column for each segment.
-    segment_caches: Vec<(FastFieldReaders, ColumnCache, OnceLock<FFType>)>,
+    segment_caches: Vec<(ColumnCache, OnceLock<FFType>)>,
 }
 
 impl FFHelper {
@@ -76,8 +81,7 @@ impl FFHelper {
         let segment_caches = reader
             .segment_readers()
             .iter()
-            .map(|reader| {
-                let fast_fields_reader = reader.fast_fields().clone();
+            .map(|_| {
                 let mut lookup = Vec::new();
                 for field in fields {
                     match field {
@@ -97,31 +101,60 @@ impl FFHelper {
                         }
                     }
                 }
-                (fast_fields_reader, lookup, OnceLock::default())
+                (lookup, OnceLock::default())
             })
             .collect();
-        Self { segment_caches }
+        Self {
+            searcher: Some(reader.searcher().clone()),
+            segment_caches,
+        }
     }
 
     pub fn ctid(&self, segment_ord: SegmentOrdinal) -> &FFType {
-        let (ff_readers, _, ctid) = &self.segment_caches[segment_ord as usize];
-        ctid.get_or_init(|| FFType::new_ctid(ff_readers))
+        let (_, ctid) = &self.segment_caches[segment_ord as usize];
+        ctid.get_or_init(|| {
+            FFType::new_ctid(
+                self.searcher
+                    .as_ref()
+                    .expect("non-empty FFHelper must retain its searcher")
+                    .segment_reader(segment_ord)
+                    .fast_fields(),
+            )
+        })
     }
 
     pub fn column(&self, segment_ord: SegmentOrdinal, field: FFIndex) -> &FFType {
-        let (ff_readers, columns, _) = &self.segment_caches[segment_ord as usize];
+        let (columns, _) = &self.segment_caches[segment_ord as usize];
         let column = &columns[field];
-        column.2.get_or_init(|| FFType::new(ff_readers, &column.0))
+        column.2.get_or_init(|| {
+            FFType::new(
+                self.searcher
+                    .as_ref()
+                    .expect("non-empty FFHelper must retain its searcher")
+                    .segment_reader(segment_ord)
+                    .fast_fields(),
+                &column.0,
+            )
+        })
     }
 
     #[track_caller]
     pub fn value(&self, field: FFIndex, doc_address: DocAddress) -> Option<TantivyValue> {
-        let (ff_readers, columns, _) = &self.segment_caches[doc_address.segment_ord as usize];
+        let (columns, _) = &self.segment_caches[doc_address.segment_ord as usize];
         let column = &columns[field];
         Some(
             column
                 .2
-                .get_or_init(|| FFType::new(ff_readers, &column.0))
+                .get_or_init(|| {
+                    FFType::new(
+                        self.searcher
+                            .as_ref()
+                            .expect("non-empty FFHelper must retain its searcher")
+                            .segment_reader(doc_address.segment_ord)
+                            .fast_fields(),
+                        &column.0,
+                    )
+                })
                 .value(doc_address.doc_id, column.1),
         )
     }

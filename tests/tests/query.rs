@@ -421,7 +421,7 @@ fn exists_query(mut conn: PgConnection) {
     "#
     .execute_result(&mut conn)
     {
-        Err(err) => assert!(err.to_string().contains("not columnar")),
+        Err(err) => assert!(err.to_string().contains("not a fast field")),
         _ => panic!("exists() over non-fast field should fail"),
     }
 

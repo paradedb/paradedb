@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787159356744,
+  "lastUpdate": 1787193025267,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -57,6 +57,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) QPS",
             "value": 529.3490216992767,
+            "unit": "QPS"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "802585d3398c5f6f0384021feb29b3813c7e75b5",
+          "message": "perf: Use an in-memory channel for self-loops in MPP (#6002)\n\n# Ticket(s) Closed\n\n- Closes #5332\n\n## What\n\nIncorporates a new tag of `datafusion-distributed` which picks up\nhttps://github.com/datafusion-contrib/datafusion-distributed/pull/656,\nand switches to using it for self-loops.\n\n## Why\n\nTo avoid serialization costs when sending data in-process.\n\n## Tests\n\nCauses some benchmark movement on small datasets, but no change on\nlarger datasets.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-19T19:03:30-07:00",
+          "tree_id": "57508ac87b2e5595e113837b3c79f7cab2ddf966",
+          "url": "https://github.com/paradedb/paradedb/commit/802585d3398c5f6f0384021feb29b3813c7e75b5"
+        },
+        "date": 1787192895476,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) QPS",
+            "value": 511.1,
             "unit": "QPS"
           }
         ]

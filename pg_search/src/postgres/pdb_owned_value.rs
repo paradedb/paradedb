@@ -59,14 +59,27 @@ impl PdbOwnedValue {
     /// that read it do, `NaN` included. A merged two-side join sample can tag one integer column
     /// `I64` on one side and `U64` on the other, so those compare by value. Everything else
     /// follows the derived `PartialOrd`; a column never mixes an integer with a float, so that
-    /// pairing does not arise.
+    /// pairing does not arise (a `debug_assert!` guards it).
     pub fn total_cmp(&self, other: &Self) -> std::cmp::Ordering {
         use tantivy::columnar::MonotonicallyMappableToU64;
         match (self, other) {
             (Self::F64(a), Self::F64(b)) => a.to_u64().cmp(&b.to_u64()),
             (Self::I64(a), Self::U64(b)) => (*a as i128).cmp(&(*b as i128)),
             (Self::U64(a), Self::I64(b)) => (*a as i128).cmp(&(*b as i128)),
-            _ => self.partial_cmp(other).unwrap_or(std::cmp::Ordering::Equal),
+            _ => {
+                // The derived order ranks by variant, not value, so a float against an integer
+                // would sort by declaration order. That pairing can't reach here, so catch it
+                // rather than rank it wrong in silence.
+                debug_assert!(
+                    !matches!(
+                        (self, other),
+                        (Self::F64(_), Self::I64(_) | Self::U64(_))
+                            | (Self::I64(_) | Self::U64(_), Self::F64(_))
+                    ),
+                    "total_cmp got a float against an integer: {self:?} vs {other:?}"
+                );
+                self.partial_cmp(other).unwrap_or(std::cmp::Ordering::Equal)
+            }
         }
     }
 

@@ -1193,3 +1193,38 @@ pub mod mvcc_collector {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn segment_deleted_docs_round_trips() {
+        let id = SegmentId::generate_random();
+        let entry = SegmentDeletedDocs::new(id, 42);
+
+        assert_eq!(entry.segment_id(), id);
+        assert_eq!(entry.deleted_docs, 42);
+    }
+
+    #[test]
+    fn segment_deleted_docs_bytes_match_fields() {
+        let entry = SegmentDeletedDocs {
+            segment_id_bytes: [1; 16],
+            deleted_docs: 99,
+        };
+        let bytes = bytemuck::bytes_of(&entry);
+        assert_eq!(bytes.len(), size_of::<SegmentDeletedDocs>());
+        assert_eq!(&bytes[..16], &[1u8; 16]);
+    }
+
+    #[test]
+    fn config_solve_mvcc_accessor() {
+        let mut config: Config = bytemuck::Zeroable::zeroed();
+        assert!(!config.solve_mvcc());
+        config.solve_mvcc = 1;
+        assert!(config.solve_mvcc());
+        config.solve_mvcc = 2;
+        assert!(config.solve_mvcc());
+    }
+}

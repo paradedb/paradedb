@@ -469,8 +469,8 @@ impl ParallelStateManager {
 /// use pg_search::parallel_worker::mqueue::MessageQueueSender;
 ///
 /// // Define a ParallelState type
+/// #[derive(Copy, Clone, bytemuck::Zeroable, bytemuck::Pod)]
 /// #[repr(C)]
-/// #[derive(Copy, Clone)]
 /// struct MyState {
 ///     junk: u32
 /// }
@@ -659,8 +659,8 @@ mod tests {
 
     #[pg_test]
     fn test_parallel_workers() {
+        #[derive(Copy, Clone, bytemuck::Zeroable, bytemuck::Pod)]
         #[repr(C)]
-        #[derive(Copy, Clone)]
         struct MyState {
             junk: u32,
         }
@@ -775,6 +775,41 @@ mod tests {
         // Any other send error, including unknown future/Postgres-specific
         // codes, must still panic.
         finish_parallel_worker(Err(MessageQueueSendError::Unknown(42 as _).into()));
+    }
+
+    #[pg_test]
+    fn test_pod_struct_bytes_of_round_trip() {
+        #[derive(Copy, Clone, Debug, PartialEq, bytemuck::Zeroable, bytemuck::Pod)]
+        #[repr(C)]
+        struct TestPod {
+            a: u32,
+            _pad: [u8; 4],
+            b: u64,
+        }
+
+        impl ParallelStateType for TestPod {}
+
+        let original = TestPod {
+            a: 42,
+            _pad: [0; 4],
+            b: 12345,
+        };
+        let bytes = <TestPod as ParallelState>::as_bytes(&original);
+        assert_eq!(bytes.len(), std::mem::size_of::<TestPod>());
+
+        let recovered: &TestPod = bytemuck::from_bytes(bytes);
+        assert_eq!(recovered.a, 42);
+        assert_eq!(recovered.b, 12345);
+    }
+
+    #[pg_test]
+    fn test_pod_vec_cast_slice_round_trip() {
+        let values: Vec<u32> = vec![1, 2, 3, 4, 5];
+        let bytes = <Vec<u32> as ParallelState>::as_bytes(&values);
+        assert_eq!(bytes.len(), 5 * std::mem::size_of::<u32>());
+
+        let recovered: &[u32] = bytemuck::cast_slice(bytes);
+        assert_eq!(recovered, &[1, 2, 3, 4, 5]);
     }
 }
 

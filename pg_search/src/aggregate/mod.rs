@@ -79,19 +79,39 @@ impl TryInto<Aggregations> for AggregateRequest {
 struct State {
     // these require the Spinlock mutex for atomic access (read and write)
     mutex: Spinlock,
+    _pad: [u8; 7],
     nlaunched: usize,
     remaining_segments: usize,
 }
+
+// SAFETY: State is #[repr(C)] with explicit padding. All fields are
+// integer types (Spinlock = u8 wrapper, usize). Every bit pattern is valid.
+unsafe impl bytemuck::Zeroable for State {}
+unsafe impl bytemuck::Pod for State {}
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 struct Config {
     indexrelid: pg_sys::Oid,
+    _pad1: [u8; 4],
     total_segments: usize,
-    solve_mvcc: bool,
-
+    solve_mvcc: u8,
+    _pad2: [u8; 7],
     memory_limit: u64,
     bucket_limit: u32,
+    _pad3: [u8; 4],
+}
+
+// SAFETY: Config is #[repr(C)] with explicit padding. All fields are
+// integer types (Oid = u32 wrapper, usize, u8, u64, u32). Every bit
+// pattern is valid.
+unsafe impl bytemuck::Zeroable for Config {}
+unsafe impl bytemuck::Pod for Config {}
+
+impl Config {
+    fn solve_mvcc(&self) -> bool {
+        self.solve_mvcc != 0
+    }
 }
 
 impl State {
@@ -148,15 +168,19 @@ impl ParallelAggregation {
         Ok(Self {
             state: State {
                 mutex: Spinlock::new(),
+                _pad: [0; 7],
                 nlaunched: 0,
                 remaining_segments: segment_ids.len(),
             },
             config: Config {
                 indexrelid,
+                _pad1: [0; 4],
                 total_segments: segment_ids.len(),
-                solve_mvcc,
+                solve_mvcc: solve_mvcc as u8,
+                _pad2: [0; 7],
                 memory_limit,
                 bucket_limit,
+                _pad3: [0; 4],
             },
             agg_req_bytes: serde_json::to_vec(&aggregation)?,
             query_bytes: serde_json::to_vec(query)?,
@@ -193,10 +217,13 @@ impl<'a> ParallelAggregationWorker<'a> {
             state,
             config: Config {
                 indexrelid,
+                _pad1: [0; 4],
                 total_segments: segment_ids.len(),
-                solve_mvcc,
+                solve_mvcc: solve_mvcc as u8,
+                _pad2: [0; 7],
                 memory_limit,
                 bucket_limit,
+                _pad3: [0; 4],
             },
             aggregation: Some(aggregation),
             query,
@@ -290,7 +317,7 @@ impl<'a> ParallelAggregationWorker<'a> {
             .heap_relation()
             .expect("index should belong to a heap relation");
         let (base_collector, vischeck) =
-            aggregations.plan(&reader, &heaprel, self.config.solve_mvcc, limits);
+            aggregations.plan(&reader, &heaprel, self.config.solve_mvcc(), limits);
 
         let start = std::time::Instant::now();
         let intermediate_results = if let Some(vischeck) = vischeck {
@@ -547,6 +574,7 @@ pub fn execute_aggregate(
                 .collect::<Vec<_>>();
             let mut state = State {
                 mutex: Spinlock::default(),
+                _pad: [0; 7],
                 nlaunched: 1,
                 remaining_segments: segment_ids.len(),
             };

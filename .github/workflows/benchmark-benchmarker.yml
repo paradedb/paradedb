@@ -255,7 +255,8 @@ jobs:
 
       - name: Publish Throughput (QPS)
         continue-on-error: true # Don't let a publish hiccup block the dashboards/comment below.
-        uses: benchmark-action/github-action-benchmark@v1
+        # paradedb fork: shallow-clones only the gh-pages branch on publish.
+        uses: paradedb/github-action-benchmark@v1
         with:
           name: "benchmarker hn-ci (QPS)"
           ref: ${{ steps.determine-ref.outputs.ref }}
@@ -279,7 +280,8 @@ jobs:
 
       - name: Publish Latency (p50/p90/p95/p99)
         continue-on-error: true
-        uses: benchmark-action/github-action-benchmark@v1
+        # paradedb fork: shallow-clones only the gh-pages branch on publish.
+        uses: paradedb/github-action-benchmark@v1
         with:
           name: "benchmarker hn-ci (latency percentiles)"
           ref: ${{ steps.determine-ref.outputs.ref }}

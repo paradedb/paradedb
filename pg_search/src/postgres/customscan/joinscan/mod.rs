@@ -621,7 +621,7 @@ impl JoinScan {
 
         if !order_by_columns_are_fast_fields(root, &all_sources, has_distinct) {
             return Err(JoinDeclineReason::new(
-                "JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation",
+                "JoinScan not used: ORDER BY columns must be columnar and have a byte-ordered (C-like) collation",
             ));
         }
 
@@ -644,7 +644,7 @@ impl JoinScan {
                         .is_none()
                     {
                         return Err(JoinDeclineReason::new(
-                            "JoinScan not used: join keys must be fast fields",
+                            "JoinScan not used: join keys must be columnar",
                         ));
                     }
                 }
@@ -2260,7 +2260,7 @@ impl JoinScan {
         )
         .map_err(|_| {
             warn(JoinDeclineReason::new(
-                "JoinScan not used: failed to extract join-level conditions (ensure all referenced columns are fast fields)",
+                "JoinScan not used: failed to extract join-level conditions (ensure all referenced columns are columnar)",
             ))
         })?;
         join_clause = join_clause_updated;

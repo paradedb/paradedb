@@ -176,7 +176,7 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                             break; // Found a valid grouping column for this pathkey
                         } else {
                             last_error = Some(format!(
-                                "grouping column {} exists, but is not a fast field",
+                                "grouping column {} exists, but is not columnar",
                                 field_name
                             ));
                             // wait to return error until we check all members

@@ -67,7 +67,7 @@ SELECT id FROM citext_basic WHERE name ||| 'hello' ORDER BY id;
          Table: citext_basic
          Index: citext_basic_id_name_idx
          Exec Method: ColumnarExecState
-         Fast Fields: id
+         Columnar Fields: id
          Scores: false
          Tantivy Query: {"with_index":{"query":{"match":{"field":"name","value":"hello","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
@@ -375,7 +375,7 @@ SELECT category, COUNT(*) FROM citext_agg
 WHERE category ||| 'alpha beta gamma'
 GROUP BY category
 ORDER BY category;
-WARNING:  Aggregate Scan not used: grouping column category exists, but is not a fast field. To disable this warning: SET paradedb.check_aggregate_scan = false (table: citext_agg)
+WARNING:  Aggregate Scan not used: grouping column category exists, but is not columnar. To disable this warning: SET paradedb.check_aggregate_scan = false (table: citext_agg)
  category | count 
 ----------+-------
  Alpha    |     2
@@ -387,7 +387,7 @@ SELECT category, SUM(value) FROM citext_agg
 WHERE category ||| 'alpha beta'
 GROUP BY category
 ORDER BY category;
-WARNING:  Aggregate Scan not used: grouping column category exists, but is not a fast field. To disable this warning: SET paradedb.check_aggregate_scan = false (table: citext_agg)
+WARNING:  Aggregate Scan not used: grouping column category exists, but is not columnar. To disable this warning: SET paradedb.check_aggregate_scan = false (table: citext_agg)
  category | sum 
 ----------+-----
  Alpha    |  40

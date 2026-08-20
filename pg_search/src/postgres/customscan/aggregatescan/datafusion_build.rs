@@ -1337,7 +1337,7 @@ unsafe fn require_fast_field(
             source.scan_info.add_field(attno, field);
             Ok(())
         }
-        None => Err(format!("{} is not a fast field", describe())),
+        None => Err(format!("{} is not columnar", describe())),
     }
 }
 
@@ -1429,7 +1429,7 @@ pub unsafe fn populate_required_fields(
 
             if resolved_field.is_none() {
                 return Err(format!(
-                    "GROUP BY column '{}' (attno={}) is not a fast field",
+                    "GROUP BY column '{}' (attno={}) is not columnar",
                     gc.field_name, gc.attno,
                 ));
             }

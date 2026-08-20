@@ -275,7 +275,7 @@ CREATE TABLE "MixedCaseTable" (
 -- Note: Suppliers table exists from setup (IDs 151-154)
 INSERT INTO "MixedCaseTable" ("ID", "Content", "JoinKey") VALUES (1, 'wireless', 151);
 
--- Note: "JoinKey" must be a fast field
+-- Note: "JoinKey" must be columnar
 CREATE INDEX mixed_case_bm25_idx ON "MixedCaseTable" USING paradedb ("ID", "Content", "JoinKey")
 WITH (key_field = 'ID', numeric_fields = '{"JoinKey": {"fast": true}}');
 

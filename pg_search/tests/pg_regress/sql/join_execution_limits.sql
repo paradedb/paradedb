@@ -49,7 +49,7 @@ SELECT
     CASE WHEN i % 5 = 0 THEN 'wireless product order' ELSE 'regular product order' END
 FROM generate_series(1, 1000) i;
 
--- Note: large_orders.supplier_id must be a fast field for the join key
+-- Note: large_orders.supplier_id must be columnar for the join key
 CREATE INDEX large_orders_bm25_idx ON large_orders USING paradedb (id, description, supplier_id)
 WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}}');
 CREATE INDEX large_suppliers_bm25_idx ON large_suppliers USING paradedb (id, name, country) WITH (key_field = 'id');
@@ -109,7 +109,7 @@ SELECT i,
        (i % 100) + 1
 FROM generate_series(1, 500) AS i;
 
--- Note: mem_test_products.supplier_id must be a fast field for the join key
+-- Note: mem_test_products.supplier_id must be columnar for the join key
 CREATE INDEX mem_test_products_bm25_idx ON mem_test_products 
     USING paradedb (id, name, description, supplier_id)
     WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}}');
@@ -176,7 +176,7 @@ SELECT
     (i % 50) + 1
 FROM generate_series(1, 1000) AS i;
 
--- Note: large_items.category_id must be a fast field for the join key
+-- Note: large_items.category_id must be columnar for the join key
 CREATE INDEX large_items_bm25_idx ON large_items USING paradedb (id, name, content, category_id)
 WITH (key_field = 'id', numeric_fields = '{"category_id": {"fast": true}}');
 CREATE INDEX large_categories_bm25_idx ON large_categories USING paradedb (id, name, description) WITH (key_field = 'id');
@@ -226,7 +226,7 @@ INSERT INTO update_test_items (id, content, ref_id) VALUES
 (102, 'wired device beta', 2),
 (103, 'wireless device gamma', 3);
 
--- Note: update_test_items.ref_id must be a fast field for the join key
+-- Note: update_test_items.ref_id must be columnar for the join key
 CREATE INDEX update_items_bm25_idx ON update_test_items USING paradedb (id, content, ref_id)
 WITH (key_field = 'id', numeric_fields = '{"ref_id": {"fast": true}}');
 CREATE INDEX update_refs_bm25_idx ON update_test_refs USING paradedb (id, ref_name) WITH (key_field = 'id');
@@ -301,7 +301,7 @@ INSERT INTO tiny_products VALUES
 (102, 2, 'wired device beta'),
 (103, 1, 'wireless device gamma');
 
--- Note: tiny_products.ref_id must be a fast field for the join key
+-- Note: tiny_products.ref_id must be columnar for the join key
 CREATE INDEX tiny_products_bm25_idx ON tiny_products USING paradedb (id, description, ref_id)
 WITH (key_field = 'id', numeric_fields = '{"ref_id": {"fast": true}}');
 CREATE INDEX tiny_refs_bm25_idx ON tiny_refs USING paradedb (id, name) WITH (key_field = 'id');
@@ -353,7 +353,7 @@ SELECT i, (i % 50) + 1,
     CASE WHEN i % 3 = 0 THEN 'wireless product' ELSE 'standard product' END
 FROM generate_series(1, 200) i;
 
--- Note: hint_test_products.category_id must be a fast field for the join key
+-- Note: hint_test_products.category_id must be columnar for the join key
 CREATE INDEX hint_test_products_bm25_idx ON hint_test_products USING paradedb (id, description, category_id)
 WITH (key_field = 'id', numeric_fields = '{"category_id": {"fast": true}}');
 CREATE INDEX hint_test_categories_bm25_idx ON hint_test_categories USING paradedb (id, name) WITH (key_field = 'id');

@@ -215,7 +215,7 @@ impl FFType {
         } else if let Ok(ff) = ffr.date(field_name) {
             Self::Date(ff)
         } else {
-            panic!("`{field_name}` is missing or is not configured as a fast field")
+            panic!("`{field_name}` is missing or is not configured as columnar")
         }
     }
 

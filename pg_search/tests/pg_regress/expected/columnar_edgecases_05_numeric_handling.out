@@ -51,7 +51,7 @@ SET enable_seqscan = off;
 SET enable_bitmapscan = off;
 SET enable_indexscan = off;
 -- First run with normal execution method
-SET paradedb.enable_fast_field_exec = false;
+SET paradedb.enable_legacy_columnar_exec = false;
 SET paradedb.enable_columnar_exec = false;
 -- Get query plan to verify we're using NormalScanExecState
 EXPLAIN (VERBOSE, COSTS OFF, TIMING OFF)
@@ -97,7 +97,7 @@ ORDER BY numeric_field1;
 (7 rows)
 
 -- Now enable ColumnarExec
-SET paradedb.enable_fast_field_exec = false;
+SET paradedb.enable_legacy_columnar_exec = false;
 SET paradedb.enable_columnar_exec = true;
 -- Get query plan to verify we're using ColumnarExec
 EXPLAIN (VERBOSE, COSTS OFF, TIMING OFF)
@@ -119,7 +119,7 @@ ORDER BY numeric_field1;
          Index: benchmark_data_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Fast Fields: numeric_field1, numeric_field2, numeric_field3
+         Columnar Fields: numeric_field1, numeric_field2, numeric_field3
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"string_field1","query_string":"IN [alpha beta gamma delta epsilon]","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"string_field2","query_string":"IN [red blue green]","lenient":null,"conjunction_mode":null}}}}]}}
 (12 rows)
@@ -143,7 +143,7 @@ ORDER BY numeric_field1;
             100 |              0 |         100.00
 (7 rows)
 
-RESET paradedb.enable_fast_field_exec;
+RESET paradedb.enable_legacy_columnar_exec;
 RESET paradedb.enable_columnar_exec;
 RESET enable_seqscan;
 RESET enable_bitmapscan;

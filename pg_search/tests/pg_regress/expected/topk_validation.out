@@ -40,8 +40,8 @@ LIMIT 5;
 (3 rows)
 
 -- Test 2: Enable validation - should warn about missing fast field
-\echo 'Test 2: Validation ON - warning expected (ORDER BY not a fast field)'
-Test 2: Validation ON - warning expected (ORDER BY not a fast field)
+\echo 'Test 2: Validation ON - warning expected (ORDER BY not columnar)'
+Test 2: Validation ON - warning expected (ORDER BY not columnar)
 SET paradedb.check_topk_scan = true;
 SELECT id, description FROM test_products
 WHERE description @@@ 'shoes'

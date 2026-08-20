@@ -38,7 +38,7 @@ ORDER BY id;
          Table: json_term_set_test
          Index: json_term_set_test_idx
          Exec Method: ColumnarExecState
-         Fast Fields: id
+         Columnar Fields: id
          Scores: false
          Tantivy Query: {"with_index":{"query":{"term_set":{"terms":[{"field":"metadata.attributes.tstz","value":{"$__pdb_date__":"2023-05-01T09:12:34Z"}},{"field":"metadata.attributes.tstz","value":{"$__pdb_date__":"2023-05-01T10:12:34Z"}}]}}}}
 (9 rows)
@@ -77,7 +77,7 @@ ORDER BY id;
          Table: json_term_set_test
          Index: json_term_set_test_idx
          Exec Method: ColumnarExecState
-         Fast Fields: id
+         Columnar Fields: id
          Scores: false
          Tantivy Query: {"with_index":{"query":{"term_set":{"terms":[{"field":"metadata.attributes.tstz","value":"2023-05-01T09:12:34Z"},{"field":"metadata.attributes.tstz","value":"2023-05-01T10:12:34Z"}]}}}}
 (9 rows)

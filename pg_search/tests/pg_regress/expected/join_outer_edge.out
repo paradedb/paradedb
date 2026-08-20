@@ -214,7 +214,7 @@ WARNING:  JoinScan not used: outer joins support only equi-join conditions in th
                      Index: oj_fact_idx
                      Worker Selection: Cost model
                      Exec Method: ColumnarExecState
-                     Fast Fields: dim_id, id
+                     Columnar Fields: dim_id, id
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
                ->  Hash

@@ -308,7 +308,7 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: d,
                      Index: stk_documents_bm25_idx
                      Worker Selection: Cost model
                      Exec Method: ColumnarExecState
-                     Fast Fields: id
+                     Columnar Fields: id
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
 (20 rows)

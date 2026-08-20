@@ -101,7 +101,7 @@ WHERE title ||| 'sheriff';
    Table: documents
    Index: documents_bm25
    Exec Method: ColumnarExecState
-   Fast Fields: id
+   Columnar Fields: id
    Scores: true
    Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"title","value":"sheriff","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"field_filters":[{"heap_filter":"check_org_access(org_id)"}]}}]}}
 (7 rows)

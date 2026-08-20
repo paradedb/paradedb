@@ -540,7 +540,7 @@ impl ExecMethod for ColumnarExecState {
                     .expect("ctid column should be UInt64Array");
                 ctid_array.value(row_idx)
             } else {
-                panic!("ctid column not found in fast field execution");
+                panic!("ctid column not found in columnar execution");
             };
 
             // Set ctid and table OID on the slot

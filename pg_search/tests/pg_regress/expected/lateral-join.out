@@ -743,7 +743,7 @@ LEFT JOIN (
 WHERE a.content @@@ 'database'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
-WARNING:  Aggregate Scan (DataFusion) not used: join key (plan_position=0, attno=2) is not a fast field (table: join)
+WARNING:  Aggregate Scan (DataFusion) not used: join key (plan_position=0, attno=2) is not columnar (table: join)
                                                                            QUERY PLAN                                                                            
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -790,7 +790,7 @@ LEFT JOIN (
 WHERE a.content @@@ 'database'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
-WARNING:  Aggregate Scan (DataFusion) not used: join key (plan_position=0, attno=2) is not a fast field (table: join)
+WARNING:  Aggregate Scan (DataFusion) not used: join key (plan_position=0, attno=2) is not columnar (table: join)
  id |              title               | author_name | comment_count 
 ----+----------------------------------+-------------+---------------
   4 | Database Security Best Practices | Alice Brown |            20

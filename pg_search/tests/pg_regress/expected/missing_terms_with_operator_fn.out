@@ -11,7 +11,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM missing_fn WHERE id =
          Table: missing_fn
          Index: idxmissing_fn
          Exec Method: ColumnarExecState
-         Fast Fields: id
+         Columnar Fields: id
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"term_set":{"terms":[{"field":"id","value":3}]}},{"with_index":{"query":"all"}}]}}
 (9 rows)
@@ -34,7 +34,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM missing_fn WHERE id =
          Table: missing_fn
          Index: idxmissing_fn
          Exec Method: ColumnarExecState
-         Fast Fields: id
+         Columnar Fields: id
          Scores: false
          Full Index Scan: true
          Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"heap_filter":"(id = ANY ('{3}'::integer[]))"}]}}]}}

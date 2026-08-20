@@ -453,7 +453,7 @@ mod tests {
     }
 
     #[pg_test]
-    #[should_panic(expected = "fast field")]
+    #[should_panic(expected = "columnar")]
     fn test_build_sort_by_field_not_fast() {
         let mut builder = Schema::builder();
         // Add field without FAST flag

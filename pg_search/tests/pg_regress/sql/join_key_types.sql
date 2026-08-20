@@ -44,7 +44,7 @@ INSERT INTO orders (id, customer_code, description, amount) VALUES
 (4, 'CUST-003', 'monitor stand', 49.99),
 (5, 'CUST-002', 'cable wireless charger', 19.99);
 
--- Note: orders.customer_code must be a fast field for the join key
+-- Note: orders.customer_code must be columnar for the join key
 CREATE INDEX orders_bm25_idx ON orders USING paradedb (id, description, customer_code)
 WITH (key_field = 'id', text_fields = '{"customer_code": {"fast": true, "tokenizer": {"type": "keyword"}}}');
 CREATE INDEX customers_bm25_idx ON customers USING paradedb (customer_code, name, email) WITH (key_field = 'customer_code');
@@ -159,7 +159,7 @@ INSERT INTO items (id, type_id, name, details) VALUES
 (3, 1, 'Smart Speaker', 'wireless bluetooth speaker'),
 (4, 2, 'Phone Case', 'protective case');
 
--- Note: items.type_id must be a fast field for the join key
+-- Note: items.type_id must be columnar for the join key
 CREATE INDEX items_bm25_idx ON items USING paradedb (id, name, details, type_id)
 WITH (key_field = 'id', numeric_fields = '{"type_id": {"fast": true}}');
 CREATE INDEX item_types_bm25_idx ON item_types USING paradedb (type_id, type_name, description) WITH (key_field = 'type_id');
@@ -219,7 +219,7 @@ INSERT INTO docs (title, content, author_code) VALUES
 ('Distributed Systems', 'Building scalable distributed architectures', 'AUTH002'),
 ('ML Basics', 'Introduction to machine learning concepts', 'AUTH003');
 
--- Note: docs.author_code must be a fast field for the join key
+-- Note: docs.author_code must be columnar for the join key
 CREATE INDEX docs_bm25_idx ON docs USING paradedb (id, title, content, author_code)
 WITH (key_field = 'id', text_fields = '{"author_code": {"fast": true, "tokenizer": {"type": "keyword"}}}');
 CREATE INDEX authors_bm25_idx ON authors USING paradedb (author_code, name, bio) WITH (key_field = 'author_code');
@@ -273,7 +273,7 @@ INSERT INTO items_with_nulls (id, name, content, category_id) VALUES
 (104, 'Orphan Item', 'Item with no category assignment', NULL),  -- NULL category
 (105, 'Another Orphan', 'Another uncategorized item', NULL);     -- NULL category
 
--- Note: items.category_id must be a fast field for the join key
+-- Note: items.category_id must be columnar for the join key
 CREATE INDEX items_nulls_bm25_idx ON items_with_nulls USING paradedb (id, name, content, category_id)
 WITH (key_field = 'id', numeric_fields = '{"category_id": {"fast": true}}');
 CREATE INDEX categories_nulls_bm25_idx ON categories_with_nulls USING paradedb (id, name, description) WITH (key_field = 'id');
@@ -387,7 +387,7 @@ INSERT INTO uuid_orders (customer_id, description, amount) VALUES
 ('b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22', 'Monitor stand order', 49.99),
 ('c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a33', 'Wireless mouse order', 39.69);
 
--- Note: uuid_orders.customer_id must be a fast field for the join key
+-- Note: uuid_orders.customer_id must be columnar for the join key
 -- UUID columns use key_field which is implicitly fast, or explicit text_fields config
 CREATE INDEX uuid_orders_bm25_idx ON uuid_orders USING paradedb (id, description, customer_id)
 WITH (key_field = 'id', text_fields = '{"customer_id": {"fast": true, "tokenizer": {"type": "keyword"}}}');
@@ -442,7 +442,7 @@ INSERT INTO numeric_transactions (account_num, description, amount) VALUES
 (98765432109876543210, 'Interest payment', 50.00),
 (11111111111111111111, 'Stock purchase wire', 5000.00);
 
--- Note: numeric_transactions.account_num must be a fast field for the join key
+-- Note: numeric_transactions.account_num must be columnar for the join key
 CREATE INDEX numeric_trans_bm25_idx ON numeric_transactions USING paradedb (id, description, account_num)
 WITH (key_field = 'id', numeric_fields = '{"account_num": {"fast": true}}');
 -- numeric_accounts.account_num is the key_field, which is implicitly fast

@@ -159,7 +159,7 @@ WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relatio
                            Table: companies_op
                            Index: companies_op_idx
                            Exec Method: ColumnarExecState
-                           Columnar Fields: id
+                           Columnar: id
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Acme OR Globex","lenient":null,"conjunction_mode":null}}}}
 (23 rows)

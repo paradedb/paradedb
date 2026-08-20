@@ -457,7 +457,7 @@ LIMIT 10;
                            Table: products
                            Index: products_idx
                            Exec Method: ColumnarExecState
-                           Columnar Fields: id, name, price
+                           Columnar: id, name, price
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}
 (19 rows)
@@ -506,7 +506,7 @@ WARNING:  JoinScan not used: join keys must be fast fields (tables: p, r)
                            Table: products
                            Index: products_idx
                            Exec Method: ColumnarExecState
-                           Columnar Fields: id, name
+                           Columnar: id, name
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"product","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
@@ -761,7 +761,7 @@ ORDER BY p.price;
                            Table: categories
                            Index: categories_idx
                            Exec Method: ColumnarExecState
-                           Columnar Fields: id
+                           Columnar: id
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"electronics OR clothing","lenient":null,"conjunction_mode":null}}}}
 (19 rows)
@@ -930,7 +930,7 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p,
                                  Table: products
                                  Index: products_idx
                                  Exec Method: ColumnarExecState
-                                 Columnar Fields: id, name, price
+                                 Columnar: id, name, price
                                  Scores: false
                                  Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"is_available","value":true}}]}}
 (24 rows)

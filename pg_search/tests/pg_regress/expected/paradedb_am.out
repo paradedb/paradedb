@@ -64,7 +64,7 @@ SELECT id FROM items WHERE content @@@ 'wireless' ORDER BY id;
          Index: items_paradedb_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id
+         Columnar: id
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (12 rows)

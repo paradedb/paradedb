@@ -67,7 +67,7 @@ ORDER BY priority DESC NULLS LAST;
          Table: sorted_scan_test
          Index: sorted_scan_test_idx
          Exec Method: ColumnarExecState
-         Columnar Fields: id, priority
+         Columnar: id, priority
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
@@ -85,7 +85,7 @@ ORDER BY priority DESC;
          Table: sorted_scan_test
          Index: sorted_scan_test_idx
          Exec Method: ColumnarExecState
-         Columnar Fields: id, priority
+         Columnar: id, priority
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
@@ -103,7 +103,7 @@ ORDER BY priority ASC NULLS FIRST;
          Table: sorted_scan_test
          Index: sorted_scan_test_idx
          Exec Method: ColumnarExecState
-         Columnar Fields: id, priority
+         Columnar: id, priority
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
@@ -118,7 +118,7 @@ WHERE content @@@ 'searchable';
    Table: sorted_scan_test
    Index: sorted_scan_test_idx
    Exec Method: ColumnarExecState
-   Columnar Fields: id, priority
+   Columnar: id, priority
    Scores: false
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
 (7 rows)
@@ -193,7 +193,7 @@ ORDER BY priority DESC NULLS LAST, id ASC;
                Table: sorted_scan_test
                Index: sorted_scan_test_idx
                Exec Method: ColumnarExecState
-               Columnar Fields: id, priority
+               Columnar: id, priority
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
@@ -213,7 +213,7 @@ ORDER BY priority DESC NULLS LAST;
                Table: sorted_scan_test
                Index: sorted_scan_test_idx
                Exec Method: ColumnarExecState
-               Columnar Fields: id, priority
+               Columnar: id, priority
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
@@ -241,7 +241,7 @@ ORDER BY priority DESC NULLS LAST, id ASC;
          Table: sorted_scan_test
          Index: sorted_scan_test_idx
          Exec Method: ColumnarExecState
-         Columnar Fields: id, priority
+         Columnar: id, priority
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
@@ -260,7 +260,7 @@ ORDER BY id ASC, priority DESC NULLS LAST;
          Table: sorted_scan_test
          Index: sorted_scan_test_idx
          Exec Method: ColumnarExecState
-         Columnar Fields: id, priority
+         Columnar: id, priority
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
@@ -454,7 +454,7 @@ SELECT id, priority FROM sorted_scan_test WHERE content @@@ 'searchable' ORDER B
          Table: sorted_scan_test
          Index: sorted_scan_test_idx
          Exec Method: ColumnarExecState
-         Columnar Fields: id, priority
+         Columnar: id, priority
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
@@ -517,7 +517,7 @@ SELECT id, rating FROM dtype_float_test WHERE content @@@ 'movie' ORDER BY ratin
          Table: dtype_float_test
          Index: dtype_float_test_idx
          Exec Method: ColumnarExecState
-         Columnar Fields: id, rating
+         Columnar: id, rating
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"movie","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
@@ -561,7 +561,7 @@ SELECT id, created_at FROM dtype_ts_test WHERE content @@@ 'event' ORDER BY crea
          Table: dtype_ts_test
          Index: dtype_ts_test_idx
          Exec Method: ColumnarExecState
-         Columnar Fields: created_at, id
+         Columnar: created_at, id
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"event","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
@@ -605,7 +605,7 @@ SELECT id, event_date FROM dtype_date_test WHERE content @@@ 'appointment' ORDER
          Table: dtype_date_test
          Index: dtype_date_test_idx
          Exec Method: ColumnarExecState
-         Columnar Fields: event_date, id
+         Columnar: event_date, id
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"appointment","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
@@ -652,7 +652,7 @@ SELECT id, uuid_col FROM dtype_uuid_test WHERE content @@@ 'uuid' ORDER BY uuid_
          Table: dtype_uuid_test
          Index: dtype_uuid_test_idx
          Exec Method: ColumnarExecState
-         Columnar Fields: id, uuid_col
+         Columnar: id, uuid_col
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"uuid","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
@@ -700,7 +700,7 @@ SELECT id, amount FROM dtype_numeric_test WHERE content @@@ 'num' ORDER BY amoun
          Table: dtype_numeric_test
          Index: dtype_numeric_test_idx
          Exec Method: ColumnarExecState
-         Columnar Fields: amount, id
+         Columnar: amount, id
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"num","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
@@ -1110,7 +1110,7 @@ ORDER BY fast_field DESC NULLS LAST;
          Table: exec_method_test
          Index: exec_method_test_idx
          Exec Method: ColumnarExecState
-         Columnar Fields: fast_field, id
+         Columnar: fast_field, id
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
@@ -1313,7 +1313,7 @@ ORDER BY value DESC;
          Table: no_sortby_test
          Index: no_sortby_test_idx
          Exec Method: ColumnarExecState
-         Columnar Fields: id, value
+         Columnar: id, value
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
@@ -1389,7 +1389,7 @@ ORDER BY priority DESC NULLS LAST;
                Table: parallel_sorted_test
                Index: parallel_sorted_test_idx
                Exec Method: ColumnarExecState
-               Columnar Fields: id, priority
+               Columnar: id, priority
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"document","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
@@ -1448,7 +1448,7 @@ ORDER BY priority DESC NULLS LAST, id ASC;
                Table: parallel_sorted_test
                Index: parallel_sorted_test_idx
                Exec Method: ColumnarExecState
-               Columnar Fields: id, priority
+               Columnar: id, priority
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"document","lenient":null,"conjunction_mode":null}}}}
 (11 rows)

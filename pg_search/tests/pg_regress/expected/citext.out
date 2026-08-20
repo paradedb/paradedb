@@ -67,7 +67,7 @@ SELECT id FROM citext_basic WHERE name ||| 'hello' ORDER BY id;
          Table: citext_basic
          Index: citext_basic_id_name_idx
          Exec Method: ColumnarExecState
-         Columnar Fields: id
+         Columnar: id
          Scores: false
          Tantivy Query: {"with_index":{"query":{"match":{"field":"name","value":"hello","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)

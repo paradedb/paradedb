@@ -81,7 +81,7 @@ WHERE id @@@ paradedb.match(field => 'title', value => 'sheriff');
    Table: rls_score_bug_test
    Index: rls_score_bug_bm25
    Exec Method: ColumnarExecState
-   Columnar Fields: id
+   Columnar: id
    Scores: true
    Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"sheriff","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
 (7 rows)
@@ -114,7 +114,7 @@ WHERE title ||| 'sheriff';
    Table: rls_score_bug_test
    Index: rls_score_bug_bm25
    Exec Method: ColumnarExecState
-   Columnar Fields: id
+   Columnar: id
    Scores: true
    Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"title","value":"sheriff","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"field_filters":[{"heap_filter":"rls_bug_check_definer(org_id)"}]}}]}}
 (7 rows)

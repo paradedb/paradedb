@@ -29,7 +29,7 @@ WARNING:  Aggregate Scan not used: Field 'rating' is not a grouping column. To d
                      Table: mock_items
                      Index: mock_items_id_description_rating_category_metadata_idx
                      Exec Method: ColumnarExecState
-                     Columnar Fields: id, rating
+                     Columnar: id, rating
                      Scores: false
                      Full Index Scan: true
                      Tantivy Query: {"with_index":{"query":"all"}}

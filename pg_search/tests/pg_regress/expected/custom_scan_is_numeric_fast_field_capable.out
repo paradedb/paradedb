@@ -50,7 +50,7 @@ select assert(count(*), 8), count(*) from (select id from test where message @@@
                      Table: test
                      Index: idxtest
                      Exec Method: ColumnarExecState
-                     Columnar Fields: severity
+                     Columnar: severity
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
@@ -73,7 +73,7 @@ select assert(count(*), 8), count(*), max(id) from (select id from test where me
                      Table: test
                      Index: idxtest
                      Exec Method: ColumnarExecState
-                     Columnar Fields: id, severity
+                     Columnar: id, severity
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
@@ -96,7 +96,7 @@ select assert(count(*), 8), count(*), max(myid) from (select 12 as myid from tes
                      Table: test
                      Index: idxtest
                      Exec Method: ColumnarExecState
-                     Columnar Fields: severity
+                     Columnar: severity
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}}}
 (11 rows)

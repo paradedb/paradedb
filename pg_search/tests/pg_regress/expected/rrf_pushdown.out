@@ -206,7 +206,7 @@ ORDER BY n DESC LIMIT 10;
                      Table: wlp
                      Index: wlp_idx
                      Exec Method: ColumnarExecState
-                     Columnar Fields: id, n
+                     Columnar: id, n
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"label","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
 (12 rows)
@@ -249,7 +249,7 @@ ORDER BY grp DESC LIMIT 3;
                                  Table: wlp
                                  Index: wlp_idx
                                  Exec Method: ColumnarExecState
-                                 Columnar Fields: grp
+                                 Columnar: grp
                                  Scores: false
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"label","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
 (16 rows)

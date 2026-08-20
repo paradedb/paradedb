@@ -115,7 +115,7 @@ WARNING:  JoinScan not used: DISTINCT columns must be columnar indexed (tables: 
                            Table: typmod_products
                            Index: typmod_products_idx
                            Exec Method: ColumnarExecState
-                           Columnar Fields: supplier_id
+                           Columnar: supplier_id
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"widget"}}}}
                      ->  Seq Scan on typmod_suppliers s

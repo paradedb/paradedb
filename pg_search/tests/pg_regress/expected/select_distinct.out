@@ -1230,7 +1230,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on a nondeterministic c
                Table: dist_ci
                Index: dist_ci_idx
                Exec Method: ColumnarExecState
-               Columnar Fields: value
+               Columnar: value
                Scores: false
                Full Index Scan: true
                Tantivy Query: {"with_index":{"query":"all"}}

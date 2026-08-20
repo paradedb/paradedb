@@ -128,14 +128,14 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: d,
                      Table: files
                      Index: files_search
                      Exec Method: ColumnarExecState
-                     Columnar Fields: documentid, file_path, id, title
+                     Columnar: documentid, file_path, id, title
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
                ->  Custom Scan (ParadeDB Base Scan) on pages p
                      Table: pages
                      Index: pages_search
                      Exec Method: ColumnarExecState
-                     Columnar Fields: fileid, id, page_number
+                     Columnar: fileid, id, page_number
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
          ->  Hash
@@ -143,7 +143,7 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: d,
                      Table: documents
                      Index: documents_search
                      Exec Method: ColumnarExecState
-                     Columnar Fields: id, parents
+                     Columnar: id, parents
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
 (28 rows)

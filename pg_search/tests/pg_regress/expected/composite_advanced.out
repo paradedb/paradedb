@@ -1084,7 +1084,7 @@ ORDER BY priority DESC NULLS LAST;
          Table: columnar_comp_test
          Index: columnar_comp_test_idx
          Exec Method: ColumnarExecState
-         Columnar Fields: id, priority
+         Columnar: id, priority
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"item","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
@@ -1173,7 +1173,7 @@ SELECT id, priority FROM comp_test WHERE name @@@ 'foo' ORDER BY priority DESC N
          Table: comp_test
          Index: comp_test_idx
          Exec Method: ColumnarExecState
-         Columnar Fields: id, priority
+         Columnar: id, priority
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"foo","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
@@ -1250,7 +1250,7 @@ SELECT id, ABS(val) FROM func_expr_test WHERE name @@@ 'foo' ORDER BY ABS(val) D
          Table: func_expr_test
          Index: func_expr_idx
          Exec Method: ColumnarExecState
-         Columnar Fields: abs_val, id
+         Columnar: abs_val, id
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"foo","lenient":null,"conjunction_mode":null}}}}
 (9 rows)

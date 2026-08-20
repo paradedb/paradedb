@@ -269,7 +269,7 @@ LIMIT 50;
                      Table: lp_items
                      Index: lp_items_bm25
                      Exec Method: ColumnarExecState
-                     Columnar Fields: fk
+                     Columnar: fk
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
                ->  Hash

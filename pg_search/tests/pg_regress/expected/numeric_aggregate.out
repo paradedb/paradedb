@@ -160,7 +160,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: SUM on an unbounded NUMERIC colu
          Index: numagg_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: free
+         Columnar: free
          Scores: false
          Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"apple OR basket OR crate","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (11 rows)
@@ -626,7 +626,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: HAVING on a NUMERIC aggregate is
                Index: numagg_idx
                Worker Selection: Cost model
                Exec Method: ColumnarExecState
-               Columnar Fields: category, price
+               Columnar: category, price
                Scores: false
                Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"apple OR basket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (16 rows)
@@ -655,7 +655,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: SUM with DISTINCT is not support
                Index: numagg_idx
                Worker Selection: Cost model
                Exec Method: ColumnarExecState
-               Columnar Fields: price
+               Columnar: price
                Scores: false
                Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"apple OR basket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (14 rows)
@@ -681,7 +681,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: STDDEV_SAMP is not supported on 
          Index: numagg_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: price
+         Columnar: price
          Scores: false
          Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"apple OR basket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (11 rows)

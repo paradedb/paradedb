@@ -66,6 +66,7 @@ use crate::postgres::customscan::mpp::glue::{
 };
 use crate::postgres::customscan::mpp::worker_fragments::{collect_stages, max_producer_task_count};
 use crate::postgres::{ParallelScanArgs, ParallelScanState};
+use crate::scan::info::RowEstimate;
 
 /// `state_values()` order. Each index maps to a `ParallelState` TOC entry the workers look up.
 const MESH_IDX: usize = 0;
@@ -297,9 +298,39 @@ impl MppLifecycle {
 fn launch_mpp(
     physical: &std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
     args: ParallelScanArgs,
+    source_estimates: &[RowEstimate],
     worker_entrypoint: &'static str,
 ) -> Option<MppLeaderState> {
     let mut timing = crate::postgres::customscan::mpp::glue::MppLaunchTiming::default();
+
+    // Match Postgres' refusal to parallelize small scans (`min_parallel_table_scan_size`):
+    // below this size the launch cost (worker spawn, plan dispatch, per-worker index opens)
+    // dominates whatever the split saves. The largest source stands for the scan: it is
+    // the bulk of the work the split divides, and the smaller sides ride along. Each source
+    // counts the rows its `@@@` predicate is estimated to match, not the index's document
+    // count: a selective query over a large index does little scan work, and the launch
+    // floor dominates it just the same. An unanalyzed source falls back to its live document
+    // count, an upper bound, so missing statistics err toward launching. Deciding here, at
+    // the same point as the short-launch serial fallback, keeps one serial-fallback path;
+    // the trade is that plain EXPLAIN still renders the distributed plan (#5784).
+    let min_rows = crate::gucs::mpp_min_rows() as u64;
+    let largest_source_rows: u64 = args
+        .all_sources
+        .iter()
+        .zip(source_estimates)
+        .map(|(segments, estimate)| match estimate.known_rows() {
+            Some(rows) => rows as u64,
+            None => segments.iter().map(|s| s.num_docs() as u64).sum(),
+        })
+        .max()
+        .unwrap_or(0);
+    if largest_source_rows < min_rows {
+        pgrx::debug1!(
+            "mpp: largest source is estimated at {largest_source_rows} rows, below \
+             paradedb.mpp_min_rows={min_rows}; running serially"
+        );
+        return None;
+    }
 
     let stages = collect_stages(physical);
 
@@ -445,16 +476,18 @@ fn launch_mpp(
 pub fn launch_mpp_aggregate(
     physical: &std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
     args: ParallelScanArgs,
+    source_estimates: &[RowEstimate],
 ) -> Option<MppLeaderState> {
-    launch_mpp(physical, args, "mpp_launched_worker_agg")
+    launch_mpp(physical, args, source_estimates, "mpp_launched_worker_agg")
 }
 
 /// JoinScan launch entry: join worker symbol.
 pub fn launch_mpp_join(
     physical: &std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
     args: ParallelScanArgs,
+    source_estimates: &[RowEstimate],
 ) -> Option<MppLeaderState> {
-    launch_mpp(physical, args, "mpp_launched_worker_join")
+    launch_mpp(physical, args, source_estimates, "mpp_launched_worker_join")
 }
 
 #[cfg(any(test, feature = "pg_test"))]

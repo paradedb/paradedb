@@ -912,7 +912,15 @@ impl JoinScan {
             with_aggregates: false,
             with_segment_info: false,
         };
-        crate::postgres::customscan::mpp::launch::launch_mpp_join(physical, args)
+        let source_estimates: Vec<crate::scan::info::RowEstimate> = state
+            .custom_state()
+            .join_clause
+            .plan
+            .sources()
+            .iter()
+            .map(|source| source.scan_info.estimate)
+            .collect();
+        crate::postgres::customscan::mpp::launch::launch_mpp_join(physical, args, &source_estimates)
     }
 
     /// Re-bake the DataFusion logical plan from the current (post-solve) `join_clause`, so the

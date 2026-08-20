@@ -1023,7 +1023,19 @@ impl ExecutionPlan for PgSearchScanPlan {
                 // Standard mode delegates to the parallel state if present
                 match parallel_state {
                     Some(ps) => reader.search_lazy(ps, source_idx, planner_estimated_rows),
-                    None => reader.search(),
+                    // No shared scan state even though the plan may carry per-source claim
+                    // markers: the serial fallback (size gate, short launch). The plan was
+                    // built while MPP was eligible but executes as a plain serial scan, so
+                    // search everything. Only the leader may take this arm: workers get
+                    // `parallel_state` injected at decode, and a worker that lost it would
+                    // scan every segment and duplicate rows across the mesh.
+                    None => {
+                        assert!(
+                            unsafe { pg_sys::ParallelWorkerNumber } == -1,
+                            "parallel worker scanning without shared parallel scan state"
+                        );
+                        reader.search()
+                    }
                 }
             };
             let mut scanner = Scanner::new(

@@ -41,6 +41,7 @@
       "paradedb",
       "search",
       "analytics",
+      "aggregations",
       "bm25",
       "text search",
       "full text search",

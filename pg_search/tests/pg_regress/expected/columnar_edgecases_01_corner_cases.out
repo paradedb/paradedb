@@ -149,7 +149,7 @@ ORDER BY id;
          Table: corner_case_test
          Index: corner_case_search
          Exec Method: ColumnarExecState
-         Columnar Fields: empty_string, id
+         Columnar: empty_string, id
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
@@ -217,7 +217,7 @@ ORDER BY id;
          Table: corner_case_test
          Index: corner_case_search
          Exec Method: ColumnarExecState
-         Columnar Fields: id, special_chars
+         Columnar: id, special_chars
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
@@ -251,7 +251,7 @@ ORDER BY id;
          Table: corner_case_test
          Index: corner_case_search
          Exec Method: ColumnarExecState
-         Columnar Fields: extreme_large, extreme_small, id
+         Columnar: extreme_large, extreme_small, id
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
@@ -286,7 +286,7 @@ ORDER BY id;
          Table: corner_case_test
          Index: corner_case_search
          Exec Method: ColumnarExecState
-         Columnar Fields: bool_field, id
+         Columnar: bool_field, id
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (9 rows)

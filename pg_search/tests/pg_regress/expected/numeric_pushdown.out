@@ -578,7 +578,7 @@ ORDER BY id;
          Index: numeric_edge_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"0"}}]}}
 (12 rows)
@@ -609,7 +609,7 @@ ORDER BY id;
          Index: numeric_edge_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"99999999.99"}}]}}
 (12 rows)
@@ -640,7 +640,7 @@ ORDER BY id;
          Index: numeric_edge_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"-99999999.99"}}]}}
 (12 rows)
@@ -671,7 +671,7 @@ ORDER BY id;
          Index: numeric_edge_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"-0.01"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"0.01"}}}]}}
 (12 rows)
@@ -727,7 +727,7 @@ ORDER BY id;
          Index: numeric_precision_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: big_int, id
+         Columnar: big_int, id
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"big_int","value":"123456789012345678"}}]}}
 (12 rows)
@@ -767,7 +767,7 @@ ORDER BY id;
          Index: numeric_precision_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: big_int, id
+         Columnar: big_int, id
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"big_int","lower_bound":{"included":"123456789012345678"},"upper_bound":null}},{"range":{"field":"big_int","lower_bound":null,"upper_bound":{"included":"123456789012345679"}}}]}}
 (12 rows)
@@ -821,7 +821,7 @@ ORDER BY id;
          Index: numeric_bytes_precision_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, precise_value
+         Columnar: id, precise_value
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"precise_value","value":"12345678901234567890.12345678901234567890123456789"}}]}}
 (12 rows)
@@ -1072,7 +1072,7 @@ ORDER BY id;
          Index: large_decimal_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"with_index":{"query":{"term":{"field":"val","value":"1.123456789012345678901234567890123456789"}}}}
 (12 rows)
@@ -1146,7 +1146,7 @@ ORDER BY id;
          Index: large_decimal_range_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"with_index":{"query":{"range":{"field":"val","lower_bound":{"included":"1.000000000000000000000000000000000000002"},"upper_bound":{"excluded":"1.000000000000000000000000000000000000005"}}}}}
 (12 rows)
@@ -1286,7 +1286,7 @@ ORDER BY id;
          Index: numeric64_decimal_compare_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"with_index":{"query":{"term":{"field":"val","value":"12.35"}}}}
 (12 rows)
@@ -1378,7 +1378,7 @@ ORDER BY id;
          Index: numeric_large_precision_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"1"}}]}}
 (12 rows)
@@ -1409,7 +1409,7 @@ ORDER BY id;
          Index: numeric_large_precision_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"0"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"2"}}}]}}
 (12 rows)
@@ -1478,7 +1478,7 @@ ORDER BY id;
          Index: numeric_very_large_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"42.123456789"}}]}}
 (12 rows)
@@ -1538,7 +1538,7 @@ ORDER BY id;
          Index: numeric_unbounded_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"1"}}]}}
 (12 rows)
@@ -1569,7 +1569,7 @@ ORDER BY id;
          Index: numeric_unbounded_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"-2"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"5"}}}]}}
 (12 rows)
@@ -1642,7 +1642,7 @@ ORDER BY id;
          Index: numeric_high_scale_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"0"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"3"}}}]}}
 (12 rows)
@@ -1892,7 +1892,7 @@ ORDER BY id;
          Index: float8_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, value
+         Columnar: id, value
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"value","value":100.5}}]}}
 (12 rows)
@@ -1923,7 +1923,7 @@ ORDER BY id;
          Index: float8_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, value
+         Columnar: id, value
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"value","lower_bound":{"excluded":200.0},"upper_bound":null}},{"range":{"field":"value","lower_bound":null,"upper_bound":{"excluded":500.0}}}]}}
 (12 rows)
@@ -1978,7 +1978,7 @@ ORDER BY id;
          Index: sci_notation_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"1000000"},"upper_bound":null}}]}}
 (12 rows)
@@ -2009,7 +2009,7 @@ ORDER BY id;
          Index: sci_notation_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"2500"}}]}}
 (12 rows)
@@ -2058,7 +2058,7 @@ ORDER BY id;
          Index: small_decimal_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"0.0000000000000001"}}]}}
 (12 rows)
@@ -2089,7 +2089,7 @@ ORDER BY id;
          Index: small_decimal_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"0.0000000000000001"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"0.00000000000001"}}}]}}
 (12 rows)
@@ -2139,7 +2139,7 @@ ORDER BY id;
          Index: max_scale_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"0.123456789012345678"}}]}}
 (12 rows)
@@ -2170,7 +2170,7 @@ ORDER BY id;
          Index: max_scale_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"0"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"0.5"}}}]}}
 (12 rows)
@@ -2251,7 +2251,7 @@ ORDER BY id;
          Index: negative_scale_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"12000"}}]}}
 (12 rows)
@@ -2282,7 +2282,7 @@ ORDER BY id;
          Index: negative_scale_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"10000"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"20000"}}}]}}
 (12 rows)
@@ -2423,7 +2423,7 @@ ORDER BY id;
          Index: nan_numeric64_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"200"},"upper_bound":null}}]}}
 (12 rows)
@@ -2455,7 +2455,7 @@ ORDER BY id;
          Index: nan_numeric64_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"200"}}}]}}
 (12 rows)
@@ -2486,7 +2486,7 @@ ORDER BY id;
          Index: nan_numeric64_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"300"},"upper_bound":null}}]}}
 (12 rows)
@@ -2518,7 +2518,7 @@ ORDER BY id;
          Index: nan_numeric64_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"300"}}}]}}
 (12 rows)
@@ -2551,7 +2551,7 @@ ORDER BY id;
          Index: nan_numeric64_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"100"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"300"}}}]}}
 (12 rows)
@@ -2628,7 +2628,7 @@ ORDER BY id;
          Index: nan_numeric_bytes_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"200"},"upper_bound":null}}]}}
 (12 rows)
@@ -2660,7 +2660,7 @@ ORDER BY id;
          Index: nan_numeric_bytes_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"200"}}}]}}
 (12 rows)
@@ -2691,7 +2691,7 @@ ORDER BY id;
          Index: nan_numeric_bytes_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"100"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"300"}}}]}}
 (12 rows)
@@ -2747,7 +2747,7 @@ ORDER BY id;
          Index: special_values_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"100"}}]}}
 (12 rows)
@@ -2778,7 +2778,7 @@ ORDER BY id;
          Index: special_values_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"NaN"}}]}}
 (12 rows)
@@ -2809,7 +2809,7 @@ ORDER BY id;
          Index: special_values_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"Infinity"}}]}}
 (12 rows)
@@ -2840,7 +2840,7 @@ ORDER BY id;
          Index: special_values_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"-Infinity"}}]}}
 (12 rows)
@@ -2872,7 +2872,7 @@ ORDER BY id;
          Index: special_values_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"50"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"250"}}}]}}
 (12 rows)
@@ -2905,7 +2905,7 @@ ORDER BY id;
          Index: special_values_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"250"},"upper_bound":null}}]}}
 (12 rows)
@@ -2938,7 +2938,7 @@ ORDER BY id;
          Index: special_values_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"-50"}}}]}}
 (12 rows)
@@ -3010,7 +3010,7 @@ ORDER BY id;
          Index: special_values_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"300"},"upper_bound":null}}]}}
 (12 rows)
@@ -3043,7 +3043,7 @@ ORDER BY id;
          Index: special_values_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"200"}}}]}}
 (12 rows)
@@ -3078,7 +3078,7 @@ ORDER BY id;
          Index: special_values_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"-Infinity"},"upper_bound":null}}]}}
 (12 rows)
@@ -3116,7 +3116,7 @@ ORDER BY id;
          Index: special_values_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"Infinity"}}}]}}
 (12 rows)
@@ -3360,7 +3360,7 @@ ORDER BY id;
          Index: empty_range_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar Fields: id, val
+         Columnar: id, val
          Scores: false
          Tantivy Query: {"with_index":{"query":{"empty":{"field":"val"}}}}
 (12 rows)

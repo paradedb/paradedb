@@ -33,7 +33,7 @@ ORDER BY id;
          Table: json_range_test
          Index: json_range_test_idx
          Exec Method: ColumnarExecState
-         Columnar Fields: id
+         Columnar: id
          Scores: false
          Tantivy Query: {"with_index":{"query":{"range":{"field":"metadata.attributes.score","lower_bound":{"included":4},"upper_bound":null}}}}
 (9 rows)
@@ -68,7 +68,7 @@ ORDER BY id;
          Table: json_range_test
          Index: json_range_test_idx
          Exec Method: ColumnarExecState
-         Columnar Fields: id
+         Columnar: id
          Scores: false
          Tantivy Query: {"with_index":{"query":{"range":{"field":"metadata.attributes.score","lower_bound":{"included":4},"upper_bound":null}}}}
 (9 rows)
@@ -103,7 +103,7 @@ ORDER BY id;
          Table: json_range_test
          Index: json_range_test_idx
          Exec Method: ColumnarExecState
-         Columnar Fields: id
+         Columnar: id
          Scores: false
          Tantivy Query: {"with_index":{"query":{"range":{"field":"metadata.attributes.tstz","lower_bound":{"included":{"$__pdb_date__":"2023-05-01T09:12:00Z"}},"upper_bound":null}}}}
 (9 rows)
@@ -139,7 +139,7 @@ ORDER BY id;
          Table: json_range_test
          Index: json_range_test_idx
          Exec Method: ColumnarExecState
-         Columnar Fields: id
+         Columnar: id
          Scores: false
          Tantivy Query: {"with_index":{"query":{"range":{"field":"metadata.attributes.tstz","lower_bound":{"included":"2023-05-01T09:12:00Z"},"upper_bound":null}}}}
 (9 rows)

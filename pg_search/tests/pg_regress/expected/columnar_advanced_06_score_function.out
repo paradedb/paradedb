@@ -441,7 +441,7 @@ ORDER BY title, author, pdb.score(id) DESC;
          Table: score_test
          Index: score_test_idx
          Exec Method: ColumnarExecState
-         Columnar Fields: author, id, title
+         Columnar: author, id, title
          Scores: true
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null}},{"term":{"field":"is_featured","value":true}}]}}
 (9 rows)
@@ -529,7 +529,7 @@ ORDER BY sp.title, sp.author, sp.relevance DESC;
          Table: score_test
          Index: score_test_idx
          Exec Method: ColumnarExecState
-         Columnar Fields: author, id, title
+         Columnar: author, id, title
          Scores: true
          Tantivy Query: {"score_filter":{"bounds":[[{"Excluded":0.5},"Unbounded"]],"query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":3},"upper_bound":null}}]}}}}
 (9 rows)
@@ -609,14 +609,14 @@ LIMIT 10;
                      Table: score_test
                      Index: score_test_idx
                      Exec Method: ColumnarExecState
-                     Columnar Fields: author, id, title
+                     Columnar: author, id, title
                      Scores: true
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
                ->  Custom Scan (ParadeDB Base Scan) on score_test score_test_1
                      Table: score_test
                      Index: score_test_idx
                      Exec Method: ColumnarExecState
-                     Columnar Fields: author, id, title
+                     Columnar: author, id, title
                      Scores: true
                      Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"science","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"title"}},"score":0.0}}],"must_not":[{"parse_with_field":{"field":"title","query_string":"technology","lenient":null,"conjunction_mode":null}}]}}}}]}}
 (18 rows)
@@ -671,7 +671,7 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (table: sco
                Table: score_test
                Index: score_test_idx
                Exec Method: ColumnarExecState
-               Columnar Fields: author
+               Columnar: author
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
          ->  Hash

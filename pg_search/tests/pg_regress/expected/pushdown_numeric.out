@@ -1618,7 +1618,7 @@ ORDER BY id;
          Table: numeric_scientific_test
          Index: numeric_sci_idx
          Exec Method: ColumnarExecState
-         Columnar Fields: id, value
+         Columnar: id, value
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"value","value":"1000000"}}]}}
 (9 rows)
@@ -1648,7 +1648,7 @@ ORDER BY id;
          Table: numeric_scientific_test
          Index: numeric_sci_idx
          Exec Method: ColumnarExecState
-         Columnar Fields: id, value
+         Columnar: id, value
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"value","lower_bound":{"included":"100"},"upper_bound":null}},{"range":{"field":"value","lower_bound":null,"upper_bound":{"included":"10000"}}}]}}
 (9 rows)

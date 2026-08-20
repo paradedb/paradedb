@@ -203,9 +203,9 @@ LIMIT 26;
            :     VisibilityFilterExec: tables=[p, c]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, company_id@1)], projection=[ctid_0@2, ctid_1@0, id@1]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":"all"}}
+           :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":"all"}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query="all"
 (15 rows)
 
 -- ============================================================

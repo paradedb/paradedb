@@ -461,19 +461,29 @@ impl PgSearchTableProvider {
             Some(ffhelper)
         };
 
-        Ok(Arc::new(PgSearchScanPlan::new(
-            state,
-            schema,
-            resolved_query,
-            None,
-            deferred,
-            ffhelper_arg,
-            self.scan_info.indexrelid.to_u32(),
-            deferred_ctid_plan_position,
-            partition_count,
-            parallel_state,
-            self.range_sample.clone(),
-        )))
+        let table_alias = self.scan_info.alias.clone().unwrap_or_else(|| {
+            match self.deferred_ctid_plan_position() {
+                Some(pos) => format!("source_{pos}"),
+                None => format!("table_{}", self.scan_info.heaprelid),
+            }
+        });
+
+        Ok(Arc::new(
+            PgSearchScanPlan::new(
+                state,
+                schema,
+                resolved_query,
+                None,
+                deferred,
+                ffhelper_arg,
+                self.scan_info.indexrelid.to_u32(),
+                deferred_ctid_plan_position,
+                partition_count,
+                parallel_state,
+                self.range_sample.clone(),
+            )
+            .with_table_alias(table_alias),
+        ))
     }
 
     /// Creates a single-partition `PgSearchScanPlan` for lazy scans.

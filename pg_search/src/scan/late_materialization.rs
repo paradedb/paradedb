@@ -685,9 +685,16 @@ impl ExtensionPlanner for LateMaterializePlanner {
             let mut ff_helpers = crate::api::HashMap::default();
             extract_ff_helper(&input_exec, &mut ff_helpers);
 
-            if ff_helpers.is_empty() {
+            if ff_helpers.is_empty()
+                && mat_node
+                    .deferred_fields
+                    .iter()
+                    .any(|field| field.rebuild.is_none())
+            {
                 return Err(DataFusionError::Plan(
-                    "Could not find PgSearchScanPlan beneath LateMaterializeNode".into(),
+                    "Could not find a live PgSearchScanPlan helper or a dispatch rebuild recipe \
+                     beneath LateMaterializeNode"
+                        .into(),
                 ));
             }
 

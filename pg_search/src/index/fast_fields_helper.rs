@@ -18,9 +18,11 @@
 use std::convert::identity;
 use std::sync::{Arc, OnceLock};
 
+use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::{TantivyValue, is_pgoid_datetime_type};
 use crate::postgres::types_arrow::datetime_to_pg_micros;
 use crate::scan::deferred_encode::unpack_doc_address;
@@ -67,9 +69,18 @@ pub struct FFHelper {
     // FastFieldReaders clone per segment used to clone Tantivy's Schema for every
     // segment, even though most columns are opened lazily. On indexes with many
     // segments that made worker-side MPP plan reconstruction dominate execution.
-    searcher: Option<Searcher>,
+    searcher: OnceLock<Searcher>,
+    // MPP planning can construct a helper before it knows whether the corresponding scan or a
+    // downstream visibility/materialization operator will execute in the leader. Keep the exact
+    // segment view needed to open the reader only if the helper is actually used there.
+    deferred_searcher: Option<DeferredSearcher>,
     // A cache of columns and a ctid column for each segment.
     segment_caches: Vec<(ColumnCache, OnceLock<FFType>)>,
+}
+
+struct DeferredSearcher {
+    indexrelid: u32,
+    segment_view: SegmentView,
 }
 
 impl FFHelper {
@@ -78,9 +89,34 @@ impl FFHelper {
     }
 
     pub fn with_fields(reader: &SearchIndexReader, fields: &[WhichFastField]) -> Self {
-        let segment_caches = reader
-            .segment_readers()
-            .iter()
+        Self {
+            searcher: OnceLock::from(reader.searcher().clone()),
+            deferred_searcher: None,
+            segment_caches: Self::segment_caches(reader.segment_readers().len(), fields),
+        }
+    }
+
+    pub(crate) fn deferred(
+        indexrelid: u32,
+        segment_view: SegmentView,
+        fields: &[WhichFastField],
+    ) -> Self {
+        let segment_count = segment_view.len();
+        Self {
+            searcher: OnceLock::new(),
+            deferred_searcher: Some(DeferredSearcher {
+                indexrelid,
+                segment_view,
+            }),
+            segment_caches: Self::segment_caches(segment_count, fields),
+        }
+    }
+
+    fn segment_caches(
+        segment_count: usize,
+        fields: &[WhichFastField],
+    ) -> Vec<(ColumnCache, OnceLock<FFType>)> {
+        (0..segment_count)
             .map(|_| {
                 let mut lookup = Vec::new();
                 for field in fields {
@@ -103,23 +139,30 @@ impl FFHelper {
                 }
                 (lookup, OnceLock::default())
             })
-            .collect();
-        Self {
-            searcher: Some(reader.searcher().clone()),
-            segment_caches,
-        }
+            .collect()
+    }
+
+    fn searcher(&self) -> &Searcher {
+        self.searcher.get_or_init(|| {
+            let deferred = self
+                .deferred_searcher
+                .as_ref()
+                .expect("non-empty FFHelper must have a ready or deferred searcher");
+            let index_rel = PgSearchRelation::open(deferred.indexrelid.into());
+            SearchIndexReader::empty(
+                &index_rel,
+                MvccSatisfies::ParallelWorker(deferred.segment_view.clone()),
+            )
+            .expect("failed to open deferred MPP fast-field reader")
+            .searcher()
+            .clone()
+        })
     }
 
     pub fn ctid(&self, segment_ord: SegmentOrdinal) -> &FFType {
         let (_, ctid) = &self.segment_caches[segment_ord as usize];
         ctid.get_or_init(|| {
-            FFType::new_ctid(
-                self.searcher
-                    .as_ref()
-                    .expect("non-empty FFHelper must retain its searcher")
-                    .segment_reader(segment_ord)
-                    .fast_fields(),
-            )
+            FFType::new_ctid(self.searcher().segment_reader(segment_ord).fast_fields())
         })
     }
 
@@ -128,11 +171,7 @@ impl FFHelper {
         let column = &columns[field];
         column.2.get_or_init(|| {
             FFType::new(
-                self.searcher
-                    .as_ref()
-                    .expect("non-empty FFHelper must retain its searcher")
-                    .segment_reader(segment_ord)
-                    .fast_fields(),
+                self.searcher().segment_reader(segment_ord).fast_fields(),
                 &column.0,
             )
         })
@@ -147,9 +186,7 @@ impl FFHelper {
                 .2
                 .get_or_init(|| {
                     FFType::new(
-                        self.searcher
-                            .as_ref()
-                            .expect("non-empty FFHelper must retain its searcher")
+                        self.searcher()
                             .segment_reader(doc_address.segment_ord)
                             .fast_fields(),
                         &column.0,

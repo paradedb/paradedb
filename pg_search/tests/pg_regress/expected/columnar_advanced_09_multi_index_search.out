@@ -1000,3 +1000,4 @@ SELECT 'Advanced features tests cleanup complete' AS status;
 ------------------------------------------
  Advanced features tests cleanup complete
 (1 row)
+

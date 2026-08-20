@@ -2200,7 +2200,7 @@ WHERE id @@@ paradedb.all();
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[numeric64_sum(max_scale_test_0.val, 18) as agg_0, numeric64_avg(max_scale_test_0.val, 18) as agg_1, min(max_scale_test_0.val) as agg_2, max(max_scale_test_0.val) as agg_3]
      :   CooperativeExec
-     :     PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
+     :     PgSearchScan: table=max_scale_test, segments=1, query={"with_index":{"query":"all"}}
 (9 rows)
 
 SELECT SUM(val), AVG(val), MIN(val), MAX(val)
@@ -2323,7 +2323,7 @@ WHERE id @@@ paradedb.all();
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[numeric64_sum(negative_scale_test_0.val, -3) as agg_0, numeric64_avg(negative_scale_test_0.val, -3) as agg_1, min(negative_scale_test_0.val) as agg_2, max(negative_scale_test_0.val) as agg_3]
      :   CooperativeExec
-     :     PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
+     :     PgSearchScan: table=negative_scale_test, segments=1, query={"with_index":{"query":"all"}}
 (9 rows)
 
 SELECT SUM(val), AVG(val), MIN(val), MAX(val)
@@ -3246,7 +3246,7 @@ WHERE id @@@ paradedb.all();
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[numeric64_sum(numeric_precision_only_test_0.val_small, 0) as agg_0, numeric64_avg(numeric_precision_only_test_0.val_small, 0) as agg_1, min(numeric_precision_only_test_0.val_small) as agg_2, max(numeric_precision_only_test_0.val_small) as agg_3]
      :   CooperativeExec
-     :     PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
+     :     PgSearchScan: table=numeric_precision_only_test, segments=1, query={"with_index":{"query":"all"}}
 (9 rows)
 
 SELECT SUM(val_small), AVG(val_small), MIN(val_small), MAX(val_small)

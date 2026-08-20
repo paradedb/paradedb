@@ -71,8 +71,8 @@ WHERE contact_id IN (SELECT ldf_id FROM asa_contact_list WHERE list_id @@@ 'list
   AND job_title @@@ 'Senior'
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
-                                                                                              QUERY PLAN                                                                                               
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                          QUERY PLAN                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (count(*)) DESC, asa_cccf.job_title
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -84,9 +84,9 @@ ORDER BY doc_count DESC, job_title;
            : AggregateExec: mode=Single, gby=[job_title@0 as job_title], aggr=[count(1) as agg_0]
            :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(contact_id@0, ldf_id@0)], projection=[job_title@1]
            :     CooperativeExec
-           :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"job_title","query_string":"Senior","lenient":null,"conjunction_mode":null}}}}
+           :       PgSearchScan: table=asa_cccf, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"job_title","query_string":"Senior","lenient":null,"conjunction_mode":null}}}}
            :     CooperativeExec
-           :       PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-A","lenient":null,"conjunction_mode":null}}}}
+           :       PgSearchScan: table=asa_contact_list, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-A","lenient":null,"conjunction_mode":null}}}}
 (14 rows)
 
 SELECT job_title, COUNT(*) AS doc_count
@@ -113,8 +113,8 @@ WHERE EXISTS     (SELECT 1 FROM asa_contact_list cl WHERE cl.ldf_id = c.contact_
   AND c.job_title @@@ 'Senior'
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
-                                                                                               QUERY PLAN                                                                                                
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (count(*)) DESC, c.job_title
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -127,11 +127,11 @@ ORDER BY doc_count DESC, job_title;
            :   HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(contact_id@0, ldf_id@0)], projection=[job_title@1]
            :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(contact_id@0, ldf_id@0)]
            :       CooperativeExec
-           :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"job_title","query_string":"Senior","lenient":null,"conjunction_mode":null}}}}
+           :         PgSearchScan: table=c, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"job_title","query_string":"Senior","lenient":null,"conjunction_mode":null}}}}
            :       CooperativeExec
-           :         PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-A","lenient":null,"conjunction_mode":null}}}}
+           :         PgSearchScan: table=cl, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-A","lenient":null,"conjunction_mode":null}}}}
            :     CooperativeExec
-           :       PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-B","lenient":null,"conjunction_mode":null}}}}
+           :       PgSearchScan: table=cl, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-B","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 SELECT job_title, COUNT(*) AS doc_count
@@ -164,8 +164,8 @@ WHERE contact_id IN     (SELECT ldf_id FROM asa_contact_list WHERE list_id @@@ '
   AND job_title @@@ 'Senior'
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
-                                                                                               QUERY PLAN                                                                                                
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (count(*)) DESC, asa_cccf.job_title
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -178,11 +178,11 @@ ORDER BY doc_count DESC, job_title;
            :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(contact_id@0, ldf_id@0)], projection=[job_title@1]
            :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(contact_id@0, ldf_id@0)], null_aware
            :       CooperativeExec
-           :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"job_title","query_string":"Senior","lenient":null,"conjunction_mode":null}}}}
+           :         PgSearchScan: table=asa_cccf, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"job_title","query_string":"Senior","lenient":null,"conjunction_mode":null}}}}
            :       CooperativeExec
-           :         PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-B","lenient":null,"conjunction_mode":null}}}}
+           :         PgSearchScan: table=asa_contact_list, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-B","lenient":null,"conjunction_mode":null}}}}
            :     CooperativeExec
-           :       PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-A","lenient":null,"conjunction_mode":null}}}}
+           :       PgSearchScan: table=asa_contact_list, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-A","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 SELECT job_title, COUNT(*) AS doc_count
@@ -389,8 +389,8 @@ WHERE id IN     (SELECT id FROM asa_excl_include)
   AND label @@@ 'Senior'
 GROUP BY label
 ORDER BY doc_count DESC, label;
-                                                                                     QUERY PLAN                                                                                     
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (count(*)) DESC, asa_excl_outer.label
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -403,11 +403,11 @@ ORDER BY doc_count DESC, label;
            :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, id@0)], projection=[label@1]
            :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@0, eid@0)], null_aware
            :       CooperativeExec
-           :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"label","query_string":"Senior","lenient":null,"conjunction_mode":null}}}}
+           :         PgSearchScan: table=asa_excl_outer, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"label","query_string":"Senior","lenient":null,"conjunction_mode":null}}}}
            :       CooperativeExec
-           :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :         PgSearchScan: table=asa_excl_inner, segments=1, dynamic_filters=1, query="all"
            :     CooperativeExec
-           :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :       PgSearchScan: table=asa_excl_include, segments=1, dynamic_filters=1, query="all"
 (17 rows)
 
 SELECT label, COUNT(*) AS doc_count
@@ -651,14 +651,14 @@ WHERE a.id NOT IN (
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, a_id@0)], filter=val@1 > threshold@0, projection=[val@3]
      :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@0, aid@0)], null_aware
      :       CooperativeExec
-     :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"outermatch","lenient":null,"conjunction_mode":null}}}}
+     :         PgSearchScan: table=a, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"outermatch","lenient":null,"conjunction_mode":null}}}}
      :       HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, y_id@1)], projection=[aid@0]
      :         CooperativeExec
-     :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"block","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=y, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"block","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec
-     :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
+     :           PgSearchScan: table=x, segments=1, dynamic_filters=2, query="all"
      :     CooperativeExec
-     :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
+     :       PgSearchScan: table=b, segments=1, dynamic_filters=1, query="all"
 (18 rows)
 
 SET paradedb.enable_aggregate_custom_scan TO on;

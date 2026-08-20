@@ -1,0 +1,66 @@
+-- Regression test for issue #5944.
+-- pdb.agg(..., solve_mvcc => true) OVER () must exclude deleted-but-unvacuumed
+-- rows on the unordered top-k path (no pushed-down ORDER BY), matching the
+-- ordered path. #5945 established this behavior through aggregations.plan(),
+-- which routes two ways: a value counter wrapped in an MVCCFilterCollector, and
+-- a cardinality fast path that filters per value inside the collector. Neither
+-- arm was covered on the unordered path, so both are exercised here.
+
+CREATE TABLE issue_5944_mvcc_facet (
+    id serial8 PRIMARY KEY,
+    grp text NOT NULL
+) WITH (autovacuum_enabled = off);
+
+-- grp lands in 20 buckets. id % 10 = 0 selects exactly the rows in buckets b00
+-- and b10, so those two buckets are fully deleted while the other 18 stay whole.
+INSERT INTO issue_5944_mvcc_facet (grp)
+SELECT 'b' || lpad((x % 20)::text, 2, '0')
+FROM generate_series(1, 10000) x;
+
+CREATE INDEX issue_5944_idx ON issue_5944_mvcc_facet
+USING bm25 (id, grp)
+WITH (key_field = 'id', text_fields = '{"grp": {"fast": true}}');
+
+-- Delete 10% of the rows without vacuuming, leaving dead-but-still-in-index
+-- entries the aggregation should not count when solve_mvcc is enabled.
+DELETE FROM issue_5944_mvcc_facet WHERE id % 10 = 0;
+
+-- Visible after the delete: 9000 rows across 18 distinct buckets.
+SET paradedb.check_aggregate_scan = false; -- DISTINCT can't use the aggregate scan
+SELECT count(*) AS rows, count(DISTINCT grp) AS buckets FROM issue_5944_mvcc_facet;
+RESET paradedb.check_aggregate_scan;
+
+-- Case 1: ordered top-k with solve_mvcc=true. Baseline, already correct.
+-- pdb.agg OVER () must be a bare targetlist entry or the custom scan does
+-- not intercept it.
+SELECT pdb.agg('{"value_count":{"field":"id"}}', true) OVER () AS agg
+FROM issue_5944_mvcc_facet WHERE issue_5944_mvcc_facet @@@ pdb.all()
+ORDER BY id DESC LIMIT 1;
+
+-- Case 2: unordered top-k (no ORDER BY) with solve_mvcc=true, MVCCFilterCollector
+-- arm. Must exclude the deleted rows, so the count matches the ordered case
+-- ({"value": 9000.0}) rather than the raw index count.
+SELECT pdb.agg('{"value_count":{"field":"id"}}', true) OVER () AS agg
+FROM issue_5944_mvcc_facet WHERE issue_5944_mvcc_facet @@@ pdb.all()
+LIMIT 1;
+
+-- Case 3: unordered top-k with solve_mvcc=false must still return the raw
+-- index count ({"value": 10000.0}), confirming MVCC filtering is not
+-- force-enabled when the user has disabled it.
+SELECT pdb.agg('{"value_count":{"field":"id"}}', false) OVER () AS agg
+FROM issue_5944_mvcc_facet WHERE issue_5944_mvcc_facet @@@ pdb.all()
+LIMIT 1;
+
+-- Case 4: unordered top-k with solve_mvcc=true, cardinality fast-path arm.
+-- The two fully deleted buckets must drop out, so distinct buckets is 18.
+SELECT pdb.agg('{"cardinality":{"field":"grp"}}', true) OVER () AS agg
+FROM issue_5944_mvcc_facet WHERE issue_5944_mvcc_facet @@@ pdb.all()
+LIMIT 1;
+
+-- Case 5: unordered top-k with solve_mvcc=false, cardinality arm. Counts the
+-- deleted buckets still in the index, so distinct buckets is 20.
+SELECT pdb.agg('{"cardinality":{"field":"grp"}}', false) OVER () AS agg
+FROM issue_5944_mvcc_facet WHERE issue_5944_mvcc_facet @@@ pdb.all()
+LIMIT 1;
+
+DROP TABLE issue_5944_mvcc_facet CASCADE;

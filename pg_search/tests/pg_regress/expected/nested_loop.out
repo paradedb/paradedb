@@ -43,11 +43,11 @@ LIMIT 10;
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(color@3, color@1)], filter=pdb_search_predicate(ctid_2@1) OR pdb_search_predicate(ctid_0@0)
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(name@1, name@1)], projection=[ctid_0@0, name@1, ctid_1@2, color@4]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, query="all"
+           :             PgSearchScan: table=users, segments=1, query="all"
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :             PgSearchScan: table=products, segments=1, dynamic_filters=1, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :           PgSearchScan: table=orders, segments=1, dynamic_filters=1, query="all"
 (18 rows)
 
 SELECT users.name, users.color, users.age

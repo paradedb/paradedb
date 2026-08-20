@@ -63,8 +63,8 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 3;
-                                                                                           QUERY PLAN                                                                                           
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title
    ->  Custom Scan (ParadeDB Join Scan)
@@ -79,9 +79,9 @@ LIMIT 3;
            :     SegmentedTopKExec: expr=[title@2 ASC NULLS LAST], k=3, visibility_checks=[d, f]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
+           :           PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all"
 (17 rows)
 
 SELECT f.id, f.title

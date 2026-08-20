@@ -91,9 +91,9 @@ LIMIT 10;
            :     VisibilityFilterExec: tables=[s, p]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_0@0), projection=[ctid_0@0, ctid_1@2, id@4]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query="all"
+           :           PgSearchScan: table=s, segments=1, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
+           :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query="all"
 (18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -136,9 +136,9 @@ LIMIT 10;
            :     VisibilityFilterExec: tables=[s, p]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_0@0), projection=[ctid_0@0, ctid_1@2, id@4]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query="all"
+           :           PgSearchScan: table=s, segments=1, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
+           :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query="all"
 (18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -183,9 +183,9 @@ LIMIT 10;
            :     VisibilityFilterExec: tables=[s, p]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_0@0), projection=[ctid_0@3, ctid_1@0, id@2]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query={"range":{"field":"price","lower_bound":{"excluded":"100"},"upper_bound":null}}
+           :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"range":{"field":"price","lower_bound":{"excluded":"100"},"upper_bound":null}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
 (18 rows)
 
 SELECT p.id, p.name, p.price, s.name AS supplier_name
@@ -229,9 +229,9 @@ LIMIT 10;
            :     VisibilityFilterExec: tables=[s, p]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_0@0), projection=[ctid_0@0, ctid_1@2, id@4]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query="all"
+           :           PgSearchScan: table=s, segments=1, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
+           :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query="all"
 (18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -276,9 +276,9 @@ LIMIT 10;
            :     VisibilityFilterExec: tables=[s, p]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_0@0), projection=[ctid_0@3, ctid_1@0, id@2]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query={"range":{"field":"stock","lower_bound":{"included":25},"upper_bound":null}}
+           :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"range":{"field":"stock","lower_bound":{"included":25},"upper_bound":null}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
 (18 rows)
 
 SELECT p.id, p.name, p.price, s.name AS supplier_name
@@ -309,8 +309,8 @@ WHERE (p.description @@@ 'laptop' OR p.description @@@ 'keyboard')
   AND (p.description @@@ 'computer' OR s.description @@@ 'technology')
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                       
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -326,9 +326,9 @@ LIMIT 10;
            :     VisibilityFilterExec: tables=[s, p]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_0@0), projection=[ctid_0@3, ctid_1@0, id@2]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}]}}
+           :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}]}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
 (18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -373,9 +373,9 @@ LIMIT 10;
            :     VisibilityFilterExec: tables=[s, p]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_0@0) AND pdb_search_predicate(ctid_1@1), projection=[ctid_0@0, ctid_1@2, id@4]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query="all"
+           :           PgSearchScan: table=s, segments=1, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"boolean":{"must":["all",{"boolean":{"should":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}]}}}}]}}]}}
+           :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"boolean":{"must":["all",{"boolean":{"should":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}]}}}}]}}]}}
 (18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -403,8 +403,8 @@ WHERE (p.description @@@ 'laptop OR headphones')
   AND (s.description @@@ 'technology OR audio')
 ORDER BY p.id
 LIMIT 10;
-                                                                                                         QUERY PLAN                                                                                                          
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                              QUERY PLAN                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -419,9 +419,9 @@ LIMIT 10;
            :     VisibilityFilterExec: tables=[s, p]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology OR audio","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology OR audio","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR headphones","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR headphones","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -449,8 +449,8 @@ WHERE ((p.description @@@ 'laptop' AND s.description @@@ 'technology')
     OR (p.description @@@ 'headphones' AND s.description @@@ 'audio'))
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                                                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -466,9 +466,9 @@ LIMIT 10;
            :     VisibilityFilterExec: tables=[s, p]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) AND pdb_search_predicate(ctid_0@0) OR pdb_search_predicate(ctid_1@1) AND pdb_search_predicate(ctid_0@0), projection=[ctid_0@0, ctid_1@2, id@4]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio","lenient":null,"conjunction_mode":null}}}}]}}]}}
+           :           PgSearchScan: table=s, segments=1, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio","lenient":null,"conjunction_mode":null}}}}]}}]}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}}]}}
+           :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}}]}}
 (18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -512,9 +512,9 @@ LIMIT 10;
            :     VisibilityFilterExec: tables=[s, p]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_0@0), projection=[ctid_0@0, ctid_1@2, id@4]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query="all"
+           :           PgSearchScan: table=s, segments=1, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
+           :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query="all"
 (18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name

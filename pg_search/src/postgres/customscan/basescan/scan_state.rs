@@ -213,6 +213,7 @@ impl BaseScanState {
             all_sources: vec![segment_readers],
             query,
             with_aggregates,
+            with_segment_info: true,
         }
     }
 

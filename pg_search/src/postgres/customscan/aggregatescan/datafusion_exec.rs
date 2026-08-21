@@ -347,23 +347,7 @@ fn build_relnode_df<'a>(
                     return Ok(df);
                 }
 
-                // Build a ctid_map: plan_position → ctid column expression.
-                // In the aggregate path, ctid columns are real (not deferred),
-                // and the ctid field is named "ctid" (from WhichFastField::Ctid)
-                // in the table provider schema. After aliasing, it's accessible
-                // as `<alias>.ctid`.
-                // The filter is evaluated after the input node has applied any
-                // Semi/Anti pruning.  Only output-visible sources are addressable
-                // in the DataFusion schema here; lifted SubPlan inner sources may
-                // reuse outer RTIs but are not projected.
                 let sources = filter.input.output_sources();
-                let ctid_map: crate::api::HashMap<pg_sys::Index, Expr> = sources
-                    .iter()
-                    .map(|s| (s.plan_position as pg_sys::Index, make_source_col(s, "ctid")))
-                    .collect();
-
-                // No deferred positions in aggregate path (no VisibilityFilterExec)
-                let deferred_positions = crate::api::HashSet::default();
 
                 // Translate custom_exprs (non-@@@ cross-table predicates) using
                 // PredicateTranslator, mirroring JoinScan's scan_state.rs:562-576.
@@ -396,9 +380,6 @@ fn build_relnode_df<'a>(
                     df,
                     &filter.predicate,
                     &translated_exprs,
-                    &ctid_map,
-                    join_level_predicates,
-                    &deferred_positions,
                     &sources,
                     /* handle_mark = */ false,
                 )
@@ -559,7 +540,7 @@ async fn build_source_df(
     // the Const/expression nodes retained by the first source. Generic plans
     // that parameterize predicates on both join inputs then dereference stale
     // nodes during reader construction and abort the backend.
-    let source_query = scan_info.query.clone();
+    let source_query = scan_info.mode.query().clone();
     let needs_runtime_context =
         source_query.has_postgres_expressions() || source_query.has_parameters();
     // `.or(expr_context)` can hand every source the same context, but only the
@@ -597,7 +578,8 @@ async fn build_source_df(
             | WhichFastField::Score
             | WhichFastField::Junk(_)
             | WhichFastField::TableOid
-            | WhichFastField::DeferredCtid(_) => None,
+            | WhichFastField::DeferredCtid(_)
+            | WhichFastField::MatchTag(_) => None,
         })
         .collect();
 
@@ -611,6 +593,11 @@ async fn build_source_df(
     // when `is_mpp` is true.
     let source_idx = if is_mpp { Some(plan_position) } else { None };
     let mut provider = PgSearchTableProvider::new(scan_info, fields, source_idx);
+    if let crate::scan::ScanMode::Tagged { local_queries, .. } = &source.scan_info.mode {
+        for tq in local_queries {
+            provider.add_match_tag_column(&tq.tag_name);
+        }
+    }
     // HeapFilter queries (e.g. `=` on a column indexed via a
     // `pdb.literal(...)` cast) compile to runtime Postgres expressions
     // that can only be evaluated with a live ExprContext + PlanState.

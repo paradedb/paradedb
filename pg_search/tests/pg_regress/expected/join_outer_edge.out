@@ -127,13 +127,13 @@ SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.t
            : ProjectionExec: expr=[id@3 as col_1, id@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            :   SortExec: TopK(fetch=8), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[a]
-           :       FilterExec: pdb_search_predicate(ctid_1@2) OR pdb_search_predicate(ctid_0@0)
-           :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, dim_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, id@4]
+           :       FilterExec: __a_1_tag_0@5 OR __b_0_tag_0@2, projection=[ctid_0@0, id@1, ctid_1@3, id@4]
+           :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, dim_id@1)], projection=[ctid_0@0, id@1, __b_0_tag_0@2, ctid_1@3, id@5, __a_1_tag_0@6]
            :           VisibilityFilterExec: tables=[b]
            :             CooperativeExec
-           :               PgSearchScan: table=b, segments=1, query="all"
+           :               PgSearchScan: table=b, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
            :           CooperativeExec
-           :             PgSearchScan: table=a, segments=1, query="all"
+           :             PgSearchScan: table=a, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
 (20 rows)
 
 SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt @@@ 'alpha' OR b.txt @@@ 'beta' ORDER BY a.id LIMIT 8;

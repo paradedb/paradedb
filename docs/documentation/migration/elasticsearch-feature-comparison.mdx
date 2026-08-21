@@ -55,7 +55,7 @@ all live inside Postgres — no ETL pipelines, no separate cluster to manage.
 | Distance functions            |      ✅       |    ✅    | [L2, cosine, and inner product](/documentation/vector/querying)                                                  |
 | Recall / latency tuning       |      ✅       |    ✅    | [`paradedb.vector_cluster_max_probe`](/documentation/vector/tuning)                                              |
 | Quantization (scalar, binary) |      ✅       |    ⚠️    | Coming soon                                                                                                      |
-| `halfvec` and sparse vectors  |      ✅       |    ❌    | Only pgvector's `vector` type is indexable; `halfvec` is coming soon                                             |
+| `halfvec` and sparse vectors  |      ✅       |    ⚠️    | Only pgvector's `vector` type is indexable; `halfvec` is coming soon                                             |
 | Built-in embedding inference  |      ✅       |    ❌    | Generate embeddings in your application, or with an in-database extension, and insert them like any other column |
 
 ### Relational and Specialized Queries

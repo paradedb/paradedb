@@ -32,7 +32,7 @@ use std::ptr::addr_of_mut;
 use pgrx::itemptr::item_pointer_set_all;
 use pgrx::{PgMemoryContexts, check_for_interrupts, pg_sys};
 use rand::rngs::StdRng;
-use rand::{RngExt, SeedableRng};
+use rand::{Rng, SeedableRng};
 
 use crate::api::FieldName;
 use crate::index::kdtree::{KdTree, Point};

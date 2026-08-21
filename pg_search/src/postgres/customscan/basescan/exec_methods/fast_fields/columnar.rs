@@ -343,6 +343,7 @@ impl ColumnarExecState {
                 .scanner_fast_fields
                 .iter()
                 .any(|f| matches!(f, crate::index::fast_fields_helper::WhichFastField::Score)),
+            scan_mode: crate::scan::ScanMode::all(),
         };
 
         // Create PgSearchScanPlan and execute via DataFusion

@@ -93,6 +93,8 @@ pub struct ScannerConfig {
     /// `need_scores` the index reader was opened with. Carried so a leader-dispatched worker
     /// re-opens its reader with the same scoring behavior (the reader itself can't travel).
     pub score_needed: bool,
+    /// Mode of the scan (e.g. Standard vs Tagged with optional lifted local query).
+    pub scan_mode: crate::scan::ScanMode,
 }
 
 /// State for a scan partition.
@@ -192,6 +194,7 @@ pub struct PgSearchScanPlan {
     /// Global partition selected for a task-specialized variant. When present, this plan
     /// exposes one local partition and maps `execute(0)` back to this global partition.
     pub(crate) assigned_partition: Option<usize>,
+    pub(crate) scan_mode: crate::scan::ScanMode,
 }
 
 impl Clone for PgSearchScanPlan {
@@ -215,6 +218,7 @@ impl Clone for PgSearchScanPlan {
             sort_order: self.sort_order.clone(),
             range_sample: self.range_sample.clone(),
             assigned_partition: self.assigned_partition,
+            scan_mode: self.scan_mode.clone(),
         }
     }
 }
@@ -295,6 +299,11 @@ impl PgSearchScanPlan {
             );
         }
 
+        let scan_mode = state
+            .as_ref()
+            .map(|s| s.scanner_config.scan_mode.clone())
+            .unwrap_or_else(|| crate::scan::ScanMode::standard(resolved_query.clone()));
+
         let exec_state = match state {
             Some(s) => {
                 if let Some(boundaries) = range_boundaries {
@@ -329,6 +338,7 @@ impl PgSearchScanPlan {
             sort_order: sort_order.cloned(),
             range_sample,
             assigned_partition: None,
+            scan_mode,
         }
     }
 
@@ -426,6 +436,7 @@ impl PgSearchScanPlan {
             sort_order: self.sort_order.clone(),
             range_sample: self.range_sample.clone(),
             assigned_partition: self.assigned_partition,
+            scan_mode: self.scan_mode.clone(),
         })
     }
 
@@ -487,7 +498,7 @@ impl PgSearchScanPlan {
     ///
     /// Only the recipe and the reader-rebuild inputs travel; the live `ScanState` (tantivy
     /// readers, visibility checkers) is process-local and gets rebuilt on the receiving worker
-    /// from its own `ParallelScanState`. `resolved_query` is the filter-combined,
+    /// from its own `ParallelScanState`. `scan_mode` carries the filter-combined,
     /// param-solved query the reader was opened with, so the receiver needs no `ExprContext`.
     ///
     /// Installed dynamic filters travel as proto expression nodes stamped with their
@@ -538,7 +549,6 @@ impl PgSearchScanPlan {
         let descriptor = ScanDispatchDescriptor {
             schema_proto: prost::Message::encode_to_vec(&schema_proto),
             dynamic_filters,
-            query: self.resolved_query.clone(),
             score_needed: scanner_config.score_needed,
             sort_order: self.sort_order.clone(),
             indexrelid: self.indexrelid,
@@ -553,6 +563,7 @@ impl PgSearchScanPlan {
             global_partition_count: self.global_partition_count,
             range_sample: self.range_sample.clone(),
             assigned_partition: self.assigned_partition,
+            scan_mode: scanner_config.scan_mode,
         };
         serde_json::to_vec(&descriptor).map_err(|e| {
             DataFusionError::Internal(format!("PgSearchScan dispatch: serialize: {e}"))
@@ -621,8 +632,8 @@ impl PgSearchScanPlan {
             (_, None) => MvccSatisfies::Snapshot,
         };
 
-        let query = descriptor.query;
-        let needs_tokenizer = query.needs_tokenizer();
+        let query = descriptor.scan_mode.query().clone();
+        let needs_tokenizer = descriptor.scan_mode.needs_tokenizer();
         let reader = SearchIndexReader::open_with_context(
             &index_rel,
             query.clone(),
@@ -650,6 +661,7 @@ impl PgSearchScanPlan {
             heap_relid: descriptor.heap_relid,
             batch_size_hint: descriptor.batch_size_hint,
             score_needed: descriptor.score_needed,
+            scan_mode: descriptor.scan_mode,
         };
         let state = ScanState {
             source_idx: descriptor.source_idx,
@@ -703,7 +715,6 @@ struct ScanDispatchDescriptor {
     /// `PhysicalExprNode`. Their `expr_id` lets a deduplicating decode re-share one instance
     /// with the operator that updates it.
     dynamic_filters: Vec<Vec<u8>>,
-    query: SearchQueryInput,
     score_needed: bool,
     sort_order: Option<SortByField>,
     indexrelid: u32,
@@ -723,6 +734,7 @@ struct ScanDispatchDescriptor {
     global_partition_count: usize,
     range_sample: Option<RangePartitioningSample>,
     assigned_partition: Option<usize>,
+    scan_mode: crate::scan::ScanMode,
 }
 
 /// The output partitioning a scan declares to DataFusion.
@@ -836,7 +848,26 @@ impl DisplayAs for PgSearchScanPlan {
         if !self.dynamic_filters.is_empty() {
             write!(f, ", dynamic_filters={}", self.dynamic_filters.len())?;
         }
-        write!(f, ", query={}", self.resolved_query.explain_format())
+        match &self.scan_mode {
+            crate::scan::ScanMode::Standard { .. } => {
+                write!(f, ", query={}", self.resolved_query.explain_format())?;
+            }
+            crate::scan::ScanMode::Tagged {
+                base_query,
+                local_queries,
+            } => {
+                let has_base = !matches!(**base_query, SearchQueryInput::All);
+                if has_base {
+                    write!(f, ", query={}", base_query.explain_format())?;
+                } else if local_queries.is_empty() {
+                    write!(f, ", query=\"all\"")?;
+                }
+                for tq in local_queries {
+                    write!(f, ", tag_{}={}", tq.tag_idx.0, tq.query.explain_format())?;
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -1040,6 +1071,17 @@ impl ExecutionPlan for PgSearchScanPlan {
                 scanner_config.which_fast_fields,
                 scanner_config.heap_relid,
             );
+            if let crate::scan::ScanMode::Tagged { local_queries, .. } = &scanner_config.scan_mode {
+                for tq in local_queries {
+                    let weight = reader
+                        .compile_match_weight(&tq.query)
+                        .map_err(|e| DataFusionError::Internal(format!(
+                            "Failed to compile match weight for tag {}: {e}",
+                            tq.tag_name
+                        )))?;
+                    scanner.add_tagged_query(tq.tag_name.clone(), weight);
+                }
+            }
             let df_batch_size = crate::gucs::dynamic_filter_batch_size();
             if df_batch_size > 0 {
                 scanner.set_batch_size(df_batch_size as usize);
@@ -1048,7 +1090,8 @@ impl ExecutionPlan for PgSearchScanPlan {
             let mut pushdown_metric_recorded = false;
             loop {
                 let timer = baseline_metrics.elapsed_compute().timer();
-                let (pre_filters, score_threshold) = build_filters(&dynamic_filters, &schema, score_column_schema_idx);
+                let (pre_filters, score_threshold) =
+                    build_filters(&dynamic_filters, &schema, score_column_schema_idx);
                 let pre_filters_wrapper = if pre_filters.is_empty() {
                     None
                 } else {

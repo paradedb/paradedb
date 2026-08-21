@@ -99,8 +99,100 @@ impl RowEstimate {
     }
 }
 
+/// 0-based index of a tag within a single table scan.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct TagIndex(pub usize);
+
+/// Index into the global `join_level_predicates` vector.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct GlobalPredicateIndex(pub usize);
+
+/// A tagged search predicate on a scan with a dedicated match tag column name.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TaggedQuery {
+    /// The synthetic column name (e.g. `__users_tag_0`).
+    pub tag_name: String,
+    /// The 0-based tag index within this scan/table.
+    pub tag_idx: TagIndex,
+    /// The global predicate index in `join_level_predicates`.
+    pub predicate_idx: GlobalPredicateIndex,
+    /// The Tantivy search query for this tag.
+    pub query: Box<SearchQueryInput>,
+}
+
+/// Execution mode for a scan, encapsulating its search query.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum ScanMode {
+    /// Standard scan executing its own query.
+    Standard { query: Box<SearchQueryInput> },
+    /// Scan participating in predicate tagging (e.g. in a disjunctive search join).
+    Tagged {
+        /// Base query (e.g. non-search restrictions like `w.year >= 2024`, or `All`).
+        base_query: Box<SearchQueryInput>,
+        /// The single-table search predicates lifted from this scan, if any.
+        local_queries: Vec<TaggedQuery>,
+    },
+}
+
+impl ScanMode {
+    /// Creates a standard scan mode with the given query.
+    pub fn standard(query: SearchQueryInput) -> Self {
+        Self::Standard {
+            query: Box::new(query),
+        }
+    }
+
+    /// Creates a standard scan mode matching all documents.
+    pub fn all() -> Self {
+        Self::standard(SearchQueryInput::All)
+    }
+
+    /// Creates a tagged scan mode with a base query and tagged search queries.
+    pub fn tagged(base_query: SearchQueryInput, local_queries: Vec<TaggedQuery>) -> Self {
+        Self::Tagged {
+            base_query: Box::new(base_query),
+            local_queries,
+        }
+    }
+
+    /// Returns a new `ScanMode` with the base or standard query replaced.
+    pub fn with_base_query(self, base_query: SearchQueryInput) -> Self {
+        match self {
+            Self::Standard { .. } => Self::Standard {
+                query: Box::new(base_query),
+            },
+            Self::Tagged { local_queries, .. } => Self::Tagged {
+                base_query: Box::new(base_query),
+                local_queries,
+            },
+        }
+    }
+
+    /// The base or primary search query for this scan mode.
+    pub fn query(&self) -> &SearchQueryInput {
+        match self {
+            Self::Standard { query } => query,
+            Self::Tagged { base_query, .. } => base_query,
+        }
+    }
+
+    /// Whether any query in this scan mode requires a tokenizer.
+    pub fn needs_tokenizer(&self) -> bool {
+        match self {
+            Self::Standard { query } => query.needs_tokenizer(),
+            Self::Tagged {
+                base_query,
+                local_queries,
+            } => {
+                base_query.needs_tokenizer()
+                    || local_queries.iter().any(|tq| tq.query.needs_tokenizer())
+            }
+        }
+    }
+}
+
 /// Information about a scan of a ParadeDB table.
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanInfo {
     /// The range table index for this scan's base relation.
     pub heap_rti: pg_sys::Index,
@@ -108,10 +200,10 @@ pub struct ScanInfo {
     pub heaprelid: pg_sys::Oid,
     /// The OID of the BM25 index (if this scan has one).
     pub indexrelid: pg_sys::Oid,
-    /// The search query for this scan (extracted from WHERE clause predicates).
-    pub query: SearchQueryInput,
     /// Whether this scan has a search predicate (uses @@@ operator).
     pub has_search_predicate: bool,
+    /// The execution mode and query for this scan.
+    pub mode: ScanMode,
     /// The alias used in the query (e.g., "p" for "products p"), if any.
     pub alias: Option<String>,
     /// Whether scores are needed for this scan's results.
@@ -131,6 +223,41 @@ pub struct ScanInfo {
 }
 
 impl ScanInfo {
+    pub fn new(
+        heap_rti: pg_sys::Index,
+        heaprelid: pg_sys::Oid,
+        indexrelid: pg_sys::Oid,
+        mode: ScanMode,
+    ) -> Self {
+        Self {
+            heap_rti,
+            heaprelid,
+            indexrelid,
+            has_search_predicate: false,
+            mode,
+            alias: None,
+            score_needed: false,
+            fields: Vec::new(),
+            partition_by: Vec::new(),
+            estimate: RowEstimate::Unknown,
+            segment_count: 0,
+        }
+    }
+
+    pub fn with_alias(mut self, alias: impl Into<String>) -> Self {
+        self.alias = Some(alias.into());
+        self
+    }
+
+    pub fn with_search_predicate(mut self, has_search_predicate: bool) -> Self {
+        self.has_search_predicate = has_search_predicate;
+        self
+    }
+
+    pub fn with_score_needed(mut self, score_needed: bool) -> Self {
+        self.score_needed = score_needed;
+        self
+    }
     pub fn add_field(&mut self, attno: pg_sys::AttrNumber, field: WhichFastField) {
         if !self.fields.iter().any(|f| f.attno == attno) {
             self.fields.push(FieldInfo { attno, field });

@@ -26,9 +26,7 @@ use datafusion::logical_expr::{AggregateUDF, Extension, LogicalPlan, ScalarUDF};
 use datafusion_proto::logical_plan::LogicalExtensionCodec;
 use datafusion_proto::protobuf::DfSchema;
 use pgrx::pg_sys::{ExprContext, Oid, PlanState};
-use tantivy::index::SegmentId;
 
-use crate::api::HashSet;
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterNode;
 use crate::scan::late_materialization::{DeferredField, LateMaterializeNode};
@@ -46,8 +44,6 @@ struct PgSearchExtensionCodec {
     expr_context: Option<*mut ExprContext>,
     /// Executor planstate, needed to initialize runtime Postgres expressions in source queries.
     planstate: Option<*mut PlanState>,
-    /// Canonical segment ID sets for all join sources, indexed by plan_position.
-    index_segment_ids: Vec<HashSet<SegmentId>>,
 }
 
 unsafe impl Send for PgSearchExtensionCodec {}
@@ -269,7 +265,7 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
     }
 
     fn try_decode_udf(&self, name: &str, buf: &[u8]) -> Result<Arc<ScalarUDF>> {
-        try_decode_pg_search_udf(name, buf, &self.index_segment_ids)?.ok_or_else(|| {
+        try_decode_pg_search_udf(name, buf)?.ok_or_else(|| {
             DataFusionError::NotImplemented(format!("UDF '{name}' deserialization not implemented"))
         })
     }
@@ -296,20 +292,17 @@ pub fn serialize_logical_plan(plan: &LogicalPlan) -> Result<bytes::Bytes> {
 
 /// Deserializes a DataFusion `LogicalPlan` using a codec populated with the
 /// runtime state required by execution.
-#[allow(clippy::too_many_arguments)]
 pub fn deserialize_logical_plan_with_runtime(
     bytes: &[u8],
     ctx: &TaskContext,
     parallel_state: Option<*mut ParallelScanState>,
     expr_context: Option<*mut ExprContext>,
     planstate: Option<*mut PlanState>,
-    index_segment_ids: Vec<HashSet<SegmentId>>,
 ) -> Result<LogicalPlan> {
     let codec = PgSearchExtensionCodec {
         parallel_state,
         expr_context,
         planstate,
-        index_segment_ids,
     };
     datafusion_proto::bytes::logical_plan_from_bytes_with_extension_codec(bytes, ctx, &codec)
 }

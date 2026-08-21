@@ -64,7 +64,9 @@ use crate::postgres::customscan::mpp::glue::{
     MIN_TOTAL_WORKER_COUNT, MppLeaderState, estimate_dsm_size, leader_setup, producer_worker_cap,
     worker_setup,
 };
-use crate::postgres::customscan::mpp::worker_fragments::{collect_stages, max_producer_task_count};
+use crate::postgres::customscan::mpp::worker_fragments::{
+    collect_stages, max_producer_task_count, stages_have_data_parallelism,
+};
 use crate::postgres::{ParallelScanArgs, ParallelScanState};
 use crate::scan::info::RowEstimate;
 
@@ -336,15 +338,15 @@ fn launch_mpp(
 
     // Task counts were capped by `target_partitions = cap` at plan time and reflect segment
     // counts (#5657). The producer floor keeps the mesh-width invariant; see
-    // [`MIN_TOTAL_WORKER_COUNT`].
-    let max_tasks = max_producer_task_count(&stages);
-    if max_tasks < 2 {
+    // [`MIN_TOTAL_WORKER_COUNT`]. Same gate as plain EXPLAIN (#5784).
+    if !stages_have_data_parallelism(&stages) {
         // 0: nothing to distribute. 1: no data parallelism — every 1-task stage lands on
         // proc 1 (`proc_for_task`), leaving the second (floor) producer idle. Run serially.
         // This also keeps `producer_count <= max_tasks`, so every launched proc owns at
         // least one fragment of the widest stage.
         return None;
     }
+    let max_tasks = max_producer_task_count(&stages);
     let cap = producer_worker_cap();
     let producer_count = (max_tasks as u32).clamp(MIN_TOTAL_WORKER_COUNT - 1, cap);
 

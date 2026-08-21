@@ -92,7 +92,8 @@ fn ensure_column_fetched(
         WhichFastField::Score
         | WhichFastField::Ctid
         | WhichFastField::TableOid
-        | WhichFastField::Junk(_) => {}
+        | WhichFastField::Junk(_)
+        | WhichFastField::MatchTag(_) => {}
         WhichFastField::DeferredCtid(alias) => {
             panic!(
                 "pre-filter referenced DeferredCtid column '{alias}' at index {ff_index} \
@@ -151,6 +152,15 @@ pub struct Scanner {
     /// Rows removed by pre-materialization filters.
     pub pre_filter_rows_pruned: usize,
     score_threshold: Option<Score>,
+    tagged_queries: Vec<TaggedMatchQuery>,
+    current_segment_ord: Option<SegmentOrdinal>,
+    current_match_bitsets: crate::api::HashMap<String, tantivy_common::BitSet>,
+}
+
+/// A tagged search query whose match bitset is lazily evaluated per-segment.
+pub struct TaggedMatchQuery {
+    pub tag_name: String,
+    pub weight: Box<dyn tantivy::query::Weight>,
 }
 
 impl Scanner {
@@ -208,6 +218,39 @@ impl Scanner {
             pre_filter_rows_scanned: 0,
             pre_filter_rows_pruned: 0,
             score_threshold: None,
+            tagged_queries: Vec::new(),
+            current_segment_ord: None,
+            current_match_bitsets: crate::api::HashMap::default(),
+        }
+    }
+
+    /// Adds a tagged search query whose match bitset will be lazily evaluated per-segment.
+    pub fn add_tagged_query(&mut self, tag_name: String, weight: Box<dyn tantivy::query::Weight>) {
+        self.tagged_queries
+            .push(TaggedMatchQuery { tag_name, weight });
+    }
+
+    fn ensure_segment_bitsets(&mut self, segment_ord: SegmentOrdinal) {
+        if self.current_segment_ord != Some(segment_ord) {
+            self.current_match_bitsets.clear();
+            if !self.tagged_queries.is_empty() {
+                let segment_reader = self.search_results.searcher().segment_reader(segment_ord);
+                for tq in &self.tagged_queries {
+                    let mut bitset =
+                        tantivy_common::BitSet::with_max_value(segment_reader.max_doc());
+                    let mut scorer = tq.weight.scorer(segment_reader, 1.0).unwrap_or_else(|e| {
+                        panic!("Failed to create scorer for tag {}: {e}", tq.tag_name)
+                    });
+                    let mut doc = scorer.doc();
+                    while doc != tantivy::TERMINATED {
+                        bitset.insert(doc);
+                        doc = scorer.advance();
+                    }
+                    self.current_match_bitsets
+                        .insert(tq.tag_name.clone(), bitset);
+                }
+            }
+            self.current_segment_ord = Some(segment_ord);
         }
     }
 
@@ -275,6 +318,7 @@ impl Scanner {
     ) -> Option<Batch> {
         pgrx::check_for_interrupts!();
         let (segment_ord, scores, mut ids) = self.try_get_batch_ids()?;
+        self.ensure_segment_bitsets(segment_ord);
 
         // Memoize fetched columns to avoid redundant fetches.
         // - Numeric columns: stores the values directly.
@@ -454,6 +498,19 @@ impl Scanner {
                         &ids,
                     )),
                 },
+                WhichFastField::MatchTag(tag_name) => {
+                    let bitset = self.current_match_bitsets.get(tag_name).unwrap_or_else(|| {
+                        panic!(
+                            "Missing match bitset for tag column {tag_name} in segment {segment_ord}"
+                        )
+                    });
+                    let mut builder =
+                        arrow_array::builder::BooleanBuilder::with_capacity(ids.len());
+                    for &doc_id in &ids {
+                        builder.append_value(bitset.contains(doc_id));
+                    }
+                    Some(Arc::new(builder.finish()) as ArrayRef)
+                }
             })
             .collect();
 

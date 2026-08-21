@@ -2,7 +2,7 @@
 #
 # Runs the benchmarker suite (github.com/paradedb/benchmarker) on the hn-ci
 # dataset, against a pg_search compiled from this repo's source and overlaid
-# onto a released ParadeDB image. Dashboards and QPS/latency history are
+# onto a released ParadeDB image. Dashboards and latency history are
 # published to gh-pages.
 # https://www.paradedb.com/blog/benchmarker-iteration
 
@@ -219,66 +219,42 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          # Per-run QPS + p50/p90/p95/p99 from queries[].latencies (ms); QPS =
-          # sample count over the timestamp span. Run .name is the series name.
+          # Per-run mean + p50/p90/p95/p99 from queries[].latencies (ms), all
+          # smaller-is-better so everything fits one series (like the queries
+          # benchmarks). The scripts are closed-loop, so mean ms stands in for
+          # QPS: QPS = VUs / mean latency. Run .name is the series name.
           mkdir -p _metrics
           for j in results/*.json; do
             nm="$(basename "$j" .json)"
             jq '[ .runs | to_entries[] | .value as $r
-                  | ([$r.queries[]?.latencies[]?]) as $lat
-                  | ([$r.queries[]?.timestamps[]?]) as $ts
-                  | ($lat | length) as $n
-                  | select($n > 0)
-                  | { name:  ($r.name + " QPS"),
-                      unit:  "QPS",
-                      value: ($n / (((($ts|max) - ($ts|min)) | if . <= 0 then 1000 else . end) / 1000)) } ]' \
-              "$j" > "_metrics/${nm}.qps.json"
-            # (50,90,95,99) fans out to four rows per run (nearest-rank).
-            jq '[ .runs | to_entries[] | .value as $r
                   | ([$r.queries[]?.latencies[]?] | sort) as $sorted
                   | ($sorted | length) as $n
                   | select($n > 0)
-                  | (50, 90, 95, 99) as $p
-                  | { name:  ($r.name + " p" + ($p|tostring) + " latency"),
+                  | { name:  ($r.name + " mean latency"),
                       unit:  "ms",
-                      value: $sorted[ ((($n - 1) * $p / 100) | floor) ] } ]' \
-              "$j" > "_metrics/${nm}.lat.json"
+                      value: (($sorted | add) / $n) },
+                    ((50, 90, 95, 99) as $p
+                     | { name:  ($r.name + " p" + ($p|tostring) + " latency"),
+                         unit:  "ms",
+                         value: $sorted[ ((($n - 1) * $p / 100) | floor) ] }) ]' \
+              "$j" > "_metrics/${nm}.json"
           done
           # Merge per-script arrays; empty set -> [].
-          if compgen -G "_metrics/*.qps.json" > /dev/null; then jq -s 'add' _metrics/*.qps.json; else echo '[]'; fi > benchmarker_qps.json
-          if compgen -G "_metrics/*.lat.json" > /dev/null; then jq -s 'add' _metrics/*.lat.json; else echo '[]'; fi > benchmarker_latency.json
-          echo "== QPS =="; cat benchmarker_qps.json
-          echo "== latency percentiles =="; cat benchmarker_latency.json
+          if compgen -G "_metrics/*.json" > /dev/null; then jq -s 'add' _metrics/*.json; else echo '[]'; fi > benchmarker_metrics.json
+          cat benchmarker_metrics.json
 
       - name: Cleanup Previous Benchmark Publish Working Directory
         run: rm -rf ./benchmark-data-repository
 
-      - name: Publish Throughput (QPS)
+      - name: Publish Latency (mean + percentiles)
         continue-on-error: true # Don't let a publish hiccup block the dashboards/comment below.
-        uses: benchmark-action/github-action-benchmark@v1
+        # paradedb fork: shallow-clones only the gh-pages branch on publish.
+        uses: paradedb/github-action-benchmark@v1
         with:
-          name: "benchmarker hn-ci (QPS)"
-          ref: ${{ steps.determine-ref.outputs.ref }}
-          tool: customBiggerIsBetter
-          output-file-path: benchmarker/benchmarker_qps.json
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          gh-repository: github.com/${{ github.repository }}
-          gh-pages-branch: gh-pages
-          benchmark-data-dir-path: benchmarker
-          auto-push: ${{ github.ref == 'refs/heads/main' }}
-          alert-threshold: "115%"
-          comment-on-alert: true
-          alert-comment-cc-users: "@${{ github.actor }}"
-          comment-always: ${{ github.event_name == 'pull_request' }}
-
-      - name: Publish Latency (p50/p90/p95/p99)
-        continue-on-error: true
-        uses: benchmark-action/github-action-benchmark@v1
-        with:
-          name: "benchmarker hn-ci (latency percentiles)"
+          name: "benchmarker hn-ci (latency)"
           ref: ${{ steps.determine-ref.outputs.ref }}
           tool: customSmallerIsBetter
-          output-file-path: benchmarker/benchmarker_latency.json
+          output-file-path: benchmarker/benchmarker_metrics.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
           gh-repository: github.com/${{ github.repository }}
           gh-pages-branch: gh-pages
@@ -311,9 +287,10 @@ jobs:
           user_email: "github-actions[bot]@users.noreply.github.com"
           commit_message: "benchmarker dashboards for ${{ steps.commit_info.outputs.short_commit }}"
 
-      # On a PR the links land as a PR comment; on a push to main, as a commit comment.
+      # Summary comment, PR-only by convention (see benchmark-queries): main
+      # runs are tracked on the gh-pages charts, alerts still comment anywhere.
       - name: Comment dashboard links
-        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -330,26 +307,22 @@ jobs:
             printf '### 📊 Benchmarker dashboards: `%s`\n\n' "${{ steps.commit_info.outputs.short_commit }}"
             printf 'Interactive per-script graphs (latency timeline, throughput, per-container **CPU %%** / **memory**):\n\n'
             printf '%s\n' "$links"
-            printf 'Over-time tracking (QPS + latency percentiles across commits): [%s](%s)\n\n' "$OVERTIME" "$OVERTIME"
+            printf 'Over-time tracking (mean + percentile latency across commits): [%s](%s)\n\n' "$OVERTIME" "$OVERTIME"
             printf '_gh-pages may take ~a minute to deploy after this run._\n'
           } > _comment.md
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            gh pr comment ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --body-file _comment.md
-          else
-            gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" -F 'body=@_comment.md'
-          fi
+          gh pr comment ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --body-file _comment.md
 
       # Publishes run continue-on-error, so gate here: fail loudly if k6 recorded
-      # no samples (empty QPS) instead of a silently-masked green.
+      # no samples (empty metrics) instead of a silently-masked green.
       - name: Fail if no metrics were extracted
         if: always()
         run: |
-          f=benchmarker/benchmarker_qps.json
+          f=benchmarker/benchmarker_metrics.json
           # No metrics file means an earlier stage already failed; don't pile on.
           [ -f "$f" ] || { echo "no metrics file (earlier stage failed); skipping guard"; exit 0; }
           n=$(jq 'length' "$f")
-          echo "extracted QPS series: ${n}"
+          echo "extracted metric rows: ${n}"
           if [ "${n:-0}" -eq 0 ]; then
-            echo "::error::No benchmark metrics extracted (empty QPS set): the k6 run produced no query samples. Check query execution / the dashboard export." >&2
+            echo "::error::No benchmark metrics extracted: the k6 run produced no query samples. Check query execution / the dashboard export." >&2
             exit 1
           fi

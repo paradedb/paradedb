@@ -36,10 +36,8 @@ use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::customscan::basescan::projections::score::is_score_func;
+use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::opexpr::lookup_operator;
-use crate::postgres::customscan::orderby::{
-    collation_is_deterministic, is_collation_pushdown_safe,
-};
 use crate::postgres::customscan::pullup::{
     field_type_for_pullup, get_attno_by_name, resolve_fast_field,
 };
@@ -316,7 +314,7 @@ pub unsafe fn classify_base_restrictinfo(
     // has pushed down to the base relation level.
     //
     // Note: Cross-table predicates (e.g., involving multiple tables in a join)
-    // are handled separately via SearchPredicateUDF through filter pushdown.
+    // are handled separately at the join level.
     let baserestrictinfo = PgList::<pg_sys::RestrictInfo>::from_pg(baserestrictinfo);
     if baserestrictinfo.is_empty() {
         return classified;
@@ -1500,7 +1498,7 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
         let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
         // If a collation isn't "safe" (C-like), then we can't pushdown as Tantivy uses byte ordering
         let collation = (*equivclass).ec_collation;
-        if !is_collation_pushdown_safe(collation) {
+        if !collation_supports(collation, CollationOperation::Ordering) {
             return false;
         }
 
@@ -1708,9 +1706,10 @@ pub(super) unsafe fn distinct_collations_are_deterministic(root: *mut pg_sys::Pl
         {
             // Read the collation before any stripping: `COLLATE` reaches the
             // planner as a `RelabelType` that `strip_wrappers` would discard.
-            Some(te) => {
-                collation_is_deterministic(pg_sys::exprCollation((*te).expr as *mut pg_sys::Node))
-            }
+            Some(te) => collation_supports(
+                pg_sys::exprCollation((*te).expr as *mut pg_sys::Node),
+                CollationOperation::Equality,
+            ),
             None => true,
         }
     })

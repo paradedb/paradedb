@@ -102,8 +102,11 @@ pub(crate) fn build_mpp_session_context(
     // for stage sizing and target_partitions, so it plans against the cap
     // (`producer_worker_cap()`, from PG's parallelism GUCs). EXPLAIN never opens a
     // `WorkerConnection`, so we skip the transport install and the fork's default sits
-    // unused. mesh = Some reads the launched width from the mesh header, which the plan-first
-    // launch sized from the plan's task counts (#5667).
+    // unused. Callers that render plain EXPLAIN must still apply the launch gate
+    // (`mpp_plan_has_data_parallelism`) and replan serially when the finished plan has
+    // fewer than 2 producer tasks (#5784), matching execution. mesh = Some reads the
+    // launched width from the mesh header, which the plan-first launch sized from the
+    // plan's task counts (#5667).
     let n_workers = match mesh.as_ref() {
         Some(m) => m.n_workers() as usize,
         None => producer_worker_cap() as usize,

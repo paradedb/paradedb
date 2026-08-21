@@ -67,8 +67,7 @@ pub struct PgSearchPhysicalExtensionCodec {
     /// Worker's `ParallelScanState`, used to resolve the scan's MVCC segment set and to claim
     /// segments at runtime.
     parallel_state: Option<*mut ParallelScanState>,
-    /// Canonical segment ID sets for all join sources, indexed by `plan_position`. Injected into
-    /// `SearchPredicateUDF` on decode, same as the logical codec.
+    /// Canonical segment ID sets for all join sources, indexed by `plan_position`.
     index_segment_ids: Vec<HashSet<SegmentId>>,
     /// The `ExprContext` workers use to evaluate heap filters.
     expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
@@ -181,7 +180,7 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
     }
 
     fn try_decode_udf(&self, name: &str, buf: &[u8]) -> Result<Arc<ScalarUDF>> {
-        try_decode_pg_search_udf(name, buf, &self.index_segment_ids)?.ok_or_else(|| {
+        try_decode_pg_search_udf(name, buf)?.ok_or_else(|| {
             DataFusionError::NotImplemented(format!("UDF '{name}' deserialization not implemented"))
         })
     }
@@ -285,7 +284,7 @@ fn collect_ffhelpers_by_indexrelid(input: &Arc<dyn ExecutionPlan>) -> HashMap<u3
 /// The composed codec takes the first `Ok` per call, and the trait's default `try_encode_udf`
 /// returns `Ok` writing nothing, so a bare `DistributedCodec` at position 0 would shadow the
 /// pg_search UDF serialization: no `fun_definition` would ever travel, and a dispatched stage
-/// retaining a `pdb_search_predicate` / `pg_expr_*` expression would fail decode on the worker
+/// retaining a `pg_expr_*` expression would fail decode on the worker
 /// (their registry has no such functions). Position 0 still matters for everything else:
 /// `prost` skips default values, so only position 0 with an empty blob encodes to zero bytes,
 /// which is what keeps registry-resolved built-ins travelling by name. So this wrapper accepts

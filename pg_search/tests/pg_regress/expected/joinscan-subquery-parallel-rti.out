@@ -97,8 +97,8 @@ WHERE i.overview @@@ 'software'
   )
 ORDER BY i.id DESC
 LIMIT 10;
-                                                                                                                       QUERY PLAN                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                             QUERY PLAN                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id
    ->  Custom Scan (ParadeDB Join Scan)
@@ -127,7 +127,7 @@ LIMIT 10;
            :     │       [Stage 1] => NetworkCoalesceExec: output_partitions=4, input_tasks=4
            :     │     RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
            :     │       DistributedLeafExec:
-           :     │         t0: PgSearchScan: table=e, segments=2, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"with_index":{"query":{"term_set":{"field":"technology_name","terms":["Marketo"]}}}}]}}
+           :     │         t0: PgSearchScan: table=e, segments=2, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"with_index":{"query":{"term_set":{"field":"technology_name","terms":["Marketo"]}}}}]}}
            :     └──────────────────────────────────────────────────
            :       ┌───── Stage 1 ── tasks=4, partitions=4
            :       │ DistributedLeafExec:

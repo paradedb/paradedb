@@ -184,6 +184,7 @@ use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::mpp::glue::mpp_is_active;
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
+use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parallelism;
 use arrow_array::Array;
 use datafusion_distributed::shm::MppMesh;
 
@@ -910,6 +911,7 @@ impl JoinScan {
             all_sources,
             query: vec![],
             with_aggregates: false,
+            with_segment_info: false,
         };
         crate::postgres::customscan::mpp::launch::launch_mpp_join(physical, args)
     }
@@ -1324,30 +1326,42 @@ impl CustomScan for JoinScan {
             }
             // For plain EXPLAIN, reconstruct the plan using the same session configuration
             // that execution uses so `VisibilityFilterExec` appears in the displayed plan,
-            // matching EXPLAIN ANALYZE. When MPP is active, pass `mesh = None`; the shared
-            // session-context builder derives `n_workers` from `producer_worker_cap()` and
-            // skips the shm_mq transport install (EXPLAIN doesn't execute).
+            // matching EXPLAIN ANALYZE. When MPP is active, first build against
+            // `producer_worker_cap()` (`mesh = None`); if task discovery says launch will
+            // not run (#5784 / `max_producer_task_count < 2`), rebuild serially so the
+            // printed shape matches execution.
             let expr_context = crate::postgres::utils::ExprContextGuard::new();
-            let ctx = if mpp_is_active() {
-                Self::build_mpp_session_context(None)
-            } else {
-                create_datafusion_session_context(SessionContextProfile::Join)
-            };
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .build()
                 .expect("Failed to create tokio runtime");
-            let logical_plan = deserialize_logical_plan_with_runtime(
-                logical_plan,
-                &ctx.task_ctx(),
-                None,
-                Some(expr_context.as_ptr()),
-                None,
-                vec![],
-            )
-            .expect("Failed to deserialize logical plan");
-            let physical_plan = runtime
-                .block_on(build_physical_plan(&ctx, logical_plan))
-                .expect("Failed to create execution plan");
+            let build_with = |ctx: &datafusion::prelude::SessionContext| {
+                let logical_plan = deserialize_logical_plan_with_runtime(
+                    logical_plan,
+                    &ctx.task_ctx(),
+                    None,
+                    Some(expr_context.as_ptr()),
+                    None,
+                    vec![],
+                )
+                .expect("Failed to deserialize logical plan");
+                runtime
+                    .block_on(build_physical_plan(ctx, logical_plan))
+                    .expect("Failed to create execution plan")
+            };
+            let physical_plan = if mpp_is_active() {
+                let mpp_plan = build_with(&Self::build_mpp_session_context(None));
+                if mpp_plan_has_data_parallelism(&mpp_plan) {
+                    mpp_plan
+                } else {
+                    build_with(&create_datafusion_session_context(
+                        SessionContextProfile::Join,
+                    ))
+                }
+            } else {
+                build_with(&create_datafusion_session_context(
+                    SessionContextProfile::Join,
+                ))
+            };
             explain_physical_plan(&physical_plan, explainer);
         }
     }

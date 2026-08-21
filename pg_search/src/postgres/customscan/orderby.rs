@@ -27,11 +27,9 @@
 use crate::api::{FieldName, QueryVector};
 use crate::index::reader::index::MAX_TOPK_FEATURES;
 use crate::nodecast;
-use crate::postgres::catalog::{
-    CollationLocale, CollationProvider, lookup_collation_locale, lookup_database_collation_locale,
-};
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
+use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::var::{
@@ -455,53 +453,16 @@ unsafe fn find_target_entry_by_ref(
         .find(|&te| (*te).ressortgroupref == ref_id)
 }
 
-/// Normalizes a collation name for case and hyphen-insensitive comparison
-/// for example: "C.utf8", "C.UTF-8", "C.UTF8" all normalize to "C.UTF8".
-fn normalize_collation_name(mut collation_name: String) -> String {
-    collation_name.retain(|c| c != '-');
-    collation_name.make_ascii_uppercase();
-    collation_name
-}
-
-// This helper function tells us whether a collation is "safe", for the purposes of pushing down ORDER BY
-// If a field does not have a collation (ex: integers, non-text data), it's considered safe
-// Otherwise, for collatable fields, if the collation is C-like it's safe
-/// Whether a collation settles equality by comparing bytes.
+/// Whether `search_field` may be pushed down as the sort key at `position` in the ORDER BY.
 ///
-/// Deterministic collations fall back to a byte comparison when their rules
-/// call two strings equal, so a backend that groups by bytes still produces
-/// Postgres's groups. A nondeterministic one can call two different byte
-/// strings equal, and nothing above a scan can merge groups it already emitted
-/// apart. This is weaker than [`is_collation_pushdown_safe`], which also
-/// demands byte *ordering*.
-pub fn collation_is_deterministic(collation: pg_sys::Oid) -> bool {
-    // Non-collatable types carry InvalidOid and never disagree.
-    collation == pg_sys::Oid::INVALID || unsafe { pg_sys::get_collation_isdeterministic(collation) }
-}
-
-pub fn is_collation_pushdown_safe(collation: pg_sys::Oid) -> bool {
-    const NORMALIZED_SAFE_COLLATION_NAMES: &[&str] = &["C", "POSIX", "C.UTF8", "POSIX.UTF8"];
-
-    let locale = match collation {
-        pg_sys::Oid::INVALID | pg_sys::C_COLLATION_OID => return true,
-        pg_sys::DEFAULT_COLLATION_OID => lookup_database_collation_locale(),
-        _ => lookup_collation_locale(collation),
-    };
-
-    // If using the builtin provider, we're always safe, icu is always unsafe, and otherwise we check the name
-    match locale {
-        #[cfg(any(feature = "pg17", feature = "pg18"))]
-        Some(CollationLocale {
-            provider: CollationProvider::Builtin,
-            ..
-        }) => true,
-        Some(CollationLocale {
-            provider: CollationProvider::Libc,
-            name: Some(name),
-        }) => NORMALIZED_SAFE_COLLATION_NAMES.contains(&normalize_collation_name(name).as_str()),
-        // ICU and anything unrecognized: never byte-ordered
-        _ => false,
-    }
+/// Range fields are only supported as the leading sort key: every key after the first is
+/// collected via `SortByErasedType`, which reads a single dynamic column, whereas a range
+/// compares by a composite of its bound sub-columns (see
+/// [`crate::index::reader::sort_by_range`]). A range in a later position makes the whole
+/// ORDER BY unpushable: Top K can't run on a prefix of the pathkeys, so Postgres sorts the
+/// unsorted scan itself.
+fn sortable_at_position(search_field: &SearchField, position: usize) -> bool {
+    position == 0 || !matches!(search_field.field_type(), SearchFieldType::Range(_))
 }
 
 /// Extract pathkeys from ORDER BY clauses using comprehensive expression handling
@@ -538,7 +499,7 @@ where
 
         // If the collation for this pathkey isn't "safe" (C-like), then we can't pushdown as Tantivy uses byte ordering
         let collation = (*equivclass).ec_collation;
-        if !is_collation_pushdown_safe(collation) {
+        if !collation_supports(collation, CollationOperation::Ordering) {
             if pathkey_styles.is_empty() {
                 return PathKeyInfo::Unusable(UnusableReason::UnsafeCollation);
             } else {
@@ -585,6 +546,7 @@ where
                         if let Some(field_name) = field_name_opt
                             && let Some(search_field) = schema.search_field(field_name.root())
                             && lower_sortability_check(&search_field)
+                            && sortable_at_position(&search_field, pathkey_styles.len())
                         {
                             pathkey_styles.push(OrderByStyle::Field {
                                 pathkey,
@@ -599,6 +561,7 @@ where
                         if let Some(field_name) = field_name_opt
                             && let Some(search_field) = schema.search_field(field_name.root())
                             && regular_sortability_check(&search_field)
+                            && sortable_at_position(&search_field, pathkey_styles.len())
                         {
                             pathkey_styles.push(OrderByStyle::Field {
                                 pathkey,
@@ -613,6 +576,7 @@ where
                         if let Some(field_name) = field_name_opt
                             && let Some(search_field) = schema.search_field(field_name.root())
                             && search_field.is_fast()
+                            && sortable_at_position(&search_field, pathkey_styles.len())
                         {
                             pathkey_styles.push(OrderByStyle::Field {
                                 pathkey,
@@ -702,7 +666,7 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
         PgList<pg_sys::Expr>,
     )> = None;
 
-    for sort_clause in sort_list.iter_ptr() {
+    for (position, sort_clause) in sort_list.iter_ptr().enumerate() {
         let tle_ref = (*sort_clause).tleSortGroupRef;
         let Some(te) = find_target_entry_by_ref(&target_list, tle_ref) else {
             return false;
@@ -712,7 +676,7 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
 
         // If the collation for this pathkey isn't "safe" (C-like), then we can't pushdown as Tantivy uses byte ordering
         let expr_collation = pg_sys::exprCollation(expr as *const pg_sys::Node);
-        if !is_collation_pushdown_safe(expr_collation) {
+        if !collation_supports(expr_collation, CollationOperation::Ordering) {
             return false;
         }
 
@@ -783,7 +747,9 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 let Some(search_field) = schema.search_field(field_name.root()) else {
                     return false;
                 };
-                if !search_field.is_lower_sortable() {
+                if !search_field.is_lower_sortable()
+                    || !sortable_at_position(&search_field, position)
+                {
                     return false;
                 }
             }
@@ -794,7 +760,8 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 let Some(search_field) = schema.search_field(field_name.root()) else {
                     return false;
                 };
-                if !search_field.is_raw_sortable() {
+                if !search_field.is_raw_sortable() || !sortable_at_position(&search_field, position)
+                {
                     return false;
                 }
             }
@@ -805,7 +772,7 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 let Some(search_field) = schema.search_field(field_name.root()) else {
                     return false;
                 };
-                if !search_field.is_fast() {
+                if !search_field.is_fast() || !sortable_at_position(&search_field, position) {
                     return false;
                 }
             }

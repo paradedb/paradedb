@@ -50,6 +50,7 @@ mod vacuum;
 mod validate;
 
 mod build_parallel;
+mod build_partitioning;
 pub mod catalog;
 pub mod composite;
 mod condition_variable;
@@ -197,9 +198,11 @@ struct ParallelScanPayloadLayout {
     /// have no slot here. Read by [`ParallelScanState::explain_data`] to populate the "Parallel
     /// Workers" section of `EXPLAIN ANALYZE`.
     claims: Range<usize>,
-    /// One `u32` length per primary segment for EXPLAIN JSON info (0 = none).
+    /// One `u32` length per primary segment for EXPLAIN JSON info (0 = none). Empty unless the
+    /// scan asked for segment info.
     segment_info_lens: Range<usize>,
-    /// Fixed slots of [`SEGMENT_INFO_MAX_PER_SEG`] bytes per primary segment.
+    /// Fixed slots of [`SEGMENT_INFO_MAX_PER_SEG`] bytes per primary segment. Empty unless the
+    /// scan asked for segment info.
     segment_info_data: Range<usize>,
     aggregates_header: Option<Range<usize>>,
     aggregates_data: Option<Range<usize>>,
@@ -212,6 +215,7 @@ impl ParallelScanPayloadLayout {
         all_nsegments: &[usize],
         serialized_query: &[u8],
         with_aggregates: bool,
+        with_segment_info: bool,
     ) -> Result<Self, std::alloc::LayoutError> {
         let n_sources = all_nsegments.len();
         let total_segs: usize = all_nsegments.iter().sum();
@@ -255,12 +259,19 @@ impl ParallelScanPayloadLayout {
         let (layout, claims_offset) = layout.extend(claims_layout)?;
         let claims_range = claims_offset..(claims_offset + claims_layout.size());
 
-        // Per-segment EXPLAIN JSON info (always allocated; unused when empty).
-        let info_lens_layout = Layout::array::<u32>(primary_nsegments)?;
+        // Per-segment EXPLAIN JSON info, only for scans that publish it: at
+        // `SEGMENT_INFO_MAX_PER_SEG` bytes per segment the slots would dominate every other
+        // region, and `amestimateparallelscan` sizes for `u16::MAX` segments sight unseen.
+        let info_nsegments = if with_segment_info {
+            primary_nsegments
+        } else {
+            0
+        };
+        let info_lens_layout = Layout::array::<u32>(info_nsegments)?;
         let (layout, info_lens_offset) = layout.extend(info_lens_layout)?;
         let segment_info_lens = info_lens_offset..(info_lens_offset + info_lens_layout.size());
 
-        let info_data_size = primary_nsegments
+        let info_data_size = info_nsegments
             .checked_mul(SEGMENT_INFO_MAX_PER_SEG)
             .expect("segment info data size overflow");
         let info_data_layout = Layout::from_size_align(info_data_size, 1)?;
@@ -313,11 +324,22 @@ struct ParallelScanPayload {
 }
 
 impl ParallelScanPayload {
-    fn init(&mut self, all_sources: &[&[SegmentReader]], query: &[u8], with_aggregates: bool) {
+    fn init(
+        &mut self,
+        all_sources: &[&[SegmentReader]],
+        query: &[u8],
+        with_aggregates: bool,
+        with_segment_info: bool,
+    ) {
         let all_nsegments: Vec<usize> = all_sources.iter().map(|s| s.len()).collect();
         // Compute and assign the execution-time layout from actual segment counts.
-        self.layout = ParallelScanPayloadLayout::new(&all_nsegments, query, with_aggregates)
-            .expect("could not layout `ParallelScanPayload` for initialization");
+        self.layout = ParallelScanPayloadLayout::new(
+            &all_nsegments,
+            query,
+            with_aggregates,
+            with_segment_info,
+        )
+        .expect("could not layout `ParallelScanPayload` for initialization");
 
         // Query.
         let query_range = self.layout.query.clone();
@@ -472,9 +494,17 @@ impl ParallelScanPayload {
         &self.data()[base..end]
     }
 
+    /// Whether this payload was laid out with the per-segment EXPLAIN info slots.
+    fn has_segment_info(&self) -> bool {
+        !self.layout.segment_info_data.is_empty()
+    }
+
     /// Write JSON bytes for a primary-segment index (last-write-wins). Skips
     /// silently if the payload exceeds [`SEGMENT_INFO_MAX_PER_SEG`].
     fn set_segment_info(&mut self, segment_idx: usize, bytes: &[u8]) {
+        if !self.has_segment_info() {
+            return;
+        }
         if bytes.len() > SEGMENT_INFO_MAX_PER_SEG {
             pgrx::warning!(
                 "segment explain info for segment {segment_idx} exceed {} bytes; skipping",
@@ -527,6 +557,10 @@ pub struct ParallelScanArgs<'a> {
     all_sources: Vec<&'a [SegmentReader]>,
     query: Vec<u8>,
     with_aggregates: bool,
+    /// Whether to allocate the per-segment EXPLAIN telemetry slots
+    /// ([`SEGMENT_INFO_MAX_PER_SEG`] bytes each). Only basescan's Top-K workers publish them;
+    /// every other scan leaves them out so the DSM stays small.
+    with_segment_info: bool,
 }
 
 impl<'a> ParallelScanArgs<'a> {
@@ -594,20 +628,32 @@ impl ParallelScanState {
         all_nsegments: &[usize],
         serialized_query: &[u8],
         with_aggregates: bool,
+        with_segment_info: bool,
     ) -> usize {
-        ParallelScanPayloadLayout::new(all_nsegments, serialized_query, with_aggregates)
-            .expect("could not compute DSM payload capacity")
-            .total
-            .size()
+        ParallelScanPayloadLayout::new(
+            all_nsegments,
+            serialized_query,
+            with_aggregates,
+            with_segment_info,
+        )
+        .expect("could not compute DSM payload capacity")
+        .total
+        .size()
     }
 
     pub fn size_of(
         all_nsegments: &[usize],
         serialized_query: &[u8],
         with_aggregates: bool,
+        with_segment_info: bool,
     ) -> usize {
         std::mem::size_of::<Self>()
-            + Self::payload_capacity_of(all_nsegments, serialized_query, with_aggregates)
+            + Self::payload_capacity_of(
+                all_nsegments,
+                serialized_query,
+                with_aggregates,
+                with_segment_info,
+            )
     }
 
     pub fn source_count(&self) -> usize {
@@ -622,7 +668,12 @@ impl ParallelScanState {
         self.aggregation_cv.init();
         self.init_cv.init();
         self.shared_threshold.init();
-        self.populate(&args.all_sources, &args.query, args.with_aggregates);
+        self.populate(
+            &args.all_sources,
+            &args.query,
+            args.with_aggregates,
+            args.with_segment_info,
+        );
     }
 
     /// Phase 2: Populate with actual data (assumes mutex already created via `create`).
@@ -630,8 +681,15 @@ impl ParallelScanState {
     ///
     /// Caller must hold the mutex. After populating, broadcasts to wake any workers
     /// waiting in `wait_for_initialization()`.
-    fn populate(&mut self, all_sources: &[&[SegmentReader]], query: &[u8], with_aggregates: bool) {
-        self.payload.init(all_sources, query, with_aggregates);
+    fn populate(
+        &mut self,
+        all_sources: &[&[SegmentReader]],
+        query: &[u8],
+        with_aggregates: bool,
+        with_segment_info: bool,
+    ) {
+        self.payload
+            .init(all_sources, query, with_aggregates, with_segment_info);
         self.queries_per_worker = [0; WORKER_METRICS_MAX_COUNT];
         self.shared_threshold.reset();
         let primary_count = all_sources.first().expect("primary source empty").len();
@@ -1004,6 +1062,9 @@ impl ParallelScanState {
     pub fn take_segment_info(&mut self) -> BTreeMap<SegmentId, serde_json::Value> {
         let _mutex = self.acquire_mutex();
         let mut out = BTreeMap::new();
+        if !self.payload.has_segment_info() {
+            return out;
+        }
         let nsegments = self.payload.source_ids(0).len();
         for i in 0..nsegments {
             let len = self.payload.segment_info_lens()[i] as usize;

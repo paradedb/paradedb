@@ -111,6 +111,16 @@ impl PostgresDateTime {
         self.0.into_inner()
     }
 
+    /// Formats as UTC RFC 3339 without a Postgres output function, so it runs outside a backend.
+    /// Returns `None` when the offset does not fit a `chrono` timestamp (the far extremes and the
+    /// `infinity` sentinels).
+    pub fn to_rfc3339(self) -> Option<String> {
+        let unix_micros = self
+            .into_inner()
+            .checked_add(PG_EPOCH_DIFF_FROM_UNIX_EPOCH_MICROS)?;
+        chrono::DateTime::from_timestamp_micros(unix_micros).map(|dt| dt.to_rfc3339())
+    }
+
     pub fn try_from_raw(raw: i64) -> Result<Self, DateTimeConversionError> {
         let ts = pgrx::datum::Timestamp::try_from(raw)
             .map_err(|_| DateTimeConversionError::OutOfRange)?;

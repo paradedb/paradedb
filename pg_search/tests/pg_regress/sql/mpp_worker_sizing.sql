@@ -8,7 +8,8 @@
 --   - 1 segment per table produces no distributable stages: the query
 --     runs serially ("MPP Launch" line absent), and under
 --     paradedb.mpp_debug no "spawning" trace appears — no launch is
---     even attempted.
+--     even attempted. Plain EXPLAIN must also render the serial shape
+--     (#5784), not a cap-sized distributed plan.
 --   - 4 segments per table under a cap of 2 launch exactly 2 producers;
 --     the extra tasks multiplex and results match the serial run.
 --   - AggregateScan rides the same launch: a 2-segment GROUP BY join
@@ -113,6 +114,49 @@ BEGIN
         INSERT INTO mpp_ws_outcome VALUES ('1-segment join: UNEXPECTED distributed launch');
     ELSE
         INSERT INTO mpp_ws_outcome VALUES ('1-segment join: ran serially (no MPP launch recorded)');
+    END IF;
+END$$;
+
+-- #5784: plain EXPLAIN must match the serial ANALYZE shape when launch
+-- will not run — no cap-sized RoundRobin / SortPreservingMerge.
+DO $$
+DECLARE
+    r record;
+    plan text := '';
+BEGIN
+    FOR r IN EXECUTE 'EXPLAIN (VERBOSE, COSTS OFF)
+        SELECT u.id FROM mpp_ws1_users u JOIN mpp_ws1_products p ON u.age = p.age
+        WHERE u.name @@@ ''bob'' ORDER BY u.id LIMIT 10'
+    LOOP
+        plan := plan || E'\n' || r."QUERY PLAN";
+    END LOOP;
+    IF plan LIKE '%RoundRobinBatch%' OR plan LIKE '%SortPreservingMergeExec%' THEN
+        INSERT INTO mpp_ws_outcome
+        VALUES ('1-segment join plain EXPLAIN: UNEXPECTED distributed shape');
+    ELSE
+        INSERT INTO mpp_ws_outcome
+        VALUES ('1-segment join plain EXPLAIN: serial shape (no distributed merge/repartition)');
+    END IF;
+END$$;
+
+DO $$
+DECLARE
+    r record;
+    plan text := '';
+BEGIN
+    FOR r IN EXECUTE 'EXPLAIN (VERBOSE, COSTS OFF)
+        SELECT p.age, count(*) FROM mpp_ws1_users u JOIN mpp_ws1_products p ON u.age = p.age
+        WHERE u.name @@@ ''bob'' GROUP BY p.age ORDER BY p.age LIMIT 5'
+    LOOP
+        plan := plan || E'\n' || r."QUERY PLAN";
+    END LOOP;
+    IF plan LIKE '%RoundRobinBatch%' OR plan LIKE '%SortPreservingMergeExec%'
+       OR plan LIKE '%NetworkShuffle%' OR plan LIKE '%DistributedExec%' THEN
+        INSERT INTO mpp_ws_outcome
+        VALUES ('1-segment aggregate plain EXPLAIN: UNEXPECTED distributed shape');
+    ELSE
+        INSERT INTO mpp_ws_outcome
+        VALUES ('1-segment aggregate plain EXPLAIN: serial shape (no distributed merge/repartition)');
     END IF;
 END$$;
 

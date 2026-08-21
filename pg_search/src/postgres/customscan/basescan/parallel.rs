@@ -108,7 +108,12 @@ impl ParallelQueryCapable for BaseScan {
         }
 
         let args = state.custom_state().parallel_scan_args();
-        ParallelScanState::size_of(&args.all_nsegments(), &args.query, args.with_aggregates)
+        ParallelScanState::size_of(
+            &args.all_nsegments(),
+            &args.query,
+            args.with_aggregates,
+            args.with_segment_info,
+        )
     }
 
     fn initialize_dsm_custom_scan(

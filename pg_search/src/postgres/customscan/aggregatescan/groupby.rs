@@ -80,6 +80,9 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
         let index_expressions = index.index_expressions();
         let categorized_fields = schema.categorized_fields();
 
+        // Use PostgreSQL's processed pathkeys, not `parse.groupClause`: redundant
+        // GROUP BY columns may be removed, and AggregateScan eligibility validates
+        // this same representation before allowing pushdown.
         let pathkeys = if args.root().group_pathkeys.is_null() {
             PgList::<pg_sys::PathKey>::new()
         } else {

@@ -30,6 +30,7 @@ use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::io_stats;
 use crate::index::reader::scorer::{DeferredScorer, LazyWeight, ScorerIter};
+use crate::index::reader::sort_by_range::SortByRange;
 use crate::index::setup_tokenizers;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
@@ -39,7 +40,7 @@ use crate::postgres::storage::metadata::MetaPage;
 use crate::query::SearchQueryInput;
 use crate::query::estimate_tree::QueryWithEstimates;
 use crate::scan::info::RowEstimate;
-use crate::schema::SearchIndexSchema;
+use crate::schema::{SearchFieldType, SearchIndexSchema};
 
 use anyhow::Result;
 use tantivy::aggregation::DistributedAggregationCollector;
@@ -948,6 +949,24 @@ impl SearchIndexReader {
                     }};
                 }
 
+                // A range is indexed as a tantivy JSON object, so `value_type()` below reports
+                // `Type::Json`, which no arm handles — it would reach the catch-all `panic!`.
+                // Dispatch on the Postgres type instead: tantivy cannot distinguish a range's
+                // JSON from a user-supplied JSON column, and only the former is sortable (see
+                // `SearchField::is_sortable`). `SortByRange` compares the bound sub-columns the
+                // way Postgres' `range_cmp` does.
+                if matches!(field.field_type(), SearchFieldType::Range(_)) {
+                    return TopKSearchResults::new_for_discarded_field(self.top_in_segments(
+                        segment_ids,
+                        (SortByRange::for_field(sort_field), order),
+                        erased_features,
+                        n,
+                        offset,
+                        aux_collector,
+                    ))
+                    .into();
+                }
+
                 match field.field_entry().field_type().value_type() {
                     tantivy::schema::Type::Str => {
                         TopKSearchResults::new_for_discarded_field(self.top_in_segments(
@@ -1609,7 +1628,8 @@ impl SearchIndexReader {
                     direction,
                 } => {
                     // NOTE: The list of supported field types for `SortByErasedType` must be synced with
-                    // `SearchField::is_sortable`.
+                    // `SearchField::is_sortable`, except Range: `is_sortable` accepts it, but only as
+                    // the leading key, which `sortable_at_position` enforces before we get here.
                     erased_features
                         .push_feature(SortByErasedType::for_field(sort_field), *direction);
                 }

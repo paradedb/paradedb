@@ -360,13 +360,7 @@ fn named_field_arrow_type(
 /// Sorts points ascending so that `RangePartitioningSample::build` produces
 /// sequential ranges.
 fn sort_sample_points(points: &mut [PdbOwnedValue]) {
-    points.sort_unstable_by(|a, b| {
-        if let (PdbOwnedValue::F64(f1), PdbOwnedValue::F64(f2)) = (a, b) {
-            f1.total_cmp(f2)
-        } else {
-            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-        }
-    });
+    points.sort_unstable_by(PdbOwnedValue::total_cmp);
 }
 
 /// Samples both sides of the join and merges the two distributions, so the split

@@ -35,8 +35,12 @@ use crate::api::{NullTestKind, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
 use crate::postgres::customscan::basescan::projections::score::is_score_func;
+use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::opexpr::lookup_operator;
+<<<<<<< HEAD
 use crate::postgres::customscan::orderby::is_collation_pushdown_safe;
+=======
+>>>>>>> b13e9670f (fix: respect collation semantics in AggregateScan grouping (#5703))
 use crate::postgres::customscan::pullup::{
     field_type_for_pullup, get_attno_by_name, resolve_fast_field,
 };
@@ -1499,7 +1503,7 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
         let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
         // If a collation isn't "safe" (C-like), then we can't pushdown as Tantivy uses byte ordering
         let collation = (*equivclass).ec_collation;
-        if !is_collation_pushdown_safe(collation) {
+        if !collation_supports(collation, CollationOperation::Ordering) {
             return false;
         }
 
@@ -1684,6 +1688,40 @@ unsafe fn column_name_for_var(
 ///
 /// Returns `Some(entries)` if all DISTINCT columns are fast fields, `None` otherwise.
 /// When there is no DISTINCT clause, returns `Some(vec![])`.
+<<<<<<< HEAD
+=======
+/// Whether every DISTINCT column settles equality the way the join dedup does.
+///
+/// JoinScan deduplicates on bytes. A nondeterministic collation can call two
+/// different byte strings equal, and the `Unique` Postgres plans above the scan
+/// cannot merge rows the scan already emitted apart.
+pub(super) unsafe fn distinct_collations_are_deterministic(root: *mut pg_sys::PlannerInfo) -> bool {
+    let parse = (*root).parse;
+    if parse.is_null() || (*parse).distinctClause.is_null() {
+        return true;
+    }
+
+    let distinct_list = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause);
+    let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+
+    distinct_list.iter_ptr().all(|clause| {
+        let tle_ref = (*clause).tleSortGroupRef;
+        match target_list
+            .iter_ptr()
+            .find(|te| (**te).ressortgroupref == tle_ref)
+        {
+            // Read the collation before any stripping: `COLLATE` reaches the
+            // planner as a `RelabelType` that `strip_wrappers` would discard.
+            Some(te) => collation_supports(
+                pg_sys::exprCollation((*te).expr as *mut pg_sys::Node),
+                CollationOperation::Equality,
+            ),
+            None => true,
+        }
+    })
+}
+
+>>>>>>> b13e9670f (fix: respect collation semantics in AggregateScan grouping (#5703))
 pub(super) unsafe fn distinct_columns_are_fast_fields(
     root: *mut pg_sys::PlannerInfo,
     sources: &[&JoinSource],

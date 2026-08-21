@@ -796,51 +796,6 @@ impl JoinScan {
         state.custom_state_mut().source_manifests = manifests;
     }
 
-    /// Build plan_position → canonical segment IDs map for SearchPredicateUDF.
-    ///
-    /// This is keyed by plan_position rather than indexrelid because it is a
-    /// per-source contract, not just a per-index one. The same index can appear
-    /// more than once in one JoinScan plan; in parallel execution those source
-    /// copies can also carry different canonical segment sets (partitioned vs
-    /// replicated). If this were keyed only by indexrelid, one source could
-    /// inject another source's segment set and make packed DocAddresses resolve
-    /// against the wrong segment ordering.
-    ///
-    /// Workers use frozen segment IDs from DSM to match the leader's segment set.
-    /// Leader/serial uses manifests captured with the same snapshot.
-    fn build_index_segment_ids(
-        state: &mut CustomScanStateWrapper<Self>,
-        _join_clause: &JoinCSClause,
-        plan_sources: &[&build::JoinSource],
-    ) -> Vec<crate::api::HashSet<tantivy::index::SegmentId>> {
-        let mut ids_by_pos = vec![None; plan_sources.len()];
-
-        Self::ensure_source_manifests(state);
-        for (i, _source) in plan_sources.iter().enumerate() {
-            if let Some(manifest) = state.custom_state().source_manifests.get(i) {
-                let ids: crate::api::HashSet<_> = manifest
-                    .segment_readers()
-                    .iter()
-                    .map(|r| r.segment_id())
-                    .collect();
-                ids_by_pos[i] = Some(ids);
-            }
-        }
-
-        ids_by_pos
-            .into_iter()
-            .enumerate()
-            .map(|(plan_position, ids)| {
-                ids.unwrap_or_else(|| {
-                    panic!(
-                        "missing canonical segment IDs for join source at plan_position {}",
-                        plan_position
-                    )
-                })
-            })
-            .collect()
-    }
-
     /// Whether any `SearchQueryInput` reachable from `join_clause` — scan-node queries AND
     /// `join_level_predicates` — still carries a Param or PostgresExpression(SubPlan) the
     /// executor needs to resolve. Clause-wide (not per-source): a cross-relation predicate
@@ -1341,7 +1296,6 @@ impl CustomScan for JoinScan {
                     None,
                     Some(expr_context.as_ptr()),
                     None,
-                    vec![],
                 )
                 .expect("Failed to deserialize logical plan");
                 runtime
@@ -1457,9 +1411,6 @@ impl CustomScan for JoinScan {
                     .clone()
                     .expect("Logical plan is required");
 
-                let index_segment_ids =
-                    Self::build_index_segment_ids(state, &join_clause, &plan_sources);
-
                 // For parameterized LIMIT/OFFSET, the planning-time logical plan has no Limit
                 // node. Resolve the fetch once; each planning pass below injects it (before
                 // physical planning) so SegmentedTopKRule can detect SortExec(fetch=K) and
@@ -1492,7 +1443,6 @@ impl CustomScan for JoinScan {
                             None,
                             Some(runtime_context),
                             Some(planstate),
-                            index_segment_ids.clone(),
                         )
                         .expect("Failed to deserialize logical plan");
                         let logical_plan = match runtime_fetch {
@@ -1558,7 +1508,6 @@ impl CustomScan for JoinScan {
                                 None,
                                 Some(runtime_context),
                                 Some(planstate),
-                                index_segment_ids.clone(),
                             )
                             .expect("Failed to deserialize serial fallback logical plan");
                             let logical_plan = match runtime_fetch {

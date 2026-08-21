@@ -99,7 +99,7 @@ pub struct IndexWriterConfig {
 
 /// Legacy per-segment doc ceiling. The vector-specific cap it once
 /// enforced is gone — commit segments assign against the index-level
-/// centroid set at any size — so this survives only as a fixture size.
+/// centroid index at any size — so this survives only as a fixture size.
 #[cfg(any(test, feature = "pg_test"))]
 pub const DEFAULT_MAX_DOCS_PER_SEGMENT: u32 = 1000;
 
@@ -292,7 +292,7 @@ impl SerialIndexWriter {
         let tantivy_schema: tantivy::schema::Schema = schema.clone().into();
 
         let settings = index_settings(index_relation.options(), &tantivy_schema);
-        // No centroid set: the staged mutable segment stores its vectors
+        // No centroid index: the staged mutable segment stores its vectors
         // flat (doc-ordered) and is searched exhaustively; it clusters at
         // its first merge inside the real index.
         let builder = Index::builder().schema(tantivy_schema).settings(settings);

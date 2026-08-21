@@ -389,11 +389,11 @@ fn index_info(
 /// explicitly rather than only the first one an index happens to carry. `segno`
 /// aligns with [`index_info`]'s so the two can be joined.
 ///
-/// Every segment is clustered against the index-level centroid set (there
-/// is no flat layout); `vector_centroid_set_version` is the set version the
-/// segment assigned against. `*_cluster_size` and `vector_total_memberships`
-/// count posting rows, so under replication their totals exceed
-/// `vector_num_vectors`, which counts distinct docs.
+/// Flushed segments cluster against the index-level centroid index; mutable
+/// segments store flat and report `vector_num_centroids = 0`.
+/// `*_cluster_size` and `vector_total_memberships` count posting rows, so
+/// under replication their totals exceed `vector_num_vectors`, which counts
+/// distinct docs.
 #[allow(clippy::type_complexity)]
 #[pg_extern]
 fn vector_info(

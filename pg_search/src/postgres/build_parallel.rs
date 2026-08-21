@@ -1419,4 +1419,182 @@ mod tests {
         .unwrap();
         assert_eq!(count, 1, "expected a single segment, got {count}");
     }
+
+    /// An index with `partition_by` routes each row to a kd-tree cell (#5991) and builds one
+    /// segment per cell per worker. Verify doc-count parity and the segment layout: a serial
+    /// build makes exactly one segment per cell, and a parallel build keeps doc and search
+    /// parity. `tenant_id` is scattered across the heap so a worker's arbitrary slice still
+    /// covers every cell.
+    #[pg_test]
+    fn test_partitioned_build_segments_and_docs() {
+        // The heap must exceed the 15MB floor in `adjusted_target_segment_count`, or the target
+        // collapses to a single cell. A ~900-byte name over 20k rows clears it while staying
+        // under the TOAST threshold. `tenant_id` is scattered across the heap.
+        Spi::run(
+            r#"
+            CREATE TABLE partitioned_build (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            INSERT INTO partitioned_build (tenant_id, name)
+            SELECT (i * 7919) % 100, 'lorem ipsum ' || i || ' ' || repeat('padding word here ', 50)
+            FROM generate_series(1, 20000) i;
+            "#,
+        )
+        .unwrap();
+
+        // Serial build: a single worker sees every cell, so it emits exactly one segment per
+        // cell (the kd-tree's partition count).
+        Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
+        Spi::run(
+            "CREATE INDEX partitioned_build_idx ON partitioned_build USING paradedb (id, tenant_id, name) WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 8);",
+        )
+        .unwrap();
+
+        let count: i64 = Spi::get_one(
+            "SELECT COUNT(*)::bigint FROM paradedb.index_info('partitioned_build_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(count, 8, "serial partitioned build: one segment per cell");
+
+        let num_docs: i64 = Spi::get_one(
+            "SELECT COALESCE(SUM(num_docs), 0)::bigint FROM paradedb.index_info('partitioned_build_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            num_docs, 20000,
+            "serial partitioned build indexes every row"
+        );
+
+        let matches: i64 = Spi::get_one(
+            "SELECT COUNT(*)::bigint FROM partitioned_build WHERE partitioned_build @@@ 'name:lorem';",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            matches, 20000,
+            "search through the serial partitioned index"
+        );
+
+        // Parallel build: 2 workers, each covering every cell, so the layout is between the cell
+        // count and cells x workers. Doc and search parity must hold regardless.
+        Spi::run("DROP INDEX partitioned_build_idx;").unwrap();
+        Spi::run("SET max_parallel_workers = 8;").unwrap();
+        Spi::run("SET max_parallel_maintenance_workers = 2;").unwrap();
+        Spi::run("SET parallel_leader_participation = false;").unwrap();
+        Spi::run("SET maintenance_work_mem = '128MB';").unwrap();
+        Spi::run(
+            "CREATE INDEX partitioned_build_idx ON partitioned_build USING paradedb (id, tenant_id, name) WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 8);",
+        )
+        .unwrap();
+
+        let count: i64 = Spi::get_one(
+            "SELECT COUNT(*)::bigint FROM paradedb.index_info('partitioned_build_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert!(
+            (8..=16).contains(&count),
+            "parallel partitioned build: 8 to 16 segments, got {count}"
+        );
+
+        let num_docs: i64 = Spi::get_one(
+            "SELECT COALESCE(SUM(num_docs), 0)::bigint FROM paradedb.index_info('partitioned_build_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            num_docs, 20000,
+            "parallel partitioned build indexes every row"
+        );
+
+        let matches: i64 = Spi::get_one(
+            "SELECT COUNT(*)::bigint FROM partitioned_build WHERE partitioned_build @@@ 'name:lorem';",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            matches, 20000,
+            "search through the parallel partitioned index"
+        );
+
+        Spi::run("DROP TABLE partitioned_build;").unwrap();
+    }
+
+    /// A HOT update superseding a row in the same transaction as CREATE INDEX leaves the chain
+    /// root DELETE_IN_PROGRESS at drain time. The partitioned drain re-fetches by root ctid and
+    /// must walk the chain to the live tail, indexing the value the inline build callback
+    /// delivered, not the superseded version's. The whole test runs in one transaction (pgrx
+    /// wraps each test in one), which is exactly the same-transaction scenario; a low fillfactor
+    /// keeps the update on-page (HOT).
+    #[pg_test]
+    fn test_partitioned_build_indexes_live_hot_member() {
+        Spi::run(
+            r#"
+            CREATE TABLE partitioned_hot (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT)
+                WITH (fillfactor = 20);
+            INSERT INTO partitioned_hot (tenant_id, name)
+            SELECT (i * 7919) % 8, 'filler ' || i FROM generate_series(1, 200) i;
+            INSERT INTO partitioned_hot (tenant_id, name) VALUES (3, 'stalemarker');
+            UPDATE partitioned_hot SET name = 'freshmarker' WHERE name = 'stalemarker';
+            CREATE INDEX partitioned_hot_idx ON partitioned_hot USING paradedb (id, tenant_id, name) WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 2);
+            "#,
+        )
+        .unwrap();
+
+        let fresh: i64 = Spi::get_one(
+            "SELECT COUNT(*)::bigint FROM partitioned_hot WHERE partitioned_hot @@@ 'name:freshmarker';",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(fresh, 1, "the live row version must be indexed");
+
+        let stale: i64 = Spi::get_one(
+            "SELECT COUNT(*)::bigint FROM partitioned_hot WHERE partitioned_hot @@@ 'name:stalemarker';",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(stale, 0, "the superseded row version must not be indexed");
+    }
+
+    /// A cell whose rows outgrow the writer budget flushes multiple segments mid-cell;
+    /// finish_cell must merge them back down so the layout stays one segment per cell.
+    #[pg_test]
+    fn test_partitioned_build_merges_overfull_cells() {
+        // High-entropy text (every md5 distinct) so the writer's arena genuinely outgrows the
+        // small budget within each cell. Values stay under the TOAST threshold so the heap keeps
+        // its bytes in the main fork.
+        Spi::run(
+            r#"
+            CREATE TABLE partitioned_overfull (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            INSERT INTO partitioned_overfull (tenant_id, name)
+            SELECT (i * 7919) % 4,
+                   (SELECT string_agg(md5((i * 32 + j)::text), ' ') FROM generate_series(1, 32) j)
+            FROM generate_series(1, 24000) i;
+            "#,
+        )
+        .unwrap();
+        Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
+        Spi::run("SET maintenance_work_mem = '16MB';").unwrap();
+        Spi::run(
+            "CREATE INDEX partitioned_overfull_idx ON partitioned_overfull USING paradedb (id, tenant_id, name) WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 2);",
+        )
+        .unwrap();
+
+        let count: i64 = Spi::get_one(
+            "SELECT COUNT(*)::bigint FROM paradedb.index_info('partitioned_overfull_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            count, 2,
+            "overfull cells must merge down to one segment each"
+        );
+
+        let num_docs: i64 = Spi::get_one(
+            "SELECT COALESCE(SUM(num_docs), 0)::bigint FROM paradedb.index_info('partitioned_overfull_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(num_docs, 24000, "merged cells must keep every row");
+    }
 }

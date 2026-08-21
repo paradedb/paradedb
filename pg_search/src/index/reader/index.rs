@@ -45,7 +45,6 @@ use crate::postgres::customscan::basescan::vector_work::VectorClaims;
 use anyhow::Result;
 use tantivy::aggregation::DistributedAggregationCollector;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
-use tantivy::collector::CollectorMode;
 use tantivy::collector::sort_key::{
     ComparatorEnum, SortByBytes, SortByErasedType, SortBySimilarityScore, SortByStaticFastValue,
     SortByString,
@@ -54,8 +53,8 @@ use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::index::{Index, Order, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
-use tantivy::vector::ProbeStats;
 use tantivy::vector::ivf::AdaptiveProbeParams;
+use tantivy::vector::{ProbeStats, TopDocsByVectorSimilarity, VectorSimilarityFruit};
 use tantivy::{
     DateTime, DocAddress, DocId, DocSet, Executor, IndexReader, ReloadPolicy, Score, Searcher,
     SegmentOrdinal, SegmentReader, TantivyDocument, query::Query, schema::OwnedValue,
@@ -153,6 +152,56 @@ impl From<TopKSearchResults> for TopKSearch {
 }
 
 /// The global probe loop's instrumentation, as the EXPLAIN-facing JSON.
+/// Drives one participant's vector search through the collector's
+/// explicit API: the tier-tagged claims map straight onto collect_ivf /
+/// collect_flat / merge; without claims (serial), the collector's own
+/// partition-everything `search` runs.
+struct RunVectorSearch<'a> {
+    searcher: &'a tantivy::Searcher,
+    query: &'a dyn tantivy::query::Query,
+    claims: Option<&'a VectorClaims>,
+}
+
+impl RunVectorSearch<'_> {
+    fn run<T, S>(&self, collector: TopDocsByVectorSimilarity<T, S>) -> VectorSimilarityFruit
+    where
+        T: tantivy::vector::VectorElement,
+        S: tantivy::collector::SortKeyComputer + Send + Sync + 'static,
+    {
+        let Some(claims) = self.claims else {
+            return collector
+                .search(self.searcher, self.query)
+                .expect("search should not fail");
+        };
+        let readers = self.searcher.segment_readers();
+        let ordinal_of = |id: SegmentId| {
+            readers
+                .iter()
+                .position(|reader| reader.segment_id() == id)
+                .map(|ordinal| ordinal as tantivy::SegmentOrdinal)
+                .expect("claimed segment must exist in the searcher's snapshot")
+        };
+        let mut fruits = Vec::with_capacity(claims.flat.len() + 1);
+        if !claims.clustered.is_empty() {
+            let clustered: Vec<tantivy::SegmentOrdinal> =
+                claims.clustered.iter().copied().map(ordinal_of).collect();
+            fruits.push(
+                collector
+                    .collect_ivf(self.searcher, self.query, &clustered)
+                    .expect("search should not fail"),
+            );
+        }
+        for &id in &claims.flat {
+            fruits.push(
+                collector
+                    .collect_flat(self.searcher, self.query, ordinal_of(id))
+                    .expect("search should not fail"),
+            );
+        }
+        collector.merge(fruits)
+    }
+}
+
 fn probe_stats_to_json(stats: &ProbeStats) -> serde_json::Value {
     serde_json::to_value(stats).expect("ProbeStats should serialize to JSON")
 }
@@ -1076,69 +1125,37 @@ impl SearchIndexReader {
                     tie_breaks.remove(i);
                 }
 
-                // Vector search is ONE global probe loop (the collector
-                // must be top-level — its `collect_global` fires inside
-                // `searcher.search`), so it cannot ride the per-segment
-                // wrappers: window aggregates are rejected at plan time.
-                // Parallelism comes from segment SUBSETS instead: each
-                // participant claims a tier (see `segments_to_query`) and
-                // this run behaves exactly like a snapshot holding only
-                // the claimed segments; Gather Merge combines the
-                // participants on the real ORDER BY columns.
+                // Vector collection is the collector's own API, not
+                // Searcher::search: collect_ivf runs the clustered
+                // segments as ONE coupled pass, collect_flat runs one
+                // flat segment, merge combines. A parallel participant
+                // maps its tier-tagged claims straight onto those calls;
+                // serial uses the partition-everything convenience.
+                // Window aggregates are rejected at plan time.
                 assert!(
                     aux_collector.is_none(),
                     "vector ORDER BY cannot run with an auxiliary aggregation collector; this \
                      combination is rejected at plan time"
                 );
-                let consumed: Vec<SegmentId> = segment_ids.collect();
-                let collector = match vector_claims {
-                    // A parallel participant: restrict the run to its
-                    // claims and hand tantivy the CollectorMode directly —
-                    // the claim already knows each unit's tier.
-                    Some(claims) => {
-                        let readers = self.searcher.segment_readers();
-                        let ordinal_of = |id: SegmentId| {
-                            readers
-                                .iter()
-                                .position(|reader| reader.segment_id() == id)
-                                .map(|ordinal| ordinal as tantivy::SegmentOrdinal)
-                        };
-                        let clustered: Vec<tantivy::SegmentOrdinal> = claims
-                            .clustered
-                            .iter()
-                            .copied()
-                            .filter_map(ordinal_of)
-                            .collect();
-                        let flat: Vec<tantivy::SegmentOrdinal> =
-                            claims.flat.iter().copied().filter_map(ordinal_of).collect();
-                        assert_eq!(
-                            clustered.len() + flat.len(),
-                            consumed.len(),
-                            "claimed segments must exist in the searcher's snapshot"
-                        );
-                        let mode = if clustered.is_empty() {
-                            CollectorMode::SingleSegment
-                        } else {
-                            CollectorMode::MultiSegment(clustered.clone())
-                        };
-                        let mut subset = clustered;
-                        subset.extend(flat);
-                        collector.for_segments(subset).with_collection_mode(mode)
-                    }
-                    // Serial: the full snapshot, tiers derived by tantivy.
-                    None => collector,
-                };
+                // Coverage is defined by the claims (parallel) or the
+                // whole snapshot (serial), not the generic segment list.
+                drop(segment_ids);
                 // Fruit is `VectorSimilarityFruit` — hits plus ONE global
                 // ProbeStats — for every tie-break shape.
                 let tie_break_count = tie_breaks.len();
                 let mut tie_breaks = tie_breaks.into_iter();
                 let mut next = || tie_breaks.next().expect("tie-break feature should exist");
+                let run = RunVectorSearch {
+                    searcher: &self.searcher,
+                    query: &self.query,
+                    claims: vector_claims,
+                };
                 let fruit = match tie_break_count {
-                    0 => self.collect(collector),
-                    1 => self.collect(collector.with_tie_break(next())),
-                    2 => self.collect(collector.with_tie_break((next(), next()))),
-                    3 => self.collect(collector.with_tie_break((next(), next(), next()))),
-                    4 => self.collect(collector.with_tie_break((next(), next(), next(), next()))),
+                    0 => run.run(collector),
+                    1 => run.run(collector.with_tie_break(next())),
+                    2 => run.run(collector.with_tie_break((next(), next()))),
+                    3 => run.run(collector.with_tie_break((next(), next(), next()))),
+                    4 => run.run(collector.with_tie_break((next(), next(), next(), next()))),
                     x => panic!(
                         "Unsupported sort-field count: {}. At most {MAX_TOPK_FEATURES} are supported.",
                         x + 1

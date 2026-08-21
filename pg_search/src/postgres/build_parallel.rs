@@ -30,8 +30,10 @@ use crate::parallel_worker::{
 };
 use crate::postgres::build_partitioning::plan_partition_boundaries;
 use crate::postgres::composite::CompositeSlotValues;
+use crate::postgres::heap::{ExpressionState, HeapDocFetcher, HeapFetchState};
 use crate::postgres::locks::Spinlock;
 use crate::postgres::merge::garbage_collect_index;
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::ps_status::{
     COMMITTING, FINALIZING, GARBAGE_COLLECTING, INDEXING, MERGING, set_ps_display_remove_suffix,
     set_ps_display_suffix,
@@ -39,14 +41,16 @@ use crate::postgres::ps_status::{
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::tuplesort::Sorter;
 use crate::postgres::utils::{
     collect_composites_for_unpacking, get_field_value, row_to_search_document,
+    scalar_datum_to_tantivy_value, unwrap_alias_datum,
 };
 use crate::schema::{CategorizedFieldData, SearchField};
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
-    PgLogLevel, PgMemoryContexts, PgSqlErrorCode, check_for_interrupts, function_name, pg_guard,
-    pg_sys,
+    PgLogLevel, PgMemoryContexts, PgSqlErrorCode, PgTupleDesc, check_for_interrupts, function_name,
+    pg_guard, pg_sys,
 };
 use std::num::NonZeroUsize;
 use std::ptr::{NonNull, addr_of_mut};
@@ -298,7 +302,16 @@ impl<'a> BuildWorker<'a> {
             pgrx::debug1!(
                 "build_worker {worker_number}: target_segment_count: {target_segment_count}, nlaunched: {nlaunched}, worker_segment_target: {worker_segment_target}"
             );
-            if let Some(partitioning) = &self.partitioning {
+
+            // Partitioned builds cover only non-concurrent CREATE INDEX for now: a concurrent
+            // build's deferred re-fetch could index row versions newer than its registered
+            // snapshot. CONCURRENTLY falls back to the regular per-row build path.
+            let partitioning = if self.config.concurrent {
+                None
+            } else {
+                self.partitioning.take()
+            };
+            if let Some(partitioning) = &partitioning {
                 pgrx::debug1!("build_worker {worker_number}: partition boundaries: {partitioning}");
             }
 
@@ -314,6 +327,7 @@ impl<'a> BuildWorker<'a> {
                 self.coordination,
                 worker_number,
                 is_leader,
+                partitioning,
             )?;
 
             set_ps_display_suffix(INDEXING.as_ptr());
@@ -331,9 +345,107 @@ impl<'a> BuildWorker<'a> {
                     .unwrap_or(std::ptr::null_mut()),
             );
 
-            build_state.commit()?;
+            if build_state.partitioning.is_some() {
+                build_state.drain_partitioned()?;
+            } else {
+                build_state.commit()?;
+            }
             Ok((reltuples as f64, build_state.nmerges))
         }
+    }
+}
+
+/// Fixed length of an encoded `(pid, ctid)` sort record: a big-endian `u32` then `u64`, so the
+/// `bytea` memcmp the sort orders by is exactly `(pid, ctid)` order.
+const SORT_RECORD_LEN: usize = 12;
+
+/// Encode one `(pid, ctid)` assignment for the spill sort.
+fn encode_sort_record(pid: u32, ctid: u64) -> [u8; SORT_RECORD_LEN] {
+    let mut record = [0u8; SORT_RECORD_LEN];
+    record[..4].copy_from_slice(&pid.to_be_bytes());
+    record[4..].copy_from_slice(&ctid.to_be_bytes());
+    record
+}
+
+/// Decode a record produced by [`encode_sort_record`].
+fn decode_sort_record(bytes: &[u8]) -> (u32, u64) {
+    debug_assert_eq!(bytes.len(), SORT_RECORD_LEN);
+    let pid = u32::from_be_bytes(bytes[..4].try_into().expect("record should hold a pid"));
+    let ctid = u64::from_be_bytes(bytes[4..].try_into().expect("record should hold a ctid"));
+    (pid, ctid)
+}
+
+/// Phase-1 state for a partitioned build: rows are not indexed during the scan. Each row is
+/// routed to a partition cell by the leader's kd-tree (`#5991`) and its `(pid, ctid)` assignment
+/// spills to a worker-local sort, which the phase-2 drain reads back in `(pid, ctid)` order.
+struct PartitionSpill {
+    tree: KdTree,
+    /// The `partition_by` fields in `tree.dims()` order, resolved to the index's categorized
+    /// fields so the callback can project each scanned row onto them.
+    dim_fields: Vec<(SearchField, CategorizedFieldData)>,
+    sorter: Sorter,
+}
+
+impl PartitionSpill {
+    fn new(
+        tree: KdTree,
+        categorized_fields: &[(SearchField, CategorizedFieldData)],
+        budget: NonZeroUsize,
+    ) -> anyhow::Result<Self> {
+        let dim_fields = tree
+            .dims()
+            .iter()
+            .map(|dim| {
+                categorized_fields
+                    .iter()
+                    .find(|(field, _)| field.field_name() == dim)
+                    .cloned()
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("partition_by field `{dim}` is not an indexed field")
+                    })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        Ok(Self {
+            tree,
+            dim_fields,
+            // The sort spills on the worker's own budget. Its read buffers stay resident through
+            // the phase-2 drain while the writer runs at the full worker budget, so the transient
+            // overlap is bounded by one extra worker budget.
+            sorter: Sorter::new(budget.get()),
+        })
+    }
+
+    /// Route one scanned row to its cell by projecting it onto the `partition_by` dimensions and
+    /// consulting the kd-tree. `unpacked_composites` must be built over the full field set so a
+    /// composite `partition_by` field resolves the same way the document build would.
+    unsafe fn route(
+        &self,
+        values: *mut pg_sys::Datum,
+        isnull: *mut bool,
+        unpacked_composites: &CompositeSlotValues,
+    ) -> anyhow::Result<usize> {
+        let point = self
+            .dim_fields
+            .iter()
+            .map(|(field, categorized)| {
+                let (datum, is_null) = get_field_value(
+                    &categorized.source,
+                    categorized.attno,
+                    values,
+                    isnull,
+                    unpacked_composites,
+                );
+                if is_null {
+                    return Ok(PdbOwnedValue::Null);
+                }
+                let datum = unwrap_alias_datum(datum, categorized.pg_type);
+                Ok(
+                    scalar_datum_to_tantivy_value(datum, field.field_type(), categorized.base_oid)?
+                        .0,
+                )
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        Ok(self.tree.route(&point))
     }
 }
 
@@ -370,6 +482,11 @@ struct WorkerBuildState<'a> {
     is_leader: bool,
     // whether the first flushed segment's on-disk size has been reported to the disk guard
     recorded_segment_bytes: bool,
+    // For a partitioned build: phase-1 routing and spill state. `None` on the regular path.
+    partitioning: Option<PartitionSpill>,
+    // The writer config, kept to reopen the per-cell writers on the partitioned drain.
+    writer_config: IndexWriterConfig,
+    worker_number: i32,
 }
 
 impl<'a> WorkerBuildState<'a> {
@@ -385,12 +502,18 @@ impl<'a> WorkerBuildState<'a> {
         coordination: &'a mut WorkerCoordination,
         worker_number: i32,
         is_leader: bool,
+        partitioning: Option<KdTree>,
     ) -> anyhow::Result<Self> {
         // If we're making more than one segment, do an early cutoff based on doc
         // count in case the memory budget is so high that all the docs fit into one
         // segment. For a single-segment target, leave it unbounded (memory-driven).
         // Any vector-specific doc cap is applied in `SerialIndexWriter::open`.
-        let max_docs_per_segment = if worker_segment_target > 1 {
+        //
+        // Partitioned builds cut segments at cell boundaries instead, so their writers stay
+        // memory-driven at the full worker budget. (A vector schema's doc cap in
+        // `SerialIndexWriter::open` still applies; an overfull cell then flushes in capped
+        // segments that `finish_cell` merges, as `try_merge` does on the regular path.)
+        let max_docs_per_segment = if partitioning.is_none() && worker_segment_target > 1 {
             Some(
                 plan::estimate_heap_reltuples(heaprel) as u32
                     / coordination.nlaunched as u32
@@ -407,11 +530,16 @@ impl<'a> WorkerBuildState<'a> {
         let disk_guard = indexrel
             .is_create_index()
             .then(|| DiskSpaceGuard::new(indexrel));
-        let writer =
-            SerialIndexWriter::open(indexrel, config, worker_number)?.with_disk_guard(disk_guard);
+        let writer = SerialIndexWriter::open(indexrel, config.clone(), worker_number)?
+            .with_disk_guard(disk_guard);
         let schema = writer.schema();
         let categorized_fields = schema.categorized_fields().clone();
         let created_by_version = indexrel.created_by_version();
+
+        let partitioning = partitioning
+            .map(|tree| PartitionSpill::new(tree, &categorized_fields, per_worker_memory_budget))
+            .transpose()?;
+
         Ok(Self {
             writer: Some(writer),
             categorized_fields,
@@ -430,6 +558,9 @@ impl<'a> WorkerBuildState<'a> {
             local_tuple_done_count: 0,
             is_leader,
             recorded_segment_bytes: false,
+            partitioning,
+            writer_config: config,
+            worker_number,
         })
     }
 
@@ -583,6 +714,174 @@ impl<'a> WorkerBuildState<'a> {
             nsegments
         })
     }
+
+    /// Phase-1 handling for a partitioned build: route the scanned row to its cell and spill the
+    /// `(pid, ctid)` assignment to the worker-local sort. Composites are unpacked over the full
+    /// field set so a composite `partition_by` field resolves the same way the document build
+    /// would.
+    unsafe fn route_and_spill(
+        &mut self,
+        values: *mut pg_sys::Datum,
+        isnull: *mut bool,
+        ctid: u64,
+    ) -> anyhow::Result<()> {
+        let unpacked_composites =
+            CompositeSlotValues::from_composites(collect_composites_for_unpacking(
+                self.categorized_fields.iter().map(|(_, cat)| cat),
+                values,
+                isnull,
+            ));
+        let partitioning = self
+            .partitioning
+            .as_mut()
+            .expect("route_and_spill: partitioning should be set");
+        let pid = partitioning.route(values, isnull, &unpacked_composites)?;
+        partitioning
+            .sorter
+            .put(&encode_sort_record(pid as u32, ctid));
+        Ok(())
+    }
+
+    /// Bump the worker-local tuple count and periodically fold it into the shared progress
+    /// counter (`pg_stat_progress_create_index.tuples_done`).
+    fn count_tuple_done(&mut self) {
+        self.local_tuple_done_count += 1;
+
+        if self
+            .local_tuple_done_count
+            .is_multiple_of(TUPLES_DONE_BATCH_SIZE)
+        {
+            self.coordination.add_tuples_done(TUPLES_DONE_BATCH_SIZE);
+
+            if self.is_leader {
+                unsafe {
+                    pg_sys::pgstat_progress_update_param(
+                        pg_sys::PROGRESS_CREATEIDX_TUPLES_DONE as i32,
+                        self.coordination.tuples_done() as i64,
+                    );
+                }
+            }
+        }
+    }
+
+    /// Phase 2 of a partitioned build. The scan spilled one `(pid, ctid)` record per row; sorted,
+    /// they cluster each cell's rows together, in heap order within the cell, so re-fetching
+    /// revisits heap blocks under a reused buffer pin. Rows are re-fetched and indexed cell by
+    /// cell: only one writer is alive at a time, at the full worker budget, and each cell
+    /// boundary finalizes the current segment.
+    fn drain_partitioned(&mut self) -> anyhow::Result<()> {
+        let PartitionSpill { mut sorter, .. } = self
+            .partitioning
+            .take()
+            .expect("drain_partitioned: partitioning state should be set");
+        sorter.performsort();
+
+        let heaprel = self.heaprel.clone();
+        let indexrel = self.indexrel.clone();
+        let heap_fetch_state = HeapFetchState::new(&heaprel);
+        let expression_state = ExpressionState::new(&indexrel);
+        let heaptupdesc = unsafe { PgTupleDesc::from_pg_unchecked(heaprel.rd_att) };
+        let categorized_fields = self.categorized_fields.clone();
+        let mut fetcher = HeapDocFetcher::new(
+            &heap_fetch_state,
+            &expression_state,
+            &heaprel,
+            &heaptupdesc,
+            &categorized_fields,
+            self.index_created_by_version,
+            // Like any CREATE INDEX, the build must index every live row so that the
+            // segments can serve future snapshots: fetch with maintenance semantics.
+            false,
+        )
+        // The scan callback spilled HOT chain root ctids; index each chain's live tail,
+        // as the inline callback would have.
+        .with_root_ctids();
+
+        let mut current_pid: Option<u32> = None;
+        let mut cell_metas: Vec<SegmentMeta> = Vec::new();
+        while let Some(record) = sorter.next_sorted() {
+            check_for_interrupts!();
+            let (pid, ctid) = decode_sort_record(record);
+
+            if current_pid != Some(pid) {
+                if current_pid.is_some() {
+                    self.finish_cell(&mut cell_metas)?;
+                }
+                if self.writer.is_none() {
+                    self.open_cell_writer()?;
+                }
+                current_pid = Some(pid);
+            }
+
+            // The doc's palloc traffic (detoast copies, expression evaluation) lands in the
+            // per-row context; the insert runs outside the closure because both the writer and
+            // the context live on `self`, and the doc's values are Rust-owned by then anyway.
+            let doc = unsafe { self.per_row_context.switch_to(|_| fetcher.fetch_doc(ctid)) };
+            if let Some(doc) = doc {
+                let segment_meta = self
+                    .writer
+                    .as_mut()
+                    .expect("drain_partitioned: writer should be set")
+                    .insert(doc, ctid, || unsafe {
+                        set_ps_display_suffix(COMMITTING.as_ptr())
+                    })?;
+                if let Some(segment_meta) = segment_meta {
+                    self.on_segment_flushed(segment_meta.id());
+                    cell_metas.push(segment_meta);
+                    unsafe { set_ps_display_suffix(INDEXING.as_ptr()) };
+                }
+            }
+            unsafe { self.per_row_context.reset() };
+            self.count_tuple_done();
+        }
+        // The sort's read side is done; release its memory before the final cell's commit and
+        // merge stack on top of it.
+        sorter.end();
+        if current_pid.is_some() {
+            self.finish_cell(&mut cell_metas)?;
+        }
+
+        unsafe { set_ps_display_remove_suffix() };
+        Ok(())
+    }
+
+    /// Finalize the current cell: commit the writer's pending segment and, if the cell's rows
+    /// exceeded the writer budget and flushed multiple segments, merge them down to one.
+    /// Merges stay scoped to a single cell within a single worker; never across workers.
+    fn finish_cell(&mut self, cell_metas: &mut Vec<SegmentMeta>) -> anyhow::Result<()> {
+        let writer = self
+            .writer
+            .take()
+            .expect("finish_cell: writer should be set");
+        if let Some((segment_meta, _)) = writer.commit()? {
+            self.on_segment_flushed(segment_meta.id());
+            cell_metas.push(segment_meta);
+        }
+
+        if cell_metas.len() > 1 {
+            let segment_ids = cell_metas.iter().map(|meta| meta.id()).collect::<Vec<_>>();
+            self.merge_now(&segment_ids)?;
+        }
+        cell_metas.clear();
+        Ok(())
+    }
+
+    /// Open a fresh writer for the next cell, at the full worker budget.
+    fn open_cell_writer(&mut self) -> anyhow::Result<()> {
+        let disk_guard = self
+            .indexrel
+            .is_create_index()
+            .then(|| DiskSpaceGuard::new(&self.indexrel));
+        self.writer = Some(
+            SerialIndexWriter::open(
+                &self.indexrel,
+                self.writer_config.clone(),
+                self.worker_number,
+            )?
+            .with_disk_guard(disk_guard),
+        );
+        Ok(())
+    }
 }
 
 #[pg_guard]
@@ -598,6 +897,17 @@ unsafe extern "C-unwind" fn build_callback(
 
     let build_state = &mut *state.cast::<WorkerBuildState>();
     let ctid_u64 = crate::postgres::utils::item_pointer_to_u64(*ctid);
+
+    // Partitioned build, phase 1: rows are not indexed during the scan. Route the row to its
+    // cell and spill the (pid, ctid) assignment to the worker-local sort; the phase-2 drain
+    // re-fetches and indexes rows cell by cell. tuples_done is reported from that drain, which
+    // does this row's actual indexing work; scan progress is visible through blocks_done.
+    if build_state.partitioning.is_some() {
+        build_state
+            .route_and_spill(values, isnull, ctid_u64)
+            .unwrap_or_else(|e| panic!("could not route row for partitioned build: {e}"));
+        return;
+    }
 
     let segment_meta = build_state.per_row_context.switch_to(|_| {
         let mut doc = TantivyDocument::new();
@@ -638,20 +948,7 @@ unsafe extern "C-unwind" fn build_callback(
     });
     build_state.per_row_context.reset();
 
-    build_state.local_tuple_done_count += 1;
-
-    if build_state.local_tuple_done_count % TUPLES_DONE_BATCH_SIZE == 0 {
-        build_state
-            .coordination
-            .add_tuples_done(TUPLES_DONE_BATCH_SIZE);
-
-        if build_state.is_leader {
-            pg_sys::pgstat_progress_update_param(
-                pg_sys::PROGRESS_CREATEIDX_TUPLES_DONE as i32,
-                build_state.coordination.tuples_done() as i64,
-            );
-        }
-    }
+    build_state.count_tuple_done();
 
     if let Some(segment_meta) = segment_meta {
         build_state.on_segment_flushed(segment_meta.id());

@@ -585,6 +585,7 @@ pub struct HeapDocFetcher<'a> {
     created_by_version: Option<Version>,
     oldest_xmin: pg_sys::TransactionId,
     query_visible: bool,
+    root_ctids: bool,
     values: Vec<pg_sys::Datum>,
     isnull: Vec<bool>,
 }
@@ -609,9 +610,25 @@ impl<'a> HeapDocFetcher<'a> {
             created_by_version,
             oldest_xmin,
             query_visible,
+            root_ctids: false,
             values: vec![pg_sys::Datum::null(); heaptupdesc.len()],
             isnull: vec![false; heaptupdesc.len()],
         }
+    }
+
+    /// The ctids this fetcher will receive are HOT chain roots from a table scan (what an index
+    /// build callback hands over), not exact member ctids. In maintenance mode the fetch must
+    /// then walk past superseded chain members to the live tail: the member whose values the
+    /// inline build callback delivered for the root. Without this, a chain whose root is still
+    /// RECENTLY_DEAD, or DELETE_IN_PROGRESS in this transaction, would have the superseded
+    /// version's values indexed under the root ctid.
+    ///
+    /// Exact-ctid callers (rebuilding docs for ctids that an index entry points at) must NOT
+    /// set this: with the index in place, HOT guarantees the chain members agree on indexed
+    /// columns, and the first surviving member is the version the entry was made for.
+    pub fn with_root_ctids(mut self) -> Self {
+        self.root_ctids = true;
+        self
     }
 
     /// Fetch `ctid` and build the document the index would hold for it, or `None` when there is
@@ -719,6 +736,21 @@ impl<'a> HeapDocFetcher<'a> {
                         // visible in any transaction.
                         return None;
                     }
+                }
+
+                if self.root_ctids
+                    && call_again
+                    && (htsv_result == pg_sys::HTSV_Result::HEAPTUPLE_RECENTLY_DEAD
+                        || htsv_result == pg_sys::HTSV_Result::HEAPTUPLE_DELETE_IN_PROGRESS)
+                {
+                    // This member survives for old snapshots, but the chain continues: a newer
+                    // member carries the values the build callback delivered for this root.
+                    // Skip forward so the segment holds the live version, matching what
+                    // heapam_index_build_range_scan indexes for a broken HOT chain. (A LIVE
+                    // member whose updater aborted also reports call_again; it correctly
+                    // breaks below, since its successor is dead.)
+                    pg_sys::ExecClearTuple(self.fetch_state.slot());
+                    continue 'next_hot_chain;
                 }
 
                 // We successfully fetched a tuple. Break out to fetch and deform it.

@@ -56,7 +56,7 @@ all live inside Postgres — no ETL pipelines, no separate cluster to manage.
 | Recall / latency tuning             |      ✅       |    ✅    | [`paradedb.vector_cluster_max_probe`](/documentation/vector/tuning)                                                             |
 | Incremental maintenance for updates |      ✅       |    ⚠️    | Updated vectors are immediately searchable, but index quality can degrade; [SPFresh is planned](/welcome/roadmap#vector-search) |
 | Quantization (scalar, binary)       |      ✅       |    ⚠️    | Coming soon                                                                                                                     |
-| Additional pgvector types           |      ✅       |    ⚠️    | Only `vector` is indexable today; `halfvec` is planned, while `sparsevec` and `bit` remain unsupported                          |
+| Additional pgvector types           |      ✅       |    ⚠️    | Only `vector` is indexable today; support for `halfvec`, `sparsevec`, and `bit` is planned                                      |
 | Built-in embedding inference        |      ✅       |    ❌    | Generate embeddings in your application, or with an in-database extension, and insert them like any other column                |
 
 ### Relational and Specialized Queries

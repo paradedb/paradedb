@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787266374008,
+  "lastUpdate": 1787271535948,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -202,6 +202,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) QPS",
             "value": 546.2333333333333,
+            "unit": "QPS"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "70322560+mehrdad3301@users.noreply.github.com",
+            "name": "Mehrdad Mahabadi",
+            "username": "mehrdad3301"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a5a85388a4b99a39baed12c5d300ee88dc42f06a",
+          "message": "feat: Push down ORDER BY range into the index (#2688) (#5791)\n\nFixes #2688\n\nPushes `ORDER BY` on Postgres range columns into the BM25/paradedb index\nTopK path. `SortByRange` reads the indexed bound sub-columns and\ncompares them using the same ordering as Postgres `range_cmp`.\n\n**Limitations**\n- Range columns must be the **leading** `ORDER BY` key; later keys fall\nback to Postgres sorting.\n- Only raw range columns are supported (not `lower(range_col)` or other\nexpressions).\n\n**Mapping**\nEmpty ranges sort first, unbounded lowers before finite lowers,\nunbounded uppers after finite uppers, and inclusive/exclusive endpoints\ntie-break like `range_cmp`.\n\n---------\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-08-20T16:51:32-07:00",
+          "tree_id": "7c778fa3068610ee989c53feecc39c9bf87eceb7",
+          "url": "https://github.com/paradedb/paradedb/commit/a5a85388a4b99a39baed12c5d300ee88dc42f06a"
+        },
+        "date": 1787271420889,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) QPS",
+            "value": 466.05113162894565,
             "unit": "QPS"
           }
         ]

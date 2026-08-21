@@ -50,8 +50,8 @@ INSERT INTO remerge
 SELECT g, ('[' || repeat((g % 89)::text || ',', 15) || (g % 89)::text || ']')::vector
 FROM generate_series(1, 15000) g;
 
--- Every segment is clustered against centroid set v1...
-SELECT bool_and(vector_centroid_set_version = 1) AS all_v1
+-- Every segment is clustered against the index-level set...
+SELECT bool_and(vector_num_centroids > 0) AS all_clustered
 FROM paradedb.vector_info('remerge_idx', 'vec');
 
 -- ...whose reported vector count is distinct docs (= its doc count), not the
@@ -74,7 +74,7 @@ INSERT INTO remerge
 SELECT g, ('[' || repeat((g % 89)::text || ',', 15) || (g % 89)::text || ']')::vector
 FROM generate_series(15001, 50000) g;
 
-SELECT bool_and(vector_centroid_set_version = 1) AS still_all_v1
+SELECT bool_and(vector_num_centroids > 0) AS still_all_clustered
 FROM paradedb.vector_info('remerge_idx', 'vec');
 
 SELECT bool_and(v.vector_num_vectors = i.num_docs) AS num_vectors_is_distinct_docs

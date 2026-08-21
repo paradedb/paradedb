@@ -57,10 +57,10 @@ SELECT g,
             THEN ('[' || repeat((g % 89)::text || ',', 15) || (g % 89)::text || ']')::vector
        END
 FROM generate_series(1, 24000) g;
-SELECT bool_and(vector_centroid_set_version = 1) AS all_v1
+SELECT bool_and(vector_num_centroids > 0) AS all_clustered
 FROM paradedb.vector_info('delvec_idx', 'vec');
- all_v1 
---------
+ all_clustered 
+---------------
  t
 (1 row)
 

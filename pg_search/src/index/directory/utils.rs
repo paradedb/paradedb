@@ -39,20 +39,16 @@ use tantivy::{
 /// CREATE INDEX (re-publishing does not exist yet).
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct CentroidSetEntry {
-    pub version: u64,
     pub filename: String,
     pub file_entry: FileEntry,
 }
 
-/// `true` for tantivy's index-level centroid set files (`centroids.<version>`),
-/// which are index-level, not `<segment-uuid>.<ext>` components.
+/// `true` for tantivy's index-level centroid set file (`centroids`),
+/// which is index-level, not a `<segment-uuid>.<ext>` component.
 pub fn is_centroid_set_path(path: &std::path::Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
-        .is_some_and(|name| {
-            name.strip_prefix("centroids.")
-                .is_some_and(|v| v.parse::<u64>().is_ok())
-        })
+        .is_some_and(|name| name == "centroids")
 }
 
 /// Persist the centroid set registry, write-once (mirrors `save_schema`).
@@ -518,7 +514,6 @@ pub unsafe fn load_metas(
         .into_iter()
         .next()
         .map(|entry| tantivy::index::CentroidSetMeta {
-            version: entry.version,
             filename: entry.filename,
         });
 

@@ -582,7 +582,7 @@ WHERE p.description @@@ 'wireless'
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0]
-           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@0)], projection=[]
+           :   HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, supplier_id@0)], projection=[]
            :     CooperativeExec
            :       PgSearchScan: table=s, segments=1, query="all"
            :     CooperativeExec

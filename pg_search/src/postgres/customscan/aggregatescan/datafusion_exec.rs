@@ -54,7 +54,7 @@ use datafusion::functions_aggregate::expr_fn::{
 };
 use datafusion::functions_aggregate::string_agg::string_agg_udaf;
 use datafusion::logical_expr::expr::{AggregateFunction, Sort};
-use datafusion::logical_expr::{Expr, lit};
+use datafusion::logical_expr::{Expr, LogicalPlanBuilder, LogicalPlanBuilderOptions, lit};
 use datafusion::prelude::{DataFrame, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
 use pgrx::pg_sys;
@@ -239,7 +239,27 @@ pub async fn build_join_aggregate_plan(
         .collect::<Result<Vec<Expr>>>()?;
 
     // Step 4: Apply aggregate
-    let mut df = df.aggregate(group_exprs, agg_exprs)?;
+    //
+    // Deliberately *not* `DataFrame::aggregate`: that hardcodes
+    // `add_implicit_group_by_exprs(true)`, which appends every column
+    // functionally determined by the group key to the group expression list
+    // (MySQL-style `SELECT col ... GROUP BY pk`). Now that
+    // `PgSearchTableProvider` declares the key field unique, that expansion
+    // would widen the group key behind our back and invalidate
+    // `group_df_indices` — the aggregate columns no longer start where
+    // `project_aggregate_row_to_slot` expects them, and the projection silently
+    // reads a grouping column as an aggregate result.
+    //
+    // Postgres has already validated and fully enumerated the GROUP BY clause
+    // by the time we get here, so the implicit expansion has nothing to add.
+    // Functional dependencies still reach the optimizer via the scan's schema;
+    // only the group-key rewrite is suppressed.
+    let options = LogicalPlanBuilderOptions::new().with_add_implicit_group_by_exprs(false);
+    let aggregated = LogicalPlanBuilder::from(df.into_unoptimized_plan())
+        .with_options(options)
+        .aggregate(group_exprs, agg_exprs)?
+        .build()?;
+    let mut df = DataFrame::new(ctx.state(), aggregated);
 
     // Step 4.5: Apply HAVING filter (post-aggregate)
     if let Some(having) = having_filter {

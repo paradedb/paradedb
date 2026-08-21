@@ -57,16 +57,16 @@ all live inside Postgres — no ETL pipelines, no separate cluster to manage.
 | Incremental maintenance for updates |      ✅       |    ⚠️    | Updated vectors are immediately searchable, but index quality can degrade; [SPFresh is planned](/welcome/roadmap#vector-search) |
 | Quantization (scalar, binary)       |      ✅       |    ⚠️    | Coming soon                                                                                                                     |
 | Additional pgvector types           |      ✅       |    ⚠️    | Only `vector` is indexable today; support for `halfvec`, `sparsevec`, and `bit` is planned                                      |
-| Built-in embedding inference        |      ✅       |    ❌    | Generate embeddings in your application, or with an in-database extension, and insert them like any other column                |
+| Built-in embedding inference        |      ✅       |    ❌    | We may add support eventually, but it is not currently planned                                                                  |
 
 ### Relational and Specialized Queries
 
-| Feature                     | Elasticsearch | ParadeDB | Notes                                            |
-| --------------------------- | :-----------: | :------: | ------------------------------------------------ |
-| Nested queries              |      ✅       |    ✅    | Via SQL [`JOIN`s](/documentation/joins/overview) |
-| Parent-child queries        |      ✅       |    ✅    | Via SQL [`JOIN`s](/documentation/joins/overview) |
-| Geo queries                 |      ✅       |    ❌    | Use [PostGIS](https://postgis.net/)              |
-| Percolator (reverse search) |      ✅       |    ❌    |                                                  |
+| Feature              | Elasticsearch | ParadeDB | Notes                                            |
+| -------------------- | :-----------: | :------: | ------------------------------------------------ |
+| Nested queries       |      ✅       |    ✅    | Via SQL [`JOIN`s](/documentation/joins/overview) |
+| Parent-child queries |      ✅       |    ✅    | Via SQL [`JOIN`s](/documentation/joins/overview) |
+| Geospatial queries   |      ✅       |    ❌    | Use [PostGIS](https://postgis.net/)              |
+| Percolate            |      ✅       |    ❌    |                                                  |
 
 ## Text Analysis
 

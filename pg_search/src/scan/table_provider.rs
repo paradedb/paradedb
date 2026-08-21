@@ -124,9 +124,9 @@ pub struct PgSearchTableProvider {
     /// ignores parallel state segments and yields statically partitioned streams.
     range_sample: Option<RangePartitioningSample>,
 
-    /// The segment view this source's reader replays when it is one of a JoinScan's sources.
-    /// Backend-local (a plan's readers do not travel), so re-injected by the codec on
-    /// deserialization; see [`Self::segment_view_position`].
+    /// The segment view this source's reader replays, for an MPP source whose workers resolve
+    /// the addresses it packs. Backend-local (a plan's readers do not travel), so re-injected
+    /// by the codec on deserialization, keyed by `source_idx`.
     #[serde(skip)]
     segment_view: Option<SegmentView>,
 }
@@ -233,13 +233,6 @@ impl PgSearchTableProvider {
 
     pub(crate) fn source_idx(&self) -> Option<usize> {
         self.source_idx
-    }
-
-    /// The JoinScan plan position whose segment view this source replays, if any. An MPP source
-    /// is addressed by `source_idx`; a serial source only takes part in an address exchange
-    /// (with `SearchPredicateUDF`) when its visibility is deferred.
-    pub(crate) fn segment_view_position(&self) -> Option<usize> {
-        self.source_idx.or(self.deferred_ctid_plan_position())
     }
 
     pub(crate) fn set_segment_view(&mut self, view: SegmentView) {

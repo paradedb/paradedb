@@ -216,23 +216,22 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         let mut provider: PgSearchTableProvider = serde_json::from_slice(buf).map_err(|e| {
             DataFusionError::Internal(format!("Failed to deserialize PgSearchTableProvider: {e}"))
         })?;
-        // MPP sources also call `checkout_segment_for_source` against
-        // `parallel_state`, so inject the pointer for them too.
-        if provider.source_idx().is_some() {
+        if let Some(plan_position) = provider.source_idx() {
+            // MPP sources also call `checkout_segment_for_source` against
+            // `parallel_state`, so inject the pointer for them too.
             provider.set_parallel_state(self.parallel_state);
-        }
-        // Same contract as `try_decode_pg_search_udf`: an empty list means this decode has no
-        // views to offer (plain EXPLAIN), but a short list is a bug, and falling back to a
-        // snapshot open would silently break the address exchange.
-        if let Some(plan_position) = provider.segment_view_position()
-            && !self.index_segment_views.is_empty()
-        {
-            let view = self.index_segment_views.get(plan_position).ok_or_else(|| {
-                DataFusionError::Internal(format!(
-                    "missing canonical segment view for plan_position {plan_position}"
-                ))
-            })?;
-            provider.set_segment_view(view.clone());
+
+            // An empty list means this decode has no views to offer (plain EXPLAIN), but a
+            // short list is a bug, and falling back to a snapshot open would silently break
+            // the address exchange with the workers.
+            if !self.index_segment_views.is_empty() {
+                let view = self.index_segment_views.get(plan_position).ok_or_else(|| {
+                    DataFusionError::Internal(format!(
+                        "missing canonical segment view for plan_position {plan_position}"
+                    ))
+                })?;
+                provider.set_segment_view(view.clone());
+            }
         }
         provider.set_expr_context(self.expr_context);
         provider.set_planstate(self.planstate);

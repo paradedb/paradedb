@@ -220,7 +220,13 @@ impl ParallelAggregation {
     ) -> anyhow::Result<Self> {
         Ok(Self {
             state: State::new(0, segment_ids.len()),
-            config: Config::new(indexrelid, segment_ids.len(), solve_mvcc, memory_limit, bucket_limit),
+            config: Config::new(
+                indexrelid,
+                segment_ids.len(),
+                solve_mvcc,
+                memory_limit,
+                bucket_limit,
+            ),
             agg_req_bytes: serde_json::to_vec(&aggregation)?,
             query_bytes: serde_json::to_vec(query)?,
             segment_ids,
@@ -254,7 +260,13 @@ impl<'a> ParallelAggregationWorker<'a> {
     ) -> Self {
         Self {
             state,
-            config: Config::new(indexrelid, segment_ids.len(), solve_mvcc, memory_limit, bucket_limit),
+            config: Config::new(
+                indexrelid,
+                segment_ids.len(),
+                solve_mvcc,
+                memory_limit,
+                bucket_limit,
+            ),
             aggregation: Some(aggregation),
             query,
             segment_ids,

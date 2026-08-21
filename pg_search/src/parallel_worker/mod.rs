@@ -338,7 +338,10 @@ impl ParallelStateManager {
         &self,
         i: usize,
     ) -> Result<Option<&'static mut T>, ValueError> {
-        unsafe { self.lookup_entry::<T>(i).map(|opt| opt.map(|(_, p)| &mut *p)) }
+        unsafe {
+            self.lookup_entry::<T>(i)
+                .map(|opt| opt.map(|(_, p)| &mut *p))
+        }
     }
 
     /// Retrieve a slice to the Vec of objects stored in the state at index `i`.

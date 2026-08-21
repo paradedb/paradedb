@@ -27,15 +27,9 @@
 use crate::api::{FieldName, QueryVector};
 use crate::index::reader::index::MAX_TOPK_FEATURES;
 use crate::nodecast;
-<<<<<<< HEAD
-use crate::postgres::catalog::{
-    lookup_collation_locale, lookup_database_collation_locale, CollationLocale, CollationProvider,
-};
-=======
->>>>>>> b13e9670f (fix: respect collation semantics in AggregateScan grouping (#5703))
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
-use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
+use crate::postgres::customscan::collation_semantics::{collation_supports, CollationOperation};
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::var::{
@@ -459,55 +453,6 @@ unsafe fn find_target_entry_by_ref(
     target_list
         .iter_ptr()
         .find(|&te| (*te).ressortgroupref == ref_id)
-}
-
-<<<<<<< HEAD
-/// Normalizes a collation name for case and hyphen-insensitive comparison
-/// for example: "C.utf8", "C.UTF-8", "C.UTF8" all normalize to "C.UTF8".
-fn normalize_collation_name(mut collation_name: String) -> String {
-    collation_name.retain(|c| c != '-');
-    collation_name.make_ascii_uppercase();
-    collation_name
-}
-
-// This helper function tells us whether a collation is "safe", for the purposes of pushing down ORDER BY
-// If a field does not have a collation (ex: integers, non-text data), it's considered safe
-// Otherwise, for collatable fields, if the collation is C-like it's safe
-pub fn is_collation_pushdown_safe(collation: pg_sys::Oid) -> bool {
-    const NORMALIZED_SAFE_COLLATION_NAMES: &[&str] = &["C", "POSIX", "C.UTF8", "POSIX.UTF8"];
-
-    let locale = match collation {
-        pg_sys::Oid::INVALID | pg_sys::C_COLLATION_OID => return true,
-        pg_sys::DEFAULT_COLLATION_OID => lookup_database_collation_locale(),
-        _ => lookup_collation_locale(collation),
-    };
-
-    // If using the builtin provider, we're always safe, icu is always unsafe, and otherwise we check the name
-    match locale {
-        #[cfg(any(feature = "pg17", feature = "pg18"))]
-        Some(CollationLocale {
-            provider: CollationProvider::Builtin,
-            ..
-        }) => true,
-        Some(CollationLocale {
-            provider: CollationProvider::Libc,
-            name: Some(name),
-        }) => NORMALIZED_SAFE_COLLATION_NAMES.contains(&normalize_collation_name(name).as_str()),
-        // ICU and anything unrecognized: never byte-ordered
-        _ => false,
-    }
-=======
-/// Whether `search_field` may be pushed down as the sort key at `position` in the ORDER BY.
-///
-/// Range fields are only supported as the leading sort key: every key after the first is
-/// collected via `SortByErasedType`, which reads a single dynamic column, whereas a range
-/// compares by a composite of its bound sub-columns (see
-/// [`crate::index::reader::sort_by_range`]). A range in a later position makes the whole
-/// ORDER BY unpushable: Top K can't run on a prefix of the pathkeys, so Postgres sorts the
-/// unsorted scan itself.
-fn sortable_at_position(search_field: &SearchField, position: usize) -> bool {
-    position == 0 || !matches!(search_field.field_type(), SearchFieldType::Range(_))
->>>>>>> b13e9670f (fix: respect collation semantics in AggregateScan grouping (#5703))
 }
 
 /// Extract pathkeys from ORDER BY clauses using comprehensive expression handling

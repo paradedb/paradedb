@@ -87,7 +87,7 @@ use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::collation_semantics::{
-    CollationOperation, CollationSafety, assess_collation, collation_supports,
+    assess_collation, collation_supports, CollationOperation, CollationSafety,
 };
 use crate::postgres::customscan::exec::{
     begin_custom_scan, end_custom_scan, exec_custom_scan, explain_custom_scan, rescan_custom_scan,
@@ -96,10 +96,6 @@ use crate::postgres::customscan::exec::{
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::hook::query_has_paradedb_agg;
 use crate::postgres::customscan::joinscan::scan_state::{build_physical_plan, build_task_context};
-<<<<<<< HEAD
-use crate::postgres::customscan::orderby::is_collation_pushdown_safe;
-=======
->>>>>>> b13e9670f (fix: respect collation semantics in AggregateScan grouping (#5703))
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{range_table, CreateUpperPathsHookArgs, CustomScan};
@@ -273,8 +269,6 @@ impl AggregateDeclineReason {
     }
 }
 
-<<<<<<< HEAD
-=======
 /// Resolve the table alias used in planner-warning messages emitted by a
 /// declined `DataFusion` aggregate path. Single-table cases report the actual
 /// relation alias; multi-table joins keep the generic "join" shorthand.
@@ -296,124 +290,6 @@ unsafe fn resolve_decline_alias(args: &CreateUpperPathsHookArgs) -> String {
     rte_alias_or_unknown(rte)
 }
 
-/// Whether `JoinScan` already offered a path for this join relation.
-///
-/// The upper-paths hook runs after the join relation is complete, so its
-/// pathlist answers the question directly. JoinScan's path can sit under any of
-/// the row-preserving wrappers, a `Gather` above a parallel join in particular,
-/// so peel with the same helper JoinScan itself uses. Matching on the node tag
-/// rather than `pathtype` matters: `GroupResultPath` and `MinMaxAggPath` also
-/// plan to `T_Result`, and their second field is a `List`, not a subpath.
-unsafe fn joinrel_has_joinscan_path(input_rel: &pg_sys::RelOptInfo) -> bool {
-    let joinscan_methods = JoinScan::custom_path_methods();
-    PgList::<pg_sys::Path>::from_pg(input_rel.pathlist)
-        .iter_ptr()
-        .any(|mut path| {
-            while let Some(subpath) = transparent_path_subpath(path) {
-                path = subpath;
-            }
-            !path.is_null()
-                && (*path).type_ == pg_sys::NodeTag::T_CustomPath
-                && (*(path as *mut pg_sys::CustomPath)).methods == joinscan_methods
-        })
-}
-
-/// A grouping operation, unifying GROUP BY and SELECT DISTINCT
-/// (`SELECT DISTINCT a, b` ≡ `GROUP BY a, b` with no aggregates).
-///
-/// Resolves the stage difference once in [`Self::from_args`], so the rest of the
-/// aggregate path reads the shape and never checks `args.stage`.
-#[derive(Clone, Copy)]
-pub(crate) struct GroupingShape {
-    is_distinct: bool,
-    reltarget: *mut pg_sys::PathTarget,
-    rows: f64,
-}
-
-impl GroupingShape {
-    unsafe fn from_args(args: &CreateUpperPathsHookArgs) -> Self {
-        // The upper-paths hook only dispatches GROUP BY and DISTINCT to this
-        // scan, so a non-DISTINCT stage is GROUP BY.
-        debug_assert!(
-            args.stage == pg_sys::UpperRelationKind::UPPERREL_GROUP_AGG
-                || args.stage == pg_sys::UpperRelationKind::UPPERREL_DISTINCT,
-            "GroupingShape models only GROUP BY and DISTINCT stages",
-        );
-        let is_distinct = args.stage == pg_sys::UpperRelationKind::UPPERREL_DISTINCT;
-        // GROUP BY records the output columns in `output_rel.reltarget`. At
-        // `UPPERREL_DISTINCT` that is empty, so the columns come from
-        // `input_rel.reltarget`, the projection feeding the distinct.
-        let reltarget = if is_distinct {
-            args.input_rel().reltarget
-        } else {
-            args.output_rel().reltarget
-        };
-        // Neither upper rel has its own `rows` filled in yet; both read ~0 here.
-        //
-        // DISTINCT borrows the estimate from the Unique paths Postgres already
-        // costed onto the same relation, because a DISTINCT that claims one row
-        // misprices every node above it. GROUP BY keeps the bare clamp: its
-        // estimate would come from table statistics, and one expected-output file
-        // is shared across PG 15 through 18, so a stats-derived number is not
-        // stable enough to assert. The clamp is what keeps `numGroups` positive
-        // for a DISTINCT planned above a pushed-down GROUP BY, which `ExecInitAgg`
-        // asserts on.
-        let rows = if is_distinct {
-            PgList::<pg_sys::Path>::from_pg(args.output_rel().pathlist)
-                .get_ptr(0)
-                .map(|path| (*path).rows)
-                .unwrap_or(args.output_rel().rows)
-        } else {
-            args.output_rel().rows
-        };
-        Self {
-            is_distinct,
-            reltarget,
-            rows: rows.max(1.0),
-        }
-    }
-
-    /// True for `SELECT DISTINCT`, false for `GROUP BY`.
-    pub(crate) fn is_distinct(&self) -> bool {
-        self.is_distinct
-    }
-
-    /// The `PathTarget` defining the grouping/DISTINCT output columns.
-    pub(crate) fn reltarget(&self) -> *mut pg_sys::PathTarget {
-        self.reltarget
-    }
-
-    /// Positive grouped-output row estimate.
-    pub(crate) fn rows(&self) -> f64 {
-        self.rows
-    }
-
-    /// The grouping/DISTINCT output column expressions.
-    pub(crate) unsafe fn target_exprs(&self) -> PgList<pg_sys::Expr> {
-        if self.reltarget.is_null() {
-            return PgList::new();
-        }
-        PgList::<pg_sys::Expr>::from_pg((*self.reltarget).exprs)
-    }
-
-    /// Whether any output column carries a collation that makes byte grouping
-    /// disagree with Postgres.
-    ///
-    /// Deterministic collations settle equality with a byte comparison, so the
-    /// aggregation backends group them the way Postgres does. A nondeterministic
-    /// collation can call two different byte strings equal, and no node above the
-    /// scan can merge groups the scan already emitted apart.
-    unsafe fn has_nondeterministic_collation(&self) -> bool {
-        self.target_exprs().iter_ptr().any(|expr| {
-            !collation_supports(
-                pg_sys::exprCollation(expr as *mut pg_sys::Node),
-                CollationOperation::Equality,
-            )
-        })
-    }
-}
-
->>>>>>> b13e9670f (fix: respect collation semantics in AggregateScan grouping (#5703))
 impl CustomScan for AggregateScan {
     const NAME: &'static CStr = c"ParadeDB Aggregate Scan";
     type Args = CreateUpperPathsHookArgs;
@@ -473,7 +349,6 @@ impl CustomScan for AggregateScan {
 
         match input_rel.reloptkind {
             pg_sys::RelOptKind::RELOPT_BASEREL => {
-<<<<<<< HEAD
                 let use_datafusion = unsafe {
                     // If the estimated number of groups exceeds Tantivy's bucket
                     // limit, fall back to DataFusion which has no such limit;
@@ -488,6 +363,7 @@ impl CustomScan for AggregateScan {
                     let exceeds_cap = builder.args().estimate_group_count() > max_buckets;
                     let bounded_on_tantivy = builder.args().is_single_grouping_column()
                         && builder.args().orders_by_grouping_key()
+                        && grouping_key_order_is_pushdown_safe(builder.args())
                         && builder
                             .args()
                             .limit_plus_offset()
@@ -508,48 +384,6 @@ impl CustomScan for AggregateScan {
                         // gains a DataFusion translation.
                         || (!has_paradedb_agg && builder.args().has_numeric_aggregate())
                 };
-=======
-                // DISTINCT runs the GROUP BY routing forced to DataFusion:
-                // Tantivy's TermsAggregation is faster for low-cardinality
-                // GROUP BY but has a hard bucket cap that would silently
-                // truncate a high-cardinality DISTINCT.
-                let use_datafusion = shape.is_distinct()
-                    || unsafe {
-                        // If the estimated number of groups exceeds Tantivy's bucket
-                        // limit, fall back to DataFusion which has no such limit;
-                        // Tantivy would otherwise silently truncate the GROUP BY at the
-                        // cap. A single-column GROUP BY that is key-ordered and bounded
-                        // by a LIMIT within the cap is exempt — Tantivy answers it
-                        // correctly and faster via its bounded top-N pushdown. The
-                        // ORDER BY on the grouping key is required: only a key-ordered
-                        // prefix has exact counts past the cap; an unordered or
-                        // count-ordered LIMIT would silently return approximate counts.
-                        let max_buckets = gucs::max_term_agg_buckets() as f64;
-                        let exceeds_cap = builder.args().estimate_group_count() > max_buckets;
-                        let bounded_on_tantivy = builder.args().is_single_grouping_column()
-                            && builder.args().orders_by_grouping_key()
-                            && grouping_key_order_is_pushdown_safe(builder.args())
-                            && builder
-                                .args()
-                                .limit_plus_offset()
-                                .is_some_and(|fetch| fetch as f64 <= max_buckets);
-                        (exceeds_cap && !bounded_on_tantivy)
-                            // ORDER BY aggregate + LIMIT: route to DataFusion which has
-                            // no bucket cap and provides native TopK via SortExec(fetch=K).
-                            || build::has_aggregate_orderby_with_limit(builder.args())
-                            // NUMERIC aggregates and NUMERIC group keys only work on
-                            // the DataFusion backend: Tantivy aggregations compute in
-                            // f64 and cannot read the decimal-bytes storage.
-                            //
-                            // `pdb.agg()` is excluded because its argument is a
-                            // Tantivy aggregation spec, and only the Tantivy backend
-                            // can execute that JSON. Routing it here would produce a
-                            // plan with no way to run the spec. A `pdb.agg()` over a
-                            // NUMERIC field therefore keeps declining until the spec
-                            // gains a DataFusion translation.
-                            || (!has_paradedb_agg && builder.args().has_numeric_aggregate())
-                    };
->>>>>>> b13e9670f (fix: respect collation semantics in AggregateScan grouping (#5703))
                 if use_datafusion {
                     if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg_recursive {
                         return Vec::new();

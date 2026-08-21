@@ -23,7 +23,7 @@
 //! PostgreSQL semantics before it lowers an expression.
 
 use crate::postgres::catalog::{
-    CollationLocale, CollationProvider, lookup_collation_locale, lookup_database_collation_locale,
+    lookup_collation_locale, lookup_database_collation_locale, CollationLocale, CollationProvider,
 };
 use pgrx::pg_sys;
 

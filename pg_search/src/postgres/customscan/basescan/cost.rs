@@ -376,7 +376,7 @@ pub(super) unsafe fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> W
     } = inputs;
 
     // 0. Vector-distance ORDER BY -> serial only, unconditionally. The
-    //    cross-segment probe loop ranks the index-level centroid set once
+    //    cross-segment probe loop ranks the index-level centroid index once
     //    and gathers each cluster across ALL segments into one heap;
     //    per-worker segment partitions would undo exactly that.
     if is_vector_orderby {

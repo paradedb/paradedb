@@ -28,7 +28,7 @@ CREATE TABLE remerge (
 -- target_segment_count = 1 keeps the merge policy engaged (merging is
 -- disabled while segment_count <= target); background_layer_sizes = '0'
 -- keeps every merge in the foreground, deterministic. Every segment —
--- commit or merged — is clustered against the index-level centroid set,
+-- commit or merged — is clustered against the index-level centroid index,
 -- with every vector in 3 cells (cluster_replication = 3).
 -- Centroids train at CREATE INDEX over existing rows, so seed a corpus
 -- first; the waves below still drive the segment/merge behavior.
@@ -50,7 +50,7 @@ CREATE INDEX remerge_idx ON remerge
 INSERT INTO remerge
 SELECT g, ('[' || repeat((g % 89)::text || ',', 15) || (g % 89)::text || ']')::vector
 FROM generate_series(1, 15000) g;
--- Every segment is clustered against the index-level set...
+-- Every segment is clustered against the index-level centroid index...
 SELECT bool_and(vector_num_centroids > 0) AS all_clustered
 FROM paradedb.vector_info('remerge_idx', 'vec');
  all_clustered 

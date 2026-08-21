@@ -33,29 +33,32 @@ use tantivy::{
     schema::Schema,
 };
 
-/// One index-level vector centroid set: tantivy's `(version, filename)`
+/// One index-level vector centroid index: tantivy's `(version, filename)`
 /// meta entry joined with the block-storage location of the file's bytes.
-/// Serialized as JSON into `MetaPage::centroid_sets_bytes`, write-once at
+/// Serialized as JSON into `MetaPage::centroid_index_bytes`, write-once at
 /// CREATE INDEX (re-publishing does not exist yet).
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-pub struct CentroidSetEntry {
+pub struct CentroidIndexEntry {
     pub filename: String,
     pub file_entry: FileEntry,
 }
 
-/// `true` for tantivy's index-level centroid set file (`centroids`),
+/// `true` for tantivy's index-level centroid index file (`centroids`),
 /// which is index-level, not a `<segment-uuid>.<ext>` component.
-pub fn is_centroid_set_path(path: &std::path::Path) -> bool {
+pub fn is_centroid_index_path(path: &std::path::Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
         .is_some_and(|name| name == "centroids")
 }
 
-/// Persist the centroid set registry, write-once (mirrors `save_schema`).
-pub fn save_centroid_sets(indexrel: &PgSearchRelation, entries: &[CentroidSetEntry]) -> Result<()> {
+/// Persist the centroid index registry, write-once (mirrors `save_schema`).
+pub fn save_centroid_index(
+    indexrel: &PgSearchRelation,
+    entries: &[CentroidIndexEntry],
+) -> Result<()> {
     let bytes_list = MetaPage::open(indexrel)
-        .centroid_sets_bytes()
-        .expect("an index writing centroid sets must have been created with a registry block");
+        .centroid_index_bytes()
+        .expect("an index writing centroid index must have been created with a registry block");
     if bytes_list.is_empty() {
         let bytes = serde_json::to_vec(entries)?;
         unsafe {
@@ -65,10 +68,10 @@ pub fn save_centroid_sets(indexrel: &PgSearchRelation, entries: &[CentroidSetEnt
     Ok(())
 }
 
-/// The persisted centroid set registry; empty when the index has none
+/// The persisted centroid index registry; empty when the index has none
 /// (no vector fields, or created before the index-level format).
-pub fn load_centroid_sets(indexrel: &PgSearchRelation) -> Result<Vec<CentroidSetEntry>> {
-    let Some(bytes_list) = MetaPage::open(indexrel).centroid_sets_bytes() else {
+pub fn load_centroid_index(indexrel: &PgSearchRelation) -> Result<Vec<CentroidIndexEntry>> {
+    let Some(bytes_list) = MetaPage::open(indexrel).centroid_index_bytes() else {
         return Ok(Vec::new());
     };
     let bytes = unsafe { bytes_list.read_all() };
@@ -509,11 +512,11 @@ pub unsafe fn load_metas(
     let settings = metapage.settings_bytes();
     let deserialized_settings = serde_json::from_slice(&settings.read_all())?;
 
-    let centroid_set = load_centroid_sets(indexrel)
+    let centroid_index = load_centroid_index(indexrel)
         .map_err(|e| tantivy::TantivyError::InternalError(e.to_string()))?
         .into_iter()
         .next()
-        .map(|entry| tantivy::index::CentroidSetMeta {
+        .map(|entry| tantivy::index::CentroidIndexMeta {
             filename: entry.filename,
         });
 
@@ -526,7 +529,7 @@ pub unsafe fn load_metas(
             opstamp: opstamp.unwrap_or(0),
             payload: None,
             persisted_custom_extensions: Vec::new(),
-            centroid_set,
+            centroid_index,
         },
         pin_cushion,
         total_segments,

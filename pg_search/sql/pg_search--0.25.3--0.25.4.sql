@@ -1,4 +1,4 @@
--- Vector indexes moved to tantivy's index-level centroid set format:
+-- Vector indexes moved to tantivy's index-level centroid index format:
 -- flushed segments cluster against the one index-level set and mutable
 -- segments store flat (vector_num_centroids = 0), so vector_info's
 -- vector_format column is dropped and the cluster columns are no longer

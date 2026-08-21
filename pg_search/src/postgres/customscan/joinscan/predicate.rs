@@ -163,29 +163,7 @@ pub unsafe fn extract_join_level_conditions(
         join_clause = join_clause.with_join_level_expr(final_expr);
     }
 
-    if !join_clause.join_level_predicates.is_empty() {
-        use crate::postgres::customscan::joinscan::build::RelationAlias;
-        use crate::scan::{ScanMode, TaggedQuery};
-        for source in join_clause.plan.sources_mut() {
-            let alias =
-                RelationAlias::new(source.scan_info.alias.as_deref()).display(source.plan_position);
-            let local_queries: Vec<TaggedQuery> = join_clause
-                .join_level_predicates
-                .iter()
-                .enumerate()
-                .filter(|(_, p)| p.rti == source.scan_info.heap_rti)
-                .enumerate()
-                .map(|(local_idx, (global_idx, p))| TaggedQuery {
-                    tag_name: format!("__{alias}_tag_{local_idx}"),
-                    tag_idx: crate::scan::TagIndex(local_idx),
-                    predicate_idx: crate::scan::GlobalPredicateIndex(global_idx),
-                    query: Box::new(p.query.clone()),
-                })
-                .collect();
-            let base_query = source.scan_info.mode.query().clone();
-            source.scan_info.mode = ScanMode::tagged(base_query, local_queries);
-        }
-    }
+    join_clause.assign_tagged_queries();
 
     Ok((join_clause, multi_table_predicate_clauses))
 }
@@ -271,6 +249,22 @@ pub unsafe fn transform_to_search_expr(
         return None;
     }
 
+    // If this is a cross-relation expression WITHOUT search predicate, create MultiTablePredicate
+    if !has_search_op && referenced_source_indices.len() > 1 {
+        if !all_vars_are_fast_fields_recursive(node, sources) {
+            return None;
+        }
+
+        let translator = PredicateTranslator::new(sources);
+        translator.translate(node)?;
+
+        let description = format_expr_for_explain(node);
+        let predicate_idx =
+            join_clause.add_multi_table_predicate(description, multi_table_predicate_clauses.len());
+        multi_table_predicate_clauses.push(node as *mut pg_sys::Expr);
+        return Some(JoinLevelExpr::MultiTablePredicate { predicate_idx });
+    }
+
     // If this is a cross-table BoolExpr, preserve its boolean structure (AND, OR, NOT)
     // in JoinLevelExpr so it can be translated into DataFusion's boolean expressions.
     if node_type == pg_sys::NodeTag::T_BoolExpr {
@@ -317,20 +311,6 @@ pub unsafe fn transform_to_search_expr(
             }
             _ => None,
         }
-    } else if !has_search_op && referenced_source_indices.len() > 1 {
-        // If this is a cross-relation expression WITHOUT search predicate, create MultiTablePredicate
-        if !all_vars_are_fast_fields_recursive(node, sources) {
-            return None;
-        }
-
-        let translator = PredicateTranslator::new(sources);
-        translator.translate(node)?;
-
-        let description = format_expr_for_explain(node);
-        let predicate_idx =
-            join_clause.add_multi_table_predicate(description, multi_table_predicate_clauses.len());
-        multi_table_predicate_clauses.push(node as *mut pg_sys::Expr);
-        Some(JoinLevelExpr::MultiTablePredicate { predicate_idx })
     } else {
         None
     }

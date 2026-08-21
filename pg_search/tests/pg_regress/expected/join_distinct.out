@@ -730,10 +730,10 @@ LIMIT 10;
                  : SortExec: TopK(fetch=10), expr=[col_3@2 DESC, col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[id@3 as col_1, name@4 as col_2, score@1 as col_3], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
                  :     VisibilityFilterExec: tables=[s, p]
-                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], filter=__p_tag_0@1 OR __s_tag_0@0, projection=[ctid_0@0, score@3, ctid_1@4, id@6, name@7]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], filter=__p_1_tag_0@1 OR __s_0_tag_0@0, projection=[ctid_0@0, score@3, ctid_1@4, id@6, name@7]
                  :         CooperativeExec
                  :           PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"USA","lenient":null,"conjunction_mode":null}}}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}}
-                 :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, supplier_id@2 as supplier_id, id@3 as id, name@4 as name, __p_tag_0@5 as __p_tag_0]
+                 :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, supplier_id@2 as supplier_id, id@3 as id, name@4 as name, __p_1_tag_0@5 as __p_1_tag_0]
                  :           CooperativeExec
                  :             PgSearchScan: table=p, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}}
 (22 rows)

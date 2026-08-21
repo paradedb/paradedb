@@ -1593,11 +1593,44 @@ impl JoinCSClause {
             q.solve_postgres_expressions_no_reset(expr_context);
         });
     }
+
+    /// Configures `ScanMode::Tagged` on each join source that participates in `join_level_predicates`.
+    pub fn assign_tagged_queries(&mut self) {
+        assign_tagged_queries(self.plan.sources_mut(), &self.join_level_predicates);
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Shared utilities used by both JoinScan and AggregateScan
 // ---------------------------------------------------------------------------
+
+/// Configures `ScanMode::Tagged` on each join source that participates in `predicates`.
+pub fn assign_tagged_queries<'a>(
+    sources: impl IntoIterator<Item = &'a mut JoinSource>,
+    predicates: &[JoinLevelSearchPredicate],
+) {
+    if predicates.is_empty() {
+        return;
+    }
+    for source in sources {
+        let alias =
+            RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
+        let local_queries: Vec<crate::scan::TaggedQuery> = predicates
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p.rti == source.scan_info.heap_rti)
+            .enumerate()
+            .map(|(local_idx, (global_idx, p))| crate::scan::TaggedQuery {
+                tag_name: format!("__{alias}_tag_{local_idx}"),
+                tag_idx: crate::scan::TagIndex(local_idx),
+                predicate_idx: crate::scan::GlobalPredicateIndex(global_idx),
+                query: Box::new(p.query.clone()),
+            })
+            .collect();
+        let base_query = source.scan_info.mode.query().clone();
+        source.scan_info.mode = crate::scan::ScanMode::tagged(base_query, local_queries);
+    }
+}
 
 /// Strip expression wrappers (`RelabelType`, `PlaceHolderVar`) to get the
 /// underlying node. Used when extracting `Var` nodes from join conditions

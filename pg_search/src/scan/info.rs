@@ -155,6 +155,19 @@ impl ScanMode {
         }
     }
 
+    /// Returns a new `ScanMode` with the base or standard query replaced.
+    pub fn with_base_query(self, base_query: SearchQueryInput) -> Self {
+        match self {
+            Self::Standard { .. } => Self::Standard {
+                query: Box::new(base_query),
+            },
+            Self::Tagged { local_queries, .. } => Self::Tagged {
+                base_query: Box::new(base_query),
+                local_queries,
+            },
+        }
+    }
+
     /// The base or primary search query for this scan mode.
     pub fn query(&self) -> &SearchQueryInput {
         match self {

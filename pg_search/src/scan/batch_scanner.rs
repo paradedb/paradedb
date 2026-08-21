@@ -238,12 +238,13 @@ impl Scanner {
                 for tq in &self.tagged_queries {
                     let mut bitset =
                         tantivy_common::BitSet::with_max_value(segment_reader.max_doc());
-                    if let Ok(mut scorer) = tq.weight.scorer(segment_reader, 1.0) {
-                        let mut doc = scorer.doc();
-                        while doc != tantivy::TERMINATED {
-                            bitset.insert(doc);
-                            doc = scorer.advance();
-                        }
+                    let mut scorer = tq.weight.scorer(segment_reader, 1.0).unwrap_or_else(|e| {
+                        panic!("Failed to create scorer for tag {}: {e}", tq.tag_name)
+                    });
+                    let mut doc = scorer.doc();
+                    while doc != tantivy::TERMINATED {
+                        bitset.insert(doc);
+                        doc = scorer.advance();
                     }
                     self.current_match_bitsets
                         .insert(tq.tag_name.clone(), bitset);
@@ -498,16 +499,15 @@ impl Scanner {
                     )),
                 },
                 WhichFastField::MatchTag(tag_name) => {
+                    let bitset = self.current_match_bitsets.get(tag_name).unwrap_or_else(|| {
+                        panic!(
+                            "Missing match bitset for tag column {tag_name} in segment {segment_ord}"
+                        )
+                    });
                     let mut builder =
                         arrow_array::builder::BooleanBuilder::with_capacity(ids.len());
-                    if let Some(bitset) = self.current_match_bitsets.get(tag_name) {
-                        for &doc_id in &ids {
-                            builder.append_value(bitset.contains(doc_id));
-                        }
-                    } else {
-                        for _ in 0..ids.len() {
-                            builder.append_value(false);
-                        }
+                    for &doc_id in &ids {
+                        builder.append_value(bitset.contains(doc_id));
                     }
                     Some(Arc::new(builder.finish()) as ArrayRef)
                 }

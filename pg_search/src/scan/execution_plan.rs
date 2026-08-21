@@ -498,7 +498,7 @@ impl PgSearchScanPlan {
     ///
     /// Only the recipe and the reader-rebuild inputs travel; the live `ScanState` (tantivy
     /// readers, visibility checkers) is process-local and gets rebuilt on the receiving worker
-    /// from its own `ParallelScanState`. `resolved_query` is the filter-combined,
+    /// from its own `ParallelScanState`. `scan_mode` carries the filter-combined,
     /// param-solved query the reader was opened with, so the receiver needs no `ExprContext`.
     ///
     /// Installed dynamic filters travel as proto expression nodes stamped with their

@@ -572,11 +572,6 @@ impl SearchIndexReader {
         self.and_query(tantivy_query)
     }
 
-    /// Builds a tantivy query from a `SearchQueryInput`.
-    pub fn build_query(&self, search_query_input: &SearchQueryInput) -> Box<dyn Query> {
-        self.make_query(search_query_input, None)
-    }
-
     /// Compiles a tantivy `Weight` for a tagged search query without scoring.
     pub fn compile_match_weight(
         &self,

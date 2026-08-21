@@ -130,30 +130,15 @@ impl<'a> PredicateTranslator<'a> {
                 plan_position,
                 predicate_idx,
             } => {
-                let source = sources
-                    .iter()
-                    .find(|s| s.plan_position == *plan_position)
-                    .unwrap_or_else(|| {
-                        pgrx::error!("Missing join source for plan_position {}", plan_position)
-                    });
+                let source = sources.iter().find(|s| s.plan_position == *plan_position)?;
                 let tag_name = match &source.scan_info.mode {
-                    crate::scan::ScanMode::Tagged { local_queries, .. } => local_queries
-                        .iter()
-                        .find(|tq| tq.predicate_idx.0 == *predicate_idx)
-                        .map(|tq| &tq.tag_name)
-                        .unwrap_or_else(|| {
-                            pgrx::error!(
-                                "Missing tagged query for predicate index {} on plan_position {}",
-                                predicate_idx,
-                                plan_position
-                            )
-                        }),
-                    crate::scan::ScanMode::Standard { .. } => {
-                        pgrx::error!(
-                            "Expected Tagged scan mode for plan_position {}, got Standard",
-                            plan_position
-                        )
+                    crate::scan::ScanMode::Tagged { local_queries, .. } => {
+                        &local_queries
+                            .iter()
+                            .find(|tq| tq.predicate_idx.0 == *predicate_idx)?
+                            .tag_name
                     }
+                    crate::scan::ScanMode::Standard { .. } => return None,
                 };
                 Some(col(tag_name))
             }

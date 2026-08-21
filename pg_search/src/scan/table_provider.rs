@@ -527,7 +527,11 @@ impl PgSearchTableProvider {
             heap_relid: heap_relid.into(),
             batch_size_hint: None,
             score_needed: self.scan_info.score_needed,
-            scan_mode: self.scan_info.mode.clone(),
+            scan_mode: self
+                .scan_info
+                .mode
+                .clone()
+                .with_base_query(resolved_query.clone()),
         };
         let state = ScanState {
             source_idx,

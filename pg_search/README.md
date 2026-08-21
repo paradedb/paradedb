@@ -44,7 +44,7 @@ cargo pgrx init
 
 ### pgvector
 
-`pg_search` depends on `pgvector`'s types for vector indexes, so `pgvector` must be available before `pg_search` can be created. To build it against the pgrx-managed Postgres install (replace `18.6` with the version under `~/.pgrx/`):
+`pg_search` uses `pgvector`'s types to index vector fields alongside text and other fields in ParadeDB indexes, so `pgvector` must be available before `pg_search` can be created. To build it against the pgrx-managed Postgres install (replace `18.6` with the version under `~/.pgrx/`):
 
 ```bash
 git clone --branch v0.8.6 https://github.com/pgvector/pgvector.git

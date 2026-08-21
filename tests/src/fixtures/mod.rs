@@ -71,8 +71,8 @@ pub fn conn(database: Db) -> PgConnection {
     block_on(async {
         let mut conn = database.connection().await;
 
-        // pg_search declares `requires = 'vector'`, so CASCADE pulls pgvector
-        // in automatically (its extension script references the `vector` type).
+        // pg_search depends on pgvector's types for vector indexes, so pgvector must be
+        // available before the extension is created. CASCADE installs it automatically.
         sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;")
             .execute(&mut conn)
             .await

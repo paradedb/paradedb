@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787340587336,
+  "lastUpdate": 1787342921647,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -429,6 +429,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.568,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ff880e56c7a137931e7073e29c14007ca0aabe5a",
+          "message": "chore: Update to df55-based df-d and fix api changes (#6015)\n\n## What\n\nUpdate to `datafusion-55`.\n\n## Tests\n\nBenchmarks are neutral.\n\nRegress tests show some lost dynamic filters due to\nhttps://github.com/apache/datafusion/pull/24045, which is necessary for\ncorrectness.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-08-21T12:42:44-07:00",
+          "tree_id": "12af687f821e5cd94415531f6c50b3cf84f92a10",
+          "url": "https://github.com/paradedb/paradedb/commit/ff880e56c7a137931e7073e29c14007ca0aabe5a"
+        },
+        "date": 1787342918582,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.9089562423697302,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.771,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.363,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.487,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.818,
             "unit": "ms"
           }
         ]

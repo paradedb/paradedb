@@ -532,7 +532,7 @@ fn vector_clusters(
             let sizes = vector_index
                 .cluster_sizes()
                 .map(|sizes| sizes.into_iter().map(i64::from).collect());
-            let radii = vector_index.index().map(|ivf| {
+            let radii = vector_index.clusters().map(|ivf| {
                 let bounds = ivf.bounds();
                 (0..ivf.num_clusters()).map(|c| bounds.ball_r(c)).collect()
             });

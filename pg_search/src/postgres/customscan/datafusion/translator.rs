@@ -118,7 +118,7 @@ impl<'a> PredicateTranslator<'a> {
     /// Translate a `JoinLevelExpr` tree to a DataFusion `Expr`.
     ///
     /// Single-table search predicates map to synthetic match tag columns
-    /// (`__{alias}_tag_{local_idx}`), while multi-table expressions reference
+    /// (`__{alias}_{idx}_tag_{local_idx}`), while multi-table expressions reference
     /// their corresponding translated custom expressions.
     pub unsafe fn translate_join_level_expr(
         expr: &JoinLevelExpr,

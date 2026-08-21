@@ -41,9 +41,11 @@ use crate::query::estimate_tree::QueryWithEstimates;
 use crate::scan::info::RowEstimate;
 use crate::schema::SearchIndexSchema;
 
+use crate::postgres::customscan::basescan::vector_work::VectorClaims;
 use anyhow::Result;
 use tantivy::aggregation::DistributedAggregationCollector;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
+use tantivy::collector::CollectorMode;
 use tantivy::collector::sort_key::{
     ComparatorEnum, SortByBytes, SortByErasedType, SortBySimilarityScore, SortByStaticFastValue,
     SortByString,
@@ -894,6 +896,7 @@ impl SearchIndexReader {
     /// Fruit-side metrics (e.g. vector probe stats) are returned as opaque
     /// per-segment JSON in [`TopKSearch::segment_info`], not bolted onto
     /// [`TopKSearchResults`].
+    #[allow(clippy::too_many_arguments)]
     pub fn search_top_k_in_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
@@ -902,6 +905,7 @@ impl SearchIndexReader {
         offset: usize,
         aux_collector: Option<TopKAuxiliaryCollector>,
         parallel_state_holding_shared_threshold: Option<*mut crate::postgres::ParallelScanState>,
+        vector_claims: Option<&VectorClaims>,
     ) -> TopKSearch {
         let (first_orderby_info, erased_features) = self.prepare_features(orderby_info);
         match first_orderby_info {
@@ -1087,22 +1091,42 @@ impl SearchIndexReader {
                      combination is rejected at plan time"
                 );
                 let consumed: Vec<SegmentId> = segment_ids.collect();
-                let readers = self.searcher.segment_readers();
-                let collector = if consumed.len() < readers.len() {
-                    let ordinals: Vec<tantivy::SegmentOrdinal> = readers
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, reader)| consumed.contains(&reader.segment_id()))
-                        .map(|(ordinal, _)| ordinal as tantivy::SegmentOrdinal)
-                        .collect();
-                    assert_eq!(
-                        ordinals.len(),
-                        consumed.len(),
-                        "claimed segments must exist in the searcher's snapshot"
-                    );
-                    collector.for_segments(ordinals)
-                } else {
-                    collector
+                let collector = match vector_claims {
+                    // A parallel participant: restrict the run to its
+                    // claims and hand tantivy the CollectorMode directly —
+                    // the claim already knows each unit's tier.
+                    Some(claims) => {
+                        let readers = self.searcher.segment_readers();
+                        let ordinal_of = |id: SegmentId| {
+                            readers
+                                .iter()
+                                .position(|reader| reader.segment_id() == id)
+                                .map(|ordinal| ordinal as tantivy::SegmentOrdinal)
+                        };
+                        let clustered: Vec<tantivy::SegmentOrdinal> = claims
+                            .clustered
+                            .iter()
+                            .copied()
+                            .filter_map(ordinal_of)
+                            .collect();
+                        let flat: Vec<tantivy::SegmentOrdinal> =
+                            claims.flat.iter().copied().filter_map(ordinal_of).collect();
+                        assert_eq!(
+                            clustered.len() + flat.len(),
+                            consumed.len(),
+                            "claimed segments must exist in the searcher's snapshot"
+                        );
+                        let mode = if clustered.is_empty() {
+                            CollectorMode::SingleSegment
+                        } else {
+                            CollectorMode::MultiSegment(clustered.clone())
+                        };
+                        let mut subset = clustered;
+                        subset.extend(flat);
+                        collector.for_segments(subset).with_collection_mode(mode)
+                    }
+                    // Serial: the full snapshot, tiers derived by tantivy.
+                    None => collector,
                 };
                 // Fruit is `VectorSimilarityFruit` — hits plus ONE global
                 // ProbeStats — for every tie-break shape.

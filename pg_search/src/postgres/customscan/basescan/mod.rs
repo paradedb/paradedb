@@ -24,6 +24,7 @@ pub(crate) mod privdat;
 pub mod projections;
 mod scan_state;
 pub(crate) mod telemetry;
+pub(crate) mod vector_work;
 
 use cost::{
     CostMemo, DriveCost, ScanParallelismInputs, WorkerDecisionReason, WorkerPathPolicy,
@@ -989,15 +990,20 @@ impl CustomScan for BaseScan {
                         .first()
                         .is_some_and(|info| info.is_vector_distance())
                 );
-                let vector_flat_tier_possible = is_vector_orderby
-                    && bm25_index.options().mutable_segment_rows().is_some()
-                    && snapshot_has_flat_vector_segment(&bm25_index, &method);
+                let vector_participants =
+                    if is_vector_orderby && bm25_index.options().mutable_segment_rows().is_some() {
+                        vector_work::VectorScanWork::for_index(&bm25_index, &method)
+                            .filter(vector_work::VectorScanWork::has_flat)
+                            .map(|work| work.desired_participants())
+                    } else {
+                        None
+                    };
 
                 // Decide the policy first: its reason gates the path cost below.
                 let policy = decide_scan_parallelism(ScanParallelismInputs {
                     prunability,
                     is_vector_orderby,
-                    vector_flat_tier_possible,
+                    vector_participants,
                     query: &query,
                     drive_cost,
                     row_estimate,
@@ -3094,34 +3100,4 @@ unsafe fn where_clause_only_references_left(
 
     // If walker returns true, it found a reference to another relation
     !walker(quals, &rti as *const _ as *mut _)
-}
-
-/// `true` when the plan-time snapshot holds a flat (mutable-tier) vector
-/// segment for the ORDER BY vector field — the second tier that justifies
-/// a two-participant vector scan (see `decide_scan_parallelism` step 0).
-fn snapshot_has_flat_vector_segment(indexrel: &PgSearchRelation, method: &ExecMethodType) -> bool {
-    let ExecMethodType::TopK {
-        orderby_info: Some(infos),
-        ..
-    } = method
-    else {
-        return false;
-    };
-    let Some(crate::api::OrderByFeature::VectorDistance { name, .. }) =
-        infos.first().map(|info| &info.feature)
-    else {
-        return false;
-    };
-    let Ok(reader) = SearchIndexReader::empty(indexrel, MvccSatisfies::Snapshot) else {
-        return false;
-    };
-    let Some(field) = reader.schema().search_field(name) else {
-        return false;
-    };
-    let field = field.field();
-    reader.segment_readers().iter().any(|segment| {
-        segment
-            .vector_index(field)
-            .is_ok_and(|vector| vector.clusters().is_none() && vector.num_vectors() > 0)
-    })
 }

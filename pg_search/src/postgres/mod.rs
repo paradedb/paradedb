@@ -896,6 +896,42 @@ impl ParallelScanState {
         }
     }
 
+    /// Atomically check out EVERY remaining segment of `source_idx` under
+    /// one mutex hold — the whole-chunk claim a parallel vector scan uses
+    /// for its clustered source (see
+    /// `customscan::basescan::vector_work`). Returns the claimed ids,
+    /// empty when the source is exhausted or absent.
+    pub fn checkout_all_for_source(&mut self, source_idx: usize) -> Vec<SegmentId> {
+        let parallel_worker_number = unsafe { pg_sys::ParallelWorkerNumber };
+        self.wait_for_initialization();
+
+        let Some(&total) = self.payload.all_counts().get(source_idx) else {
+            return Vec::new();
+        };
+        if total == 0 {
+            return Vec::new();
+        }
+        let writes_claims = source_idx == 0;
+
+        let _mutex = self.acquire_mutex();
+        let remaining = {
+            let Some(slot) = self.payload.remaining_by_source_mut().get_mut(source_idx) else {
+                return Vec::new();
+            };
+            let remaining = *slot as usize;
+            *slot = 0;
+            remaining
+        };
+        if writes_claims {
+            for claim in &mut self.payload.claims_mut()[..remaining] {
+                *claim = parallel_worker_number;
+            }
+        }
+        (0..remaining)
+            .map(|idx| SegmentId::from_bytes(self.payload.source_ids(source_idx)[idx]))
+            .collect()
+    }
+
     /// Returns a map of segment IDs to their deleted document counts.
     ///
     /// This method will wait (spin) until the leader has initialized the segment data.

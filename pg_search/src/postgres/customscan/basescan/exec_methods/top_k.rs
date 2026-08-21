@@ -33,6 +33,9 @@ use crate::postgres::customscan::aggregatescan::{AggIndexInfo, AggregateType};
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
+use crate::postgres::customscan::basescan::vector_work::{
+    VectorClaim, VectorClaims, VectorScanWork,
+};
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::parallel::checkout_segment_for_source;
@@ -77,6 +80,10 @@ pub struct TopKScanExecState {
     chunk_size: usize,
     // If parallel, the segments which have been claimed by this worker.
     claimed_segments: RefCell<Option<Vec<SegmentId>>>,
+    // If a parallel vector scan, the tier-tagged view of the same claims
+    // (see `vector_work::VectorClaims`) — what lets the search tell
+    // tantivy the CollectorMode instead of re-deriving tiers.
+    vector_claims: RefCell<Option<VectorClaims>>,
     scale_factor: f64,
     // Window aggregates to compute
     window_aggregates: Vec<WindowAggregateInfo>,
@@ -129,6 +136,7 @@ impl TopKScanExecState {
             offset: 0,
             chunk_size: 0,
             claimed_segments: RefCell::default(),
+            vector_claims: RefCell::default(),
             scale_factor,
             window_aggregates: Vec::new(),
             ctid_cache: None,
@@ -172,32 +180,14 @@ impl TopKScanExecState {
             }
             (Some(parallel_state), None) => {
                 // Parallel, and we have not claimed our segments. Claim them, lazily, and then
-                // record that we have done so.
-                //
-                // A vector scan's DSM carries TWO sources — 0 = clustered,
-                // 1 = flat (see `parallel_scan_args`) — and each
-                // participant drains its preferred tier before falling
-                // back to the other's leftovers, so a lost worker costs
-                // parallelism, never results. Everything else claims from
-                // the single source 0.
-                let is_vector = self
-                    .orderby_info
-                    .as_ref()
-                    .and_then(|infos| infos.first())
-                    .is_some_and(|info| info.is_vector_distance());
-                let sources: Vec<usize> = if is_vector {
-                    let participant = unsafe { pg_sys::ParallelWorkerNumber } + 1;
-                    let preferred = participant as usize % 2;
-                    vec![preferred, 1 - preferred]
-                } else {
-                    vec![0]
-                };
+                // record that we have done so. (A parallel VECTOR scan never reaches here: its
+                // units are claimed eagerly by `claim_vector_work`, which fills
+                // `claimed_segments` before the search runs.)
                 let mut claimed_segments = Vec::new();
                 Box::new(std::iter::from_fn(move || {
                     check_for_interrupts!();
-                    let maybe_segment_id = sources.iter().find_map(|&source| unsafe {
-                        checkout_segment_for_source(parallel_state, source)
-                    });
+                    let maybe_segment_id =
+                        unsafe { checkout_segment_for_source(parallel_state, 0) };
                     let Some(segment_id) = maybe_segment_id else {
                         // No more segments: record that we successfully claimed all segments, and
                         // then conclude iteration.
@@ -212,6 +202,40 @@ impl TopKScanExecState {
                 }))
             }
         }
+    }
+
+    /// For a parallel VECTOR scan: ensure this participant's units are
+    /// claimed — one atomic [`VectorScanWork::claim`] per unit (the whole
+    /// clustered chunk or one flat segment) until the pool is empty — and
+    /// return the tier-tagged claims. `None` for serial or non-vector
+    /// scans.
+    fn claim_vector_work(
+        &self,
+        parallel_state: Option<*mut ParallelScanState>,
+    ) -> Option<VectorClaims> {
+        let parallel_state = parallel_state?;
+        let is_vector = self
+            .orderby_info
+            .as_ref()
+            .and_then(|infos| infos.first())
+            .is_some_and(|info| info.is_vector_distance());
+        if !is_vector {
+            return None;
+        }
+        if self.vector_claims.borrow().is_none() {
+            let mut claims = VectorClaims::default();
+            loop {
+                check_for_interrupts!();
+                match unsafe { VectorScanWork::claim(parallel_state) } {
+                    Some(VectorClaim::Clustered(ids)) => claims.clustered.extend(ids),
+                    Some(VectorClaim::Flat(id)) => claims.flat.push(id),
+                    None => break,
+                }
+            }
+            *self.claimed_segments.borrow_mut() = Some(claims.segment_ids().collect());
+            *self.vector_claims.borrow_mut() = Some(claims);
+        }
+        self.vector_claims.borrow().clone()
     }
 
     fn prepare_aggregations(&self, state: &mut BaseScanState) -> Option<PreparedAggregations> {
@@ -418,6 +442,10 @@ impl ExecMethod for TopKScanExecState {
             } else {
                 None
             };
+            // A parallel vector scan claims its units up front (the
+            // clustered chunk / single flat segments); the claims also
+            // tell the search which CollectorMode to hand tantivy.
+            let vector_claims = self.claim_vector_work(state.parallel_state());
             let TopKSearch {
                 results,
                 segment_info,
@@ -436,6 +464,7 @@ impl ExecMethod for TopKScanExecState {
                     self.offset,
                     maybe_aux_collector,
                     maybe_parallel_state,
+                    vector_claims.as_ref(),
                 );
             // Per-segment Fruit JSON → local ScanTelemetry. Workers publish into
             // DSM once at EndCustomScan; the leader merges at Shutdown.
@@ -587,6 +616,7 @@ impl ExecMethod for TopKScanExecState {
     fn reset(&mut self, state: &mut BaseScanState) {
         // Reset state
         self.claimed_segments.take();
+        self.vector_claims.take();
         self.did_query = false;
         self.exhausted = false;
         self.search_query_input = Some(state.search_query_input().clone());

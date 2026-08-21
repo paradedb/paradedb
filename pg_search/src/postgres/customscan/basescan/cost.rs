@@ -330,11 +330,12 @@ pub(super) struct ScanParallelismInputs<'a> {
     /// `true` when the exec method's primary ORDER BY is a vector
     /// distance (see [`WorkerDecisionReason::GlobalVectorSearch`]).
     pub(super) is_vector_orderby: bool,
-    /// `true` when the plan-time snapshot holds a flat (mutable-tier)
-    /// vector segment — the second tier that justifies the
-    /// two-participant vector path. Without it a vector scan stays
-    /// serial.
-    pub(super) vector_flat_tier_possible: bool,
+    /// The participants a parallel vector scan wants — one per flat
+    /// segment plus one for the clustered chunk (see
+    /// [`super::vector_work::VectorScanWork::desired_participants`]).
+    /// `None` (no flat tier in the plan-time snapshot) keeps the vector
+    /// scan serial.
+    pub(super) vector_participants: Option<usize>,
     pub(super) query: &'a SearchQueryInput,
     /// The costable drive cost (see [`costable_drive_cost`]); `Some` marks the scan as costable and
     /// feeds both [`cost_test_limited`] and [`estimate_path_cost`].
@@ -365,7 +366,7 @@ pub(super) unsafe fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> W
     let ScanParallelismInputs {
         prunability,
         is_vector_orderby,
-        vector_flat_tier_possible,
+        vector_participants,
         query,
         drive_cost,
         row_estimate,
@@ -385,18 +386,20 @@ pub(super) unsafe fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> W
     //    index-level centroid index once and gathers each cluster across
     //    its segments into one heap, so arbitrary per-worker segment
     //    partitions would undo exactly that. The one split that does not
-    //    is by TIER: the flat (mutable) tier is searched exhaustively and
-    //    independently of the routed tier. When the plan-time snapshot
-    //    actually holds a flat segment, force exactly two participants —
-    //    one drains the clustered source, the other the flat source (each
-    //    falls back to the other's leftovers, so a lost worker costs
-    //    nothing but parallelism). Otherwise: serial. The cost model
-    //    cannot price the split (both paths cost the same to it), so this
-    //    is a hard gate on the tier actually existing, not a costed
-    //    choice.
+    //    is by unit of WORK: the clustered segments form one coupled
+    //    chunk (shared routing pass and heap) and each flat segment is
+    //    its own exact, independent unit. When the plan-time snapshot
+    //    holds a flat tier, force the parallel path with one participant
+    //    per unit; participants claim units until none remain, so a lost
+    //    worker costs nothing but parallelism. Otherwise: serial. The
+    //    cost model cannot price the split (both paths cost the same to
+    //    it), so this is a hard gate on the flat tier existing, not a
+    //    costed choice.
     if is_vector_orderby {
-        if consider_parallel && vector_flat_tier_possible {
-            let nworkers = if parallel_leader_participates { 1 } else { 2 };
+        if let (true, Some(participants)) = (consider_parallel, vector_participants) {
+            let nworkers = participants
+                .saturating_sub(usize::from(parallel_leader_participates))
+                .max(1);
             return WorkerPathPolicy::ParallelOnly {
                 nworkers: NonZeroUsize::new(nworkers).unwrap(),
                 reason: WorkerDecisionReason::GlobalVectorSearch,

@@ -18,7 +18,6 @@
 use std::cell::UnsafeCell;
 use std::collections::BTreeMap;
 
-use crate::api::OrderByFeature;
 use crate::api::{FieldName, HashMap, OrderByInfo, Varno};
 use crate::customscan::CustomScanState;
 use crate::index::reader::index::SearchIndexReader;
@@ -50,10 +49,11 @@ pub struct BaseScanState {
     /// shows the leader's blob — its tier only). Surfaced in EXPLAIN as
     /// "Vector Search".
     pub vector_search_info: Option<serde_json::Value>,
-    /// A parallel vector scan's snapshot partitioned into the two DSM
-    /// sources: (clustered, flat). Computed once by
+    /// A parallel vector scan's tier partition — the DSM sources, the
+    /// participant count, the claim protocol (see
+    /// [`super::vector_work::VectorScanWork`]). Computed once by
     /// [`Self::parallel_scan_args`]; `None` for every other scan shape.
-    vector_tier_segments: Option<(Vec<tantivy::SegmentReader>, Vec<tantivy::SegmentReader>)>,
+    vector_work: Option<super::vector_work::VectorScanWork>,
 
     /// Process-local EXPLAIN metrics (query counts, per-segment JSON, …).
     pub telemetry: ScanTelemetry,
@@ -219,17 +219,25 @@ impl BaseScanState {
 
         let with_aggregates = !self.window_aggregates.is_empty();
 
-        // A vector scan registers TWO segment sources — clustered and
-        // flat — so the two participants can each drain a tier (with
-        // fallback to the other's leftovers; see `segments_to_query`).
-        self.vector_tier_segments = self.compute_vector_tier_segments();
-
+        // A vector scan registers TWO segment sources — the clustered
+        // chunk and the flat segments — matching its units of work (see
+        // `vector_work`).
+        {
+            let search_reader = self
+                .search_reader
+                .as_ref()
+                .expect("search reader must be initialized to build parallel serialization data");
+            self.vector_work = super::vector_work::VectorScanWork::from_scan(
+                &self.exec_method_type,
+                search_reader,
+            );
+        }
         let search_reader = self
             .search_reader
             .as_ref()
             .expect("search reader must be initialized to build parallel serialization data");
-        let all_sources = match &self.vector_tier_segments {
-            Some((clustered, flat)) => vec![&clustered[..], &flat[..]],
+        let all_sources = match &self.vector_work {
+            Some(work) => work.sources(),
             None => vec![search_reader.segment_readers()],
         };
 
@@ -238,38 +246,6 @@ impl BaseScanState {
             query,
             with_aggregates,
         }
-    }
-
-    /// For a vector-distance TopK: the snapshot partitioned by tier —
-    /// `(clustered, flat)`, in the searcher's segment order. `None` for
-    /// non-vector scans (or if any segment's vector reader fails to open,
-    /// which falls back to the single-source layout).
-    fn compute_vector_tier_segments(
-        &self,
-    ) -> Option<(Vec<tantivy::SegmentReader>, Vec<tantivy::SegmentReader>)> {
-        let ExecMethodType::TopK {
-            orderby_info: Some(infos),
-            ..
-        } = &self.exec_method_type
-        else {
-            return None;
-        };
-        let OrderByFeature::VectorDistance { name, .. } = &infos.first()?.feature else {
-            return None;
-        };
-        let search_reader = self.search_reader.as_ref()?;
-        let field = search_reader.schema().search_field(name)?.field();
-        let mut clustered = Vec::new();
-        let mut flat = Vec::new();
-        for reader in search_reader.segment_readers() {
-            let vector_index = reader.vector_index(field).ok()?;
-            if vector_index.clusters().is_some() {
-                clustered.push(reader.clone());
-            } else {
-                flat.push(reader.clone());
-            }
-        }
-        Some((clustered, flat))
     }
 
     pub fn has_postgres_expressions(&mut self) -> bool {

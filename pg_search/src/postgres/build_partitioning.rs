@@ -30,7 +30,7 @@
 use std::ptr::addr_of_mut;
 
 use pgrx::itemptr::item_pointer_set_all;
-use pgrx::{PgMemoryContexts, check_for_interrupts, pg_sys};
+use pgrx::{check_for_interrupts, pg_sys, PgMemoryContexts};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
@@ -42,7 +42,7 @@ use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::BorrowedBuffer;
 use crate::postgres::utils::{
-    FieldSource, resolve_field_value, scalar_datum_to_tantivy_value, unwrap_alias_datum,
+    resolve_field_value, scalar_datum_to_tantivy_value, unwrap_alias_datum, FieldSource,
 };
 use crate::schema::{CategorizedFieldData, SearchField};
 

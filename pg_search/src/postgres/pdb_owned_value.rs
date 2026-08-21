@@ -393,7 +393,7 @@ impl<'de> serde::Deserialize<'de> for PdbOwnedValue {
 pub(crate) mod exact_scalar_wire {
     use std::net::Ipv6Addr;
 
-    use serde::{Deserialize, Deserializer, Serialize, Serializer, de, ser};
+    use serde::{de, ser, Deserialize, Deserializer, Serialize, Serializer};
 
     use super::PdbOwnedValue;
     use crate::postgres::datetime::PostgresDateTime;
@@ -641,11 +641,9 @@ mod tests {
         );
         // NULL and composites fall back to `Debug` rather than panic.
         assert_eq!(PdbOwnedValue::Null.plain_display().to_string(), "Null");
-        assert!(
-            !PdbOwnedValue::Object(vec![])
-                .plain_display()
-                .to_string()
-                .is_empty()
-        );
+        assert!(!PdbOwnedValue::Object(vec![])
+            .plain_display()
+            .to_string()
+            .is_empty());
     }
 }

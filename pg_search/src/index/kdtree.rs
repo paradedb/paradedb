@@ -547,11 +547,10 @@ mod tests {
         check_invariants(&tree, &sample);
         assert_eq!(tree.route(&[PdbOwnedValue::Null]), 0);
         let rp = tree.to_range_partitioning().unwrap();
-        assert!(
-            rp.split_points
-                .iter()
-                .all(|v| !matches!(v, PdbOwnedValue::Null))
-        );
+        assert!(rp
+            .split_points
+            .iter()
+            .all(|v| !matches!(v, PdbOwnedValue::Null)));
     }
 
     #[test]
@@ -654,11 +653,9 @@ mod tests {
         let tenant_bounds: Vec<_> = (0..8)
             .map(|p| tree.partition_bounds(p).unwrap()[0].clone())
             .collect();
-        assert!(
-            tenant_bounds
-                .iter()
-                .all(|b| b != &(Bound::Unbounded, Bound::Unbounded))
-        );
+        assert!(tenant_bounds
+            .iter()
+            .all(|b| b != &(Bound::Unbounded, Bound::Unbounded)));
     }
 
     #[test]

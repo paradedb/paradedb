@@ -87,7 +87,9 @@ pub struct SegmentViewEntry {
 /// materialized per open.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SegmentViewDocs {
-    /// Fixed on disk; the counts only feed stats (EXPLAIN's per-segment doc counts).
+    /// Fixed on disk, so a replaying reader gets the same documents from the segment id alone.
+    /// The counts ride along only because `EXPLAIN ANALYZE` renders per-segment doc counts out
+    /// of the shared state rather than out of a reader.
     Immutable { max_doc: u32, num_deleted_docs: u32 },
     /// Materialized per open from the log prefix the bound selects; every replaying reader
     /// must use the same bound.

@@ -1241,18 +1241,20 @@ mod tests {
     }
 
     #[test]
-    fn config_new_zeroes_padding() {
-        let config = Config::new(pg_sys::Oid::INVALID, 10, true, 1024, 50);
+    fn config_zeroed_has_no_uninit_padding() {
+        let config: Config = bytemuck::Zeroable::zeroed();
         let bytes = bytemuck::bytes_of(&config);
         assert_eq!(bytes[4..8], [0; 4]);
         assert_eq!(bytes[17..24], [0; 7]);
         assert_eq!(bytes[36..40], [0; 4]);
+        assert_eq!(bytes.len(), 40);
     }
 
     #[test]
-    fn state_new_zeroes_padding() {
-        let state = State::new(0, 5);
+    fn state_zeroed_has_no_uninit_padding() {
+        let state: State = bytemuck::Zeroable::zeroed();
         let bytes = bytemuck::bytes_of(&state);
         assert_eq!(bytes[4..8], [0; 4]);
+        assert_eq!(bytes.len(), 24);
     }
 }

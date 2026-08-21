@@ -44,14 +44,14 @@ cargo pgrx init
 
 ### pgvector
 
-`pgvector` is needed for hybrid search integration tests. To build it against the pgrx-managed Postgres install (replace `18.3` with the version under `~/.pgrx/`):
+`pgvector` is needed for hybrid search integration tests. To build it against the pgrx-managed Postgres install (replace `18.6` with the version under `~/.pgrx/`):
 
 ```bash
 git clone --branch v0.8.6 https://github.com/pgvector/pgvector.git
 cd pgvector/
 
-PG_CONFIG=~/.pgrx/18.3/pgrx-install/bin/pg_config make
-PG_CONFIG=~/.pgrx/18.3/pgrx-install/bin/pg_config make install
+PG_CONFIG=~/.pgrx/18.6/pgrx-install/bin/pg_config make
+PG_CONFIG=~/.pgrx/18.6/pgrx-install/bin/pg_config make install
 ```
 
 ## Running the Extension

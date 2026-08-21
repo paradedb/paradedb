@@ -307,6 +307,7 @@ FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY name_case_insensitive
 ORDER BY name;
+WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.check_aggregate_scan = false (table: collation_test)
                                    QUERY PLAN                                    
 ---------------------------------------------------------------------------------
  Sort
@@ -329,6 +330,7 @@ FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY name_case_insensitive
 ORDER BY name;
+WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.check_aggregate_scan = false (table: collation_test)
     name     | count 
 -------------+-------
  clothing    |     1
@@ -343,6 +345,7 @@ SELECT name_c, COUNT(*)
 FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY GROUPING SETS ((name_c), ());
+WARNING:  Aggregate Scan not used: GROUPING SETS are not supported. To disable this warning: SET paradedb.check_aggregate_scan = false (table: collation_test)
                         QUERY PLAN                        
 ----------------------------------------------------------
  MixedAggregate
@@ -365,6 +368,7 @@ FROM (
     WHERE id @@@ paradedb.all()
     GROUP BY GROUPING SETS ((name_c), ())
 ) AS grouped;
+WARNING:  Aggregate Scan not used: GROUPING SETS are not supported. To disable this warning: SET paradedb.check_aggregate_scan = false (table: collation_test)
  group_count 
 -------------
            6
@@ -374,8 +378,7 @@ SELECT name_c, pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
 FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY GROUPING SETS ((name_c), ());
-WARNING:  Aggregate Scan not used: GROUPING SETS are not supported
-ERROR:  pdb.agg() must be handled by ParadeDB's custom scan. This error usually means the query syntax is not supported. Try adding '@@@ pdb.all()' to your WHERE clause to force custom scan usage, or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported.
+ERROR:  Cannot execute pdb.agg: GROUPING SETS are not supported
 \echo 'Test 2.7: constant-equality GROUP BY key with no pathkeys -> AggregateScan declined'
 Test 2.7: constant-equality GROUP BY key with no pathkeys -> AggregateScan declined
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -383,6 +386,7 @@ SELECT name_c, COUNT(*)
 FROM collation_test
 WHERE name_c = 'apple' AND id @@@ paradedb.all()
 GROUP BY name_c;
+WARNING:  Aggregate Scan not used: could not verify GROUP BY semantics. To disable this warning: SET paradedb.check_aggregate_scan = false (table: collation_test)
                                                                                              QUERY PLAN                                                                                             
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -400,8 +404,7 @@ SELECT name_c, pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
 FROM collation_test
 WHERE name_c = 'apple' AND id @@@ paradedb.all()
 GROUP BY name_c;
-WARNING:  Aggregate Scan not used: could not verify GROUP BY semantics
-ERROR:  pdb.agg() must be handled by ParadeDB's custom scan. This error usually means the query syntax is not supported. Try adding '@@@ pdb.all()' to your WHERE clause to force custom scan usage, or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported.
+ERROR:  Cannot execute pdb.agg: could not verify GROUP BY semantics
 \echo 'Test 2.8: hash aggregation with a nondeterministic collation -> AggregateScan declined'
 Test 2.8: hash aggregation with a nondeterministic collation -> AggregateScan declined
 SET enable_sort TO off;
@@ -410,6 +413,7 @@ SELECT name_case_insensitive, COUNT(*)
 FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY name_case_insensitive;
+WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.check_aggregate_scan = false (table: collation_test)
                         QUERY PLAN                        
 ----------------------------------------------------------
  HashAggregate
@@ -431,6 +435,7 @@ FROM (
     WHERE id @@@ paradedb.all()
     GROUP BY name_case_insensitive
 ) AS grouped;
+WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.check_aggregate_scan = false (table: collation_test)
  group_count 
 -------------
            3
@@ -444,8 +449,7 @@ SELECT lower(name_case_insensitive) AS name,
 FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY name_case_insensitive;
-WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation
-ERROR:  pdb.agg() must be handled by ParadeDB's custom scan. This error usually means the query syntax is not supported. Try adding '@@@ pdb.all()' to your WHERE clause to force custom scan usage, or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported.
+ERROR:  Cannot execute pdb.agg: GROUP BY uses a nondeterministic collation
 \echo 'Test 2.10: mixed safe and unsafe GROUP BY keys -> AggregateScan declined'
 Test 2.10: mixed safe and unsafe GROUP BY keys -> AggregateScan declined
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -453,6 +457,7 @@ SELECT name_c, name_case_insensitive, COUNT(*) FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY name_c, name_case_insensitive
 ORDER BY name_c, name_case_insensitive;
+WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.check_aggregate_scan = false (table: collation_test)
                                           QUERY PLAN                                           
 -----------------------------------------------------------------------------------------------
  GroupAggregate

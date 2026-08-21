@@ -117,8 +117,8 @@ pub struct AggregateScan;
 
 /// Why AggregateScan cannot preserve PostgreSQL's grouping semantics.
 ///
-/// These are planner-level eligibility failures, rather than executor errors:
-/// PostgreSQL must retain the original rows and perform the aggregate itself.
+/// These are planner-level eligibility failures: plain aggregates fall back to
+/// PostgreSQL, while `pdb.agg()` queries error at plan time with the reason.
 enum GroupingPushdownDeclineReason {
     GroupingSets,
     MissingPathKeys,
@@ -126,25 +126,24 @@ enum GroupingPushdownDeclineReason {
 }
 
 impl GroupingPushdownDeclineReason {
-    fn planner_warning(&self) -> &'static str {
+    fn detail(&self) -> &'static str {
         match self {
-            Self::GroupingSets => "Aggregate Scan not used: GROUPING SETS are not supported",
-            Self::MissingPathKeys => "Aggregate Scan not used: could not verify GROUP BY semantics",
-            Self::NondeterministicCollation => {
-                "Aggregate Scan not used: GROUP BY uses a nondeterministic collation"
-            }
+            Self::GroupingSets => "GROUPING SETS are not supported",
+            Self::MissingPathKeys => "could not verify GROUP BY semantics",
+            Self::NondeterministicCollation => "GROUP BY uses a nondeterministic collation",
         }
     }
 }
 
-/// Returns whether AggregateScan can preserve PostgreSQL's GROUP BY semantics.
+/// Validates that AggregateScan can preserve PostgreSQL's GROUP BY semantics,
+/// returning the decline reason when it cannot.
 ///
 /// PostgreSQL uses each grouping expression's collation to determine equality,
 /// while ParadeDB's aggregation backends group text by its underlying value.
 /// Deterministic collations break provider-level ties with a byte comparison,
 /// so they preserve byte-based grouping equality even when their ordering is
 /// not byte-compatible. Nondeterministic collations do not.
-unsafe fn grouping_collations_are_pushdown_safe(
+unsafe fn validate_grouping_pushdown(
     args: &CreateUpperPathsHookArgs,
 ) -> Result<(), GroupingPushdownDeclineReason> {
     let parse = args.root().parse;
@@ -455,9 +454,18 @@ impl CustomScan for AggregateScan {
             }
         };
 
-        if let Err(reason) = unsafe { grouping_collations_are_pushdown_safe(builder.args()) } {
+        if let Err(reason) = unsafe { validate_grouping_pushdown(builder.args()) } {
             if has_paradedb_agg {
-                Self::add_planner_warning(reason.planner_warning(), ());
+                pgrx::error!("Cannot execute pdb.agg: {}", reason.detail());
+            } else if gucs::enable_aggregate_custom_scan() && gucs::check_aggregate_scan() {
+                Self::add_planner_warning(
+                    format!(
+                        "Aggregate Scan not used: {}. \
+                         To disable this warning: SET paradedb.check_aggregate_scan = false",
+                        reason.detail()
+                    ),
+                    unsafe { resolve_decline_alias(builder.args()) },
+                );
             }
             return Vec::new();
         }

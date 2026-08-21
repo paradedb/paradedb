@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787271535948,
+  "lastUpdate": 1787276288454,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -232,6 +232,57 @@ window.BENCHMARK_DATA = {
             "name": "paradedb (single_topk) QPS",
             "value": 466.05113162894565,
             "unit": "QPS"
+          }
+        ]
+      }
+    ],
+    "benchmarker hn-ci (latency)": [
+      {
+        "commit": {
+          "author": {
+            "email": "james.sewell@gmail.com",
+            "name": "James Sewell",
+            "username": "jamessewell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1696390d10ad0772db19a7918a21d89803ff4d26",
+          "message": "ci: only post the benchmarker summary comment on PRs (#6005)\n\nFollow-up to #5850, aligning the benchmarker with the benchmark-queries\n/ benchmark-stressgres conventions.\n\n- Summary comments are PR-only; nothing posts on pushes to main (main\nruns are tracked on the gh-pages charts). Compare tables come from\ngithub-action-benchmark's comment-always.\n- One tracked series instead of two: per-run mean + p50/p90/p95/p99\nlatency under a single customSmallerIsBetter publish, like queries. The\nk6 scripts are closed-loop, so mean ms carries the QPS signal (QPS = VUs\n/ mean latency); this halves the publish steps and PR comments.\n- Switched to the paradedb github-action-benchmark fork used by the\nother benchmark workflows (shallow-clones only the gh-pages branch).\n- Fixed a masked failure: with two publishes, the second one's gh-pages\nclone always failed on the non-empty ./benchmark-data-repository left by\nthe first, and continue-on-error hid it, so no latency history ever\nreached gh-pages. Now moot with a single publish, and the cleanup still\nruns before it.",
+          "timestamp": "2026-08-21T13:12:54+12:00",
+          "tree_id": "39bf4ea7592d99da81c362269c4af159c356ce01",
+          "url": "https://github.com/paradedb/paradedb/commit/1696390d10ad0772db19a7918a21d89803ff4d26"
+        },
+        "date": 1787276285419,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 2.122381672851844,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 2.03,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.62,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.729,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.88,
+            "unit": "ms"
           }
         ]
       }

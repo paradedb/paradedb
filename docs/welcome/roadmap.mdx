@@ -12,8 +12,8 @@ We're a lean team that likes to ship at [incredibly high velocity](https://githu
 
 - **Incremental index maintenance**. Vector search quality currently degrades as indexed rows are updated. We are implementing SPFresh to maintain index quality incrementally.
 - **Quantization**. Scalar (`int8`) and binary quantization, to cut the memory and I/O cost of large vector indexes.
-- **More pgvector types**. Support for `halfvec` (fp16), in addition to the `vector` type that is indexed today.
-- **Hybrid search**. Finalizing the architecture for fusing BM25 scores and vector distances into a single ranking.
+- **`halfvec` support**. Support for pgvector's half-precision `halfvec` (fp16) type, in addition to the `vector` type that is indexed today.
+- **Integrated hybrid ranking**. [Reciprocal rank fusion](/documentation/hybrid/rrf) is available today. We are finalizing a more deeply integrated architecture for fusing BM25 scores and vector distances into a single ranking.
 
 ### JOIN Improvements
 

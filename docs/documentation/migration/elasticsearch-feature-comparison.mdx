@@ -47,16 +47,17 @@ all live inside Postgres — no ETL pipelines, no separate cluster to manage.
 
 ### Vector and Hybrid Search
 
-| Feature                       | Elasticsearch | ParadeDB | Notes                                                                                                            |
-| ----------------------------- | :-----------: | :------: | ---------------------------------------------------------------------------------------------------------------- |
-| Vector search (kNN)           |      ✅       |    ✅    | [Native vector search](/documentation/vector/overview) (beta), using pgvector's `vector` type                    |
-| Filtered vector search        |      ✅       |    ✅    | Vectors live in the same index as text and filters, so no pre- or post-filtering is required                     |
-| Hybrid search                 |      ✅       |    ✅    | [Reciprocal rank fusion](/documentation/hybrid/rrf) over BM25 and vector rankings                                |
-| Distance functions            |      ✅       |    ✅    | [L2, cosine, and inner product](/documentation/vector/querying)                                                  |
-| Recall / latency tuning       |      ✅       |    ✅    | [`paradedb.vector_cluster_max_probe`](/documentation/vector/tuning)                                              |
-| Quantization (scalar, binary) |      ✅       |    ⚠️    | Coming soon                                                                                                      |
-| `halfvec` and sparse vectors  |      ✅       |    ⚠️    | Only pgvector's `vector` type is indexable; `halfvec` is coming soon                                             |
-| Built-in embedding inference  |      ✅       |    ❌    | Generate embeddings in your application, or with an in-database extension, and insert them like any other column |
+| Feature                             | Elasticsearch | ParadeDB | Notes                                                                                                                           |
+| ----------------------------------- | :-----------: | :------: | ------------------------------------------------------------------------------------------------------------------------------- |
+| Vector search (kNN)                 |      ✅       |    ✅    | [Native vector search](/documentation/vector/overview) (beta), using pgvector's `vector` type                                   |
+| Filtered vector search              |      ✅       |    ✅    | Vectors live in the same index as text and filters, so no separate pgvector pre- or post-filtering is required                  |
+| Hybrid search                       |      ✅       |    ✅    | [Reciprocal rank fusion](/documentation/hybrid/rrf) over BM25 and vector rankings                                               |
+| Distance functions                  |      ✅       |    ✅    | [L2, cosine, and inner product](/documentation/vector/querying)                                                                 |
+| Recall / latency tuning             |      ✅       |    ✅    | [`paradedb.vector_cluster_max_probe`](/documentation/vector/tuning)                                                             |
+| Incremental maintenance for updates |      ✅       |    ⚠️    | Updated vectors are immediately searchable, but index quality can degrade; [SPFresh is planned](/welcome/roadmap#vector-search) |
+| Quantization (scalar, binary)       |      ✅       |    ⚠️    | Coming soon                                                                                                                     |
+| Additional pgvector types           |      ✅       |    ⚠️    | Only `vector` is indexable today; `halfvec` is planned, while `sparsevec` and `bit` remain unsupported                          |
+| Built-in embedding inference        |      ✅       |    ❌    | Generate embeddings in your application, or with an in-database extension, and insert them like any other column                |
 
 ### Relational and Specialized Queries
 

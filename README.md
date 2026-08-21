@@ -62,6 +62,7 @@ Vectors are indexed natively (beta), alongside your text and filters, in the sam
   - [x] [Index pgvector's `vector` type](https://docs.paradedb.com/documentation/indexing/indexing-vectors)
   - [x] [L2, Cosine & Inner Product Distance](https://docs.paradedb.com/documentation/indexing/indexing-vectors)
   - [x] [Recall & Latency Tuning](https://docs.paradedb.com/documentation/vector/tuning)
+  - [ ] [Incremental Index Maintenance with SPFresh](https://docs.paradedb.com/welcome/roadmap#vector-search)
   - [ ] Scalar (`int8`) Quantization
   - [ ] Binary Quantization
   - [ ] `halfvec` (fp16) Type

@@ -503,33 +503,27 @@ impl Directory for MVCCDirectory {
             .cloned()
             .collect();
         // The registry is write-once at creation; later commits carry
-        // `centroid_sets` forward in the meta but have no set file in
+        // `centroid_set` forward in the meta but have no set file in
         // their payload.
         let registry_saved = MetaPage::open(&self.indexrel)
             .centroid_sets_bytes()
             .map(|bytes| !bytes.is_empty())
             .unwrap_or(false);
-        if !meta.centroid_sets.is_empty() && !registry_saved {
-            let entries: Vec<super::utils::CentroidSetEntry> =
-                meta.centroid_sets
-                    .iter()
-                    .map(|set| {
-                        let file_entry = payload
-                            .get(Path::new(&set.filename))
-                            .copied()
-                            .ok_or_else(|| {
-                                tantivy::TantivyError::InternalError(format!(
-                                    "centroid set file {} was not written through this directory",
-                                    set.filename
-                                ))
-                            })?;
-                        Ok(super::utils::CentroidSetEntry {
-                            version: set.version,
-                            filename: set.filename.clone(),
-                            file_entry,
-                        })
-                    })
-                    .collect::<tantivy::Result<_>>()?;
+        if let Some(set) = meta.centroid_set.as_ref().filter(|_| !registry_saved) {
+            let file_entry = payload
+                .get(Path::new(&set.filename))
+                .copied()
+                .ok_or_else(|| {
+                    tantivy::TantivyError::InternalError(format!(
+                        "centroid set file {} was not written through this directory",
+                        set.filename
+                    ))
+                })?;
+            let entries = [super::utils::CentroidSetEntry {
+                version: set.version,
+                filename: set.filename.clone(),
+                file_entry,
+            }];
             save_centroid_sets(&self.indexrel, &entries)
                 .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;
         }

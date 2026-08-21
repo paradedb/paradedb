@@ -513,14 +513,14 @@ pub unsafe fn load_metas(
     let settings = metapage.settings_bytes();
     let deserialized_settings = serde_json::from_slice(&settings.read_all())?;
 
-    let centroid_sets = load_centroid_sets(indexrel)
+    let centroid_set = load_centroid_sets(indexrel)
         .map_err(|e| tantivy::TantivyError::InternalError(e.to_string()))?
         .into_iter()
+        .next()
         .map(|entry| tantivy::index::CentroidSetMeta {
             version: entry.version,
             filename: entry.filename,
-        })
-        .collect();
+        });
 
     Ok(LoadedMetas {
         entries: alive_entries,
@@ -531,7 +531,7 @@ pub unsafe fn load_metas(
             opstamp: opstamp.unwrap_or(0),
             payload: None,
             persisted_custom_extensions: Vec::new(),
-            centroid_sets,
+            centroid_set,
         },
         pin_cushion,
         total_segments,

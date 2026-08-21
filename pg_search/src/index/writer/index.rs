@@ -292,14 +292,10 @@ impl SerialIndexWriter {
         let tantivy_schema: tantivy::schema::Schema = schema.clone().into();
 
         let settings = index_settings(index_relation.options(), &tantivy_schema);
-        let mut builder = Index::builder().schema(tantivy_schema).settings(settings);
-        if schema.has_vector_field() {
-            // The staged segment must assign against the SAME centroid set
-            // as the real index (identical version stamp), or moving it in
-            // would trip the multi-version guard: share the set verbatim.
-            let source = Index::open(MvccSatisfies::Snapshot.directory(index_relation))?;
-            builder = builder.shared_centroid_set(&source);
-        }
+        // No centroid set: the staged mutable segment stores its vectors
+        // flat (doc-ordered) and is searched exhaustively; it clusters at
+        // its first merge inside the real index.
+        let builder = Index::builder().schema(tantivy_schema).settings(settings);
         let mut index = builder.create(directory)?;
         setup_tokenizers(index_relation, &mut index)?;
         let ctid_field = schema.ctid_field();

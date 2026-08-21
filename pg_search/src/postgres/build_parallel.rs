@@ -142,14 +142,11 @@ unsafe impl bytemuck::Pod for WorkerCoordination {}
 
 impl ParallelStateType for WorkerCoordination {}
 
-// SAFETY: SharedFileSet is #[repr(C)]. All fields are integer types
-// (pid_t, uint32, c_int, slock_t, Oid array). Every bit pattern is valid.
-unsafe impl bytemuck::Zeroable for pg_sys::SharedFileSet {}
-unsafe impl bytemuck::Pod for pg_sys::SharedFileSet {}
-impl ParallelStateType for pg_sys::SharedFileSet {}
+// SharedFileSet is a foreign bindgen type that cannot implement Pod.
+// It is accessed through object_raw() instead of the typed object() path.
 
 const _: () = assert!(size_of::<WorkerConfig>() == 40);
-const _: () = assert!(size_of::<WorkerCoordination>() == 40);
+const _: () = assert!(size_of::<WorkerCoordination>() == 48);
 
 impl WorkerCoordination {
     fn inc_nstarted(&mut self) {
@@ -207,6 +204,14 @@ struct ParallelBuild {
     /// leader initializes it in place once the DSM is mapped, since its cleanup hooks onto the
     /// segment. Untouched without `partition_by`.
     fileset: pg_sys::SharedFileSet,
+}
+
+impl ParallelState for pg_sys::SharedFileSet {
+    fn as_bytes(&self) -> &[u8] {
+        unsafe {
+            std::slice::from_raw_parts(self as *const _ as *const u8, size_of_val(self))
+        }
+    }
 }
 
 impl ParallelState for ScanDesc {
@@ -318,10 +323,14 @@ impl ParallelWorker for BuildWorker<'_> {
             .expect("should be able to get partitioning bytes")
             .expect("partitioning bytes should not be NULL");
         let partitioning = deserialize_partitioning(partitioning);
-        let fileset = state_manager
-            .object::<pg_sys::SharedFileSet>(FILESET_STATE_IDX)
-            .expect("should be able to get the spill fileset")
-            .expect("spill fileset should not be NULL");
+        // SAFETY: the leader wrote a valid SharedFileSet into this slot
+        // via SharedFileSetInit before workers launched.
+        let fileset = unsafe {
+            state_manager
+                .object_raw::<pg_sys::SharedFileSet>(FILESET_STATE_IDX)
+                .expect("should be able to get the spill fileset")
+                .expect("spill fileset should not be NULL")
+        };
 
         unsafe {
             // A worker attaches so that the last process out deletes the spill files. On an
@@ -431,7 +440,7 @@ impl<'a> BuildWorker<'a> {
             // descriptor on the parallel path, and from `build_index` on the serial one. The
             // scan ends before the drain runs and unregisters what it registered, so this
             // registration keeps the snapshot alive until the drain is done with it.
-            let build_snapshot = (partitioning.is_some() && self.config.concurrent)
+            let build_snapshot = (partitioning.is_some() && self.config.concurrent())
                 .then(|| {
                     self.table_scan_desc
                         .map(|scan| (*scan.as_ptr()).rs_snapshot)
@@ -1488,11 +1497,15 @@ pub(super) fn build_index(
             }
             // The spill fileset is initialized in the DSM itself: its cleanup is a detach
             // callback on the segment, keyed on this very address, so a copy would not do.
-            let fileset = launcher
-                .state_manager()
-                .object::<pg_sys::SharedFileSet>(FILESET_STATE_IDX)
-                .expect("should be able to get the spill fileset")
-                .expect("spill fileset should not be NULL");
+            // SAFETY: the leader initialises the SharedFileSet in this slot
+            // before any worker launches.
+            let fileset = unsafe {
+                launcher
+                    .state_manager()
+                    .object_raw::<pg_sys::SharedFileSet>(FILESET_STATE_IDX)
+                    .expect("should be able to get the spill fileset")
+                    .expect("spill fileset should not be NULL")
+            };
             unsafe { pg_sys::SharedFileSetInit(fileset, launcher.dsm_segment()) };
         }
     ) {

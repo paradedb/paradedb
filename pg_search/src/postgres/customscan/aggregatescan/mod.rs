@@ -1126,17 +1126,19 @@ impl AggregateScan {
         crate::postgres::customscan::mpp::launch::launch_mpp_aggregate(physical, args)
     }
 
-    /// Build the aggregate's DataFusion physical plan under `ctx`. `is_mpp` marks that parallel
-    /// execution is being attempted and stamps each provider's per-source dispatch metadata
-    /// (`is_parallel`, `mpp_source_idx`); the worker-bound stage encodes carry that metadata, so
-    /// it must be present on the plan the dispatch payload is derived from. The serial fallback
-    /// plans without it. An associated fn (not a closure) so the `df_state` borrow it takes
-    /// ends at each call site, freeing `state` for the MPP launch in between.
+    /// Build the aggregate's DataFusion physical plan under `ctx`. `mpp_views` marks that
+    /// parallel execution is being attempted and stamps each provider's per-source dispatch
+    /// metadata (`is_parallel`, `mpp_source_idx`); the worker-bound stage encodes carry that
+    /// metadata, so it must be present on the plan the dispatch payload is derived from. It also
+    /// carries the views the providers replay, which are the same manifests `launch_mpp` puts in
+    /// the DSM. The serial fallback plans without it. An associated fn (not a closure) so the
+    /// `df_state` borrow it takes ends at each call site, freeing `state` for the MPP launch in
+    /// between.
     fn build_agg_physical_plan(
         df_state: &mut scan_state::DataFusionAggState,
         runtime: &tokio::runtime::Runtime,
         ctx: &datafusion::prelude::SessionContext,
-        is_mpp: bool,
+        mpp_views: Option<&[SegmentView]>,
         runtime_expr_context: Option<*mut pg_sys::ExprContext>,
         runtime_planstate: Option<*mut pg_sys::PlanState>,
     ) -> Arc<dyn ExecutionPlan> {
@@ -1154,7 +1156,7 @@ impl AggregateScan {
                 ctx,
                 runtime_expr_context,
                 runtime_planstate,
-                is_mpp,
+                mpp_views,
             )
             .await?;
             df_state.group_df_indices = group_df_indices;
@@ -1230,7 +1232,7 @@ impl AggregateScan {
                         ctx,
                         Some(expr_context.as_ptr()),
                         None,
-                        false,
+                        None,
                     )
                     .await?;
                     build_physical_plan(ctx, logical).await
@@ -1811,6 +1813,19 @@ impl AggregateScan {
             } else {
                 create_aggregate_session_context()
             };
+            // Capture before the `df_state` borrow below. `prepare_mpp` pinned the manifests at
+            // begin, so these are the views `launch_mpp` ships to the workers.
+            let mpp_views: Vec<SegmentView> = if is_mpp {
+                Self::ensure_source_manifests(state);
+                state
+                    .custom_state()
+                    .source_manifests
+                    .iter()
+                    .map(|m| m.segment_view())
+                    .collect()
+            } else {
+                Vec::new()
+            };
 
             let t_plan = std::time::Instant::now();
             let physical_plan = {
@@ -1823,7 +1838,7 @@ impl AggregateScan {
                     df_state,
                     &runtime,
                     &plan_ctx,
-                    is_mpp,
+                    is_mpp.then_some(mpp_views.as_slice()),
                     runtime_expr_context,
                     runtime_planstate,
                 )
@@ -1864,7 +1879,7 @@ impl AggregateScan {
                             df_state,
                             &runtime,
                             &serial_ctx,
-                            false,
+                            None,
                             runtime_expr_context,
                             runtime_planstate,
                         );

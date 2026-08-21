@@ -666,27 +666,16 @@ impl PgSearchTableProvider {
             query.init_postgres_expressions(planstate);
             query.solve_postgres_expressions(expr_context);
         }
-        // MVCC dispatch:
+        // Replay the view the codec injected for this source, when there is one: the leader's
+        // reader then matches the manifest the DSM was populated from. Any other reader opens a
+        // plain snapshot.
         //
-        // Parallel worker (`parallel_state` Some, not the leader): replay this source's segment
-        // view from `ParallelScanState`.
-        //
-        // Otherwise, replay the view the codec injected for this source, when there is one: the
-        // leader's reader then matches the manifest the DSM was populated from, and a serial
-        // reader matches the predicate UDF's. Any other reader opens a plain snapshot.
-        let mvcc_style = match parallel_state {
-            Some(parallel_state) if unsafe { pg_sys::ParallelWorkerNumber } != -1 => {
-                let view = unsafe {
-                    (*parallel_state).segment_view_for_source(
-                        self.source_idx.expect("parallel_state implies source_idx"),
-                    )
-                };
-                MvccSatisfies::ParallelWorker(view)
-            }
-            _ => match self.segment_view.clone() {
-                Some(view) => MvccSatisfies::ParallelWorker(view),
-                None => MvccSatisfies::Snapshot,
-            },
+        // Workers never reach this. An MPP worker decodes physical plans, and plans build
+        // address-free, so `parallel_state` is still null here and arrives on the physical scan
+        // later through `stamp_parallel_state`.
+        let mvcc_style = match self.segment_view.clone() {
+            Some(view) => MvccSatisfies::ParallelWorker(view),
+            None => MvccSatisfies::Snapshot,
         };
 
         let reader = SearchIndexReader::open_with_context(

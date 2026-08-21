@@ -168,12 +168,13 @@ const SEGMENT_CLAIM_UNCLAIMED: i32 = -2;
 /// `all_docs_flags` value: `all_max_docs`/`all_deleted_docs` hold the mutable segment's bound.
 const SEGMENT_FLAG_MUTABLE: u8 = 1;
 
-/// `all_docs_flags` value: the entry only pins the segment id; both count slots are zero.
-const SEGMENT_FLAG_ID_ONLY: u8 = 2;
-
 /// The wire format of one [`SegmentViewDocs`] in the payload: a flag byte plus the two `u32`
 /// count slots whose meaning the flag selects. `encode_docs` and `decode_docs` are the only
 /// readers of this convention.
+///
+/// [`SegmentViewDocs::IdOnly`] has no encoding on purpose. A reader that replays a view has to
+/// reproduce the origin's documents, and an id-only view carries nothing to reproduce them
+/// from, so it must stay inside the process that built it.
 fn encode_docs(docs: SegmentViewDocs) -> (u8, u32, u32) {
     match docs {
         SegmentViewDocs::Immutable {
@@ -183,7 +184,9 @@ fn encode_docs(docs: SegmentViewDocs) -> (u8, u32, u32) {
         SegmentViewDocs::Mutable(bound) => {
             (SEGMENT_FLAG_MUTABLE, bound.max_doc, bound.num_deleted_docs)
         }
-        SegmentViewDocs::IdOnly => (SEGMENT_FLAG_ID_ONLY, 0, 0),
+        SegmentViewDocs::IdOnly => {
+            panic!("an id-only segment view cannot be shared: it has no documents to replay")
+        }
     }
 }
 
@@ -194,7 +197,6 @@ fn decode_docs(flag: u8, max_doc: u32, num_deleted_docs: u32) -> SegmentViewDocs
             max_doc,
             num_deleted_docs,
         }),
-        SEGMENT_FLAG_ID_ONLY => SegmentViewDocs::IdOnly,
         _ => SegmentViewDocs::Immutable {
             max_doc,
             num_deleted_docs,

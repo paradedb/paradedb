@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787281751317,
+  "lastUpdate": 1787326544191,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -331,6 +331,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.748,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ef3e38bb8d216544db715e5378429b0293dfbf9f",
+          "message": "perf: Use predicate tagging for disjunctions. (#6010)\n\n## What\n\nReplaces `SearchPredicateUDF` with predicate tagging for evaluating\njoin-level search predicates (e.g. cross-table disjunctions such as\n`p.description @@@ 'laptop' OR s.description @@@ 'display'`) in the join\nand aggregate scans.\n\n## Why\n\nEvaluating join-level search predicates using UDFs\n(`pdb_search_predicate`) required:\n1. Shipping canonical segment IDs across logical and physical plan\nserialization boundaries.\n2. Special handling for visibility\n3. Computing and intersecting CTID sets using a UDF\n\nPredicate tagging simplifies the intersection into a per-segment bitmap\nlookup on the `DocId`, without needing to fetch or visibility check\nctids.\n\n## How\n\nExpose matches as synthetic boolean columns for DataFusion boolean\nexpressions, which are then evaluated as vectorized boolean operations\nafter the join.\n\n## Tests\n\nExpanded tests.\n\nIn local benchmarks, predicate tagging was 22x faster for low\nselectivity queries.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-21T08:11:18-07:00",
+          "tree_id": "efd2c1616d7338a807bf2ec3e48e88690164ee0c",
+          "url": "https://github.com/paradedb/paradedb/commit/ef3e38bb8d216544db715e5378429b0293dfbf9f"
+        },
+        "date": 1787326541050,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.812193764870972,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.703,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.222,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.392,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.672,
             "unit": "ms"
           }
         ]

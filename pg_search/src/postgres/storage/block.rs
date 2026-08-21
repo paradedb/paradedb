@@ -517,7 +517,16 @@ impl SegmentMetaEntry {
                 MutableSegmentEntry::Remove(ctid) => ctid_set.remove(&ctid),
             };
         }
-        assert_eq!(ctid_set.len(), expected_ctids as usize);
+        // The header and the on-disk list are separate WAL records, so crash
+        // recovery can leave them briefly out of sync (#5937). Not corruption: a
+        // later merge/GC rewrites the segment and the next read succeeds. Fail this
+        // read cleanly rather than panic. (No dst::assert_always!: this mismatch is
+        // expected here, and in debug builds the assert would fire on this path.)
+        if ctid_set.len() != expected_ctids as usize {
+            return Err(
+                "mutable segment snapshot inconsistent with header (transient after crash recovery)",
+            );
+        }
 
         let mut ctids: Vec<_> = ctid_set.into_iter().collect();
         ctids.sort_unstable();

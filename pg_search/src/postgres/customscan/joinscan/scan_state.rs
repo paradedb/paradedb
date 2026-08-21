@@ -31,6 +31,7 @@
 
 use std::sync::Arc;
 
+use datafusion::catalog::Session;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::logical_expr::{col, Expr};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
@@ -64,7 +65,7 @@ use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::{PgSearchTableProvider, VisibilityMode};
 use async_trait::async_trait;
-use datafusion::execution::context::{QueryPlanner, SessionState};
+use datafusion::execution::context::QueryPlanner;
 use datafusion::execution::session_state::SessionStateBuilder;
 use datafusion::functions_aggregate::expr_fn::min;
 use datafusion::physical_planner::{DefaultPhysicalPlanner, PhysicalPlanner};
@@ -133,7 +134,7 @@ impl QueryPlanner for PgSearchQueryPlanner {
     async fn create_physical_plan(
         &self,
         logical_plan: &datafusion::logical_expr::LogicalPlan,
-        session_state: &SessionState,
+        session_state: &dyn Session,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let mut extension_planners: Vec<
             Arc<dyn datafusion::physical_planner::ExtensionPlanner + Send + Sync>,

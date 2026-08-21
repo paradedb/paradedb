@@ -28,24 +28,21 @@ pub struct VectorScanWork {
     flat: Vec<SegmentReader>,
 }
 
-/// One atomic claim: either the WHOLE clustered chunk or one flat
-/// segment.
+/// One atomic claim — one UNIT of work: either the WHOLE clustered chunk
+/// or one flat segment. A participant's total claim is a `Vec` of these,
+/// each mapping 1:1 onto a `collect_ivf` / `collect_flat` call.
+#[derive(Debug, Clone)]
 pub enum VectorClaim {
     Clustered(Vec<SegmentId>),
     Flat(SegmentId),
 }
 
-/// Everything one participant claimed, tier-tagged so the search can set
-/// tantivy's `CollectorMode` instead of re-deriving tiers per segment.
-#[derive(Debug, Default, Clone)]
-pub struct VectorClaims {
-    pub clustered: Vec<SegmentId>,
-    pub flat: Vec<SegmentId>,
-}
-
-impl VectorClaims {
-    pub fn segment_ids(&self) -> impl Iterator<Item = SegmentId> + '_ {
-        self.clustered.iter().chain(self.flat.iter()).copied()
+impl VectorClaim {
+    pub fn segment_ids(&self) -> Vec<SegmentId> {
+        match self {
+            VectorClaim::Clustered(ids) => ids.clone(),
+            VectorClaim::Flat(id) => vec![*id],
+        }
     }
 }
 

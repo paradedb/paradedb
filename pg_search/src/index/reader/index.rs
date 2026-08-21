@@ -41,7 +41,7 @@ use crate::query::estimate_tree::QueryWithEstimates;
 use crate::scan::info::RowEstimate;
 use crate::schema::SearchIndexSchema;
 
-use crate::postgres::customscan::basescan::vector_work::VectorClaims;
+use crate::postgres::customscan::basescan::vector_work::VectorClaim;
 use anyhow::Result;
 use tantivy::aggregation::DistributedAggregationCollector;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
@@ -153,13 +153,14 @@ impl From<TopKSearchResults> for TopKSearch {
 
 /// The global probe loop's instrumentation, as the EXPLAIN-facing JSON.
 /// Drives one participant's vector search through the collector's
-/// explicit API: the tier-tagged claims map straight onto collect_ivf /
-/// collect_flat / merge; without claims (serial), the collector's own
-/// partition-everything `search` runs.
+/// explicit API: each claimed unit maps 1:1 onto a call — the clustered
+/// chunk to `collect_ivf`, a flat segment to `collect_flat` — and
+/// `merge` folds the fruits. Without claims (serial), the collector's
+/// own partition-everything `search` runs.
 struct RunVectorSearch<'a> {
     searcher: &'a tantivy::Searcher,
     query: &'a dyn tantivy::query::Query,
-    claims: Option<&'a VectorClaims>,
+    claims: Option<&'a [VectorClaim]>,
 }
 
 impl RunVectorSearch<'_> {
@@ -181,23 +182,21 @@ impl RunVectorSearch<'_> {
                 .map(|ordinal| ordinal as tantivy::SegmentOrdinal)
                 .expect("claimed segment must exist in the searcher's snapshot")
         };
-        let mut fruits = Vec::with_capacity(claims.flat.len() + 1);
-        if !claims.clustered.is_empty() {
-            let clustered: Vec<tantivy::SegmentOrdinal> =
-                claims.clustered.iter().copied().map(ordinal_of).collect();
-            fruits.push(
-                collector
-                    .collect_ivf(self.searcher, self.query, &clustered)
+        let fruits = claims
+            .iter()
+            .map(|claim| match claim {
+                VectorClaim::Clustered(ids) => {
+                    let ordinals: Vec<tantivy::SegmentOrdinal> =
+                        ids.iter().copied().map(ordinal_of).collect();
+                    collector
+                        .collect_ivf(self.searcher, self.query, &ordinals)
+                        .expect("search should not fail")
+                }
+                VectorClaim::Flat(id) => collector
+                    .collect_flat(self.searcher, self.query, ordinal_of(*id))
                     .expect("search should not fail"),
-            );
-        }
-        for &id in &claims.flat {
-            fruits.push(
-                collector
-                    .collect_flat(self.searcher, self.query, ordinal_of(id))
-                    .expect("search should not fail"),
-            );
-        }
+            })
+            .collect();
         collector.merge(fruits)
     }
 }
@@ -954,7 +953,7 @@ impl SearchIndexReader {
         offset: usize,
         aux_collector: Option<TopKAuxiliaryCollector>,
         parallel_state_holding_shared_threshold: Option<*mut crate::postgres::ParallelScanState>,
-        vector_claims: Option<&VectorClaims>,
+        vector_claims: Option<&[VectorClaim]>,
     ) -> TopKSearch {
         let (first_orderby_info, erased_features) = self.prepare_features(orderby_info);
         match first_orderby_info {

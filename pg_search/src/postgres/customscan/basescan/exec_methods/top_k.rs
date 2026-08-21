@@ -33,9 +33,7 @@ use crate::postgres::customscan::aggregatescan::{AggIndexInfo, AggregateType};
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
-use crate::postgres::customscan::basescan::vector_work::{
-    VectorClaim, VectorClaims, VectorScanWork,
-};
+use crate::postgres::customscan::basescan::vector_work::{VectorClaim, VectorScanWork};
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::parallel::checkout_segment_for_source;
@@ -80,10 +78,9 @@ pub struct TopKScanExecState {
     chunk_size: usize,
     // If parallel, the segments which have been claimed by this worker.
     claimed_segments: RefCell<Option<Vec<SegmentId>>>,
-    // If a parallel vector scan, the tier-tagged view of the same claims
-    // (see `vector_work::VectorClaims`) — what lets the search tell
-    // tantivy the CollectorMode instead of re-deriving tiers.
-    vector_claims: RefCell<Option<VectorClaims>>,
+    // If a parallel vector scan, the claimed units of work — each maps
+    // 1:1 onto a collect_ivf / collect_flat call in the search.
+    vector_claims: RefCell<Option<Vec<VectorClaim>>>,
     scale_factor: f64,
     // Window aggregates to compute
     window_aggregates: Vec<WindowAggregateInfo>,
@@ -212,7 +209,7 @@ impl TopKScanExecState {
     fn claim_vector_work(
         &self,
         parallel_state: Option<*mut ParallelScanState>,
-    ) -> Option<VectorClaims> {
+    ) -> Option<Vec<VectorClaim>> {
         let parallel_state = parallel_state?;
         let is_vector = self
             .orderby_info
@@ -223,16 +220,16 @@ impl TopKScanExecState {
             return None;
         }
         if self.vector_claims.borrow().is_none() {
-            let mut claims = VectorClaims::default();
+            let mut claims = Vec::new();
             loop {
                 check_for_interrupts!();
                 match unsafe { VectorScanWork::claim(parallel_state) } {
-                    Some(VectorClaim::Clustered(ids)) => claims.clustered.extend(ids),
-                    Some(VectorClaim::Flat(id)) => claims.flat.push(id),
+                    Some(claim) => claims.push(claim),
                     None => break,
                 }
             }
-            *self.claimed_segments.borrow_mut() = Some(claims.segment_ids().collect());
+            *self.claimed_segments.borrow_mut() =
+                Some(claims.iter().flat_map(VectorClaim::segment_ids).collect());
             *self.vector_claims.borrow_mut() = Some(claims);
         }
         self.vector_claims.borrow().clone()
@@ -464,7 +461,7 @@ impl ExecMethod for TopKScanExecState {
                     self.offset,
                     maybe_aux_collector,
                     maybe_parallel_state,
-                    vector_claims.as_ref(),
+                    vector_claims.as_deref(),
                 );
             // Per-segment Fruit JSON → local ScanTelemetry. Workers publish into
             // DSM once at EndCustomScan; the leader merges at Shutdown.

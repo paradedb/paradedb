@@ -542,16 +542,22 @@ impl<'a> WorkerBuildState<'a> {
                 .collect::<Vec<_>>()
         };
 
-        // do the merge
+        pgrx::debug1!("try_merge: last merge {is_last_merge}");
+        self.merge_now(&segment_ids_to_merge)
+    }
+
+    /// Merge the given segments into a single segment and garbage collect the index, returning
+    /// the reclaimed space to the fsm. Split out of [`Self::try_merge`] so the partitioned
+    /// build can merge a cell's segments without the chunk accounting.
+    fn merge_now(&mut self, segment_ids_to_merge: &[SegmentId]) -> anyhow::Result<()> {
         pgrx::debug1!(
-            "do_merge: last merge {}, about to merge {} segments: {:?}",
-            is_last_merge,
+            "do_merge: about to merge {} segments: {:?}",
             segment_ids_to_merge.len(),
             segment_ids_to_merge
         );
         let mut merger = SearchIndexMerger::open(&self.indexrel, MvccSatisfies::Mergeable)?;
         unsafe { set_ps_display_suffix(MERGING.as_ptr()) };
-        merger.merge_segments(&segment_ids_to_merge)?;
+        merger.merge_segments(segment_ids_to_merge)?;
 
         // garbage collect the index, returning to the fsm
         pgrx::debug1!("do_merge: garbage collecting");

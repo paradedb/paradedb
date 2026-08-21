@@ -453,6 +453,18 @@ unsafe fn find_target_entry_by_ref(
         .find(|&te| (*te).ressortgroupref == ref_id)
 }
 
+/// Whether `search_field` may be pushed down as the sort key at `position` in the ORDER BY.
+///
+/// Range fields are only supported as the leading sort key: every key after the first is
+/// collected via `SortByErasedType`, which reads a single dynamic column, whereas a range
+/// compares by a composite of its bound sub-columns (see
+/// [`crate::index::reader::sort_by_range`]). A range in a later position makes the whole
+/// ORDER BY unpushable: Top K can't run on a prefix of the pathkeys, so Postgres sorts the
+/// unsorted scan itself.
+fn sortable_at_position(search_field: &SearchField, position: usize) -> bool {
+    position == 0 || !matches!(search_field.field_type(), SearchFieldType::Range(_))
+}
+
 /// Extract pathkeys from ORDER BY clauses using comprehensive expression handling
 /// This function handles score functions, lower functions, relabel types, and regular variables
 ///
@@ -534,6 +546,7 @@ where
                         if let Some(field_name) = field_name_opt
                             && let Some(search_field) = schema.search_field(field_name.root())
                             && lower_sortability_check(&search_field)
+                            && sortable_at_position(&search_field, pathkey_styles.len())
                         {
                             pathkey_styles.push(OrderByStyle::Field {
                                 pathkey,
@@ -548,6 +561,7 @@ where
                         if let Some(field_name) = field_name_opt
                             && let Some(search_field) = schema.search_field(field_name.root())
                             && regular_sortability_check(&search_field)
+                            && sortable_at_position(&search_field, pathkey_styles.len())
                         {
                             pathkey_styles.push(OrderByStyle::Field {
                                 pathkey,
@@ -562,6 +576,7 @@ where
                         if let Some(field_name) = field_name_opt
                             && let Some(search_field) = schema.search_field(field_name.root())
                             && search_field.is_fast()
+                            && sortable_at_position(&search_field, pathkey_styles.len())
                         {
                             pathkey_styles.push(OrderByStyle::Field {
                                 pathkey,
@@ -651,7 +666,7 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
         PgList<pg_sys::Expr>,
     )> = None;
 
-    for sort_clause in sort_list.iter_ptr() {
+    for (position, sort_clause) in sort_list.iter_ptr().enumerate() {
         let tle_ref = (*sort_clause).tleSortGroupRef;
         let Some(te) = find_target_entry_by_ref(&target_list, tle_ref) else {
             return false;
@@ -732,7 +747,9 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 let Some(search_field) = schema.search_field(field_name.root()) else {
                     return false;
                 };
-                if !search_field.is_lower_sortable() {
+                if !search_field.is_lower_sortable()
+                    || !sortable_at_position(&search_field, position)
+                {
                     return false;
                 }
             }
@@ -743,7 +760,8 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 let Some(search_field) = schema.search_field(field_name.root()) else {
                     return false;
                 };
-                if !search_field.is_raw_sortable() {
+                if !search_field.is_raw_sortable() || !sortable_at_position(&search_field, position)
+                {
                     return false;
                 }
             }
@@ -754,7 +772,7 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 let Some(search_field) = schema.search_field(field_name.root()) else {
                     return false;
                 };
-                if !search_field.is_fast() {
+                if !search_field.is_fast() || !sortable_at_position(&search_field, position) {
                     return false;
                 }
             }

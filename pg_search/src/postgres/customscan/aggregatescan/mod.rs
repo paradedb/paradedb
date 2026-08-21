@@ -86,6 +86,9 @@ use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
+use crate::postgres::customscan::collation_semantics::{
+    assess_collation, collation_supports, CollationOperation, CollationSafety,
+};
 use crate::postgres::customscan::exec::{
     begin_custom_scan, end_custom_scan, exec_custom_scan, explain_custom_scan, rescan_custom_scan,
     shutdown_custom_scan,
@@ -93,7 +96,6 @@ use crate::postgres::customscan::exec::{
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::hook::query_has_paradedb_agg;
 use crate::postgres::customscan::joinscan::scan_state::{build_physical_plan, build_task_context};
-use crate::postgres::customscan::orderby::is_collation_pushdown_safe;
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{range_table, CreateUpperPathsHookArgs, CustomScan};
@@ -110,6 +112,91 @@ use std::ffi::CStr;
 
 #[derive(Default)]
 pub struct AggregateScan;
+
+/// Why AggregateScan cannot preserve PostgreSQL's grouping semantics.
+///
+/// These are planner-level eligibility failures: plain aggregates fall back to
+/// PostgreSQL, while `pdb.agg()` queries error at plan time with the reason.
+enum GroupingPushdownDeclineReason {
+    GroupingSets,
+    MissingPathKeys,
+    NondeterministicCollation,
+}
+
+impl GroupingPushdownDeclineReason {
+    fn detail(&self) -> &'static str {
+        match self {
+            Self::GroupingSets => "GROUPING SETS are not supported",
+            Self::MissingPathKeys => "could not verify GROUP BY semantics",
+            Self::NondeterministicCollation => "GROUP BY uses a nondeterministic collation",
+        }
+    }
+}
+
+/// Validates that AggregateScan can preserve PostgreSQL's GROUP BY semantics,
+/// returning the decline reason when it cannot.
+///
+/// PostgreSQL uses each grouping expression's collation to determine equality,
+/// while ParadeDB's aggregation backends group text by its underlying value.
+/// Deterministic collations break provider-level ties with a byte comparison,
+/// so they preserve byte-based grouping equality even when their ordering is
+/// not byte-compatible. Nondeterministic collations do not.
+unsafe fn validate_grouping_pushdown(
+    args: &CreateUpperPathsHookArgs,
+) -> Result<(), GroupingPushdownDeclineReason> {
+    let parse = args.root().parse;
+    if !parse.is_null() && !(*parse).groupingSets.is_null() {
+        return Err(GroupingPushdownDeclineReason::GroupingSets);
+    }
+
+    if args.root().group_pathkeys.is_null() {
+        // A scalar aggregate has no grouping keys. In contrast, a GROUP BY
+        // with no pathkey metadata gives us no way to verify the collation
+        // semantics that the aggregation backend must preserve.
+        return if !parse.is_null() && !(*parse).groupClause.is_null() {
+            Err(GroupingPushdownDeclineReason::MissingPathKeys)
+        } else {
+            Ok(())
+        };
+    }
+
+    for pathkey in PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys).iter_ptr() {
+        let equivalence_class = (*pathkey).pk_eclass;
+        if equivalence_class.is_null() {
+            return Err(GroupingPushdownDeclineReason::MissingPathKeys);
+        }
+
+        let collation = (*equivalence_class).ec_collation;
+        if assess_collation(collation, CollationOperation::Equality)
+            == CollationSafety::NondeterministicEquality
+        {
+            return Err(GroupingPushdownDeclineReason::NondeterministicCollation);
+        }
+    }
+
+    Ok(())
+}
+
+/// Returns whether ordering a single grouping key can be delegated to ParadeDB.
+///
+/// This is stricter than grouping equality: deterministic ICU collations are
+/// safe for grouping, but PostgreSQL must still perform their ordering.
+unsafe fn grouping_key_order_is_pushdown_safe(args: &CreateUpperPathsHookArgs) -> bool {
+    if args.root().group_pathkeys.is_null() {
+        return false;
+    }
+
+    PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys)
+        .iter_ptr()
+        .all(|pathkey| {
+            let equivalence_class = (*pathkey).pk_eclass;
+            !equivalence_class.is_null()
+                && collation_supports(
+                    (*equivalence_class).ec_collation,
+                    CollationOperation::Ordering,
+                )
+        })
+}
 
 /// A collection of index information that is necessary for making result-rewriting decisions
 pub struct AggIndexInfo {
@@ -182,6 +269,27 @@ impl AggregateDeclineReason {
     }
 }
 
+/// Resolve the table alias used in planner-warning messages emitted by a
+/// declined `DataFusion` aggregate path. Single-table cases report the actual
+/// relation alias; multi-table joins keep the generic "join" shorthand.
+unsafe fn resolve_decline_alias(args: &CreateUpperPathsHookArgs) -> String {
+    let input_rel = args.input_rel();
+    if input_rel.reloptkind != pg_sys::RelOptKind::RELOPT_BASEREL {
+        return "join".to_string();
+    }
+    let Some(rti) = range_table::bms_exactly_one_member(input_rel.relids) else {
+        return "join".to_string();
+    };
+    let Some(rte) = range_table::get_rte(
+        args.root().simple_rel_array_size as usize,
+        args.root().simple_rte_array,
+        rti,
+    ) else {
+        return "unknown".to_string();
+    };
+    rte_alias_or_unknown(rte)
+}
+
 impl CustomScan for AggregateScan {
     const NAME: &'static CStr = c"ParadeDB Aggregate Scan";
     type Args = CreateUpperPathsHookArgs;
@@ -221,6 +329,22 @@ impl CustomScan for AggregateScan {
             }
         };
 
+        if let Err(reason) = unsafe { validate_grouping_pushdown(builder.args()) } {
+            if has_paradedb_agg {
+                pgrx::error!("Cannot execute pdb.agg: {}", reason.detail());
+            } else if gucs::enable_aggregate_custom_scan() && gucs::check_aggregate_scan() {
+                Self::add_planner_warning(
+                    format!(
+                        "Aggregate Scan not used: {}. \
+                         To disable this warning: SET paradedb.check_aggregate_scan = false",
+                        reason.detail()
+                    ),
+                    unsafe { resolve_decline_alias(builder.args()) },
+                );
+            }
+            return Vec::new();
+        }
+
         let input_rel = builder.args().input_rel();
 
         match input_rel.reloptkind {
@@ -239,6 +363,7 @@ impl CustomScan for AggregateScan {
                     let exceeds_cap = builder.args().estimate_group_count() > max_buckets;
                     let bounded_on_tantivy = builder.args().is_single_grouping_column()
                         && builder.args().orders_by_grouping_key()
+                        && grouping_key_order_is_pushdown_safe(builder.args())
                         && builder
                             .args()
                             .limit_plus_offset()
@@ -2017,7 +2142,7 @@ unsafe fn detect_join_aggregate_topk(
 
         // If the collation for this pathkey isn't "safe" (C-like), then we can't pushdown as Tantivy uses byte ordering
         let collation = pg_sys::exprCollation(sort_expr);
-        if !is_collation_pushdown_safe(collation) {
+        if !collation_supports(collation, CollationOperation::Ordering) {
             return None;
         }
 

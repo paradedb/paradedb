@@ -35,8 +35,8 @@ use crate::api::{NullTestKind, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
 use crate::postgres::customscan::basescan::projections::score::is_score_func;
+use crate::postgres::customscan::collation_semantics::{collation_supports, CollationOperation};
 use crate::postgres::customscan::opexpr::lookup_operator;
-use crate::postgres::customscan::orderby::is_collation_pushdown_safe;
 use crate::postgres::customscan::pullup::{
     field_type_for_pullup, get_attno_by_name, resolve_fast_field,
 };
@@ -1499,7 +1499,7 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
         let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
         // If a collation isn't "safe" (C-like), then we can't pushdown as Tantivy uses byte ordering
         let collation = (*equivclass).ec_collation;
-        if !is_collation_pushdown_safe(collation) {
+        if !collation_supports(collation, CollationOperation::Ordering) {
             return false;
         }
 

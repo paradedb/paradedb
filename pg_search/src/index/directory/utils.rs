@@ -43,12 +43,11 @@ pub struct CentroidIndexEntry {
     pub file_entry: FileEntry,
 }
 
-/// `true` for tantivy's index-level centroid index file (`centroids`),
-/// which is index-level, not a `<segment-uuid>.<ext>` component.
+/// `true` for tantivy's index-level centroid index file
+/// ([`CENTROIDS_FILEPATH`](tantivy::vector::CENTROIDS_FILEPATH)), which is
+/// index-level, not a `<segment-uuid>.<ext>` component.
 pub fn is_centroid_index_path(path: &std::path::Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name == "centroids")
+    path.file_name() == tantivy::vector::CENTROIDS_FILEPATH.file_name()
 }
 
 /// Persist the centroid index registry, write-once (mirrors `save_schema`).

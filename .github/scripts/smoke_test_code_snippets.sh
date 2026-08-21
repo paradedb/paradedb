@@ -243,7 +243,7 @@ drizzle_fail_count=0
 if [[ $ORMS =~ "drizzle" ]]; then
   echo "Installing @paradedb/drizzle-paradedb from npm..."
   npm --prefix "$JAVASCRIPT_ENV_DIR" install --silent \
-    "@paradedb/drizzle-paradedb@0.4.0" \
+    "@paradedb/drizzle-paradedb@0.5.0" \
     "drizzle-orm" \
     "postgres" \
     "tsx"

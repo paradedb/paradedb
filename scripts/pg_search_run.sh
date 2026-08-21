@@ -8,7 +8,7 @@
 #
 # Usage:
 #   PGVER=<version> ./pg_search_run.sh [--release] [psql arguments]
-#   Example: PGVER=17.4 ./pg_search_run.sh --release psql -c "SELECT 1"
+#   Example: PGVER=18.6 ./pg_search_run.sh --release psql -c "SELECT 1"
 
 CURRENT_DIR=$(pwd)
 

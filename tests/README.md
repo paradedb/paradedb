@@ -31,7 +31,7 @@ set -x
 export DATABASE_URL=postgresql://$(whoami)@localhost:28818/pg_search
 export RUST_BACKTRACE=1
 cargo pgrx stop --package pg_search
-cargo pgrx install --package pg_search --pg-config ~/.pgrx/18.1/pgrx-install/bin/pg_config
+cargo pgrx install --package pg_search --pg-config ~/.pgrx/18.6/pgrx-install/bin/pg_config
 cargo pgrx start --package pg_search
 
 cargo test --package tests

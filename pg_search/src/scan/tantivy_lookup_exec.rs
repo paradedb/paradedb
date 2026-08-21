@@ -362,11 +362,11 @@ impl ExecutionPlan for TantivyLookupExec {
 
     fn apply_expressions(
         &self,
-        f: &mut dyn FnMut(
+        _f: &mut dyn FnMut(
             &Arc<dyn PhysicalExpr>,
         ) -> Result<datafusion::common::tree_node::TreeNodeRecursion>,
     ) -> Result<datafusion::common::tree_node::TreeNodeRecursion> {
-        self.input.apply_expressions(f)
+        Ok(datafusion::common::tree_node::TreeNodeRecursion::Continue)
     }
 
     fn with_new_children(

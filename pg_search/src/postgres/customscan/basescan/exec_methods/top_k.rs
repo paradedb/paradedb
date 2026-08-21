@@ -173,11 +173,31 @@ impl TopKScanExecState {
             (Some(parallel_state), None) => {
                 // Parallel, and we have not claimed our segments. Claim them, lazily, and then
                 // record that we have done so.
+                //
+                // A vector scan's DSM carries TWO sources — 0 = clustered,
+                // 1 = flat (see `parallel_scan_args`) — and each
+                // participant drains its preferred tier before falling
+                // back to the other's leftovers, so a lost worker costs
+                // parallelism, never results. Everything else claims from
+                // the single source 0.
+                let is_vector = self
+                    .orderby_info
+                    .as_ref()
+                    .and_then(|infos| infos.first())
+                    .is_some_and(|info| info.is_vector_distance());
+                let sources: Vec<usize> = if is_vector {
+                    let participant = unsafe { pg_sys::ParallelWorkerNumber } + 1;
+                    let preferred = participant as usize % 2;
+                    vec![preferred, 1 - preferred]
+                } else {
+                    vec![0]
+                };
                 let mut claimed_segments = Vec::new();
                 Box::new(std::iter::from_fn(move || {
                     check_for_interrupts!();
-                    let maybe_segment_id =
-                        unsafe { checkout_segment_for_source(parallel_state, 0) };
+                    let maybe_segment_id = sources.iter().find_map(|&source| unsafe {
+                        checkout_segment_for_source(parallel_state, source)
+                    });
                     let Some(segment_id) = maybe_segment_id else {
                         // No more segments: record that we successfully claimed all segments, and
                         // then conclude iteration.
@@ -422,8 +442,9 @@ impl ExecMethod for TopKScanExecState {
             if !segment_info.is_empty() {
                 state.accumulate_segment_info(segment_info);
             }
-            // The global vector probe loop reports one blob per query;
-            // vector scans are serial, so no DSM hop is needed.
+            // The global vector probe loop reports one blob per query per
+            // participant; EXPLAIN surfaces the leader's (its tier only in
+            // a parallel scan).
             if let Some(vector_search) = vector_search {
                 state.vector_search_info = Some(vector_search);
             }

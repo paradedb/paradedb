@@ -107,7 +107,7 @@ impl ParallelQueryCapable for BaseScan {
             BaseScan::init_search_reader(state);
         }
 
-        let args = state.custom_state().parallel_scan_args();
+        let args = state.custom_state_mut().parallel_scan_args();
         ParallelScanState::size_of(&args.all_nsegments(), &args.query, args.with_aggregates)
     }
 
@@ -115,7 +115,7 @@ impl ParallelQueryCapable for BaseScan {
         state: &mut CustomScanStateWrapper<Self>,
         coordinate: *mut c_void,
     ) {
-        let args = state.custom_state().parallel_scan_args();
+        let args = state.custom_state_mut().parallel_scan_args();
 
         unsafe {
             let pscan_state = coordinate.cast::<ParallelScanState>();

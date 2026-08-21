@@ -46,6 +46,7 @@
 
 use super::*;
 use serde::{Deserialize, Serialize};
+use std::num::NonZeroUsize;
 
 fn cpu_index_tuple_cost() -> f64 {
     unsafe { pg_sys::cpu_index_tuple_cost }
@@ -327,9 +328,13 @@ fn cost_test_limited(
 pub(super) struct ScanParallelismInputs<'a> {
     pub(super) prunability: TopKPrunability,
     /// `true` when the exec method's primary ORDER BY is a vector
-    /// distance: always serial (see
-    /// [`WorkerDecisionReason::GlobalVectorSearch`]).
+    /// distance (see [`WorkerDecisionReason::GlobalVectorSearch`]).
     pub(super) is_vector_orderby: bool,
+    /// `true` when the plan-time snapshot holds a flat (mutable-tier)
+    /// vector segment — the second tier that justifies the
+    /// two-participant vector path. Without it a vector scan stays
+    /// serial.
+    pub(super) vector_flat_tier_possible: bool,
     pub(super) query: &'a SearchQueryInput,
     /// The costable drive cost (see [`costable_drive_cost`]); `Some` marks the scan as costable and
     /// feeds both [`cost_test_limited`] and [`estimate_path_cost`].
@@ -360,6 +365,7 @@ pub(super) unsafe fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> W
     let ScanParallelismInputs {
         prunability,
         is_vector_orderby,
+        vector_flat_tier_possible,
         query,
         drive_cost,
         row_estimate,
@@ -375,11 +381,27 @@ pub(super) unsafe fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> W
         has_grouping,
     } = inputs;
 
-    // 0. Vector-distance ORDER BY -> serial only, unconditionally. The
-    //    cross-segment probe loop ranks the index-level centroid index once
-    //    and gathers each cluster across ALL segments into one heap;
-    //    per-worker segment partitions would undo exactly that.
+    // 0. Vector-distance ORDER BY. The cross-segment probe loop ranks the
+    //    index-level centroid index once and gathers each cluster across
+    //    its segments into one heap, so arbitrary per-worker segment
+    //    partitions would undo exactly that. The one split that does not
+    //    is by TIER: the flat (mutable) tier is searched exhaustively and
+    //    independently of the routed tier. When the plan-time snapshot
+    //    actually holds a flat segment, force exactly two participants —
+    //    one drains the clustered source, the other the flat source (each
+    //    falls back to the other's leftovers, so a lost worker costs
+    //    nothing but parallelism). Otherwise: serial. The cost model
+    //    cannot price the split (both paths cost the same to it), so this
+    //    is a hard gate on the tier actually existing, not a costed
+    //    choice.
     if is_vector_orderby {
+        if consider_parallel && vector_flat_tier_possible {
+            let nworkers = if parallel_leader_participates { 1 } else { 2 };
+            return WorkerPathPolicy::ParallelOnly {
+                nworkers: NonZeroUsize::new(nworkers).unwrap(),
+                reason: WorkerDecisionReason::GlobalVectorSearch,
+            };
+        }
         return WorkerPathPolicy::SerialOnly {
             reason: WorkerDecisionReason::GlobalVectorSearch,
         };

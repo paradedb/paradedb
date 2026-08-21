@@ -18,6 +18,7 @@
 use std::cell::UnsafeCell;
 use std::collections::BTreeMap;
 
+use crate::api::OrderByFeature;
 use crate::api::{FieldName, HashMap, OrderByInfo, Varno};
 use crate::customscan::CustomScanState;
 use crate::index::reader::index::SearchIndexReader;
@@ -45,9 +46,14 @@ use tantivy::snippet::SnippetGenerator;
 #[derive(Default)]
 pub struct BaseScanState {
     /// The global vector probe loop's instrumentation for this scan, one
-    /// JSON blob per query (vector scans are serial; no per-segment or
-    /// DSM breakdown exists). Surfaced in EXPLAIN as "Vector Search".
+    /// JSON blob per query per participant (a parallel scan's EXPLAIN
+    /// shows the leader's blob — its tier only). Surfaced in EXPLAIN as
+    /// "Vector Search".
     pub vector_search_info: Option<serde_json::Value>,
+    /// A parallel vector scan's snapshot partitioned into the two DSM
+    /// sources: (clustered, flat). Computed once by
+    /// [`Self::parallel_scan_args`]; `None` for every other scan shape.
+    vector_tier_segments: Option<(Vec<tantivy::SegmentReader>, Vec<tantivy::SegmentReader>)>,
 
     /// Process-local EXPLAIN metrics (query counts, per-segment JSON, …).
     pub telemetry: ScanTelemetry,
@@ -207,23 +213,63 @@ impl BaseScanState {
         serde_json::to_value(&self.base_search_query_input)
     }
 
-    pub fn parallel_scan_args(&self) -> ParallelScanArgs<'_> {
+    pub fn parallel_scan_args(&mut self) -> ParallelScanArgs<'_> {
         let query = serde_json::to_vec(self.search_query_input())
             .expect("should be able to serialize query");
 
-        let segment_readers = self
-            .search_reader
-            .as_ref()
-            .expect("search reader must be initialized to build parallel serialization data")
-            .segment_readers();
-
         let with_aggregates = !self.window_aggregates.is_empty();
 
+        // A vector scan registers TWO segment sources — clustered and
+        // flat — so the two participants can each drain a tier (with
+        // fallback to the other's leftovers; see `segments_to_query`).
+        self.vector_tier_segments = self.compute_vector_tier_segments();
+
+        let search_reader = self
+            .search_reader
+            .as_ref()
+            .expect("search reader must be initialized to build parallel serialization data");
+        let all_sources = match &self.vector_tier_segments {
+            Some((clustered, flat)) => vec![&clustered[..], &flat[..]],
+            None => vec![search_reader.segment_readers()],
+        };
+
         ParallelScanArgs {
-            all_sources: vec![segment_readers],
+            all_sources,
             query,
             with_aggregates,
         }
+    }
+
+    /// For a vector-distance TopK: the snapshot partitioned by tier —
+    /// `(clustered, flat)`, in the searcher's segment order. `None` for
+    /// non-vector scans (or if any segment's vector reader fails to open,
+    /// which falls back to the single-source layout).
+    fn compute_vector_tier_segments(
+        &self,
+    ) -> Option<(Vec<tantivy::SegmentReader>, Vec<tantivy::SegmentReader>)> {
+        let ExecMethodType::TopK {
+            orderby_info: Some(infos),
+            ..
+        } = &self.exec_method_type
+        else {
+            return None;
+        };
+        let OrderByFeature::VectorDistance { name, .. } = &infos.first()?.feature else {
+            return None;
+        };
+        let search_reader = self.search_reader.as_ref()?;
+        let field = search_reader.schema().search_field(name)?.field();
+        let mut clustered = Vec::new();
+        let mut flat = Vec::new();
+        for reader in search_reader.segment_readers() {
+            let vector_index = reader.vector_index(field).ok()?;
+            if vector_index.clusters().is_some() {
+                clustered.push(reader.clone());
+            } else {
+                flat.push(reader.clone());
+            }
+        }
+        Some((clustered, flat))
     }
 
     pub fn has_postgres_expressions(&mut self) -> bool {

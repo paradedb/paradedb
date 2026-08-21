@@ -1072,23 +1072,38 @@ impl SearchIndexReader {
                     tie_breaks.remove(i);
                 }
 
-                // Vector search is ONE global probe loop across every
-                // segment of the searcher's snapshot (the collector must
-                // be top-level — its `collect_global` fires inside
+                // Vector search is ONE global probe loop (the collector
+                // must be top-level — its `collect_global` fires inside
                 // `searcher.search`), so it cannot ride the per-segment
-                // wrappers: window aggregates are rejected at plan time,
-                // and the parallel path never claims vector scans.
+                // wrappers: window aggregates are rejected at plan time.
+                // Parallelism comes from segment SUBSETS instead: each
+                // participant claims a tier (see `segments_to_query`) and
+                // this run behaves exactly like a snapshot holding only
+                // the claimed segments; Gather Merge combines the
+                // participants on the real ORDER BY columns.
                 assert!(
                     aux_collector.is_none(),
                     "vector ORDER BY cannot run with an auxiliary aggregation collector; this \
                      combination is rejected at plan time"
                 );
                 let consumed: Vec<SegmentId> = segment_ids.collect();
-                assert_eq!(
-                    consumed.len(),
-                    self.searcher.segment_readers().len(),
-                    "vector ORDER BY must run serially over the full segment snapshot"
-                );
+                let readers = self.searcher.segment_readers();
+                let collector = if consumed.len() < readers.len() {
+                    let ordinals: Vec<tantivy::SegmentOrdinal> = readers
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, reader)| consumed.contains(&reader.segment_id()))
+                        .map(|(ordinal, _)| ordinal as tantivy::SegmentOrdinal)
+                        .collect();
+                    assert_eq!(
+                        ordinals.len(),
+                        consumed.len(),
+                        "claimed segments must exist in the searcher's snapshot"
+                    );
+                    collector.for_segments(ordinals)
+                } else {
+                    collector
+                };
                 // Fruit is `VectorSimilarityFruit` — hits plus ONE global
                 // ProbeStats — for every tie-break shape.
                 let tie_break_count = tie_breaks.len();

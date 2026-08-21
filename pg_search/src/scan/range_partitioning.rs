@@ -188,7 +188,9 @@ impl RangePartitioningSample {
     /// is capped at `sample_points.len() + 1`.
     pub fn build(&self, target_partitions: usize) -> RangePartitioning {
         debug_assert!(
-            self.sample_points.windows(2).all(|w| w[0] <= w[1]),
+            self.sample_points
+                .windows(2)
+                .all(|w| w[0].total_cmp(&w[1]) != std::cmp::Ordering::Greater),
             "RangePartitioningSample requires sample_points to be sorted ascending"
         );
 

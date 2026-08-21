@@ -93,8 +93,8 @@ Located in the `stressgres/` directory.
 
 Two scripts in `scripts/` wrap the install-and-start dance for a throwaway instance, for when you want a psql prompt or a test run against a freshly built extension:
 
-- `PGVER=18.0 ./scripts/pg_search_run.sh [--release] [psql arguments]` installs the extension, starts Postgres, creates a database, and connects to it.
-- `PGVER=18.0 ./scripts/pg_search_test.sh [--release] [--test test_name]` does the same, then runs the integration tests against it.
+- `PGVER=18.6 ./scripts/pg_search_run.sh [--release] [psql arguments]` installs the extension, starts Postgres, creates a database, and connects to it.
+- `PGVER=18.6 ./scripts/pg_search_test.sh [--release] [--test test_name]` does the same, then runs the integration tests against it.
 
 ## Legal Info
 

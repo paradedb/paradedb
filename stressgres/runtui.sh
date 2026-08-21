@@ -2,7 +2,7 @@
 
 set -Eeuo pipefail
 
-PGVER=18.1
+PGVER=18.6
 EXTENSION=pg_search
 MANIFEST=~/_work/$1/Cargo.toml
 MANIFESTDIR=$(dirname "${MANIFEST}")

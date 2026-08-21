@@ -8,7 +8,7 @@
 #
 # Usage:
 #   PGVER=<version> ./pg_search_test.sh [--release] [--test test_name]
-#   Example: PGVER=17.4 ./pg_search_test.sh --release --test sorting
+#   Example: PGVER=18.6 ./pg_search_test.sh --release --test sorting
 
 set -Eeuo pipefail
 

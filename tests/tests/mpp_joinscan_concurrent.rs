@@ -56,12 +56,14 @@ CREATE TABLE mppc_test_multi (
 );
 
 CREATE INDEX mppc_test_idx ON mppc_test USING paradedb (id, message, category_id)
-WITH (key_field = 'id', numeric_fields = '{"category_id": {"fast": true}}');
+WITH (key_field = 'id');
 CREATE INDEX mppc_test_multi_idx ON mppc_test_multi USING paradedb (id, message, category_id)
-WITH (key_field = 'id', numeric_fields = '{"category_id": {"fast": true}}');
-CREATE INDEX mppc_categories_idx ON mppc_categories USING paradedb (id, name)
-WITH (key_field = 'id', text_fields = '{"name": {"fast": true, "tokenizer": {"type": "raw"}}}',
-      layer_sizes = '0', background_layer_sizes = '0');
+WITH (key_field = 'id');
+-- Zeroed layer sizes keep the merge policy off both paths, so the build side holds its two
+-- immutable segments and its mutable one for the whole run. A merge would swap the segment set
+-- under the readers and hide what this test measures.
+CREATE INDEX mppc_categories_idx ON mppc_categories USING paradedb (id, (name::pdb.literal))
+WITH (key_field = 'id', layer_sizes = '0', background_layer_sizes = '0');
 
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO mppc_categories (id, name)
@@ -108,8 +110,10 @@ SET parallel_setup_cost TO 0;
 SET parallel_tuple_cost TO 0;
 "#;
 
+// `t.category_id` rides along so each row can prove which category it joined to. A resolver
+// that lands on the wrong address still returns a well-formed name, so only the id catches it.
 const LEADER_QUERY: &str = r#"
-SELECT t.id, c.name
+SELECT t.id, t.category_id, c.name
 FROM mppc_test t
 JOIN mppc_categories c ON t.category_id = c.id
 WHERE t.message @@@ 'beer'
@@ -118,7 +122,7 @@ LIMIT 25
 "#;
 
 const WORKER_QUERY: &str = r#"
-SELECT t.id, c.name
+SELECT t.id, t.category_id, c.name
 FROM mppc_test_multi t
 JOIN mppc_categories c ON t.category_id = c.id
 WHERE t.message @@@ 'beer'
@@ -253,7 +257,7 @@ async fn mpp_joinscan_survives_mutable_build_side_churn(database: Db) -> Result<
                     queries.fetch_add(1, Ordering::Relaxed);
                     continue;
                 }
-                let rows: Result<Vec<(i64, String)>, _> =
+                let rows: Result<Vec<(i64, i32, String)>, _> =
                     sqlx::query_as(query).fetch_all(&mut conn).await;
                 match rows {
                     Err(e) => failures
@@ -261,18 +265,23 @@ async fn mpp_joinscan_survives_mutable_build_side_churn(database: Db) -> Result<
                         .unwrap()
                         .push(format!("reader {reader_id}: query failed: {e}")),
                     Ok(rows) => {
-                        let ids: Vec<i64> = rows.iter().map(|(id, _)| *id).collect();
+                        let ids: Vec<i64> = rows.iter().map(|(id, _, _)| *id).collect();
                         if &ids != expected {
                             failures.lock().unwrap().push(format!(
                                 "reader {reader_id}: ids {ids:?} != expected {expected:?}"
                             ));
                         }
-                        if let Some((id, name)) =
-                            rows.iter().find(|(_, name)| !name.starts_with("category "))
-                        {
-                            failures.lock().unwrap().push(format!(
-                                "reader {reader_id}: row {id} joined a bad category name {name:?}"
-                            ));
+                        // The writer only appends a ` v<n>` suffix, so the id prefix stays.
+                        for (id, category_id, name) in &rows {
+                            let expected_name = format!("category {category_id}");
+                            if *name != expected_name
+                                && !name.starts_with(&format!("{expected_name} v"))
+                            {
+                                failures.lock().unwrap().push(format!(
+                                    "reader {reader_id}: row {id} wanted category \
+                                     {category_id} but joined {name:?}"
+                                ));
+                            }
                         }
                     }
                 }

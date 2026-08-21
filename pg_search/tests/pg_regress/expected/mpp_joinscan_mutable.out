@@ -26,16 +26,10 @@ CREATE TABLE mpp_mut_test (
 );
 CREATE INDEX mpp_mut_test_idx ON mpp_mut_test
 USING paradedb (id, message, category_id)
-WITH (
-    key_field = 'id',
-    numeric_fields = '{"category_id": {"fast": true}}'
-);
+WITH (key_field = 'id');
 CREATE INDEX mpp_mut_categories_idx ON mpp_mut_categories
-USING paradedb (id, name)
-WITH (
-    key_field = 'id',
-    text_fields = '{"name": {"fast": true, "tokenizer": {"type": "raw"}}}'
-);
+USING paradedb (id, (name::pdb.literal))
+WITH (key_field = 'id');
 -- Several immutable segments on the probe side so the join runs on
 -- multiple MPP tasks; the categories stay in a mutable segment (default
 -- `mutable_segment_rows`) and get updated in place, which appends to
@@ -224,10 +218,7 @@ CREATE TABLE mpp_mut_test_small (
 );
 CREATE INDEX mpp_mut_test_small_idx ON mpp_mut_test_small
 USING paradedb (id, message, category_id)
-WITH (
-    key_field = 'id',
-    numeric_fields = '{"category_id": {"fast": true}}'
-);
+WITH (key_field = 'id');
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO mpp_mut_test_small (message, category_id)
 SELECT message, category_id FROM mpp_mut_test ORDER BY id;

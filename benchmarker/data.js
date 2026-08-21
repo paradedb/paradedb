@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787326544191,
+  "lastUpdate": 1787340587336,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -380,6 +380,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.672,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1173b5fa60ad3d8beeb01d6d485e4da1d956d617",
+          "message": "ci(benchmarks): add pgvectorscale (diskann) as a cohere index variant (#5745)\n\nReauthors #5588 against the sweep-based CI that replaced its fixed\n`[params]`. Adds pgvectorscale StreamingDiskANN as a fifth cohere arm,\nrun via the `benchmark-cohere-pgvectorscale` label or the\n`pgvectorscale` dispatch choice.\n\nEach arm sweeps whichever GUC actually binds it, and every ladder ends\nat that GUC's hard maximum — verified against the extension's GUC\nregistration in 0.9.0 (`query_rescore` max 1000,\n`query_search_list_size` max 10000; #5588 stopped search_list_size at\n4000):\n\n| arm | swept GUC | ladder |\n|---|---|---|\n| unfiltered | `diskann.query_rescore` | 50 → 1000 |\n| 10pct | `diskann.query_search_list_size` | 200 → 10000 |\n| 1pct | `diskann.query_search_list_size` | 500 → 10000 |\n\n**The filtered arms cannot reach 90% on the default SBQ build.**\nFiltering is post-filter streaming, so only the ~10%/1% of the beam\npassing the predicate survives, and at most 1000 candidates are ever\nexact-rescored — with rescore pinned at that maximum, beam width is the\nonly lever left. Ending the ladders at the ceiling lets the sweep's\nexisting unreachable-target fallback report the best achievable point\n(flagged ⚠️) rather than a fabricated one. Uncompressed `storage_layout\n= plain` would lift them but is far too slow to build in CI. This arm is\ndeliberately **not** iso-recall with the others; that is the property\nbeing surfaced.\n\nSupersedes #5588.",
+          "timestamp": "2026-08-21T12:05:37-07:00",
+          "tree_id": "31d1103b88b59d2e32d3804dcec27c056bb087e6",
+          "url": "https://github.com/paradedb/paradedb/commit/1173b5fa60ad3d8beeb01d6d485e4da1d956d617"
+        },
+        "date": 1787340584343,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.8296011948755917,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.708,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.192,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.327,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.568,
             "unit": "ms"
           }
         ]

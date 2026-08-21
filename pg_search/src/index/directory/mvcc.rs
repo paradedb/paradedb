@@ -520,7 +520,6 @@ impl Directory for MVCCDirectory {
                     ))
                 })?;
             let entries = [super::utils::CentroidSetEntry {
-                version: set.version,
                 filename: set.filename.clone(),
                 file_entry,
             }];

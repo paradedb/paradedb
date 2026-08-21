@@ -33,7 +33,7 @@ use std::ffi::CStr;
 use std::sync::Arc;
 use tantivy::Index;
 use tantivy::schema::Schema;
-use tantivy::vector::CentroidIndex;
+use tantivy::vector::CentroidProducer;
 use tantivy::vector::VectorOptions;
 use tokenizers::SearchTokenizer;
 
@@ -149,7 +149,7 @@ unsafe fn train_vector_centroids(
     index_relation: &PgSearchRelation,
     index_info: *mut pg_sys::IndexInfo,
     specs: Vec<crate::vector::clusterer::SampledFieldSpec>,
-) -> Result<Arc<dyn CentroidIndex>> {
+) -> Result<Arc<dyn CentroidProducer>> {
     let mut sampler = VectorSampler::from_specs(specs, index_relation.options());
 
     unsafe extern "C-unwind" fn sample_callback(
@@ -454,7 +454,7 @@ fn create_index(
     let directory = MvccSatisfies::Snapshot.directory(index_relation);
 
     let settings = index_settings(options, &schema);
-    let centroid_index: Option<Arc<dyn CentroidIndex>> = if vector_fields.is_empty() {
+    let centroid_producer: Option<Arc<dyn CentroidProducer>> = if vector_fields.is_empty() {
         None
     } else {
         let Some((heap_relation, index_info)) = heap_scan else {
@@ -468,8 +468,8 @@ fn create_index(
         })
     };
     let mut index_builder = Index::builder().schema(schema).settings(settings);
-    if let Some(centroid_index) = centroid_index {
-        index_builder = index_builder.centroid_index(centroid_index);
+    if let Some(centroid_producer) = centroid_producer {
+        index_builder = index_builder.centroid_producer(centroid_producer);
     }
     let _ = index_builder.create(directory)?;
     Ok(())

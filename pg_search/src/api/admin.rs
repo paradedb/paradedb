@@ -405,7 +405,6 @@ fn vector_info(
         (
             name!(segno, String),
             name!(vector_field, String),
-            name!(vector_centroid_set_version, AnyNumeric),
             name!(vector_num_vectors, AnyNumeric),
             name!(vector_num_centroids, AnyNumeric),
             name!(vector_min_cluster_size, AnyNumeric),
@@ -462,7 +461,6 @@ fn vector_info(
             rows.push((
                 segment_reader.segment_id().short_uuid_string(),
                 field.clone(),
-                info.centroid_set_version.into(),
                 info.num_vectors.into(),
                 info.num_centroids.into(),
                 cluster_stats.min_cluster_size.into(),

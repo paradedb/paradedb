@@ -34,20 +34,15 @@ use pgrx::{FromDatum, pg_sys};
 use superkmeans::{HierarchicalSuperKMeans, HierarchicalSuperKMeansConfig};
 use tantivy::TantivyError;
 use tantivy::schema::Field;
-use tantivy::vector::{CentroidIndex, IvfCentroids, IvfMatrix, Metric, VectorOptions};
+use tantivy::vector::{CentroidProducer, IvfCentroids, IvfMatrix, Metric, VectorOptions};
 
 /// Floor on reservoir capacity, so a tiny table still trains on whatever
 /// it has rather than on a couple of rows.
 const MIN_RESERVOIR_ROWS: usize = 1024;
 
-/// The version stamped on the (only) centroid set an index ever gets.
-/// Re-publishing — background reclustering under a bumped version — does
-/// not exist yet; a REINDEX retrains from scratch, still at this version.
-pub const INITIAL_CENTROID_SET_VERSION: u64 = 1;
-
 /// The frozen training result for every vector field of the schema,
 /// pulled by tantivy exactly once at index creation.
-pub struct TrainedCentroidIndex {
+pub struct TrainedCentroidProducer {
     fields: HashMap<Field, TrainedField>,
 }
 
@@ -57,11 +52,7 @@ struct TrainedField {
     dim: usize,
 }
 
-impl CentroidIndex for TrainedCentroidIndex {
-    fn version(&self) -> u64 {
-        INITIAL_CENTROID_SET_VERSION
-    }
-
+impl CentroidProducer for TrainedCentroidProducer {
     fn centroids(&self, field: Field, options: &VectorOptions) -> tantivy::Result<IvfCentroids> {
         let Some(trained) = self.fields.get(&field) else {
             return Err(TantivyError::InternalError(format!(
@@ -225,7 +216,7 @@ impl VectorSampler {
     /// Train each field's centroids over its reservoir. `centroid_ratio`
     /// and the target centroid count are resolved against the TRUE row
     /// count (`seen`), not the reservoir size.
-    pub fn train(self, options: &BM25IndexOptions) -> Result<TrainedCentroidIndex> {
+    pub fn train(self, options: &BM25IndexOptions) -> Result<TrainedCentroidProducer> {
         let centroid_ratio = options.centroid_ratio();
         let mut fields = HashMap::default();
         for sampled in self.fields {
@@ -293,6 +284,6 @@ impl VectorSampler {
                 },
             );
         }
-        Ok(TrainedCentroidIndex { fields })
+        Ok(TrainedCentroidProducer { fields })
     }
 }

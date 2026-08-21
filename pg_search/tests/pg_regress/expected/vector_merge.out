@@ -50,11 +50,11 @@ CREATE INDEX remerge_idx ON remerge
 INSERT INTO remerge
 SELECT g, ('[' || repeat((g % 89)::text || ',', 15) || (g % 89)::text || ']')::vector
 FROM generate_series(1, 15000) g;
--- Every segment is clustered against centroid set v1...
-SELECT bool_and(vector_centroid_set_version = 1) AS all_v1
+-- Every segment is clustered against the index-level set...
+SELECT bool_and(vector_num_centroids > 0) AS all_clustered
 FROM paradedb.vector_info('remerge_idx', 'vec');
- all_v1 
---------
+ all_clustered 
+---------------
  t
 (1 row)
 
@@ -85,10 +85,10 @@ ALTER INDEX remerge_idx SET (layer_sizes = '3500kb');
 INSERT INTO remerge
 SELECT g, ('[' || repeat((g % 89)::text || ',', 15) || (g % 89)::text || ']')::vector
 FROM generate_series(15001, 50000) g;
-SELECT bool_and(vector_centroid_set_version = 1) AS still_all_v1
+SELECT bool_and(vector_num_centroids > 0) AS still_all_clustered
 FROM paradedb.vector_info('remerge_idx', 'vec');
- still_all_v1 
---------------
+ still_all_clustered 
+---------------------
  t
 (1 row)
 

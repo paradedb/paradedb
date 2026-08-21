@@ -1,9 +1,9 @@
--- Vector indexes moved to tantivy's index-level centroid set format: every
--- segment is clustered (the flat layout is gone), so vector_info's
--- vector_format column is replaced by vector_centroid_set_version — the
--- set version the segment assigned against — and the cluster columns are
--- no longer nullable. The CREATE below is the SchemaBot/pgrx canonical
--- text verbatim; the DROP keeps the script re-runnable.
+-- Vector indexes moved to tantivy's index-level centroid set format:
+-- flushed segments cluster against the one index-level set and mutable
+-- segments store flat (vector_num_centroids = 0), so vector_info's
+-- vector_format column is dropped and the cluster columns are no longer
+-- nullable. The CREATE below is the SchemaBot/pgrx canonical text
+-- verbatim; the DROP keeps the script re-runnable.
 DROP FUNCTION IF EXISTS vector_info(regclass, text);
 CREATE  FUNCTION "vector_info"(
 	"index" regclass, /* PgRelation */
@@ -11,7 +11,6 @@ CREATE  FUNCTION "vector_info"(
 ) RETURNS TABLE (
 	"segno" TEXT,  /* String */
 	"vector_field" TEXT,  /* String */
-	"vector_centroid_set_version" NUMERIC,  /* AnyNumeric */
 	"vector_num_vectors" NUMERIC,  /* AnyNumeric */
 	"vector_num_centroids" NUMERIC,  /* AnyNumeric */
 	"vector_min_cluster_size" NUMERIC,  /* AnyNumeric */

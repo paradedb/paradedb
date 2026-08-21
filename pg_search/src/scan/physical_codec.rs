@@ -43,13 +43,14 @@ use crate::api::{HashMap, HashSet};
 use crate::index::fast_fields_helper::FFHelper;
 use crate::postgres::customscan::datafusion::numeric_agg;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
-use crate::postgres::customscan::pg_expr_udf::{PgExprUdf, PG_EXPR_UDF_PREFIX};
 use crate::postgres::ParallelScanState;
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
-use crate::scan::search_predicate_udf::SearchPredicateUDF;
 use crate::scan::segmented_topk_exec::SegmentedTopKExec;
 use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
+use crate::scan::udf_codec::{
+    is_pg_search_udf, try_decode_pg_search_udf, try_encode_pg_search_udf,
+};
 
 /// Byte tags identifying each custom exec in the extension payload. The composed codec already
 /// records which codec decoded a node; the tag picks the exec within this codec.
@@ -66,8 +67,7 @@ pub struct PgSearchPhysicalExtensionCodec {
     /// Worker's `ParallelScanState`, used to resolve the scan's MVCC segment set and to claim
     /// segments at runtime.
     parallel_state: Option<*mut ParallelScanState>,
-    /// Canonical segment ID sets for all join sources, indexed by `plan_position`. Injected into
-    /// `SearchPredicateUDF` on decode, same as the logical codec.
+    /// Canonical segment ID sets for all join sources, indexed by `plan_position`.
     index_segment_ids: Vec<HashSet<SegmentId>>,
     /// The `ExprContext` workers use to evaluate heap filters.
     expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
@@ -180,70 +180,15 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
     }
 
     fn try_decode_udf(&self, name: &str, buf: &[u8]) -> Result<Arc<ScalarUDF>> {
-        if name == "pdb_search_predicate" {
-            let mut udf: SearchPredicateUDF = serde_json::from_slice(buf).map_err(|e| {
-                DataFusionError::Internal(format!("Failed to deserialize SearchPredicateUDF: {e}"))
-            })?;
-            if let Some(plan_position) = udf.plan_position() {
-                if !self.index_segment_ids.is_empty() {
-                    let ids = self
-                        .index_segment_ids
-                        .get(plan_position)
-                        .cloned()
-                        .ok_or_else(|| {
-                            DataFusionError::Internal(format!(
-                                "missing canonical segment IDs for plan_position {plan_position}"
-                            ))
-                        })?;
-                    udf.set_canonical_segment_ids(ids);
-                }
-            }
-            return Ok(Arc::new(ScalarUDF::new_from_impl(udf)));
-        }
-
-        if name.starts_with(PG_EXPR_UDF_PREFIX) {
-            let mut udf: PgExprUdf = serde_json::from_slice(buf).map_err(|e| {
-                DataFusionError::Internal(format!("Failed to deserialize PgExprUdf: {e}"))
-            })?;
-            udf.fixup_after_deserialize();
-            return Ok(Arc::new(ScalarUDF::new_from_impl(udf)));
-        }
-
-        Err(DataFusionError::NotImplemented(format!(
-            "UDF '{name}' deserialization not implemented"
-        )))
+        try_decode_pg_search_udf(name, buf)?.ok_or_else(|| {
+            DataFusionError::NotImplemented(format!("UDF '{name}' deserialization not implemented"))
+        })
     }
 
     fn try_encode_udf(&self, node: &ScalarUDF, buf: &mut Vec<u8>) -> Result<()> {
-        let name = node.name();
-        if name == "pdb_search_predicate" {
-            let udf = node
-                .inner()
-                .downcast_ref::<SearchPredicateUDF>()
-                .ok_or_else(|| {
-                    DataFusionError::Internal("UDF is not a SearchPredicateUDF".into())
-                })?;
-            let bytes = serde_json::to_vec(udf).map_err(|e| {
-                DataFusionError::Internal(format!("Failed to serialize SearchPredicateUDF: {e}"))
-            })?;
-            buf.extend_from_slice(&bytes);
-            return Ok(());
-        }
-
-        if name.starts_with(PG_EXPR_UDF_PREFIX) {
-            let udf = node
-                .inner()
-                .downcast_ref::<PgExprUdf>()
-                .ok_or_else(|| DataFusionError::Internal("UDF is not a PgExprUdf".into()))?;
-            let bytes = serde_json::to_vec(udf).map_err(|e| {
-                DataFusionError::Internal(format!("Failed to serialize PgExprUdf: {e}"))
-            })?;
-            buf.extend_from_slice(&bytes);
-            return Ok(());
-        }
-
         // Not ours: encode nothing so the expression travels by name and the decoding session
         // resolves it from its registry (DataFusion built-ins are registered there).
+        try_encode_pg_search_udf(node, buf)?;
         Ok(())
     }
 
@@ -339,7 +284,7 @@ fn collect_ffhelpers_by_indexrelid(input: &Arc<dyn ExecutionPlan>) -> HashMap<u3
 /// The composed codec takes the first `Ok` per call, and the trait's default `try_encode_udf`
 /// returns `Ok` writing nothing, so a bare `DistributedCodec` at position 0 would shadow the
 /// pg_search UDF serialization: no `fun_definition` would ever travel, and a dispatched stage
-/// retaining a `pdb_search_predicate` / `pg_expr_*` expression would fail decode on the worker
+/// retaining a `pg_expr_*` expression would fail decode on the worker
 /// (their registry has no such functions). Position 0 still matters for everything else:
 /// `prost` skips default values, so only position 0 with an empty blob encodes to zero bytes,
 /// which is what keeps registry-resolved built-ins travelling by name. So this wrapper accepts
@@ -347,10 +292,6 @@ fn collect_ffhelpers_by_indexrelid(input: &Arc<dyn ExecutionPlan>) -> HashMap<u3
 /// to [`PgSearchPhysicalExtensionCodec`], which ships the real definition.
 #[derive(Debug)]
 struct DistributedCodecHostingPgSearchUdfs(DistributedCodec);
-
-fn is_pg_search_udf(name: &str) -> bool {
-    name == "pdb_search_predicate" || name.starts_with(PG_EXPR_UDF_PREFIX)
-}
 
 impl PhysicalExtensionCodec for DistributedCodecHostingPgSearchUdfs {
     fn try_decode(

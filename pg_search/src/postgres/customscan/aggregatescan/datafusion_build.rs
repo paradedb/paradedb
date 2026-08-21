@@ -271,6 +271,10 @@ pub unsafe fn extract_join_tree_from_parse(
             &mut multi_table_clauses,
         )?;
     }
+    crate::postgres::customscan::joinscan::build::assign_tagged_queries(
+        plan.sources_mut(),
+        &join_level_predicates,
+    );
 
     Ok((
         plan,

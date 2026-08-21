@@ -24,31 +24,25 @@ use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
-use crate::scan::search_predicate_udf::SearchPredicateUDF;
 use crate::schema::SearchFieldType;
 use datafusion::common::ScalarValue;
 use datafusion::logical_expr::{BinaryExpr, Expr, Operator};
-use pgrx::pg_sys;
 use std::collections::Bound;
 
 /// Analyzes DataFusion filters and converts supported ones to SearchQueryInput.
 ///
-/// This handles:
-/// - SearchPredicateUDF: Created by JoinScan for @@@ predicates at the join level.
-///   These MUST always be pushed down because they cannot be evaluated elsewhere.
-/// - Regular SQL predicates: Equality, range, IN list on indexed columns
+/// This handles regular SQL predicates: Equality, range, IN list on indexed columns.
 ///
 /// Note: baserestrictinfo predicates (single-table predicates) are handled separately
 /// via scan_info.query. The filters passed here are join-level predicates that
 /// couldn't be applied at the base relation level.
 pub struct FilterAnalyzer<'a> {
     fields: &'a [WhichFastField],
-    index_oid: pg_sys::Oid,
 }
 
 impl<'a> FilterAnalyzer<'a> {
-    pub fn new(fields: &'a [WhichFastField], index_oid: pg_sys::Oid) -> Self {
-        Self { fields, index_oid }
+    pub fn new(fields: &'a [WhichFastField]) -> Self {
+        Self { fields }
     }
 
     /// Check if a filter can be pushed down.
@@ -63,22 +57,6 @@ impl<'a> FilterAnalyzer<'a> {
     }
 
     fn try_analyze(&self, expr: &Expr) -> Option<SearchQueryInput> {
-        // SearchPredicateUDF contains the Tantivy query for @@@ predicates at the join level.
-        // When pushed down here, the query is folded into the Tantivy scan (preferred path).
-        //
-        // For cross-table ORs (e.g., `p @@@ 'x' OR s @@@ 'y'`), both paths are active:
-        // DataFusion pushes the per-table arms down to individual scans (reducing rows
-        // entering the join), while the full cross-table expression also remains as a
-        // HashJoinExec filter where invoke_with_args / execute_search evaluates it.
-        if let Some(search_udf) = SearchPredicateUDF::try_from_expr(expr) {
-            // Only process if it matches our index
-            if search_udf.index_oid == self.index_oid {
-                return Some(search_udf.query());
-            }
-            // Different index - not our responsibility
-            return None;
-        }
-
         match expr {
             Expr::BinaryExpr(BinaryExpr { left, right, op }) => match op {
                 Operator::And => self.translate_and(left, right),

@@ -107,7 +107,7 @@ macro_rules! define_condition_assert {
         #[macro_export]
         macro_rules! $name {
             ($d condition:expr, $d message:literal, $d details:expr) => {
-                ::core::debug_assert!($d condition, "{}: {:?}", $d message, $d details)
+                ::core::debug_assert!($d condition, "{}: {}", $d message, $d details)
             };
             ($d condition:expr, $d message:literal) => {
                 ::core::debug_assert!($d condition, "{}", $d message)
@@ -164,7 +164,7 @@ macro_rules! define_message_assert {
         #[macro_export]
         macro_rules! $name {
             ($d message:literal, $d details:expr) => {
-                ::core::debug_assert!(false, "{}: {:?}", $d message, $d details)
+                ::core::debug_assert!(false, "{}: {}", $d message, $d details)
             };
             ($d message:literal) => {
                 ::core::debug_assert!(false, "{}", $d message)
@@ -353,10 +353,26 @@ mod tests {
 
     #[cfg(all(not(feature = "enabled"), debug_assertions))]
     #[test]
-    #[should_panic(expected = "reached an impossible state")]
-    fn reached_unreachable_panics_in_debug() {
+    #[should_panic(expected = "always-false correctness assert: {\"key\":\"value\"}")]
+    fn failing_assert_always_with_details_panics_in_debug() {
         crate::observe!(|| {
-            assert_unreachable!("reached an impossible state");
+            assert_always!(
+                false,
+                "always-false correctness assert",
+                &::serde_json::json!({ "key": "value" })
+            );
+        });
+    }
+
+    #[cfg(all(not(feature = "enabled"), debug_assertions))]
+    #[test]
+    #[should_panic(expected = "reached an impossible state: {\"key\":\"value\"}")]
+    fn reached_unreachable_with_details_panics_in_debug() {
+        crate::observe!(|| {
+            assert_unreachable!(
+                "reached an impossible state",
+                &::serde_json::json!({ "key": "value" })
+            );
         });
     }
 }

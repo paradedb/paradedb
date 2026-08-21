@@ -98,6 +98,7 @@ mod tests {
                 heap_relid: heap_oid.into(),
                 batch_size_hint: None,
                 score_needed: false,
+                scan_mode: crate::scan::ScanMode::all(),
             },
             ffhelper: ffhelper.into(),
             visibility: Box::new(visibility),
@@ -236,7 +237,7 @@ mod tests {
         use filter_analyzer_helpers::{assert_exact, assert_unsupported};
 
         let fields = test_fields();
-        let analyzer = FilterAnalyzer::new(&fields, pgrx::pg_sys::InvalidOid);
+        let analyzer = FilterAnalyzer::new(&fields);
 
         // Equality
         assert_exact(&analyzer, &col("id").eq(lit(1i64)), "id = 1");
@@ -314,13 +315,7 @@ mod tests {
             index_oid: pg_sys::Oid,
             fields: Vec<WhichFastField>,
         ) -> Arc<PgSearchTableProvider> {
-            let mut scan_info = ScanInfo {
-                heap_rti: 1,
-                heaprelid: heap_oid,
-                indexrelid: index_oid,
-                query: crate::query::SearchQueryInput::All,
-                ..Default::default()
-            };
+            let mut scan_info = ScanInfo::new(1, heap_oid, index_oid, crate::scan::ScanMode::all());
 
             for (i, field) in fields.iter().enumerate() {
                 scan_info.add_field(i as pg_sys::AttrNumber, field.clone());
@@ -676,6 +671,7 @@ mod tests {
                 heap_relid: heap_oid.into(),
                 batch_size_hint: None,
                 score_needed: false,
+                scan_mode: crate::scan::ScanMode::all(),
             },
             ffhelper: ffhelper.into(),
             visibility: Box::new(visibility),
@@ -881,6 +877,7 @@ mod tests {
                 heap_relid: heap_oid.into(),
                 batch_size_hint: None,
                 score_needed: false,
+                scan_mode: crate::scan::ScanMode::all(),
             },
             ffhelper: ffhelper.into(),
             visibility: Box::new(visibility),

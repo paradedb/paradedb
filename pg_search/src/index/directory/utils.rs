@@ -516,9 +516,7 @@ pub unsafe fn load_metas(
         .map_err(|e| tantivy::TantivyError::InternalError(e.to_string()))?
         .into_iter()
         .next()
-        .map(|entry| tantivy::index::CentroidIndexMeta {
-            filename: entry.filename,
-        });
+        .map(|entry| entry.filename);
 
     Ok(LoadedMetas {
         entries: alive_entries,

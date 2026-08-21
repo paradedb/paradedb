@@ -509,18 +509,14 @@ impl Directory for MVCCDirectory {
             .centroid_index_bytes()
             .map(|bytes| !bytes.is_empty())
             .unwrap_or(false);
-        if let Some(set) = meta.centroid_index.as_ref().filter(|_| !registry_saved) {
-            let file_entry = payload
-                .get(Path::new(&set.filename))
-                .copied()
-                .ok_or_else(|| {
-                    tantivy::TantivyError::InternalError(format!(
-                        "centroid index file {} was not written through this directory",
-                        set.filename
-                    ))
-                })?;
+        if let Some(filename) = meta.centroid_index.as_ref().filter(|_| !registry_saved) {
+            let file_entry = payload.get(Path::new(filename)).copied().ok_or_else(|| {
+                tantivy::TantivyError::InternalError(format!(
+                    "centroid index file {filename} was not written through this directory"
+                ))
+            })?;
             let entries = [super::utils::CentroidIndexEntry {
-                filename: set.filename.clone(),
+                filename: filename.clone(),
                 file_entry,
             }];
             save_centroid_index(&self.indexrel, &entries)

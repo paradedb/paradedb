@@ -486,8 +486,8 @@ WHERE p.description @@@ 'laptop'
 GROUP BY p.metadata->>'brand', p.metadata->'brand'
 ORDER BY brand_text;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p, r, s)
-                                                                                            QUERY PLAN                                                                                             
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: ((p.metadata ->> 'brand'::text)), ((p.metadata -> 'brand'::text))
    Sort Key: ((p.metadata ->> 'brand'::text))
@@ -498,15 +498,9 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p,
          Group By: metadata.brand
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[metadata.brand@0 as metadata.brand], aggr=[]
-           :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@1, category@0)], projection=[metadata.brand@0]
-           :     HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@0, id@0)], projection=[metadata.brand@1, category@3]
-           :       CooperativeExec
-           :         PgSearchScan: table=p, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-           :       CooperativeExec
-           :         PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
-           :     CooperativeExec
-           :       PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
-(18 rows)
+           :   CooperativeExec
+           :     PgSearchScan: table=p, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(12 rows)
 
 SELECT p.metadata->>'brand' AS brand_text, p.metadata->'brand' AS brand_json
 FROM ec_products p

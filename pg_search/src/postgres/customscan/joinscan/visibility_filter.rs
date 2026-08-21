@@ -52,10 +52,12 @@ use arrow_array::{Array, ArrayRef, RecordBatch, UInt64Array};
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
 use datafusion::arrow::compute::kernels::boolean::{and, is_not_null};
+use datafusion::catalog::Session;
 use datafusion::catalog::default_table_source::DefaultTableSource;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use datafusion::common::{DFSchemaRef, DataFusionError, Result};
-use datafusion::execution::{SendableRecordBatchStream, SessionState, TaskContext};
+use datafusion::execution::{SendableRecordBatchStream, TaskContext};
+use datafusion::logical_expr::physical_planning_context::PhysicalPlanningContext;
 use datafusion::logical_expr::{Extension, LogicalPlan, UserDefinedLogicalNode};
 use datafusion::optimizer::optimizer::ApplyOrder;
 use datafusion::optimizer::{OptimizerConfig, OptimizerRule};
@@ -66,7 +68,10 @@ use datafusion::physical_plan::filter_pushdown::{
 use datafusion::physical_plan::metrics::{
     BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet, RecordOutput,
 };
-use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
+use datafusion::physical_plan::{
+    ChildrenPropertiesMode, DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties,
+    ReplaceChildrenOptions,
+};
 use datafusion::physical_planner::{ExtensionPlanner, PhysicalPlanner};
 use pgrx::pg_sys;
 
@@ -601,7 +606,10 @@ fn wrap_visibility_below_lookup_chain(
         table_names,
     )?) as Arc<dyn ExecutionPlan>;
     for lookup in lookups.into_iter().rev() {
-        result = lookup.with_new_children(vec![result])?;
+        result = lookup.replace_children(
+            vec![result],
+            ReplaceChildrenOptions::new(ChildrenPropertiesMode::Recompute),
+        )?;
     }
     Ok(result)
 }
@@ -620,7 +628,8 @@ impl ExtensionPlanner for VisibilityExtensionPlanner {
         node: &dyn UserDefinedLogicalNode,
         _logical_inputs: &[&LogicalPlan],
         physical_inputs: &[Arc<dyn ExecutionPlan>],
-        _session_state: &SessionState,
+        _session: &dyn Session,
+        _planning_context: &PhysicalPlanningContext,
     ) -> Result<Option<Arc<dyn ExecutionPlan>>> {
         let Some(vis_node) = node.as_any().downcast_ref::<VisibilityFilterNode>() else {
             return Ok(None);
@@ -824,6 +833,15 @@ impl ExecutionPlan for VisibilityFilterExec {
 
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
         vec![&self.input]
+    }
+
+    fn apply_expressions(
+        &self,
+        _f: &mut dyn FnMut(
+            &Arc<dyn datafusion::physical_plan::PhysicalExpr>,
+        ) -> Result<TreeNodeRecursion>,
+    ) -> Result<TreeNodeRecursion> {
+        Ok(TreeNodeRecursion::Continue)
     }
 
     fn with_new_children(

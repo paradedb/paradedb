@@ -905,8 +905,8 @@ WHERE j.id @@@ paradedb.parse('title:developer')
   )
 ORDER BY p.id
 LIMIT 50;
-                                                                                               QUERY PLAN                                                                                                
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                      QUERY PLAN                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Custom Scan (ParadeDB Join Scan)
@@ -926,7 +926,7 @@ LIMIT 50;
                  :           CooperativeExec
                  :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query="all"
                  :           CooperativeExec
-                 :             PgSearchScan: table=j2, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}}
+                 :             PgSearchScan: table=j2, segments=1, query={"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}}
 (20 rows)
 
 SELECT DISTINCT p.id, p.name
@@ -958,8 +958,8 @@ WHERE j.id @@@ paradedb.parse('title:developer')
   )
 ORDER BY p.id
 LIMIT 50;
-                                                                                              QUERY PLAN                                                                                               
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                     QUERY PLAN                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: p.id
@@ -977,7 +977,7 @@ LIMIT 50;
                  :         CooperativeExec
                  :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query="all"
                  :         CooperativeExec
-                 :           PgSearchScan: table=j2, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}}
+                 :           PgSearchScan: table=j2, segments=1, query={"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}}
 (18 rows)
 
 SELECT DISTINCT p.id, p.name

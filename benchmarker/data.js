@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787342921647,
+  "lastUpdate": 1787391700737,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -478,6 +478,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.818,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "12ddb8a9e2912c6ae86a797df8bd1b97383e8326",
+          "message": "fix(mpp): replay the leader's segment view in every parallel reader (#5993)\n\nThis PR makes every reader a query opens for one index source replay the\nsame segment view, so packed `DocAddress`es stay valid across processes.\n\nCloses #5988.\n\n## Why\n\nStressgres hit `remote task 2.0 failed: range end index\n18446744073709551613 out of range for slice of length 8` on the JoinScan\nMPP path. Packed `(segment_ord, doc_id)` addresses are only meaningful\nagainst the reader that packed them, but the consumer side (a rebuilt\n`FFHelper` behind a network boundary, the leader-hosted\n`VisibilityFilterExec`, `SearchPredicateUDF`) opens its own reader over\nthe same segment id set. Two opens don't expose the same `DocId` space:\n\n- A mutable segment is materialized per open, bounded by the `(max_doc,\nnum_deleted_docs)` its meta entry holds at that moment. Concurrent DML\nmoves that bound between the producer's open and the consumer's, so a\n`doc_id` past the shorter view overflows tantivy's bitpacker, or\nresolves to the wrong ctid when the counts happen to match.\n- Segment ordinals come from an unstable doc-count sort, so they can\npermute between opens.\n\n## What\n\n- `MvccSatisfies::ParallelWorker` now has a `SegmentView`: the origin\nreader's segments in ordinal order, plus each mutable segment's\n`(max_doc, num_deleted_docs)` bound. `load_metas` rewinds mutable\nentries to that bound (the log is append-only, so it always is a prefix)\nand orders segments by the view.\n- `ParallelScanState` sends every source's view; the JoinScan leader's\nproviders, `SearchPredicateUDF`, the worker scans, and the rebuilt\nresolvers all replay that view.\n- `paradedb.aggregate` workers keep an id-only view; their addresses\nnever leave the process.\n\n## Tests\n\nA `pg_test` for the view replay\n(`test_segment_view_replays_origin_reader`), an `mpp_joinscan_mutable`\nregress covering the worker-hosted and leader-hosted shapes, and a\nconcurrent integration test (`mpp_joinscan_concurrent.rs`) that fails on\nthe base commit within a second and also catches the silent wrong-result\nvariant.",
+          "timestamp": "2026-08-22T02:17:40-07:00",
+          "tree_id": "55a004f381a03edc0e6a5e122a97bdab1fa801a3",
+          "url": "https://github.com/paradedb/paradedb/commit/12ddb8a9e2912c6ae86a797df8bd1b97383e8326"
+        },
+        "date": 1787391697727,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 2.269713915166297,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 2.153,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.816,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.908,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 3.058,
             "unit": "ms"
           }
         ]

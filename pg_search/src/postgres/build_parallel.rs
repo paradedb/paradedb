@@ -1650,4 +1650,84 @@ mod tests {
         .unwrap();
         assert_eq!(num_docs, 24000, "merged cells must keep every row");
     }
+
+    /// The partitioned build must return the same rows a non-partitioned build would, serial
+    /// and parallel: the other tests check totals, which would not catch a row misrouted or
+    /// dropped inside a cell. `partition_by` spans two fields, one of them text, so the
+    /// multi-dimensional projection and a detoastable dimension go through the routing spill.
+    /// `tenant_id` is scattered across the heap so each worker's slice spans every cell.
+    #[pg_test]
+    fn test_partitioned_build_result_parity() {
+        // ~950-byte rows over 20k rows clear the 15MB floor in `adjusted_target_segment_count`
+        // so the target of 8 yields real cells, while staying under the TOAST threshold.
+        Spi::run(
+            r#"
+            CREATE TABLE partitioned_parity (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, message TEXT);
+            INSERT INTO partitioned_parity (tenant_id, message)
+            SELECT (i * 7919) % 16,
+                   'doc ' || i || ' ' || (ARRAY['alpha', 'beta', 'gamma'])[1 + i % 3]
+                       || ' ' || repeat('padding word here ', 50)
+            FROM generate_series(1, 20000) i;
+            "#,
+        )
+        .unwrap();
+
+        let ids_for = |query: &str| -> String {
+            Spi::get_one::<String>(&format!(
+                "SELECT COALESCE(string_agg(id::text, ',' ORDER BY id), '') \
+                 FROM partitioned_parity WHERE partitioned_parity @@@ '{query}';"
+            ))
+            .unwrap()
+            .unwrap()
+        };
+
+        // Ground truth: a non-partitioned index over the same rows.
+        Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
+        Spi::run(
+            "CREATE INDEX partitioned_parity_plain ON partitioned_parity USING paradedb (id, tenant_id, message) WITH (key_field = 'id');",
+        )
+        .unwrap();
+        let expected_alpha = ids_for("message:alpha");
+        let expected_beta = ids_for("message:beta");
+        let expected_all = ids_for("message:doc");
+        assert!(
+            !expected_alpha.is_empty(),
+            "baseline should match some rows"
+        );
+        Spi::run("DROP INDEX partitioned_parity_plain;").unwrap();
+
+        let assert_parity = |label: &str| {
+            assert_eq!(
+                ids_for("message:alpha"),
+                expected_alpha,
+                "{label}: alpha rows differ"
+            );
+            assert_eq!(
+                ids_for("message:beta"),
+                expected_beta,
+                "{label}: beta rows differ"
+            );
+            assert_eq!(
+                ids_for("message:doc"),
+                expected_all,
+                "{label}: full set differs"
+            );
+        };
+        let create_partitioned = "CREATE INDEX partitioned_parity_idx ON partitioned_parity USING paradedb (id, tenant_id, message) WITH (key_field = 'id', partition_by = 'tenant_id, message', target_segment_count = 8);";
+
+        // Serial build.
+        Spi::run(create_partitioned).unwrap();
+        assert_parity("serial");
+        Spi::run("DROP INDEX partitioned_parity_idx;").unwrap();
+
+        // Parallel build over the same rows: the result set must not change.
+        Spi::run("SET max_parallel_workers = 8;").unwrap();
+        Spi::run("SET max_parallel_maintenance_workers = 4;").unwrap();
+        Spi::run("SET parallel_leader_participation = false;").unwrap();
+        Spi::run("SET maintenance_work_mem = '128MB';").unwrap();
+        Spi::run(create_partitioned).unwrap();
+        assert_parity("parallel");
+
+        Spi::run("DROP TABLE partitioned_parity;").unwrap();
+    }
 }

@@ -19,6 +19,7 @@ use crate::customscan::aggregatescan::{GroupByClause, GroupingColumn};
 use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
+use crate::postgres::customscan::aggregatescan::groupby::extract_date_func_field;
 use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause,
 };
@@ -198,6 +199,10 @@ impl CustomScanClause<AggregateScan> for TargetList {
                     find_one_var_and_fieldname(var_context, actual_expr)
                 {
                     Some(field_name.into_inner())
+                } else if let Some((name, _)) =
+                    extract_date_func_field(var_context, actual_expr, args.root)
+                {
+                    Some(name)
                 } else {
                     find_matching_fast_field(
                         actual_expr,
@@ -277,6 +282,20 @@ impl CustomScanClause<AggregateScan> for TargetList {
                     );
                 }
             }
+        }
+
+        // A date-bucketed grouping column's NULL rows are read from the sibling
+        // "missing" aggregation, which the FILTER read path
+        // (flatten_grouped_with_filter) doesn't read yet, so the NULL group's
+        // filtered aggregates would be silently wrong. Refuse and fall back.
+        if grouping_columns.iter().any(|c| c.date_bucket.is_some())
+            && entries
+                .iter()
+                .any(|e| matches!(e, TargetListEntry::Aggregate(agg) if agg.has_filter()))
+        {
+            return Err(
+                "DATE() grouping combined with aggregate FILTER clause is not supported".into(),
+            );
         }
 
         Ok(TargetList {

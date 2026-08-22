@@ -26,6 +26,7 @@
 
 use super::join_targetlist::AggOrderByEntry;
 use crate::index::fast_fields_helper::WhichFastField;
+use crate::index::mvcc::SegmentView;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, JoinAggregateEntry, JoinAggregateTargetList,
 };
@@ -84,7 +85,7 @@ pub async fn build_join_aggregate_plan(
     ctx: &SessionContext,
     expr_context: Option<*mut pg_sys::ExprContext>,
     planstate: Option<*mut pg_sys::PlanState>,
-    is_mpp: bool,
+    mpp_views: Option<&[SegmentView]>,
 ) -> Result<(datafusion::logical_expr::LogicalPlan, Vec<usize>)> {
     // Step 1: Build the join DataFrame from the RelNode tree
     let df = build_relnode_df(
@@ -95,7 +96,7 @@ pub async fn build_join_aggregate_plan(
         custom_scan_tlist,
         expr_context,
         planstate,
-        is_mpp,
+        mpp_views,
     )
     .await?;
 
@@ -288,15 +289,21 @@ fn build_relnode_df<'a>(
     custom_scan_tlist: *mut pg_sys::List,
     expr_context: Option<*mut pg_sys::ExprContext>,
     planstate: Option<*mut pg_sys::PlanState>,
-    is_mpp: bool,
+    mpp_views: Option<&'a [SegmentView]>,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
         match node {
             RelNode::Scan(source) => {
                 let plan_position = source.plan_position;
-                let df =
-                    build_source_df(ctx, source, plan_position, expr_context, planstate, is_mpp)
-                        .await?;
+                let df = build_source_df(
+                    ctx,
+                    source,
+                    plan_position,
+                    expr_context,
+                    planstate,
+                    mpp_views,
+                )
+                .await?;
                 let alias =
                     RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
                 Ok(df.alias(&alias)?)
@@ -310,7 +317,7 @@ fn build_relnode_df<'a>(
                     custom_scan_tlist,
                     expr_context,
                     planstate,
-                    is_mpp,
+                    mpp_views,
                 )
                 .await?;
                 let right_df = build_relnode_df(
@@ -321,7 +328,7 @@ fn build_relnode_df<'a>(
                     custom_scan_tlist,
                     expr_context,
                     planstate,
-                    is_mpp,
+                    mpp_views,
                 )
                 .await?;
 
@@ -336,7 +343,7 @@ fn build_relnode_df<'a>(
                     custom_scan_tlist,
                     expr_context,
                     planstate,
-                    is_mpp,
+                    mpp_views,
                 )
                 .await?;
 
@@ -529,7 +536,7 @@ async fn build_source_df(
     plan_position: usize,
     expr_context: Option<*mut pg_sys::ExprContext>,
     planstate: Option<*mut pg_sys::PlanState>,
-    is_mpp: bool,
+    mpp_views: Option<&[SegmentView]>,
 ) -> Result<DataFrame> {
     let scan_info = source.scan_info.clone();
 
@@ -590,9 +597,18 @@ async fn build_source_df(
 
     // MPP-aware provider setup. Every source gets its segments sliced across PG
     // parallel workers via `parallel_state.checkout_segment_for_source(plan_position)`
-    // when `is_mpp` is true.
-    let source_idx = if is_mpp { Some(plan_position) } else { None };
+    // when this is an MPP plan.
+    let source_idx = mpp_views.map(|_| plan_position);
     let mut provider = PgSearchTableProvider::new(scan_info, fields, source_idx);
+    // The leader claims segments out of the DSM pool the same manifests populate, so its own
+    // reader has to replay the same view. This plan never crosses the codec that injects the
+    // view for JoinScan, so do it here.
+    if let Some(views) = mpp_views {
+        let view = views.get(plan_position).unwrap_or_else(|| {
+            panic!("missing segment view for aggregate source at plan_position {plan_position}")
+        });
+        provider.set_segment_view(view.clone());
+    }
     if let crate::scan::ScanMode::Tagged { local_queries, .. } = &source.scan_info.mode {
         for tq in local_queries {
             provider.add_match_tag_column(&tq.tag_name);

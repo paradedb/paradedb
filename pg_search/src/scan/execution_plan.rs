@@ -63,7 +63,7 @@ use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::explain::ExplainFormat;
-use crate::postgres::customscan::parallel::list_segment_ids;
+use crate::postgres::customscan::parallel::segment_view;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::rel::PgSearchRelation;
@@ -625,9 +625,9 @@ impl PgSearchScanPlan {
         // list from `ParallelScanState`; a standard parallel scan (source_idx None) reads
         // the worker's full segment list. Mirrors the MVCC dispatch in `scan_inner`.
         let mvcc = match (descriptor.source_idx, parallel_state) {
-            (None, Some(ps)) => MvccSatisfies::ParallelWorker(unsafe { list_segment_ids(ps) }),
+            (None, Some(ps)) => MvccSatisfies::ParallelWorker(unsafe { segment_view(ps) }),
             (Some(idx), Some(ps)) => {
-                MvccSatisfies::ParallelWorker(unsafe { (*ps).segment_ids_for_source(idx) })
+                MvccSatisfies::ParallelWorker(unsafe { (*ps).segment_view_for_source(idx) })
             }
             (_, None) => MvccSatisfies::Snapshot,
         };

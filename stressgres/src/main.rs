@@ -262,6 +262,17 @@ mod suite_file_tests {
             let contents = fs::read_to_string(&path).unwrap();
             toml::from_str::<SuiteDefinition>(&contents)
                 .unwrap_or_else(|error| panic!("failed to parse {}: {error}", path.display()));
+
+            let suite_name = path.file_stem().unwrap().to_string_lossy();
+            let antithesis_entrypoint = suites_dir
+                .join("antithesis")
+                .join(format!("first_{suite_name}.sh"));
+            assert!(
+                antithesis_entrypoint.is_file(),
+                "missing Antithesis entrypoint for {}: {}",
+                path.display(),
+                antithesis_entrypoint.display()
+            );
         }
     }
 }

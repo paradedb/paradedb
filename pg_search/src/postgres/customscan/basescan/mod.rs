@@ -67,7 +67,11 @@ use crate::postgres::customscan::orderby::{
     extract_pathkey_styles_with_sortability_check, PathKeyInfo, UnusableReason,
 };
 use crate::postgres::customscan::parallel::{
+<<<<<<< HEAD
     compute_nworkers, list_segment_ids, max_useful_workers, RowEstimate,
+=======
+    RowEstimate, compute_nworkers, max_useful_workers, segment_view,
+>>>>>>> 12ddb8a9e (fix(mpp): replay the leader's segment view in every parallel reader (#5993))
 };
 use crate::postgres::customscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
@@ -153,7 +157,7 @@ impl BaseScan {
                     // this is because the workers pick a specific segment to query that
                     // is known to be held open/pinned by the leader but might not pass a ::Snapshot
                     // visibility test due to concurrent merges/garbage collects
-                    MvccSatisfies::ParallelWorker(list_segment_ids(parallel_state))
+                    MvccSatisfies::ParallelWorker(segment_view(parallel_state))
                 } else {
                     // We are in a worker, but this is not a parallel-aware scan (e.g. we are running
                     // a serial scan inside a parallel worker, like in a Parallel Nested Loop Join).

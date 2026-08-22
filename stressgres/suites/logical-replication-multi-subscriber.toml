@@ -2,6 +2,7 @@
 name = "Publisher"
 [server.style.Automatic]
 postgresql_conf = "Publisher"
+
 [server.setup]
 sql = """
 CREATE TABLE events (id BIGSERIAL PRIMARY KEY, message TEXT NOT NULL);
@@ -10,6 +11,7 @@ INSERT INTO events(message) SELECT CASE WHEN i % 2 = 0 THEN 'beer ' ELSE 'wine '
 """
 [server.teardown]
 sql = ""
+
 [server.monitor]
 refresh_ms = 100
 title = "Subscriber Lag"
@@ -20,6 +22,7 @@ sql = "SELECT count(*) AS subscriber_count FROM pg_stat_replication;"
 name = "SubscriberA"
 [server.style.Automatic]
 postgresql_conf = "Subscriber"
+
 [server.setup]
 sql = """
 CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
@@ -30,6 +33,7 @@ CREATE INDEX events_idx ON events USING paradedb (id, message) WITH (key_field =
 """
 [server.teardown]
 sql = ""
+
 [server.monitor]
 refresh_ms = 100
 title = "Subscriber A Documents"
@@ -40,6 +44,7 @@ sql = "SELECT count(*) AS document_count FROM events;"
 name = "SubscriberB"
 [server.style.Automatic]
 postgresql_conf = "Subscriber"
+
 [server.setup]
 sql = """
 CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
@@ -50,6 +55,7 @@ CREATE INDEX events_idx ON events USING paradedb (id, message) WITH (key_field =
 """
 [server.teardown]
 sql = ""
+
 [server.monitor]
 refresh_ms = 100
 title = "Subscriber B Documents"

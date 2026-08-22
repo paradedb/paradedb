@@ -96,6 +96,7 @@ DROP TABLE test CASCADE;
 DROP TABLE categories CASCADE;
 DROP EXTENSION pg_search CASCADE;
 """
+
 [server.monitor]
 refresh_ms = 10
 title = "Monitor Index Size"

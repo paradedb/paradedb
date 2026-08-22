@@ -94,7 +94,7 @@ SELECT
 
 [[jobs]]
 refresh_ms = 5
-title = "Top K Search"
+title = "Unordered Top K Base Scan"
 log_tps = true
 on_connect = """
 SELECT assert_plan_contains(
@@ -108,7 +108,7 @@ SELECT id, message, severity FROM test WHERE message ||| 'drink' LIMIT 100;
 
 [[jobs]]
 refresh_ms = 5
-title = "Aggregate Search"
+title = "Aggregate Scan"
 log_tps = true
 on_connect = """
 SELECT assert_plan_contains(

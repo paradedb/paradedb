@@ -139,12 +139,12 @@ destinations = ["Subscriber"]
 
 [[jobs]]
 refresh_ms = 5
-title = "Custom Search"
+title = "Unordered Top K Base Scan"
 on_connect = """
 SET max_parallel_workers_per_gather = 0;
 SELECT assert_plan_contains(
     $q$ SELECT id, message, old_message FROM test WHERE message &&& 'beer wine' LIMIT 50 $q$,
-    'NormalScanExecState'
+    'TopKScanExecState'
 );
 """
 sql = """
@@ -154,35 +154,22 @@ destinations = ["Subscriber"]
 
 [[jobs]]
 refresh_ms = 5
-title = "Top K Search"
+title = "Normal Base Scan"
 on_connect = """
+SET max_parallel_workers_per_gather = 0;
 SELECT assert_plan_contains(
-    $q$ SELECT id, message FROM test WHERE message ||| 'wine' ORDER BY id DESC LIMIT 25 $q$,
-    'TopKScanExecState'
-);
-"""
-sql = "SELECT id, message FROM test WHERE message ||| 'wine' ORDER BY id DESC LIMIT 25"
-destinations = ["Subscriber"]
-
-[[jobs]]
-refresh_ms = 5
-title = "Parallel Custom Search"
-on_connect = """
-SET debug_parallel_query TO ON;
-SET max_parallel_workers_per_gather = 2;
-SELECT assert_plan_contains(
-    $q$ SELECT id, message, old_message FROM test WHERE message ||| 'cheese' $q$,
-    'Parallel Custom Scan'
+    $q$ SELECT id, message, old_message FROM test WHERE message &&& 'beer wine' $q$,
+    'NormalScanExecState'
 );
 """
 sql = """
-SELECT id, message, old_message FROM test WHERE message ||| 'cheese';
+SELECT id, message, old_message FROM test WHERE message &&& 'beer wine';
 """
 destinations = ["Subscriber"]
 
 [[jobs]]
 refresh_ms = 5
-title = "Aggregate Search"
+title = "Aggregate Scan"
 on_connect = """
 SELECT assert_plan_contains(
     $q$ SELECT count(*) FROM test WHERE message ||| 'beer' $q$,
@@ -196,18 +183,18 @@ destinations = ["Subscriber"]
 
 [[jobs]]
 refresh_ms = 5
-title = "Index Only Search"
+title = "Postgres Index Scan Fallback"
 on_connect = """
 SET max_parallel_workers = 0;
 SET paradedb.enable_custom_scan = off;
 SET enable_seqscan = off;
 SELECT assert_plan_contains(
-    $q$ SELECT id FROM test WHERE message ||| 'bread' LIMIT 25 $q$,
-    'Index Only Scan'
+    $q$ SELECT id, message, old_message FROM test WHERE message ||| 'bread' LIMIT 25 $q$,
+    'Index Scan'
 );
 """
 sql = """
-SELECT id FROM test WHERE message ||| 'bread' LIMIT 25;
+SELECT id, message, old_message FROM test WHERE message ||| 'bread' LIMIT 25;
 """
 destinations = ["Subscriber"]
 

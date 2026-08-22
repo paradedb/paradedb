@@ -788,7 +788,7 @@ fn resolve_orderby_feature(
     match feature {
         OrderByFeature::Score { rti } => {
             if !distinct_col_map.is_empty() {
-                resolve_distinct_col(distinct_col_map, true, 0, 0, "")
+                resolve_distinct_col(distinct_col_map, true, *rti, 0, "")
             } else {
                 join_clause
                     .plan
@@ -798,6 +798,27 @@ fn resolve_orderby_feature(
                     .map(|source| make_source_score_col(source))
                     .unwrap_or_else(|| col("unknown_score"))
             }
+        }
+        OrderByFeature::ScoreSum { rtis } => {
+            let score_cols: Vec<Expr> = rtis
+                .iter()
+                .filter_map(|rti| {
+                    if !distinct_col_map.is_empty() {
+                        Some(resolve_distinct_col(distinct_col_map, true, *rti, 0, ""))
+                    } else {
+                        join_clause
+                            .plan
+                            .sources()
+                            .iter()
+                            .find(|s| s.scan_info.heap_rti == *rti)
+                            .map(|source| make_source_score_col(source))
+                    }
+                })
+                .collect();
+            score_cols
+                .into_iter()
+                .reduce(|acc, col_expr| acc + col_expr)
+                .unwrap_or_else(|| col("unknown_score"))
         }
         OrderByFeature::Field { name, rti } => join_clause
             .plan
@@ -1066,7 +1087,9 @@ fn build_source_df<'a>(
                             required_early.insert(col_name);
                         }
                     }
-                    OrderByFeature::Score { .. } | OrderByFeature::VectorDistance { .. } => {}
+                    OrderByFeature::Score { .. }
+                    | OrderByFeature::ScoreSum { .. }
+                    | OrderByFeature::VectorDistance { .. } => {}
                     OrderByFeature::NullTest { inner, .. } => match inner.as_ref() {
                         OrderByFeature::Field { name, rti } if source.contains_rti(*rti) => {
                             insert_field_name_required_early(

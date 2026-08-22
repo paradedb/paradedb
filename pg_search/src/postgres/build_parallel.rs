@@ -370,6 +370,14 @@ fn decode_sort_record(bytes: &[u8]) -> (u32, u64) {
     (pid, ctid)
 }
 
+/// Upper bound on how many segments one cell merge takes as input. `SearchIndexMerger` holds
+/// every input segment open for the whole merge, and an overfull cell can hold many segments
+/// (a vector schema's per-segment doc cap makes hundreds plausible), so [`finish_cell`] merges
+/// in passes of at most this many rather than handing the merger the whole cell at once.
+///
+/// [`finish_cell`]: WorkerBuildState::finish_cell
+const CELL_MERGE_FANIN: usize = 32;
+
 /// Phase-1 state for a partitioned build: rows are not indexed during the scan. Each row is
 /// routed to a partition cell by the leader's kd-tree (`#5991`) and its `(pid, ctid)` assignment
 /// spills to a worker-local sort, which the phase-2 drain reads back in `(pid, ctid)` order.
@@ -508,7 +516,7 @@ impl<'a> WorkerBuildState<'a> {
         // Partitioned builds cut segments at cell boundaries instead, so their writers stay
         // memory-driven at their half of the worker budget. (A vector schema's doc cap in
         // `SerialIndexWriter::open` still applies; an overfull cell then flushes in capped
-        // segments that `finish_cell` merges, as `try_merge` does on the regular path.)
+        // segments that `finish_cell` merges back down in bounded passes.)
         let max_docs_per_segment = if partitioning.is_none() && worker_segment_target > 1 {
             Some(
                 plan::estimate_heap_reltuples(heaprel) as u32
@@ -681,13 +689,18 @@ impl<'a> WorkerBuildState<'a> {
         };
 
         pgrx::debug1!("try_merge: last merge {is_last_merge}");
-        self.merge_now(&segment_ids_to_merge)
+        self.merge_now(&segment_ids_to_merge)?;
+        Ok(())
     }
 
     /// Merge the given segments into a single segment and garbage collect the index, returning
     /// the reclaimed space to the fsm. Split out of [`Self::try_merge`] so the partitioned
-    /// build can merge a cell's segments without the chunk accounting.
-    fn merge_now(&mut self, segment_ids_to_merge: &[SegmentId]) -> anyhow::Result<()> {
+    /// build can merge a cell's segments without the chunk accounting. Returns the merged
+    /// segment's meta, if the merge produced one.
+    fn merge_now(
+        &mut self,
+        segment_ids_to_merge: &[SegmentId],
+    ) -> anyhow::Result<Option<SegmentMeta>> {
         pgrx::debug1!(
             "do_merge: about to merge {} segments: {:?}",
             segment_ids_to_merge.len(),
@@ -695,7 +708,7 @@ impl<'a> WorkerBuildState<'a> {
         );
         let mut merger = SearchIndexMerger::open(&self.indexrel, MvccSatisfies::Mergeable)?;
         unsafe { set_ps_display_suffix(MERGING.as_ptr()) };
-        merger.merge_segments(segment_ids_to_merge)?;
+        let merged = merger.merge_segments(segment_ids_to_merge)?;
 
         // garbage collect the index, returning to the fsm
         pgrx::debug1!("do_merge: garbage collecting");
@@ -706,7 +719,7 @@ impl<'a> WorkerBuildState<'a> {
 
         self.nmerges += 1;
 
-        Ok(())
+        Ok(merged)
     }
 
     /// Estimates how many segments this worker will make if no merging happens.
@@ -863,7 +876,10 @@ impl<'a> WorkerBuildState<'a> {
 
     /// Finalize the current cell: commit the writer's pending segment and, if the cell's rows
     /// exceeded the writer budget and flushed multiple segments, merge them down to one.
-    /// Merges stay scoped to a single cell within a single worker; never across workers.
+    /// Merges stay scoped to a single cell within a single worker; never across workers. Each
+    /// pass merges at most [`CELL_MERGE_FANIN`] segments and feeds the merged segment into the
+    /// next pass, so the merger's open-segment footprint stays bounded however overfull the
+    /// cell was.
     fn finish_cell(&mut self, cell_metas: &mut Vec<SegmentMeta>) -> anyhow::Result<()> {
         let writer = self
             .writer
@@ -874,9 +890,18 @@ impl<'a> WorkerBuildState<'a> {
             cell_metas.push(segment_meta);
         }
 
-        if cell_metas.len() > 1 {
-            let segment_ids = cell_metas.iter().map(|meta| meta.id()).collect::<Vec<_>>();
-            self.merge_now(&segment_ids)?;
+        while cell_metas.len() > 1 {
+            let mut next_pass = Vec::with_capacity(cell_metas.len().div_ceil(CELL_MERGE_FANIN));
+            for chunk in cell_metas.chunks(CELL_MERGE_FANIN) {
+                match chunk {
+                    [lone] => next_pass.push(lone.clone()),
+                    _ => {
+                        let ids = chunk.iter().map(|meta| meta.id()).collect::<Vec<_>>();
+                        next_pass.extend(self.merge_now(&ids)?);
+                    }
+                }
+            }
+            *cell_metas = next_pass;
         }
         cell_metas.clear();
         Ok(())

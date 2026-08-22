@@ -379,7 +379,7 @@ fn decode_sort_record(bytes: &[u8]) -> (u32, u64) {
 const CELL_MERGE_FANIN: usize = 32;
 
 /// Phase-1 state for a partitioned build: rows are not indexed during the scan. Each row is
-/// routed to a partition cell by the leader's kd-tree (`#5991`) and its `(pid, ctid)` assignment
+/// routed to a partition cell by the leader's kd-tree boundaries and its `(pid, ctid)` assignment
 /// spills to a worker-local sort, which the phase-2 drain reads back in `(pid, ctid)` order.
 struct PartitionSpill {
     tree: KdTree,
@@ -1473,7 +1473,7 @@ mod tests {
         assert_eq!(count, 1, "expected a single segment, got {count}");
     }
 
-    /// An index with `partition_by` routes each row to a kd-tree cell (#5991) and builds one
+    /// An index with `partition_by` routes each row to a kd-tree cell and builds one
     /// segment per cell per worker. Verify doc-count parity and the segment layout: a serial
     /// build makes exactly one segment per cell, and a parallel build keeps doc and search
     /// parity. `tenant_id` is scattered across the heap so a worker's arbitrary slice still

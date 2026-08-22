@@ -167,7 +167,7 @@ destinations = ["Subscriber"]
 
 [[jobs]]
 refresh_ms = 5
-title = "Top K Search"
+title = "Key-ordered Top K Base Scan"
 on_connect = """
 SELECT assert_plan_contains(
     $q$ SELECT id, message FROM test WHERE message ||| 'beer' ORDER BY id DESC LIMIT 25 $q$,
@@ -179,12 +179,12 @@ destinations = ["Subscriber"]
 
 [[jobs]]
 refresh_ms = 5
-title = "Custom Search"
+title = "Unordered Top K Base Scan"
 on_connect = """
 SET max_parallel_workers_per_gather = 0;
 SELECT assert_plan_contains(
     $q$ SELECT id, message, old_message FROM test WHERE message &&& 'beer wine' LIMIT 100 $q$,
-    'NormalScanExecState'
+    'TopKScanExecState'
 );
 """
 sql = """
@@ -194,13 +194,32 @@ destinations = ["Subscriber"]
 
 [[jobs]]
 refresh_ms = 5
-title = "Parallel Custom Search"
+title = "Normal Base Scan"
+on_connect = """
+SET max_parallel_workers_per_gather = 0;
+SELECT assert_plan_contains(
+    $q$ SELECT id, message, old_message FROM test WHERE message &&& 'beer wine' $q$,
+    'NormalScanExecState'
+);
+"""
+sql = """
+SELECT id, message, old_message FROM test WHERE message &&& 'beer wine';
+"""
+destinations = ["Subscriber"]
+
+[[jobs]]
+refresh_ms = 5
+title = "Parallel Normal Base Scan"
 on_connect = """
 SET debug_parallel_query TO ON;
 SET max_parallel_workers_per_gather = 2;
 SELECT assert_plan_contains(
     $q$ SELECT id, message, old_message FROM test WHERE message ||| 'cheese' $q$,
     'Parallel Custom Scan'
+);
+SELECT assert_plan_contains(
+    $q$ SELECT id, message, old_message FROM test WHERE message ||| 'cheese' $q$,
+    'NormalScanExecState'
 );
 """
 sql = """
@@ -210,7 +229,7 @@ destinations = ["Subscriber"]
 
 [[jobs]]
 refresh_ms = 5
-title = "Aggregate Search"
+title = "Aggregate Scan"
 on_connect = """
 SELECT assert_plan_contains(
     $q$ SELECT count(*) FROM test WHERE message ||| 'beer' $q$,
@@ -224,7 +243,21 @@ destinations = ["Subscriber"]
 
 [[jobs]]
 refresh_ms = 5
-title = "Index Only Search"
+title = "Grouped Aggregate Scan"
+on_connect = """
+SELECT assert_plan_contains(
+    $q$ SELECT category_id, count(*) FROM test WHERE message ||| 'beer' GROUP BY category_id $q$,
+    'ParadeDB Aggregate Scan'
+);
+"""
+sql = """
+SELECT category_id, count(*) FROM test WHERE message ||| 'beer' GROUP BY category_id;
+"""
+destinations = ["Subscriber"]
+
+[[jobs]]
+refresh_ms = 5
+title = "Postgres Index Only Scan Fallback"
 on_connect = """
 SET max_parallel_workers = 0;
 SET paradedb.enable_custom_scan = off;
@@ -240,11 +273,32 @@ destinations = ["Subscriber"]
 
 [[jobs]]
 refresh_ms = 5
-title = "Sort over Normal Scan"
+title = "Postgres Index Scan Fallback"
+on_connect = """
+SET max_parallel_workers = 0;
+SET paradedb.enable_custom_scan = off;
+SET enable_seqscan = off;
+SELECT assert_plan_contains(
+    $q$ SELECT id, message, old_message FROM test WHERE message ||| 'wine' LIMIT 100 $q$,
+    'Index Scan'
+);
+"""
+sql = """
+SELECT id, message, old_message FROM test WHERE message ||| 'wine' LIMIT 100;
+"""
+destinations = ["Subscriber"]
+
+[[jobs]]
+refresh_ms = 5
+title = "Postgres Sort over Normal Base Scan"
 on_connect = """
 SELECT assert_plan_contains(
     $q$ SELECT id, message, old_message FROM test WHERE message ||| 'wine beer' ORDER BY old_message LIMIT 20 $q$,
     'NormalScanExecState'
+);
+SELECT assert_plan_contains(
+    $q$ SELECT id, message, old_message FROM test WHERE message ||| 'wine beer' ORDER BY old_message LIMIT 20 $q$,
+    'Sort'
 );
 """
 sql = """
@@ -258,7 +312,7 @@ destinations = ["Subscriber"]
 
 [[jobs]]
 refresh_ms = 5
-title = "Join Search"
+title = "JoinScan"
 on_connect = """
 SET paradedb.enable_join_custom_scan = on;
 SELECT assert_plan_contains(

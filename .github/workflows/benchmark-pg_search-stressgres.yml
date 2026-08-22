@@ -42,7 +42,20 @@ permissions:
 
 jobs:
   benchmark-pg_search-stressgres:
-    name: Run Stressgres Benchmark Jobs
+    name: Stressgres (${{ matrix.suite }})
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        suite:
+          - single-node-planner-paths.toml
+          - bulk-update-merge-pressure.toml
+          - wide-table.toml
+          - background-merge.toml
+          - logical-replication-mixed-workload.toml
+          - logical-replication-fsm-merge-race.toml
+          - partitioned-table.toml
+          - logical-replication-multi-subscriber.toml
     runs-on:
       # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
       - runs-on=${{ github.run_id }}
@@ -272,66 +285,11 @@ jobs:
         working-directory: stressgres/
         run: CARGO_TARGET_DIR=../target/ cargo install --path .
 
-      # Runs default to 10 minutes, but can be configured to run for longer with the `duration` input.
-      - name: Benchmark single-server.toml
+      # Each suite is its own matrix job, so a failure never skips later topologies.
+      - name: Benchmark ${{ matrix.suite }}
         uses: ./.github/actions/benchmark-stressgres
         with:
-          test_file: single-server.toml
-          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
-          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
-
-      - name: Benchmark bulk-updates.toml
-        uses: ./.github/actions/benchmark-stressgres
-        with:
-          test_file: bulk-updates.toml
-          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
-          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
-
-      - name: Benchmark wide-table.toml
-        uses: ./.github/actions/benchmark-stressgres
-        with:
-          test_file: wide-table.toml
-          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
-          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
-
-      - name: Benchmark background-merge.toml
-        uses: ./.github/actions/benchmark-stressgres
-        with:
-          test_file: background-merge.toml
-          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
-          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
-
-      - name: Benchmark logical-replication.toml
-        uses: ./.github/actions/benchmark-stressgres
-        with:
-          test_file: logical-replication.toml
-          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
-          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
-
-      - name: Benchmark logical-replication-merge.toml
-        uses: ./.github/actions/benchmark-stressgres
-        with:
-          test_file: logical-replication-merge.toml
+          test_file: ${{ matrix.suite }}
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
@@ -346,3 +304,14 @@ jobs:
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
           mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
           title: "${{ github.workflow }} Failed"
+
+  benchmark-pg_search-stressgres-result:
+    name: Run Stressgres Benchmark Jobs
+    if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && (github.event.label.name == 'benchmarks' || github.event.label.name == 'benchmark-stressgres')))
+    needs: benchmark-pg_search-stressgres
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every Stressgres suite to pass
+        env:
+          MATRIX_RESULT: ${{ needs.benchmark-pg_search-stressgres.result }}
+        run: test "$MATRIX_RESULT" = success

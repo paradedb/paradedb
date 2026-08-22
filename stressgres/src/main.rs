@@ -238,3 +238,30 @@ fn load_suite_inner(
 
     Ok(Suite::new(definition))
 }
+
+#[cfg(test)]
+mod suite_file_tests {
+    use super::SuiteDefinition;
+    use std::fs;
+    use std::path::PathBuf;
+
+    #[test]
+    fn all_bundled_suites_parse() {
+        let suites_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("suites");
+        let mut suite_paths = fs::read_dir(&suites_dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension == "toml")
+            })
+            .collect::<Vec<_>>();
+        suite_paths.sort();
+
+        for path in suite_paths {
+            let contents = fs::read_to_string(&path).unwrap();
+            toml::from_str::<SuiteDefinition>(&contents)
+                .unwrap_or_else(|error| panic!("failed to parse {}: {error}", path.display()));
+        }
+    }
+}

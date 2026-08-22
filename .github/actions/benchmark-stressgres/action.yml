@@ -3,7 +3,7 @@ description: Run a given Stressgres job file against pg_search and publish metri
 
 inputs:
   test_file:
-    description: "The .toml Stressgres scenario to run (e.g. single-server.toml)"
+    description: "The .toml Stressgres scenario to run (e.g. single-node-planner-paths.toml)"
     required: true
   duration:
     description: "Duration of the Stressgres run, in milliseconds"

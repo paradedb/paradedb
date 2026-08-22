@@ -47,6 +47,26 @@ BEGIN
     RETURN true;
 END;
 $$;
+
+CREATE OR REPLACE FUNCTION assert_plan_contains(
+    p_query text,
+    p_expected_text text
+) RETURNS boolean AS $$
+DECLARE
+    plan_line text;
+    full_plan text := '';
+BEGIN
+    FOR plan_line IN EXECUTE 'EXPLAIN (VERBOSE) ' || p_query LOOP
+        full_plan := full_plan || plan_line || chr(10);
+        IF plan_line ILIKE '%' || p_expected_text || '%' THEN
+            RETURN true;
+        END IF;
+    END LOOP;
+
+    RAISE EXCEPTION 'Plan assertion failed: expected "%" not found in plan for query: %. Actual plan:%',
+        p_expected_text, p_query, chr(10) || full_plan;
+END;
+$$ LANGUAGE plpgsql;
 """
 
 [server.teardown]
@@ -71,14 +91,18 @@ SELECT
 
 [[jobs]]
 refresh_ms = 100
-title = "Count Query"
+title = "Aggregate Scan"
 log_tps = true
 log_count = true
 on_connect = """
 SET enable_indexscan TO off;
+SELECT assert_plan_contains(
+    $q$ SELECT count(*) FROM test WHERE message ||| 'cheese' $q$,
+    'ParadeDB Aggregate Scan'
+);
 """
 sql = """
-SELECT count(*) FROM test where id @@@ 'message:cheese';
+SELECT count(*) FROM test WHERE message ||| 'cheese';
 """
 assert = "3000000"
 

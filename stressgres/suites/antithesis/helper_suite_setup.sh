@@ -12,7 +12,7 @@ STRESSGRES=/home/app/target/x86_64-unknown-linux-gnu/dst/stressgres
 # The paired singleton_driver runs this symlink; each first_ repoints it at its own suite.
 WORKLOAD_LINK=/tmp/stressgres-workload.toml
 
-# Point a single-server suite at paradedb-rw. The connection-string query params are
+# Point a single-node suite at paradedb-rw. The connection-string query params are
 # fail-fast timeouts so a dropped socket lands inside the reconnect-grace window.
 rewrite_single() {
   sed -i 's|\[server\.style\.Automatic\]|[server.style.With]\nconnection_string = "postgresql://postgres:antithesis-super-secret-password@paradedb-rw:5432/paradedb?connect_timeout=5\&keepalives=1\&keepalives_idle=5\&keepalives_interval=2\&keepalives_count=3\&tcp_user_timeout=15"|' "$1"
@@ -41,12 +41,6 @@ rewrite_pub_sub() {
   rewrite_subscriber "$1"
 }
 
-# vanilla-postgres.toml hardcodes a localhost connection string rather than
-# server.style.Automatic, so it needs its own rewrite.
-rewrite_vanilla() {
-  sed -i 's|postgresql://postgres:postgres@localhost:5432/postgres|postgresql://postgres:antithesis-super-secret-password@paradedb-rw:5432/paradedb?connect_timeout=5\&keepalives=1\&keepalives_idle=5\&keepalives_interval=2\&keepalives_count=3\&tcp_user_timeout=15|g' "$1"
-}
-
 # Point <toml> at its cluster(s) using <topology>, build its schema fault-free, and publish
 # it for the paired singleton_driver.
 setup() {
@@ -60,7 +54,6 @@ setup() {
   case "${topology}" in
     single)       rewrite_single     "${path}" ;;
     pub_sub)      rewrite_pub_sub    "${path}" ;;
-    vanilla)      rewrite_vanilla    "${path}" ;;
     sub_phys)     rewrite_subscriber "${path}"; rewrite_wal_receiver "${path}" ;;
     pub_sub_phys) rewrite_pub_sub    "${path}"; rewrite_wal_receiver "${path}" ;;
     *) echo "unknown topology: ${topology}" >&2; exit 1 ;;

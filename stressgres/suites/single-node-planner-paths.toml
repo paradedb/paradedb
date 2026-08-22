@@ -112,7 +112,7 @@ SELECT
 
 [[jobs]]
 refresh_ms = 100
-title = "Index Only Search"
+title = "Postgres Index Only Scan Fallback"
 log_tps = true
 on_connect = """
 SET paradedb.enable_custom_scan = off;
@@ -127,7 +127,24 @@ SELECT id FROM test WHERE message ||| 'cheese' LIMIT 100;
 
 [[jobs]]
 refresh_ms = 5
-title = "Top K Search"
+title = "Postgres Index Scan Fallback"
+log_tps = true
+on_connect = """
+SET max_parallel_workers = 0;
+SET paradedb.enable_custom_scan = off;
+SET enable_seqscan = off;
+SELECT assert_plan_contains(
+    $q$ SELECT id, message, payload FROM test WHERE message ||| 'cheese' LIMIT 100 $q$,
+    'Index Scan'
+);
+"""
+sql = """
+SELECT id, message, payload FROM test WHERE message ||| 'cheese' LIMIT 100;
+"""
+
+[[jobs]]
+refresh_ms = 5
+title = "Unordered Top K Base Scan"
 log_tps = true
 on_connect = """
 SET max_parallel_workers_per_gather = 0;
@@ -142,7 +159,7 @@ SELECT id, message, payload FROM test WHERE message ||| 'wine' LIMIT 100;
 
 [[jobs]]
 refresh_ms = 5
-title = "Normal Scan Fallback"
+title = "Normal Base Scan"
 log_tps = true
 on_connect = """
 SET max_parallel_workers_per_gather = 0;
@@ -157,7 +174,7 @@ SELECT id, message, payload FROM test WHERE message &&& 'beer wine';
 
 [[jobs]]
 refresh_ms = 5
-title = "Columnar Search"
+title = "Columnar Base Scan"
 log_tps = true
 on_connect = """
 SET paradedb.enable_columnar_exec = on;
@@ -172,7 +189,7 @@ SELECT id, category FROM test WHERE message ||| 'beer' AND category === 'rare';
 
 [[jobs]]
 refresh_ms = 5
-title = "Aggregate Search"
+title = "Aggregate Scan"
 log_tps = true
 on_connect = """
 SELECT assert_plan_contains(
@@ -186,7 +203,21 @@ SELECT assert((pdb.agg('{"value_count": {"field": "id"}}'::jsonb)->>'value')::nu
 
 [[jobs]]
 refresh_ms = 5
-title = "Score-ordered Top K"
+title = "Grouped Aggregate Scan"
+log_tps = true
+on_connect = """
+SELECT assert_plan_contains(
+    $q$ SELECT category_id, count(*) FROM test WHERE message ||| 'beer' GROUP BY category_id $q$,
+    'ParadeDB Aggregate Scan'
+);
+"""
+sql = """
+SELECT category_id, count(*) FROM test WHERE message ||| 'beer' GROUP BY category_id;
+"""
+
+[[jobs]]
+refresh_ms = 5
+title = "Score-ordered Top K Base Scan"
 log_tps = true
 on_connect = """
 SELECT assert_plan_contains(
@@ -200,7 +231,7 @@ SELECT id FROM test WHERE message ||| 'beer' ORDER BY paradedb.score(id) DESC LI
 
 [[jobs]]
 refresh_ms = 5
-title = "Join Search"
+title = "JoinScan"
 log_tps = true
 on_connect = """
 SET paradedb.enable_join_custom_scan = on;

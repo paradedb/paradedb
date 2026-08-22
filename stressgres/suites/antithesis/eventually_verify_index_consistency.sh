@@ -11,8 +11,8 @@ set -Eeuo pipefail
 
 CONN="postgresql://postgres:antithesis-super-secret-password@paradedb-rw:5432/paradedb?connect_timeout=5"
 
-# EXECUTE keeps the pdb reference out of parse time: the vanilla-postgres timeline has no
-# pg_search extension, so the DO block must no-op there.
+# EXECUTE keeps the pdb reference out of parse time when a topology has not installed pg_search
+# in the database being inspected, so the DO block can safely no-op there.
 read -r -d '' SQL <<'EOF' || true
 DO $$
 DECLARE

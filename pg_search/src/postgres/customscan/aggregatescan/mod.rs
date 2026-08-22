@@ -520,6 +520,10 @@ impl CustomScan for AggregateScan {
                             // NUMERIC field therefore keeps declining until the spec
                             // gains a DataFusion translation.
                             || (!has_paradedb_agg && builder.args().has_numeric_aggregate())
+                            // DATE grouping requires exact integer timestamp arithmetic.
+                            // Tantivy histogram aggregation converts bucket keys to f64,
+                            // which cannot represent Postgres full timestamp range.
+                            || (!has_paradedb_agg && builder.args().has_date_group())
                     };
                 if use_datafusion {
                     if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg_recursive {

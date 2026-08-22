@@ -73,8 +73,7 @@ WITH (
 );
 SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
--- TEST: 3-way join with summed scores and ORDER BY score DESC LIMIT
--- This is the exact query pattern from the benchmark that triggers the error.
+-- TEST 1: 3-way join with summed scores and ORDER BY score DESC LIMIT
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT *, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score
@@ -86,49 +85,34 @@ WHERE documents.parents @@@ 'project alpha'
   AND pages.content @@@ 'Single Number Reach'
 ORDER BY score DESC
 LIMIT 1000;
-WARNING:  JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation (tables: documents, files, pages)
-                                                                                                                                               QUERY PLAN                                                                                                                                                
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                           QUERY PLAN                                                                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: documents.id, documents.parents, documents.content, documents.title, files.id, files."documentId", files.content, files.title, pages.id, pages."fileId", pages.content, pages.title, ((((paradedb.score(documents.id)) + (paradedb.score(files.id))) + (paradedb.score(pages.id))))
-   ->  Sort
-         Output: documents.id, documents.parents, documents.content, documents.title, files.id, files."documentId", files.content, files.title, pages.id, pages."fileId", pages.content, pages.title, ((((paradedb.score(documents.id)) + (paradedb.score(files.id))) + (paradedb.score(pages.id))))
-         Sort Key: ((((paradedb.score(documents.id)) + (paradedb.score(files.id))) + (paradedb.score(pages.id)))) DESC
-         ->  Nested Loop
-               Output: documents.id, documents.parents, documents.content, documents.title, files.id, files."documentId", files.content, files.title, pages.id, pages."fileId", pages.content, pages.title, (((paradedb.score(documents.id)) + (paradedb.score(files.id))) + (paradedb.score(pages.id)))
-               Inner Unique: true
-               Join Filter: (documents.id = files."documentId")
-               ->  Hash Join
-                     Output: files.id, files."documentId", files.content, files.title, (paradedb.score(files.id)), pages.id, pages."fileId", pages.content, pages.title, (paradedb.score(pages.id))
-                     Inner Unique: true
-                     Hash Cond: (pages."fileId" = files.id)
-                     ->  Custom Scan (ParadeDB Base Scan) on public.pages
-                           Output: pages.id, pages."fileId", pages.content, pages.title, paradedb.score(pages.id), paradedb.score(pages.id)
-                           Table: pages
-                           Index: pages_bm25
-                           Worker Selection: Cost model
-                           Exec Method: NormalScanExecState
-                           Scores: true
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Single Number Reach","lenient":null,"conjunction_mode":null}}}}
-                     ->  Hash
-                           Output: files.id, files."documentId", files.content, files.title, (paradedb.score(files.id)), (paradedb.score(files.id))
-                           ->  Custom Scan (ParadeDB Base Scan) on public.files
-                                 Output: files.id, files."documentId", files.content, files.title, paradedb.score(files.id), paradedb.score(files.id)
-                                 Table: files
-                                 Index: files_bm25
-                                 Worker Selection: Cost model
-                                 Exec Method: NormalScanExecState
-                                 Scores: true
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"collab12","lenient":null,"conjunction_mode":null}}}}
-               ->  Custom Scan (ParadeDB Base Scan) on public.documents
-                     Output: documents.id, documents.parents, documents.content, documents.title, paradedb.score(documents.id), paradedb.score(documents.id)
-                     Table: documents
-                     Index: documents_bm25
-                     Worker Selection: Cost model
-                     Exec Method: NormalScanExecState
-                     Scores: true
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"project alpha","lenient":null,"conjunction_mode":null}}}}
-(39 rows)
+   ->  Result
+         Output: documents.id, documents.parents, documents.content, documents.title, files.id, files."documentId", files.content, files.title, pages.id, pages."fileId", pages.content, pages.title, (((paradedb.score(documents.id)) + (paradedb.score(files.id))) + (paradedb.score(pages.id)))
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: documents.id, documents.parents, documents.content, documents.title, (paradedb.score(documents.id)), files.id, files."documentId", files.content, files.title, (paradedb.score(files.id)), pages.id, pages."fileId", pages.content, pages.title, (paradedb.score(pages.id))
+               Relation Tree: documents INNER (pages INNER files)
+               Join Cond: documents.id = files.documentId, files.id = pages.fileId
+               Limit: 1000
+               Order By: sum(pdb.score()) desc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, score@0 as col_5, id@9 as col_6, documentId@8 as col_7, NULL as col_8, NULL as col_9, score@6 as col_10, NULL as col_11, fileId@5 as col_12, NULL as col_13, NULL as col_14, score@3 as col_15, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1, ctid_2@7 as ctid_2]
+                 :   SortExec: TopK(fetch=1000), expr=[score@0 + score@6 + score@3 DESC], preserve_partitioning=[false]
+                 :     VisibilityFilterExec: tables=[documents, pages, files]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@6, fileId@2)], projection=[score@0, ctid_0@1, id@2, score@7, ctid_1@8, fileId@9, score@3, ctid_2@4, documentId@5, id@6]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, documentId@2)]
+                 :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_0@1 as ctid_0, id@2 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan: table=documents, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"project alpha","lenient":null,"conjunction_mode":null}}}}
+                 :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_2@1 as ctid_2, documentId@2 as documentId, id@3 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan: table=files, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"collab12","lenient":null,"conjunction_mode":null}}}}
+                 :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, fileId@2 as fileId]
+                 :           CooperativeExec
+                 :             PgSearchScan: table=pages, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Single Number Reach","lenient":null,"conjunction_mode":null}}}}
+(25 rows)
 
 SELECT *, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score
 FROM documents
@@ -139,11 +123,117 @@ WHERE documents.parents @@@ 'project alpha'
   AND pages.content @@@ 'Single Number Reach'
 ORDER BY score DESC
 LIMIT 1000;
-WARNING:  JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation (tables: documents, files, pages)
   id   |       parents       |           content            |   title   |   id   | documentId |        content         |        title        |   id   | fileId |              content              | title  |   score   
 -------+---------------------+------------------------------+-----------+--------+------------+------------------------+---------------------+--------+--------+-----------------------------------+--------+-----------
- doc-1 | project alpha notes | Document about project alpha | Alpha Doc | file-1 | doc-1      | File content for alpha | collab12 alpha file | page-1 | file-1 | Single Number Reach configuration | Page A | 3.2872329
  doc-1 | project alpha notes | Document about project alpha | Alpha Doc | file-2 | doc-1      | File content misc      | collab12 misc file  | page-3 | file-2 | Single Number Reach details       | Page C | 3.2872329
+ doc-1 | project alpha notes | Document about project alpha | Alpha Doc | file-1 | doc-1      | File content for alpha | collab12 alpha file | page-1 | file-1 | Single Number Reach configuration | Page A | 3.2872329
+(2 rows)
+
+-- =============================================================================
+-- TEST 2: 2-way join with summed scores and ORDER BY score DESC LIMIT
+-- =============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT documents.id, files.id, paradedb.score(documents.id) + paradedb.score(files.id) AS score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+WHERE documents.parents @@@ 'project alpha'
+  AND files.title @@@ 'collab12'
+ORDER BY score DESC
+LIMIT 10;
+                                                                                                                QUERY PLAN                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: documents.id, files.id, (((paradedb.score(documents.id)) + (paradedb.score(files.id))))
+   ->  Result
+         Output: documents.id, files.id, ((paradedb.score(documents.id)) + (paradedb.score(files.id)))
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: documents.id, (paradedb.score(documents.id)), files.id, (paradedb.score(files.id))
+               Relation Tree: files INNER documents
+               Join Cond: documents.id = files.documentId
+               Limit: 10
+               Order By: sum(pdb.score()) desc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@4 as col_1, score@2 as col_2, NULL as col_3, score@0 as col_4, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
+                 :   SortExec: TopK(fetch=10), expr=[score@2 + score@0 DESC], preserve_partitioning=[false]
+                 :     VisibilityFilterExec: tables=[files, documents]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(documentId@2, id@2)], projection=[score@0, ctid_0@1, score@3, ctid_1@4, id@5]
+                 :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_0@1 as ctid_0, documentId@2 as documentId]
+                 :           CooperativeExec
+                 :             PgSearchScan: table=files, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"collab12","lenient":null,"conjunction_mode":null}}}}
+                 :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, id@2 as id]
+                 :           CooperativeExec
+                 :             PgSearchScan: table=documents, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"project alpha","lenient":null,"conjunction_mode":null}}}}
+(21 rows)
+
+SELECT documents.id, files.id, paradedb.score(documents.id) + paradedb.score(files.id) AS score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+WHERE documents.parents @@@ 'project alpha'
+  AND files.title @@@ 'collab12'
+ORDER BY score DESC
+LIMIT 10;
+  id   |   id   |   score   
+-------+--------+-----------
+ doc-1 | file-2 | 1.3226074
+ doc-1 | file-1 | 1.3226074
+(2 rows)
+
+-- =============================================================================
+-- TEST 3: Multi-key ORDER BY with score sum and secondary column
+-- =============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS pdb_score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+JOIN pages ON pages."fileId" = files.id
+WHERE documents.parents @@@ 'project alpha'
+  AND files.title @@@ 'collab12'
+  AND pages.content @@@ 'Single Number Reach'
+ORDER BY pdb_score DESC, pages.id DESC
+LIMIT 10;
+                                                                                                                  QUERY PLAN                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: documents.id, files.id, pages.id, ((((pdb.score(documents.id)) + (pdb.score(files.id))) + (pdb.score(pages.id))))
+   ->  Result
+         Output: documents.id, files.id, pages.id, (((pdb.score(documents.id)) + (pdb.score(files.id))) + (pdb.score(pages.id)))
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: documents.id, (pdb.score(documents.id)), files.id, (pdb.score(files.id)), pages.id, (pdb.score(pages.id))
+               Relation Tree: documents INNER (pages INNER files)
+               Join Cond: documents.id = files.documentId, files.id = pages.fileId
+               Limit: 10
+               Order By: sum(pdb.score()) desc, pages.id desc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@2 as col_1, score@0 as col_2, id@8 as col_3, score@6 as col_4, id@5 as col_5, score@3 as col_6, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1, ctid_2@7 as ctid_2]
+                 :   SortExec: TopK(fetch=10), expr=[score@0 + score@6 + score@3 DESC, id@5 DESC], preserve_partitioning=[false]
+                 :     VisibilityFilterExec: tables=[documents, pages, files]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@5, fileId@2)], projection=[score@0, ctid_0@1, id@2, score@6, ctid_1@7, id@9, score@3, ctid_2@4, id@5]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, documentId@2)], projection=[score@0, ctid_0@1, id@2, score@3, ctid_2@4, id@6]
+                 :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_0@1 as ctid_0, id@2 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan: table=documents, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"project alpha","lenient":null,"conjunction_mode":null}}}}
+                 :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_2@1 as ctid_2, documentId@2 as documentId, id@3 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan: table=files, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"collab12","lenient":null,"conjunction_mode":null}}}}
+                 :         TantivyLookupExec: decode=[id]
+                 :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, fileId@2 as fileId, id@3 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan: table=pages, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Single Number Reach","lenient":null,"conjunction_mode":null}}}}
+(26 rows)
+
+SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS pdb_score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+JOIN pages ON pages."fileId" = files.id
+WHERE documents.parents @@@ 'project alpha'
+  AND files.title @@@ 'collab12'
+  AND pages.content @@@ 'Single Number Reach'
+ORDER BY pdb_score DESC, pages.id DESC
+LIMIT 10;
+  id   |   id   |   id   | pdb_score 
+-------+--------+--------+-----------
+ doc-1 | file-2 | page-3 | 3.2872329
+ doc-1 | file-1 | page-1 | 3.2872329
 (2 rows)
 
 -- =============================================================================

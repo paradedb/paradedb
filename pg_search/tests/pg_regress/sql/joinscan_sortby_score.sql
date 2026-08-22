@@ -88,8 +88,7 @@ WITH (
 SET paradedb.enable_join_custom_scan = on;
 
 -- =============================================================================
--- TEST: 3-way join with summed scores and ORDER BY score DESC LIMIT
--- This is the exact query pattern from the benchmark that triggers the error.
+-- TEST 1: 3-way join with summed scores and ORDER BY score DESC LIMIT
 -- =============================================================================
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -112,6 +111,52 @@ WHERE documents.parents @@@ 'project alpha'
   AND pages.content @@@ 'Single Number Reach'
 ORDER BY score DESC
 LIMIT 1000;
+
+-- =============================================================================
+-- TEST 2: 2-way join with summed scores and ORDER BY score DESC LIMIT
+-- =============================================================================
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT documents.id, files.id, paradedb.score(documents.id) + paradedb.score(files.id) AS score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+WHERE documents.parents @@@ 'project alpha'
+  AND files.title @@@ 'collab12'
+ORDER BY score DESC
+LIMIT 10;
+
+SELECT documents.id, files.id, paradedb.score(documents.id) + paradedb.score(files.id) AS score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+WHERE documents.parents @@@ 'project alpha'
+  AND files.title @@@ 'collab12'
+ORDER BY score DESC
+LIMIT 10;
+
+-- =============================================================================
+-- TEST 3: Multi-key ORDER BY with score sum and secondary column
+-- =============================================================================
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS pdb_score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+JOIN pages ON pages."fileId" = files.id
+WHERE documents.parents @@@ 'project alpha'
+  AND files.title @@@ 'collab12'
+  AND pages.content @@@ 'Single Number Reach'
+ORDER BY pdb_score DESC, pages.id DESC
+LIMIT 10;
+
+SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS pdb_score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+JOIN pages ON pages."fileId" = files.id
+WHERE documents.parents @@@ 'project alpha'
+  AND files.title @@@ 'collab12'
+  AND pages.content @@@ 'Single Number Reach'
+ORDER BY pdb_score DESC, pages.id DESC
+LIMIT 10;
 
 -- =============================================================================
 -- CLEANUP

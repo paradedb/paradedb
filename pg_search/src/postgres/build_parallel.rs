@@ -720,21 +720,30 @@ impl<'a> WorkerBuildState<'a> {
         isnull: *mut bool,
         ctid: u64,
     ) -> anyhow::Result<()> {
-        let unpacked_composites =
-            CompositeSlotValues::from_composites(collect_composites_for_unpacking(
-                self.categorized_fields.iter().map(|(_, cat)| cat),
-                values,
-                isnull,
-            ));
+        let categorized_fields = &self.categorized_fields;
         let partitioning = self
             .partitioning
             .as_mut()
             .expect("route_and_spill: partitioning should be set");
-        let pid = partitioning.route(values, isnull, &unpacked_composites)?;
-        partitioning
-            .sorter
-            .put(&encode_sort_record(pid as u32, ctid));
-        Ok(())
+        // Routing pallocs per row (composite unpacking, detoast, numeric conversion) and the
+        // callback's context lives for the whole scan, so run it in the per-row context and
+        // reset after, like the document branch. `Sorter::put` copies the record into the
+        // sort's own context, so it survives the reset.
+        let result = self.per_row_context.switch_to(|_| {
+            let unpacked_composites =
+                CompositeSlotValues::from_composites(collect_composites_for_unpacking(
+                    categorized_fields.iter().map(|(_, cat)| cat),
+                    values,
+                    isnull,
+                ));
+            let pid = partitioning.route(values, isnull, &unpacked_composites)?;
+            partitioning
+                .sorter
+                .put(&encode_sort_record(pid as u32, ctid));
+            Ok(())
+        });
+        self.per_row_context.reset();
+        result
     }
 
     /// Bump the worker-local tuple count and periodically fold it into the shared progress

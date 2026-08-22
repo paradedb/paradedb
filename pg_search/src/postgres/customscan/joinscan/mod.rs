@@ -169,7 +169,7 @@ use self::scan_state::{
 };
 use crate::api::HashSet;
 use crate::api::OrderByFeature;
-use crate::index::mvcc::MvccSatisfies;
+use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
@@ -796,6 +796,41 @@ impl JoinScan {
         state.custom_state_mut().source_manifests = manifests;
     }
 
+    /// Build the plan_position → segment view list every reader of a source replays.
+    ///
+    /// This is keyed by plan_position rather than indexrelid because it is a
+    /// per-source contract, not just a per-index one. The same index can appear
+    /// more than once in one JoinScan plan; in parallel execution those source
+    /// copies can also carry different canonical segment sets (partitioned vs
+    /// replicated). If this were keyed only by indexrelid, one source could
+    /// inject another source's segment set and make packed DocAddresses resolve
+    /// against the wrong segment ordering.
+    ///
+    /// The manifests are also what populates the DSM, so the leader's providers and every
+    /// worker reader open the same view.
+    fn build_index_segment_views(
+        state: &mut CustomScanStateWrapper<Self>,
+        _join_clause: &JoinCSClause,
+        plan_sources: &[&build::JoinSource],
+    ) -> Vec<SegmentView> {
+        Self::ensure_source_manifests(state);
+        (0..plan_sources.len())
+            .map(|plan_position| {
+                state
+                    .custom_state()
+                    .source_manifests
+                    .get(plan_position)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "missing source manifest for join source at plan_position \
+                             {plan_position}"
+                        )
+                    })
+                    .segment_view()
+            })
+            .collect()
+    }
+
     /// Whether any `SearchQueryInput` reachable from `join_clause` — scan-node queries AND
     /// `join_level_predicates` — still carries a Param or PostgresExpression(SubPlan) the
     /// executor needs to resolve. Clause-wide (not per-source): a cross-relation predicate
@@ -856,11 +891,11 @@ impl JoinScan {
         physical: &Arc<dyn ExecutionPlan>,
     ) -> Option<crate::postgres::customscan::mpp::glue::MppLeaderState> {
         Self::ensure_source_manifests(state);
-        let all_sources: Vec<&[tantivy::SegmentReader]> = state
+        let all_sources: Vec<SegmentView> = state
             .custom_state()
             .source_manifests
             .iter()
-            .map(|manifest| manifest.segment_readers())
+            .map(|manifest| manifest.segment_view())
             .collect();
         let args = ParallelScanArgs {
             all_sources,
@@ -1296,6 +1331,7 @@ impl CustomScan for JoinScan {
                     None,
                     Some(expr_context.as_ptr()),
                     None,
+                    vec![],
                 )
                 .expect("Failed to deserialize logical plan");
                 runtime
@@ -1411,6 +1447,9 @@ impl CustomScan for JoinScan {
                     .clone()
                     .expect("Logical plan is required");
 
+                let index_segment_views =
+                    Self::build_index_segment_views(state, &join_clause, &plan_sources);
+
                 // For parameterized LIMIT/OFFSET, the planning-time logical plan has no Limit
                 // node. Resolve the fetch once; each planning pass below injects it (before
                 // physical planning) so SegmentedTopKRule can detect SortExec(fetch=K) and
@@ -1443,6 +1482,7 @@ impl CustomScan for JoinScan {
                             None,
                             Some(runtime_context),
                             Some(planstate),
+                            index_segment_views.clone(),
                         )
                         .expect("Failed to deserialize logical plan");
                         let logical_plan = match runtime_fetch {
@@ -1508,6 +1548,7 @@ impl CustomScan for JoinScan {
                                 None,
                                 Some(runtime_context),
                                 Some(planstate),
+                                index_segment_views.clone(),
                             )
                             .expect("Failed to deserialize serial fallback logical plan");
                             let logical_plan = match runtime_fetch {

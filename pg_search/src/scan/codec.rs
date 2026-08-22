@@ -27,6 +27,7 @@ use datafusion_proto::logical_plan::LogicalExtensionCodec;
 use datafusion_proto::protobuf::DfSchema;
 use pgrx::pg_sys::{ExprContext, Oid, PlanState};
 
+use crate::index::mvcc::SegmentView;
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterNode;
 use crate::scan::late_materialization::{DeferredField, LateMaterializeNode};
@@ -44,6 +45,10 @@ struct PgSearchExtensionCodec {
     expr_context: Option<*mut ExprContext>,
     /// Executor planstate, needed to initialize runtime Postgres expressions in source queries.
     planstate: Option<*mut PlanState>,
+    /// The leader's segment view of every join source, indexed by plan_position. Every reader
+    /// a decoded plan opens for a source replays its view, so packed addresses stay comparable
+    /// across the leader and its workers.
+    index_segment_views: Vec<SegmentView>,
 }
 
 unsafe impl Send for PgSearchExtensionCodec {}
@@ -211,10 +216,22 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         let mut provider: PgSearchTableProvider = serde_json::from_slice(buf).map_err(|e| {
             DataFusionError::Internal(format!("Failed to deserialize PgSearchTableProvider: {e}"))
         })?;
-        // MPP sources also call `checkout_segment_for_source` against
-        // `parallel_state`, so inject the pointer for them too.
-        if provider.source_idx().is_some() {
+        if let Some(plan_position) = provider.source_idx() {
+            // MPP sources also call `checkout_segment_for_source` against
+            // `parallel_state`, so inject the pointer for them too.
             provider.set_parallel_state(self.parallel_state);
+
+            // An empty list means this decode has no views to offer (plain EXPLAIN), but a
+            // short list is a bug, and falling back to a snapshot open would silently break
+            // the address exchange with the workers.
+            if !self.index_segment_views.is_empty() {
+                let view = self.index_segment_views.get(plan_position).ok_or_else(|| {
+                    DataFusionError::Internal(format!(
+                        "missing canonical segment view for plan_position {plan_position}"
+                    ))
+                })?;
+                provider.set_segment_view(view.clone());
+            }
         }
         provider.set_expr_context(self.expr_context);
         provider.set_planstate(self.planstate);
@@ -298,11 +315,13 @@ pub fn deserialize_logical_plan_with_runtime(
     parallel_state: Option<*mut ParallelScanState>,
     expr_context: Option<*mut ExprContext>,
     planstate: Option<*mut PlanState>,
+    index_segment_views: Vec<SegmentView>,
 ) -> Result<LogicalPlan> {
     let codec = PgSearchExtensionCodec {
         parallel_state,
         expr_context,
         planstate,
+        index_segment_views,
     };
     datafusion_proto::bytes::logical_plan_from_bytes_with_extension_codec(bytes, ctx, &codec)
 }

@@ -134,7 +134,7 @@ pub unsafe fn maybe_init_parallel_scan(
             );
             return None;
         }
-        state.populate(&[searcher.segment_readers()], &[], false, false);
+        state.populate(&[searcher.segment_view()], &[], false, false);
     }
     Some(unsafe { pg_sys::ParallelWorkerNumber })
 }

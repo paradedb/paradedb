@@ -17,7 +17,7 @@
 
 use crate::api::Cardinality;
 
-use crate::api::HashSet;
+use crate::index::mvcc::SegmentView;
 
 use crate::postgres::ParallelScanState;
 
@@ -175,6 +175,6 @@ pub unsafe fn checkout_segment_for_source(
     (*pscan_state).checkout_segment_for_source(source_idx)
 }
 
-pub unsafe fn list_segment_ids(pscan_state: *mut ParallelScanState) -> HashSet<SegmentId> {
-    (*pscan_state).segments().into_keys().collect()
+pub unsafe fn segment_view(pscan_state: *mut ParallelScanState) -> SegmentView {
+    (*pscan_state).segment_view()
 }

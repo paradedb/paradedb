@@ -85,8 +85,8 @@ Located in the `pg_search/src` directory.
 
 Located in the `stressgres/` directory.
 
-- **Purpose:** Replicate representative customer workloads against ParadeDB (or vanilla Postgres) to surface concurrency, correctness, and performance regressions that don't show up in shorter-lived tests.
-- **Running:** Run a suite interactively with `cargo run -- ui suites/vanilla-postgres.toml`, or headlessly with `cargo run -- headless suites/vanilla-postgres.toml --runtime=300000`.
+- **Purpose:** Replicate representative customer workloads and PostgreSQL topologies against ParadeDB to surface concurrency, correctness, and performance regressions that don't show up in shorter-lived tests.
+- **Running:** Run a suite interactively with `cargo run -- ui suites/single-node-planner-paths.toml`, or headlessly with `cargo run -- headless suites/single-node-planner-paths.toml --runtime=300000`.
 - **Details:** See [`stressgres/README.md`](stressgres/README.md) for more details.
 
 #### Helper scripts

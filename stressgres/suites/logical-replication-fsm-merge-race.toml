@@ -74,6 +74,35 @@ SELECT pg_sleep(5);
 
 CREATE INDEX idxtest ON test USING paradedb (id, message) WITH (key_field = 'id', layer_sizes = '10kb, 100kb, 1mb, 100mb');
 
+CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool LANGUAGE plpgsql AS $$
+BEGIN
+    IF a <> b THEN
+        RAISE EXCEPTION 'Assertion failed: % <> %', a, b;
+    END IF;
+    RETURN true;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION assert_plan_contains(
+    p_query text,
+    p_expected_text text
+) RETURNS boolean AS $$
+DECLARE
+    plan_line text;
+    full_plan text := '';
+BEGIN
+    FOR plan_line IN EXECUTE 'EXPLAIN (VERBOSE) ' || p_query LOOP
+        full_plan := full_plan || plan_line || chr(10);
+        IF plan_line ILIKE '%' || p_expected_text || '%' THEN
+            RETURN true;
+        END IF;
+    END LOOP;
+
+    RAISE EXCEPTION 'Plan assertion failed: expected "%" not found in plan for query: %. Actual plan:%',
+        p_expected_text, p_query, chr(10) || full_plan;
+END;
+$$ LANGUAGE plpgsql;
+
 ALTER SYSTEM SET autovacuum_naptime TO '1s';
 SELECT pg_reload_conf();
 """
@@ -98,11 +127,11 @@ destination = "Subscriber"
 log_columns = ["pages", "relation_size:MB", "segment_count"]
 log_tps = false
 sql = """
-SELECT count(*) FILTER (WHERE visible)         AS visible,
-       count(*) FILTER (WHERE recyclable)      AS recyclable,
-       count(*)                                AS segment_count,
-       pg_relation_size('idxtest') / 8192      AS pages,
-       pg_relation_size('idxtest')             AS relation_size,
+SELECT count(*) FILTER (WHERE visible) AS visible,
+       count(*) FILTER (WHERE recyclable) AS recyclable,
+       count(*) AS segment_count,
+       pg_relation_size('idxtest') / 8192 AS pages,
+       pg_relation_size('idxtest') AS relation_size,
        pg_size_pretty(pg_relation_size('idxtest'))
 FROM paradedb.index_info('idxtest', true);
 """
@@ -110,55 +139,64 @@ destinations = ["Subscriber"]
 
 [[jobs]]
 refresh_ms = 5
-title = "Custom Scan"
+title = "Unordered Top K Base Scan"
 on_connect = """
-SET enable_indexonlyscan to OFF;
-SET enable_indexscan to OFF;
+SET max_parallel_workers_per_gather = 0;
+SELECT assert_plan_contains(
+    $q$ SELECT id, message, old_message FROM test WHERE message &&& 'beer wine' LIMIT 50 $q$,
+    'TopKScanExecState'
+);
 """
 sql = """
-SELECT count(*) FROM test WHERE id @@@ 'message:beer';
+SELECT id, message, old_message FROM test WHERE message &&& 'beer wine' LIMIT 50;
 """
 destinations = ["Subscriber"]
 
 [[jobs]]
 refresh_ms = 5
-title = "Top K"
+title = "Normal Base Scan"
 on_connect = """
-SET enable_indexonlyscan to OFF;
-SET enable_indexscan to OFF;
-"""
-sql = "SELECT * FROM test WHERE id @@@ 'message:wine' ORDER BY id DESC LIMIT 25"
-destinations = ["Subscriber"]
-
-[[jobs]]
-refresh_ms = 5
-title = "Parallel Custom Scan"
-on_connect = """
-SET enable_indexonlyscan to OFF;
-SET enable_indexscan to OFF;
-SET debug_parallel_query TO ON;
+SET max_parallel_workers_per_gather = 0;
+SELECT assert_plan_contains(
+    $q$ SELECT id, message, old_message FROM test WHERE message &&& 'beer wine' $q$,
+    'NormalScanExecState'
+);
 """
 sql = """
-SELECT count(*) FROM test WHERE id @@@ 'message:cheese';
+SELECT id, message, old_message FROM test WHERE message &&& 'beer wine';
 """
 destinations = ["Subscriber"]
 
 [[jobs]]
 refresh_ms = 5
-title = "Index Only Scan"
+title = "Aggregate Scan"
+on_connect = """
+SELECT assert_plan_contains(
+    $q$ SELECT count(*) FROM test WHERE message ||| 'beer' $q$,
+    'ParadeDB Aggregate Scan'
+);
+"""
+sql = """
+SELECT assert(count(*), 51), count(*) FROM test WHERE message ||| 'beer';
+"""
+destinations = ["Subscriber"]
+
+[[jobs]]
+refresh_ms = 5
+title = "Postgres Index Scan Fallback"
 on_connect = """
 SET max_parallel_workers = 0;
-SET paradedb.enable_custom_scan to off;
+SET paradedb.enable_custom_scan = off;
+SET enable_seqscan = off;
+SELECT assert_plan_contains(
+    $q$ SELECT id, message, old_message FROM test WHERE message ||| 'bread' LIMIT 25 $q$,
+    'Index Scan'
+);
 """
 sql = """
-SELECT count(*) FROM test WHERE id @@@ 'message:bread';
+SELECT id, message, old_message FROM test WHERE message ||| 'bread' LIMIT 25;
 """
 destinations = ["Subscriber"]
-
-##
-## These UPDATE/INSERT/DELETE jobs run on the primary, which has no pg_search index, so there's no need for us to
-## log their tps -- nothing we can do about that
-##
 
 [[jobs]]
 refresh_ms = 50

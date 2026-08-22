@@ -103,6 +103,8 @@ ANALYZE mppc_categories;
 // Forces the join through MPP and zeroes the parallel costs so the planner always picks it.
 const MPP_GUCS: &str = r#"
 SET paradedb.enable_join_custom_scan TO on;
+-- The fixture tables are tiny; disable the size gate so MPP engages.
+SET paradedb.mpp_min_rows TO 0;
 SET max_parallel_workers_per_gather TO 2;
 SET max_parallel_workers TO 8;
 SET min_parallel_table_scan_size TO 0;

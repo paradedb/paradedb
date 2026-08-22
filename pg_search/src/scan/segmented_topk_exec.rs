@@ -100,7 +100,9 @@ use datafusion::physical_plan::filter_pushdown::{
 use datafusion::physical_plan::metrics::{
     Count, ExecutionPlanMetricsSet, MetricBuilder, MetricsSet,
 };
-use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
+use datafusion::physical_plan::{
+    DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties, apply_expression_roots,
+};
 use pgrx::pg_sys;
 use std::sync::{Arc, Mutex};
 use tantivy::termdict::TermOrdinal;
@@ -572,6 +574,15 @@ impl ExecutionPlan for SegmentedTopKExec {
 
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
         vec![&self.input]
+    }
+
+    fn apply_expressions(
+        &self,
+        f: &mut dyn FnMut(
+            &Arc<dyn PhysicalExpr>,
+        ) -> Result<datafusion::common::tree_node::TreeNodeRecursion>,
+    ) -> Result<datafusion::common::tree_node::TreeNodeRecursion> {
+        apply_expression_roots([&self.dynamic_filter], f)
     }
 
     fn with_new_children(

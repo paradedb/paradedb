@@ -32,7 +32,10 @@ use datafusion::physical_plan::filter_pushdown::{
     ChildPushdownResult, FilterDescription, FilterPushdownPhase, FilterPushdownPropagation,
 };
 use datafusion::physical_plan::metrics::MetricsSet;
-use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
+use datafusion::physical_plan::{
+    ChildrenPropertiesMode, DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties,
+    ReplaceChildrenOptions,
+};
 
 #[derive(Debug)]
 pub struct FilterPassthroughExec {
@@ -71,11 +74,23 @@ impl ExecutionPlan for FilterPassthroughExec {
         self.inner.children()
     }
 
+    fn apply_expressions(
+        &self,
+        _f: &mut dyn FnMut(
+            &Arc<dyn PhysicalExpr>,
+        ) -> Result<datafusion::common::tree_node::TreeNodeRecursion>,
+    ) -> Result<datafusion::common::tree_node::TreeNodeRecursion> {
+        Ok(datafusion::common::tree_node::TreeNodeRecursion::Continue)
+    }
+
     fn with_new_children(
         self: Arc<Self>,
         children: Vec<Arc<dyn ExecutionPlan>>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        let new_inner = Arc::clone(&self.inner).with_new_children(children)?;
+        let new_inner = Arc::clone(&self.inner).replace_children(
+            children,
+            ReplaceChildrenOptions::new(ChildrenPropertiesMode::Recompute),
+        )?;
         Ok(Arc::new(FilterPassthroughExec::new(new_inner)))
     }
 

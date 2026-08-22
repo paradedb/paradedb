@@ -475,8 +475,10 @@ struct WorkerBuildState<'a> {
     unmerged_metas: Vec<SegmentMeta>,
     local_tuple_done_count: usize, // worker-local number of tuples done - used to updated the shared `ntuples_done` in `coordination`
     is_leader: bool,
-    // whether the first flushed segment's on-disk size has been reported to the disk guard
-    recorded_segment_bytes: bool,
+    // the first flushed segment's on-disk size, once observed. Segments are memory-budget
+    // bound, so one sample is representative; the partitioned drain re-applies it to each
+    // per-cell writer's fresh disk guard.
+    sampled_segment_bytes: Option<u64>,
     // For a partitioned build: phase-1 routing and spill state. `None` on the regular path.
     partitioning: Option<PartitionSpill>,
     // The writer config, kept to reopen the per-cell writers on the partitioned drain.
@@ -552,7 +554,7 @@ impl<'a> WorkerBuildState<'a> {
             unmerged_metas: Default::default(),
             local_tuple_done_count: 0,
             is_leader,
-            recorded_segment_bytes: false,
+            sampled_segment_bytes: None,
             partitioning,
             writer_config: config,
             worker_number,
@@ -568,7 +570,7 @@ impl<'a> WorkerBuildState<'a> {
         let remaining = self.target_segment_count.saturating_sub(written);
 
         let mut segment_bytes = None;
-        if !self.recorded_segment_bytes {
+        if self.sampled_segment_bytes.is_none() {
             unsafe {
                 MetaPage::open(&self.indexrel)
                     .segment_metas()
@@ -578,7 +580,7 @@ impl<'a> WorkerBuildState<'a> {
                         }
                     });
             }
-            self.recorded_segment_bytes = segment_bytes.is_some();
+            self.sampled_segment_bytes = segment_bytes;
         }
 
         let Some(writer) = self.writer.as_mut() else {
@@ -876,14 +878,18 @@ impl<'a> WorkerBuildState<'a> {
             .indexrel
             .is_create_index()
             .then(|| DiskSpaceGuard::new(&self.indexrel));
-        self.writer = Some(
-            SerialIndexWriter::open(
-                &self.indexrel,
-                self.writer_config.clone(),
-                self.worker_number,
-            )?
-            .with_disk_guard(disk_guard),
-        );
+        let mut writer = SerialIndexWriter::open(
+            &self.indexrel,
+            self.writer_config.clone(),
+            self.worker_number,
+        )?
+        .with_disk_guard(disk_guard);
+        // The segment size is sampled once per build, so this writer's fresh guard has not
+        // seen it; without it the guard never projects and its check is a no-op.
+        if let Some(bytes) = self.sampled_segment_bytes {
+            writer.set_segment_byte_size(bytes);
+        }
+        self.writer = Some(writer);
         Ok(())
     }
 }

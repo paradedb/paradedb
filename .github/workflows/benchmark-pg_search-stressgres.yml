@@ -48,14 +48,14 @@ jobs:
       max-parallel: 1
       matrix:
         suite:
-          - single-node-planner-paths.toml
-          - bulk-update-merge-pressure.toml
-          - wide-table.toml
           - background-merge.toml
-          - logical-replication-mixed-workload.toml
+          - bulk-update-merge-pressure.toml
           - logical-replication-fsm-merge-race.toml
-          - partitioned-table.toml
+          - logical-replication-mixed-workload.toml
           - logical-replication-multi-subscriber.toml
+          - partitioned-table.toml
+          - single-node-planner-paths.toml
+          - wide-table.toml
     runs-on:
       # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
       - runs-on=${{ github.run_id }}

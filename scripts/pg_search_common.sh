@@ -6,10 +6,10 @@
 # for the pg_search extension. It is meant to be sourced by other scripts.
 #
 # Possible PostgreSQL version values:
-#  - 15.15
-#  - 16.11
-#  - 17.7
-#  - 18.1 (default)
+#  - 15.19
+#  - 16.15
+#  - 17.11
+#  - 18.6 (default)
 #
 # After sourcing, the following are available:
 #  - BUILD_PARAMS: array of build flags (--release, --profile <value>)
@@ -53,12 +53,12 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 # Change to pg_search directory
 cd "${SCRIPT_DIR}/../pg_search" || exit 1
 
-# Set PostgreSQL version or use default 18.1
-PGVER=${PGVER:-18.1}
+# Set PostgreSQL version or use default 18.6
+PGVER=${PGVER:-18.6}
 
 # Extract major version and set port and feature flag
 BASEVER=$(echo "${PGVER}" | cut -f1 -d.)
-PORT=288${BASEVER}  # Port 2880 + major version (e.g., 28818 for version 18.1)
+PORT=288${BASEVER}  # Port 2880 + major version (e.g., 28818 for version 18.6)
 FEATURE=pg${BASEVER}  # Feature flag (e.g., pg18)
 
 # Enable command echo for debugging the setup steps below. It is disabled again

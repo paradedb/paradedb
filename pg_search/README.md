@@ -3,7 +3,7 @@
 <br>
 </h1>
 
-This README covers development of the `pg_search` extension. For installation, deployment, and usage, see the [top-level ParadeDB README](../README.md) or the [ParadeDB documentation](https://docs.paradedb.com).
+For installation, deployment, and usage, see the [ParadeDB documentation](https://docs.paradedb.com).
 
 `pg_search` is supported on official PostgreSQL Global Development Group Postgres versions, starting at PostgreSQL 15.
 
@@ -44,14 +44,14 @@ cargo pgrx init
 
 ### pgvector
 
-`pgvector` is needed for hybrid search integration tests. To build it against the pgrx-managed Postgres install (replace `18.3` with the version under `~/.pgrx/`):
+`pg_search` uses `pgvector`'s types to index vector fields alongside text and other fields in ParadeDB indexes, so `pgvector` must be available before `pg_search` can be created. To build it against the pgrx-managed Postgres install (replace `18.6` with the version under `~/.pgrx/`):
 
 ```bash
-git clone --branch v0.8.4 https://github.com/pgvector/pgvector.git
+git clone --branch v0.8.6 https://github.com/pgvector/pgvector.git
 cd pgvector/
 
-PG_CONFIG=~/.pgrx/18.3/pgrx-install/bin/pg_config make
-PG_CONFIG=~/.pgrx/18.3/pgrx-install/bin/pg_config make install
+PG_CONFIG=~/.pgrx/18.6/pgrx-install/bin/pg_config make
+PG_CONFIG=~/.pgrx/18.6/pgrx-install/bin/pg_config make install
 ```
 
 ## Running the Extension

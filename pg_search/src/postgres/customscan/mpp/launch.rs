@@ -357,8 +357,7 @@ fn launch_mpp(
         MPP_MQ_SIZE,
     )?;
 
-    // Populate the ParallelScanState in place while the DSM is mapped and the leader still holds
-    // the source manifests `args` borrows.
+    // Populate the ParallelScanState in place while the DSM is mapped.
     let scan_ptr = match launcher.state_manager().slice_mut::<u8>(SCAN_IDX) {
         Ok(Some(s)) => s.as_mut_ptr() as *mut ParallelScanState,
         _ => pgrx::error!("mpp: parallel scan state region missing"),

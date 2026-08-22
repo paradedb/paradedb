@@ -360,11 +360,11 @@ pub unsafe fn load_metas(
 
     loop {
         // Find all relevant segments in this list.
-        segment_metas.for_each(|bman, entry| {
+        segment_metas.for_each(|bman, mut entry| {
             // nobody sees recyclable segments
             let accept = !entry.recyclable(bman) && (
                 // parallel workers only see a specific set of segments.  This relies on the leader having kept a pin on them
-                matches!(solve_mvcc, MvccSatisfies::ParallelWorker(only_these) if only_these.contains(&entry.segment_id()))
+                matches!(solve_mvcc, MvccSatisfies::ParallelWorker(view) if view.contains(&entry.segment_id()))
 
                     // vacuum sees everything that hasn't been deleted by a merge
                     || (matches!(solve_mvcc, MvccSatisfies::Vacuum) && entry.xmax() == pg_sys::InvalidTransactionId)
@@ -378,6 +378,19 @@ pub unsafe fn load_metas(
             if !accept {
                 return;
             };
+
+            // Replay the view's materialization bound so this reader's `DocId`s for the mutable
+            // segment line up with the reader that captured the view.
+            if let MvccSatisfies::ParallelWorker(view) = solve_mvcc {
+                let segment_id = entry.segment_id();
+                if let Some(bound) = view.mutable_bound(&segment_id) {
+                    if let Err(e) = entry.rewind_mutable(bound.max_doc, bound.num_deleted_docs) {
+                        panic!(
+                            "load_metas: cannot replay the parallel view for segment {segment_id}: {e}"
+                        );
+                    }
+                }
+            }
 
             total_segments += 1;
             total_docs += entry.num_docs();
@@ -409,9 +422,7 @@ pub unsafe fn load_metas(
         });
 
         match solve_mvcc {
-            MvccSatisfies::ParallelWorker(only_these)
-                if alive_entries.len() != only_these.len() =>
-            {
+            MvccSatisfies::ParallelWorker(view) if alive_entries.len() != view.len() => {
                 // If we haven't tried the `segment_metas_garbage` list, try that next.
                 if !exhausted_metas_lists {
                     if let Some(garbage) = MetaPage::open(indexrel).segment_metas_garbage() {
@@ -427,11 +438,12 @@ pub unsafe fn load_metas(
                 //
                 // TODO (after some testing):  This situation does indeed happen and I believe that points to a bug, but
                 //        I don't know where it's coming from.  As such, cancelling the query is the expedient decision.
-                let missing = only_these
+                let expected = view.ids().collect::<HashSet<SegmentId>>();
+                let missing = expected
                     .difference(&alive_entries.iter().map(|s| s.segment_id()).collect())
                     .cloned()
                     .collect::<HashSet<SegmentId>>();
-                let found = only_these.difference(&missing).collect::<HashSet<_>>();
+                let found = expected.difference(&missing).collect::<HashSet<_>>();
 
                 panic!(
                     "load_metas: MvccSatisfies::ParallelWorker didn't load the correct segments. \
@@ -439,17 +451,18 @@ pub unsafe fn load_metas(
                 );
             }
             #[cfg(debug_assertions)]
-            MvccSatisfies::ParallelWorker(only_these) => {
+            MvccSatisfies::ParallelWorker(view) => {
                 // In debug mode only, actually do a set comparison to determine that we got the
                 // exact expected segments.
                 let actual = alive_entries
                     .iter()
                     .map(|s| s.segment_id())
                     .collect::<HashSet<_>>();
+                let expected = view.ids().collect::<HashSet<_>>();
                 assert_eq!(
-                    &actual, only_these,
+                    actual, expected,
                     "Got the wrong segments in parallel worker: \
-                     actual: {actual:?}, expected: {only_these:?}"
+                     actual: {actual:?}, expected: {expected:?}"
                 );
                 break;
             }

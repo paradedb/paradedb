@@ -481,13 +481,6 @@ impl PgSearchTableProvider {
             Some(ffhelper)
         };
 
-        let table_alias = self.scan_info.alias.clone().unwrap_or_else(|| {
-            match self.deferred_ctid_plan_position() {
-                Some(pos) => format!("source_{pos}"),
-                None => format!("table_{}", self.scan_info.heaprelid),
-            }
-        });
-
         Ok(Arc::new(
             PgSearchScanPlan::new(
                 state,
@@ -502,8 +495,18 @@ impl PgSearchTableProvider {
                 parallel_state,
                 self.range_sample.clone(),
             )
-            .with_table_alias(table_alias),
+            .with_table_alias(self.table_alias()),
         ))
+    }
+
+    fn table_alias(&self) -> String {
+        self.scan_info
+            .alias
+            .clone()
+            .unwrap_or_else(|| match self.deferred_ctid_plan_position() {
+                Some(pos) => format!("source_{pos}"),
+                None => format!("table_{}", self.scan_info.heaprelid),
+            })
     }
 
     /// Creates a single-partition `PgSearchScanPlan` for lazy scans.
@@ -642,9 +645,6 @@ impl PgSearchTableProvider {
         let planstate = self.planstate;
         let parallel_state = self.parallel_state;
 
-        let heap_rel = PgSearchRelation::open(heap_relid);
-        let index_rel = PgSearchRelation::open(index_relid);
-
         // Solve runtime Postgres expressions (prepared-statement params, etc.) here in scan()
         // rather than earlier because each process (leader and workers) independently
         // deserializes the logical plan in its own executor context. The
@@ -666,6 +666,63 @@ impl PgSearchTableProvider {
             query.init_postgres_expressions(planstate);
             query.solve_postgres_expressions(expr_context);
         }
+        // The MPP leader never executes producer leaves: it serializes them for fresh PostgreSQL
+        // workers. Avoid opening the same Tantivy indexes in the leader merely to construct the
+        // physical recipe. The leader's canonical segment view supplies the partition count and
+        // is later replayed by worker readers. Range sampling still requires a live leader reader
+        // and therefore retains the reader-backed path.
+        if let (Some(source_idx), None, None, Some(segment_view)) = (
+            self.source_idx,
+            self.parallel_state,
+            self.range_sample.as_ref(),
+            self.segment_view.as_ref(),
+        ) {
+            let segment_count = segment_view.len();
+            let partition_count =
+                std::cmp::min(segment_count, state.config().target_partitions()).max(1);
+            // DistributedLeafExec executes its original scan in the leader when the stage has
+            // one task. Keep that single-partition case reader-backed; multi-partition leaves
+            // cross a network boundary and only their worker variants execute.
+            if partition_count > 1 {
+                let deferred_fields = self.deferred_fields();
+                let deferred_ctid_plan_position = self.deferred_ctid_plan_position();
+                let ffhelper = (!deferred_fields.is_empty()
+                    || deferred_ctid_plan_position.is_some())
+                .then(|| {
+                    Arc::new(FFHelper::deferred(
+                        self.scan_info.indexrelid.to_u32(),
+                        segment_view.clone(),
+                        &projected_fields,
+                    ))
+                });
+                let scanner_config = crate::scan::execution_plan::ScannerConfig {
+                    which_fast_fields: projected_fields,
+                    heap_relid: heap_relid.into(),
+                    batch_size_hint: None,
+                    score_needed: self.scan_info.score_needed,
+                    scan_mode: self.scan_info.mode.clone().with_base_query(query.clone()),
+                };
+                return Ok(Arc::new(
+                    crate::scan::execution_plan::PgSearchScanPlan::new_dispatch_only(
+                        projected_schema,
+                        query,
+                        self.scan_info.estimate.as_planner_estimate(),
+                        scanner_config,
+                        self.scan_info.indexrelid.to_u32(),
+                        self.table_alias(),
+                        source_idx,
+                        deferred_ctid_plan_position,
+                        segment_count,
+                        partition_count,
+                        deferred_fields,
+                        ffhelper,
+                    ),
+                ));
+            }
+        }
+
+        let heap_rel = PgSearchRelation::open(heap_relid);
+        let index_rel = PgSearchRelation::open(index_relid);
         // Replay the view the codec injected for this source, when there is one: the leader's
         // reader then matches the manifest the DSM was populated from. Any other reader opens a
         // plain snapshot.

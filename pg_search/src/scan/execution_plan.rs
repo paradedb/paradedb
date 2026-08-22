@@ -133,11 +133,21 @@ pub enum ExecutionState {
         range_boundaries: RangePartitioning,
         scan_state: Box<UnsafeSendSync<ScanState>>,
     },
+    /// Leader-side MPP recipe. Producer workers rebuild a reader-backed state during physical
+    /// plan decode; executing this state locally is an invariant violation.
+    DispatchOnly { scan_state: DispatchScanState },
     /// The state has been consumed by a call to execute().
     Consumed,
     /// Uninitialized placeholder state.
     #[default]
     Uninitialized,
+}
+
+#[derive(Clone)]
+pub struct DispatchScanState {
+    pub source_idx: usize,
+    pub planner_estimated_rows: u64,
+    pub scanner_config: ScannerConfig,
 }
 
 /// A DataFusion `ExecutionPlan` for scanning `pg_search` index segments.
@@ -232,6 +242,66 @@ impl std::fmt::Debug for PgSearchScanPlan {
 }
 
 impl PgSearchScanPlan {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_dispatch_only(
+        schema: SchemaRef,
+        resolved_query: SearchQueryInput,
+        planner_estimated_rows: u64,
+        scanner_config: ScannerConfig,
+        indexrelid: u32,
+        table_alias: String,
+        source_idx: usize,
+        deferred_ctid_plan_position: Option<usize>,
+        segment_count: usize,
+        partition_count: usize,
+        deferred_fields: Vec<DeferredField>,
+        ffhelper: Option<Arc<FFHelper>>,
+    ) -> Self {
+        assert!(partition_count <= segment_count.max(1));
+        let needs_ffhelper = !deferred_fields.is_empty() || deferred_ctid_plan_position.is_some();
+        assert_eq!(
+            needs_ffhelper,
+            ffhelper.is_some(),
+            "dispatch-only deferred lookup/visibility helper mismatch"
+        );
+        let scan_mode = scanner_config.scan_mode.clone();
+        let partitioning = declared_partitioning(&schema, partition_count, None);
+        let properties = Arc::new(PlanProperties::new(
+            build_equivalence_properties(schema, None),
+            partitioning,
+            EmissionType::Incremental,
+            Boundedness::Bounded,
+        ));
+        Self {
+            state: Mutex::new(ExecutionState::DispatchOnly {
+                scan_state: DispatchScanState {
+                    source_idx,
+                    planner_estimated_rows,
+                    scanner_config,
+                },
+            }),
+            planner_estimated_rows,
+            segment_count,
+            global_partition_count: partition_count,
+            properties,
+            resolved_query,
+            dynamic_filters: Vec::new(),
+            metrics: ExecutionPlanMetricsSet::new(),
+            deferred_fields,
+            // Physical planning associates deferred columns/ctids with this index through the
+            // helper. Its reader remains unopened until a leader-side consumer actually uses it;
+            // worker fragments replace it with their own rebuilt helper during decode.
+            ffhelper,
+            indexrelid,
+            table_alias,
+            deferred_ctid_plan_position,
+            sort_order: None,
+            range_sample: None,
+            assigned_partition: None,
+            scan_mode,
+        }
+    }
+
     /// Creates a new PgSearchScanPlan with pre-opened segments.
     ///
     /// # Arguments
@@ -382,6 +452,9 @@ impl PgSearchScanPlan {
                     scan_state: Box::new(UnsafeSendSync(scan_state.0.clone())),
                 }
             }
+            ExecutionState::DispatchOnly { scan_state } => ExecutionState::DispatchOnly {
+                scan_state: scan_state.clone(),
+            },
             _ => {
                 return Err(DataFusionError::Internal(
                     "Cannot repartition uninitialized or consumed plan".into(),
@@ -516,6 +589,28 @@ impl PgSearchScanPlan {
         let state = match &*state_guard {
             ExecutionState::Shared { scan_state, .. } => scan_state,
             ExecutionState::RangePartitioned { scan_state, .. } => scan_state,
+            ExecutionState::DispatchOnly { scan_state } => {
+                let descriptor = ScanDispatchDescriptor {
+                    schema_proto: Vec::new(),
+                    dynamic_filters: Vec::new(),
+                    score_needed: scan_state.scanner_config.score_needed,
+                    sort_order: self.sort_order.clone(),
+                    indexrelid: self.indexrelid,
+                    table_alias: self.table_alias.clone(),
+                    deferred_fields: self.deferred_fields.clone(),
+                    deferred_ctid_plan_position: self.deferred_ctid_plan_position,
+                    which_fast_fields: scan_state.scanner_config.which_fast_fields.clone(),
+                    heap_relid: scan_state.scanner_config.heap_relid,
+                    batch_size_hint: scan_state.scanner_config.batch_size_hint,
+                    source_idx: Some(scan_state.source_idx),
+                    planner_estimated_rows: scan_state.planner_estimated_rows,
+                    global_partition_count: self.global_partition_count,
+                    range_sample: self.range_sample.clone(),
+                    assigned_partition: self.assigned_partition,
+                    scan_mode: scan_state.scanner_config.scan_mode.clone(),
+                };
+                return self.encode_dispatch_descriptor(descriptor, proto_converter);
+            }
             _ => {
                 return Err(DataFusionError::Internal(
                     "PgSearchScan dispatch: partition already consumed or uninitialized".into(),
@@ -528,27 +623,9 @@ impl PgSearchScanPlan {
             state.0.scanner_config.clone(),
         );
 
-        let schema = self.properties.eq_properties.schema().clone();
-        let schema_proto: datafusion_proto::protobuf::Schema =
-            schema.as_ref().try_into().map_err(|e| {
-                DataFusionError::Internal(format!("PgSearchScan dispatch: schema encode: {e}"))
-            })?;
-
-        // Dynamic filters self-serialize (columns/literals/comparisons only — no pg_search
-        // extension exprs), so the default codec suffices.
-        let codec = DefaultPhysicalExtensionCodec {};
-        let dynamic_filters = self
-            .dynamic_filters
-            .iter()
-            .map(|f| {
-                let node = proto_converter.physical_expr_to_proto(f, &codec)?;
-                Ok(prost::Message::encode_to_vec(&node))
-            })
-            .collect::<Result<Vec<_>>>()?;
-
         let descriptor = ScanDispatchDescriptor {
-            schema_proto: prost::Message::encode_to_vec(&schema_proto),
-            dynamic_filters,
+            schema_proto: Vec::new(),
+            dynamic_filters: Vec::new(),
             score_needed: scanner_config.score_needed,
             sort_order: self.sort_order.clone(),
             indexrelid: self.indexrelid,
@@ -565,6 +642,29 @@ impl PgSearchScanPlan {
             assigned_partition: self.assigned_partition,
             scan_mode: scanner_config.scan_mode,
         };
+        self.encode_dispatch_descriptor(descriptor, proto_converter)
+    }
+
+    fn encode_dispatch_descriptor(
+        &self,
+        mut descriptor: ScanDispatchDescriptor,
+        proto_converter: &dyn PhysicalProtoConverterExtension,
+    ) -> Result<Vec<u8>> {
+        let schema = self.properties.eq_properties.schema().clone();
+        let schema_proto: datafusion_proto::protobuf::Schema =
+            schema.as_ref().try_into().map_err(|e| {
+                DataFusionError::Internal(format!("PgSearchScan dispatch: schema encode: {e}"))
+            })?;
+        descriptor.schema_proto = prost::Message::encode_to_vec(&schema_proto);
+        let codec = DefaultPhysicalExtensionCodec {};
+        descriptor.dynamic_filters = self
+            .dynamic_filters
+            .iter()
+            .map(|f| {
+                let node = proto_converter.physical_expr_to_proto(f, &codec)?;
+                Ok(prost::Message::encode_to_vec(&node))
+            })
+            .collect::<Result<Vec<_>>>()?;
         serde_json::to_vec(&descriptor).map_err(|e| {
             DataFusionError::Internal(format!("PgSearchScan dispatch: serialize: {e}"))
         })
@@ -1001,6 +1101,11 @@ impl ExecutionPlan for PgSearchScanPlan {
                 return Err(DataFusionError::Internal(format!(
                     "PgSearchScanPlan partition {target_partition} executed more than once"
                 )));
+            }
+            ExecutionState::DispatchOnly { .. } => {
+                return Err(DataFusionError::Internal(
+                    "MPP dispatch-only PgSearchScanPlan reached local execution".into(),
+                ));
             }
             ExecutionState::Uninitialized => {
                 let schema = self.properties.eq_properties.schema().clone();
@@ -1443,8 +1548,7 @@ mod tests {
 
     use crate::query::SearchQueryInput;
 
-    use super::PgSearchScanPlan;
-
+    use super::{FFHelper, PgSearchScanPlan, ScannerConfig};
     fn empty_schema() -> SchemaRef {
         Arc::new(Schema::empty())
     }
@@ -1506,6 +1610,44 @@ mod tests {
             None,
             None,
         );
+    }
+
+    #[pg_test]
+    fn dispatch_only_scan_preserves_planning_metadata_but_cannot_execute() {
+        use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
+
+        let plan = PgSearchScanPlan::new_dispatch_only(
+            empty_schema(),
+            SearchQueryInput::All,
+            123,
+            ScannerConfig {
+                which_fast_fields: Vec::new(),
+                heap_relid: 41,
+                batch_size_hint: None,
+                score_needed: false,
+                scan_mode: crate::scan::ScanMode::all(),
+            },
+            42,
+            "catalog".to_string(),
+            3,
+            Some(3),
+            6,
+            4,
+            Vec::new(),
+            Some(Arc::new(FFHelper::empty())),
+        );
+
+        assert!(plan.ffhelper().is_some());
+        assert_eq!(plan.ffhelper().unwrap().num_segments(), 0);
+        assert_eq!(plan.properties().output_partitioning().partition_count(), 4);
+        let repartitioned = plan.repartition(2).expect("dispatch recipe repartitions");
+        assert_eq!(repartitioned.output_partitioning().partition_count(), 2);
+
+        let err = match plan.execute(0, Arc::new(datafusion::execution::TaskContext::default())) {
+            Ok(_) => panic!("a dispatch-only leader leaf must never execute locally"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("dispatch-only"));
     }
 
     #[pg_test]

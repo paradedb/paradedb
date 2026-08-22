@@ -18,9 +18,11 @@
 use std::convert::identity;
 use std::sync::{Arc, OnceLock};
 
+use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::{TantivyValue, is_pgoid_datetime_type};
 use crate::postgres::types_arrow::datetime_to_pg_micros;
 use crate::scan::deferred_encode::unpack_doc_address;
@@ -39,7 +41,7 @@ use tantivy::SegmentOrdinal;
 use tantivy::columnar::{BytesColumn, StrColumn};
 use tantivy::fastfield::{Column, FastFieldReaders};
 use tantivy::termdict::TermOrdinal;
-use tantivy::{DocAddress, DocId};
+use tantivy::{DocAddress, DocId, Searcher};
 
 /// A fast-field index position value.
 pub type FFIndex = usize;
@@ -63,8 +65,22 @@ type ColumnCache = Vec<(String, Option<SearchFieldType>, OnceLock<FFType>)>;
 /// possible when looking up the value of a specific fast field.
 #[derive(Default)]
 pub struct FFHelper {
+    // Keep one cheap, Arc-backed Searcher clone for the whole helper. Holding a
+    // FastFieldReaders clone per segment used to clone Tantivy's Schema for every
+    // segment, even though most columns are opened lazily. On indexes with many
+    // segments that made worker-side MPP plan reconstruction dominate execution.
+    searcher: OnceLock<Searcher>,
+    // MPP planning can construct a helper before it knows whether the corresponding scan or a
+    // downstream visibility/materialization operator will execute in the leader. Keep the exact
+    // segment view needed to open the reader only if the helper is actually used there.
+    deferred_searcher: Option<DeferredSearcher>,
     // A cache of columns and a ctid column for each segment.
-    segment_caches: Vec<(FastFieldReaders, ColumnCache, OnceLock<FFType>)>,
+    segment_caches: Vec<(ColumnCache, OnceLock<FFType>)>,
+}
+
+struct DeferredSearcher {
+    indexrelid: u32,
+    segment_view: SegmentView,
 }
 
 impl FFHelper {
@@ -73,11 +89,35 @@ impl FFHelper {
     }
 
     pub fn with_fields(reader: &SearchIndexReader, fields: &[WhichFastField]) -> Self {
-        let segment_caches = reader
-            .segment_readers()
-            .iter()
-            .map(|reader| {
-                let fast_fields_reader = reader.fast_fields().clone();
+        Self {
+            searcher: OnceLock::from(reader.searcher().clone()),
+            deferred_searcher: None,
+            segment_caches: Self::segment_caches(reader.segment_readers().len(), fields),
+        }
+    }
+
+    pub(crate) fn deferred(
+        indexrelid: u32,
+        segment_view: SegmentView,
+        fields: &[WhichFastField],
+    ) -> Self {
+        let segment_count = segment_view.len();
+        Self {
+            searcher: OnceLock::new(),
+            deferred_searcher: Some(DeferredSearcher {
+                indexrelid,
+                segment_view,
+            }),
+            segment_caches: Self::segment_caches(segment_count, fields),
+        }
+    }
+
+    fn segment_caches(
+        segment_count: usize,
+        fields: &[WhichFastField],
+    ) -> Vec<(ColumnCache, OnceLock<FFType>)> {
+        (0..segment_count)
+            .map(|_| {
                 let mut lookup = Vec::new();
                 for field in fields {
                     match field {
@@ -97,31 +137,61 @@ impl FFHelper {
                         }
                     }
                 }
-                (fast_fields_reader, lookup, OnceLock::default())
+                (lookup, OnceLock::default())
             })
-            .collect();
-        Self { segment_caches }
+            .collect()
+    }
+
+    fn searcher(&self) -> &Searcher {
+        self.searcher.get_or_init(|| {
+            let deferred = self
+                .deferred_searcher
+                .as_ref()
+                .expect("non-empty FFHelper must have a ready or deferred searcher");
+            let index_rel = PgSearchRelation::open(deferred.indexrelid.into());
+            SearchIndexReader::empty(
+                &index_rel,
+                MvccSatisfies::ParallelWorker(deferred.segment_view.clone()),
+            )
+            .expect("failed to open deferred MPP fast-field reader")
+            .searcher()
+            .clone()
+        })
     }
 
     pub fn ctid(&self, segment_ord: SegmentOrdinal) -> &FFType {
-        let (ff_readers, _, ctid) = &self.segment_caches[segment_ord as usize];
-        ctid.get_or_init(|| FFType::new_ctid(ff_readers))
+        let (_, ctid) = &self.segment_caches[segment_ord as usize];
+        ctid.get_or_init(|| {
+            FFType::new_ctid(self.searcher().segment_reader(segment_ord).fast_fields())
+        })
     }
 
     pub fn column(&self, segment_ord: SegmentOrdinal, field: FFIndex) -> &FFType {
-        let (ff_readers, columns, _) = &self.segment_caches[segment_ord as usize];
+        let (columns, _) = &self.segment_caches[segment_ord as usize];
         let column = &columns[field];
-        column.2.get_or_init(|| FFType::new(ff_readers, &column.0))
+        column.2.get_or_init(|| {
+            FFType::new(
+                self.searcher().segment_reader(segment_ord).fast_fields(),
+                &column.0,
+            )
+        })
     }
 
     #[track_caller]
     pub fn value(&self, field: FFIndex, doc_address: DocAddress) -> Option<TantivyValue> {
-        let (ff_readers, columns, _) = &self.segment_caches[doc_address.segment_ord as usize];
+        let (columns, _) = &self.segment_caches[doc_address.segment_ord as usize];
         let column = &columns[field];
         Some(
             column
                 .2
-                .get_or_init(|| FFType::new(ff_readers, &column.0))
+                .get_or_init(|| {
+                    FFType::new(
+                        self.searcher()
+                            .segment_reader(doc_address.segment_ord)
+                            .fast_fields(),
+                        &column.0,
+                    )
+                })
                 .value(doc_address.doc_id, column.1),
         )
     }
@@ -730,4 +800,90 @@ pub(crate) fn ords_to_bytes_array(
     }
 
     Ok(Arc::new(builder.finish()) as ArrayRef)
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use crate::index::mvcc::MvccSatisfies;
+    use crate::index::reader::index::SearchIndexReader;
+    use crate::postgres::rel::PgSearchRelation;
+    use crate::query::SearchQueryInput;
+    use pgrx::prelude::*;
+
+    #[pg_test]
+    fn ffhelper_initializes_only_the_segment_it_reads() {
+        Spi::run(
+            r#"
+            CREATE TABLE ffhelper_lazy_test (
+                id bigint PRIMARY KEY,
+                title text NOT NULL
+            );
+            CREATE INDEX ffhelper_lazy_test_idx ON ffhelper_lazy_test
+            USING paradedb (id, title)
+            WITH (
+                key_field = 'id',
+                target_segment_count = 8,
+                background_layer_sizes = '0'
+            );
+
+            SET paradedb.global_mutable_segment_rows = 0;
+            INSERT INTO ffhelper_lazy_test
+            SELECT g, 'first batch ' || g FROM generate_series(1, 10) AS g;
+            INSERT INTO ffhelper_lazy_test
+            SELECT g, 'second batch ' || g FROM generate_series(11, 20) AS g;
+            RESET paradedb.global_mutable_segment_rows;
+            "#,
+        )
+        .unwrap();
+
+        unsafe { pg_sys::CommandCounterIncrement() };
+
+        let index_oid =
+            Spi::get_one::<pg_sys::Oid>("SELECT 'ffhelper_lazy_test_idx'::regclass::oid")
+                .unwrap()
+                .unwrap();
+        let index_rel = PgSearchRelation::open(index_oid);
+        let reader = SearchIndexReader::open(
+            &index_rel,
+            SearchQueryInput::All,
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .unwrap();
+        assert!(reader.segment_readers().len() >= 2);
+
+        let helper = FFHelper::with_fields(
+            &reader,
+            &[WhichFastField::Named(
+                "id".to_string(),
+                SearchFieldType::I64(pg_sys::INT8OID),
+            )],
+        );
+
+        assert!(
+            helper
+                .segment_caches
+                .iter()
+                .all(|(columns, ctid)| { columns[0].2.get().is_none() && ctid.get().is_none() })
+        );
+
+        // FFHelper's Searcher keeps lazy column access valid after the temporary
+        // SearchIndexReader used during worker setup is dropped.
+        drop(reader);
+        let value = helper.value(0, DocAddress::new(0, 0)).unwrap();
+        assert!(i64::try_from(value).is_ok());
+
+        assert!(helper.segment_caches[0].0[0].2.get().is_some());
+        assert!(
+            helper.segment_caches[1..]
+                .iter()
+                .all(|(columns, ctid)| columns[0].2.get().is_none() && ctid.get().is_none())
+        );
+
+        let first = helper.column(0, 0) as *const FFType;
+        let second = helper.column(0, 0) as *const FFType;
+        assert_eq!(first, second);
+    }
 }

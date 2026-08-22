@@ -61,29 +61,79 @@ const TUPLES_DONE_BATCH_SIZE: usize = 5;
 struct WorkerConfig {
     heaprelid: pg_sys::Oid,
     indexrelid: pg_sys::Oid,
-    concurrent: bool,
+    concurrent: u8,
+    _pad1: [u8; 7],
     current_xid: pg_sys::FullTransactionId,
-    need_wal: bool,
+    need_wal: u8,
+    _pad2: [u8; 7],
     next_xid: pg_sys::FullTransactionId,
+}
+
+// SAFETY: WorkerConfig is #[repr(C)] with explicit padding. All fields
+// are integer types (Oid = u32 wrapper, u8, FullTransactionId = u64
+// wrapper). Every bit pattern is valid.
+unsafe impl bytemuck::Zeroable for WorkerConfig {}
+unsafe impl bytemuck::Pod for WorkerConfig {}
+
+impl WorkerConfig {
+    fn new(
+        heaprelid: pg_sys::Oid,
+        indexrelid: pg_sys::Oid,
+        concurrent: bool,
+        current_xid: pg_sys::FullTransactionId,
+        need_wal: bool,
+        next_xid: pg_sys::FullTransactionId,
+    ) -> Self {
+        Self {
+            heaprelid,
+            indexrelid,
+            concurrent: concurrent as u8,
+            _pad1: [0; 7],
+            current_xid,
+            need_wal: need_wal as u8,
+            _pad2: [0; 7],
+            next_xid,
+        }
+    }
+
+    fn concurrent(&self) -> bool {
+        self.concurrent != 0
+    }
+
+    fn need_wal(&self) -> bool {
+        self.need_wal != 0
+    }
 }
 impl ParallelStateType for WorkerConfig {}
 
 /// Type alias that holds a pointer to a [`pg_sys::ParallelTableScanDescData`] which is over-allocated,
 /// so the [`usize`] field tells us how big it really is, in bytes
 type ScanDesc = (usize, *mut pg_sys::ParallelTableScanDescData);
-impl ParallelStateType for pg_sys::ParallelTableScanDescData {}
+// ParallelTableScanDescData is a foreign bindgen type that cannot implement
+// Pod. It is accessed through object_raw() instead of the typed object() path.
 
 #[derive(Copy, Clone, Default)]
 #[repr(C)]
 struct WorkerCoordination {
     mutex: Spinlock,
+    _pad: [u8; 4],
     nstarted: usize,
     nlaunched: usize,
     ntuples_done: usize,
     nsegments_written: usize,
 }
 
+// SAFETY: WorkerCoordination is #[repr(C)] with explicit padding. All
+// fields are integer types (Spinlock = i32 wrapper, usize). Every bit
+// pattern is valid.
+unsafe impl bytemuck::Zeroable for WorkerCoordination {}
+unsafe impl bytemuck::Pod for WorkerCoordination {}
+
 impl ParallelStateType for WorkerCoordination {}
+
+const _: () = assert!(size_of::<WorkerConfig>() == 40);
+const _: () = assert!(size_of::<WorkerCoordination>() == 40);
+
 impl WorkerCoordination {
     fn inc_nstarted(&mut self) {
         let _lock = self.mutex.acquire();
@@ -209,10 +259,14 @@ impl ParallelWorker for BuildWorker<'_> {
             .object::<WorkerConfig>(0)
             .expect("should be able to get ParallelBuildConfig from state manager")
             .expect("ParallelBuildConfig should not be NULL");
-        let scandesc = state_manager
-            .object::<pg_sys::ParallelTableScanDescData>(1)
-            .expect("should be able to get ParallelTableScanDesc")
-            .expect("ParallelTableScanDesc should not be NULL");
+        // SAFETY: the leader wrote a valid ParallelTableScanDescData into
+        // this slot via table_parallelscan_initialize before workers launched.
+        let scandesc = unsafe {
+            state_manager
+                .object_raw::<pg_sys::ParallelTableScanDescData>(1)
+                .expect("should be able to get ParallelTableScanDesc")
+                .expect("ParallelTableScanDesc should not be NULL")
+        };
         let coordination = state_manager
             .object::<WorkerCoordination>(2)
             .expect("should be able to get WorkerCoordination")
@@ -224,7 +278,7 @@ impl ParallelWorker for BuildWorker<'_> {
         let partitioning = deserialize_partitioning(partitioning);
 
         unsafe {
-            let (heap_lock, index_lock) = if !config.concurrent {
+            let (heap_lock, index_lock) = if !config.concurrent() {
                 (pg_sys::ShareLock, pg_sys::AccessExclusiveLock)
             } else {
                 (pg_sys::ShareUpdateExclusiveLock, pg_sys::RowExclusiveLock)
@@ -237,7 +291,7 @@ impl ParallelWorker for BuildWorker<'_> {
             let table_scan_desc = pg_sys::table_beginscan_parallel(heaprel.as_ptr(), scandesc);
 
             indexrel.set_is_create_index();
-            indexrel.set_need_wal(config.need_wal);
+            indexrel.set_need_wal(config.need_wal());
 
             Self {
                 config: *config,
@@ -286,7 +340,7 @@ impl<'a> BuildWorker<'a> {
     fn do_build(&mut self, worker_number: i32, is_leader: bool) -> anyhow::Result<(f64, usize)> {
         unsafe {
             let index_info = self.indexrel.index_info();
-            (*index_info).ii_Concurrent = self.config.concurrent;
+            (*index_info).ii_Concurrent = self.config.concurrent();
             let nlaunched = self.coordination.nlaunched();
             let per_worker_memory_budget =
                 gucs::adjust_maintenance_work_mem(nlaunched).get() / nlaunched;
@@ -687,14 +741,14 @@ pub(super) fn build_index(
         }
     });
 
-    let config = WorkerConfig {
-        heaprelid: heaprel.oid(),
-        indexrelid: indexrel.oid(),
+    let config = WorkerConfig::new(
+        heaprel.oid(),
+        indexrel.oid(),
         concurrent,
-        current_xid: unsafe { pg_sys::GetCurrentFullTransactionId() },
-        need_wal: indexrel.need_wal(),
-        next_xid: unsafe { pg_sys::ReadNextFullTransactionId() },
-    };
+        unsafe { pg_sys::GetCurrentFullTransactionId() },
+        indexrel.need_wal(),
+        unsafe { pg_sys::ReadNextFullTransactionId() },
+    );
 
     // Boundaries are fixed before any worker starts, so every worker cuts on the same ones.
     // TODO(M3): the target segment count doubles as the partition count for now; rename the

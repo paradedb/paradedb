@@ -303,14 +303,9 @@ impl<'a> BuildWorker<'a> {
                 "build_worker {worker_number}: target_segment_count: {target_segment_count}, nlaunched: {nlaunched}, worker_segment_target: {worker_segment_target}"
             );
 
-            // Partitioned builds cover only non-concurrent CREATE INDEX for now: a concurrent
-            // build's deferred re-fetch could index row versions newer than its registered
-            // snapshot. CONCURRENTLY falls back to the regular per-row build path.
-            let partitioning = if self.config.concurrent {
-                None
-            } else {
-                self.partitioning.take()
-            };
+            // `build_index` plans boundaries only for a non-concurrent build, so this is `None`
+            // under CONCURRENTLY and the worker takes the regular per-row path.
+            let partitioning = self.partitioning.take();
             if let Some(partitioning) = &partitioning {
                 pgrx::debug1!("build_worker {worker_number}: partition boundaries: {partitioning}");
             }
@@ -1000,14 +995,22 @@ pub(super) fn build_index(
     };
 
     // Boundaries are fixed before any worker starts, so every worker cuts on the same ones.
+    // Partitioned builds cover only non-concurrent CREATE INDEX for now: a concurrent build's
+    // deferred re-fetch could index row versions newer than its registered snapshot, so under
+    // CONCURRENTLY skip the planning entirely: no heap sample, and no tree in the DSM for
+    // workers to deserialize and drop.
     // TODO(M3): the target segment count doubles as the partition count for now; rename the
     // reloption to `partition_count` once partitioned storage lands.
-    let partitioning = plan_partition_boundaries(
-        &heaprel,
-        &indexrel,
-        snapshot.0,
-        plan::adjusted_target_segment_count(&heaprel, &indexrel),
-    )?;
+    let partitioning = if concurrent {
+        None
+    } else {
+        plan_partition_boundaries(
+            &heaprel,
+            &indexrel,
+            snapshot.0,
+            plan::adjusted_target_segment_count(&heaprel, &indexrel),
+        )?
+    };
     if let Some(partitioning) = &partitioning {
         pgrx::debug1!(
             "build_index: {} partition boundaries:\n{}",

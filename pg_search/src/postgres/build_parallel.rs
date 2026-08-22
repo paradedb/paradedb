@@ -403,9 +403,8 @@ impl PartitionSpill {
         Ok(Self {
             tree,
             dim_fields,
-            // The sort spills on the worker's own budget. Its read buffers stay resident through
-            // the phase-2 drain while the writer runs at the full worker budget, so the transient
-            // overlap is bounded by one extra worker budget.
+            // The caller hands the sort its half of the worker budget: its buffers stay
+            // resident through the phase-2 drain while the cell writer runs on the other half.
             sorter: Sorter::new(budget.get()),
         })
     }
@@ -507,7 +506,7 @@ impl<'a> WorkerBuildState<'a> {
         // Any vector-specific doc cap is applied in `SerialIndexWriter::open`.
         //
         // Partitioned builds cut segments at cell boundaries instead, so their writers stay
-        // memory-driven at the full worker budget. (A vector schema's doc cap in
+        // memory-driven at their half of the worker budget. (A vector schema's doc cap in
         // `SerialIndexWriter::open` still applies; an overfull cell then flushes in capped
         // segments that `finish_cell` merges, as `try_merge` does on the regular path.)
         let max_docs_per_segment = if partitioning.is_none() && worker_segment_target > 1 {
@@ -519,8 +518,19 @@ impl<'a> WorkerBuildState<'a> {
         } else {
             None
         };
+        // A partitioned build has the spill sort's buffers and a cell writer's arena resident
+        // together during the phase-2 drain, so they split the worker budget evenly: the
+        // worker's peak stays at the share of `maintenance_work_mem` that
+        // `adjust_maintenance_work_mem` sized. The sort spills to disk sooner, and an overfull
+        // cell flushes more segments for `finish_cell` to merge down.
+        let per_writer_budget = if partitioning.is_some() {
+            NonZeroUsize::new((per_worker_memory_budget.get() / 2).max(1))
+                .expect("halved worker budget should be non-zero")
+        } else {
+            per_worker_memory_budget
+        };
         let config = IndexWriterConfig {
-            memory_budget: per_worker_memory_budget,
+            memory_budget: per_writer_budget,
             max_docs_per_segment,
         };
         // Abort the build early if it is projected not to fit on the tablespace volume.
@@ -534,7 +544,7 @@ impl<'a> WorkerBuildState<'a> {
         let created_by_version = indexrel.created_by_version();
 
         let partitioning = partitioning
-            .map(|tree| PartitionSpill::new(tree, &categorized_fields, per_worker_memory_budget))
+            .map(|tree| PartitionSpill::new(tree, &categorized_fields, per_writer_budget))
             .transpose()?;
 
         Ok(Self {
@@ -773,7 +783,7 @@ impl<'a> WorkerBuildState<'a> {
     /// Phase 2 of a partitioned build. The scan spilled one `(pid, ctid)` record per row; sorted,
     /// they cluster each cell's rows together, in heap order within the cell, so re-fetching
     /// revisits heap blocks under a reused buffer pin. Rows are re-fetched and indexed cell by
-    /// cell: only one writer is alive at a time, at the full worker budget, and each cell
+    /// cell: only one writer is alive at a time, on its half of the worker budget, and each cell
     /// boundary finalizes the current segment.
     fn drain_partitioned(&mut self) -> anyhow::Result<()> {
         let PartitionSpill { mut sorter, .. } = self
@@ -872,7 +882,7 @@ impl<'a> WorkerBuildState<'a> {
         Ok(())
     }
 
-    /// Open a fresh writer for the next cell, at the full worker budget.
+    /// Open a fresh writer for the next cell.
     fn open_cell_writer(&mut self) -> anyhow::Result<()> {
         let disk_guard = self
             .indexrel

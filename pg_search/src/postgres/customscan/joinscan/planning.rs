@@ -1236,6 +1236,24 @@ pub(super) unsafe fn collect_required_fields(
             other => other,
         };
         match feature {
+            OrderByFeature::ScoreSum { rtis } => {
+                for rti in rtis {
+                    if let Some(source) = plan_sources
+                        .iter_mut()
+                        .find(|s| s.scan_info.heap_rti == *rti)
+                    {
+                        ensure_score_bubbling(source);
+                    }
+                }
+            }
+            OrderByFeature::Score { rti } => {
+                if let Some(source) = plan_sources
+                    .iter_mut()
+                    .find(|s| s.scan_info.heap_rti == *rti)
+                {
+                    ensure_score_bubbling(source);
+                }
+            }
             OrderByFeature::Var { rti, attno, .. } => {
                 ensure_column_in_all_sources(&mut plan_sources, *rti, *attno);
             }
@@ -1511,6 +1529,12 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
             // Unwrap NullTest to inspect the inner expression
             if let Some(nt) = nodecast!(NullTest, T_NullTest, expr) {
                 expr = strip_identity_wrappers(strip_wrappers((*nt).arg.cast()));
+            }
+
+            if let Some(rtis) = extract_score_sum(expr.cast())
+                && rtis.iter().all(|rti| source_rtis.contains(rti))
+            {
+                continue 'pathkey;
             }
 
             if sources
@@ -1928,14 +1952,59 @@ pub(super) unsafe fn pathkey_uses_scores_from_source(
 
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;
-            let check_expr = strip_wrappers(expr.cast()).cast::<pg_sys::Expr>();
-
-            if is_score_func_recursive(check_expr, source) {
+            if expr_uses_scores_from_source(expr.cast(), source) {
                 return true;
             }
         }
     }
 
+    false
+}
+
+/// Check if an expression is a sum of one or more `pdb.score(var)` calls.
+/// Returns the list of RTIs for the referenced relations if it matches.
+pub(super) unsafe fn extract_score_sum(expr: *mut pg_sys::Node) -> Option<Vec<pg_sys::Index>> {
+    let mut rtis = Vec::new();
+    if !collect_score_sum_rtis(expr, &mut rtis) || rtis.is_empty() {
+        return None;
+    }
+    Some(rtis)
+}
+
+unsafe fn collect_score_sum_rtis(node: *mut pg_sys::Node, rtis: &mut Vec<pg_sys::Index>) -> bool {
+    if node.is_null() {
+        return false;
+    }
+    let stripped = strip_identity_wrappers(strip_wrappers(node));
+    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, stripped) {
+        if score_funcoids().contains(&(*funcexpr).funcid) {
+            let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+            if args.len() == 1
+                && let Some(arg) = args.get_ptr(0)
+                && let Some(var) = nodecast!(Var, T_Var, strip_wrappers(arg))
+            {
+                rtis.push((*var).varno as pg_sys::Index);
+                return true;
+            }
+        }
+        return false;
+    }
+    if let Some(opexpr) = nodecast!(OpExpr, T_OpExpr, stripped) {
+        let opname_ptr = pg_sys::get_opname((*opexpr).opno);
+        if !opname_ptr.is_null() {
+            let opname = std::ffi::CStr::from_ptr(opname_ptr).to_bytes();
+            if opname == b"+" {
+                let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+                if args.len() == 2
+                    && let Some(left) = args.get_ptr(0)
+                    && let Some(right) = args.get_ptr(1)
+                {
+                    return collect_score_sum_rtis(left, rtis)
+                        && collect_score_sum_rtis(right, rtis);
+                }
+            }
+        }
+    }
     false
 }
 
@@ -2042,15 +2111,24 @@ impl JoinSortExprKind {
             };
         }
 
-        for source in sources.iter() {
-            if is_score_func_recursive(check_expr.cast(), source) {
-                if !output_rtis.contains(&source.scan_info.heap_rti) {
-                    continue;
+        if let Some(rtis) = extract_score_sum(check_expr.cast()) {
+            if rtis.len() > 1 {
+                if !rtis.iter().all(|rti| output_rtis.contains(rti)) {
+                    return if pathkey_equivalence_member {
+                        Self::SkipMember
+                    } else {
+                        Self::NoMatch
+                    };
                 }
                 return Self::Resolved(OrderByInfo {
-                    feature: OrderByFeature::Score {
-                        rti: source.scan_info.heap_rti,
-                    },
+                    feature: OrderByFeature::ScoreSum { rtis },
+                    direction,
+                });
+            } else if let Some(&rti) = rtis.first()
+                && output_rtis.contains(&rti)
+            {
+                return Self::Resolved(OrderByInfo {
+                    feature: OrderByFeature::Score { rti },
                     direction,
                 });
             }

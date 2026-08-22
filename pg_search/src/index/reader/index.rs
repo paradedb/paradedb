@@ -1067,6 +1067,10 @@ impl SearchIndexReader {
                 ..
             } => unreachable!("NullTest ORDER BY is only used in JoinScan"),
             OrderByInfo {
+                feature: OrderByFeature::ScoreSum { .. },
+                ..
+            } => unreachable!("ScoreSum ORDER BY is only used in JoinScan"),
+            OrderByInfo {
                 feature:
                     OrderByFeature::VectorDistance {
                         name, query_vector, ..
@@ -1660,6 +1664,10 @@ impl SearchIndexReader {
                     feature: OrderByFeature::NullTest { .. },
                     ..
                 } => unreachable!("NullTest ORDER BY is only used in JoinScan"),
+                OrderByInfo {
+                    feature: OrderByFeature::ScoreSum { .. },
+                    ..
+                } => unreachable!("ScoreSum ORDER BY is only used in JoinScan"),
                 OrderByInfo {
                     feature: OrderByFeature::VectorDistance { .. },
                     ..

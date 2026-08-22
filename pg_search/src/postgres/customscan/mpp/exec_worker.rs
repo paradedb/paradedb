@@ -40,9 +40,8 @@ use datafusion_distributed::{
 };
 use futures::{FutureExt, StreamExt};
 use pgrx::pg_sys;
-use tantivy::index::SegmentId;
 
-use crate::api::HashSet;
+use crate::index::mvcc::SegmentView;
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::PartitionSink;
@@ -297,13 +296,13 @@ pub(crate) fn run_mpp_worker(
     let plan_bytes = &worker_session.plan_bytes;
     let this_proc = worker_mesh.this_proc;
 
-    // Build per-source canonical segment ID sets from the populated ParallelScanState.
+    // Build per-source segment views from the populated ParallelScanState.
     // Workers will then claim individual segments via `checkout_segment_for_source` inside their
     // `PgSearchTableProvider`.
-    let mut index_segment_ids: Vec<HashSet<SegmentId>> =
-        vec![HashSet::default(); plan_sources_count];
-    for (i, slot) in index_segment_ids.iter_mut().enumerate() {
-        *slot = unsafe { (*parallel_state).segment_ids_for_source_unlocked(i) };
+    let mut index_segment_views: Vec<SegmentView> =
+        vec![SegmentView::default(); plan_sources_count];
+    for (i, slot) in index_segment_views.iter_mut().enumerate() {
+        *slot = unsafe { (*parallel_state).segment_view_for_source_unlocked(i) };
     }
 
     // Build this worker's fragment assignments by decoding the leader's dispatched per-stage
@@ -371,7 +370,7 @@ pub(crate) fn run_mpp_worker(
             &set_plan.plan_proto,
             &decode_ctx,
             Some(parallel_state),
-            index_segment_ids.to_vec(),
+            index_segment_views.to_vec(),
             Some(expr_context_guard.as_ptr()),
             &DeduplicatingProtoConverter {},
         ) {

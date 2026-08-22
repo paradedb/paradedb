@@ -490,6 +490,21 @@ impl SegmentMetaEntry {
         Ok(())
     }
 
+    /// Rewind a mutable entry to the `(max_doc, num_deleted_docs)` another reader loaded it
+    /// with, so [`Self::mutable_snapshot`] replays that reader's prefix of the add/remove log.
+    /// The log is append-only, so an older pair always names a prefix of what is there now.
+    pub fn rewind_mutable(&mut self, max_doc: u32, num_deleted_docs: u32) -> Result<(), &str> {
+        let SegmentMetaEntryContent::Mutable(content) = &mut self.content else {
+            return Err("Cannot rewind a non-mutable segment");
+        };
+        if max_doc > self.header.max_doc || num_deleted_docs > content.num_deleted_docs {
+            return Err("Cannot rewind a mutable segment forward");
+        }
+        self.header.max_doc = max_doc;
+        content.num_deleted_docs = num_deleted_docs;
+        Ok(())
+    }
+
     /// Return a snapshot of the ctids which were valid when this SegmentMetaEntry was opened.
     pub fn mutable_snapshot(&self, indexrel: &PgSearchRelation) -> Result<Vec<u64>, &str> {
         let SegmentMetaEntryContent::Mutable(content) = &self.content else {

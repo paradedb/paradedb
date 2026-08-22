@@ -27,7 +27,7 @@ use crate::api::operator::keyset::KeySet;
 use crate::api::version::Version;
 use crate::api::{FieldName, HashMap, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::FFHelper;
-use crate::index::mvcc::MvccSatisfies;
+use crate::index::mvcc::{MVCCDirectory, MvccSatisfies, SegmentView};
 use crate::index::reader::io_stats;
 use crate::index::reader::scorer::{DeferredScorer, LazyWeight, ScorerIter};
 use crate::index::reader::sort_by_range::SortByRange;
@@ -365,6 +365,9 @@ pub struct SearchIndexReader {
     total_docs: u64,
     index_created_by_version: Option<Version>,
     segment_ordinal_by_id: HashMap<SegmentId, SegmentOrdinal>,
+    /// The directory `underlying_index` opened over; kept to capture this reader's
+    /// [`SegmentView`].
+    directory: MVCCDirectory,
 
     // [`PinnedBuffer`] has a Drop impl, so we hold onto it but don't otherwise use it
     //
@@ -377,6 +380,7 @@ pub struct SearchIndexReader {
 /// JoinScan initialization without requiring executor state.
 pub struct SearchIndexManifest {
     searcher: Searcher,
+    directory: MVCCDirectory,
     _cleanup_lock: Arc<PinnedBuffer>,
 }
 
@@ -394,6 +398,7 @@ impl Clone for SearchIndexReader {
             total_docs: self.total_docs,
             index_created_by_version: self.index_created_by_version,
             segment_ordinal_by_id: self.segment_ordinal_by_id.clone(),
+            directory: self.directory.clone(),
             _cleanup_lock: self._cleanup_lock.clone(),
         }
     }
@@ -401,6 +406,7 @@ impl Clone for SearchIndexReader {
 
 struct IndexComponents {
     cleanup_lock: Arc<PinnedBuffer>,
+    directory: MVCCDirectory,
     index: Index,
     reader: IndexReader,
     searcher: Searcher,
@@ -438,6 +444,7 @@ impl SearchIndexReader {
 
         Ok(IndexComponents {
             cleanup_lock,
+            directory,
             index,
             reader,
             searcher,
@@ -486,6 +493,7 @@ impl SearchIndexReader {
             Self::open_index_components(index_relation, mvcc_style, needs_tokenizer_manager)?;
         let IndexComponents {
             cleanup_lock,
+            directory,
             index,
             reader,
             searcher,
@@ -534,6 +542,7 @@ impl SearchIndexReader {
             total_docs,
             index_created_by_version,
             segment_ordinal_by_id: segment_ord_by_id,
+            directory,
             _cleanup_lock: cleanup_lock,
         })
     }
@@ -544,6 +553,12 @@ impl SearchIndexReader {
             .iter()
             .map(|r| r.segment_id())
             .collect()
+    }
+
+    /// This reader's segment view, for other readers to replay through
+    /// [`MvccSatisfies::ParallelWorker`].
+    pub fn segment_view(&self) -> SegmentView {
+        SegmentView::capture(self.searcher.segment_readers(), &self.directory)
     }
 
     pub fn need_scores(&self) -> bool {
@@ -1729,12 +1744,15 @@ impl SearchIndexManifest {
             SearchIndexReader::open_index_components(index_relation, mvcc_style, false)?;
         Ok(Self {
             searcher: components.searcher,
+            directory: components.directory,
             _cleanup_lock: components.cleanup_lock,
         })
     }
 
-    pub fn segment_readers(&self) -> &[SegmentReader] {
-        self.searcher.segment_readers()
+    /// This manifest's segment view, for other readers to replay through
+    /// [`MvccSatisfies::ParallelWorker`].
+    pub fn segment_view(&self) -> SegmentView {
+        SegmentView::capture(self.searcher.segment_readers(), &self.directory)
     }
 }
 

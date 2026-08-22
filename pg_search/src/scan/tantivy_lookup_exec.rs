@@ -69,6 +69,10 @@ pub struct TantivyLookupExec {
     input: Arc<dyn ExecutionPlan>,
     deferred_fields: Vec<PhysicalDeferredField>,
     decoders: Vec<DecoderInfo>,
+    /// Keyed by index relid, so a self-join folds both aliases onto one helper. Term ordinals
+    /// and doc ids are per-reader, so the surviving helper decodes the other alias correctly
+    /// only while both sources share a segment view. Keying by `(plan_position, indexrelid)`
+    /// would remove the aliasing.
     ffhelpers: HashMap<u32, Arc<FFHelper>>,
     properties: Arc<PlanProperties>,
     metrics: ExecutionPlanMetricsSet,
@@ -201,7 +205,7 @@ pub(crate) fn rebuild_mvcc(
             )
         })?;
         Ok(MvccSatisfies::ParallelWorker(unsafe {
-            (*ps).segment_ids_for_source(source_idx)
+            (*ps).segment_view_for_source(source_idx)
         }))
     } else {
         Ok(MvccSatisfies::Snapshot)

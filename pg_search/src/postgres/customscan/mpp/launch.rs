@@ -322,7 +322,11 @@ fn launch_mpp(
         .zip(source_estimates)
         .map(|(segments, estimate)| match estimate.known_rows() {
             Some(rows) => rows as u64,
-            None => segments.iter().map(|s| s.num_docs() as u64).sum(),
+            None => segments
+                .entries()
+                .iter()
+                .map(|e| u64::from(e.docs.max_doc().saturating_sub(e.docs.num_deleted_docs())))
+                .sum(),
         })
         .max()
         .unwrap_or(0);
@@ -388,8 +392,7 @@ fn launch_mpp(
         MPP_MQ_SIZE,
     )?;
 
-    // Populate the ParallelScanState in place while the DSM is mapped and the leader still holds
-    // the source manifests `args` borrows.
+    // Populate the ParallelScanState in place while the DSM is mapped.
     let scan_ptr = match launcher.state_manager().slice_mut::<u8>(SCAN_IDX) {
         Ok(Some(s)) => s.as_mut_ptr() as *mut ParallelScanState,
         _ => pgrx::error!("mpp: parallel scan state region missing"),

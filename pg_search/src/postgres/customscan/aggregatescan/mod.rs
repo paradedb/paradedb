@@ -1122,8 +1122,25 @@ impl AggregateScan {
             with_aggregates: false,
             with_segment_info: false,
         };
+        let source_estimates: Vec<crate::scan::info::RowEstimate> = state
+            .custom_state()
+            .datafusion_state
+            .as_ref()
+            .map(|df_state| {
+                df_state
+                    .plan
+                    .sources()
+                    .iter()
+                    .map(|source| source.scan_info.estimate)
+                    .collect()
+            })
+            .unwrap_or_default();
 
-        crate::postgres::customscan::mpp::launch::launch_mpp_aggregate(physical, args)
+        crate::postgres::customscan::mpp::launch::launch_mpp_aggregate(
+            physical,
+            args,
+            &source_estimates,
+        )
     }
 
     /// Build the aggregate's DataFusion physical plan under `ctx`. `mpp_views` marks that

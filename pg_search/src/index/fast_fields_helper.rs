@@ -801,3 +801,89 @@ pub(crate) fn ords_to_bytes_array(
 
     Ok(Arc::new(builder.finish()) as ArrayRef)
 }
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use crate::index::mvcc::MvccSatisfies;
+    use crate::index::reader::index::SearchIndexReader;
+    use crate::postgres::rel::PgSearchRelation;
+    use crate::query::SearchQueryInput;
+    use pgrx::prelude::*;
+
+    #[pg_test]
+    fn ffhelper_initializes_only_the_segment_it_reads() {
+        Spi::run(
+            r#"
+            CREATE TABLE ffhelper_lazy_test (
+                id bigint PRIMARY KEY,
+                title text NOT NULL
+            );
+            CREATE INDEX ffhelper_lazy_test_idx ON ffhelper_lazy_test
+            USING paradedb (id, title)
+            WITH (
+                key_field = 'id',
+                target_segment_count = 8,
+                background_layer_sizes = '0'
+            );
+
+            SET paradedb.global_mutable_segment_rows = 0;
+            INSERT INTO ffhelper_lazy_test
+            SELECT g, 'first batch ' || g FROM generate_series(1, 10) AS g;
+            INSERT INTO ffhelper_lazy_test
+            SELECT g, 'second batch ' || g FROM generate_series(11, 20) AS g;
+            RESET paradedb.global_mutable_segment_rows;
+            "#,
+        )
+        .unwrap();
+
+        unsafe { pg_sys::CommandCounterIncrement() };
+
+        let index_oid =
+            Spi::get_one::<pg_sys::Oid>("SELECT 'ffhelper_lazy_test_idx'::regclass::oid")
+                .unwrap()
+                .unwrap();
+        let index_rel = PgSearchRelation::open(index_oid);
+        let reader = SearchIndexReader::open(
+            &index_rel,
+            SearchQueryInput::All,
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .unwrap();
+        assert!(reader.segment_readers().len() >= 2);
+
+        let helper = FFHelper::with_fields(
+            &reader,
+            &[WhichFastField::Named(
+                "id".to_string(),
+                SearchFieldType::I64(pg_sys::INT8OID),
+            )],
+        );
+
+        assert!(
+            helper
+                .segment_caches
+                .iter()
+                .all(|(columns, ctid)| { columns[0].2.get().is_none() && ctid.get().is_none() })
+        );
+
+        // FFHelper's Searcher keeps lazy column access valid after the temporary
+        // SearchIndexReader used during worker setup is dropped.
+        drop(reader);
+        let value = helper.value(0, DocAddress::new(0, 0)).unwrap();
+        assert!(i64::try_from(value).is_ok());
+
+        assert!(helper.segment_caches[0].0[0].2.get().is_some());
+        assert!(
+            helper.segment_caches[1..]
+                .iter()
+                .all(|(columns, ctid)| columns[0].2.get().is_none() && ctid.get().is_none())
+        );
+
+        let first = helper.column(0, 0) as *const FFType;
+        let second = helper.column(0, 0) as *const FFType;
+        assert_eq!(first, second);
+    }
+}

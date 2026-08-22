@@ -45,7 +45,6 @@ jobs:
     name: Stressgres (${{ matrix.suite }})
     strategy:
       fail-fast: false
-      max-parallel: 1
       matrix:
         suite:
           - background-merge.toml

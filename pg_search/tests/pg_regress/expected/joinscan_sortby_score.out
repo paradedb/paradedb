@@ -465,12 +465,12 @@ WHERE documents.content @@@ 'search'
    OR pages.content @@@ 'search'
 ORDER BY score DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
- doc_id | file_id | page_id | doc_score | file_score | page_score | score 
---------+---------+---------+-----------+------------+------------+-------
- doc-1  | file-1  | page-1  |         0 |          0 |          0 |     0
- doc-1  | file-1  | page-2  |         0 |          0 |          0 |     0
- doc-1  | file-2  | page-3  |         0 |          0 |          0 |     0
- doc-2  | file-3  | page-4  |         0 |          0 |          0 |     0
+ doc_id | file_id | page_id | doc_score | file_score | page_score |   score   
+--------+---------+---------+-----------+------------+------------+-----------
+ doc-1  | file-1  | page-1  | 1.0594962 |  1.2511479 | 0.71042687 |  3.021071
+ doc-1  | file-1  | page-2  | 1.0594962 |  1.2511479 |          0 | 2.3106441
+ doc-1  | file-2  | page-3  | 1.0594962 |          0 |  0.7879951 | 1.8474913
+ doc-2  | file-3  | page-4  |         0 |          0 |  0.7879951 | 0.7879951
 (4 rows)
 
 -- =============================================================================
@@ -539,10 +539,10 @@ ORDER BY score DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
  doc_id | file_id | page_id | doc_score | file_score | page_score |   score   
 --------+---------+---------+-----------+------------+------------+-----------
- doc-1  | file-1  | page-1  | 0.5231233 |          0 |          0 | 0.5231233
- doc-1  | file-1  | page-2  | 0.5231233 |          0 |          0 | 0.5231233
- doc-1  | file-2  | page-3  | 0.5231233 |          0 |          0 | 0.5231233
- doc-2  | file-3  | page-4  | 0.5062484 |          0 |          0 | 0.5062484
+ doc-1  | file-1  | page-1  | 0.5231233 |  1.2511479 | 0.71042687 |  2.484698
+ doc-1  | file-1  | page-2  | 0.5231233 |  1.2511479 |          0 | 1.7742712
+ doc-1  | file-2  | page-3  | 0.5231233 |          0 |  0.7879951 | 1.3111184
+ doc-2  | file-3  | page-4  | 0.5062484 |          0 |  0.7879951 | 1.2942436
 (4 rows)
 
 -- =============================================================================

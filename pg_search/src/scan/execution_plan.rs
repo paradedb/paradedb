@@ -1074,6 +1074,10 @@ impl ExecutionPlan for PgSearchScanPlan {
                     None => reader.search(),
                 }
             };
+            let need_scores = scanner_config
+                .which_fast_fields
+                .iter()
+                .any(|wff| matches!(wff, WhichFastField::Score));
             let mut scanner = Scanner::new(
                 search_results,
                 scanner_config.batch_size_hint,
@@ -1083,7 +1087,7 @@ impl ExecutionPlan for PgSearchScanPlan {
             if let crate::scan::ScanMode::Tagged { local_queries, .. } = &scanner_config.scan_mode {
                 for tq in local_queries {
                     let weight = reader
-                        .compile_match_weight(&tq.query)
+                        .compile_match_weight(&tq.query, need_scores)
                         .map_err(|e| DataFusionError::Internal(format!(
                             "Failed to compile match weight for tag {}: {e}",
                             tq.tag_name

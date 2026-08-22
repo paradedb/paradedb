@@ -22,10 +22,12 @@ use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::postgres::heap::VisibilityChecker;
 use arrow_array::builder::{BooleanBuilder, UInt64Builder};
 use arrow_array::{Array, ArrayRef, BooleanArray, Float32Array, RecordBatch, UInt64Array};
+use arrow_buffer::BooleanBufferBuilder;
 use arrow_schema::SchemaRef;
 use datafusion::arrow::compute;
 use std::sync::Arc;
-use tantivy::{DocId, Score, SegmentOrdinal};
+use tantivy::query::Scorer;
+use tantivy::{DocId, DocSet, Score, SegmentOrdinal};
 
 /// The maximum number of rows to batch materialize in memory while iterating over a result set.
 ///
@@ -154,13 +156,90 @@ pub struct Scanner {
     score_threshold: Option<Score>,
     tagged_queries: Vec<TaggedMatchQuery>,
     current_segment_ord: Option<SegmentOrdinal>,
-    current_match_bitsets: crate::api::HashMap<String, tantivy_common::BitSet>,
+    active_tag_scorers: Vec<ActiveTagScorer>,
 }
 
-/// A tagged search query whose match bitset is lazily evaluated per-segment.
+/// A tagged search query whose scorer is lazily evaluated per-segment.
 pub struct TaggedMatchQuery {
     pub tag_name: String,
     pub weight: Box<dyn tantivy::query::Weight>,
+}
+
+struct ActiveTagScorer {
+    tag_name: String,
+    scorer: Box<dyn Scorer>,
+}
+
+impl ActiveTagScorer {
+    /// Evaluates this tag scorer against a batch of `ids` (within `start_doc..=end_doc`),
+    /// accumulating BM25 scores into `scores` and populating `memoized_columns` if this
+    /// `MatchTag` column is requested.
+    fn evaluate_batch(
+        &mut self,
+        ids: &[DocId],
+        end_doc: DocId,
+        scores: &mut [Score],
+        which_fast_fields: &[WhichFastField],
+        memoized_columns: &mut [Option<ArrayRef>],
+    ) {
+        // 1. Only allocate/build the BooleanArray if this tag is actually needed
+        let is_needed = which_fast_fields.iter().any(|ff| match ff {
+            WhichFastField::MatchTag(name) => name == &self.tag_name,
+            _ => false,
+        });
+
+        // 2. Pre-allocate and zero-fill the bit-packed buffer directly (1 bit per entry)
+        let mut builder = if is_needed {
+            let mut b = BooleanBufferBuilder::new(ids.len());
+            b.advance(ids.len()); // zero-initializes ids.len() bits
+            Some(b)
+        } else {
+            None
+        };
+
+        let tag_scorer = &mut self.scorer;
+        let mut id_idx = 0;
+
+        while id_idx < ids.len() {
+            let target = ids[id_idx];
+            let mut cur_doc = tag_scorer.doc();
+
+            if cur_doc < target {
+                cur_doc = tag_scorer.seek(target);
+            }
+
+            if cur_doc == tantivy::TERMINATED || cur_doc > end_doc {
+                break;
+            }
+
+            if cur_doc == target {
+                if let Some(b) = builder.as_mut() {
+                    b.set_bit(id_idx, true);
+                }
+                scores[id_idx] += tag_scorer.score();
+                tag_scorer.advance();
+                id_idx += 1;
+            } else {
+                // cur_doc > target: skip ids until target catches up to cur_doc
+                id_idx += 1;
+                while id_idx < ids.len() && ids[id_idx] < cur_doc {
+                    id_idx += 1;
+                }
+            }
+        }
+
+        // 3. Construct the BooleanArray in O(1) zero-copy if needed
+        if let Some(mut b) = builder {
+            let array: ArrayRef = Arc::new(BooleanArray::new(b.finish(), None));
+            for (idx, ff) in which_fast_fields.iter().enumerate() {
+                if let WhichFastField::MatchTag(name) = ff
+                    && name == &self.tag_name
+                {
+                    memoized_columns[idx] = Some(Arc::clone(&array));
+                }
+            }
+        }
+    }
 }
 
 impl Scanner {
@@ -220,34 +299,29 @@ impl Scanner {
             score_threshold: None,
             tagged_queries: Vec::new(),
             current_segment_ord: None,
-            current_match_bitsets: crate::api::HashMap::default(),
+            active_tag_scorers: Vec::new(),
         }
     }
 
-    /// Adds a tagged search query whose match bitset will be lazily evaluated per-segment.
+    /// Adds a tagged search query whose scorer will be lazily evaluated per-segment.
     pub fn add_tagged_query(&mut self, tag_name: String, weight: Box<dyn tantivy::query::Weight>) {
         self.tagged_queries
             .push(TaggedMatchQuery { tag_name, weight });
     }
 
-    fn ensure_segment_bitsets(&mut self, segment_ord: SegmentOrdinal) {
+    fn ensure_segment_tag_scorers(&mut self, segment_ord: SegmentOrdinal) {
         if self.current_segment_ord != Some(segment_ord) {
-            self.current_match_bitsets.clear();
+            self.active_tag_scorers.clear();
             if !self.tagged_queries.is_empty() {
                 let segment_reader = self.search_results.searcher().segment_reader(segment_ord);
                 for tq in &self.tagged_queries {
-                    let mut bitset =
-                        tantivy_common::BitSet::with_max_value(segment_reader.max_doc());
-                    let mut scorer = tq.weight.scorer(segment_reader, 1.0).unwrap_or_else(|e| {
+                    let scorer = tq.weight.scorer(segment_reader, 1.0).unwrap_or_else(|e| {
                         panic!("Failed to create scorer for tag {}: {e}", tq.tag_name)
                     });
-                    let mut doc = scorer.doc();
-                    while doc != tantivy::TERMINATED {
-                        bitset.insert(doc);
-                        doc = scorer.advance();
-                    }
-                    self.current_match_bitsets
-                        .insert(tq.tag_name.clone(), bitset);
+                    self.active_tag_scorers.push(ActiveTagScorer {
+                        tag_name: tq.tag_name.clone(),
+                        scorer,
+                    });
                 }
             }
             self.current_segment_ord = Some(segment_ord);
@@ -303,6 +377,43 @@ impl Scanner {
         }
     }
 
+    /// Populates `memoized_columns` for requested `MatchTag` and `Score` fields.
+    ///
+    /// For tagged scans, evaluating each match tag mutates `scores` by accumulating
+    /// the matched tag's BM25 score onto the base query score in-place for each row.
+    fn populate_scores_for_batch(
+        &mut self,
+        ids: &[DocId],
+        mut scores: Vec<Score>,
+        memoized_columns: &mut [Option<ArrayRef>],
+    ) {
+        if !self.active_tag_scorers.is_empty() && !ids.is_empty() {
+            let end_doc = *ids.last().unwrap();
+            for active_tag in &mut self.active_tag_scorers {
+                active_tag.evaluate_batch(
+                    ids,
+                    end_doc,
+                    &mut scores,
+                    &self.which_fast_fields,
+                    memoized_columns,
+                );
+            }
+        }
+
+        if self
+            .which_fast_fields
+            .iter()
+            .any(|ff| matches!(ff, WhichFastField::Score))
+        {
+            let scores_array = Arc::new(Float32Array::from(scores)) as ArrayRef;
+            for (idx, ff) in self.which_fast_fields.iter().enumerate() {
+                if matches!(ff, WhichFastField::Score) {
+                    memoized_columns[idx] = Some(scores_array.clone());
+                }
+            }
+        }
+    }
+
     /// Fetch the next batch of results, applying visibility checks and
     /// pre-materialization filters.
     ///
@@ -318,7 +429,7 @@ impl Scanner {
     ) -> Option<Batch> {
         pgrx::check_for_interrupts!();
         let (segment_ord, scores, mut ids) = self.try_get_batch_ids()?;
-        self.ensure_segment_bitsets(segment_ord);
+        self.ensure_segment_tag_scorers(segment_ord);
 
         // Memoize fetched columns to avoid redundant fetches.
         // - Numeric columns: stores the values directly.
@@ -329,18 +440,9 @@ impl Scanner {
         // to keep them aligned with `ids`.
         let mut memoized_columns: Vec<Option<ArrayRef>> = vec![None; self.which_fast_fields.len()];
 
-        if self
-            .which_fast_fields
-            .iter()
-            .any(|ff| matches!(ff, WhichFastField::Score))
-        {
-            let scores_array = Arc::new(Float32Array::from(scores)) as ArrayRef;
-            for (idx, ff) in self.which_fast_fields.iter().enumerate() {
-                if matches!(ff, WhichFastField::Score) {
-                    memoized_columns[idx] = Some(scores_array.clone());
-                }
-            }
-        }
+        // TODO: Determine which pre-filters can safely be applied before calculating
+        // scores/match-tags to avoid evaluating tag scorers on rows that will be pruned.
+        self.populate_scores_for_batch(&ids, scores, &mut memoized_columns);
 
         // Apply pre-materialization filters before visibility checks (which require the ctid), and
         // before dictionary lookups.
@@ -498,19 +600,13 @@ impl Scanner {
                         &ids,
                     )),
                 },
-                WhichFastField::MatchTag(tag_name) => {
-                    let bitset = self.current_match_bitsets.get(tag_name).unwrap_or_else(|| {
+                WhichFastField::MatchTag(tag_name) => Some(
+                    memoized_columns[ff_index].clone().unwrap_or_else(|| {
                         panic!(
-                            "Missing match bitset for tag column {tag_name} in segment {segment_ord}"
+                            "MatchTag column '{tag_name}' at index {ff_index} was not populated during batch scan in segment {segment_ord}"
                         )
-                    });
-                    let mut builder =
-                        arrow_array::builder::BooleanBuilder::with_capacity(ids.len());
-                    for &doc_id in &ids {
-                        builder.append_value(bitset.contains(doc_id));
-                    }
-                    Some(Arc::new(builder.finish()) as ArrayRef)
-                }
+                    }),
+                ),
             })
             .collect();
 

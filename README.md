@@ -45,7 +45,7 @@ When you're ready to deploy, check out our [hosting options](https://docs.parade
 
 [ParadeDB](https://paradedb.com) adds Elastic-quality full-text search, vector retrieval, and aggregations to Postgres with the `pg_search` extension. Your application data and your search engine live in one database, with no second system to deploy and nothing to sync.
 
-Vectors are indexed natively (beta), alongside your text and filters, in the same index. ParadeDB uses [pgvector](https://github.com/pgvector/pgvector)'s `vector` type, but not its HNSW or IVF indexes.
+Vectors are currently indexed using the [pgvector](https://github.com/pgvector/pgvector) extension, but native vector support is coming to our search index soon.
 
 - [x] [Full-Text Search](https://docs.paradedb.com/documentation/full-text/overview)
   - [x] [BM25 Scoring](https://docs.paradedb.com/documentation/sorting/score)
@@ -58,8 +58,8 @@ Vectors are indexed natively (beta), alongside your text and filters, in the sam
   - [x] [Bucket & Metrics](https://docs.paradedb.com/documentation/aggregates/overview)
   - [x] [Facets](https://docs.paradedb.com/documentation/aggregates/facets)
 - [x] [JOINs](https://docs.paradedb.com/documentation/joins/overview)
-- [x] [Native Vector Search](https://docs.paradedb.com/documentation/vector/overview) (beta)
-- [x] [Native Hybrid Search](https://docs.paradedb.com/documentation/hybrid/overview) (beta)
+- [ ] Native Vector Search (coming soon)
+- [ ] Native Hybrid Search (coming soon)
 
 Star and watch this repository to follow along. See our [current projects](https://github.com/paradedb/paradedb/projects?query=is%3Aopen) and [long-term roadmap](https://docs.paradedb.com/welcome/roadmap).
 

@@ -8,6 +8,12 @@ We're a lean team that likes to ship at [incredibly high velocity](https://githu
 
 ## In Progress
 
+### Vector Search
+
+- **Incremental index maintenance**. Vector search quality currently degrades as indexed rows are updated. We are implementing SPFresh to maintain index quality incrementally.
+- **Quantization**. Scalar (`int8`) and binary quantization will reduce the memory and I/O cost of large vector indexes.
+- **`halfvec` support**. Support pgvector's half-precision `halfvec` (fp16) type in addition to the `vector` type that is indexed today.
+
 ### JOIN Improvements
 
 - **Join pushdown (beta)**. [Join pushdown](/documentation/joins/overview) pushes search predicates directly into the index for significantly better performance.

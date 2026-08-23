@@ -17,19 +17,13 @@
 
 // -----------------------------------------------------------------------------
 //
-// This module adds a "parse-logs" subcommand to Stressgres. It reads the
+// This module implements the "graph" subcommand. It reads the
 // line-based logs from headless mode output, parses them into time-series
-// records, and generates a single PNG file that includes five sub-charts:
-//
-//    1) TPS vs Time
-//    2) block_count vs Time
-//    3) segment_count vs Time
-//    4) cpu vs Time
-//    5) mem vs Time
+// records, and generates a single PNG file with one chart per metric.
 //
 // We parse any numeric metric encountered (e.g. 'tps=12.34', 'cpu=3.77').
 // Lines containing 'ERROR=' are ignored. The final PNG is saved to
-// <your-prefix>.png
+// the requested output path.
 
 use crate::cli::GraphArgs;
 use crate::metrics::group_by_job;
@@ -46,7 +40,7 @@ use plotters::style::full_palette::{
 };
 
 /// Main entry point for the "graph" subcommand.
-/// Parses the log file, then generates one PNG with 5 sub-charts side by side.
+/// Parses the log file, then generates one PNG containing a chart for each metric.
 pub fn run(args: &GraphArgs) -> Result<()> {
     let records = metrics::load_metrics_lines(&args.log_path)?;
     println!(
@@ -55,7 +49,7 @@ pub fn run(args: &GraphArgs) -> Result<()> {
         args.log_path.display()
     );
 
-    // Write one PNG file with 5 sub-charts side by side
+    // Write one PNG file containing every metric chart.
     let out_name = args.output.to_string();
     let metrics = metrics::discover_metric_names(&records);
 
@@ -99,7 +93,7 @@ fn generate_graph(metrics: &[String], records: &[MetricsLine], output_path: &str
         .into_drawing_area();
     root.fill(BGCOLOR)?;
 
-    // We'll carve out each sub-chart horizontally with a gap in between
+    // Stack the charts vertically with a gap in between.
     let mut remainder = root.clone();
     for (i, metric_name) in metrics.iter().enumerate() {
         // 1) Split off the sub-chart area

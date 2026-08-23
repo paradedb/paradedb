@@ -1,6 +1,6 @@
 [package]
 name = "stressgres"
-description = "A Postgres Stress Test Tool, as a TUI"
+description = "A stress-testing tool for PostgreSQL"
 version = { workspace = true }
 edition = { workspace = true }
 license = { workspace = true }
@@ -19,14 +19,17 @@ cursive = { version = "0.21.1" }
 cursive-multiplex = "0.7.0"
 cursive_core = "0.4.6"
 cursive_table_view = "0.15.0"
+dst = { path = "../dst" }
 human_bytes = "0.4.3"
 humantime = "2.3.0"
 image = "0.25.9"
 libc = "0.2.186"
+openssl = "0.10.78"
 parking_lot = "0.12.5"
 pgrx-pg-config = "=0.19.2"
 plotters = "0.3.7"
 postgres = "0.19.13"
+postgres-openssl = "0.5.3"
 rust_decimal = { version = "1.41.0", features = ["db-postgres"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.149", features = [
@@ -37,9 +40,6 @@ shutdown_hooks = "0.1.0"
 sysinfo = { version = "0.39.6", features = ["multithread"] }
 toml = "1.1"
 url = "2.5.8"
-postgres-openssl = "0.5.3"
-openssl = "0.10.78"
-dst = { path = "../dst" }
 
 [dev-dependencies]
 tempfile = "3.27.0"

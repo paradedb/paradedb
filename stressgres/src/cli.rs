@@ -81,7 +81,8 @@ pub enum Command {
     /// Parse a log file and generate an aggregated CSV report of contained data
     Csv(CsvArgs),
 
-    /// Given the location of a `pg_config` automatically spin up an transient Postgres cluster (or two, if logical replication is enabled)
+    /// Given the location of a `pg_config`, automatically spin up a transient Postgres cluster
+    /// (or two, if logical replication is enabled).
     Auto(AutoArgs),
 }
 
@@ -140,8 +141,7 @@ pub struct GraphArgs {
     /// Path to the log file produced by a headless run.
     pub log_path: PathBuf,
 
-    /// Output image file prefix (e.g. "output").
-    /// We will create: output_tps.png, output_block_count.png, output_segment_count.png
+    /// Output PNG path.
     #[arg(default_value = "output.png")]
     pub output: String,
 }
@@ -152,8 +152,7 @@ pub struct CsvArgs {
     /// Path to the log file produced by a headless run.
     pub log_path: PathBuf,
 
-    /// Output image file prefix (e.g. "output").
-    /// We will create: output_tps.png, output_block_count.png, output_segment_count.png
+    /// Output CSV path.
     #[arg(default_value = "output.csv")]
     pub output: String,
 }

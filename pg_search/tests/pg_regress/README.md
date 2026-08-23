@@ -74,7 +74,8 @@ cargo pgrx regress
 ### Run Specific Tests
 
 ```bash
-cargo pgrx regress -p pg_search --auto -- pg18 PREFIX_your_test
+cd pg_search
+cargo pgrx regress --auto pg18 PREFIX_your_test
 ```
 
 ## Common Pitfalls

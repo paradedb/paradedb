@@ -6,7 +6,7 @@ For a complete overview of ParadeDB's testing infrastructure (including unit tes
 
 ## Client Property Tests
 
-A particularly interesting subcategory of integration tests are our client property tests. Most of the client property tests live in [`tests/qgen.rs`](tests/qgen.rs), but there are other files which use `crate::fixtures::querygen` to generate tests as well.
+A particularly interesting subcategory of integration tests are our client property tests. Most of the client property tests live in [`qgen.rs`](tests/qgen.rs), but there are other files which use `crate::fixtures::querygen` to generate tests as well.
 
 ## Environment Variables
 
@@ -16,9 +16,9 @@ The tests require a `DATABASE_URL` environment variable to be set. The easiest w
 DATABASE_URL=postgres://USER_NAME@localhost:PORT/pg_search
 ```
 
-USER_NAME should be replaced with your system user name. (eg: output of `whoami`)
+`USER_NAME` should be replaced with your system username (for example, the output of `whoami`).
 
-PORT should be replaced with 28800 + your postgres version. (eg: 28818 for Postgres 18)
+`PORT` should be replaced with 28800 plus your PostgreSQL major version (for example, 28818 for PostgreSQL 18).
 
 ## Running Tests with pgrx-managed PostgreSQL
 
@@ -55,7 +55,7 @@ cargo pgrx install --package pg_search --pg-config /opt/homebrew/opt/postgresql@
 cargo test --package tests
 ```
 
-To run a single test, you can use the following command(replace `<testname>` with the test file name without the `.rs` extension):
+To run a single test, use the following command (replace `<testname>` with the test file name without the `.rs` extension):
 
 ```shell
 cargo test --package tests --test <testname>

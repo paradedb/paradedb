@@ -24,7 +24,7 @@ Releases must always be triggered **from the branch being released** (e.g., `mai
 | `beta`         | boolean | `false` | If `true`, creates a beta release (`vX.Y.Z-rc.N`) and marks it as a pre-release in GitHub.     |
 | `confirmation` | boolean | `false` | **Required** Confirms that version bump, SQL upgrade script, docs, and changelog are complete. |
 
-> **Note:** The `version` provided _must_ match that of the `Cargo.toml` of the branch being released file and contain `-rc.X` in the case of a beta release. The workflow will not run unless `confirmation: true`.
+> **Note:** The `version` provided _must_ match the version in the `Cargo.toml` file on the branch being released and contain `-rc.X` in the case of a beta release. The workflow will not run unless `confirmation: true`.
 
 ## Release Preparation
 

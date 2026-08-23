@@ -21,7 +21,7 @@ Query timing is done via `pg_stat_statements`, so you'll need to configure it. T
   ALTER SYSTEM SET pg_stat_statements.track = top;
   ```
 
-  These will take effect after one more postgres restart.
+  These will take effect after one more Postgres restart.
 
 ## Usage
 

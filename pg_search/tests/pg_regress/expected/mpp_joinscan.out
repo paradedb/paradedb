@@ -529,10 +529,9 @@ LIMIT 5;
 --
 -- length(f.title) > $1, with plan_cache_mode=force_generic_plan, keeps
 -- $1 unresolved in SearchQueryInput. Compared against the same query run
--- serially (enable_mpp = off) so MPP-vs-serial divergence surfaces as a
--- diff, not just a missing worker_metrics_shown flag (see #5167).
+-- serially (max_parallel_workers_per_gather = 0) so MPP-vs-serial divergence
+-- surfaces as a diff, not just a missing worker_metrics_shown flag (see #5167).
 -- =====================================================================
-SET paradedb.enable_mpp TO on;
 SET max_parallel_workers_per_gather TO 4;
 SET plan_cache_mode = force_generic_plan;
 PREPARE mpp_join_heapfilter_param(int) AS
@@ -622,7 +621,7 @@ WHERE line LIKE '%Gather%';
 
 DEALLOCATE mpp_join_heapfilter_param;
 -- Same query, run serially, to diff against the MPP result above.
-SET paradedb.enable_mpp TO off;
+SET max_parallel_workers_per_gather TO 0;
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section'
@@ -663,7 +662,7 @@ LIMIT 10;
  file-101 |       3708
 (10 rows)
 
-SET paradedb.enable_mpp TO on;
+SET max_parallel_workers_per_gather TO 4;
 SET plan_cache_mode = auto;
 -- =====================================================================
 -- Pass 9: MPP with InitPlan/Subquery Parameter
@@ -722,7 +721,7 @@ LIMIT 10;
 
 -- Execute the identical InitPlan query serially so the expected output directly
 -- checks MPP/serial result equivalence, not only MPP worker activity.
-SET paradedb.enable_mpp TO off;
+SET max_parallel_workers_per_gather TO 0;
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
 WHERE f.content @@@ (SELECT content FROM mpp_join_files ORDER BY id LIMIT 1)
@@ -742,7 +741,7 @@ LIMIT 10;
  file-10 |       3553
 (10 rows)
 
-SET paradedb.enable_mpp TO on;
+SET max_parallel_workers_per_gather TO 4;
 -- =====================================================================
 -- Pass 10: MPP with two parameterized source queries (review: mithuncy)
 --
@@ -899,9 +898,97 @@ WHERE line LIKE '%DistributedExec%';
 (1 row)
 
 DROP TABLE mpp_join_rescan_terms;
-DROP FUNCTION mpp_explain_analyze_lines(text);
 SET plan_cache_mode = auto;
-SET paradedb.enable_mpp TO off;
+-- =====================================================================
+-- Pass 13: the size gate falls back to a plain serial run. The plan was
+-- built while MPP was eligible, so the fallback must not carry per-source
+-- claim markers that have no shared scan state to draw from. The gate is
+-- shared with the plain-EXPLAIN rebuild, so the rendered plan is serial
+-- too; the EXPLAIN ANALYZE asserts below pin the executed mode.
+-- =====================================================================
+SET max_parallel_workers_per_gather TO 3;
+SET paradedb.mpp_min_rows TO 1000000000;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: f.title, p.size_bytes
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: f.title, p.size_bytes
+         Relation Tree: p INNER f
+         Join Cond: f.id = p.file_id
+         Limit: 10
+         Order By: f.title asc, p.size_bytes asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[title@3 as col_1, size_bytes@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           :   TantivyLookupExec: decode=[title]
+           :     SegmentedTopKExec: expr=[title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], k=10, visibility_checks=[p, f]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)], projection=[ctid_0@3, size_bytes@5, ctid_1@0, title@2]
+           :         CooperativeExec
+           :           PgSearchScan: table=f, segments=2, partition_by=id, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+           :         CooperativeExec
+           :           PgSearchScan: table=p, segments=2, partition_by=file_id, dynamic_filters=1, query="all"
+(17 rows)
+
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+  title  | size_bytes 
+---------+------------
+ file-1  |        616
+ file-1  |       1312
+ file-1  |       2008
+ file-1  |       2704
+ file-1  |       3400
+ file-10 |        153
+ file-10 |       1465
+ file-10 |       2161
+ file-10 |       2857
+ file-10 |       3553
+(10 rows)
+
+-- Executed serially: no DistributedExec root and no network boundary nodes.
+-- (Serial DataFusion nodes also render `output_rows` metrics, so those lines
+-- can't stand in for worker metrics here.)
+SELECT count(*) = 0 AS gated_no_distributed_exec
+FROM mpp_explain_analyze_lines(
+  $$SELECT f.title, p.size_bytes
+    FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+    WHERE f.content @@@ 'Section'
+    ORDER BY f.title, p.size_bytes
+    LIMIT 10$$
+) AS line
+WHERE line LIKE '%DistributedExec%';
+ gated_no_distributed_exec 
+---------------------------
+ t
+(1 row)
+
+SELECT count(*) = 0 AS gated_no_network_boundaries
+FROM mpp_explain_analyze_lines(
+  $$SELECT f.title, p.size_bytes
+    FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+    WHERE f.content @@@ 'Section'
+    ORDER BY f.title, p.size_bytes
+    LIMIT 10$$
+) AS line
+WHERE line LIKE '%NetworkCoalesceExec%'
+   OR line LIKE '%NetworkShuffleExec%'
+   OR line LIKE '%NetworkBroadcastExec%';
+ gated_no_network_boundaries 
+-----------------------------
+ t
+(1 row)
+
+RESET paradedb.mpp_min_rows;
+DROP FUNCTION mpp_explain_analyze_lines(text);
 -- =====================================================================
 -- Cleanup
 -- =====================================================================

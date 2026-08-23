@@ -1,3 +1,5 @@
+.git/
+target/
 **/*.csv
 **/*.csv.gz
 **/*.json
@@ -7,5 +9,3 @@
 **/*.tsv.gz
 **/*.txt
 **/*.zip
-.git
-target/

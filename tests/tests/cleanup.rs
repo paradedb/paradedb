@@ -256,8 +256,10 @@ fn mutable_segment_bytes_bounded_query_latency(mut conn: PgConnection) {
     .fetch_one(&mut conn);
 
     let execution_ms = plan[0]["Execution Time"].as_f64().unwrap_or(f64::MAX);
+    // Bound is intentionally loose for CI variance (PG16 arm64 can sit ~20–40ms under load).
+    // Pre-fix behavior grew into hundreds of ms / seconds as mutable bytes accumulated.
     assert!(
-        execution_ms < 25.0,
+        execution_ms < 100.0,
         "zero-match query too slow after large-doc churn: {execution_ms}ms (issue #5950)"
     );
 }

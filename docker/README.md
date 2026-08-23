@@ -25,7 +25,7 @@ postgresql:
   extensions:
     - name: pg_search
       image:
-        reference: paradedb/paradedb-extension:0.25.0-18-trixie
+        reference: paradedb/paradedb-extension:0.25.3-18-trixie
       ld_library_path:
         - system
 ```

@@ -384,7 +384,7 @@ await dbContext
 (3 rows)
 ```
 
-Because `embedding`, `description`, and `rating` are part of the same ParadeDB index, the full-text match, rating filter, and nearest-neighbor ordering can all execute in a single index scan. This unified approach avoids coordinating vector search with separate filtering steps, which can hurt performance and recall.
+Because `embedding`, `description`, and `rating` are part of the same ParadeDB index, the full-text match, rating filter, and nearest-neighbor ordering can all execute in a single index scan. Unlike pgvector's HNSW and IVFFlat indexes, which apply filters after the vector index scan, ParadeDB evaluates all three together—avoiding post-filtering that can hurt performance and recall.
 
 ## Top K Ordering
 

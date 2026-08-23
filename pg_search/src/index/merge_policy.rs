@@ -432,6 +432,7 @@ mod tests {
             header_block: pg_sys::InvalidBlockNumber,
             num_deleted_docs,
             frozen,
+            estimated_bytes: 0,
         };
 
         SegmentMetaEntry::new_mutable(segment_id, max_doc, pg_sys::InvalidTransactionId, content)

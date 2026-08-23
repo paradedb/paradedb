@@ -878,7 +878,11 @@ fn select_points(points: &[SweepPoint]) -> Vec<SelectedPoint> {
         .collect()
 }
 
-/// Measure recall at every value of `sweep` for one query, reusing a single set of fixtures.
+/// Measure recall at each value of `sweep` for one query, reusing a single set of fixtures.
+///
+/// Values are ordered cheapest first, so the sweep stops after the first value that reaches the
+/// highest recall target: every target already has its cheapest qualifying point, and larger
+/// values only cost more.
 async fn sweep_query(
     conn: &mut PgConnection,
     args: &BenchmarkArgs,
@@ -928,6 +932,7 @@ async fn sweep_query(
     )
     .await?;
     let vars = HashMap::from([("dataset_size".to_owned(), dataset_rows(size)?.to_string())]);
+    let (_, top_target) = RECALL_TARGETS[RECALL_TARGETS.len() - 1];
 
     let mut points = Vec::new();
     for value in &sweep.values {
@@ -950,6 +955,10 @@ async fn sweep_query(
             recall,
             query,
         });
+        if recall >= top_target {
+            println!("  reached {top_target:.2} recall; skipping larger values");
+            break;
+        }
     }
     Ok(points)
 }

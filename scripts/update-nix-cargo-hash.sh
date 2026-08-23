@@ -21,31 +21,44 @@ fi
 
 # Read current hash (portable: no grep -P)
 current_hash=$(sed -n 's/.*cargoHash = "\([^"]*\)".*/\1/p' "$NIX_FILE")
+if [[ -z "$current_hash" ]]; then
+  echo "Error: could not find cargoHash in $NIX_FILE" >&2
+  exit 1
+fi
 echo "Current cargoHash: $current_hash"
 
 # Temporarily set a fake hash to force nix to report the correct one
-cp "$NIX_FILE" "$NIX_FILE.bak"
-sed "s|cargoHash = \"$current_hash\"|cargoHash = \"$FAKE_HASH\"|" "$NIX_FILE.bak" >"$NIX_FILE"
+backup_file=$(mktemp)
+restore_nix_file() {
+  if [[ -f "$backup_file" ]]; then
+    cp "$backup_file" "$NIX_FILE"
+    rm -f "$backup_file"
+  fi
+}
+trap restore_nix_file EXIT
+
+cp "$NIX_FILE" "$backup_file"
+sed "s|cargoHash = \"$current_hash\"|cargoHash = \"$FAKE_HASH\"|" "$backup_file" >"$NIX_FILE"
 
 # Build cargoDeps and capture the correct hash from the error
 echo "Computing correct cargoHash (this may take a while)..."
 correct_hash=""
 if build_output=$(cd "$REPO_ROOT" && nix build --no-link ".#pg_search-pg${PG_VERSION}.cargoDeps" 2>&1); then
-  # Build succeeded with fake hash — shouldn't happen, restore and exit
-  echo "Warning: build succeeded with fake hash, restoring original" >&2
-  mv "$NIX_FILE.bak" "$NIX_FILE"
+  # Build succeeded with fake hash — shouldn't happen. The exit trap restores the file.
+  echo "Warning: build succeeded with fake hash" >&2
   exit 1
 else
-  correct_hash=$(echo "$build_output" | sed -n 's/.*got: *//p' | head -1 | tr -d '[:space:]')
+  correct_hash=$(printf '%s\n' "$build_output" | sed -n 's/.*got: *//p' | head -1 | tr -d '[:space:]')
 fi
 
 # Restore the backup
-mv "$NIX_FILE.bak" "$NIX_FILE"
+restore_nix_file
+trap - EXIT
 
 if [[ -z "$correct_hash" ]]; then
   echo "Error: could not extract correct hash from nix output" >&2
   echo "Build output:" >&2
-  echo "$build_output" >&2
+  printf '%s\n' "$build_output" >&2
   exit 1
 fi
 

@@ -81,7 +81,7 @@ use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::deferred_encode::unpack_doc_address;
 use crate::scan::execution_plan::UnsafeSendStream;
-use crate::scan::late_materialization::FfHelperKey;
+use crate::scan::late_materialization::FFHelperKey;
 use crate::scan::tantivy_lookup_exec::{LookupRebuildContext, open_rebuilt_ffhelper, rebuild_mvcc};
 use arrow_array::{
     Array, ArrayRef, BooleanArray, RecordBatch, StructArray, UInt32Array, UInt64Array, UnionArray,
@@ -146,7 +146,7 @@ pub struct DeferredSortColumn {
 }
 
 impl DeferredSortColumn {
-    pub fn helper_key(&self) -> FfHelperKey {
+    pub fn helper_key(&self) -> FFHelperKey {
         (self.plan_position, self.canonical.indexrelid)
     }
 }
@@ -216,7 +216,7 @@ pub struct SegmentedTopKExec {
     deferred_columns: Vec<DeferredSortColumn>,
     /// Per-scan FFHelpers, keyed by `(plan_position, indexrelid)` so a self-join
     /// keeps one helper per alias (shared with TantivyLookupExec).
-    ffhelpers: HashMap<FfHelperKey, Arc<FFHelper>>,
+    ffhelpers: HashMap<FFHelperKey, Arc<FFHelper>>,
     /// Maximum rows to keep per segment.
     k: usize,
     /// Dynamic filter pushed down through DataFusion's standard filter pushdown
@@ -257,7 +257,7 @@ impl SegmentedTopKExec {
         input: Arc<dyn ExecutionPlan>,
         sort_exprs: LexOrdering,
         deferred_columns: Vec<DeferredSortColumn>,
-        ffhelpers: HashMap<FfHelperKey, Arc<FFHelper>>,
+        ffhelpers: HashMap<FFHelperKey, Arc<FFHelper>>,
         k: usize,
         visibility_data: Option<Arc<AbsorbedVisibilityData>>,
         parent_filter: Option<Arc<dyn PhysicalExpr>>,
@@ -319,7 +319,7 @@ impl SegmentedTopKExec {
     fn create_mat_row_converter(
         sort_exprs: &LexOrdering,
         deferred_columns: &[DeferredSortColumn],
-        ffhelpers: &HashMap<FfHelperKey, Arc<FFHelper>>,
+        ffhelpers: &HashMap<FFHelperKey, Arc<FFHelper>>,
         schema: &arrow_schema::Schema,
     ) -> Result<RowConverter> {
         let materialized_sort_fields: Vec<SortField> = sort_exprs
@@ -354,7 +354,7 @@ impl SegmentedTopKExec {
     }
 
     fn ffhelper_for(
-        ffhelpers: &HashMap<FfHelperKey, Arc<FFHelper>>,
+        ffhelpers: &HashMap<FFHelperKey, Arc<FFHelper>>,
         deferred: &DeferredSortColumn,
     ) -> Result<&FFHelper> {
         ffhelpers
@@ -433,7 +433,7 @@ impl SegmentedTopKExec {
     pub(crate) fn decode_for_dispatch(
         buf: &[u8],
         input: Arc<dyn ExecutionPlan>,
-        ffhelpers: HashMap<FfHelperKey, Arc<FFHelper>>,
+        ffhelpers: HashMap<FFHelperKey, Arc<FFHelper>>,
         ctid_resolvers: Vec<(usize, u32, Arc<FFHelper>)>,
         ctx: &TaskContext,
         index_segment_views: &[SegmentView],
@@ -453,7 +453,7 @@ impl SegmentedTopKExec {
         // shares `indexrelid` across aliases, so pick the helper by `(plan_position, indexrelid)`.
         // When that scan is behind a network boundary, rebuild one helper per alias over the
         // same segment view the scan's reader opens.
-        let mut resolved_ffhelpers: HashMap<FfHelperKey, Arc<FFHelper>> = HashMap::default();
+        let mut resolved_ffhelpers: HashMap<FFHelperKey, Arc<FFHelper>> = HashMap::default();
         for deferred in &deferred_columns {
             let key = deferred.helper_key();
             if resolved_ffhelpers.contains_key(&key) {
@@ -874,7 +874,7 @@ struct SegmentBuf {
 struct SegmentedTopKState {
     sort_exprs: LexOrdering,
     deferred_columns: Vec<DeferredSortColumn>,
-    ffhelpers: HashMap<FfHelperKey, Arc<FFHelper>>,
+    ffhelpers: HashMap<FFHelperKey, Arc<FFHelper>>,
     k: usize,
     schema: SchemaRef,
     row_converter: RowConverter,

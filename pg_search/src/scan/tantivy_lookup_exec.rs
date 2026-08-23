@@ -10,7 +10,7 @@ use crate::index::fast_fields_helper::{
     CanonicalColumn, FFHelper, FFType, for_each_segment, ords_to_bytes_array, ords_to_string_array,
 };
 use crate::scan::execution_plan::UnsafeSendStream;
-use crate::scan::late_materialization::FfHelperKey;
+use crate::scan::late_materialization::FFHelperKey;
 
 use arrow_array::{Array, ArrayRef, RecordBatch, UInt64Array, UnionArray, new_null_array};
 use arrow_array::{StructArray, UInt32Array};
@@ -59,7 +59,7 @@ pub struct PhysicalDeferredField {
 }
 
 impl PhysicalDeferredField {
-    pub fn helper_key(&self) -> FfHelperKey {
+    pub fn helper_key(&self) -> FFHelperKey {
         (self.plan_position, self.canonical.indexrelid)
     }
 
@@ -80,7 +80,7 @@ pub struct TantivyLookupExec {
     decoders: Vec<DecoderInfo>,
     /// Keyed by `(plan_position, indexrelid)` so a self-join keeps one helper per alias.
     /// `ff_index` is relative to that scan's field list, not the shared index schema.
-    ffhelpers: HashMap<FfHelperKey, Arc<FFHelper>>,
+    ffhelpers: HashMap<FFHelperKey, Arc<FFHelper>>,
     properties: Arc<PlanProperties>,
     metrics: ExecutionPlanMetricsSet,
 }
@@ -98,7 +98,7 @@ impl TantivyLookupExec {
     pub fn new(
         input: Arc<dyn ExecutionPlan>,
         deferred_fields: Vec<PhysicalDeferredField>,
-        ffhelpers: HashMap<FfHelperKey, Arc<FFHelper>>,
+        ffhelpers: HashMap<FFHelperKey, Arc<FFHelper>>,
     ) -> Result<Self> {
         let (output_schema, decoders) =
             build_schema_and_decoders(input.schema(), &deferred_fields)?;
@@ -175,7 +175,7 @@ impl TantivyLookupExec {
     pub(crate) fn decode_for_dispatch(
         buf: &[u8],
         input: Arc<dyn ExecutionPlan>,
-        mut ffhelpers: HashMap<FfHelperKey, Arc<FFHelper>>,
+        mut ffhelpers: HashMap<FFHelperKey, Arc<FFHelper>>,
         parallel_state: Option<*mut crate::postgres::ParallelScanState>,
     ) -> datafusion::common::Result<Arc<dyn ExecutionPlan>> {
         let deferred_fields: Vec<PhysicalDeferredField> =
@@ -259,13 +259,13 @@ pub(crate) fn open_rebuilt_ffhelper(
 /// matches the ordering the addresses were packed against.
 fn rebuild_missing_ffhelpers(
     deferred_fields: &[PhysicalDeferredField],
-    ffhelpers: &mut HashMap<FfHelperKey, Arc<FFHelper>>,
+    ffhelpers: &mut HashMap<FFHelperKey, Arc<FFHelper>>,
     context: LookupRebuildContext,
 ) -> Result<()> {
     // Ordinal-typed columns keep a scan's helper when one decoded in this fragment (its layout
     // lines up by construction); they rebuild only on a worker whose fragment has that scan
     // behind a network boundary.
-    let mut rebuild_keys: crate::api::HashSet<FfHelperKey> = Default::default();
+    let mut rebuild_keys: crate::api::HashSet<FFHelperKey> = Default::default();
     for f in deferred_fields {
         if f.rebuild.is_none() {
             continue;
@@ -279,7 +279,7 @@ fn rebuild_missing_ffhelpers(
     // Group by `(plan_position, indexrelid)` so two columns of the same alias share one
     // reader, while a self-join's two aliases keep separate layouts. The rebuilt helper
     // replaces the map entry, so it has to serve every rebuildable column of that alias.
-    let mut per_key: HashMap<FfHelperKey, Vec<&PhysicalDeferredField>> = HashMap::default();
+    let mut per_key: HashMap<FFHelperKey, Vec<&PhysicalDeferredField>> = HashMap::default();
     for f in deferred_fields {
         let key = f.helper_key();
         if f.rebuild.is_some() && rebuild_keys.contains(&key) {
@@ -461,7 +461,7 @@ enum DeferredColumnKind {
 fn enrich_batch(
     batch: RecordBatch,
     decoders: &[DecoderInfo],
-    ffhelpers: &HashMap<FfHelperKey, Arc<FFHelper>>,
+    ffhelpers: &HashMap<FFHelperKey, Arc<FFHelper>>,
     schema: &SchemaRef,
 ) -> Result<RecordBatch> {
     let num_rows = batch.num_rows();

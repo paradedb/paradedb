@@ -654,7 +654,7 @@ pub struct LateMaterializePlanner;
 
 fn extract_ff_helper(
     plan: &Arc<dyn ExecutionPlan>,
-    helpers: &mut crate::api::HashMap<FfHelperKey, Arc<FFHelper>>,
+    helpers: &mut crate::api::HashMap<FFHelperKey, Arc<FFHelper>>,
 ) {
     if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>()
         && scan.has_deferred_fields()
@@ -796,10 +796,10 @@ pub struct DeferredField {
 /// Key for the per-scan `FFHelper` map used by deferred lookup and top-k.
 ///
 /// `plan_position` disambiguates self-join aliases that share an `indexrelid`.
-pub type FfHelperKey = (Option<usize>, u32);
+pub type FFHelperKey = (Option<usize>, u32);
 
 impl DeferredField {
-    pub fn helper_key(&self) -> FfHelperKey {
+    pub fn helper_key(&self) -> FFHelperKey {
         (self.plan_position, self.canonical.indexrelid)
     }
 }

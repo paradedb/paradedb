@@ -384,7 +384,7 @@ await dbContext
 (3 rows)
 ```
 
-Because `embedding` is part of the same index as `description` and `rating`, the entire query (the full-text match, the rating filter, and the nearest-neighbor ordering) can execute in a single index scan. By comparison, pgvector and other Postgres vector indexes are standalone indexes that require separate pre- or post-filtering, which can hurt performance and recall.
+Because `embedding` is part of the same index as `description` and `rating`, the entire query (the full-text match, the rating filter, and the nearest-neighbor ordering) can execute in a single index scan. By comparison, pgvector and other Postgres vector indexes are standalone indexes that require separate pre- or post-filtering, which can significantly hurt performance and recall.
 
 ## Top K Ordering
 

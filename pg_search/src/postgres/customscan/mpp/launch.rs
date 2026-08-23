@@ -308,17 +308,28 @@ impl MppLifecycle {
 /// sources, so `Unknown` marks a placeholder; silently serializing a big query would cost far
 /// more than a wasted launch.
 pub(crate) fn mpp_gated_by_min_rows<'a>(sources: impl IntoIterator<Item = &'a ScanInfo>) -> bool {
-    gated_by_min_rows(crate::gucs::mpp_min_rows() as u64, sources)
+    gated_by_min_rows(
+        crate::gucs::mpp_min_rows() as u64,
+        sources
+            .into_iter()
+            .map(|info| (info.estimate, info.estimate_from_total_docs)),
+    )
 }
 
-fn gated_by_min_rows<'a>(min_rows: u64, sources: impl IntoIterator<Item = &'a ScanInfo>) -> bool {
+/// `(estimate, estimate_from_total_docs)` per source, not `&ScanInfo`: the plain unit tests
+/// below must not construct (and drop) pgrx-typed values, whose drop glue references server
+/// symbols a standalone test binary cannot link.
+fn gated_by_min_rows(
+    min_rows: u64,
+    sources: impl IntoIterator<Item = (RowEstimate, bool)>,
+) -> bool {
     if min_rows == 0 {
         return false;
     }
     let mut largest: u64 = 0;
-    for info in sources {
-        let rows = match info.estimate {
-            RowEstimate::Known(n) if info.estimate_from_total_docs => {
+    for (estimate, from_total_docs) in sources {
+        let rows = match estimate {
+            RowEstimate::Known(n) if from_total_docs => {
                 (n as f64 * crate::PARAMETERIZED_SELECTIVITY) as u64
             }
             RowEstimate::Known(n) => n,
@@ -504,47 +515,38 @@ mod tests {
     use super::*;
     use pgrx::pg_test;
 
-    fn info(estimate: RowEstimate, from_total_docs: bool) -> ScanInfo {
-        let mut info = ScanInfo::new(
-            1,
-            pgrx::pg_sys::Oid::INVALID,
-            pgrx::pg_sys::Oid::INVALID,
-            crate::scan::ScanMode::all(),
-        );
-        info.estimate = estimate;
-        info.estimate_from_total_docs = from_total_docs;
-        info
-    }
-
     #[test]
     fn gate_takes_the_largest_source() {
-        let dim = info(RowEstimate::Known(10_000), false);
-        let fact = info(RowEstimate::Known(2_000_000), false);
-        assert!(!gated_by_min_rows(500_000, [&dim, &fact]));
-        assert!(gated_by_min_rows(500_000, [&dim]));
+        let dim = (RowEstimate::Known(10_000), false);
+        let fact = (RowEstimate::Known(2_000_000), false);
+        assert!(!gated_by_min_rows(500_000, [dim, fact]));
+        assert!(gated_by_min_rows(500_000, [dim]));
     }
 
     #[test]
     fn total_docs_estimates_are_discounted() {
         // A parameterized predicate stores the whole index's document count. At the BaseScan
         // discount, 600k docs stand for 60k matches: under the default threshold.
-        let parameterized = info(RowEstimate::Known(600_000), true);
-        assert!(gated_by_min_rows(500_000, [&parameterized]));
-        let real = info(RowEstimate::Known(600_000), false);
-        assert!(!gated_by_min_rows(500_000, [&real]));
+        assert!(gated_by_min_rows(
+            500_000,
+            [(RowEstimate::Known(600_000), true)]
+        ));
+        assert!(!gated_by_min_rows(
+            500_000,
+            [(RowEstimate::Known(600_000), false)]
+        ));
     }
 
     #[test]
     fn unknown_estimates_do_not_gate() {
-        let placeholder = info(RowEstimate::Unknown, false);
-        let small = info(RowEstimate::Known(10), false);
-        assert!(!gated_by_min_rows(500_000, [&placeholder, &small]));
+        let placeholder = (RowEstimate::Unknown, false);
+        let small = (RowEstimate::Known(10), false);
+        assert!(!gated_by_min_rows(500_000, [placeholder, small]));
     }
 
     #[test]
     fn zero_threshold_disables_the_gate() {
-        let tiny = info(RowEstimate::Known(1), false);
-        assert!(!gated_by_min_rows(0, [&tiny]));
+        assert!(!gated_by_min_rows(0, [(RowEstimate::Known(1), false)]));
     }
 
     #[pg_test]

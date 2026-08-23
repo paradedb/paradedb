@@ -1,44 +1,44 @@
 # Stressgres
 
-Stressgres is a stress-testing tool for ParadeDB and standard PostgreSQL, featuring both a text UI and an automated headless mode. We used it for local development and in CI to replicate and test against representative customer workloads, called suites.
+Stressgres is a stress-testing tool for ParadeDB and standard PostgreSQL, featuring both a text UI and an automated headless mode. We use it for local development and in CI to replicate and test against representative customer workloads, called suites.
 
 ## Quickstart
 
 - Run the interactive UI against a suite:
 
 ```bash
-cargo run -- ui suites/vanilla-postgres.toml
+cargo run -p stressgres -- ui stressgres/suites/vanilla-postgres.toml
 ```
 
 - Run headless mode with logging:
 
 ```bash
-cargo run -- headless suites/vanilla-postgres.toml --runtime=300000 --log-file=logs/test.log
+cargo run -p stressgres -- headless stressgres/suites/vanilla-postgres.toml --runtime=300000 --log-file=logs/test.log
 ```
 
 - Run headless mode tolerating transient database faults (e.g. under Antithesis)
 
 ```bash
-cargo run -- headless suites/vanilla-postgres.toml --runtime=300000 --reconnect-grace=30000
+cargo run -p stressgres -- headless stressgres/suites/vanilla-postgres.toml --runtime=300000 --reconnect-grace=30000
 ```
 
 - Run a suite against a throwaway Postgres cluster built from a given `pg_config`:
 
 ```bash
-cargo run -- auto /path/to/pg_config suites/vanilla-postgres.toml /tmp/stressgres-data --runtime 300000
+cargo run -p stressgres -- auto /path/to/pg_config stressgres/suites/vanilla-postgres.toml /tmp/stressgres-data --runtime 300000
 ```
 
-Suites are TOML files in `suites/`. The `vanilla-postgres.toml` suite exercises baseline Postgres features and works with any PostgreSQL-compatible server.
+Suites are TOML files in `stressgres/suites/`. The `vanilla-postgres.toml` suite exercises baseline Postgres features and works with any PostgreSQL-compatible server.
 
 ## Docker
 
 To run Stressgres from within Docker, use:
 
 ```bash
-docker run --rm paradedb/stressgres:latest cargo run -- headless suites/vanilla-postgres.toml
+docker run --rm paradedb/stressgres:latest /symbols/stressgres headless stressgres/suites/vanilla-postgres.toml
 ```
 
-The source, including all suites, are loaded in the Docker image. The image prebuilds Stressgres and can run in air-gapped environments like Antithesis.
+The source, including all suites, is included in the Docker image. The image prebuilds Stressgres at `/symbols/stressgres` and can run in air-gapped environments like Antithesis.
 
 For an interactive shell:
 
@@ -49,15 +49,15 @@ docker exec -it stressgres bash
 
 ### Docker Hub
 
-To publish the Stressgres image to Docker Hub, trigger a workflow dispatch of the `Publish Stressgres (Docker) from within the Actions tab. This is useful to get updated Stressgres binaries to our BYOC end-to-end testing framework.
+To publish the Stressgres image to Docker Hub, trigger a workflow dispatch of `Publish Stressgres (Docker)` from the Actions tab. This is useful to get updated Stressgres binaries to our BYOC end-to-end testing framework.
 
 ## Antithesis
 
-Antithesis is a deterministic simulation testing (DST) tool. Stressgres, via the Docker image, is able to run within Antithesis to execute suites in a fully deterministic environment. To execute a Stressgres suite within Antithesis, it needs to have its own `singleton_driver_` file defined within the `suites/antithesis/` folder. For more information on how Antithesis singleton drivers work, please refer to [the Antithesis documentation](https://antithesis.com/docs/getting_started/setup_k8s/#basic-test-template).
+Antithesis is a deterministic simulation testing (DST) tool. Stressgres runs inside Antithesis through the Docker image. Each suite has a `first_<suite>.sh` setup script under `stressgres/suites/antithesis/`; the shared `singleton_driver_stressgres.sh` then runs the selected workload under fault injection. For more information on Antithesis test commands, see [the Antithesis documentation](https://antithesis.com/docs/test_templates/first_test/).
 
 To add a new suite:
 
-- Create the corresponding singleton driver
+- Create the corresponding `first_<suite>.sh` setup script.
 
 - Trigger a release of the Docker image to the Antithesis registry via the `Test pg_search (Antithesis)` workflow. This workflow builds and publishes the latest commit ParadeDB and Stressgres Docker images to Antithesis, and triggers a test run.
 

@@ -60,7 +60,7 @@ ParadeDB has four main test categories. For a full overview of how and when to u
 Located in `pg_search/tests/pg_regress`.
 
 - **Purpose:** These are for output / golden testing, and are useful when the output is small enough that you can inspect it visually to determine correctness.
-- **Running:** Run them with `cargo pgrx regress -p pg_search --auto -- pg18 one_file_name`. There is no need to manually install the extension: it is handled automatically.
+- **Running:** From `pg_search/`, run them with `cargo pgrx regress --auto`. To run a specific test, pass its name, for example `cargo pgrx regress --auto pg18 PREFIX_your_test`. There is no need to manually install the extension: it is handled automatically.
 - **Details:** See [`pg_search/tests/pg_regress/README.md`](pg_search/tests/pg_regress/README.md) for more details.
 
 #### 2. Integration tests
@@ -86,7 +86,7 @@ Located in the `pg_search/src` directory.
 Located in the `stressgres/` directory.
 
 - **Purpose:** Replicate representative customer workloads against ParadeDB (or vanilla Postgres) to surface concurrency, correctness, and performance regressions that don't show up in shorter-lived tests.
-- **Running:** Run a suite interactively with `cargo run -- ui suites/vanilla-postgres.toml`, or headlessly with `cargo run -- headless suites/vanilla-postgres.toml --runtime=300000`.
+- **Running:** Run a suite interactively with `cargo run -p stressgres -- ui stressgres/suites/vanilla-postgres.toml`, or headlessly with `cargo run -p stressgres -- headless stressgres/suites/vanilla-postgres.toml --runtime=300000`.
 - **Details:** See [`stressgres/README.md`](stressgres/README.md) for more details.
 
 #### Helper scripts

@@ -7,13 +7,13 @@ This is a basic, single-query latency, benchmarking suite for ParadeDB. It execu
 The benchmarking scripts require a Postgres database with [`pg_search`](/pg_search) installed. If you are building `pg_search` with
 `cargo pgrx`, make sure to build in `--release` mode. It also requires AWS credentials to be available in order to load the data.
 
-### pg_stat_staements
+### pg_stat_statements
 
-Query timing is done via `pg_stat_statements`, so you'll need to configure it. The import bits are:
+Query timing is done via `pg_stat_statements`, so you'll need to configure it. The important settings are:
 
 - `pg_stat_statements` must be in `shared_preload_libraries`.
   - `ALTER SYSTEM SET shared_preload_libraries = pg_search,pg_stat_statements;`
-- Then after a postgres restart, configure it:
+- After restarting Postgres, configure it:
 
   ```sql
   CREATE EXTENSION pg_stat_statements;

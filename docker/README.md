@@ -8,7 +8,7 @@ There are three flavors of files generated:
 
 - `paradedb`: The default ParadeDB Docker image, published to `paradedb/paradedb`. Includes Barman Cloud which is used in our CNPG deployments.
 - `official`: The image for Docker Official Images which will be published to `paradedb` once approved by Docker. Includes only `pg_search` and its required `pgvector` dependency, initialized in `template1`, `paradedb`, and `POSTGRES_DB`.
-- `antithesis`: The image used by Antithesis test runs. Its `pg_search` is built with Antithesis coverage instrumentation (see `docs/reference/sdk/rust/instrumentation`); `libvoidstar` is injected at runtime rather than baked into the image.
+- `antithesis`: The image used by Antithesis test runs. Its `pg_search` is built with [Antithesis coverage instrumentation](https://antithesis.com/docs/reference/sdk/rust/instrumentation); `libvoidstar` is injected at runtime rather than baked into the image.
 
 `paradedb` and `official` both install Debian artifacts published to GitHub Releases. `antithesis` installs a locally built `.deb` so that it can be run on a per-commit basis.
 

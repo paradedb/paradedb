@@ -10,9 +10,9 @@ members = [
   "tokenizers",
 ]
 # A bare `cargo build`/`check`/`clippy`/`test` at the root covers only the
-# extension stack. The other members compile a lot the extension does not need
-# (`benchmarks` builds the bundled DuckDB from C++ source); reach them with
-# `-p <crate>` or `--workspace`.
+# extension stack. Other members pull in dependencies the extension does not
+# need (`benchmarks`, for example, builds the bundled DuckDB from C++ source).
+# Build them with `-p <crate>` or `--workspace`.
 default-members = ["pg_search", "tokenizers"]
 
 [workspace.package]
@@ -38,23 +38,23 @@ debug = "line-tables-only"
 debug = false
 
 [profile.release]
-# Note: We switched from `fat` to `thin` LTO to reduce compile time memory usage, which had been
-# sufficient to cause swapping on local machines, and to kill CI builds on smaller instances.
-# Benchmarks were unaffected.
+# Thin LTO avoids the high memory usage of fat LTO without affecting benchmarks.
 lto = "thin"
 panic = "unwind"
 opt-level = 3
 codegen-units = 1
 
-# Optimized + debug symbols, for profiling; debug-assertions off keeps dst asserts compiled out.
+# Optimized build with debug symbols for profiling. Disabling debug assertions
+# keeps DST assertions out of the build.
 [profile.release-with-debug]
 inherits = "release"
 debug = true
 debug-assertions = false
 
-# DST profile: opt-level 2 (unoptimized paradedb execution dominates qgen case time otherwise) but
-# fully debuggable -- DWARF, debug assertions and overflow checks on (the dst invariants need
-# them). LTO off: it mangles frames, and with sancov's codegen-units=1 it exhausts rustc memory.
+# The DST profile uses moderate optimization so unoptimized ParadeDB execution
+# does not dominate query-generation time. It retains DWARF, debug assertions,
+# and overflow checks for debugging and invariant validation. LTO is disabled
+# because it obscures stack frames and exhausts rustc memory with SanitizerCoverage.
 [profile.dst]
 inherits = "release"
 opt-level = 2
@@ -64,22 +64,26 @@ debug-assertions = true
 overflow-checks = true
 
 [workspace.dependencies]
+pgrx = "=0.19.2"
+pgrx-tests = "=0.19.2"
+
+# Keep the Git revisions for `tantivy`, `tantivy-common`, and the crates.io
+# patches in sync.
 tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "c3caae3f613d5906c8080a3c3c2845190e749b64", features = [
   "columnar-zstd-compression",
   "lz4-compression",
   "paradedb",
-  "quickwit",                  # for sstable support
+  # Enables the SSTable backend.
+  "quickwit",
   "stemmer",
   "stopwords",
 ], default-features = false }
 tantivy-common = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-common", rev = "c3caae3f613d5906c8080a3c3c2845190e749b64" }
-pgrx = "=0.19.2"
-pgrx-tests = "=0.19.2"
 tantivy-jieba = "0.20.0"
 
 [patch.crates-io]
-tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "c3caae3f613d5906c8080a3c3c2845190e749b64" }
 tantivy-common = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-common", rev = "c3caae3f613d5906c8080a3c3c2845190e749b64" }
+tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "c3caae3f613d5906c8080a3c3c2845190e749b64" }
 
 [workspace.lints.clippy]
 large_futures = "warn"

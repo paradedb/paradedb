@@ -8,7 +8,7 @@
 #
 # Usage:
 #   PGVER=<version> ./pg_search_run.sh [--release] [psql arguments]
-#   Example: PGVER=18.6 ./pg_search_run.sh --release psql -c "SELECT 1"
+#   Example: PGVER=18.6 ./pg_search_run.sh --release -c "SELECT 1"
 
 CURRENT_DIR=$(pwd)
 
@@ -24,4 +24,4 @@ source "${SCRIPT_DIR}/pg_search_common.sh" "$@"
 cd "${CURRENT_DIR}"
 
 # Connect to the database with psql and pass any non-build arguments
-psql "${DATABASE_URL}" "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}"
+psql "${DATABASE_URL}" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}

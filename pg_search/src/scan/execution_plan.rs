@@ -960,6 +960,15 @@ impl ExecutionPlan for PgSearchScanPlan {
         if crate::gucs::mpp_test_panic_in_worker() {
             pgrx::error!("artificial panic to test worker error propagation");
         }
+        #[cfg(debug_assertions)]
+        if crate::gucs::mpp_test_fail_leader_execute()
+            && unsafe { pg_sys::ParallelWorkerNumber } < 0
+        {
+            return Err(DataFusionError::Execution(
+                "artificial leader-side execute failure (paradedb.mpp_test_fail_leader_execute)"
+                    .into(),
+            ));
+        }
 
         let mut state_guard = self.state.lock().map_err(|e| {
             DataFusionError::Internal(format!("Failed to lock PgSearchScanPlan state: {e}"))

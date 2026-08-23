@@ -183,6 +183,9 @@ async fn take_set_plan_draining(
         if let std::task::Poll::Ready(result) = futures::poll!(take.as_mut()) {
             return result;
         }
+        // A leader that fails before dispatching this stage never sends the frame; its abort
+        // terminates us, and nothing else in this loop would notice the SIGTERM.
+        mesh.check_interrupt()?;
         mesh.try_drain_pass()?;
         tokio::task::yield_now().await;
     }

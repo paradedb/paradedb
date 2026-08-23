@@ -948,6 +948,20 @@ impl JoinScan {
     /// leader out (its mesh handle drops with it), then drops the stream/plan/runtime
     /// (all carry mesh references) before `wait_for_finish` destroys the DSM. Used at
     /// EndCustomScan and before a correlated rescan relaunches a fresh worker set.
+    /// Tear a launched MPP run down after the leader failed mid-stream: drop everything holding
+    /// a mesh reference, then terminate and reap the workers before the error unwinds.
+    fn abort_mpp_execution(state: &mut CustomScanStateWrapper<Self>) {
+        let cs = state.custom_state_mut();
+        cs.datafusion_stream = None;
+        cs.current_batch = None;
+        let leader = cs.mpp.take_leader();
+        cs.physical_plan = None;
+        cs.runtime = None;
+        if let Some(leader) = leader {
+            crate::postgres::customscan::mpp::launch::abort_launch(leader);
+        }
+    }
+
     fn finish_mpp_execution(state: &mut CustomScanStateWrapper<Self>) {
         state.custom_state_mut().datafusion_stream = None;
         if let Some(leader) = state.custom_state().mpp.leader()
@@ -1519,6 +1533,11 @@ impl CustomScan for JoinScan {
                 // On a launch fallback (nothing to distribute, or too few attached workers) no
                 // workers remain and the `DistributedExec` shape has no mesh to read from, so
                 // replan serially.
+                //
+                // A launched leader stays in this local until the stream exists: a failure in
+                // between tears the workers down here, before the error unwinds.
+                let mut launched: Option<crate::postgres::customscan::mpp::glue::MppLeaderState> =
+                    None;
                 let (ctx, plan) = if mpp_pending {
                     match Self::launch_mpp(state, &plan) {
                         Some(leader) => {
@@ -1532,7 +1551,7 @@ impl CustomScan for JoinScan {
                             launch_us.attach_us = leader.timing.attach_us;
                             launch_us.leader_setup_us = leader.timing.leader_setup_us;
                             launch_us.workers = leader.timing.workers;
-                            state.custom_state_mut().mpp = MppLifecycle::Launched(leader);
+                            launched = Some(leader);
                             (exec_ctx, plan)
                         }
                         None => {
@@ -1588,8 +1607,21 @@ impl CustomScan for JoinScan {
                 let stream = {
                     let _guard = runtime.enter();
                     plan.execute(0, task_ctx)
-                        .expect("Failed to execute DataFusion plan")
                 };
+                let stream = match stream {
+                    Ok(stream) => stream,
+                    Err(e) => {
+                        drop(plan);
+                        drop(ctx);
+                        if let Some(leader) = launched.take() {
+                            crate::postgres::customscan::mpp::launch::abort_launch(leader);
+                        }
+                        pgrx::error!("Failed to execute DataFusion plan: {e}");
+                    }
+                };
+                if let Some(leader) = launched.take() {
+                    state.custom_state_mut().mpp = MppLifecycle::Launched(leader);
+                }
                 launch_us.exec_us = t_exec.elapsed().as_micros() as u64;
 
                 // Retain the executed plan so EXPLAIN ANALYZE can extract metrics. Record the
@@ -1652,7 +1684,10 @@ impl CustomScan for JoinScan {
                         state.custom_state_mut().current_batch = Some(batch);
                         state.custom_state_mut().batch_index = 0;
                     }
-                    Some(Err(e)) => panic!("DataFusion execution failed: {}", e),
+                    Some(Err(e)) => {
+                        Self::abort_mpp_execution(state);
+                        pgrx::error!("DataFusion execution failed: {}", e);
+                    }
                     None => return std::ptr::null_mut(),
                 }
             }

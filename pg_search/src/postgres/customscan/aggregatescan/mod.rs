@@ -416,6 +416,44 @@ impl GroupingShape {
     }
 }
 
+impl AggregateScan {
+    /// Join a launched MPP run: drop the stream, drain the workers' metrics, release the plan
+    /// and runtime, and wait for the workers. Leaves `mpp` at `Inactive`.
+    fn finish_mpp_execution(df_state: &mut scan_state::DataFusionAggState) {
+        df_state.stream = None;
+        if let Some(leader) = df_state.mpp.leader()
+            && let Some(plan) = df_state.physical_plan.as_ref()
+        {
+            crate::postgres::customscan::mpp::glue::drain_worker_metrics(
+                plan,
+                &leader.session.mesh,
+            );
+        }
+        let finish = match df_state.mpp.take_leader() {
+            Some(mut leader) => leader.finish.take(),
+            None => None,
+        };
+        df_state.physical_plan = None;
+        df_state.runtime = None;
+        if let Some(finish) = finish {
+            finish.wait_for_finish();
+        }
+    }
+
+    /// Tear a launched MPP run down after the leader failed mid-stream: drop everything holding
+    /// a mesh reference, then terminate and reap the workers before the error unwinds.
+    fn abort_mpp_execution(df_state: &mut scan_state::DataFusionAggState) {
+        df_state.stream = None;
+        df_state.current_batch = None;
+        let leader = df_state.mpp.take_leader();
+        df_state.physical_plan = None;
+        df_state.runtime = None;
+        if let Some(leader) = leader {
+            crate::postgres::customscan::mpp::launch::abort_launch(leader);
+        }
+    }
+}
+
 impl CustomScan for AggregateScan {
     const NAME: &'static CStr = c"ParadeDB Aggregate Scan";
     type Args = CreateUpperPathsHookArgs;
@@ -910,10 +948,19 @@ impl CustomScan for AggregateScan {
         // Reset DataFusion state so rescan rebuilds the plan and stream.
         // Drop stream before runtime to avoid tokio panics.
         if let Some(ref mut df_state) = state.custom_state_mut().datafusion_state {
-            df_state.stream = None;
+            // A launched run must be joined and the launch re-armed, or the next execution
+            // consumes `Launched` as "not pending", replans serially, and leaves the old
+            // leader (and its workers) retained until the scan ends. Mirrors JoinScan.
+            let relaunch_mpp = matches!(
+                df_state.mpp,
+                MppLifecycle::Pending | MppLifecycle::Launched(_)
+            );
+            Self::finish_mpp_execution(df_state);
             df_state.current_batch = None;
             df_state.batch_row_idx = 0;
-            df_state.runtime = None;
+            if relaunch_mpp {
+                df_state.mpp = MppLifecycle::Pending;
+            }
         }
     }
 
@@ -1859,6 +1906,9 @@ impl AggregateScan {
                 .datafusion_state
                 .as_mut()
                 .expect("DataFusion state must be initialized");
+            // A launched leader stays in this local until the stream exists: a failure in
+            // between tears the workers down here, before the error unwinds.
+            let mut launched: Option<crate::postgres::customscan::mpp::glue::MppLeaderState> = None;
             let (ctx, physical_plan) = if is_mpp {
                 match leader {
                     Some(leader) => {
@@ -1870,7 +1920,7 @@ impl AggregateScan {
                         let mut timing = leader.timing;
                         timing.plan_us = plan_us;
                         df_state.launch_timing = Some(timing);
-                        df_state.mpp = MppLifecycle::Launched(leader);
+                        launched = Some(leader);
                         (exec_ctx, physical_plan)
                     }
                     None => {
@@ -1915,11 +1965,22 @@ impl AggregateScan {
             };
             let stream = {
                 let _guard = runtime.enter();
-                match physical_plan.execute(0, task_ctx) {
-                    Ok(s) => s,
-                    Err(e) => pgrx::error!("Failed to execute DataFusion aggregate plan: {}", e),
+                physical_plan.execute(0, task_ctx)
+            };
+            let stream = match stream {
+                Ok(stream) => stream,
+                Err(e) => {
+                    drop(physical_plan);
+                    drop(ctx);
+                    if let Some(leader) = launched.take() {
+                        crate::postgres::customscan::mpp::launch::abort_launch(leader);
+                    }
+                    pgrx::error!("Failed to execute DataFusion aggregate plan: {e}");
                 }
             };
+            if let Some(leader) = launched.take() {
+                df_state.mpp = MppLifecycle::Launched(leader);
+            }
 
             df_state.runtime = Some(runtime);
             df_state.physical_plan = Some(physical_plan);
@@ -1971,6 +2032,7 @@ impl AggregateScan {
                     df_state.batch_row_idx = 0;
                 }
                 Some(Err(e)) => {
+                    Self::abort_mpp_execution(df_state);
                     pgrx::error!("DataFusion aggregate execution failed: {}", e);
                 }
                 None => {

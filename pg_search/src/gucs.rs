@@ -140,6 +140,9 @@ static MPP_DEBUG: GucSetting<bool> = GucSetting::<bool>::new(false);
 #[cfg(debug_assertions)]
 static MPP_TEST_PANIC_IN_WORKER: GucSetting<bool> = GucSetting::<bool>::new(false);
 
+#[cfg(debug_assertions)]
+static MPP_TEST_FAIL_LEADER_EXECUTE: GucSetting<bool> = GucSetting::<bool>::new(false);
+
 /// Dedicated diagnostic GUC for per-shuffle EOF row counts. These lines emit concurrently
 /// from every participant and can reorder between runs, so they're kept off `mpp_debug` to
 /// avoid flaking regress expected files. Turn this on in long-running benchmark queries to
@@ -649,6 +652,16 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    #[cfg(debug_assertions)]
+    GucRegistry::define_bool_guc(
+        c"paradedb.mpp_test_fail_leader_execute",
+        c"Fail a PgSearchScan executed by the MPP leader with a DataFusion error",
+        c"Used for testing teardown after a leader-side failure that follows the MPP launch.",
+        &MPP_TEST_FAIL_LEADER_EXECUTE,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     GucRegistry::define_bool_guc(
         c"paradedb.mpp_trace",
         c"Emit MPP setup timing at WARNING level",
@@ -898,6 +911,11 @@ pub fn mpp_debug() -> bool {
 #[cfg(debug_assertions)]
 pub fn mpp_test_panic_in_worker() -> bool {
     MPP_TEST_PANIC_IN_WORKER.get()
+}
+
+#[cfg(debug_assertions)]
+pub fn mpp_test_fail_leader_execute() -> bool {
+    MPP_TEST_FAIL_LEADER_EXECUTE.get()
 }
 
 pub fn mpp_trace() -> bool {

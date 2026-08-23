@@ -302,6 +302,20 @@ impl ParallelProcessFinish {
             messages
         }
     }
+
+    /// Tear the parallel context down without waiting for the workers to finish on their own:
+    /// `DestroyParallelContext` terminates them, waits for them to exit, and detaches the DSM.
+    /// For a leader-side failure after launch, where a worker may be parked waiting for work
+    /// the leader will never send.
+    pub fn abort(self) {
+        unsafe {
+            let pcxt = self.launcher.pcxt.as_ptr();
+            drop(self.launcher);
+
+            pg_sys::DestroyParallelContext(pcxt);
+            pg_sys::ExitParallelMode();
+        }
+    }
 }
 
 pub struct ParallelProcessMessageQueue {

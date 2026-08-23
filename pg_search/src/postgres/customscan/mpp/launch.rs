@@ -443,6 +443,23 @@ fn launch_mpp(
 }
 
 /// AggregateScan launch entry: aggregate worker symbol.
+/// Tear down a launched MPP run after the leader failed between launch and its first batch.
+///
+/// Call once every plan, stream, and session context holding a mesh reference has been dropped,
+/// and before raising the PostgreSQL error. The workers may be blocked on full rings or parked
+/// waiting for plan frames the leader never sent, so they are terminated and reaped rather than
+/// joined; raising the error first would leave PostgreSQL's abort path waiting on them instead.
+pub(crate) fn abort_launch(mut leader: MppLeaderState) {
+    let finish = leader.finish.take();
+    // Flip the liveness flag before the session's senders drop so they never touch ring memory
+    // the DSM detach below is about to unmap.
+    leader.session.mesh.mark_detached();
+    drop(leader);
+    if let Some(finish) = finish {
+        finish.abort();
+    }
+}
+
 pub fn launch_mpp_aggregate(
     physical: &std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
     args: ParallelScanArgs,

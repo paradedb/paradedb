@@ -17,20 +17,26 @@ crate-type = ["rlib"]
 dst = ["proptest/antithesis", "dst/enabled"]
 
 [dependencies]
-approx = "0.5.1"
-# Antithesis hooks; the macros are type-checked no-ops until `dst/enabled`.
-dst = { path = "../dst" }
 anyhow = "1.0.102"
+approx = "0.5.1"
 async-std = { version = "1.13.2", features = ["attributes"] }
 bigdecimal = { version = "0.4.10", features = ["serde"] }
 bytes = "1.11.1"
 chrono = { version = "0.4.44", features = ["clock", "alloc"] }
 cmd_lib = "2.0.0"
 dotenvy = "0.15.7"
+# Antithesis hooks; the macros are type-checked no-ops until `dst/enabled`.
+dst = { path = "../dst" }
+env_logger = "0.11.10"
 futures = "0.3.32"
 lockfree-object-pool = "0.1.6"
+num-traits = "0.2.19"
 pgvector = { version = "0.4.1", features = ["sqlx"] }
 pretty_assertions = "1.4.1"
+# Fork adds RngAlgorithm::Antithesis (crate version still 1.11.0).
+proptest = { git = "https://github.com/antithesishq/proptest", rev = "6061eb48d67ff76f882e709677308816d5791ce7" }
+# Stays on crates.io: the antithesis feature does not touch the derive crate.
+proptest-derive = "0.8.0"
 rand = "0.10.2"
 rstest = "0.26.1"
 rustc-hash = "2.1.2"
@@ -56,9 +62,3 @@ tokio = { version = "1.52.1", features = [
   "sync",
 ] }
 uuid = "1.23.1"
-num-traits = "0.2.19"
-# Fork adds RngAlgorithm::Antithesis (crate version still 1.11.0).
-proptest = { git = "https://github.com/antithesishq/proptest", rev = "6061eb48d67ff76f882e709677308816d5791ce7" }
-# Stays on crates.io: the antithesis feature does not touch the derive crate.
-proptest-derive = "0.8.0"
-env_logger = "0.11.10"

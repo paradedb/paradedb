@@ -100,7 +100,7 @@ ORDER BY rating LIMIT 5;
   workers](/documentation/performance-tuning/reads).
 </Note>
 
-Postgres also supports [parallel scans, joins, and two-stage aggregation](https://www.postgresql.org/docs/current/parallel-plans.html). ParadeDB builds on those parallel-worker primitives while pushing supported filters, Top K, joins, and aggregates into the index. For joins and aggregates, ParadeDB can distribute the pushed-down plan across workers using an MPP execution strategy.
+Postgres supports [parallel scans, joins, and two-stage aggregation](https://www.postgresql.org/docs/current/parallel-plans.html). ParadeDB builds on those parallel-worker primitives while pushing supported filters, Top K, joins, and aggregates into the index. For joins and aggregates, ParadeDB can distribute the pushed-down plan across workers using an MPP execution strategy.
 
 ## Design Philosophy
 

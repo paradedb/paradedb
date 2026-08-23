@@ -117,7 +117,7 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
             }
             TAG_TANTIVY_LOOKUP => {
                 let input = single_input(inputs)?;
-                let ffhelpers = collect_ffhelpers_by_indexrelid(&input);
+                let ffhelpers = collect_ffhelpers(&input);
                 TantivyLookupExec::decode_for_dispatch(
                     payload,
                     input,
@@ -127,7 +127,7 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
             }
             TAG_SEGMENTED_TOPK => {
                 let input = single_input(inputs)?;
-                let ffhelpers = collect_ffhelpers_by_indexrelid(&input);
+                let ffhelpers = collect_ffhelpers(&input);
                 // Re-collect the live ctid resolvers from the decoded subtree so a dispatched
                 // fragment can rebuild its absorbed visibility data (same as VFExec above).
                 let resolvers = collect_ctid_resolvers(&input);
@@ -267,14 +267,17 @@ fn collect_ctid_resolvers(input: &Arc<dyn ExecutionPlan>) -> Vec<(usize, u32, Ar
         .collect()
 }
 
-/// `indexrelid -> ffhelper` for the tantivy lookup exec.
-fn collect_ffhelpers_by_indexrelid(input: &Arc<dyn ExecutionPlan>) -> HashMap<u32, Arc<FFHelper>> {
+/// `(plan_position, indexrelid) -> ffhelper` for the tantivy lookup and segmented top-k execs.
+/// `plan_position` keeps a self-join's two aliases from sharing one helper (#6023).
+fn collect_ffhelpers(
+    input: &Arc<dyn ExecutionPlan>,
+) -> HashMap<(Option<usize>, u32), Arc<FFHelper>> {
     let mut scans = Vec::new();
     collect_scan_runtime(input, &mut scans);
     let mut map = HashMap::default();
     for s in scans {
         if let Some(ff) = s.ffhelper {
-            map.insert(s.indexrelid, ff);
+            map.insert((s.ctid_plan_position, s.indexrelid), ff);
         }
     }
     map

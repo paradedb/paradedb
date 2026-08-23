@@ -290,6 +290,7 @@ fn try_inject_below_lookup(
                             crate::scan::segmented_topk_exec::DeferredSortColumn {
                                 sort_col_idx: physical_idx,
                                 canonical: field.canonical.clone(),
+                                plan_position: field.plan_position,
                                 rebuild: field.rebuild.clone(),
                             },
                         );
@@ -315,11 +316,15 @@ fn try_inject_below_lookup(
                     return Ok(None);
                 }
 
-                let target_indexrelid = first_indexrelid.unwrap_or(0);
-                let ffhelper = match lookup.ffhelper(target_indexrelid) {
-                    Some(helper) => Arc::clone(helper),
-                    None => return Ok(None),
-                };
+                let mut ffhelpers = crate::api::HashMap::default();
+                for deferred in &deferred_columns {
+                    match lookup.ffhelper(deferred.plan_position, deferred.canonical.indexrelid) {
+                        Some(helper) => {
+                            ffhelpers.insert(deferred.helper_key(), Arc::clone(helper));
+                        }
+                        None => return Ok(None),
+                    }
+                }
 
                 // Rewrite sort expressions: replace each Column's index with the
                 // resolved physical index so that SegmentedTopKExec operates on the
@@ -368,7 +373,7 @@ fn try_inject_below_lookup(
                     Arc::clone(lookup_child),
                     rewritten_lex_ordering,
                     deferred_columns.clone(),
-                    Arc::clone(&ffhelper),
+                    ffhelpers,
                     k,
                     absorbed_visibility,
                     parent_filter.clone(),

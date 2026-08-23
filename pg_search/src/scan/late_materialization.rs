@@ -654,13 +654,13 @@ pub struct LateMaterializePlanner;
 
 fn extract_ff_helper(
     plan: &Arc<dyn ExecutionPlan>,
-    helpers: &mut crate::api::HashMap<u32, Arc<FFHelper>>,
+    helpers: &mut crate::api::HashMap<FfHelperKey, Arc<FFHelper>>,
 ) {
     if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>()
         && scan.has_deferred_fields()
         && let Some(ff) = scan.ffhelper()
     {
-        helpers.insert(scan.indexrelid, ff);
+        helpers.insert((scan.deferred_ctid_plan_position(), scan.indexrelid), ff);
     }
 
     for child in plan.children() {
@@ -745,6 +745,7 @@ impl ExtensionPlanner for LateMaterializePlanner {
                         display_name: deferred.name.clone(),
                         is_bytes: deferred.is_bytes,
                         canonical: deferred.canonical.clone(),
+                        plan_position: deferred.plan_position,
                         rebuild: deferred.rebuild.clone(),
                     },
                 );
@@ -780,11 +781,27 @@ pub struct DeferredField {
     pub name: String,
     pub is_bytes: bool,
     pub canonical: CanonicalColumn,
+    /// JoinScan source identity. Distinguishes self-join aliases that share
+    /// `canonical.indexrelid` so each side keeps its own `FFHelper` (#6023).
+    /// `None` is the single-scan (non-join) case.
+    #[serde(default)]
+    pub plan_position: Option<usize>,
     /// Worker-side `FFHelper` rebuild info for lookups whose fragment has no scan of this
     /// index beneath them (a lookup above a network shuffle). `None` keeps the pre-existing
     /// behavior of collecting the helper from the plan subtree.
     #[serde(default)]
     pub rebuild: Option<DeferredLookupRebuild>,
+}
+
+/// Key for the per-scan `FFHelper` map used by deferred lookup and top-k.
+///
+/// `plan_position` disambiguates self-join aliases that share an `indexrelid`.
+pub type FfHelperKey = (Option<usize>, u32);
+
+impl DeferredField {
+    pub fn helper_key(&self) -> FfHelperKey {
+        (self.plan_position, self.canonical.indexrelid)
+    }
 }
 
 /// Everything a worker needs to rebuild the fast-field reader for a deferred column when the

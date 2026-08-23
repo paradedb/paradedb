@@ -10,6 +10,7 @@ use crate::index::fast_fields_helper::{
     CanonicalColumn, FFHelper, FFType, for_each_segment, ords_to_bytes_array, ords_to_string_array,
 };
 use crate::scan::execution_plan::UnsafeSendStream;
+use crate::scan::late_materialization::FfHelperKey;
 
 use arrow_array::{Array, ArrayRef, RecordBatch, UInt64Array, UnionArray, new_null_array};
 use arrow_array::{StructArray, UInt32Array};
@@ -49,11 +50,19 @@ pub struct PhysicalDeferredField {
     pub display_name: String,
     pub is_bytes: bool,
     pub canonical: CanonicalColumn,
+    /// JoinScan source identity. Distinguishes self-join aliases that share
+    /// `canonical.indexrelid` so each side keeps its own `FFHelper` (#6023).
+    #[serde(default)]
+    pub plan_position: Option<usize>,
     #[serde(default)]
     pub rebuild: Option<crate::scan::late_materialization::DeferredLookupRebuild>,
 }
 
 impl PhysicalDeferredField {
+    pub fn helper_key(&self) -> FfHelperKey {
+        (self.plan_position, self.canonical.indexrelid)
+    }
+
     pub fn output_data_type(&self) -> DataType {
         if self.is_bytes {
             DataType::BinaryView
@@ -69,11 +78,9 @@ pub struct TantivyLookupExec {
     input: Arc<dyn ExecutionPlan>,
     deferred_fields: Vec<PhysicalDeferredField>,
     decoders: Vec<DecoderInfo>,
-    /// Keyed by index relid, so a self-join folds both aliases onto one helper. Term ordinals
-    /// and doc ids are per-reader, so the surviving helper decodes the other alias correctly
-    /// only while both sources share a segment view. Keying by `(plan_position, indexrelid)`
-    /// would remove the aliasing.
-    ffhelpers: HashMap<u32, Arc<FFHelper>>,
+    /// Keyed by `(plan_position, indexrelid)` so a self-join keeps one helper per alias.
+    /// `ff_index` is relative to that scan's field list, not the shared index schema.
+    ffhelpers: HashMap<FfHelperKey, Arc<FFHelper>>,
     properties: Arc<PlanProperties>,
     metrics: ExecutionPlanMetricsSet,
 }
@@ -91,7 +98,7 @@ impl TantivyLookupExec {
     pub fn new(
         input: Arc<dyn ExecutionPlan>,
         deferred_fields: Vec<PhysicalDeferredField>,
-        ffhelpers: HashMap<u32, Arc<FFHelper>>,
+        ffhelpers: HashMap<FfHelperKey, Arc<FFHelper>>,
     ) -> Result<Self> {
         let (output_schema, decoders) =
             build_schema_and_decoders(input.schema(), &deferred_fields)?;
@@ -146,13 +153,17 @@ impl TantivyLookupExec {
         &self.deferred_fields
     }
 
-    pub fn ffhelper(&self, indexrelid: u32) -> Option<&Arc<FFHelper>> {
-        self.ffhelpers.get(&indexrelid)
+    pub fn ffhelper(
+        &self,
+        plan_position: Option<usize>,
+        indexrelid: u32,
+    ) -> Option<&Arc<FFHelper>> {
+        self.ffhelpers.get(&(plan_position, indexrelid))
     }
 
     /// Serialize for leader dispatch. The `ffhelpers` are live and don't travel; the worker
-    /// pulls them from the scans in its decoded subtree, keyed by index relid. `decoders` is
-    /// derived from `deferred_fields`, so it's recomputed on decode.
+    /// pulls them from the scans in its decoded subtree, keyed by `(plan_position, indexrelid)`.
+    /// `decoders` is derived from `deferred_fields`, so it's recomputed on decode.
     pub(crate) fn encode_for_dispatch(&self) -> datafusion::common::Result<Vec<u8>> {
         serde_json::to_vec(&self.deferred_fields).map_err(|e| {
             datafusion::common::DataFusionError::Internal(format!(
@@ -164,7 +175,7 @@ impl TantivyLookupExec {
     pub(crate) fn decode_for_dispatch(
         buf: &[u8],
         input: Arc<dyn ExecutionPlan>,
-        mut ffhelpers: HashMap<u32, Arc<FFHelper>>,
+        mut ffhelpers: HashMap<FfHelperKey, Arc<FFHelper>>,
         parallel_state: Option<*mut crate::postgres::ParallelScanState>,
     ) -> datafusion::common::Result<Arc<dyn ExecutionPlan>> {
         let deferred_fields: Vec<PhysicalDeferredField> =
@@ -248,34 +259,35 @@ pub(crate) fn open_rebuilt_ffhelper(
 /// matches the ordering the addresses were packed against.
 fn rebuild_missing_ffhelpers(
     deferred_fields: &[PhysicalDeferredField],
-    ffhelpers: &mut HashMap<u32, Arc<FFHelper>>,
+    ffhelpers: &mut HashMap<FfHelperKey, Arc<FFHelper>>,
     context: LookupRebuildContext,
 ) -> Result<()> {
     // Ordinal-typed columns keep a scan's helper when one decoded in this fragment (its layout
     // lines up by construction); they rebuild only on a worker whose fragment has that scan
     // behind a network boundary.
-    let mut rebuild_indexes: crate::api::HashSet<u32> = Default::default();
+    let mut rebuild_keys: crate::api::HashSet<FfHelperKey> = Default::default();
     for f in deferred_fields {
         if f.rebuild.is_none() {
             continue;
         }
-        let scan_is_elsewhere = !ffhelpers.contains_key(&f.canonical.indexrelid);
-        if scan_is_elsewhere {
-            rebuild_indexes.insert(f.canonical.indexrelid);
+        let key = f.helper_key();
+        if !ffhelpers.contains_key(&key) {
+            rebuild_keys.insert(key);
         }
     }
 
-    // Group by index so two columns of the same index share one reader, and lay out every
-    // rebuildable column of a rebuilding index, not just the ones that triggered it: the
-    // rebuilt helper replaces the map entry, so it has to serve all of them.
-    let mut per_index: HashMap<u32, Vec<&PhysicalDeferredField>> = HashMap::default();
+    // Group by `(plan_position, indexrelid)` so two columns of the same alias share one
+    // reader, while a self-join's two aliases keep separate layouts. The rebuilt helper
+    // replaces the map entry, so it has to serve every rebuildable column of that alias.
+    let mut per_key: HashMap<FfHelperKey, Vec<&PhysicalDeferredField>> = HashMap::default();
     for f in deferred_fields {
-        if f.rebuild.is_some() && rebuild_indexes.contains(&f.canonical.indexrelid) {
-            per_index.entry(f.canonical.indexrelid).or_default().push(f);
+        let key = f.helper_key();
+        if f.rebuild.is_some() && rebuild_keys.contains(&key) {
+            per_key.entry(key).or_default().push(f);
         }
     }
 
-    for (indexrelid, fields) in per_index {
+    for (key, fields) in per_key {
         let mvcc = rebuild_mvcc(context, fields[0].rebuild.as_ref().unwrap())?;
         let entries: Vec<(
             usize,
@@ -284,10 +296,7 @@ fn rebuild_missing_ffhelpers(
             .iter()
             .map(|f| (f.canonical.ff_index, f.rebuild.as_ref().unwrap()))
             .collect();
-        ffhelpers.insert(
-            indexrelid,
-            open_rebuilt_ffhelper(indexrelid, &entries, mvcc)?,
-        );
+        ffhelpers.insert(key, open_rebuilt_ffhelper(key.1, &entries, mvcc)?);
     }
     Ok(())
 }
@@ -296,6 +305,7 @@ pub struct DecoderInfo {
     pub col_idx: usize,
     pub is_bytes: bool,
     pub canonical: CanonicalColumn,
+    pub plan_position: Option<usize>,
 }
 
 fn build_schema_and_decoders(
@@ -320,6 +330,7 @@ fn build_schema_and_decoders(
                     col_idx,
                     is_bytes: d.is_bytes,
                     canonical: d.canonical,
+                    plan_position: d.plan_position,
                 });
             } else {
                 fields.push(field.as_ref().clone());
@@ -450,7 +461,7 @@ enum DeferredColumnKind {
 fn enrich_batch(
     batch: RecordBatch,
     decoders: &[DecoderInfo],
-    ffhelpers: &HashMap<u32, Arc<FFHelper>>,
+    ffhelpers: &HashMap<FfHelperKey, Arc<FFHelper>>,
     schema: &SchemaRef,
 ) -> Result<RecordBatch> {
     let num_rows = batch.num_rows();
@@ -469,11 +480,11 @@ fn enrich_batch(
             })?;
 
         let ffhelper = ffhelpers
-            .get(&decoder.canonical.indexrelid)
+            .get(&(decoder.plan_position, decoder.canonical.indexrelid))
             .ok_or_else(|| {
                 DataFusionError::Execution(format!(
-                    "missing FFHelper for relation ID {}",
-                    decoder.canonical.indexrelid
+                    "missing FFHelper for plan_position {:?} relation ID {}",
+                    decoder.plan_position, decoder.canonical.indexrelid
                 ))
             })?;
 

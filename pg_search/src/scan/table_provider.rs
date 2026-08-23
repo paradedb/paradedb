@@ -344,6 +344,7 @@ impl PgSearchTableProvider {
                         indexrelid: self.scan_info.indexrelid.to_u32(),
                         ff_index,
                     },
+                    plan_position: self.deferred_ctid_plan_position(),
                     // Resolvable from any fragment: reads the segment list from
                     // the worker's `ParallelScanState` (claiming only divides the scan, not a
                     // reader opened over the whole list).

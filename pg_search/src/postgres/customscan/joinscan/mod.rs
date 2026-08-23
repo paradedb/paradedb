@@ -891,19 +891,6 @@ impl JoinScan {
         state: &mut CustomScanStateWrapper<Self>,
         physical: &Arc<dyn ExecutionPlan>,
     ) -> Option<crate::postgres::customscan::mpp::glue::MppLeaderState> {
-        // Gate before manifest capture so a too-small query pays neither the index pins nor
-        // the DSM. `None` rides the same serial fallback as a short launch.
-        if mpp_gated_by_min_rows(
-            state
-                .custom_state()
-                .join_clause
-                .plan
-                .sources()
-                .into_iter()
-                .map(|source| &source.scan_info),
-        ) {
-            return None;
-        }
         Self::ensure_source_manifests(state);
         let all_sources: Vec<SegmentView> = state
             .custom_state()
@@ -1397,9 +1384,20 @@ impl CustomScan for JoinScan {
             // resolved and rebaked at execution time before it is deserialized to build the
             // physical plan. The finished stages then provide the exact dispatch payload before
             // DSM allocation. Only the leader runs this branch (`ParallelWorkerNumber == -1`).
+            // The size gate decides here, before any MPP work: a gated query takes the plain
+            // serial path and never builds the distributed plan or captures manifests.
             if mpp_is_active()
                 && unsafe { pg_sys::ParallelWorkerNumber } == -1
                 && state.custom_state().logical_plan.is_some()
+                && !mpp_gated_by_min_rows(
+                    state
+                        .custom_state()
+                        .join_clause
+                        .plan
+                        .sources()
+                        .into_iter()
+                        .map(|source| &source.scan_info),
+                )
             {
                 state.custom_state_mut().mpp = MppLifecycle::Pending;
             }

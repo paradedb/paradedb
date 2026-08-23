@@ -292,11 +292,10 @@ LIMIT 5;
 --
 -- length(f.title) > $1, with plan_cache_mode=force_generic_plan, keeps
 -- $1 unresolved in SearchQueryInput. Compared against the same query run
--- serially (enable_mpp = off) so MPP-vs-serial divergence surfaces as a
--- diff, not just a missing worker_metrics_shown flag (see #5167).
+-- serially (max_parallel_workers_per_gather = 0) so MPP-vs-serial divergence
+-- surfaces as a diff, not just a missing worker_metrics_shown flag (see #5167).
 -- =====================================================================
 
-SET paradedb.enable_mpp TO on;
 SET max_parallel_workers_per_gather TO 4;
 SET plan_cache_mode = force_generic_plan;
 PREPARE mpp_join_heapfilter_param(int) AS
@@ -338,7 +337,7 @@ WHERE line LIKE '%Gather%';
 DEALLOCATE mpp_join_heapfilter_param;
 
 -- Same query, run serially, to diff against the MPP result above.
-SET paradedb.enable_mpp TO off;
+SET max_parallel_workers_per_gather TO 0;
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section'
@@ -352,7 +351,7 @@ WHERE f.content @@@ 'Section'
   AND length(f.title) > 7
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
-SET paradedb.enable_mpp TO on;
+SET max_parallel_workers_per_gather TO 4;
 
 SET plan_cache_mode = auto;
 
@@ -393,13 +392,13 @@ LIMIT 10;
 
 -- Execute the identical InitPlan query serially so the expected output directly
 -- checks MPP/serial result equivalence, not only MPP worker activity.
-SET paradedb.enable_mpp TO off;
+SET max_parallel_workers_per_gather TO 0;
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
 WHERE f.content @@@ (SELECT content FROM mpp_join_files ORDER BY id LIMIT 1)
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
-SET paradedb.enable_mpp TO on;
+SET max_parallel_workers_per_gather TO 4;
 
 -- =====================================================================
 -- Pass 10: MPP with two parameterized source queries (review: mithuncy)
@@ -571,8 +570,6 @@ WHERE line LIKE '%NetworkCoalesceExec%'
 
 RESET paradedb.mpp_min_rows;
 DROP FUNCTION mpp_explain_analyze_lines(text);
-
-SET paradedb.enable_mpp TO off;
 
 -- =====================================================================
 -- Cleanup

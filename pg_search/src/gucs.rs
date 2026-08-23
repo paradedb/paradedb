@@ -675,8 +675,8 @@ pub fn init() {
         c"Minimum estimated source row count for MPP",
         c"MPP engages only when the scan's largest source is estimated to match at least \
           this many rows (its live document count when the table is unanalyzed); smaller \
-          queries run serially, where the launch cost would dominate. Set to 0 to always \
-          engage.",
+          queries run serially, where the launch cost would dominate. Set to 0 to disable \
+          the size gate.",
         &MPP_MIN_ROWS,
         0,
         i32::MAX,

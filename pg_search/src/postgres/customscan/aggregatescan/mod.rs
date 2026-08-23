@@ -1092,6 +1092,14 @@ impl AggregateScan {
     /// Planning remains lazy: the finished physical stages provide the exact dispatch payload
     /// before DSM allocation, so begin never needs a throwaway logical plan.
     fn prepare_mpp(state: &mut CustomScanStateWrapper<Self>) {
+        // The size gate decides here, before any MPP work: a gated query keeps
+        // `MppLifecycle::Inactive`, so exec plans serially and no manifest is pinned.
+        let Some(df_state) = state.custom_state().datafusion_state.as_ref() else {
+            return;
+        };
+        if mpp_gated_by_min_rows(df_state.plan.sources().into_iter().map(|s| &s.scan_info)) {
+            return;
+        }
         Self::ensure_source_manifests(state);
 
         let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() else {
@@ -1108,13 +1116,6 @@ impl AggregateScan {
         state: &mut CustomScanStateWrapper<Self>,
         physical: &Arc<dyn ExecutionPlan>,
     ) -> Option<crate::postgres::customscan::mpp::glue::MppLeaderState> {
-        // Gate before touching the DSM. `None` rides the same serial fallback as a short
-        // launch.
-        if let Some(df_state) = state.custom_state().datafusion_state.as_ref()
-            && mpp_gated_by_min_rows(df_state.plan.sources().into_iter().map(|s| &s.scan_info))
-        {
-            return None;
-        }
         // Manifests were captured in `prepare_mpp` (begin); `ensure` is idempotent.
         Self::ensure_source_manifests(state);
 

@@ -384,7 +384,7 @@ await dbContext
 (3 rows)
 ```
 
-Because `embedding`, `description`, and `rating` are part of the same ParadeDB index, the full-text match, rating filter, and nearest-neighbor ordering can all execute in a single index scan. pgvector's HNSW and IVFFlat indexes can't do this—they are standalone vector indexes that require post-filtering, which can hurt performance and recall.
+Because `embedding` is part of the same index as `description` and `rating`, the entire query (the full-text match, the rating filter, and the nearest-neighbor ordering) can execute in a single index scan. By comparison, pgvector and other Postgres vector indexes are standalone indexes that require separate pre- or post-filtering, which can hurt performance and recall.
 
 ## Top K Ordering
 

@@ -38,9 +38,8 @@ Before triggering the workflow, create a **Release Preparation PR** against `mai
 - Add a `pg_search--<previous-version>--<upcoming-version>.sql` upgrade script.
 - Update the version references in the deployment and upgrade docs and in `docs/docs.json`.
 - Write a changelog entry and add it to `docs/docs.json`.
-- Ensure `nix/pg_search.nix` has the correct `cargoHash`. The Nix CI workflow updates it automatically for branches in this repository when necessary.
 
-See the [0.25.3 release preparation PR](https://github.com/paradedb/paradedb/pull/5982) for a recent example.
+See the [0.25.3 release preparation PR](https://github.com/paradedb/paradedb/pull/5982) for an example.
 
 ## Triggering a Release
 
@@ -67,12 +66,6 @@ To publish a patch for an older release:
 
 1. **Verify** that the GitHub release and tag were created correctly and that all jobs completed successfully.
 2. **Release** `paradedb/paradedb-enterprise` by following the instructions in the repository's RELEASE.md file.
-3. **Open a post-release PR** against the released branch to bump `Cargo.toml` to the next development version (e.g., `0.24.2` after releasing `0.24.1`), add the corresponding empty upgrade script, run `cargo check` to refresh `Cargo.lock`, and update the Nix `cargoHash`.
-
-> [!IMPORTANT]
-> **Do step 3 before merging any new schema work.** Until the branch is bumped, the
-> current upgrade script targets the version you just released, so it's frozen —
-> changes added to it never reach users already on that version. The
-> **Check Released Migrations** CI guard enforces this.
+3. **Open a post-release PR** against the released branch to bump `Cargo.toml` to the next development version (e.g., `0.24.2` after releasing `0.24.1`), add the corresponding empty upgrade script, and run `cargo check` to refresh `Cargo.lock`.
 
 That's it! Go for a walk, you deserve it.

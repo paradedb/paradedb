@@ -278,9 +278,9 @@ fn freeze_merge_layer_sizes(index: &PgSearchRelation) -> Vec<u64> {
         .unwrap_or(DEFAULT_MUTABLE_SEGMENT_BYTES);
     // Keep consolidation local to freeze products: up to 8× the byte cap, floored at 4MB
     // and capped at 64MB so we do not drag multi-hundred-MB segments into every freeze.
-    let soft_max = (byte_cap.saturating_mul(8))
-        .max(4 * 1024 * 1024)
-        .min(64 * 1024 * 1024);
+    let soft_max = byte_cap
+        .saturating_mul(8)
+        .clamp(4 * 1024 * 1024, 64 * 1024 * 1024);
 
     let mut layers = vec![
         0,
@@ -291,7 +291,6 @@ fn freeze_merge_layer_sizes(index: &PgSearchRelation) -> Vec<u64> {
         byte_cap.saturating_mul(4),
         soft_max,
     ];
-    layers.retain(|&size| size == 0 || size > 0);
     layers.sort_unstable();
     layers.dedup();
     layers

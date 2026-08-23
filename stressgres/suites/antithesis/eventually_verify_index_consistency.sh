@@ -13,7 +13,7 @@ CONN="postgresql://postgres:antithesis-super-secret-password@paradedb-rw:5432/pa
 
 # EXECUTE keeps the pdb reference out of parse time: the vanilla-postgres timeline has no
 # pg_search extension, so the DO block must no-op there.
-SQL=$(cat <<'EOF'
+read -r -d '' SQL <<'EOF' || true
 DO $$
 DECLARE
     bad text;
@@ -37,7 +37,6 @@ BEGIN
 END
 $$;
 EOF
-)
 
 # The deadline is 1.5x the workload's own 200s reconnect-grace: that grace holds under active
 # fault injection, while this command runs with all faults stopped, so a database that is still

@@ -39,11 +39,11 @@ In Tantivy these structures are referred to as [fast fields](https://docs.rs/tan
 
 To support real-time updates, the ParadeDB index uses a [Log-Structured Merge (LSM) tree](https://en.wikipedia.org/wiki/Log-structured_merge-tree).
 
-An LSM tree is a write-optimized data structure commonly used in systems like RocksDB and Cassandra. The core idea behind an LSM tree is to turn random writes into sequential ones. Incoming writes are first stored in an in-memory buffer, which is fast to update. Once the buffer fills up or the current statement finishes, it is flushed to disk as an immutable "segment" file.
+An LSM tree is a write-optimized data structure commonly used in systems like RocksDB and Cassandra. The core idea behind an LSM tree is to turn random writes into sequential ones. Incoming writes are appended to a mutable segment, which buffers rows across statements. Once the segment reaches the configured [`mutable_segment_rows`](/documentation/performance-tuning/writes#increase-mutable-segment-size) threshold—1,000 rows by default—it is frozen and becomes eligible for conversion into an immutable segment.
 
 These segment files are organized by size into layers or levels. Newer data is written to the topmost layer. Over time, data is gradually pushed down into lower levels through a process called merging or compaction, where data from smaller segments is merged, deduplicated, and rewritten into larger segments.
 
-In ParadeDB, every `INSERT`/`UPDATE`/`COPY` statement creates a new segment. Each segment has its own inverted index and columnar index, which means that the ParadeDB index
+ParadeDB reuses the current mutable segment across `INSERT`, `UPDATE`, and `COPY` statements until it reaches that threshold. Each resulting immutable segment has its own inverted index and columnar index, which means that the ParadeDB index
 is actually a collection of many inverted/columnar indexes, each of which allows for very dense intersection queries to rapidly filter matches.
 
 ## Query Execution
@@ -85,7 +85,7 @@ As a rule of thumb: if `EXPLAIN` shows a custom scan (or, in rare cases, a Parad
 
 ### Parallelization
 
-For queries that need to read large amounts of data like [Top K](/documentation/sorting/topk) or aggregate queries, the custom scan automatically spawns additional workers to execute the query
+For queries that need to read large amounts of data, such as [Top K](/documentation/sorting/topk) or aggregate queries, ParadeDB custom scans can use additional Postgres workers to execute the query
 in parallel. To see if a query was parallelized, run `EXPLAIN ANALYZE`:
 
 ```sql
@@ -100,8 +100,7 @@ ORDER BY rating LIMIT 5;
   workers](/documentation/performance-tuning/reads).
 </Note>
 
-Parallel workers are another reason why the ParadeDB index is significantly faster than Postgres' native text search and aggregates,
-which are mostly not capable of parallelization.
+Postgres supports [parallel scans, joins, and two-stage aggregation](https://www.postgresql.org/docs/current/parallel-plans.html). ParadeDB builds on those parallel-worker primitives while pushing supported filters, Top K, joins, and aggregates into the index. For joins and aggregates, ParadeDB can distribute the pushed-down plan across workers using an MPP execution strategy.
 
 ## Design Philosophy
 

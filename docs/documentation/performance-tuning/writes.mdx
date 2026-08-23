@@ -38,7 +38,7 @@ Setting `layer_sizes` to `0` disables foreground merging, and setting `backgroun
 A good starting point for `work_mem` is `(RAM - shared_buffers) / (3 * max_connections)`. If your typical update patterns are large, bulk updates (not single-row updates) a larger value may be better.
 
 ```sql
-SET work_mem = 64MB;
+SET work_mem = '64MB';
 ```
 
 Since many write operations can be running concurrently, this value should be raised more conservatively than `maintenance_work_mem`.

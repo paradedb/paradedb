@@ -27,7 +27,7 @@ use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::merge::{MergeStyle, do_merge};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
-    MutableFreeze, MutableSegmentEntry, MVCCEntry, SegmentMetaEntry, SegmentMetaEntryContent,
+    MVCCEntry, MutableFreeze, MutableSegmentEntry, SegmentMetaEntry, SegmentMetaEntryContent,
     SegmentMetaEntryMutable,
 };
 use crate::postgres::storage::metadata::MetaPage;

@@ -260,6 +260,10 @@ pub struct SegmentMetaEntryMutable {
     /// Estimated indexed varlena bytes buffered in this segment (see #5950).
     /// Absent on segments written before this field existed (decoded as 0).
     pub estimated_bytes: u64,
+    /// When `false`, this entry was decoded from a pre-#5950 (V1) on-disk form. Write-backs
+    /// must omit `estimated_bytes` so `update_item` keeps a stable item size across upgrades.
+    #[serde(skip)]
+    pub persist_estimated_bytes: bool,
 }
 
 /// Why a mutable segment froze during `mutable_add_items` (#5950).
@@ -286,6 +290,7 @@ impl SegmentMetaEntryMutable {
             num_deleted_docs: 0,
             frozen: false,
             estimated_bytes: 0,
+            persist_estimated_bytes: true,
         };
         (self_, items)
     }
@@ -828,8 +833,27 @@ impl From<SegmentMetaEntry> for PgItem {
             }
             SegmentMetaEntryContent::Mutable(content) => {
                 debug_assert!(val.header.tag == SegmentMetaEntryTag::Mutable);
-                bincode::serde::encode_into_std_write(content, &mut buf, bincode::config::legacy())
+                // Pre-#5950 (V1) mutable metas omit `estimated_bytes`. Writing it back would
+                // change the item size and panic `update_item` after ALTER EXTENSION upgrade.
+                if content.persist_estimated_bytes {
+                    bincode::serde::encode_into_std_write(
+                        content,
+                        &mut buf,
+                        bincode::config::legacy(),
+                    )
                     .expect("expected to serialize valid SegmentMetaEntryContent::Mutable")
+                } else {
+                    bincode::serde::encode_into_std_write(
+                        SegmentMetaEntryMutableV1 {
+                            header_block: content.header_block,
+                            num_deleted_docs: content.num_deleted_docs,
+                            frozen: content.frozen,
+                        },
+                        &mut buf,
+                        bincode::config::legacy(),
+                    )
+                    .expect("expected to serialize V1 SegmentMetaEntryContent::Mutable")
+                }
             }
         };
 
@@ -901,11 +925,13 @@ impl From<PgItem> for SegmentMetaEntry {
                 } else {
                     0
                 };
+                let persist_estimated_bytes = content_bytes.len() > v1_len;
                 SegmentMetaEntryContent::Mutable(SegmentMetaEntryMutable {
                     header_block: v1.header_block,
                     num_deleted_docs: v1.num_deleted_docs,
                     frozen: v1.frozen,
                     estimated_bytes,
+                    persist_estimated_bytes,
                 })
             }
         };

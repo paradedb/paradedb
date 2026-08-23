@@ -182,8 +182,14 @@ fn mutable_segment_small_docs_still_buffer(mut conn: PgConnection) {
     "#
     .fetch_one(&mut conn);
 
-    assert_eq!(mutable_segs, 1, "expected one mutable segment for small docs");
-    assert_eq!(mutable_docs, 250, "expected all 250 small docs buffered, got {mutable_docs}");
+    assert_eq!(
+        mutable_segs, 1,
+        "expected one mutable segment for small docs"
+    );
+    assert_eq!(
+        mutable_docs, 250,
+        "expected all 250 small docs buffered, got {mutable_docs}"
+    );
     assert!(
         max_bytes.unwrap_or(0) < 64 * 1024,
         "small-doc buffer should stay well under large-doc eager threshold, got {max_bytes:?}"

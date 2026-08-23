@@ -181,6 +181,7 @@ use crate::postgres::customscan::joinscan::planning::distinct_columns_are_fast_f
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::mpp::glue::mpp_is_active;
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
+use crate::postgres::customscan::mpp::launch::mpp_gated_by_min_rows;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parallelism;
 use arrow_array::Array;
@@ -1330,7 +1331,16 @@ impl CustomScan for JoinScan {
                     .block_on(build_physical_plan(ctx, logical_plan))
                     .expect("Failed to create execution plan")
             };
-            let physical_plan = if mpp_is_active() {
+            let gated = mpp_gated_by_min_rows(
+                state
+                    .custom_state()
+                    .join_clause
+                    .plan
+                    .sources()
+                    .into_iter()
+                    .map(|source| &source.scan_info),
+            );
+            let physical_plan = if mpp_is_active() && !gated {
                 let mpp_plan = build_with(&Self::build_mpp_session_context(None));
                 if mpp_plan_has_data_parallelism(&mpp_plan) {
                     mpp_plan
@@ -1366,9 +1376,20 @@ impl CustomScan for JoinScan {
             // resolved and rebaked at execution time before it is deserialized to build the
             // physical plan. The finished stages then provide the exact dispatch payload before
             // DSM allocation. Only the leader runs this branch (`ParallelWorkerNumber == -1`).
+            // The size gate decides here, before any MPP work: a gated query takes the plain
+            // serial path and never builds the distributed plan or captures manifests.
             if mpp_is_active()
                 && unsafe { pg_sys::ParallelWorkerNumber } == -1
                 && state.custom_state().logical_plan.is_some()
+                && !mpp_gated_by_min_rows(
+                    state
+                        .custom_state()
+                        .join_clause
+                        .plan
+                        .sources()
+                        .into_iter()
+                        .map(|source| &source.scan_info),
+                )
             {
                 state.custom_state_mut().mpp = MppLifecycle::Pending;
             }

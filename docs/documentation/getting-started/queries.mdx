@@ -384,9 +384,7 @@ await dbContext
 (3 rows)
 ```
 
-Because `embedding` is part of the same index as `description` and `rating`, the entire query (the full-text match, the rating filter,
-and the nearest-neighbor ordering) executes inside the ParadeDB index. ParadeDB is the only Postgres index that can do this — every other
-Postgres vector index is a standalone index that requires separate pre/post filtering, which hurts performance and recall.
+Because `embedding`, `description`, and `rating` are part of the same ParadeDB index, the full-text match, rating filter, and nearest-neighbor ordering can all execute in a single index scan.
 
 ## Top K Ordering
 

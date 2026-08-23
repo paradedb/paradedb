@@ -365,7 +365,7 @@ fn index_info(
                         entry.xmax(),
                         entry.segment_id().short_uuid_string(),
                         true,
-                        None,
+                        Some(entry.byte_size().into()),
                         Some(entry.num_docs().into()),
                         Some(entry.num_deleted_docs().into()),
                         None,

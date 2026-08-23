@@ -27,7 +27,7 @@ Some tests also require `PG_CONFIG` to point to the `pg_config` binary for the P
 If you are using pgrx’s bundled PostgreSQL, follow these steps from the root of the repository:
 
 ```shell
-#!/bin/sh
+#!/bin/bash
 
 set -x
 export DATABASE_URL="postgresql://$(whoami)@localhost:28818/pg_search"
@@ -48,7 +48,7 @@ and install the `pg_search` extension files into that PostgreSQL instance instea
 The example below uses Homebrew's PostgreSQL 18 path; replace `PG_CONFIG` with the path to your installation's `pg_config` binary.
 
 ```shell
-#!/bin/sh
+#!/bin/bash
 
 set -x
 export DATABASE_URL="postgresql://$(whoami)@localhost:5432/pg_search"

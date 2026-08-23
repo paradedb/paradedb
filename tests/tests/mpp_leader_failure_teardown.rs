@@ -43,15 +43,12 @@ CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
 CREATE TABLE mlft_items (id bigint PRIMARY KEY, txt text NOT NULL);
 CREATE TABLE mlft_excl  (id bigint PRIMARY KEY, val bigint);
 CREATE TABLE mlft_small (id bigint PRIMARY KEY, val bigint NOT NULL, txt text NOT NULL);
-CREATE INDEX mlft_items_idx ON mlft_items USING paradedb (id, txt)
-  WITH (key_field = 'id', target_segment_count = 8, background_layer_sizes = '0',
-        text_fields = '{"txt":{"fast":true}}');
+CREATE INDEX mlft_items_idx ON mlft_items USING paradedb (id, (txt::pdb.literal))
+  WITH (key_field = 'id', target_segment_count = 8, background_layer_sizes = '0');
 CREATE INDEX mlft_excl_idx ON mlft_excl USING paradedb (id, val)
-  WITH (key_field = 'id', target_segment_count = 8, background_layer_sizes = '0',
-        numeric_fields = '{"val":{"fast":true}}');
-CREATE INDEX mlft_small_idx ON mlft_small USING paradedb (id, val, txt)
-  WITH (key_field = 'id', target_segment_count = 8, background_layer_sizes = '0',
-        numeric_fields = '{"val":{"fast":true}}', text_fields = '{"txt":{"fast":true}}');
+  WITH (key_field = 'id', target_segment_count = 8, background_layer_sizes = '0');
+CREATE INDEX mlft_small_idx ON mlft_small USING paradedb (id, val, (txt::pdb.literal))
+  WITH (key_field = 'id', target_segment_count = 8, background_layer_sizes = '0');
 
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO mlft_items SELECT s, 'match' FROM generate_series(1, 2000) s;
@@ -77,16 +74,16 @@ SET parallel_tuple_cost TO 0;
 
 const JOINSCAN_QUERY: &str = r#"
 SELECT i.id FROM mlft_items i JOIN mlft_small s ON s.val = i.id
-WHERE i.txt @@@ 'match' AND s.txt @@@ 'small'
-  AND i.id NOT IN (SELECT val FROM mlft_excl WHERE id @@@ paradedb.all())
+WHERE i.txt === 'match' AND s.txt === 'small'
+  AND i.id NOT IN (SELECT val FROM mlft_excl WHERE id @@@ pdb.all())
 ORDER BY i.id LIMIT 5
 "#;
 
 const AGGREGATESCAN_QUERY: &str = r#"
 SELECT count(*) FROM (
   SELECT i.id FROM mlft_items i JOIN mlft_small s ON s.val = i.id
-  WHERE i.txt @@@ 'match' AND s.txt @@@ 'small'
-    AND i.id NOT IN (SELECT val FROM mlft_excl WHERE id @@@ paradedb.all())) q
+  WHERE i.txt === 'match' AND s.txt === 'small'
+    AND i.id NOT IN (SELECT val FROM mlft_excl WHERE id @@@ pdb.all())) q
 "#;
 
 /// Hard watchdog: a regression here wedges the backend and its workers, which would otherwise

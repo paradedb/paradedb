@@ -369,6 +369,42 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
     }
 }
 
+/// True if every page of the index's heap relation is all-visible according to the visibility
+/// map, in which case every document the index returns is visible to the current snapshot and
+/// per-document MVCC checks can be skipped.
+///
+/// Caller must be in a path that already holds at least AccessShareLock on `heaprel` for the
+/// statement's duration (true in the executor, where the heap is range-table-locked): the two
+/// reads below take no lock of their own and are only safe because concurrent truncation is
+/// excluded. The reads are not atomic either — extension between them biases toward `false`,
+/// never toward a false `true` (new pages are never all-visible).
+fn heap_is_all_visible(heaprel: &PgSearchRelation) -> bool {
+    unsafe {
+        let nblocks = pg_sys::RelationGetNumberOfBlocksInFork(
+            heaprel.as_ptr(),
+            pg_sys::ForkNumber::MAIN_FORKNUM,
+        );
+        let mut all_visible: pg_sys::BlockNumber = 0;
+        pg_sys::visibilitymap_count(heaprel.as_ptr(), &mut all_visible, std::ptr::null_mut());
+        all_visible == nblocks
+    }
+}
+
+/// Wrap a raw matched-doc count in the [`AggregationResults`] shape the caller expects.
+/// Key "0" matches `CollectAggregations::collect`'s enumeration of the single aggregate.
+fn bare_count_results(count: f64) -> AggregationResults {
+    let mut results = AggregationResults::default();
+    results.0.insert(
+        "0".to_string(),
+        tantivy::aggregation::agg_result::AggregationResult::MetricResult(
+            tantivy::aggregation::agg_result::MetricResult::Count(
+                tantivy::aggregation::metric::SingleMetricResult { value: Some(count) },
+            ),
+        ),
+    );
+    results
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn execute_aggregate(
     index: &PgSearchRelation,
@@ -425,24 +461,28 @@ pub fn execute_aggregate(
         // `Weight::count` — a stored-doc_freq metadata read for term queries
         // on delete-free segments, a scoreless docset drain otherwise —
         // skipping the aggregation framework's per-doc column iteration.
-        if !solve_mvcc
+        //
+        // With `solve_mvcc`, this is only valid when every heap page is all-visible: then every
+        // document in the index snapshot is visible, which is the whole-table version of the
+        // per-block visibility-map check `MVCCFilterCollector` would otherwise perform per
+        // document.
+        // Queries with heap-field filters are excluded: their per-document heap
+        // expression evaluation dominates the count and parallelizes across
+        // workers, which the framework path keeps and this leader-only path
+        // forfeits. Single-threaded the two paths measure at parity, so the
+        // exclusion costs nothing where the fast path would otherwise win.
+        if !query.has_heap_filter()
             && matches!(&agg_req, AggregateRequest::Sql(clause) if clause.is_bare_doc_count())
         {
-            let count = reader.count_matched_docs()?;
-            let mut results = AggregationResults::default();
-            // Key "0" matches `CollectAggregations::collect`'s enumeration of
-            // the single aggregate.
-            results.0.insert(
-                "0".to_string(),
-                tantivy::aggregation::agg_result::AggregationResult::MetricResult(
-                    tantivy::aggregation::agg_result::MetricResult::Count(
-                        tantivy::aggregation::metric::SingleMetricResult {
-                            value: Some(count as f64),
-                        },
-                    ),
-                ),
-            );
-            return Ok(results);
+            let skip_mvcc = !solve_mvcc
+                || index
+                    .heap_relation()
+                    .map(|heaprel| heap_is_all_visible(&heaprel))
+                    .unwrap_or(false);
+            if skip_mvcc {
+                let count = reader.count_matched_docs()?;
+                return Ok(bare_count_results(count as f64));
+            }
         }
 
         let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();

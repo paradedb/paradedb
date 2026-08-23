@@ -184,6 +184,7 @@ use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::mpp::glue::mpp_is_active;
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
+use crate::postgres::customscan::mpp::launch::mpp_gated_by_min_rows;
 use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parallelism;
 use arrow_array::Array;
 use datafusion_distributed::shm::MppMesh;
@@ -890,6 +891,19 @@ impl JoinScan {
         state: &mut CustomScanStateWrapper<Self>,
         physical: &Arc<dyn ExecutionPlan>,
     ) -> Option<crate::postgres::customscan::mpp::glue::MppLeaderState> {
+        // Gate before manifest capture so a too-small query pays neither the index pins nor
+        // the DSM. `None` rides the same serial fallback as a short launch.
+        if mpp_gated_by_min_rows(
+            state
+                .custom_state()
+                .join_clause
+                .plan
+                .sources()
+                .into_iter()
+                .map(|source| &source.scan_info),
+        ) {
+            return None;
+        }
         Self::ensure_source_manifests(state);
         let all_sources: Vec<SegmentView> = state
             .custom_state()
@@ -903,15 +917,7 @@ impl JoinScan {
             with_aggregates: false,
             with_segment_info: false,
         };
-        let source_estimates: Vec<crate::scan::info::RowEstimate> = state
-            .custom_state()
-            .join_clause
-            .plan
-            .sources()
-            .iter()
-            .map(|source| source.scan_info.estimate)
-            .collect();
-        crate::postgres::customscan::mpp::launch::launch_mpp_join(physical, args, &source_estimates)
+        crate::postgres::customscan::mpp::launch::launch_mpp_join(physical, args)
     }
 
     /// Re-bake the DataFusion logical plan from the current (post-solve) `join_clause`, so the
@@ -1346,7 +1352,16 @@ impl CustomScan for JoinScan {
                     .block_on(build_physical_plan(ctx, logical_plan))
                     .expect("Failed to create execution plan")
             };
-            let physical_plan = if mpp_is_active() {
+            let gated = mpp_gated_by_min_rows(
+                state
+                    .custom_state()
+                    .join_clause
+                    .plan
+                    .sources()
+                    .into_iter()
+                    .map(|source| &source.scan_info),
+            );
+            let physical_plan = if mpp_is_active() && !gated {
                 let mpp_plan = build_with(&Self::build_mpp_session_context(None));
                 if mpp_plan_has_data_parallelism(&mpp_plan) {
                     mpp_plan

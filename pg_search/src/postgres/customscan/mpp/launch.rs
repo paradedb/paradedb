@@ -68,7 +68,7 @@ use crate::postgres::customscan::mpp::worker_fragments::{
     collect_stages, max_producer_task_count, stages_have_data_parallelism,
 };
 use crate::postgres::{ParallelScanArgs, ParallelScanState};
-use crate::scan::info::RowEstimate;
+use crate::scan::info::{RowEstimate, ScanInfo};
 
 /// `state_values()` order. Each index maps to a `ParallelState` TOC entry the workers look up.
 const MESH_IDX: usize = 0;
@@ -290,6 +290,45 @@ impl MppLifecycle {
     }
 }
 
+/// True when the size gate keeps MPP off: the largest source's estimated match count sits
+/// under `paradedb.mpp_min_rows`. Matches Postgres' refusal to parallelize small scans
+/// (`min_parallel_table_scan_size`): below this size the launch cost (worker spawn, plan
+/// dispatch, per-worker index opens) dominates whatever the split saves. The largest source
+/// stands for the scan: it is the bulk of the work the split divides, and the smaller sides
+/// ride along. A selective query over a large index does little scan work, so each source
+/// counts estimated matches, not index documents; an estimate substituted from the index's
+/// total document count (Postgres expressions, heap filters) is discounted by
+/// `PARAMETERIZED_SELECTIVITY`, mirroring BaseScan.
+///
+/// Shared by the launch and by the plain-EXPLAIN plan rebuilds, the same split as
+/// [`mpp_plan_has_data_parallelism`](crate::postgres::customscan::mpp::worker_fragments),
+/// so the rendered plan agrees with the executed mode (#5784).
+///
+/// `RowEstimate::Unknown` does not gate. The join estimator always produces `Known` for real
+/// sources, so `Unknown` marks a placeholder; silently serializing a big query would cost far
+/// more than a wasted launch.
+pub(crate) fn mpp_gated_by_min_rows<'a>(sources: impl IntoIterator<Item = &'a ScanInfo>) -> bool {
+    gated_by_min_rows(crate::gucs::mpp_min_rows() as u64, sources)
+}
+
+fn gated_by_min_rows<'a>(min_rows: u64, sources: impl IntoIterator<Item = &'a ScanInfo>) -> bool {
+    if min_rows == 0 {
+        return false;
+    }
+    let mut largest: u64 = 0;
+    for info in sources {
+        let rows = match info.estimate {
+            RowEstimate::Known(n) if info.estimate_from_total_docs => {
+                (n as f64 * crate::PARAMETERIZED_SELECTIVITY) as u64
+            }
+            RowEstimate::Known(n) => n,
+            RowEstimate::Unknown => return false,
+        };
+        largest = largest.max(rows);
+    }
+    largest < min_rows
+}
+
 /// Plan-first MPP launch (#5667): size the worker pool from the finished physical plan, build
 /// the DSM, stamp the shared scan state into the plan, spawn exactly the needed producers, and
 /// dispatch. `None` means run serially — the plan has nothing to distribute, the DSM couldn't
@@ -300,43 +339,9 @@ impl MppLifecycle {
 fn launch_mpp(
     physical: &std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
     args: ParallelScanArgs,
-    source_estimates: &[RowEstimate],
     worker_entrypoint: &'static str,
 ) -> Option<MppLeaderState> {
     let mut timing = crate::postgres::customscan::mpp::glue::MppLaunchTiming::default();
-
-    // Match Postgres' refusal to parallelize small scans (`min_parallel_table_scan_size`):
-    // below this size the launch cost (worker spawn, plan dispatch, per-worker index opens)
-    // dominates whatever the split saves. The largest source stands for the scan: it is
-    // the bulk of the work the split divides, and the smaller sides ride along. Each source
-    // counts the rows its `@@@` predicate is estimated to match, not the index's document
-    // count: a selective query over a large index does little scan work, and the launch
-    // floor dominates it just the same. An unanalyzed source falls back to its live document
-    // count, an upper bound, so missing statistics err toward launching. Deciding here, at
-    // the same point as the short-launch serial fallback, keeps one serial-fallback path;
-    // the trade is that plain EXPLAIN still renders the distributed plan (#5784).
-    let min_rows = crate::gucs::mpp_min_rows() as u64;
-    let largest_source_rows: u64 = args
-        .all_sources
-        .iter()
-        .zip(source_estimates)
-        .map(|(segments, estimate)| match estimate.known_rows() {
-            Some(rows) => rows as u64,
-            None => segments
-                .entries()
-                .iter()
-                .map(|e| u64::from(e.docs.max_doc().saturating_sub(e.docs.num_deleted_docs())))
-                .sum(),
-        })
-        .max()
-        .unwrap_or(0);
-    if largest_source_rows < min_rows {
-        pgrx::debug1!(
-            "mpp: largest source is estimated at {largest_source_rows} rows, below \
-             paradedb.mpp_min_rows={min_rows}; running serially"
-        );
-        return None;
-    }
 
     let stages = collect_stages(physical);
 
@@ -481,18 +486,16 @@ fn launch_mpp(
 pub fn launch_mpp_aggregate(
     physical: &std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
     args: ParallelScanArgs,
-    source_estimates: &[RowEstimate],
 ) -> Option<MppLeaderState> {
-    launch_mpp(physical, args, source_estimates, "mpp_launched_worker_agg")
+    launch_mpp(physical, args, "mpp_launched_worker_agg")
 }
 
 /// JoinScan launch entry: join worker symbol.
 pub fn launch_mpp_join(
     physical: &std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
     args: ParallelScanArgs,
-    source_estimates: &[RowEstimate],
 ) -> Option<MppLeaderState> {
-    launch_mpp(physical, args, source_estimates, "mpp_launched_worker_join")
+    launch_mpp(physical, args, "mpp_launched_worker_join")
 }
 
 #[cfg(any(test, feature = "pg_test"))]
@@ -500,6 +503,49 @@ pub fn launch_mpp_join(
 mod tests {
     use super::*;
     use pgrx::pg_test;
+
+    fn info(estimate: RowEstimate, from_total_docs: bool) -> ScanInfo {
+        let mut info = ScanInfo::new(
+            1,
+            pgrx::pg_sys::Oid::INVALID,
+            pgrx::pg_sys::Oid::INVALID,
+            crate::scan::ScanMode::all(),
+        );
+        info.estimate = estimate;
+        info.estimate_from_total_docs = from_total_docs;
+        info
+    }
+
+    #[test]
+    fn gate_takes_the_largest_source() {
+        let dim = info(RowEstimate::Known(10_000), false);
+        let fact = info(RowEstimate::Known(2_000_000), false);
+        assert!(!gated_by_min_rows(500_000, [&dim, &fact]));
+        assert!(gated_by_min_rows(500_000, [&dim]));
+    }
+
+    #[test]
+    fn total_docs_estimates_are_discounted() {
+        // A parameterized predicate stores the whole index's document count. At the BaseScan
+        // discount, 600k docs stand for 60k matches: under the default threshold.
+        let parameterized = info(RowEstimate::Known(600_000), true);
+        assert!(gated_by_min_rows(500_000, [&parameterized]));
+        let real = info(RowEstimate::Known(600_000), false);
+        assert!(!gated_by_min_rows(500_000, [&real]));
+    }
+
+    #[test]
+    fn unknown_estimates_do_not_gate() {
+        let placeholder = info(RowEstimate::Unknown, false);
+        let small = info(RowEstimate::Known(10), false);
+        assert!(!gated_by_min_rows(500_000, [&placeholder, &small]));
+    }
+
+    #[test]
+    fn zero_threshold_disables_the_gate() {
+        let tiny = info(RowEstimate::Known(1), false);
+        assert!(!gated_by_min_rows(0, [&tiny]));
+    }
 
     #[pg_test]
     fn pending_launch_is_consumed_once() {

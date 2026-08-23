@@ -523,9 +523,9 @@ SET plan_cache_mode = auto;
 -- =====================================================================
 -- Pass 13: the size gate falls back to a plain serial run. The plan was
 -- built while MPP was eligible, so the fallback must not carry per-source
--- claim markers that have no shared scan state to draw from. Plain
--- EXPLAIN still renders the distributed shape (the gate decides at
--- launch); the EXPLAIN ANALYZE asserts below pin the executed mode.
+-- claim markers that have no shared scan state to draw from. The gate is
+-- shared with the plain-EXPLAIN rebuild, so the rendered plan is serial
+-- too; the EXPLAIN ANALYZE asserts below pin the executed mode.
 -- =====================================================================
 
 SET max_parallel_workers_per_gather TO 3;

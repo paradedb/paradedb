@@ -903,9 +903,9 @@ SET plan_cache_mode = auto;
 -- =====================================================================
 -- Pass 13: the size gate falls back to a plain serial run. The plan was
 -- built while MPP was eligible, so the fallback must not carry per-source
--- claim markers that have no shared scan state to draw from. Plain
--- EXPLAIN still renders the distributed shape (the gate decides at
--- launch); the EXPLAIN ANALYZE asserts below pin the executed mode.
+-- claim markers that have no shared scan state to draw from. The gate is
+-- shared with the plain-EXPLAIN rebuild, so the rendered plan is serial
+-- too; the EXPLAIN ANALYZE asserts below pin the executed mode.
 -- =====================================================================
 SET max_parallel_workers_per_gather TO 3;
 SET paradedb.mpp_min_rows TO 1000000000;
@@ -915,8 +915,8 @@ FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section'
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
-                                                                                                           QUERY PLAN                                                                                                            
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.title, p.size_bytes
    ->  Custom Scan (ParadeDB Join Scan)
@@ -926,26 +926,15 @@ LIMIT 10;
          Limit: 10
          Order By: f.title asc, p.size_bytes asc
          DataFusion Physical Plan: 
-           : ┌───── DistributedExec
-           : │ ProjectionExec: expr=[title@3 as col_1, size_bytes@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
-           : │   SortPreservingMergeExec: [title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], fetch=10
-           : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
-           : └──────────────────────────────────────────────────
-           :   ┌───── Stage 1 ── tasks=3, partitions=3
-           :   │ LocalLimitExec: fetch=10
-           :   │   TantivyLookupExec: decode=[title]
-           :   │     SegmentedTopKExec: expr=[title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], k=10, visibility_checks=[p, f]
-           :   │       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, file_id@1)], projection=[ctid_0@3, size_bytes@5, ctid_1@0, title@2]
-           :   │         DistributedLeafExec:
-           :   │           t0: PgSearchScan: table=f, segments=2, partition=id[-∞..51), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
-           :   │           t1: PgSearchScan: table=f, segments=2, partition=id[51..101), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
-           :   │           t2: PgSearchScan: table=f, segments=2, partition=id[101..∞), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
-           :   │         DistributedLeafExec:
-           :   │           t0: PgSearchScan: table=p, segments=2, partition=file_id[-∞..51), dynamic_filters=1, query="all"
-           :   │           t1: PgSearchScan: table=p, segments=2, partition=file_id[51..101), dynamic_filters=1, query="all"
-           :   │           t2: PgSearchScan: table=p, segments=2, partition=file_id[101..∞), dynamic_filters=1, query="all"
-           :   └──────────────────────────────────────────────────
-(28 rows)
+           : ProjectionExec: expr=[title@3 as col_1, size_bytes@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           :   TantivyLookupExec: decode=[title]
+           :     SegmentedTopKExec: expr=[title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], k=10, visibility_checks=[p, f]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)], projection=[ctid_0@3, size_bytes@5, ctid_1@0, title@2]
+           :         CooperativeExec
+           :           PgSearchScan: table=f, segments=2, partition_by=id, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+           :         CooperativeExec
+           :           PgSearchScan: table=p, segments=2, partition_by=file_id, dynamic_filters=1, query="all"
+(17 rows)
 
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id

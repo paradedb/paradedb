@@ -55,6 +55,7 @@ use datafusion_distributed::shm::MppMesh;
 use crate::postgres::customscan::mpp::glue::mpp_is_active;
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
+use crate::postgres::customscan::mpp::launch::mpp_gated_by_min_rows;
 use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parallelism;
 
 use crate::api::SortDirection;
@@ -1107,6 +1108,13 @@ impl AggregateScan {
         state: &mut CustomScanStateWrapper<Self>,
         physical: &Arc<dyn ExecutionPlan>,
     ) -> Option<crate::postgres::customscan::mpp::glue::MppLeaderState> {
+        // Gate before touching the DSM. `None` rides the same serial fallback as a short
+        // launch.
+        if let Some(df_state) = state.custom_state().datafusion_state.as_ref()
+            && mpp_gated_by_min_rows(df_state.plan.sources().into_iter().map(|s| &s.scan_info))
+        {
+            return None;
+        }
         // Manifests were captured in `prepare_mpp` (begin); `ensure` is idempotent.
         Self::ensure_source_manifests(state);
 
@@ -1122,25 +1130,7 @@ impl AggregateScan {
             with_aggregates: false,
             with_segment_info: false,
         };
-        let source_estimates: Vec<crate::scan::info::RowEstimate> = state
-            .custom_state()
-            .datafusion_state
-            .as_ref()
-            .map(|df_state| {
-                df_state
-                    .plan
-                    .sources()
-                    .iter()
-                    .map(|source| source.scan_info.estimate)
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        crate::postgres::customscan::mpp::launch::launch_mpp_aggregate(
-            physical,
-            args,
-            &source_estimates,
-        )
+        crate::postgres::customscan::mpp::launch::launch_mpp_aggregate(physical, args)
     }
 
     /// Build the aggregate's DataFusion physical plan under `ctx`. `mpp_views` marks that
@@ -1255,7 +1245,9 @@ impl AggregateScan {
                     build_physical_plan(ctx, logical).await
                 })
             };
-            let plan_result = if mpp_is_active() {
+            let gated =
+                mpp_gated_by_min_rows(df_state.plan.sources().into_iter().map(|s| &s.scan_info));
+            let plan_result = if mpp_is_active() && !gated {
                 // EXPLAIN-time: skip the shm_mq transport install (no execution, no `open()` call).
                 // Plan against the cap first; fall back to serial when launch would not run (#5784).
                 match build_with(&Self::build_mpp_session_context(None)) {

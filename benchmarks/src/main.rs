@@ -43,6 +43,17 @@ struct Cli {
     command: Commands,
 }
 
+fn parse_positive_usize(value: &str) -> Result<usize, String> {
+    let value = value
+        .parse::<usize>()
+        .map_err(|err| format!("invalid positive integer: {err}"))?;
+    if value == 0 {
+        Err("value must be at least 1".to_string())
+    } else {
+        Ok(value)
+    }
+}
+
 #[derive(Subcommand)]
 enum Commands {
     /// Run benchmarks against a ParadeDB instance.
@@ -96,7 +107,7 @@ struct BenchmarkArgs {
     skip_index: bool,
 
     /// Number of runs to execute for each query.
-    #[arg(long, default_value = "3")]
+    #[arg(long, default_value = "3", value_parser = parse_positive_usize)]
     runs: usize,
 
     /// Output format.
@@ -1372,7 +1383,7 @@ async fn process_index_creation_csv(args: &BenchmarkArgs) -> anyhow::Result<()> 
 }
 
 async fn run_benchmarks_csv(args: &BenchmarkArgs) -> anyhow::Result<()> {
-    let filename = "results_{}_benchmark_results.csv";
+    let filename = "results_pg_search_benchmark_results.csv";
     let mut file =
         File::create(filename).with_context(|| "Failed to create benchmark results CSV")?;
 
@@ -2326,5 +2337,22 @@ mod tests {
         for query_type in ["knn_top10_10pct@r95", "knn_top10_10pct - alternative 1"] {
             assert!(reads_query_vector(&knn), "{query_type}");
         }
+    }
+
+    #[test]
+    fn rejects_zero_benchmark_samples() {
+        assert!(
+            Cli::try_parse_from([
+                "benchmarks",
+                "benchmark",
+                "--url",
+                "postgresql://localhost/postgres",
+                "--index",
+                "bm25",
+                "--runs",
+                "0",
+            ])
+            .is_err()
+        );
     }
 }

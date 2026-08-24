@@ -21,6 +21,7 @@ noindex: true
   EXPLAIN info slots only when used, reducing shared memory overhead from ~66MB to ~2MB.
 - Eliminated redundant eager planning passes in AggregateScan and JoinScan, sizing DSM allocations
   directly from physical stages.
+- Gate MPP execution behind a minimum row count, configurable via `paradedb.mpp_min_rows`.
 
 ## Stability Improvements 💪
 

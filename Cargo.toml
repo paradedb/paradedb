@@ -78,7 +78,13 @@ tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy"
 tantivy-jieba = "0.20.0"
 
 [patch.crates-io]
-tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "c3caae3f613d5906c8080a3c3c2845190e749b64" }
+tantivy-common = { path = "../tantivy/common" }
+tantivy-tokenizer-api = { path = "../tantivy/tokenizer-api" }
+
+[patch."https://github.com/paradedb/tantivy.git"]
+tantivy = { path = "../tantivy" }
+tantivy-common = { path = "../tantivy/common" }
+tantivy-tokenizer-api = { path = "../tantivy/tokenizer-api" }
 
 [workspace.lints.clippy]
 large_futures = "warn"

@@ -1248,7 +1248,8 @@ impl SearchIndexReader {
                     .with_adaptive_params(AdaptiveProbeParams {
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
                         ..Default::default()
-                    });
+                    })
+                    .with_max_scan_levels(crate::gucs::vector_max_scan_levels());
 
                 let mut erased_features = erased_features;
                 let score_index = erased_features.score_index();

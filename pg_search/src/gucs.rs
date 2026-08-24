@@ -267,6 +267,15 @@ pub fn vector_fixed_probe_cost_rows() -> f64 {
     VECTOR_FIXED_PROBE_COST_ROWS.get()
 }
 
+/// Prefix of the field's built quantization schedule used by vector scans.
+/// Four means "all built layers" because V3 permits at most four; zero is
+/// the compatibility/exact-scan escape hatch.
+static VECTOR_MAX_SCAN_LEVELS: GucSetting<i32> = GucSetting::<i32>::new(4);
+
+pub fn vector_max_scan_levels() -> usize {
+    VECTOR_MAX_SCAN_LEVELS.get().max(0) as usize
+}
+
 /// Doc-count boundary at which a merged segment's vector storage switches
 /// from flat (exact scan) to IVF (clustered). Captured into the index's
 /// stored `IndexSettings` at CREATE INDEX time, so it applies to every merge
@@ -516,6 +525,17 @@ pub fn init() {
         &VECTOR_FIXED_PROBE_COST_ROWS,
         0.001,
         10_000.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.max_scan_levels",
+        c"Maximum quantized vector layers scored before exact rerank",
+        c"Uses a prefix of the quantization schedule built for the vector field. Values above the built layer count clamp to that count. Zero disables quantized scoring and selects the exact scan path.",
+        &VECTOR_MAX_SCAN_LEVELS,
+        0,
+        4,
         GucContext::Userset,
         GucFlags::default(),
     );

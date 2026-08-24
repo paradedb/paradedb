@@ -647,7 +647,7 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id + 1 DESC
 LIMIT 10;
-WARNING:  JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation (tables: c, fr)
+WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions must match an indexed expression or be a sum of pdb.score() calls (tables: c, fr)
                                                                                  QUERY PLAN                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -690,7 +690,7 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY 0 - c.id DESC
 LIMIT 10;
-WARNING:  JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation (tables: c, fr)
+WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions must match an indexed expression or be a sum of pdb.score() calls (tables: c, fr)
                                                                                  QUERY PLAN                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -733,7 +733,7 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id + c.id DESC
 LIMIT 10;
-WARNING:  JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation (tables: c, fr)
+WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions must match an indexed expression or be a sum of pdb.score() calls (tables: c, fr)
                                                                                  QUERY PLAN                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -829,7 +829,7 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id + 0::bigint DESC
 LIMIT 10;
-WARNING:  JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation (tables: c, fr)
+WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions must match an indexed expression or be a sum of pdb.score() calls (tables: c, fr)
                                                                                  QUERY PLAN                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit

@@ -42,6 +42,7 @@ mod imp {
     struct SegmentIo {
         components: BTreeMap<String, IoCounters>,
         query_prep: IoCounters,
+        routing: IoCounters,
         plane1: IoCounters,
         boundary: IoCounters,
         plane2: IoCounters,
@@ -75,6 +76,7 @@ mod imp {
             let stage = match current_vector_io_phase() {
                 VectorIoPhase::Other => None,
                 VectorIoPhase::QueryPrep => Some(&mut current.query_prep),
+                VectorIoPhase::Routing => Some(&mut current.routing),
                 VectorIoPhase::Plane1 => Some(&mut current.plane1),
                 VectorIoPhase::Boundary => Some(&mut current.boundary),
                 VectorIoPhase::Plane2 => Some(&mut current.plane2),
@@ -150,6 +152,7 @@ mod imp {
                     map.insert(format!("{name}_buffer_reads"), counters.blks_read.into());
                 };
                 attach_stage("query_prep", io.query_prep);
+                attach_stage("routing", io.routing);
                 attach_stage("plane1", io.plane1);
                 attach_stage("boundary", io.boundary);
                 attach_stage("plane2", io.plane2);

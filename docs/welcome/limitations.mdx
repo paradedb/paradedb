@@ -12,10 +12,6 @@ For datasets that significantly exceed this scale, ParadeDB supports partitioned
 
 If you're working with very large datasets, please [reach out to us](mailto:support@paradedb.com). We'd be happy to provide guidance and share our roadmap for future distributed query support.
 
-## Join Support
-
-ParadeDB supports all Postgres `JOIN` types. As of v0.22.0, ParadeDB includes [join pushdown](/documentation/joins/overview) (beta) for `INNER`, `SEMI`, and `ANTI` joins, which pushes search predicates directly into the index for significantly better performance. Other join types work correctly but fall back to standard Postgres execution — pushdown support for these is coming soon. See the [joins guide](/documentation/joins/overview) for more details.
-
 ## Vector Search
 
 [Native vector search](/documentation/vector/overview) is a beta feature as of v0.25.0. It carries a few tradeoffs today:

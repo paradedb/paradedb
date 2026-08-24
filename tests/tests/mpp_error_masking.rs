@@ -37,6 +37,8 @@ INSERT INTO mem_b SELECT g, g, 'u1'  FROM generate_series(1, 100000) g;
 
 const MPP_GUCS: &str = r#"
 SET paradedb.enable_join_custom_scan TO on;
+-- The fixture tables are tiny; disable the size gate so MPP engages.
+SET paradedb.mpp_min_rows TO 0;
 SET max_parallel_workers_per_gather TO 2;
 SET max_parallel_workers TO 2;
 SET min_parallel_table_scan_size TO 0;

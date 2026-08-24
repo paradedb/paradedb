@@ -148,6 +148,24 @@ static MPP_TEST_PANIC_IN_WORKER: GucSetting<bool> = GucSetting::<bool>::new(fals
 /// `SET log_min_messages = DEBUG1` but invisible to CI's default WARNING capture.
 static MPP_TRACE: GucSetting<bool> = GucSetting::<bool>::new(false);
 
+/// Minimum estimated row count in the scan's largest source for MPP to engage. The launch
+/// (worker spawn, plan dispatch, per-worker index opens) costs tens of milliseconds; below
+/// this size a serial plan finishes in the same order, so the query stays serial. Each
+/// source counts the rows its predicate is estimated to match (its live document count when
+/// unanalyzed). The benchmark grid loses across the board at 100k matched rows and wins
+/// from 1m up; the default sits between.
+///
+/// The default is a measurement, not a constant: it tracks the MPP-vs-serial crossover,
+/// which moves whenever MPP's per-query economics move. Recalibrate it when the launch
+/// floor shrinks, and when the distributed plan closes a capability gap against the serial
+/// plan. The known open gap is dynamic filters across process boundaries: within one
+/// process a join's build side prunes the probe scan, but a filter never crosses the mesh,
+/// so selective joins pay a penalty under MPP that inflates the serial side of the
+/// crossover. To recompute: run the benchmark suite's join queries (serial vs the MPP
+/// alternatives) across the dataset scales and set the default between the largest losing
+/// scale and the smallest winning one.
+static MPP_MIN_ROWS: GucSetting<i32> = GucSetting::<i32>::new(500_000);
+
 /// Per-inbox ring size in bytes. Each MPP query lays out one MPSC inbox per proc
 /// (leader plus workers), so the mesh region is about `N × mpp_queue_size`, and
 /// Postgres commits the whole region on creation (`posix_fallocate` in the Linux
@@ -656,6 +674,20 @@ pub fn init() {
     );
 
     GucRegistry::define_int_guc(
+        c"paradedb.mpp_min_rows",
+        c"Minimum estimated source row count for MPP",
+        c"MPP engages only when the scan's largest source is estimated to match at least \
+          this many rows (its live document count when the table is unanalyzed); smaller \
+          queries run serially, where the launch cost would dominate. Set to 0 to disable \
+          the size gate.",
+        &MPP_MIN_ROWS,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
         c"paradedb.mpp_queue_size",
         c"Per-inbox ring size for MPP shuffles",
         c"Sets the per-inbox ring size for MPP shuffles. Accepts standard \
@@ -879,6 +911,10 @@ pub fn mpp_test_panic_in_worker() -> bool {
 
 pub fn mpp_trace() -> bool {
     MPP_TRACE.get()
+}
+
+pub fn mpp_min_rows() -> i32 {
+    MPP_MIN_ROWS.get()
 }
 
 pub fn mpp_queue_size() -> usize {

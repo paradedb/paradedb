@@ -149,6 +149,42 @@ ORDER BY f.title
 LIMIT 5;
 
 -- =====================================================================
+-- Pass 3: the size gate falls back to serial execution for the aggregate
+-- path too, and the results match the serial baseline.
+-- =====================================================================
+
+SET paradedb.mpp_min_rows TO 1000000000;
+
+CREATE OR REPLACE FUNCTION mpp_agg_explain_analyze_lines(q text) RETURNS SETOF text AS $$
+DECLARE r record;
+BEGIN
+  FOR r IN EXECUTE 'EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF) ' || q LOOP
+    RETURN NEXT r."QUERY PLAN";
+  END LOOP;
+END $$ LANGUAGE plpgsql;
+
+SELECT count(*) = 0 AS gated_no_distributed_exec
+FROM mpp_agg_explain_analyze_lines(
+  $$SELECT f.title, COUNT(*), SUM(p.size_bytes)
+    FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+    WHERE f.content @@@ 'Section'
+    GROUP BY f.title
+    ORDER BY f.title
+    LIMIT 5$$
+) AS line
+WHERE line LIKE '%DistributedExec%';
+
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+GROUP BY f.title
+ORDER BY f.title
+LIMIT 5;
+
+DROP FUNCTION mpp_agg_explain_analyze_lines(text);
+RESET paradedb.mpp_min_rows;
+
+-- =====================================================================
 -- Cleanup
 -- =====================================================================
 

@@ -317,10 +317,10 @@ jobs:
           echo 'Depends: postgresql-${{ matrix.pg_version }}, libopenblas0' >> $CONTROL_FILE
           echo 'Maintainer: ParadeDB <support@paradedb.com>' >> $CONTROL_FILE
           echo 'Description: Full-text search, vector retrieval, and aggregations for Postgres' >> $CONTROL_FILE
-          echo ' pg_search upgrades Postgres with a single index for fast full-text and' >> $CONTROL_FILE
-          echo ' vector search, BM25 scoring, filtering, and aggregations. Search runs' >> $CONTROL_FILE
-          echo " inside your system of record with Postgres' transactional guarantees—no" >> $CONTROL_FILE
-          echo ' second system to deploy or keep in sync.' >> $CONTROL_FILE
+          echo ' pg_search upgrades Postgres with a custom index for fast full-text and' >> $CONTROL_FILE
+          echo ' vector search, BM25 scoring, filtering, and aggregations. Your application' >> $CONTROL_FILE
+          echo ' data and search engine live in one database, with no second system to' >> $CONTROL_FILE
+          echo ' deploy and nothing to sync.' >> $CONTROL_FILE
 
           # Copyright file (Debian Policy §12.5). Also consumed by the
           # CloudNativePG postgres-extensions-containers Dockerfiles, which

@@ -371,7 +371,7 @@ FROM expr_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY upper(p.category) ASC
     LIMIT 5;
-WARNING:  JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation (tables: p, s)
+WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions must match an indexed expression or be a sum of pdb.score() calls (tables: p, s)
                                                                                    QUERY PLAN                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -403,7 +403,7 @@ FROM expr_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY upper(p.category) ASC
     LIMIT 5;
-WARNING:  JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation (tables: p, s)
+WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions must match an indexed expression or be a sum of pdb.score() calls (tables: p, s)
        name       | supplier_name 
 ------------------+---------------
  Mouse Pad        | CableCo

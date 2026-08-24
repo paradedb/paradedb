@@ -427,6 +427,7 @@ impl AggregateCSClause {
             .filter_map(|info| match &info.feature {
                 OrderByFeature::Field { name, .. } => Some(name.to_string()),
                 OrderByFeature::Score { .. }
+                | OrderByFeature::ScoreSum { .. }
                 | OrderByFeature::Var { .. }
                 | OrderByFeature::NullTest { .. }
                 | OrderByFeature::VectorDistance { .. } => None,

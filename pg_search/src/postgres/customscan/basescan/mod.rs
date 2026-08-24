@@ -2065,6 +2065,10 @@ fn validate_topk_expectation(
                 .to_string(),
             "Specify COLLATE \"C\" in your query, or use a byte-ordered collation instead".to_string(),
         ),
+        PathKeyInfo::Unusable(UnusableReason::UnsupportedScoreExpression) => (
+            "ORDER BY expressions containing pdb.score() cannot be evaluated in the index".to_string(),
+            "Only standalone pdb.score() or sums of pdb.score() across tables are supported in ORDER BY".to_string(),
+        ),
         PathKeyInfo::UsablePrefix(matched) => (
             format!(
                 "only partial prefix of ORDER BY can be pushed down ({} of {} columns)",

@@ -759,10 +759,10 @@ WHERE
 ORDER BY
     score DESC
 LIMIT 10;
- id  |       name       | score 
------+------------------+-------
- 201 | Wireless Mouse   |     0
- 209 | Wireless Charger |     0
+ id  |       name       |   score   
+-----+------------------+-----------
+ 201 | Wireless Mouse   | 1.3818457
+ 209 | Wireless Charger | 1.3818457
 (2 rows)
 
 -- =============================================================================

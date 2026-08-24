@@ -587,13 +587,14 @@ impl SearchIndexReader {
         self.and_query(tantivy_query)
     }
 
-    /// Compiles a tantivy `Weight` for a tagged search query without scoring.
+    /// Compiles a tantivy `Weight` for a tagged search query.
     pub fn compile_match_weight(
         &self,
         query_input: &SearchQueryInput,
+        need_scores: bool,
     ) -> tantivy::Result<Box<dyn tantivy::query::Weight>> {
         let tantivy_query = self.make_query(query_input, None);
-        tantivy_query.weight(EnableScoring::disabled_from_searcher(self.searcher()))
+        tantivy_query.weight(enable_scoring(need_scores, self.searcher()))
     }
 
     /// Count matched docs by summing `Weight::count` across segments.
@@ -1061,6 +1062,10 @@ impl SearchIndexReader {
                 feature: OrderByFeature::NullTest { .. },
                 ..
             } => unreachable!("NullTest ORDER BY is only used in JoinScan"),
+            OrderByInfo {
+                feature: OrderByFeature::ScoreSum { .. },
+                ..
+            } => unreachable!("ScoreSum ORDER BY is only used in JoinScan"),
             OrderByInfo {
                 feature:
                     OrderByFeature::VectorDistance {
@@ -1652,6 +1657,10 @@ impl SearchIndexReader {
                     feature: OrderByFeature::NullTest { .. },
                     ..
                 } => unreachable!("NullTest ORDER BY is only used in JoinScan"),
+                OrderByInfo {
+                    feature: OrderByFeature::ScoreSum { .. },
+                    ..
+                } => unreachable!("ScoreSum ORDER BY is only used in JoinScan"),
                 OrderByInfo {
                     feature: OrderByFeature::VectorDistance { .. },
                     ..

@@ -2025,10 +2025,14 @@ unsafe fn collect_score_sum_rtis(node: *mut pg_sys::Node, rtis: &mut Vec<pg_sys:
         return false;
     }
     if let Some(opexpr) = nodecast!(OpExpr, T_OpExpr, stripped) {
-        let opname_ptr = pg_sys::get_opname((*opexpr).opno);
-        if !opname_ptr.is_null() {
+        let opno = (*opexpr).opno;
+        let opname_ptr = pg_sys::get_opname(opno);
+        let namespace_oid = pg_sys::get_func_namespace(pg_sys::get_opcode(opno));
+        let namespace_ptr = pg_sys::get_namespace_name(namespace_oid);
+        if !opname_ptr.is_null() && !namespace_ptr.is_null() {
+            let schema = std::ffi::CStr::from_ptr(namespace_ptr).to_bytes();
             let opname = std::ffi::CStr::from_ptr(opname_ptr).to_bytes();
-            if opname == b"+" {
+            if schema == b"pg_catalog" && opname == b"+" {
                 let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
                 if args.len() == 2
                     && let Some(left) = args.get_ptr(0)

@@ -1114,7 +1114,9 @@ impl ExecutionPlan for PgSearchScanPlan {
                     })
                 };
 
-                scanner.set_score_threshold(score_threshold);
+                if scanner.can_pushdown_score_threshold() {
+                    scanner.set_score_threshold(score_threshold);
+                }
                 let next_batch = scanner.next(
                     &ffhelper,
                     &mut visibility,

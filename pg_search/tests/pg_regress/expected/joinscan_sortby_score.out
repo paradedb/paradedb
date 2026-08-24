@@ -183,9 +183,9 @@ SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
 -- All three tables have search predicates. Rows are ranked by sum of BM25 scores:
 --   doc-1/file-1/page-1: High(doc) + High(file) + High(page) -> Rank 1
---   doc-1/file-1/page-2: High(doc) + High(file) + Low(page)  -> Rank 2
---   doc-1/file-2/page-3: High(doc) + Low(file)  + Med(page)  -> Rank 3
---   doc-2/file-3/page-4: Med(doc)  + Med(file)  + Med(page)  -> Rank 4
+--   doc-2/file-3/page-4: Med(doc)  + Med(file)  + Med(page)  -> Rank 2
+--   doc-1/file-1/page-2: High(doc) + High(file) + Low(page)  -> Rank 3
+--   doc-1/file-2/page-3: High(doc) + Low(file)  + Med(page)  -> Rank 4
 --   doc-2/file-4/page-5: Med(doc)  + Low(file)  + Low(page)  -> Rank 5
 --   doc-3/file-5/page-6: Low(doc)  + Low(file)  + Low(page)  -> Rank 6
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -263,8 +263,8 @@ LIMIT 10;
 -- =============================================================================
 -- Two-table join (documents JOIN files) with distinct score sum ranking:
 --   doc-1/file-1: High(doc) + High(file) -> Rank 1
---   doc-1/file-2: High(doc) + Low(file)  -> Rank 2
---   doc-2/file-3: Med(doc)  + Med(file)  -> Rank 3
+--   doc-2/file-3: Med(doc)  + Med(file)  -> Rank 2
+--   doc-1/file-2: High(doc) + Low(file)  -> Rank 3
 --   doc-2/file-4: Med(doc)  + Low(file)  -> Rank 4
 --   doc-3/file-5: Low(doc)  + Low(file)  -> Rank 5
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -471,6 +471,71 @@ LIMIT 10;
  doc-1  | file-1  | page-2  | 1.0594962 |  1.2511479 |          0 | 2.3106441
  doc-1  | file-2  | page-3  | 1.0594962 |          0 |  0.7879951 | 1.8474913
  doc-2  | file-3  | page-4  |         0 |          0 |  0.7879951 | 0.7879951
+(4 rows)
+
+-- =============================================================================
+-- TEST 4b: 3-way cross-table disjunction with single-table score ordering and LIMIT
+-- =============================================================================
+-- Verifies that TopK dynamic score filtering behaves correctly over a tagged scan
+-- when ordering by a single relation's score rather than a score sum.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT documents.id AS doc_id,
+       files.id AS file_id,
+       pages.id AS page_id,
+       paradedb.score(pages.id) AS page_score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+JOIN pages ON pages."fileId" = files.id
+WHERE documents.content @@@ 'search'
+   OR files.content @@@ 'search'
+   OR pages.content @@@ 'search'
+ORDER BY paradedb.score(pages.id) DESC, documents.id ASC, files.id ASC, pages.id ASC
+LIMIT 10;
+                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: documents.id, files.id, pages.id, (paradedb.score(pages.id))
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: documents.id, files.id, pages.id, (paradedb.score(pages.id))
+         Relation Tree: documents INNER (pages INNER files)
+         Join Cond: documents.id = files.documentId, files.id = pages.fileId
+         Join Predicate: (documents:{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}} OR files:{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}} OR pages:{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}})
+         Limit: 10
+         Order By: pdb.score() desc, documents.id asc, pages.fileId asc, pages.id asc
+         DataFusion Physical Plan: 
+           : SortExec: TopK(fetch=10), expr=[col_4@3 DESC, col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST, col_3@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :   ProjectionExec: expr=[id@1 as col_1, id@7 as col_2, id@5 as col_3, score@2 as col_4, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1, ctid_2@6 as ctid_2]
+           :     VisibilityFilterExec: tables=[documents, pages, files]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@4, fileId@2)], filter=__documents_0_tag_0@0 OR __files_2_tag_0@1 OR __pages_1_tag_0@2, projection=[ctid_0@0, id@1, score@6, ctid_1@7, fileId@8, id@9, ctid_2@3, id@4]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, documentId@1)], projection=[ctid_0@0, id@1, __documents_0_tag_0@2, ctid_2@3, id@5, __files_2_tag_0@6]
+           :           CooperativeExec
+           :             PgSearchScan: table=documents, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: table=files, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
+           :         TantivyLookupExec: decode=[id]
+           :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, fileId@2 as fileId, id@3 as id, __pages_1_tag_0@4 as __pages_1_tag_0]
+           :             CooperativeExec
+           :               PgSearchScan: table=pages, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
+(23 rows)
+
+SELECT documents.id AS doc_id,
+       files.id AS file_id,
+       pages.id AS page_id,
+       paradedb.score(pages.id) AS page_score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+JOIN pages ON pages."fileId" = files.id
+WHERE documents.content @@@ 'search'
+   OR files.content @@@ 'search'
+   OR pages.content @@@ 'search'
+ORDER BY paradedb.score(pages.id) DESC, documents.id ASC, files.id ASC, pages.id ASC
+LIMIT 10;
+ doc_id | file_id | page_id | page_score 
+--------+---------+---------+------------
+ doc-1  | file-2  | page-3  |  0.7879951
+ doc-2  | file-3  | page-4  |  0.7879951
+ doc-1  | file-1  | page-1  | 0.71042687
+ doc-1  | file-1  | page-2  |          0
 (4 rows)
 
 -- =============================================================================

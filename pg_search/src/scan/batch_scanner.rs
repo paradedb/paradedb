@@ -333,23 +333,36 @@ impl Scanner {
         self.batch_size = size.min(MAX_BATCH_SIZE);
     }
 
-    /// Sets the score threshold to be applied to batches extracted afterwards.
+    /// Returns whether score threshold pushdown into the underlying Tantivy segment scorer
+    /// is supported.
+    ///
+    /// Scorer-level threshold pushdown (e.g. BlockMax-WAND) requires the base scorer to
+    /// produce the complete, final score. When tagged queries are active, scores are
+    /// accumulated post-scan across multiple match tags in [`Self::populate_scores_for_batch`],
+    /// so segment scorer thresholding is bypassed and score filtering is instead handled
+    /// post-accumulation by pre-filters.
+    pub(crate) fn can_pushdown_score_threshold(&self) -> bool {
+        self.tagged_queries.is_empty()
+    }
+
+    /// Sets the score threshold to be pushed down to the underlying segment scorer.
     /// We assume the threshold will monotonically increase, and uses
     /// greater-than (>) semantics.
     ///
-    /// Passing a `None` will not cause the threshold on the current segment
-    /// to be updated, as threshold changes are only applied when
-    /// `self.threshold` is `Some(_)`.
+    /// If [`Self::can_pushdown_score_threshold`] is false (e.g. tagged queries are present),
+    /// the threshold is ignored at the segment-scorer level and enforced post-accumulation
+    /// via pre-filters.
     pub(crate) fn set_score_threshold(&mut self, threshold: Option<Score>) {
         self.score_threshold = threshold;
     }
 
     fn try_get_batch_ids(&mut self) -> Option<(SegmentOrdinal, Vec<Score>, Vec<DocId>)> {
+        let can_pushdown = self.can_pushdown_score_threshold();
         // Collect a batch of ids for a single segment.
         loop {
             let scorer_iter = self.search_results.current_segment()?;
             let segment_ord = scorer_iter.segment_ord();
-            if let Some(threshold) = self.score_threshold {
+            if can_pushdown && let Some(threshold) = self.score_threshold {
                 scorer_iter.set_threshold(threshold);
             }
 

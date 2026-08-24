@@ -168,9 +168,9 @@ SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
 -- All three tables have search predicates. Rows are ranked by sum of BM25 scores:
 --   doc-1/file-1/page-1: High(doc) + High(file) + High(page) -> Rank 1
---   doc-1/file-1/page-2: High(doc) + High(file) + Low(page)  -> Rank 2
---   doc-1/file-2/page-3: High(doc) + Low(file)  + Med(page)  -> Rank 3
---   doc-2/file-3/page-4: Med(doc)  + Med(file)  + Med(page)  -> Rank 4
+--   doc-2/file-3/page-4: Med(doc)  + Med(file)  + Med(page)  -> Rank 2
+--   doc-1/file-1/page-2: High(doc) + High(file) + Low(page)  -> Rank 3
+--   doc-1/file-2/page-3: High(doc) + Low(file)  + Med(page)  -> Rank 4
 --   doc-2/file-4/page-5: Med(doc)  + Low(file)  + Low(page)  -> Rank 5
 --   doc-3/file-5/page-6: Low(doc)  + Low(file)  + Low(page)  -> Rank 6
 
@@ -212,8 +212,8 @@ LIMIT 10;
 -- =============================================================================
 -- Two-table join (documents JOIN files) with distinct score sum ranking:
 --   doc-1/file-1: High(doc) + High(file) -> Rank 1
---   doc-1/file-2: High(doc) + Low(file)  -> Rank 2
---   doc-2/file-3: Med(doc)  + Med(file)  -> Rank 3
+--   doc-2/file-3: Med(doc)  + Med(file)  -> Rank 2
+--   doc-1/file-2: High(doc) + Low(file)  -> Rank 3
 --   doc-2/file-4: Med(doc)  + Low(file)  -> Rank 4
 --   doc-3/file-5: Low(doc)  + Low(file)  -> Rank 5
 
@@ -316,6 +316,39 @@ WHERE documents.content @@@ 'search'
    OR files.content @@@ 'search'
    OR pages.content @@@ 'search'
 ORDER BY score DESC, documents.id ASC, files.id ASC, pages.id ASC
+LIMIT 10;
+
+-- =============================================================================
+-- TEST 4b: 3-way cross-table disjunction with single-table score ordering and LIMIT
+-- =============================================================================
+-- Verifies that TopK dynamic score filtering behaves correctly over a tagged scan
+-- when ordering by a single relation's score rather than a score sum.
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT documents.id AS doc_id,
+       files.id AS file_id,
+       pages.id AS page_id,
+       paradedb.score(pages.id) AS page_score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+JOIN pages ON pages."fileId" = files.id
+WHERE documents.content @@@ 'search'
+   OR files.content @@@ 'search'
+   OR pages.content @@@ 'search'
+ORDER BY paradedb.score(pages.id) DESC, documents.id ASC, files.id ASC, pages.id ASC
+LIMIT 10;
+
+SELECT documents.id AS doc_id,
+       files.id AS file_id,
+       pages.id AS page_id,
+       paradedb.score(pages.id) AS page_score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+JOIN pages ON pages."fileId" = files.id
+WHERE documents.content @@@ 'search'
+   OR files.content @@@ 'search'
+   OR pages.content @@@ 'search'
+ORDER BY paradedb.score(pages.id) DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
 
 -- =============================================================================

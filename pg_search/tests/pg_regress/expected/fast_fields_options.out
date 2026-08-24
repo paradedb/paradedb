@@ -160,7 +160,6 @@ LIMIT 10;
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
--- TODO: Won't get Top K due to https://github.com/paradedb/paradedb/issues/2688.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, category
 FROM data_records
@@ -440,4 +439,3 @@ SELECT 'Common tests cleanup complete' AS status;
 -------------------------------
  Common tests cleanup complete
 (1 row)
-

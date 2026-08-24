@@ -98,8 +98,6 @@ USING paradedb (
 \echo '======== EXECUTION METHOD TESTS ========'
 \echo 'Tests to identify when TopKScanExecState vs NormalScanExecState is used'
 
--- TODO: Many queries won't get Top K due to https://github.com/paradedb/paradedb/issues/2688
-
 -- Test 1: Simple query with LIMIT (should use TopKScanExecState)
 \echo 'Test 1: Simple query with LIMIT (should use TopKScanExecState)'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

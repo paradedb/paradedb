@@ -102,7 +102,6 @@ WHERE title @@@ 'product'
 ORDER BY in_stock
 LIMIT 10;
 
--- TODO: Won't get Top K due to https://github.com/paradedb/paradedb/issues/2688.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, category
 FROM data_records

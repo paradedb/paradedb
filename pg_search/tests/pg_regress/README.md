@@ -11,56 +11,46 @@ For a complete overview of ParadeDB's testing infrastructure (including unit tes
 - `results/` (ignored under git): Stores actual output files generated during test runs
 - `common/`: Contains common setup and cleanup scripts used by multiple tests
 
-## Test Organization
-
-Tests are organized into logical groups with a common prefix:
-
-- `columnar_`: Columnar tests
-  - `columnar_basic_*`: Basic columnar storage functionality tests
-  - `columnar_edgecases_*`: Edge cases and boundary condition tests
-  - `columnar_queries_*`: Tests for complex query features
-  - `columnar_advanced_*`: Tests for advanced features and optimizations
-
-Each group uses its own setup and cleanup scripts from the `common/` directory.
-
 ## Adding New Tests
 
-### Step 1: Create SQL Test File
+### Step 1: Create the SQL Test
 
-1. Name your test file using the appropriate prefix and sequence number (e.g., `PREFIX_your_test.sql`)
-2. Start with the common setup script for your test group, e.g.,:
+1. Name the file after the feature, behavior, or issue it covers, following nearby tests.
+2. If the test belongs to a group with shared setup, include the corresponding script from `common/`, for example:
 
    ```sql
    \i common/PREFIX_setup.sql
    ```
 
-3. Add a descriptive header and echo statement:
+3. Add a short comment describing the behavior under test:
 
    ```sql
    -- Tests my new feature
    ```
 
-4. Use deterministic data and ORDER BY clauses to ensure consistent results
-5. End with the appropriate cleanup script, e.g.,:
+4. Make output deterministic, including an `ORDER BY` wherever row order matters.
+5. If the test uses shared setup, include the matching cleanup script at the end:
 
    ```sql
    \i common/PREFIX_cleanup.sql
    ```
 
-### Step 2: Generate Expected Output
+### Step 2: Generate the Expected Output
 
-Run your test to generate the expected output file:
+Bootstrap the test and promote its output to `expected/`:
 
 ```bash
 cd pg_search
-cargo pgrx regress --auto
+cargo pgrx regress --add PREFIX_your_test
 ```
+
+Pass a PostgreSQL version before `--add` to use a version other than the default, for example `cargo pgrx regress pg17 --add PREFIX_your_test`.
 
 ### Step 3: Verify the Expected Output
 
 1. Check the generated output file in `expected/PREFIX_your_test.out`
-2. Ensure all queries return at least one row of data
-3. Verify that any EXPLAIN plans look reasonable
+2. Verify that results and errors demonstrate the intended behavior.
+3. Verify that any `EXPLAIN` plans use stable options and the expected execution path.
 
 ## Running Tests
 
@@ -75,8 +65,10 @@ cargo pgrx regress
 
 ```bash
 cd pg_search
-cargo pgrx regress --auto pg18 PREFIX_your_test
+cargo pgrx regress pg18 PREFIX_your_test
 ```
+
+Use `--auto` only when you intentionally want to replace the expected output of a failing test with its current output.
 
 ## Common Pitfalls
 

@@ -331,8 +331,8 @@ jobs:
           Requires:       openblas
 
           %description
-          pg_search adds Elastic-quality full-text search, vector retrieval, and
-          aggregations to Postgres. Your application data and your search engine
+          pg_search adds full-text search, vector retrieval, and aggregations to
+          Postgres. Your application data and your search engine
           live in one database, with no second system to deploy and nothing to sync.
 
           %install

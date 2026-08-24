@@ -317,8 +317,8 @@ jobs:
           echo 'Depends: postgresql-${{ matrix.pg_version }}, libopenblas0' >> $CONTROL_FILE
           echo 'Maintainer: ParadeDB <support@paradedb.com>' >> $CONTROL_FILE
           echo 'Description: Full-text search, vector retrieval, and aggregations for Postgres' >> $CONTROL_FILE
-          echo ' pg_search adds Elastic-quality full-text search, vector retrieval, and' >> $CONTROL_FILE
-          echo ' aggregations to Postgres. Your application data and your search engine' >> $CONTROL_FILE
+          echo ' pg_search adds full-text search, vector retrieval, and aggregations to' >> $CONTROL_FILE
+          echo ' Postgres. Your application data and your search engine' >> $CONTROL_FILE
           echo ' live in one database, with no second system to deploy and nothing to sync.' >> $CONTROL_FILE
 
           # Copyright file (Debian Policy §12.5). Also consumed by the

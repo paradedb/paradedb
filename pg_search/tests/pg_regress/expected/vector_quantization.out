@@ -1,0 +1,234 @@
+-- End-to-end SQL proof for the V3 quantized vector path. The clustering
+-- threshold is captured at CREATE INDEX, so a small deterministic fixture can
+-- cross the flat/IVF boundary without making the regression test enormous.
+SET client_min_messages = WARNING;
+CREATE EXTENSION IF NOT EXISTS vector;
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+SET paradedb.vector_clustering_threshold = 64;
+SET paradedb.vector_cluster_max_probe = 1.0;
+CREATE FUNCTION quant_fixture_vector(d integer, n integer)
+RETURNS vector
+LANGUAGE SQL IMMUTABLE PARALLEL SAFE
+AS $$
+    SELECT (
+        '[' || ((n % 97) + 1)::text || ',' || (((n * 17) % 89) + 1)::text || ',' ||
+        repeat('0,', d - 3) || '0]'
+    )::vector
+$$;
+CREATE FUNCTION quant_explain(query_text text)
+RETURNS jsonb
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    plan jsonb;
+BEGIN
+    EXECUTE 'EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF, FORMAT JSON) '
+        || query_text
+        INTO plan;
+    RETURN plan;
+END
+$$;
+-- CREATE INDEX validation: the configured dimension must match the schema,
+-- and quantized fields are inside the validated d >= 64 model envelope.
+CREATE TABLE q_bad_dims (id integer PRIMARY KEY, vec vector(100));
+CREATE INDEX q_bad_dims_idx ON q_bad_dims
+USING paradedb (id, vec vector_l2_ops)
+WITH (
+    key_field = id,
+    vector_fields = '{"vec":{"dims":99,"quantization":true}}'
+);
+ERROR:  vector field `vec` config dimension 99 does not match schema dimension 100
+DROP TABLE q_bad_dims;
+CREATE TABLE q_below_floor (id integer PRIMARY KEY, vec vector(63));
+CREATE INDEX q_below_floor_idx ON q_below_floor
+USING paradedb (id, vec vector_l2_ops)
+WITH (
+    key_field = id,
+    vector_fields = '{"vec":{"dims":63,"quantization":true}}'
+);
+ERROR:  quantization requires dimension ≥ 64; the quantization error model is not validated below this
+DROP TABLE q_below_floor;
+-- d=768 cosine, using the SQL shorthand for the default [1,4] schedule.
+CREATE TABLE q_cosine (id integer PRIMARY KEY, vec vector(768));
+CREATE INDEX q_cosine_idx ON q_cosine
+USING paradedb (id, vec vector_cosine_ops)
+WITH (
+    key_field = id,
+    vector_fields = '{"vec":{"dims":768,"quantization":true}}',
+    target_segment_count = 1,
+    mutable_segment_rows = 0,
+    layer_sizes = '400kb',
+    background_layer_sizes = '0'
+);
+INSERT INTO q_cosine SELECT g, quant_fixture_vector(768, g) FROM generate_series(1, 100) g;
+INSERT INTO q_cosine SELECT g, quant_fixture_vector(768, g) FROM generate_series(101, 200) g;
+VACUUM q_cosine;
+SELECT bool_or(vector_format = 'ivf') AS cosine_has_ivf
+FROM paradedb.vector_info('q_cosine_idx', 'vec');
+ cosine_has_ivf 
+----------------
+ t
+(1 row)
+
+CREATE TEMP TABLE q_cosine_quantized AS
+SELECT array_agg(id) AS ids
+FROM (
+    SELECT id
+    FROM q_cosine
+    WHERE id @@@ pdb.all()
+    ORDER BY vec <=> quant_fixture_vector(768, 0), id
+    LIMIT 10
+) hits;
+WITH plan AS (
+    SELECT quant_explain(
+        'SELECT id FROM q_cosine WHERE id @@@ pdb.all() '
+        'ORDER BY vec <=> quant_fixture_vector(768, 0), id LIMIT 10'
+    ) AS value
+), segment_info AS (
+    -- Custom EXPLAIN properties are represented as JSON text inside FORMAT
+    -- JSON, so parse that property before checking the flat ProbeStats keys.
+    SELECT (jsonb_path_query_first(value, '$.**."Segment Info"') #>> '{}')::jsonb AS value
+    FROM plan
+)
+SELECT
+    (jsonb_path_query_first(value, '$.**.quantized_plane1_scored') #>> '{}')::bigint > 0
+        AS plane1_populated,
+    (jsonb_path_query_first(value, '$.**.quantized_plane1_survivors') #>> '{}')::bigint > 0
+        AS survivors_populated,
+    (jsonb_path_query_first(value, '$.**.rerank_rows') #>> '{}')::bigint > 0
+        AS rerank_populated
+FROM segment_info;
+ plane1_populated | survivors_populated | rerank_populated 
+------------------+---------------------+------------------
+ t                | t                   | t
+(1 row)
+
+-- d=768 L2 exercises slot 14 and score assembly as -dist^2.
+CREATE TABLE q_l2 (id integer PRIMARY KEY, vec vector(768));
+CREATE INDEX q_l2_idx ON q_l2
+USING paradedb (id, vec vector_l2_ops)
+WITH (
+    key_field = id,
+    vector_fields = '{"vec":{"dims":768,"quantization":{"layers":[1,4]}}}',
+    target_segment_count = 1,
+    mutable_segment_rows = 0,
+    layer_sizes = '400kb',
+    background_layer_sizes = '0'
+);
+INSERT INTO q_l2 SELECT g, quant_fixture_vector(768, g) FROM generate_series(1, 100) g;
+INSERT INTO q_l2 SELECT g, quant_fixture_vector(768, g) FROM generate_series(101, 200) g;
+VACUUM q_l2;
+SELECT bool_or(vector_format = 'ivf') AS l2_has_ivf
+FROM paradedb.vector_info('q_l2_idx', 'vec');
+ l2_has_ivf 
+------------
+ t
+(1 row)
+
+CREATE TEMP TABLE q_l2_quantized AS
+SELECT array_agg(id) AS ids
+FROM (
+    SELECT id
+    FROM q_l2
+    WHERE id @@@ pdb.all()
+    ORDER BY vec <-> quant_fixture_vector(768, 0), id
+    LIMIT 10
+) hits;
+-- Odd d=100 exercises exact-d rotation and zero-tail packing through SQL.
+CREATE TABLE q_odd (id integer PRIMARY KEY, vec vector(100));
+CREATE INDEX q_odd_idx ON q_odd
+USING paradedb (id, vec vector_l2_ops)
+WITH (
+    key_field = id,
+    vector_fields = '{"vec":{"dims":100,"quantization":{"layers":[1,4]}}}',
+    target_segment_count = 1,
+    mutable_segment_rows = 0,
+    layer_sizes = '50kb',
+    background_layer_sizes = '0'
+);
+INSERT INTO q_odd SELECT g, quant_fixture_vector(100, g) FROM generate_series(1, 100) g;
+INSERT INTO q_odd SELECT g, quant_fixture_vector(100, g) FROM generate_series(101, 200) g;
+VACUUM q_odd;
+SELECT bool_or(vector_format = 'ivf') AS odd_has_ivf
+FROM paradedb.vector_info('q_odd_idx', 'vec');
+ odd_has_ivf 
+-------------
+ t
+(1 row)
+
+CREATE TEMP TABLE q_odd_quantized AS
+SELECT array_agg(id) AS ids
+FROM (
+    SELECT id
+    FROM q_odd
+    WHERE id @@@ pdb.all()
+    ORDER BY vec <-> quant_fixture_vector(100, 0), id
+    LIMIT 10
+) hits;
+-- Prefix depth zero flips all three fields to the exact path in this same
+-- session. The fixture's quantized path must already have recall@10 = 1.0.
+SET paradedb.max_scan_levels = 0;
+SELECT quantized.ids = exact.ids AS cosine_recall_at_10_is_one
+FROM q_cosine_quantized quantized
+CROSS JOIN LATERAL (
+    SELECT array_agg(id) AS ids
+    FROM (
+        SELECT id
+        FROM q_cosine
+        WHERE id @@@ pdb.all()
+        ORDER BY vec <=> quant_fixture_vector(768, 0), id
+        LIMIT 10
+    ) hits
+) exact;
+ cosine_recall_at_10_is_one 
+----------------------------
+ t
+(1 row)
+
+SELECT quantized.ids = exact.ids AS l2_recall_at_10_is_one
+FROM q_l2_quantized quantized
+CROSS JOIN LATERAL (
+    SELECT array_agg(id) AS ids
+    FROM (
+        SELECT id
+        FROM q_l2
+        WHERE id @@@ pdb.all()
+        ORDER BY vec <-> quant_fixture_vector(768, 0), id
+        LIMIT 10
+    ) hits
+) exact;
+ l2_recall_at_10_is_one 
+------------------------
+ t
+(1 row)
+
+SELECT quantized.ids = exact.ids AS odd_recall_at_10_is_one
+FROM q_odd_quantized quantized
+CROSS JOIN LATERAL (
+    SELECT array_agg(id) AS ids
+    FROM (
+        SELECT id
+        FROM q_odd
+        WHERE id @@@ pdb.all()
+        ORDER BY vec <-> quant_fixture_vector(100, 0), id
+        LIMIT 10
+    ) hits
+) exact;
+ odd_recall_at_10_is_one 
+-------------------------
+ t
+(1 row)
+
+RESET paradedb.max_scan_levels;
+RESET paradedb.vector_cluster_max_probe;
+RESET paradedb.vector_clustering_threshold;
+DROP TABLE q_cosine;
+DROP TABLE q_l2;
+DROP TABLE q_odd;
+DROP FUNCTION quant_explain(text);
+DROP FUNCTION quant_fixture_vector(integer, integer);

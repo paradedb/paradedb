@@ -51,7 +51,7 @@ enum Commands {
     Recall(RecallArgs),
     /// Convert parquet datasets in S3 to CSV format using DuckDB.
     Convert(convert::ConvertArgs),
-    /// Sample a CSV dataset to a target row count, preserving table relationships.
+    /// Sample a Parquet dataset to a target row count, preserving table relationships.
     Sample(sample::SampleArgs),
     /// Load a dataset's heap without building the index or running queries, so the resulting
     /// cluster can be captured as a snapshot (e.g. by pgBackRest).
@@ -86,7 +86,7 @@ struct BenchmarkArgs {
     #[arg(long, default_value_t = true, num_args = 1)]
     prewarm: bool,
 
-    /// Whether to run `VACUUM ANALYZE` before executing queries.
+    /// Whether to run `VACUUM FULL ANALYZE`, then `VACUUM ANALYZE`, before executing queries.
     #[arg(long, default_value_t = true, num_args = 1)]
     vacuum: bool,
 
@@ -1821,8 +1821,8 @@ async fn get_query_id(query: &str, conn: &mut PgConnection) -> anyhow::Result<i6
 /// This creates a fresh connection for each benchmark query and then reuses it across repeated
 /// runs of that query.
 ///
-/// The query will be ran repeatedly, warming it,until a 3-run window shows a sub-0.1% ratio of
-/// variance over mean, or it has been ran 10 times. At that point, sample_count samples will
+/// The query runs repeatedly, warming it, until a 3-run window shows a sub-0.1% ratio of
+/// variance over mean, or it has run 10 times. At that point, sample_count samples will
 /// be taken.
 ///
 /// Uses the simple query protocol (via `raw_sql`) to match `psql` behavior, which is

@@ -1,7 +1,4 @@
-<h1 align="center">
-  <img src="../docs/logo/pg_search.svg" alt="pg_search"></a>
-<br>
-</h1>
+# pg_search
 
 This README covers development of the `pg_search` extension. For installation, deployment, and usage, see the [ParadeDB documentation](https://docs.paradedb.com).
 
@@ -108,7 +105,7 @@ For the other test categories (pg regress, integration tests, client property te
 - [`tests/README.md`](../tests/README.md) — integration tests and client property tests
 - [`stressgres/README.md`](../stressgres/README.md) — Stressgres, the stress-testing tool used locally and in CI
 - [`CONTRIBUTING.md#testing`](../CONTRIBUTING.md#testing) — overview of all test categories and when to use which
-- [`test-pg_search-upgrade/README.md`](../.github/actions/test-pg_search-upgrade/README.md) - compatibility tests for extension version upgrades
+- [`test-pg_search-upgrade/README.md`](../.github/actions/test-pg_search-upgrade/README.md) — compatibility tests for extension version upgrades
 
 ## Benchmarks
 

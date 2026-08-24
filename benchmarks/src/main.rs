@@ -43,6 +43,17 @@ struct Cli {
     command: Commands,
 }
 
+fn parse_positive_usize(value: &str) -> Result<usize, String> {
+    let value = value
+        .parse::<usize>()
+        .map_err(|err| format!("invalid positive integer: {err}"))?;
+    if value == 0 {
+        Err("value must be at least 1".to_string())
+    } else {
+        Ok(value)
+    }
+}
+
 #[derive(Subcommand)]
 enum Commands {
     /// Run benchmarks against a ParadeDB instance.
@@ -51,7 +62,7 @@ enum Commands {
     Recall(RecallArgs),
     /// Convert parquet datasets in S3 to CSV format using DuckDB.
     Convert(convert::ConvertArgs),
-    /// Sample a CSV dataset to a target row count, preserving table relationships.
+    /// Sample a Parquet dataset to a target row count, preserving table relationships.
     Sample(sample::SampleArgs),
     /// Load a dataset's heap without building the index or running queries, so the resulting
     /// cluster can be captured as a snapshot (e.g. by pgBackRest).
@@ -86,7 +97,7 @@ struct BenchmarkArgs {
     #[arg(long, default_value_t = true, num_args = 1)]
     prewarm: bool,
 
-    /// Whether to run `VACUUM ANALYZE` before executing queries.
+    /// Whether to run `VACUUM FULL ANALYZE`, then `VACUUM ANALYZE`, before executing queries.
     #[arg(long, default_value_t = true, num_args = 1)]
     vacuum: bool,
 
@@ -96,7 +107,7 @@ struct BenchmarkArgs {
     skip_index: bool,
 
     /// Number of runs to execute for each query.
-    #[arg(long, default_value = "3")]
+    #[arg(long, default_value = "3", value_parser = parse_positive_usize)]
     runs: usize,
 
     /// Output format.
@@ -1372,7 +1383,7 @@ async fn process_index_creation_csv(args: &BenchmarkArgs) -> anyhow::Result<()> 
 }
 
 async fn run_benchmarks_csv(args: &BenchmarkArgs) -> anyhow::Result<()> {
-    let filename = "results_{}_benchmark_results.csv";
+    let filename = "results_pg_search_benchmark_results.csv";
     let mut file =
         File::create(filename).with_context(|| "Failed to create benchmark results CSV")?;
 
@@ -1821,8 +1832,8 @@ async fn get_query_id(query: &str, conn: &mut PgConnection) -> anyhow::Result<i6
 /// This creates a fresh connection for each benchmark query and then reuses it across repeated
 /// runs of that query.
 ///
-/// The query will be ran repeatedly, warming it,until a 3-run window shows a sub-0.1% ratio of
-/// variance over mean, or it has been ran 10 times. At that point, sample_count samples will
+/// The query runs repeatedly, warming it, until a 3-run window shows a sub-0.1% ratio of
+/// variance over mean, or it has run 10 times. At that point, sample_count samples will
 /// be taken.
 ///
 /// Uses the simple query protocol (via `raw_sql`) to match `psql` behavior, which is
@@ -2326,5 +2337,22 @@ mod tests {
         for query_type in ["knn_top10_10pct@r95", "knn_top10_10pct - alternative 1"] {
             assert!(reads_query_vector(&knn), "{query_type}");
         }
+    }
+
+    #[test]
+    fn rejects_zero_benchmark_samples() {
+        assert!(
+            Cli::try_parse_from([
+                "benchmarks",
+                "benchmark",
+                "--url",
+                "postgresql://localhost/postgres",
+                "--index",
+                "bm25",
+                "--runs",
+                "0",
+            ])
+            .is_err()
+        );
     }
 }

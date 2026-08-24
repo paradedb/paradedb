@@ -20,21 +20,40 @@ and correctness. ParadeDB's core is built on PostgreSQL.
 [pgrx](https://github.com/pgcentralfoundation/pgrx) is a powerful toolset for
 PostgreSQL extension development in Rust. It simplifies the process of creating,
 testing, and packaging extensions, enabling developers to harness the performance
-and safety guarantees of Rust within the PostgreSQL ecosystem. ParadeDB uses PGRX
+and safety guarantees of Rust within the PostgreSQL ecosystem. ParadeDB uses pgrx
 for developing our own PostgreSQL extensions, and has drawn inspiration from [ZomboDB](https://github.com/zombodb/zombodb),
-the first PGRX extension and primary example, for the architecture of our own extensions.
+the first pgrx extension and primary example, for the architecture of our own extensions.
+
+## pgvector
+
+[pgvector](https://github.com/pgvector/pgvector) provides open-source vector
+similarity search for PostgreSQL. ParadeDB uses pgvector's vector types and
+operators as its SQL interface for vector search.
 
 ## Tantivy
 
 [Tantivy](https://github.com/quickwit-oss/tantivy) is a full-text search library
 inspired by Apache Lucene, written entirely in Rust. ParadeDB uses Tantivy to power
-part of our search functionalities.
+its search index.
+
+## Lindera
+
+[Lindera](https://github.com/lindera/lindera) is a multilingual morphological
+analysis library written in Rust. ParadeDB uses Lindera to provide Chinese,
+Japanese, and Korean tokenization.
 
 ## Apache DataFusion
 
-[Apache DataFusion](https://github.com/apache/datafusion) is an extensible query execution framework,
-written in Rust, that uses Apache Arrow as its in-memory format. ParadeDB uses DataFusion to power
-our OLAP and analytical processing capabilities.
+[Apache DataFusion](https://github.com/apache/datafusion) is an extensible query
+execution framework written in Rust that uses [Apache Arrow](https://arrow.apache.org/)
+as its in-memory format. ParadeDB uses DataFusion to power its OLAP and analytical
+processing capabilities.
+
+## DataFusion Distributed
+
+[DataFusion Distributed](https://github.com/datafusion-contrib/datafusion-distributed)
+extends Apache DataFusion with distributed query execution. ParadeDB uses it to
+distribute query plans across PostgreSQL parallel workers.
 
 ## Docker
 

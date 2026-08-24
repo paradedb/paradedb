@@ -218,6 +218,12 @@ pub struct ScanInfo {
     /// Estimated number of rows matching the query.
     /// Used to decide which table to partition in parallel joins.
     pub estimate: RowEstimate,
+    /// True when `estimate` is the index's total document count rather than a match count.
+    /// The estimator substitutes the total when the query carries a Postgres expression or a
+    /// heap filter it cannot evaluate at plan time; consumers that need a match count (the MPP
+    /// size gate) discount it by `PARAMETERIZED_SELECTIVITY`, mirroring BaseScan.
+    #[serde(default)]
+    pub estimate_from_total_docs: bool,
     /// The number of segments in the index.
     pub segment_count: usize,
 }
@@ -240,6 +246,7 @@ impl ScanInfo {
             fields: Vec::new(),
             partition_by: Vec::new(),
             estimate: RowEstimate::Unknown,
+            estimate_from_total_docs: false,
             segment_count: 0,
         }
     }

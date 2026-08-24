@@ -1,17 +1,5 @@
-# VS Code
-.vscode/
-
-# macOS
-.DS_Store
-
-# Cargo
-target/
-
 # Rustfmt
 *.rs.bk
-
-# Code Coverage
-*.profraw
 
 # Logs
 *.txt

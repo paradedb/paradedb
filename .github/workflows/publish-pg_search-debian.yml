@@ -253,7 +253,7 @@ jobs:
 
           # Download PostgreSQL signing key & add PostgreSQL APT repository with signed-by
           wget -qO- https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo tee /usr/share/keyrings/postgresql.asc > /dev/null
-          sudo sh -c 'echo "deb [signed-by=/usr/share/keyrings/postgresql.asc] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          sudo sh -c 'echo "deb [signed-by=/usr/share/keyrings/postgresql.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
 
           # Install PostgreSQL + build tooling
           DEBIAN_FRONTEND=noninteractive sudo apt-get update
@@ -321,9 +321,10 @@ jobs:
           echo 'Depends: postgresql-${{ matrix.pg_version }}, libopenblas0' >> $CONTROL_FILE
           echo 'Maintainer: ParadeDB <support@paradedb.com>' >> $CONTROL_FILE
           echo 'Description: Full-text search, vector retrieval, and aggregations for Postgres' >> $CONTROL_FILE
-          echo ' pg_search adds Elastic-quality full-text search, vector retrieval, and' >> $CONTROL_FILE
-          echo ' aggregations to Postgres. Your application data and your search engine' >> $CONTROL_FILE
-          echo ' live in one database, with no second system to deploy and nothing to sync.' >> $CONTROL_FILE
+          echo ' pg_search upgrades Postgres with a custom index for fast full-text and' >> $CONTROL_FILE
+          echo ' vector search, BM25 scoring, filtering, and aggregations. Your application' >> $CONTROL_FILE
+          echo ' data and search engine live in one database, with no second system to' >> $CONTROL_FILE
+          echo ' deploy and nothing to sync.' >> $CONTROL_FILE
 
           # Copyright file (Debian Policy §12.5). Also consumed by the
           # CloudNativePG postgres-extensions-containers Dockerfiles, which
@@ -418,7 +419,7 @@ jobs:
     steps:
       - name: Generate GitHub App Token
         id: app-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@v3.2.0
         with:
           client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}

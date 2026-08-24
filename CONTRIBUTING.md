@@ -1,4 +1,4 @@
-# **Contributing to ParadeDB**
+# Contributing to ParadeDB
 
 Welcome! We're excited that you're interested in contributing to ParadeDB and want to make the process as smooth as possible.
 
@@ -18,9 +18,8 @@ This repository has a workflow that automatically assigns issues to new contribu
 from a maintainer to pick an issue.
 
 1. Before claiming an issue, ensure that:
-
-- It's not already assigned to someone else
-- There are no comments indicating ongoing work
+   - It's not already assigned to someone else.
+   - There are no comments indicating ongoing work.
 
 2. To claim an unassigned issue, comment `/take` on the issue. This will automatically assign the issue to you.
 
@@ -28,11 +27,14 @@ If you find yourself unable to make progress, don't hesitate to seek help in the
 
 ### Development Workflow
 
-ParadeDB is a Postgres extension, `pg_search`, written in Rust and packaged as either a standalone binary or a Docker image. The development of our Postgres extension is done via `pgrx`. For instructions on setting up your development environment, building, and running `pg_search` locally, see the [pg_search README](/pg_search/README.md).
+ParadeDB's `pg_search` Postgres extension is written in Rust and distributed as
+prebuilt extension packages and Docker images. Development is done with `pgrx`.
+For instructions on setting up your development environment, building, and running
+`pg_search` locally, see the [pg_search README](/pg_search/README.md).
 
 ### Pull Request Workflow
 
-All changes to ParadeDB happen through GitHub Pull Requests. Here is the recommended flow for making a change:
+All changes to ParadeDB happen through GitHub pull requests. Here is the recommended flow for making a change:
 
 1. Before working on a change, please check if there is already a GitHub issue open for it.
 2. If there is not, please open an issue first. This gives the community visibility into your work and allows others to make suggestions and leave comments.
@@ -55,11 +57,11 @@ ParadeDB's public-facing documentation is stored in the `docs` folder. If you ar
 
 ParadeDB has four main test categories. For a full overview of how and when to use them, please see their respective documentation:
 
-#### 1. pg regress tests
+#### 1. pg_regress tests
 
 Located in `pg_search/tests/pg_regress`.
 
-- **Purpose:** These are for output / golden testing, and are useful when the output is small enough that you can inspect it visually to determine correctness.
+- **Purpose:** These are golden-output tests, useful when the output is small enough to inspect visually for correctness.
 - **Running:** From `pg_search/`, run them with `cargo pgrx regress --auto`. To run a specific test, pass its name, for example `cargo pgrx regress --auto pg18 PREFIX_your_test`. There is no need to manually install the extension: it is handled automatically.
 - **Details:** See [`pg_search/tests/pg_regress/README.md`](pg_search/tests/pg_regress/README.md) for more details.
 

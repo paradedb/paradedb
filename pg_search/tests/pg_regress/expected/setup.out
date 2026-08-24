@@ -10,6 +10,13 @@ END
 $$;
 -- Also set it for the current session, in case any subsequent setup steps rely on it
 SET max_parallel_workers_per_gather = 2;
+-- Regress tables are tiny by design, so the MPP size gate would keep MPP off in every
+-- suite. Pin it off here; the suite that exercises the gate itself raises it per-test.
+DO $$
+BEGIN
+    EXECUTE format('ALTER DATABASE %I SET paradedb.mpp_min_rows = 0', current_database());
+END
+$$;
 DROP TABLE IF EXISTS mock_items_issue_2528;
 CALL paradedb.create_paradedb_test_table(
   schema_name => 'public',

@@ -12,6 +12,10 @@ on:
     branches:
       - main
     paths:
+      - ".github/actions/benchmark-queries/**"
+      - ".github/actions/benchmarks-from-main/**"
+      - ".github/actions/setup-benchmark-cluster/**"
+      - ".github/workflows/benchmark-pg_search-queries.yml"
       - "benchmarks/**"
       - "**/*.rs"
       - "**/*.toml"
@@ -105,11 +109,7 @@ jobs:
       RUN_COHERE: ${{ (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'cohere')) || (github.event_name == 'pull_request' && contains(fromJson('["benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search", "benchmark-cohere-pgvectorscale"]'), github.event.label.name)) }}
       # Only main writes the baseline. Every other run still fetches it and diffs against it,
       # so a PR gets its comparison without being able to move the reference point.
-      #
-      # TEMP -- REVERT BEFORE MERGING (this is its own commit, so `git revert` it).
-      # claude/pgvectorscale is allowed to publish so the new arm gets a baseline ahead of merge.
-      # Anything published here becomes the reference the next run is diffed against.
-      PUBLISH_BASELINE: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/pgvectorscale') && (github.event_name != 'workflow_dispatch' || inputs.publish_baseline) }}
+      PUBLISH_BASELINE: ${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.publish_baseline) }}
       COHERE_INDEX: ${{ inputs.cohere_index || (github.event.label.name == 'benchmark-cohere-ivfflat' && 'ivfflat') || (github.event.label.name == 'benchmark-cohere-vchord' && 'vchord') || (github.event.label.name == 'benchmark-cohere-pg_search' && 'pg_search') || (github.event.label.name == 'benchmark-cohere-pgvectorscale' && 'pgvectorscale') || (github.event.label.name == 'benchmark-cohere-hnsw' && 'hnsw') }}
 
     steps:
@@ -296,7 +296,7 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
-          fail_on_error: ${{ inputs.fail_on_error || true }}
+          fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish: ${{ env.PUBLISH_BASELINE }}
 
       - name: Restore "stackoverflow" Heap Snapshot (1M)
@@ -328,7 +328,7 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
-          fail_on_error: ${{ inputs.fail_on_error || true }}
+          fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish: ${{ env.PUBLISH_BASELINE }}
 
       - name: Restore "stackoverflow" Heap Snapshot (20M)
@@ -360,7 +360,7 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
-          fail_on_error: ${{ inputs.fail_on_error || true }}
+          fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish: ${{ env.PUBLISH_BASELINE }}
 
       - name: Restore "cohere" Heap Snapshot (1M)
@@ -420,7 +420,7 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
-          fail_on_error: ${{ inputs.fail_on_error || true }}
+          fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish: ${{ env.PUBLISH_BASELINE }}
 
       - name: Restore "cohere" Heap Snapshot (10M)
@@ -474,7 +474,7 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
-          fail_on_error: ${{ inputs.fail_on_error || true }}
+          fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish: ${{ env.PUBLISH_BASELINE }}
 
       # Renders the operating points the benchmark selected. The benchmark step measures recall

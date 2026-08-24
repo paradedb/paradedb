@@ -55,6 +55,7 @@ use datafusion_distributed::shm::MppMesh;
 use crate::postgres::customscan::mpp::glue::mpp_is_active;
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
+use crate::postgres::customscan::mpp::launch::mpp_gated_by_min_rows;
 use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parallelism;
 
 use crate::api::SortDirection;
@@ -1091,6 +1092,14 @@ impl AggregateScan {
     /// Planning remains lazy: the finished physical stages provide the exact dispatch payload
     /// before DSM allocation, so begin never needs a throwaway logical plan.
     fn prepare_mpp(state: &mut CustomScanStateWrapper<Self>) {
+        // The size gate decides here, before any MPP work: a gated query keeps
+        // `MppLifecycle::Inactive`, so exec plans serially and no manifest is pinned.
+        let Some(df_state) = state.custom_state().datafusion_state.as_ref() else {
+            return;
+        };
+        if mpp_gated_by_min_rows(df_state.plan.sources().into_iter().map(|s| &s.scan_info)) {
+            return;
+        }
         Self::ensure_source_manifests(state);
 
         let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() else {
@@ -1122,7 +1131,6 @@ impl AggregateScan {
             with_aggregates: false,
             with_segment_info: false,
         };
-
         crate::postgres::customscan::mpp::launch::launch_mpp_aggregate(physical, args)
     }
 
@@ -1238,7 +1246,9 @@ impl AggregateScan {
                     build_physical_plan(ctx, logical).await
                 })
             };
-            let plan_result = if mpp_is_active() {
+            let gated =
+                mpp_gated_by_min_rows(df_state.plan.sources().into_iter().map(|s| &s.scan_info));
+            let plan_result = if mpp_is_active() && !gated {
                 // EXPLAIN-time: skip the shm_mq transport install (no execution, no `open()` call).
                 // Plan against the cap first; fall back to serial when launch would not run (#5784).
                 match build_with(&Self::build_mpp_session_context(None)) {

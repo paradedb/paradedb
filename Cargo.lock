@@ -2578,9 +2578,8 @@ checksum = "46c4cf71a36b46dcfc00e5014c0c20ccad2b1b6a008304d7d57d2749b2d41b3d"
 
 [[package]]
 name = "decimal-bytes"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04ca5c5cd9fae79b456f0a067c6b428ab1edad0c3a32b95c6e72ce8e777466cb"
+version = "0.5.0"
+source = "git+https://github.com/paradedb/decimal-bytes.git?rev=fb1d07652682bb08fcb55461995b341d2b4b30b2#fb1d07652682bb08fcb55461995b341d2b4b30b2"
 dependencies = [
  "serde",
  "thiserror 2.0.19",

@@ -845,11 +845,12 @@ fn check_range_bounds(
     typeoid: PgOid,
     lower_bound: Bound<PdbOwnedValue>,
     upper_bound: Bound<PdbOwnedValue>,
+    index_created_by_version: Option<Version>,
 ) -> Result<(Bound<PdbOwnedValue>, Bound<PdbOwnedValue>), QueryError> {
     // For NUMRANGEOID, convert numeric values to hex-encoded sortable bytes
     // to match the indexed format (see SortableDecimal in range.rs)
-    let lower_bound = convert_numrange_bound(typeoid, lower_bound);
-    let upper_bound = convert_numrange_bound(typeoid, upper_bound);
+    let lower_bound = convert_numrange_bound(typeoid, lower_bound, index_created_by_version);
+    let upper_bound = convert_numrange_bound(typeoid, upper_bound, index_created_by_version);
 
     let lower_bound = match (typeoid, lower_bound.clone()) {
         // Excluded U64 needs to be canonicalized
@@ -979,7 +980,11 @@ fn check_range_bounds(
 
 /// Convert numeric values in NUMRANGEOID bounds to hex-encoded sortable bytes.
 /// This matches the format used for indexing (see SortableDecimal in range.rs).
-fn convert_numrange_bound(typeoid: PgOid, bound: Bound<PdbOwnedValue>) -> Bound<PdbOwnedValue> {
+fn convert_numrange_bound(
+    typeoid: PgOid,
+    bound: Bound<PdbOwnedValue>,
+    index_created_by_version: Option<Version>,
+) -> Bound<PdbOwnedValue> {
     use decimal_bytes::Decimal;
     use std::str::FromStr;
 
@@ -998,9 +1003,12 @@ fn convert_numrange_bound(typeoid: PgOid, bound: Bound<PdbOwnedValue>) -> Bound<
             _ => return None,
         };
 
-        Decimal::from_str(&numeric_str)
-            .ok()
-            .map(|dec| PdbOwnedValue::Str(numeric::bytes_to_hex(dec.as_bytes())))
+        Decimal::from_str(&numeric_str).ok().map(|dec| {
+            PdbOwnedValue::Str(numeric::bytes_to_hex(&numeric::decimal_to_index_bytes(
+                dec,
+                index_created_by_version,
+            )))
+        })
     };
 
     match bound {

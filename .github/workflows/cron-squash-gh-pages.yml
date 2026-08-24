@@ -25,4 +25,4 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Run gh-pages Squash
-        run: ./scripts/squash-gh-pages.sh --push origin
+        run: ./.github/scripts/squash-gh-pages.sh --push origin

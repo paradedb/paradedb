@@ -7,7 +7,7 @@
 # push command without pushing to any remote. Pass --push to apply the change.
 #
 # Usage:
-#   ./scripts/squash-gh-pages.sh [options] [remote]
+#   ./.github/scripts/squash-gh-pages.sh [options] [remote]
 #
 # Arguments:
 #   remote: Git remote name (default: origin)
@@ -21,7 +21,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 REMOTE="origin"
 DO_PUSH=false
@@ -101,7 +101,7 @@ else
   echo "No changes were pushed to $REMOTE."
   echo "To apply and push this change to $REMOTE, run:"
   echo ""
-  echo "  ./scripts/squash-gh-pages.sh --push $REMOTE"
+  echo "  ./.github/scripts/squash-gh-pages.sh --push $REMOTE"
   echo ""
   echo "Or push manually via git:"
   echo "  git push $REMOTE $NEW_COMMIT:refs/heads/gh-pages --force"

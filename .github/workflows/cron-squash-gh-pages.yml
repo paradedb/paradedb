@@ -1,0 +1,28 @@
+name: Cron - Squash gh-pages History
+
+on:
+  schedule:
+    # Run monthly on the 1st at 04:37 UTC (offset to avoid top-of-hour GitHub Actions traffic)
+    - cron: "37 4 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  squash-gh-pages:
+    name: Squash gh-pages History
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Configure Git Author
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Run gh-pages Squash
+        run: ./.github/scripts/squash-gh-pages.sh --push origin

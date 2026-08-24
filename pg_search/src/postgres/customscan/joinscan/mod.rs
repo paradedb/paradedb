@@ -621,11 +621,7 @@ impl JoinScan {
             ));
         }
 
-        if !order_by_columns_are_fast_fields(root, &all_sources, has_distinct) {
-            return Err(JoinDeclineReason::new(
-                "JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation",
-            ));
-        }
+        order_by_columns_are_fast_fields(root, &all_sources, has_distinct)?;
 
         for jk in join_keys {
             let outer_source = all_sources.iter().find(|s| s.contains_rti(jk.outer_rti));
@@ -1757,22 +1753,22 @@ unsafe fn compute_output_columns(
                 // the parent plan will not read this position.
                 output_columns.push(privdat::OutputColumnInfo::Pruned);
             }
-        } else {
-            let mut found_score = false;
-            for source in join_clause.plan.sources() {
-                if expr_uses_scores_from_source(check_expr.cast(), source) {
-                    let rti = get_score_func_rti(check_expr.cast()).unwrap_or(0);
-                    output_columns.push(privdat::OutputColumnInfo::Score {
-                        plan_position: source.plan_position,
-                        rti,
-                    });
-                    found_score = true;
-                    break;
-                }
-            }
-            if !found_score {
+        } else if let Some(rti) = get_score_func_rti(check_expr.cast()) {
+            if let Some(source) = join_clause
+                .plan
+                .sources()
+                .iter()
+                .find(|s| s.contains_rti(rti))
+            {
+                output_columns.push(privdat::OutputColumnInfo::Score {
+                    plan_position: source.plan_position,
+                    rti,
+                });
+            } else {
                 output_columns.push(privdat::OutputColumnInfo::Pruned);
             }
+        } else {
+            output_columns.push(privdat::OutputColumnInfo::Pruned);
         }
     }
 

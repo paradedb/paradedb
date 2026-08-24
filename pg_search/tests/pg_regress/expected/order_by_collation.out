@@ -691,7 +691,7 @@ JOIN collation_join_suppliers s ON p.id = s.product_id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name_icu
 LIMIT 5;
-WARNING:  JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation (tables: p, s)
+WARNING:  JoinScan not used: ORDER BY columns must have a byte-ordered (C-like) collation (tables: p, s)
                                                                                    QUERY PLAN                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit

@@ -5117,7 +5117,6 @@ dependencies = [
  "strum 0.28.0",
  "superkmeans-rs",
  "tantivy",
- "tantivy-common",
  "tantivy-fst",
  "thiserror 2.0.19",
  "time",

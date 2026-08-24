@@ -92,6 +92,8 @@ pub enum UnusableReason {
     },
     /// We cannot pushdown collations that are not byte-ordered (C-like)
     UnsafeCollation,
+    /// ORDER BY uses an unsupported expression shape containing pdb.score()
+    UnsupportedScoreExpression,
 }
 
 #[derive(Debug, Clone)]
@@ -624,6 +626,14 @@ where
         // of pathkeys.
         if !found_valid_member {
             if pathkey_styles.is_empty() {
+                let has_score = members.iter_ptr().any(|m| {
+                    crate::postgres::customscan::basescan::projections::score::expr_contains_any_score(
+                        (*m).em_expr.cast(),
+                    )
+                });
+                if has_score {
+                    return PathKeyInfo::Unusable(UnusableReason::UnsupportedScoreExpression);
+                }
                 return PathKeyInfo::Unusable(UnusableReason::NotSortable);
             } else {
                 return PathKeyInfo::UsablePrefix(pathkey_styles);

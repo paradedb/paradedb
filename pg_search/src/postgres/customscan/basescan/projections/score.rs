@@ -119,3 +119,26 @@ pub unsafe fn is_score_func(node: *mut pg_sys::Node, rti: pg_sys::Index) -> bool
 
     false
 }
+
+/// Check if an expression tree contains any `pdb.score()` or `paradedb.score()` function calls.
+pub unsafe fn expr_contains_any_score(node: *mut pg_sys::Node) -> bool {
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        data: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node)
+            && score_funcoids().contains(&(*funcexpr).funcid)
+        {
+            return true;
+        }
+
+        expression_tree_walker(node, Some(walker), data)
+    }
+
+    walker(node, std::ptr::null_mut())
+}

@@ -1492,36 +1492,58 @@ pub unsafe fn add_missing_search_operators_to_tlist(
     tlist: &mut PgList<pg_sys::TargetEntry>,
     search_operator_funcoids: &[pg_sys::Oid],
 ) {
-    let mut add_missing_func = |expr: *mut pg_sys::Node| {
-        if !is_search_operator(expr, search_operator_funcoids) {
-            return;
+    use pgrx::pg_sys::expression_tree_walker;
+    use std::ptr::addr_of_mut;
+
+    #[pgrx::pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
         }
 
-        let unwrapped_expr = strip_wrappers(expr.cast());
-        let already_present = tlist.iter_ptr().any(|te| {
-            pg_sys::equal(
-                strip_wrappers((*te).expr.cast()).cast(),
-                unwrapped_expr.cast(),
-            )
-        });
+        let ctx = context.cast::<Context>();
+        if is_search_operator(node, (*ctx).search_operator_funcoids) {
+            let unwrapped_expr = strip_wrappers(node);
+            let already_present = (*ctx).tlist.iter_ptr().any(|te| {
+                pg_sys::equal(
+                    strip_wrappers((*te).expr.cast()).cast(),
+                    unwrapped_expr.cast(),
+                )
+            });
 
-        if !already_present {
-            let resno = tlist.len() as pg_sys::AttrNumber + 1;
-            let te = pg_sys::makeTargetEntry(
-                pg_sys::copyObjectImpl(expr.cast()).cast(),
-                resno,
-                std::ptr::null_mut(),
-                true, // resjunk
-            );
-            tlist.push(te);
+            if !already_present {
+                let resno = (*ctx).tlist.len() as pg_sys::AttrNumber + 1;
+                let te = pg_sys::makeTargetEntry(
+                    pg_sys::copyObjectImpl(node.cast()).cast(),
+                    resno,
+                    std::ptr::null_mut(),
+                    true, // resjunk
+                );
+                (*ctx).tlist.push(te);
+            }
         }
+
+        expression_tree_walker(node, Some(walker), context)
+    }
+
+    struct Context<'a> {
+        tlist: &'a mut PgList<pg_sys::TargetEntry>,
+        search_operator_funcoids: &'a [pg_sys::Oid],
+    }
+
+    let mut ctx = Context {
+        tlist,
+        search_operator_funcoids,
     };
 
     // Look in processed_tlist
     if !(*root).processed_tlist.is_null() {
         let p_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*root).processed_tlist);
         for te in p_tlist.iter_ptr() {
-            add_missing_func((*te).expr.cast());
+            walker((*te).expr.cast(), addr_of_mut!(ctx).cast());
         }
     }
 
@@ -1533,7 +1555,7 @@ pub unsafe fn add_missing_search_operators_to_tlist(
             if !eclass.is_null() {
                 let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*eclass).ec_members);
                 for em in members.iter_ptr() {
-                    add_missing_func((*em).em_expr.cast());
+                    walker((*em).em_expr.cast(), addr_of_mut!(ctx).cast());
                 }
             }
         }

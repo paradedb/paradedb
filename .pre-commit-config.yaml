@@ -42,32 +42,47 @@ repos:
       - id: shfmt
         args: ["-i", "2", "-ci"]
 
-  - repo: https://github.com/koalaman/shellcheck-precommit
-    rev: v0.11.0
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
     hooks:
       - id: shellcheck
-
-  - repo: https://github.com/igorshubovych/markdownlint-cli
-    rev: v0.49.1
-    hooks:
-      - id: markdownlint
+        args: ["-x", "-P", "scripts"]
+        files: \.sh$
 
   - repo: https://github.com/kaechele/pre-commit-mirror-prettier
     rev: v3.8.1
     hooks:
       - id: prettier
 
-  - repo: https://github.com/doublify/pre-commit-rust
-    rev: v1.0
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.49.1
     hooks:
-      - id: fmt
-      - id: clippy
-        args:
-          ["--workspace", "--all-targets", "--", "-D", "warnings", "--no-deps"]
-      - id: cargo-check
+      - id: markdownlint
 
   - repo: local
     hooks:
+      - id: fmt
+        name: cargo fmt
+        entry: cargo fmt
+        args: ["--all"]
+        language: system
+        types: [rust]
+        pass_filenames: false
+      - id: clippy
+        name: cargo clippy
+        entry: cargo clippy
+        args:
+          ["--workspace", "--all-targets", "--", "-D", "warnings", "--no-deps"]
+        language: system
+        types: [rust]
+        pass_filenames: false
+      - id: cargo-check
+        name: cargo check
+        entry: cargo check
+        args: ["--workspace"]
+        language: system
+        types: [rust]
+        pass_filenames: false
       - id: cargo-doc
         name: cargo doc
         entry: cargo doc
@@ -79,14 +94,14 @@ repos:
           RUSTDOCFLAGS: "-D warnings"
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.1
+    rev: v0.16.4
     hooks:
-      - id: ruff
+      - id: ruff-check
         args: [--fix]
       - id: ruff-format
 
   - repo: https://github.com/pylint-dev/pylint
-    rev: v4.0.6
+    rev: v4.0.7
     hooks:
       - id: pylint
         args:

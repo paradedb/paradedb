@@ -1,13 +1,13 @@
 ---
-title: Unicode
+title: Unicode Words
 description: The default text tokenizer in ParadeDB
 canonical: https://www.paradedb.com/docs/documentation/tokenizers/available-tokenizers/unicode
 ---
 
-The unicode tokenizer splits text according to word boundaries defined by the [Unicode Standard Annex #29](https://www.unicode.org/reports/tr29/)
+The `unicode_words` tokenizer splits text according to word boundaries defined by the [Unicode Standard Annex #29](https://www.unicode.org/reports/tr29/)
 rules. All characters are [lowercased](/documentation/token-filters/lowercase) by default.
 
-This tokenizer is the default text tokenizer. If no tokenizer is specified for a text field, the unicode tokenizer will be used
+This tokenizer is the default text tokenizer. If no tokenizer is specified for a text field, the `unicode_words` tokenizer will be used
 (unless the text field is the [key field](/documentation/indexing/create-index#choosing-a-key-field), in which case the text is not tokenized).
 
 ```sql

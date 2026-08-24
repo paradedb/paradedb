@@ -29,7 +29,7 @@ USING paradedb (
 With this configuration:
 
 - **Index time**: `title` is tokenized with edge ngram to create prefix tokens
-- **Search time**: queries against `title` automatically use the unicode tokenizer
+- **Search time**: queries against `title` automatically use the `unicode_words` tokenizer
 
 The `search_tokenizer` value can include parameters, e.g. `search_tokenizer='simple(lowercase=false)'`.
 

@@ -95,8 +95,9 @@ WITH plan AS (
 SELECT
     (jsonb_path_query_first(value, '$.**.quantized_plane1_scored') #>> '{}')::bigint > 0
         AS plane1_populated,
-    (jsonb_path_query_first(value, '$.**.quantized_plane1_survivors') #>> '{}')::bigint > 0
-        AS survivors_populated,
+    (jsonb_path_query_first(value, '$.**.quantized_plane1_survivors') #>> '{}')::bigint
+        < (jsonb_path_query_first(value, '$.**.quantized_plane1_scored') #>> '{}')::bigint
+        AS plane1_filtered,
     (jsonb_path_query_first(value, '$.**.rerank_rows') #>> '{}')::bigint > 0
         AS rerank_populated,
     (jsonb_path_query_first(value, '$.**.routing_visited_count') #>> '{}')::bigint > 0

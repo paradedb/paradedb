@@ -12,6 +12,22 @@ For datasets that significantly exceed this scale, ParadeDB supports partitioned
 
 If you're working with very large datasets, please [reach out to us](mailto:support@paradedb.com). We'd be happy to provide guidance and share our roadmap for future distributed query support.
 
+## Join Support
+
+ParadeDB supports all Postgres `JOIN` types. As of v0.22.0, ParadeDB includes [join pushdown](/documentation/joins/overview) (beta) for `INNER`, `SEMI`, and `ANTI` joins, which pushes search predicates directly into the index for significantly better performance. Other join types work correctly but fall back to standard Postgres execution — pushdown support for these is coming soon. See the [joins guide](/documentation/joins/overview) for more details.
+
+## Vector Search
+
+[Native vector search](/documentation/vector/overview) is a beta feature as of v0.25.0. It carries a few tradeoffs today:
+
+- **Only pgvector's `vector` type is indexable.** The `halfvec`, `sparsevec`, and `bit` types are not yet supported, and neither is scalar or binary quantization. Vectors are
+  stored at full precision, so a large index needs proportionally more memory and disk.
+- **Search is approximate.** Queries probe a subset of the index's clusters rather than every vector, so recall is traded against latency. See [Tuning Recall and
+  Latency](/documentation/vector/tuning).
+- **Incremental index maintenance is not yet available.** Inserts and updates are transactionally indexed and immediately searchable, but vector search quality can degrade over
+  time under update-heavy workloads. We plan to address this with [SPFresh-based incremental maintenance](/welcome/roadmap#vector-search).
+- **The distance function is fixed at index creation.** Changing between L2, cosine, and inner product requires a `REINDEX`.
+
 ## Covering Index
 
 The ParadeDB index is a covering index, which means it stores all indexed columns inside a single index per table. This

@@ -28,27 +28,45 @@ all live inside Postgres — no ETL pipelines, no separate cluster to manage.
 - **Continue to use Postgres tooling.** Backups, replication, monitoring, and CI/CD integrate with standard Postgres tools
   you already use.
 
-## Feature Comparison
-
 ## Query Capabilities
 
-| Feature                     | Elasticsearch | ParadeDB | Notes                                                                                                                                                                     |
-| --------------------------- | :-----------: | :------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Full-text search (BM25)     |      ✅       |    ✅    | [Match and phrase operators](/documentation/full-text/overview)                                                                                                           |
-| Fuzzy matching              |      ✅       |    ✅    | Max edit distance of 2 via [`pdb.fuzzy()`](/documentation/full-text/fuzzy)                                                                                                |
-| Phrase matching             |      ✅       |    ✅    | [`###` operator](/documentation/full-text/phrase)                                                                                                                         |
-| Phrase prefix               |      ✅       |    ✅    | [`pdb.phrase_prefix()`](/documentation/query-builder/phrase/phrase-prefix)                                                                                                |
-| Regular expressions         |      ✅       |    ✅    | [`pdb.regex()`](/documentation/query-builder/term/regex)                                                                                                                  |
-| Wildcard queries            |      ✅       |    ✅    | Via [regex](/documentation/query-builder/term/regex)                                                                                                                      |
-| Boolean queries             |      ✅       |    ✅    | Via SQL `AND`/`OR`/`NOT` or [`paradedb.boolean`](/documentation/query-builder/overview)                                                                                   |
-| Proximity search            |      ✅       |    ✅    | [`##` operator](/documentation/full-text/proximity)                                                                                                                       |
-| More Like This              |      ✅       |    ✅    | [`pdb.more_like_this`](/documentation/query-builder/specialized/more-like-this)                                                                                           |
-| Nested queries              |      ✅       |    ✅    | Via SQL [`JOIN`s](/documentation/joins/overview)                                                                                                                          |
-| Parent-child queries        |      ✅       |    ✅    | Via SQL [`JOIN`s](/documentation/joins/overview)                                                                                                                          |
-| Geo queries                 |      ✅       |    ❌    | Use [PostGIS](https://postgis.net/)                                                                                                                                       |
-| Percolator (reverse search) |      ✅       |    ❌    |                                                                                                                                                                           |
-| Script-based scoring        |      ✅       |    ❌    |                                                                                                                                                                           |
-| Suggesters (autocomplete)   |      ✅       |    ✅    | Via [search_tokenizer](/documentation/tokenizers/search-tokenizer) (index with ngram, search with unicode) or [fuzzy prefix](/documentation/full-text/fuzzy#fuzzy-prefix) |
+### Full-Text Search
+
+| Feature                   | Elasticsearch | ParadeDB | Notes                                                                                                                                                                     |
+| ------------------------- | :-----------: | :------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Full-text search (BM25)   |      ✅       |    ✅    | [Match and phrase operators](/documentation/full-text/overview)                                                                                                           |
+| Fuzzy matching            |      ✅       |    ✅    | Max edit distance of 2 via [`pdb.fuzzy()`](/documentation/full-text/fuzzy)                                                                                                |
+| Phrase matching           |      ✅       |    ✅    | [`###` operator](/documentation/full-text/phrase)                                                                                                                         |
+| Phrase prefix             |      ✅       |    ✅    | [`pdb.phrase_prefix()`](/documentation/query-builder/phrase/phrase-prefix)                                                                                                |
+| Regular expressions       |      ✅       |    ✅    | [`pdb.regex()`](/documentation/query-builder/term/regex)                                                                                                                  |
+| Wildcard queries          |      ✅       |    ✅    | Via [regex](/documentation/query-builder/term/regex)                                                                                                                      |
+| Boolean queries           |      ✅       |    ✅    | Via SQL `AND`/`OR`/`NOT` or [`paradedb.boolean`](/documentation/query-builder/overview)                                                                                   |
+| Proximity search          |      ✅       |    ✅    | [`##` operator](/documentation/full-text/proximity)                                                                                                                       |
+| More Like This            |      ✅       |    ✅    | [`pdb.more_like_this`](/documentation/query-builder/specialized/more-like-this)                                                                                           |
+| Suggesters (autocomplete) |      ✅       |    ✅    | Via [search_tokenizer](/documentation/tokenizers/search-tokenizer) (index with ngram, search with unicode) or [fuzzy prefix](/documentation/full-text/fuzzy#fuzzy-prefix) |
+
+### Vector and Hybrid Search
+
+| Feature                             | Elasticsearch | ParadeDB | Notes                                                                                                                           |
+| ----------------------------------- | :-----------: | :------: | ------------------------------------------------------------------------------------------------------------------------------- |
+| Vector search (kNN)                 |      ✅       |    ✅    | [Native vector search](/documentation/vector/overview) (beta), using pgvector's `vector` type                                   |
+| Filtered vector search              |      ✅       |    ✅    | ParadeDB indexes and filters vectors natively alongside text and metadata in the ParadeDB index, enabling efficient filtering   |
+| Hybrid search                       |      ✅       |    ✅    | [Reciprocal rank fusion](/documentation/hybrid/rrf) over BM25 and vector rankings                                               |
+| Distance functions                  |      ✅       |    ✅    | [L2, cosine, and inner product](/documentation/vector/querying)                                                                 |
+| Recall / latency tuning             |      ✅       |    ✅    | [`paradedb.vector_cluster_max_probe`](/documentation/vector/tuning)                                                             |
+| Incremental maintenance for updates |      ✅       |    ⚠️    | Updated vectors are immediately searchable, but index quality can degrade; [SPFresh is planned](/welcome/roadmap#vector-search) |
+| Quantization (scalar, binary)       |      ✅       |    ⚠️    | Coming soon                                                                                                                     |
+| Additional pgvector types           |      ✅       |    ⚠️    | Only `vector` is indexable today; support for `halfvec`, `sparsevec`, and `bit` is planned                                      |
+| Built-in embedding inference        |      ✅       |    ❌    | If you need this feature, please [contact us](mailto:support@paradedb.com)                                                      |
+
+### Relational and Specialized Queries
+
+| Feature              | Elasticsearch | ParadeDB | Notes                                                                      |
+| -------------------- | :-----------: | :------: | -------------------------------------------------------------------------- |
+| Nested queries       |      ✅       |    ✅    | Via SQL [`JOIN`s](/documentation/joins/overview)                           |
+| Parent-child queries |      ✅       |    ✅    | Via SQL [`JOIN`s](/documentation/joins/overview)                           |
+| Geospatial queries   |      ✅       |    ❌    | Use [PostGIS](https://postgis.net/)                                        |
+| Percolate queries    |      ✅       |    ❌    | If you need this feature, please [contact us](mailto:support@paradedb.com) |
 
 ## Text Analysis
 

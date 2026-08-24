@@ -12,6 +12,9 @@ on:
     branches:
       - main
     paths:
+      - ".github/actions/benchmark-stressgres/**"
+      - ".github/actions/benchmarks-from-main/**"
+      - ".github/workflows/benchmark-pg_search-stressgres.yml"
       - "stressgres/suites/**"
       - "**/*.rs"
       - "**/*.toml"
@@ -192,10 +195,14 @@ jobs:
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |
-          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
-          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          set -euo pipefail
+          curl --fail --silent --show-error https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            | gpg --dearmor \
+            | sudo tee /usr/share/keyrings/postgresql-pgdg.gpg >/dev/null
+          echo "deb [signed-by=/usr/share/keyrings/postgresql-pgdg.gpg] https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo "$VERSION_CODENAME")-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
           sudo apt-get update && sudo apt-get install -y postgresql-${{ env.pg_version }} postgresql-server-dev-${{ env.pg_version }} postgresql-${{ env.pg_version }}-pgvector
-          echo "/usr/lib/postgresql/${{ env.pg_version }}/bin" >> $GITHUB_PATH
+          echo "/usr/lib/postgresql/${{ env.pg_version }}/bin" >> "$GITHUB_PATH"
 
       # Separate prefix-key from debug workflows — benchmarks compile with --release.
       # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
@@ -211,16 +218,16 @@ jobs:
 
       - name: Extract pgrx Version
         id: pgrx
-        run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
+        run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> "$GITHUB_OUTPUT"
 
       - name: Install pgrx
         run: cargo install cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug --locked
 
       - name: Initialize pgrx environment
-        run: cargo pgrx init --pg${{ env.pg_version }}=`which pg_config`
+        run: cargo pgrx init "--pg${{ env.pg_version }}=$(command -v pg_config)"
 
       - name: Compile & install pg_search extension
-        run: cargo pgrx install -p pg_search --sudo --release --pg-config `which pg_config` --features=pg${{ env.pg_version }} --no-default-features
+        run: cargo pgrx install -p pg_search --sudo --release --pg-config "$(command -v pg_config)" --features=pg${{ env.pg_version }} --no-default-features
 
       - name: Start Postgres
         working-directory: pg_search/
@@ -271,7 +278,7 @@ jobs:
         with:
           test_file: single-server.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_app_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
@@ -282,7 +289,7 @@ jobs:
         with:
           test_file: bulk-updates.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_app_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
@@ -293,7 +300,7 @@ jobs:
         with:
           test_file: wide-table.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_app_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
@@ -304,7 +311,7 @@ jobs:
         with:
           test_file: background-merge.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_app_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
@@ -315,7 +322,7 @@ jobs:
         with:
           test_file: logical-replication.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_app_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
@@ -326,7 +333,7 @@ jobs:
         with:
           test_file: logical-replication-merge.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_app_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}

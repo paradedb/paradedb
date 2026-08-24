@@ -1,6 +1,6 @@
 # ParadeDB Dockerfiles
 
-ParadeDB's Dockerfiles are automatically generated from `Dockerfile.template`. To make a change to the files, modify `Dockerfile.template`, run `./generate-dockerfiles.sh <<current-version>>`, and commit the generated changes.
+The runnable ParadeDB Dockerfiles are generated from `Dockerfile.template`. To change one, modify the template, run `./generate-dockerfiles.sh <current-version>`, and commit the generated files. The specialized Dockerfiles documented below are maintained by hand.
 
 ## Generated Images
 
@@ -28,9 +28,12 @@ postgresql:
         reference: paradedb/paradedb-extension:0.25.3-18-trixie
       ld_library_path:
         - system
+    - name: pgvector
+      image:
+        reference: ghcr.io/cloudnative-pg/pgvector:0.8.6-18-trixie
 ```
 
-pg_search requires `vector`, so [pgvector](https://github.com/cloudnative-pg/postgres-extensions-containers/tree/main/pgvector) must be mounted as an extension image alongside it (or otherwise be available to the Postgres image).
+`pg_search` requires the `vector` extension. The example mounts CloudNativePG's [pgvector extension image](https://github.com/cloudnative-pg/postgres-extensions-containers/tree/main/pgvector); alternatively, `vector` can be provided by the Postgres image itself.
 
 ## Manifests
 

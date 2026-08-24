@@ -5,7 +5,7 @@ canonical: https://www.paradedb.com/docs/documentation/migration/elasticsearch-f
 ---
 
 This page is for developers who are evaluating or actively migrating from Elasticsearch (or OpenSearch) to ParadeDB.
-ParadeDB delivers Elastic-quality full-text search as a Postgres extension, so your data, queries, and infrastructure
+ParadeDB delivers full-text search as a Postgres extension, so your data, queries, and infrastructure
 all live inside Postgres — no ETL pipelines, no separate cluster to manage.
 
 ## Key Differences
@@ -40,7 +40,7 @@ all live inside Postgres — no ETL pipelines, no separate cluster to manage.
 | Phrase prefix             |      ✅       |    ✅    | [`pdb.phrase_prefix()`](/documentation/query-builder/phrase/phrase-prefix)                                                                                                |
 | Regular expressions       |      ✅       |    ✅    | [`pdb.regex()`](/documentation/query-builder/term/regex)                                                                                                                  |
 | Wildcard queries          |      ✅       |    ✅    | Via [regex](/documentation/query-builder/term/regex)                                                                                                                      |
-| Boolean queries           |      ✅       |    ✅    | Via SQL `AND`/`OR`/`NOT` or [`paradedb.boolean`](/documentation/query-builder/overview)                                                                                   |
+| Boolean queries           |      ✅       |    ✅    | Via SQL `AND`/`OR`/`NOT`                                                                                                                                                  |
 | Proximity search          |      ✅       |    ✅    | [`##` operator](/documentation/full-text/proximity)                                                                                                                       |
 | More Like This            |      ✅       |    ✅    | [`pdb.more_like_this`](/documentation/query-builder/specialized/more-like-this)                                                                                           |
 | Suggesters (autocomplete) |      ✅       |    ✅    | Via [search_tokenizer](/documentation/tokenizers/search-tokenizer) (index with ngram, search with unicode) or [fuzzy prefix](/documentation/full-text/fuzzy#fuzzy-prefix) |

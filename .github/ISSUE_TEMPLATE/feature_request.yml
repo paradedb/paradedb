@@ -9,12 +9,12 @@ body:
         ParadeDB components live across several repositories. Please file your request in the most relevant issue tracker:
 
           * [ParadeDB issue tracker](https://github.com/paradedb/paradedb/issues/new/choose) - Requests for ParadeDB core and the pg_search extension
-          * [Django](https://github.com/paradedb/django-paradedb) - ParadeDB integration for Django
           * [Drizzle](https://github.com/paradedb/drizzle-paradedb) - ParadeDB integration for Drizzle
+          * [Django](https://github.com/paradedb/django-paradedb) - ParadeDB integration for Django
+          * [SQLAlchemy](https://github.com/paradedb/sqlalchemy-paradedb) - ParadeDB integration for SQLAlchemy
+          * [Rails](https://github.com/paradedb/rails-paradedb) - ParadeDB integration for Rails and Active Record
           * [Entity Framework Core](https://github.com/paradedb/efcore-paradedb) - ParadeDB integration for Entity Framework Core
           * [Prisma](https://github.com/paradedb/prisma-paradedb) - ParadeDB integration for Prisma
-          * [Rails](https://github.com/paradedb/rails-paradedb) - ParadeDB integration for Rails and Active Record
-          * [SQLAlchemy](https://github.com/paradedb/sqlalchemy-paradedb) - ParadeDB integration for SQLAlchemy
           * [Benchmarker](https://github.com/paradedb/benchmarker) - Database benchmarking suite
 
         Please report security vulnerabilities using GitHub's [report vulnerability form](https://github.com/paradedb/paradedb/security/advisories/new).

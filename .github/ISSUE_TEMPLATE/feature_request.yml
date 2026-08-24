@@ -6,10 +6,10 @@ body:
   - type: markdown
     attributes:
       value: >
-        ParadeDB has other repositories for different components. Please make sure you are filing your issue in the correct repository:
+        ParadeDB has multiple components. Please use the following links to request features or inspect the relevant source:
 
-          * [paradedb/paradedb](https://github.com/paradedb/paradedb/issues/news/) - ParadeDB core and pg_search extension repository
-          * [paradedb/charts](https://github.com/paradedb/charts/issues/new/) - ParadeDB Helm Chart repository
+          * [ParadeDB issue tracker](https://github.com/paradedb/paradedb/issues/new/choose) - Requests for ParadeDB core, the pg_search extension, and the Helm chart
+          * [paradedb/charts](https://github.com/paradedb/charts) - ParadeDB Helm chart source and documentation
 
         Please report security vulnerabilities using GitHub's [report vulnerability form](https://github.com/paradedb/paradedb/security/advisories/new).
 

@@ -58,6 +58,11 @@ runs:
     - name: Run Benchmarks
       working-directory: benchmarks/
       shell: bash
+      env:
+        DATASET: ${{ inputs.dataset }}
+        FAIL_ON_ERROR: ${{ inputs.fail_on_error }}
+        INDEX: ${{ inputs.index }}
+        SIZE: ${{ inputs.size }}
       run: |
         POSTGRES_URL="postgresql://$(whoami)@localhost:288${{ env.pg_version }}/postgres"
 
@@ -65,14 +70,14 @@ runs:
         # index and runs queries against it.
         cargo run --release -- benchmark \
           --url "${POSTGRES_URL}" \
-          --dataset ${{ inputs.dataset }} \
-          --index ${{ inputs.index }} \
-          --size ${{ inputs.size }} \
+          --dataset "${DATASET}" \
+          --index "${INDEX}" \
+          --size "${SIZE}" \
           --runs 10 \
           --output json \
-          --fail-on-error ${{ inputs.fail_on_error }}
+          --fail-on-error "${FAIL_ON_ERROR}"
 
-        echo "ROWS_LABEL=${{ inputs.size }}" >> $GITHUB_ENV
+        echo "ROWS_LABEL=${SIZE}" >> "$GITHUB_ENV"
 
     - name: Print the Postgres Logs
       if: failure()

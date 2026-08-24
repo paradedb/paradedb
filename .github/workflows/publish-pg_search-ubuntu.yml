@@ -254,7 +254,7 @@ jobs:
 
           # Download PostgreSQL signing key & add PostgreSQL APT repository with signed-by
           wget -qO- https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo tee /usr/share/keyrings/postgresql.asc > /dev/null
-          sudo sh -c 'echo "deb [signed-by=/usr/share/keyrings/postgresql.asc] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          sudo sh -c 'echo "deb [signed-by=/usr/share/keyrings/postgresql.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
 
           # Install PostgreSQL + build tooling
           DEBIAN_FRONTEND=noninteractive sudo apt-get update

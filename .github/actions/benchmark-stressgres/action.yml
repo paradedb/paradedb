@@ -12,7 +12,7 @@ inputs:
   ref:
     description: "Git ref or short SHA to report in benchmarks"
     required: true
-  github_app_id:
+  github_app_client_id:
     description: "GitHub App client ID to authenticate with"
     required: true
   github_app_private_key:
@@ -34,14 +34,16 @@ runs:
     - name: Sanitize Inputs Into Variables
       id: sanitize-inputs
       shell: bash
+      env:
+        REF: ${{ inputs.ref }}
+        TEST_FILE: ${{ inputs.test_file }}
       run: |
         # Strip .toml from the test file name
-        echo "jobname=$(basename ${{ inputs.test_file }} .toml)" >> $GITHUB_OUTPUT
+        echo "jobname=$(basename "$TEST_FILE" .toml)" >> "$GITHUB_OUTPUT"
 
         # Strip slashes from the ref
-        ref="${{ inputs.ref }}"
-        safe_ref="${ref//\//-}"
-        echo "safe_ref=$safe_ref" >> $GITHUB_OUTPUT
+        safe_ref="${REF//\//-}"
+        echo "safe_ref=$safe_ref" >> "$GITHUB_OUTPUT"
 
     - name: Resolving ${{ inputs.ref }} into SHA
       id: resolve_ref
@@ -60,13 +62,16 @@ runs:
 
     - name: Run Stressgres Job
       shell: bash
+      env:
+        DURATION: ${{ inputs.duration }}
+        TEST_FILE: ${{ inputs.test_file }}
       run: |
         sudo chmod a+rwx /var/run/postgresql/
         stressgres headless \
-          stressgres/suites/${{ inputs.test_file }} \
+          "stressgres/suites/${TEST_FILE}" \
           --log-file stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.resolve_ref.outputs.sha }}.log \
           --pgversion pg18 \
-          --runtime ${{ inputs.duration }}
+          --runtime "${DURATION}"
 
     - name: Generate CSV
       shell: bash
@@ -104,7 +109,7 @@ runs:
       id: app-token
       uses: actions/create-github-app-token@v3
       with:
-        client-id: ${{ inputs.github_app_id }}
+        client-id: ${{ inputs.github_app_client_id }}
         private-key: ${{ inputs.github_app_private_key }}
 
     - name: Wait for App Token to Become Usable
@@ -191,7 +196,8 @@ runs:
       if: always()
       shell: bash
       run: |
-        for f in `ls /tmp/stressgres/*.log`; do
-          echo $f
-          cat $f
+        shopt -s nullglob
+        for file in /tmp/stressgres/*.log; do
+          echo "$file"
+          cat "$file"
         done

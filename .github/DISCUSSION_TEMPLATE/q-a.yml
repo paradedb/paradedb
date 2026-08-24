@@ -5,10 +5,10 @@ body:
     attributes:
       value: >
         This discussion type is for questions about ParadeDB. If you are looking to raise an issue,
-        please do so on the relevant ParadeDB repository:
+        please use the ParadeDB issue tracker:
 
-          * [paradedb/paradedb](https://github.com/paradedb/paradedb/issues/news/) - ParadeDB core and pg_search extension repository
-          * [paradedb/charts](https://github.com/paradedb/charts/issues/new/) - ParadeDB Helm Chart repository
+          * [ParadeDB issue tracker](https://github.com/paradedb/paradedb/issues/new/choose) - Issues for ParadeDB core, the pg_search extension, and the Helm chart
+          * [paradedb/charts](https://github.com/paradedb/charts) - ParadeDB Helm chart source and documentation
 
         Please report security vulnerabilities using GitHub's [report vulnerability form](https://github.com/paradedb/paradedb/security/advisories/new).
 

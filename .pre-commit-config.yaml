@@ -43,11 +43,18 @@ repos:
         args: ["-i", "2", "-ci"]
 
   - repo: https://github.com/shellcheck-py/shellcheck-py
-    rev: v0.11.0.1
+    rev: v0.11.0.1-1
     hooks:
       - id: shellcheck
         args: ["-x", "-P", "scripts"]
         files: \.sh$
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
+        # Shell snippets are covered by the dedicated ShellCheck workflow and hook.
+        args: ["-shellcheck="]
 
   - repo: https://github.com/kaechele/pre-commit-mirror-prettier
     rev: v3.8.1

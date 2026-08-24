@@ -106,12 +106,12 @@ Postgres supports [parallel scans, joins, and two-stage aggregation](https://www
 
 - **Keep it Boring**. Use robust extension points in Postgres vs. hacking around the internals. Adopt battle-tested tools, like industry standard file formats and query engine libraries, instead of cutting-edge but less-proven alternatives.
 - **Behave Exactly Like Postgres**. This extends from user-facing aspects, like the SQL query syntax and ORM compatibility, all the way down to low-level integrations with Postgres' storage system and query planner.
-- **Works Out of the Box**. Users should be able to get satisfying search results and performance with minimal tuning or configuration.
+- **Work Out of the Box**. Users should be able to get satisfying search results and performance with minimal tuning or configuration.
 
 ## Dependencies
 
 The three main dependencies of `pg_search` are:
 
-- [`pgrx`](https://github.com/pgcentralfoundation/pgrx/tree/develop) — the library for writing Postgres extensions in Rust
+- [pgrx](https://github.com/pgcentralfoundation/pgrx/tree/develop) — the library for writing Postgres extensions in Rust
 - [Tantivy](https://github.com/quickwit-oss/tantivy) — a Rust-based full-text search library inspired by [Lucene](https://github.com/apache/lucene)
 - [Apache DataFusion](https://github.com/apache/datafusion) — an extensible query execution framework for OLAP processing

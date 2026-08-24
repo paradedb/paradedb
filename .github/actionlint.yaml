@@ -1,0 +1,17 @@
+self-hosted-runner:
+  # RunsOn runner attributes are expressed as labels in workflow `runs-on` arrays.
+  labels:
+    - family=*
+    - image=*
+    - extras=*
+    - cpu=*
+    - ram=*
+    - volume=*
+
+paths:
+  .github/workflows/**/*.{yml,yaml}:
+    ignore:
+      # The repository-wide GitHub App credential migration uses client IDs. Keep
+      # this known action metadata mismatch separate from structural workflow linting.
+      - 'missing input "app-id" which is required by action "actions/create-github-app-token@v3"'
+      - 'input "client-id" is not defined in action "actions/create-github-app-token@v3"'

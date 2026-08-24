@@ -42,36 +42,26 @@ ParadeDB Tantivy checkout.
   constant slots without a second component file. Slot numbering and byte
   alignment are part of the V3 format freeze, not this mapping commit.
 
-## Stop-and-flag conflicts
+## Checkpoint resolutions
 
-Implementation is paused at this checkpoint because the current repositories
-do not determine the following contracts.
+The four mapping conflicts were resolved on 2026-08-24:
 
-1. **There is no assignments-preserved merge mode.** Every IVF merge trains a
-   new target centroid set and reassigns every live source vector. Source
-   centroids explicitly cease to exist, so their residual codes and constants
-   cannot be copied verbatim. The requested fast, slow, and mixed merge paths
-   require a definition of when target centroid identity is preserved and how
-   source centroid IDs map into the target. Without that definition only the
-   slow re-encode path is sound.
-2. **Replication makes “per vector” ambiguous.** With
-   `cluster_replication > 1`, one document has multiple posting rows and a
-   different centroid residual in each row. Codes and constants therefore must
-   either be stored per posting membership (increasing quantized bytes with the
-   replication factor) or quantization must reject/disable replicated indexes.
-   One per distinct document is not sufficient for split-form scoring.
-3. **The required path dependency crosses repository boundaries.** The code
-   that writes and reads quantized slots is in the independently built Tantivy
-   repository, while the only kernel workspace is its sibling
-   `../quant-kernels`. A committed sibling path dependency works only in this
-   local three-repository layout; a standalone `paradedb/tantivy` checkout and
-   the pinned remote Tantivy revision used by pg_search cannot resolve it. A
-   shippable source/layout for the one canonical kernel copy must be selected.
-4. **The accepted bit range exceeds the authorized kernels.** Phase B says
-   build validation accepts 1–8 bits, but `cascade::validate` accepts only
-   1–4 and `grid-plane` implements only 2–4. Accepting 5–8 would create metadata
-   that the writer and reader cannot encode or score. Either the Phase B range
-   must be 1–4 or quant-kernels needs a separately authorized 5–8-bit extension.
+1. IVF merges use the sound slow path only: every newly assigned posting row
+   is re-encoded. Verbatim copying is deferred until the clustering layer has
+   an assignment-preserving merge mode.
+2. Codes, scales, and constants are stored per posting-membership row, matching
+   fp32 slot 1 under replication. Query rerank deduplicates by doc ID.
+3. The canonical quant-kernels crates relocate into the Tantivy fork as
+   workspace members; pg_search continues to obtain them through its pinned
+   Tantivy revision.
+4. V1 accepts layer widths 1 through 4 and rejects wider entries.
+
+The §1.3 mapping also found that one pg_search index may contain multiple
+vector fields with different dimensions and metrics. Quantization metadata is
+therefore one field-keyed list persisted in `IndexSettings`: still per-index
+and shared by all segments, but with dimension-correct grids and metric policy
+for each field. The frozen byte contract is in
+`../tantivy/src/vector/FORMAT.md`.
 
 ## Execution dependency
 

@@ -41,7 +41,12 @@ mod imp {
     #[derive(Debug, Default)]
     struct SegmentIo {
         components: BTreeMap<String, IoCounters>,
-        rerank: IoCounters,
+        query_prep: IoCounters,
+        plane1: IoCounters,
+        boundary: IoCounters,
+        plane2: IoCounters,
+        rerank_fetch: IoCounters,
+        rerank_score: IoCounters,
     }
 
     impl SegmentIo {
@@ -67,9 +72,18 @@ mod imp {
             let slot = current.components.entry(component.to_string()).or_default();
             slot.blks_hit += delta.blks_hit;
             slot.blks_read += delta.blks_read;
-            if current_vector_io_phase() == VectorIoPhase::Rerank {
-                current.rerank.blks_hit += delta.blks_hit;
-                current.rerank.blks_read += delta.blks_read;
+            let stage = match current_vector_io_phase() {
+                VectorIoPhase::Other => None,
+                VectorIoPhase::QueryPrep => Some(&mut current.query_prep),
+                VectorIoPhase::Plane1 => Some(&mut current.plane1),
+                VectorIoPhase::Boundary => Some(&mut current.boundary),
+                VectorIoPhase::Plane2 => Some(&mut current.plane2),
+                VectorIoPhase::RerankFetch => Some(&mut current.rerank_fetch),
+                VectorIoPhase::RerankScore => Some(&mut current.rerank_score),
+            };
+            if let Some(stage) = stage {
+                stage.blks_hit += delta.blks_hit;
+                stage.blks_read += delta.blks_read;
             }
         });
         result
@@ -131,14 +145,27 @@ mod imp {
                     "blocks_fetched".to_string(),
                     (total.blks_hit + total.blks_read).into(),
                 );
-                map.insert("rerank_buffer_hits".to_string(), io.rerank.blks_hit.into());
+                let mut attach_stage = |name: &str, counters: IoCounters| {
+                    map.insert(format!("{name}_buffer_hits"), counters.blks_hit.into());
+                    map.insert(format!("{name}_buffer_reads"), counters.blks_read.into());
+                };
+                attach_stage("query_prep", io.query_prep);
+                attach_stage("plane1", io.plane1);
+                attach_stage("boundary", io.boundary);
+                attach_stage("plane2", io.plane2);
+                attach_stage("rerank_fetch", io.rerank_fetch);
+                attach_stage("rerank_score", io.rerank_score);
+                map.insert(
+                    "rerank_buffer_hits".to_string(),
+                    io.rerank_fetch.blks_hit.into(),
+                );
                 map.insert(
                     "rerank_buffer_reads".to_string(),
-                    io.rerank.blks_read.into(),
+                    io.rerank_fetch.blks_read.into(),
                 );
                 map.insert(
                     "rerank_blocks_fetched".to_string(),
-                    (io.rerank.blks_hit + io.rerank.blks_read).into(),
+                    (io.rerank_fetch.blks_hit + io.rerank_fetch.blks_read).into(),
                 );
             }
         }

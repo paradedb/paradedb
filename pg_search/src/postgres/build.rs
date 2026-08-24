@@ -207,6 +207,34 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
         }
     }
 
+    let vector_configs = options.vector_config();
+    for (field_name, config) in vector_configs.iter().flatten() {
+        validate_field_config(field_name, &key_field_name, config, options, |t| {
+            matches!(t, SearchFieldType::Vector(..))
+        });
+        let SearchFieldConfig::Vector {
+            dims: configured_dims,
+            ..
+        } = config
+        else {
+            unreachable!("vector config parser returned a non-vector config")
+        };
+        let Some(SearchFieldType::Vector(_, schema_dims, _)) = options.get_field_type(field_name)
+        else {
+            unreachable!("vector field validation accepted a non-vector field")
+        };
+        if *configured_dims != schema_dims {
+            panic!(
+                "vector field `{field_name}` config dimension {configured_dims} does not match schema dimension {schema_dims}"
+            );
+        }
+        if config.quantization_layers().is_some() && schema_dims < 64 {
+            panic!(
+                "quantization requires dimension ≥ 64; the quantization error model is not validated below this"
+            );
+        }
+    }
+
     // Validate that `sort_by` and `partition_by` fields are single-valued
     let check_single_valued = |field_name: &FieldName, context: &str| {
         if options.get_field_type(field_name).is_none() {
@@ -379,7 +407,7 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
     let schema = builder.build();
     let directory = MvccSatisfies::Snapshot.directory(index_relation);
 
-    let settings = index_settings(options, &schema);
+    let settings = index_settings(options, &schema)?;
     let _ = Index::create(directory, schema, settings)?;
     Ok(())
 }

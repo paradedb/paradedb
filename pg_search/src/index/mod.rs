@@ -29,8 +29,12 @@ pub use search::*;
 
 use crate::postgres::options::BM25IndexOptions;
 use crate::schema::SearchIndexSchema;
+use anyhow::{Context, Result};
+use rand::{TryRng, rngs::SysRng};
 use tantivy::IndexSettings;
 use tantivy::columnar::CodecType;
+use tantivy::schema::FieldType;
+use tantivy::vector::{VectorQuantizationConfig, VectorQuantizationLayer, VectorQuantizer};
 
 /// The [`IndexSettings`] used for every tantivy index pg_search creates.
 ///
@@ -40,13 +44,47 @@ use tantivy::columnar::CodecType;
 pub fn index_settings(
     options: &BM25IndexOptions,
     schema: &tantivy::schema::Schema,
-) -> IndexSettings {
-    IndexSettings {
+) -> Result<IndexSettings> {
+    let mut vector_quantization = Vec::new();
+    for (field_name, field_config) in options.vector_config().iter().flatten() {
+        let Some(bits) = field_config.quantization_layers() else {
+            continue;
+        };
+        let field = schema.get_field(field_name.as_ref()).with_context(|| {
+            format!("quantization field {field_name:?} is absent from the schema")
+        })?;
+        let vector_options = match schema.get_field_entry(field).field_type() {
+            FieldType::Vector(vector_options) => vector_options,
+            _ => anyhow::bail!("quantization field {field_name:?} is not a vector field"),
+        };
+        let mut os_rng = SysRng;
+        let layers = bits
+            .into_iter()
+            .map(|bits| {
+                let seed = os_rng
+                    .try_next_u64()
+                    .context("failed to obtain an operating-system random quantization seed")?;
+                Ok(VectorQuantizationLayer {
+                    bits,
+                    quantizer: VectorQuantizer::inferred(bits),
+                    seed,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        vector_quantization.push(VectorQuantizationConfig::materialize(
+            field_name.to_string(),
+            vector_options,
+            layers,
+        )?);
+    }
+
+    Ok(IndexSettings {
         sort_by_field: SearchIndexSchema::build_sort_by_field(&options.sort_by(), schema),
         docstore_compress_dedicated_thread: false,
         codec_types: vec![CodecType::Bitpacked, CodecType::BlockwiseLinearV2],
         vector_clustering_threshold: crate::gucs::vector_clustering_threshold(),
         vector_bounds_scope: options.bounds_scope(),
+        vector_quantization,
         ..IndexSettings::default()
-    }
+    })
 }

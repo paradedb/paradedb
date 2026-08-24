@@ -29,9 +29,10 @@ use tantivy::{
 };
 use thiserror::Error;
 
+use crate::index::directory::utils::load_index_settings;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::stats::{self, LogicalBoundsByField, StatsWriter};
-use crate::index::{index_settings, setup_tokenizers};
+use crate::index::setup_tokenizers;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{STATS_EXT, SegmentMetaEntry};
 use crate::vector::clusterer::set_ivf_clusterer;
@@ -337,9 +338,10 @@ impl SerialIndexWriter {
         let schema = index_relation.schema()?;
         let tantivy_schema: tantivy::schema::Schema = schema.clone().into();
 
-        let settings = index_settings(index_relation.options(), &tantivy_schema);
-        // No stats plugin here: the segment is a throwaway materialization that nothing
-        // reads statistics from, and it is rebuilt per reader.
+        let settings = load_index_settings(index_relation)?.ok_or_else(|| {
+            anyhow::anyhow!("index settings were not persisted before in-memory segment creation")
+        })?;
+        // This throwaway segment reuses persisted index settings but does not emit statistics.
         let mut index = Index::create(directory, tantivy_schema, settings)?;
         if schema.has_vector_field() {
             set_ivf_clusterer(&mut index, index_relation.options());

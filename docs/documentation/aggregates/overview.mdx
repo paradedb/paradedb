@@ -254,7 +254,7 @@ To do so, set `solve_mvcc` to `false`.
 
 <CodeGroup>
 ```sql SQL
-SELECT pdb.agg('{"value_count": {"field": "id"}}', solve_mvcc => false)
+SELECT pdb.agg('{"value_count": {"field": "id"}}', false)
 FROM mock_items
 WHERE description ||| 'running shoes';
 ```

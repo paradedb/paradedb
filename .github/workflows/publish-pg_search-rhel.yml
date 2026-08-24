@@ -331,9 +331,10 @@ jobs:
           Requires:       openblas
 
           %description
-          pg_search adds full-text search, vector retrieval, and aggregations to
-          Postgres. Your application data and your search engine
-          live in one database, with no second system to deploy and nothing to sync.
+          pg_search upgrades Postgres with a single index for fast full-text and
+          vector search, BM25 scoring, filtering, and aggregations. Search runs
+          inside your system of record with Postgres' transactional guarantees—no
+          second system to deploy or keep in sync.
 
           %install
           %{__rm} -rf %{buildroot}

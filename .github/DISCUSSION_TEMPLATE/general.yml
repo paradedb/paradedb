@@ -5,12 +5,11 @@ body:
     attributes:
       value: >
         This discussion type is for anything that doesn't fit in another category. If you are looking to raise an issue,
-        please use the most relevant repository; if it has Issues disabled, file in the core issue tracker:
+        please use the most relevant issue tracker:
 
           * [ParadeDB issue tracker](https://github.com/paradedb/paradedb/issues/new/choose) - Issues for ParadeDB core and the pg_search extension
           * ORM integrations - [Django](https://github.com/paradedb/django-paradedb), [Drizzle](https://github.com/paradedb/drizzle-paradedb), [Entity Framework Core](https://github.com/paradedb/efcore-paradedb), [Prisma](https://github.com/paradedb/prisma-paradedb), [Rails](https://github.com/paradedb/rails-paradedb), and [SQLAlchemy](https://github.com/paradedb/sqlalchemy-paradedb)
-          * Developer and AI tooling - [Agent Skills](https://github.com/paradedb/agent-skills), [Benchmarker](https://github.com/paradedb/benchmarker), [Cursor plugin](https://github.com/paradedb/cursor-plugin), and [GitHub Actions](https://github.com/paradedb/actions)
-          * Deployment integrations - [Helm charts](https://github.com/paradedb/charts) and [Render blueprint](https://github.com/paradedb/render-blueprint)
+          * [Benchmarker](https://github.com/paradedb/benchmarker) - Database benchmarking suite
 
         Please report security vulnerabilities using GitHub's [report vulnerability form](https://github.com/paradedb/paradedb/security/advisories/new).
 

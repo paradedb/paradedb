@@ -48,7 +48,7 @@ ORDER BY amt_78 ASC LIMIT 8;
          Output: amt_78
          Table: amounts
          Index: amounts_idx
-         Worker Selection: Row-capped
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: amt_78 asc
@@ -99,7 +99,7 @@ ORDER BY amt_78 DESC LIMIT 8;
          Output: amt_78
          Table: amounts
          Index: amounts_idx
-         Worker Selection: Row-capped
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: amt_78 desc
@@ -135,7 +135,7 @@ ORDER BY amt_any ASC LIMIT 8;
          Output: amt_any
          Table: amounts
          Index: amounts_idx
-         Worker Selection: Row-capped
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: amt_any asc
@@ -171,7 +171,7 @@ ORDER BY amt_scaled ASC LIMIT 4;
          Output: amt_scaled
          Table: amounts
          Index: amounts_idx
-         Worker Selection: Row-capped
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: amt_scaled asc
@@ -204,7 +204,7 @@ ORDER BY amt_scaled ASC;
          Output: amt_scaled
          Table: amounts
          Index: amounts_idx
-         Worker Selection: Row-capped
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: amt_scaled
          Scores: false
@@ -331,7 +331,7 @@ ORDER BY id;
          Output: id, amt_78
          Table: amounts
          Index: amounts_idx
-         Worker Selection: Row-capped
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: amt_78, id
          Scores: false
@@ -415,7 +415,7 @@ ORDER BY id;
          Output: id, span
          Table: spans
          Index: spans_idx
-         Worker Selection: Row-capped
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"range_term":{"field":"span","value":"-49995"}}}}

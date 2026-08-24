@@ -136,7 +136,7 @@ spec:
     extensions:
       - name: pg_search
         image:
-          reference: docker.io/paradedb/paradedb-extension:0.25.3-18-trixie
+          reference: docker.io/paradedb/paradedb-extension:0.25.4-18-trixie
         extension_control_path:
           - /share
         dynamic_library_path:
@@ -157,11 +157,11 @@ spec:
     name: paradedb
   extensions:
     - name: pg_search
-      version: "0.25.3"
+      version: "0.25.4"
 ```
 
 The extension image tag format is `<paradedb-version>-<postgres-major>-trixie`.
-For example, use `0.25.3-18-trixie` for ParadeDB `0.25.3` on Postgres 18.
+For example, use `0.25.4-18-trixie` for ParadeDB `0.25.4` on Postgres 18.
 
 ## Connect to the Cluster
 

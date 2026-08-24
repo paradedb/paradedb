@@ -39,23 +39,13 @@
    },
    "tags": [
       "paradedb",
+      "postgres",
       "search",
       "bm25",
-      "text search",
       "full text search",
-      "full-text search",
       "hybrid search",
-      "vector",
       "vector search",
-      "vector retrieval",
-      "similarity search",
-      "semantic search",
-      "embeddings",
       "faceted search",
-      "facets",
-      "aggregations",
-      "analytics",
-      "columnar",
-      "olap"
+      "aggregations"
    ]
 }

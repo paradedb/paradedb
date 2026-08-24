@@ -1,3 +1,3 @@
 # ParadeDB Changelog
 
-Our full changelog is available in the [ParadeDB documentation](https://paradedb.com/docs/changelog/).
+Our full changelog is available in the [ParadeDB documentation](https://www.paradedb.com/docs/changelog/).

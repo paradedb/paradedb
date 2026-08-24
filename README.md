@@ -74,7 +74,7 @@ ParadeDB integrates battle-tested Rust libraries for search and analytics inside
 
 - [pgvector](https://github.com/pgvector/pgvector) — defines vector types
 - [pgrx](https://github.com/pgcentralfoundation/pgrx) — bridges Postgres and Rust
-- [Tantivy](https://github.com/quickwit-oss/tantivy) — powers full-text search
+- [Tantivy](https://github.com/quickwit-oss/tantivy) — powers full-text and vector search
 - [Apache DataFusion](https://github.com/apache/datafusion) — handles OLAP processing
 
 For a deeper dive, see our [architecture docs](https://www.paradedb.com/docs/welcome/architecture) or [CMU Database Group talk](https://db.cs.cmu.edu/events/building-blocks-paradedb-philippe-noel/).

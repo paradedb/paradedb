@@ -1,6 +1,6 @@
 """Execute extracted SQLAlchemy docs snippets against local verification tables."""
 
-# pylint: disable=import-error,too-few-public-methods
+# pylint: disable=import-error,too-few-public-methods,wrong-import-order
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import getpass
 import os
 from typing import Any
 
+from paradedb.sqlalchemy.vector import Vector
 from sqlalchemy import (
     Boolean,
     Date,
@@ -22,8 +23,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import ARRAY, INT4RANGE, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-
-from paradedb.sqlalchemy.vector import Vector
 
 
 def build_database_url() -> str:

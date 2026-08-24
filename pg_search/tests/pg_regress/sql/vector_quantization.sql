@@ -98,7 +98,16 @@ SELECT
     (jsonb_path_query_first(value, '$.**.quantized_plane1_survivors') #>> '{}')::bigint > 0
         AS survivors_populated,
     (jsonb_path_query_first(value, '$.**.rerank_rows') #>> '{}')::bigint > 0
-        AS rerank_populated
+        AS rerank_populated,
+    (jsonb_path_query_first(value, '$.**.routing_visited_count') #>> '{}')::bigint > 0
+        AS routing_flat,
+    jsonb_path_query_first(value, '$.**.bound_armed_count') IS NOT NULL
+        AS bound_flat,
+    jsonb_typeof(jsonb_path_query_first(value, '$.**.buffer_hits')) = 'number'
+        AND jsonb_typeof(jsonb_path_query_first(value, '$.**.buffer_reads')) = 'number'
+        AS io_flat,
+    (jsonb_path_query_first(value, '$.**.rerank_blocks_fetched') #>> '{}')::bigint > 0
+        AS rerank_io_flat
 FROM segment_info;
 
 -- d=768 L2 exercises slot 14 and score assembly as -dist^2.

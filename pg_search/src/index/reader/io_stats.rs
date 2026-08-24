@@ -27,10 +27,10 @@
 #[cfg(feature = "io_stats")]
 mod imp {
     use pgrx::pg_sys;
-    use serde_json::json;
     use std::cell::RefCell;
     use std::collections::BTreeMap;
     use tantivy::index::{SegmentComponent, SegmentId};
+    use tantivy::vector::{VectorIoPhase, current_vector_io_phase};
 
     #[derive(Debug, Default, Clone, Copy, serde::Serialize)]
     struct IoCounters {
@@ -38,7 +38,17 @@ mod imp {
         blks_read: u64,
     }
 
-    type SegmentIo = BTreeMap<String, IoCounters>;
+    #[derive(Debug, Default)]
+    struct SegmentIo {
+        components: BTreeMap<String, IoCounters>,
+        rerank: IoCounters,
+    }
+
+    impl SegmentIo {
+        fn is_empty(&self) -> bool {
+            self.components.is_empty()
+        }
+    }
 
     thread_local! {
         static CURRENT: RefCell<SegmentIo> = RefCell::default();
@@ -49,10 +59,18 @@ mod imp {
         let (hit0, read0) = snapshot();
         let result = read();
         let (hit1, read1) = snapshot();
+        let delta = IoCounters {
+            blks_hit: hit1.saturating_sub(hit0) as u64,
+            blks_read: read1.saturating_sub(read0) as u64,
+        };
         CURRENT.with_borrow_mut(|current| {
-            let slot = current.entry(component.to_string()).or_default();
-            slot.blks_hit += hit1.saturating_sub(hit0) as u64;
-            slot.blks_read += read1.saturating_sub(read0) as u64;
+            let slot = current.components.entry(component.to_string()).or_default();
+            slot.blks_hit += delta.blks_hit;
+            slot.blks_read += delta.blks_read;
+            if current_vector_io_phase() == VectorIoPhase::Rerank {
+                current.rerank.blks_hit += delta.blks_hit;
+                current.rerank.blks_read += delta.blks_read;
+            }
         });
         result
     }
@@ -84,7 +102,44 @@ mod imp {
                 continue;
             }
             if let Some(serde_json::Value::Object(map)) = segment_info.get_mut(&segment_id) {
-                map.insert("io".to_string(), json!(io));
+                let mut total = IoCounters::default();
+                for (component, counters) in io.components {
+                    total.blks_hit += counters.blks_hit;
+                    total.blks_read += counters.blks_read;
+                    let component = component
+                        .chars()
+                        .map(|character| {
+                            if character.is_ascii_alphanumeric() {
+                                character.to_ascii_lowercase()
+                            } else {
+                                '_'
+                            }
+                        })
+                        .collect::<String>();
+                    map.insert(
+                        format!("io_{component}_buffer_hits"),
+                        counters.blks_hit.into(),
+                    );
+                    map.insert(
+                        format!("io_{component}_buffer_reads"),
+                        counters.blks_read.into(),
+                    );
+                }
+                map.insert("buffer_hits".to_string(), total.blks_hit.into());
+                map.insert("buffer_reads".to_string(), total.blks_read.into());
+                map.insert(
+                    "blocks_fetched".to_string(),
+                    (total.blks_hit + total.blks_read).into(),
+                );
+                map.insert("rerank_buffer_hits".to_string(), io.rerank.blks_hit.into());
+                map.insert(
+                    "rerank_buffer_reads".to_string(),
+                    io.rerank.blks_read.into(),
+                );
+                map.insert(
+                    "rerank_blocks_fetched".to_string(),
+                    (io.rerank.blks_hit + io.rerank.blks_read).into(),
+                );
             }
         }
     }

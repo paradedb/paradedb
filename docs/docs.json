@@ -16,9 +16,10 @@
     "versions": [
       {
         "version": "v0.25.6",
-        "groups": [
+        "tabs": [
           {
-            "group": "Start",
+            "tab": "Start",
+            "icon": "rocket",
             "pages": [
               "welcome/introduction",
               {
@@ -39,7 +40,8 @@
             ]
           },
           {
-            "group": "Guides",
+            "tab": "Guides",
+            "icon": "map",
             "pages": [
               "guides/search-as-you-type",
               "guides/faceted-search",
@@ -52,7 +54,8 @@
             ]
           },
           {
-            "group": "Concepts",
+            "tab": "Concepts",
+            "icon": "lightbulb",
             "pages": [
               "concepts/why-search-inside-postgres",
               "welcome/architecture",
@@ -66,7 +69,8 @@
             ]
           },
           {
-            "group": "Reference",
+            "tab": "Reference",
+            "icon": "book-open",
             "pages": [
               {
                 "group": "Querying",
@@ -208,7 +212,8 @@
             ]
           },
           {
-            "group": "Operate",
+            "tab": "Operate",
+            "icon": "server",
             "pages": [
               {
                 "group": "Deployment",
@@ -271,7 +276,8 @@
             ]
           },
           {
-            "group": "Project",
+            "tab": "Project",
+            "icon": "flag",
             "pages": [
               "welcome/roadmap",
               {

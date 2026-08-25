@@ -61,7 +61,8 @@ ParadeDB accelerates standard SQL queries. That includes:
 - **Text**: relevance-ranked full-text queries like the one above.
 - **Aggregations**: the same index serves faceted search and aggregations, pushing filters and aggregates directly into the index instead
   of computing them afterward.
-- **Vectors**: the ParadeDB index is a high-performance, drop-in compatible version with `pgvector`.
+- **Vectors**: embeddings are indexed alongside your text and metadata, so filtered and [hybrid](/documentation/hybrid/overview) queries resolve against one index instead of
+  intersecting two.
 
 ### One Index Behind Every Query
 
@@ -77,6 +78,7 @@ Postgres write-ahead logging. See [Guarantees](/welcome/guarantees) for the deta
 
 People usually compare ParadeDB to two other types of systems: OLTP databases like vanilla Postgres and search engines like Elastic.
 
+<<<<<<< HEAD
 |                             | **OLTP database**                                                        | **Search engine**                                                                                      | **ParadeDB**                                                                                                                                    |
 | --------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Primary role**            | System of record                                                         | Search and retrieval engine                                                                            | System of record **and** search engine                                                                                                          |
@@ -89,6 +91,20 @@ People usually compare ParadeDB to two other types of systems: OLTP databases li
 | **Language**                | SQL                                                                      | Custom DSL                                                                                             | Standard SQL with custom search operators                                                                                                       |
 | **ACID guarantees**         | Full ACID compliance, read-after-write guarantees                        | No transactions, atomic only per-document, eventual consistency, durability not guaranteed until flush | Full ACID compliance, read-after-write guarantees                                                                                               |
 | **Update & delete support** | Built for fast-changing data                                             | Struggles with updates/deletes                                                                         | Built for fast-changing data                                                                                                                    |
+=======
+|                             | **OLTP database**                                                   | **Search engine**                                                    | **ParadeDB**                                                                                                                                    |
+| --------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Primary role**            | System of record                                                    | Search and retrieval engine                                          | System of record **and** search engine                                                                                                          |
+| **Examples**                | Postgres, MySQL                                                     | Elasticsearch, OpenSearch                                            |                                                                                                                                                 |
+| **Search features**         | Basic FTS (no BM25, weak ranking)                                   | Rich search features (BM25, fuzzy matching, faceting, hybrid search) | Rich search features (BM25, fuzzy matching, faceting, hybrid search)                                                                            |
+| **Analytics features**      | Not an analytical DB (no column store, batch processing, etc.)      | Column store, batch processing, parallelization via sharding         | Column store, batch processing, parallelization via Postgres [parallel workers](/documentation/performance-tuning/reads#raise-parallel-workers) |
+| **Lag**                     | None in a single cluster                                            | At least network, ETL transformation, and indexing time              | None in a single cluster                                                                                                                        |
+| **Operational complexity**  | Simple (single datastore)                                           | Complex (ETL pipelines, managing multiple systems)                   | Simple (single datastore)                                                                                                                       |
+| **Scalability**             | Vertical scaling; horizontal scaling with read replicas or sharding | Horizontal scaling through sharding                                  | Vertical scaling; horizontal scaling with [read replicas](/deploy/self-hosted/kubernetes) or [sharding with Citus](/deploy/citus)               |
+| **Language**                | SQL                                                                 | Custom DSL                                                           | Standard SQL with custom search operators                                                                                                       |
+| **ACID guarantees**         | Full ACID compliance, read-after-write guarantees                   | No multi-document ACID transactions                                  | Full ACID compliance, read-after-write guarantees                                                                                               |
+| **Update & delete support** | Built for fast-changing data                                        | Struggles with updates/deletes                                       | Built for fast-changing data; [incremental vector index maintenance is in progress](/welcome/limitations#vector-search)                         |
+>>>>>>> bcecc080 (docs: refresh vector and hybrid search messaging (#5909))
 
 ## Production Readiness
 

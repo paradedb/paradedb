@@ -1,0 +1,2 @@
+workload = "../workloads/replicated-events.toml"
+topology = "../topologies/single.toml"

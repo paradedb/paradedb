@@ -1,0 +1,2 @@
+workload = "../workloads/bulk-update-merge-pressure.toml"
+topology = "../topologies/logical-replication.toml"

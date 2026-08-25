@@ -1,0 +1,63 @@
+capabilities = ["indexed_writes", "logical_replication", "multiple_readers"]
+
+[routes.read]
+destinations = ["SubscriberA", "SubscriberB"]
+refresh_scale = 2.0
+
+[routes.write]
+destinations = ["Publisher"]
+
+[[server]]
+name = "Publisher"
+setup_template = "primary"
+[server.style.Automatic]
+postgresql_conf = "Publisher"
+
+[server.setup]
+sql = """
+DROP PUBLICATION IF EXISTS stressgres_pub;
+CREATE PUBLICATION stressgres_pub FOR ALL TABLES;
+"""
+[server.teardown]
+sql = ""
+[server.monitor]
+refresh_ms = 10
+log_columns = ["replication_lag:MB"]
+sql = """
+SELECT pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag
+FROM pg_stat_replication;
+"""
+
+[[server]]
+name = "SubscriberA"
+setup_template = "primary"
+[server.style.Automatic]
+postgresql_conf = "Subscriber"
+
+[server.setup]
+sql = """
+DROP SUBSCRIPTION IF EXISTS stressgres_sub_a;
+CREATE SUBSCRIPTION stressgres_sub_a CONNECTION '@Publisher_CONNSTR@'
+PUBLICATION stressgres_pub WITH (copy_data = false);
+"""
+[server.teardown]
+sql = ""
+[server.monitor]
+sql = ""
+
+[[server]]
+name = "SubscriberB"
+setup_template = "primary"
+[server.style.Automatic]
+postgresql_conf = "Subscriber"
+
+[server.setup]
+sql = """
+DROP SUBSCRIPTION IF EXISTS stressgres_sub_b;
+CREATE SUBSCRIPTION stressgres_sub_b CONNECTION '@Publisher_CONNSTR@'
+PUBLICATION stressgres_pub WITH (copy_data = false);
+"""
+[server.teardown]
+sql = ""
+[server.monitor]
+sql = ""

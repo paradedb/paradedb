@@ -47,14 +47,28 @@ jobs:
       fail-fast: false
       matrix:
         suite:
-          - background-merge.toml
-          - bulk-update-merge-pressure.toml
           - logical-replication-fsm-merge-race.toml
           - logical-replication-mixed-workload.toml
+          - logical-replication-mixed-workload-multi-subscriber.toml
           - logical-replication-multi-subscriber.toml
-          - partitioned-table.toml
-          - single-node-planner-paths.toml
-          - wide-table.toml
+          - matrix/background-merge--logical.toml
+          - matrix/background-merge--multi.toml
+          - matrix/background-merge--single.toml
+          - matrix/bulk-update-merge-pressure--logical.toml
+          - matrix/bulk-update-merge-pressure--multi.toml
+          - matrix/bulk-update-merge-pressure--single.toml
+          - matrix/partitioned-table--logical.toml
+          - matrix/partitioned-table--multi.toml
+          - matrix/partitioned-table--single.toml
+          - matrix/replicated-events--logical.toml
+          - matrix/replicated-events--multi.toml
+          - matrix/replicated-events--single.toml
+          - matrix/single-node-planner-paths--logical.toml
+          - matrix/single-node-planner-paths--multi.toml
+          - matrix/single-node-planner-paths--single.toml
+          - matrix/wide-table--logical.toml
+          - matrix/wide-table--multi.toml
+          - matrix/wide-table--single.toml
     runs-on:
       # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
       - runs-on=${{ github.run_id }}

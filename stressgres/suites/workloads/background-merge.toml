@@ -1,0 +1,160 @@
+requires = ["indexed_writes"]
+
+[setup_templates.primary]
+before = """
+DROP TABLE IF EXISTS test CASCADE;
+CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
+
+CREATE TABLE test (
+    id SERIAL8 NOT NULL PRIMARY KEY,
+    message TEXT,
+    severity INTEGER
+);
+
+INSERT INTO test (message, severity)
+SELECT
+    CASE id % 3
+    WHEN 0 THEN 'drink some beer'
+    WHEN 1 THEN 'sip some wine'
+    WHEN 2 THEN 'eat some cheese'
+    END,
+    (random() * 4 + 1)::int
+FROM generate_series(1, 1000000) as id;
+
+CREATE INDEX idxtest ON test USING paradedb (id, message, severity) WITH (key_field = 'id', target_segment_count = 16, layer_sizes = '1kb', background_layer_sizes = '10kb, 100kb, 1mb, 10mb');
+CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool LANGUAGE plpgsql AS $$
+DECLARE
+    current_txid bigint;
+BEGIN
+    current_txid := txid_current();
+    IF a <> b THEN
+        RAISE EXCEPTION 'Assertion failed: % <> %. Transaction ID: %', a, b, current_txid;
+    END IF;
+    RETURN true;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION assert_plan_contains(
+    p_query text,
+    p_expected_text text
+) RETURNS boolean AS $$
+DECLARE
+    plan_line text;
+    full_plan text := '';
+BEGIN
+    FOR plan_line IN EXECUTE 'EXPLAIN (VERBOSE) ' || p_query LOOP
+        full_plan := full_plan || plan_line || chr(10);
+        IF plan_line ILIKE '%' || p_expected_text || '%' THEN
+            RETURN true;
+        END IF;
+    END LOOP;
+
+    RAISE EXCEPTION 'Plan assertion failed: expected "%" not found in plan for query: %. Actual plan:%',
+        p_expected_text, p_query, chr(10) || full_plan;
+END;
+$$ LANGUAGE plpgsql;
+
+DO $$
+DECLARE
+   dbname text := current_database();
+BEGIN
+   EXECUTE format('ALTER DATABASE %I SET work_mem = %L', dbname, '1GB');
+END $$;
+"""
+
+[[jobs]]
+route = "read"
+refresh_ms = 100
+title = "Watch Segment Count"
+
+sql = """
+SELECT segno, num_docs, num_deleted, pg_size_pretty(byte_size) FROM paradedb.index_info('idxtest') ORDER BY num_docs DESC;
+"""
+
+[[jobs]]
+refresh_ms = 100
+title = "Monitor Segment Count"
+log_columns = ["block_count", "segment_count"]
+log_tps = false
+sql = """
+SELECT
+    pg_relation_size('idxtest') / current_setting('block_size')::int AS block_count,
+    (
+      SELECT COUNT(*)::bigint
+      FROM paradedb.index_info('idxtest')
+    ) AS segment_count
+"""
+
+[[jobs]]
+refresh_ms = 5
+title = "Unordered Top K Base Scan"
+log_tps = true
+on_connect = """
+SELECT assert_plan_contains(
+    $q$ SELECT id, message, severity FROM test WHERE message ||| 'drink' LIMIT 100 $q$,
+    'TopKScanExecState'
+);
+"""
+sql = """
+SELECT id, message, severity FROM test WHERE message ||| 'drink' LIMIT 100;
+"""
+
+[[jobs]]
+refresh_ms = 5
+title = "Aggregate Scan"
+log_tps = true
+on_connect = """
+SELECT assert_plan_contains(
+    $q$ SELECT COUNT(*) FROM test WHERE message ||| 'drink' $q$,
+    'ParadeDB Aggregate Scan'
+);
+"""
+sql = """
+SELECT assert(COUNT(*), 333333) FROM test WHERE message ||| 'drink';
+"""
+
+[[jobs]]
+refresh_ms = 5
+title = "Update random values"
+log_tps = true
+sql = """
+UPDATE test
+SET message = substring(message FROM 1 FOR length(message)-1)
+              || chr((trunc(random() * 26) + 65)::int)
+WHERE id < 10;
+"""
+
+[[jobs]]
+refresh_ms = 5
+title = "Update random values"
+log_tps = true
+sql = """
+UPDATE test
+SET message = substring(message FROM 1 FOR length(message)-1)
+              || chr((trunc(random() * 26) + 65)::int)
+WHERE id > 10 AND id < 1000;
+"""
+
+[[jobs]]
+refresh_ms = 5
+title = "Insert value"
+log_tps = true
+sql = """
+INSERT INTO test (message) VALUES ('lore ispum dolor');
+"""
+
+[[jobs]]
+refresh_ms = 5
+title = "Delete value"
+log_tps = true
+sql = """
+DELETE FROM test WHERE id > 1000001;
+"""
+
+[[jobs]]
+refresh_ms = 1000
+title = "Vacuum"
+log_tps = true
+sql = """
+VACUUM test;
+"""

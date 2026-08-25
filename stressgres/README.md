@@ -41,6 +41,36 @@ sql = "SELECT id FROM test WHERE message ||| 'beer' LIMIT 10"
 sql_plan_contains = ["TopKScanExecState", "Custom Scan"]
 ```
 
+Suites can compose a reusable workload with a reusable topology. Workloads own
+schema setup and queries; topologies own servers, replication, logical `read` and
+`write` destinations, and polling-interval scaling. A suite itself can therefore
+be only two references:
+
+```toml
+workload = "workloads/background-merge.toml"
+topology = "topologies/logical-replication.toml"
+```
+
+Topology files declare capabilities and route mappings. Workloads can use
+`requires` to prevent combinations that would run but test the wrong behavior:
+
+```toml
+capabilities = ["indexed_writes", "logical_replication"]
+
+[routes.read]
+destinations = ["SubscriberA", "SubscriberB"]
+refresh_scale = 2.0
+
+# In a workload file:
+requires = ["indexed_writes"]
+```
+
+The manifests under `stressgres/suites/matrix/` exercise every compatible pairing
+of the reusable workloads with single-node, logical-replication, and
+multi-subscriber topologies. Topology-specific race and asymmetric
+vanilla-publisher suites remain standalone because composing them with arbitrary
+layouts would change the behavior they are intended to test.
+
 ## Docker
 
 To run Stressgres from within Docker, use:

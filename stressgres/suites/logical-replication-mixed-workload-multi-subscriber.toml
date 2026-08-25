@@ -1,10 +1,9 @@
 workload = "workloads/planner-mixed.toml"
 
-# Routes and interval scaling belong to the topology, not the workload. A layout
-# can fan a route out to multiple servers or tune its pressure without copying SQL.
 [routes.read]
-destinations = ["Subscriber"]
-refresh_scale = 1.0
+destinations = ["SubscriberA", "SubscriberB"]
+# Preserve roughly the same aggregate read rate while fanning every read out twice.
+refresh_scale = 2.0
 
 [routes.write]
 destinations = ["Publisher"]
@@ -37,15 +36,15 @@ FROM pg_stat_replication;
 """
 
 [[server]]
-name = "Subscriber"
+name = "SubscriberA"
 setup_template = "reader"
 [server.style.Automatic]
 postgresql_conf = "Subscriber"
 
 [server.setup]
 sql = """
-DROP SUBSCRIPTION IF EXISTS stressgres_sub;
-CREATE SUBSCRIPTION stressgres_sub CONNECTION '@Publisher_CONNSTR@' PUBLICATION stressgres_pub;
+DROP SUBSCRIPTION IF EXISTS stressgres_sub_a;
+CREATE SUBSCRIPTION stressgres_sub_a CONNECTION '@Publisher_CONNSTR@' PUBLICATION stressgres_pub;
 SELECT pg_sleep(5);
 """
 [server.teardown]
@@ -53,7 +52,31 @@ sql = ""
 
 [server.monitor]
 refresh_ms = 10
-title = "Index Info Monitor"
+title = "Subscriber A Index Info"
+sql = """
+SELECT segno, visible, recyclable, xmax, num_docs, num_deleted, byte_size
+FROM paradedb.index_info('idxtest', true)
+ORDER BY byte_size DESC;
+"""
+
+[[server]]
+name = "SubscriberB"
+setup_template = "reader"
+[server.style.Automatic]
+postgresql_conf = "Subscriber"
+
+[server.setup]
+sql = """
+DROP SUBSCRIPTION IF EXISTS stressgres_sub_b;
+CREATE SUBSCRIPTION stressgres_sub_b CONNECTION '@Publisher_CONNSTR@' PUBLICATION stressgres_pub;
+SELECT pg_sleep(5);
+"""
+[server.teardown]
+sql = ""
+
+[server.monitor]
+refresh_ms = 10
+title = "Subscriber B Index Info"
 sql = """
 SELECT segno, visible, recyclable, xmax, num_docs, num_deleted, byte_size
 FROM paradedb.index_info('idxtest', true)

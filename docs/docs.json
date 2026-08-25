@@ -75,17 +75,32 @@
               {
                 "group": "Indexing",
                 "pages": [
-                  "documentation/indexing/create-index",
-                  "reference/choosing-a-key-field",
-                  "documentation/indexing/indexing-expressions",
-                  "documentation/indexing/indexing-json",
-                  "documentation/indexing/indexing-arrays",
-                  "documentation/indexing/indexing-composite",
-                  "documentation/indexing/indexing-partial",
-                  "documentation/indexing/columnar",
-                  "documentation/indexing/indexing-vectors",
-                  "documentation/indexing/reindexing",
-                  "documentation/indexing/verify-index"
+                  {
+                    "group": "Creating an Index",
+                    "pages": [
+                      "documentation/indexing/create-index",
+                      "reference/choosing-a-key-field",
+                      "documentation/indexing/indexing-partial",
+                      "documentation/indexing/columnar"
+                    ]
+                  },
+                  {
+                    "group": "What You Can Index",
+                    "pages": [
+                      "documentation/indexing/indexing-expressions",
+                      "documentation/indexing/indexing-json",
+                      "documentation/indexing/indexing-arrays",
+                      "documentation/indexing/indexing-composite",
+                      "documentation/indexing/indexing-vectors"
+                    ]
+                  },
+                  {
+                    "group": "Maintenance",
+                    "pages": [
+                      "documentation/indexing/reindexing",
+                      "documentation/indexing/verify-index"
+                    ]
+                  }
                 ]
               },
               {

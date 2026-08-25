@@ -474,12 +474,7 @@
                       "changelog/0.14.0"
                     ]
                   },
-                  {
-                    "group": "Older",
-                    "pages": [
-                      "changelog/deprecated"
-                    ]
-                  }
+                  "changelog/deprecated"
                 ]
               },
               "welcome/support"

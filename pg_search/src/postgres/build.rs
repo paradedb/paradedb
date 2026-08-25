@@ -19,6 +19,7 @@ use crate::api::FieldName;
 use crate::api::version::VersionInfo;
 use crate::index::index_settings;
 use crate::index::mvcc::MvccSatisfies;
+use crate::index::stats;
 use crate::postgres::build_parallel::build_index;
 use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::rel::PgSearchRelation;
@@ -380,7 +381,8 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
     let directory = MvccSatisfies::Snapshot.directory(index_relation);
 
     let settings = index_settings(options, &schema);
-    let _ = Index::create(directory, schema, settings)?;
+    let mut index = Index::create(directory, schema, settings)?;
+    stats::register(&mut index);
     Ok(())
 }
 

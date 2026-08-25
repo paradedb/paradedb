@@ -39,6 +39,8 @@ use tantivy::index::{SegmentComponent, SegmentId};
 /// `.centroids` only for IVF (clustered) segments.
 pub(crate) const VECTOR_VEC_EXT: &str = "vec";
 pub(crate) const VECTOR_CENTROIDS_EXT: &str = "centroids";
+/// Extension of the per-segment statistics component, see `crate::index::stats`.
+pub(crate) const STATS_EXT: &str = "stats";
 
 // ---------------------------------------------------------
 // BM25 page special data
@@ -284,6 +286,7 @@ pub struct SegmentMetaEntryImmutable {
     pub delete: Option<DeleteEntry>,
     pub vec: Option<FileEntry>,
     pub centroids: Option<FileEntry>,
+    pub stats: Option<FileEntry>,
 }
 
 /// The pre-vector on-disk layout of [`SegmentMetaEntryImmutable`]. Indexes built before vector
@@ -371,6 +374,11 @@ impl SegmentMetaEntryImmutable {
                     SegmentComponent::Custom(VECTOR_CENTROIDS_EXT.to_string()),
                 )
             }))
+            .chain(
+                self.stats
+                    .iter()
+                    .map(|fe| (fe, SegmentComponent::Custom(STATS_EXT.to_string()))),
+            )
     }
 }
 
@@ -595,6 +603,14 @@ impl SegmentMetaEntry {
         }
     }
 
+    /// The segment's statistics component, when it was written with one.
+    pub fn stats(&self) -> Option<FileEntry> {
+        match self.content {
+            SegmentMetaEntryContent::Immutable(content) => content.stats,
+            SegmentMetaEntryContent::Mutable(_) => None,
+        }
+    }
+
     pub unsafe fn is_mergeable(&self, indexrel: &PgSearchRelation) -> bool {
         // mergeable if we haven't deleted it, and if it isn't a mutable segment which is still
         // receiving writes.
@@ -726,6 +742,11 @@ impl SegmentMetaEntry {
             .as_ref()
             .map(|entry| entry.total_bytes as u64)
             .unwrap_or(0);
+        size += content
+            .stats
+            .as_ref()
+            .map(|entry| entry.total_bytes as u64)
+            .unwrap_or(0);
         size
     }
 
@@ -819,20 +840,33 @@ impl From<PgItem> for SegmentMetaEntry {
                     bincode::serde::decode_from_slice(content_bytes, bincode::config::legacy())
                         .expect("expected to deserialize valid SegmentMetaEntryContent");
 
-                // Segments written before vector support lack the trailing vector file entries.
-                // bincode has no field framing, so decode them only when bytes remain.
+                // Segments written before vector support lack the trailing vector file entries,
+                // and segments written before the stats component lack that one. bincode has no
+                // field framing, so decode each trailing group only when bytes remain.
+                let mut offset = v1_len;
                 let (vec, centroids): (Option<FileEntry>, Option<FileEntry>) = if content_bytes
                     .len()
-                    > v1_len
+                    > offset
                 {
-                    bincode::serde::decode_from_slice(
-                        &content_bytes[v1_len..],
+                    let (entries, len) = bincode::serde::decode_from_slice(
+                        &content_bytes[offset..],
                         bincode::config::legacy(),
                     )
-                    .expect("expected to deserialize valid SegmentMetaEntry vector file entries")
-                    .0
+                    .expect("expected to deserialize valid SegmentMetaEntry vector file entries");
+                    offset += len;
+                    entries
                 } else {
                     (None, None)
+                };
+                let stats: Option<FileEntry> = if content_bytes.len() > offset {
+                    bincode::serde::decode_from_slice(
+                        &content_bytes[offset..],
+                        bincode::config::legacy(),
+                    )
+                    .expect("expected to deserialize valid SegmentMetaEntry stats file entry")
+                    .0
+                } else {
+                    None
                 };
 
                 SegmentMetaEntryContent::Immutable(SegmentMetaEntryImmutable {
@@ -846,6 +880,7 @@ impl From<PgItem> for SegmentMetaEntry {
                     delete: v1.delete,
                     vec,
                     centroids,
+                    stats,
                 })
             }
             SegmentMetaEntryTag::Mutable => {
@@ -951,4 +986,66 @@ pub const fn bm25_max_free_space() -> usize {
 #[inline(always)]
 pub fn block_number_is_valid(block_number: pg_sys::BlockNumber) -> bool {
     block_number != 0 && block_number != pg_sys::InvalidBlockNumber
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use std::slice::from_raw_parts;
+
+    use pgrx::prelude::*;
+
+    use super::*;
+
+    fn entry_with(vec: Option<FileEntry>, stats: Option<FileEntry>) -> SegmentMetaEntry {
+        SegmentMetaEntry::new_immutable(
+            SegmentId::generate_random(),
+            42,
+            pg_sys::InvalidTransactionId,
+            SegmentMetaEntryImmutable {
+                postings: Some(FileEntry {
+                    starting_block: 7,
+                    total_bytes: 100,
+                }),
+                vec,
+                stats,
+                ..Default::default()
+            },
+        )
+    }
+
+    fn encoded(entry: SegmentMetaEntry) -> &'static [u8] {
+        let PgItem(item, size) = entry.into();
+        unsafe { from_raw_parts(item as *const u8, size) }
+    }
+
+    fn decoded(bytes: &[u8]) -> SegmentMetaEntry {
+        PgItem(bytes.as_ptr() as pg_sys::Item, bytes.len()).into()
+    }
+
+    /// Entries written before a trailing component existed are shorter by that component's
+    /// `None` marker. Each generation must decode to `None` for what it never wrote.
+    #[pg_test]
+    fn immutable_entry_decodes_every_generation() {
+        let file = |block: u32| {
+            Some(FileEntry {
+                starting_block: block,
+                total_bytes: 100 * block as usize,
+            })
+        };
+        let full = entry_with(file(8), file(9));
+        assert_eq!(decoded(encoded(full)), full);
+
+        // The vector generation stopped before the stats marker.
+        let vector_era = entry_with(file(8), None);
+        let bytes = encoded(vector_era);
+        assert_eq!(decoded(bytes), vector_era);
+        assert_eq!(decoded(&bytes[..bytes.len() - 1]), vector_era);
+
+        // The first generation stopped before the vector markers too: one `None` byte each for
+        // `vec`, `centroids`, and `stats`.
+        let first = entry_with(None, None);
+        let bytes = encoded(first);
+        assert_eq!(decoded(&bytes[..bytes.len() - 3]), first);
+    }
 }

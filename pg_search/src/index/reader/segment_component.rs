@@ -17,7 +17,7 @@
 
 use crate::index::reader::io_stats;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::FileEntry;
+use crate::postgres::storage::block::{FileEntry, bm25_max_free_space};
 
 use crate::postgres::storage::LinkedBytesList;
 use anyhow::Result;
@@ -75,6 +75,10 @@ impl FileHandle for SegmentComponentReader {
             None => read(),
         }
     }
+
+    fn storage_block_len(&self) -> Option<usize> {
+        Some(bm25_max_free_space())
+    }
 }
 
 impl HasLen for SegmentComponentReader {
@@ -116,6 +120,7 @@ mod tests {
         writer.terminate().unwrap();
 
         let reader = SegmentComponentReader::new(&indexrel, file_entry, None);
+        assert_eq!(reader.storage_block_len(), Some(bm25_max_free_space()));
 
         assert_eq!(reader.len(), 100_000);
         assert_eq!(

@@ -13,9 +13,9 @@ RETURNS vector
 LANGUAGE SQL IMMUTABLE PARALLEL SAFE
 AS $$
     SELECT (
-        '[' || ((n % 97) + 1)::text || ',' || (((n * 17) % 89) + 1)::text || ',' ||
-        repeat('0,', d - 3) || '0]'
+        '[' || string_agg((((n * 31 + i * 17) % 101) - 50)::text, ',' ORDER BY i) || ']'
     )::vector
+    FROM generate_series(1, d) i
 $$;
 
 CREATE FUNCTION quant_explain(query_text text)

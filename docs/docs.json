@@ -16,251 +16,264 @@
     "versions": [
       {
         "version": "v0.25.6",
-        "anchors": [
+        "groups": [
           {
-            "anchor": "Documentation",
-            "icon": "book-open",
-            "groups": [
+            "group": "Start",
+            "pages": [
+              "welcome/introduction",
               {
-                "group": "Documentation",
+                "group": "Choose Your Path",
                 "pages": [
-                  {
-                    "group": "Why ParadeDB?",
-                    "pages": [
-                      "welcome/introduction",
-                      "welcome/architecture",
-                      "welcome/guarantees",
-                      "welcome/limitations",
-                      "welcome/roadmap"
-                    ]
-                  },
-                  {
-                    "group": "Getting Started",
-                    "pages": [
-                      "documentation/getting-started/ai-agents",
-                      "documentation/getting-started/install",
-                      "documentation/getting-started/environment",
-                      "documentation/getting-started/queries",
-                      "documentation/getting-started/load"
-                    ]
-                  },
-                  {
-                    "group": "Reference",
-                    "pages": [
-                      {
-                        "group": "Indexing",
-                        "pages": [
-                          "documentation/indexing/create-index",
-                          "documentation/indexing/indexing-vectors",
-                          "documentation/indexing/indexing-expressions",
-                          "documentation/indexing/indexing-json",
-                          "documentation/indexing/indexing-arrays",
-                          "documentation/indexing/indexing-composite",
-                          "documentation/indexing/indexing-partial",
-                          "documentation/indexing/columnar",
-                          "documentation/indexing/reindexing",
-                          "documentation/indexing/verify-index"
-                        ]
-                      },
-                      {
-                        "group": "Tokenizers",
-                        "pages": [
-                          "documentation/tokenizers/overview",
-                          {
-                            "group": "Available Tokenizers",
-                            "pages": [
-                              "documentation/tokenizers/available-tokenizers/unicode",
-                              "documentation/tokenizers/available-tokenizers/literal",
-                              "documentation/tokenizers/available-tokenizers/literal-normalized",
-                              "documentation/tokenizers/available-tokenizers/whitespace",
-                              "documentation/tokenizers/available-tokenizers/ngrams",
-                              "documentation/tokenizers/available-tokenizers/edge-ngrams",
-                              "documentation/tokenizers/available-tokenizers/simple",
-                              "documentation/tokenizers/available-tokenizers/regex",
-                              "documentation/tokenizers/available-tokenizers/chinese-compatible",
-                              "documentation/tokenizers/available-tokenizers/lindera",
-                              "documentation/tokenizers/available-tokenizers/icu",
-                              "documentation/tokenizers/available-tokenizers/jieba",
-                              "documentation/tokenizers/available-tokenizers/source-code"
-                            ]
-                          },
-                          "documentation/tokenizers/multiple-per-field",
-                          "documentation/tokenizers/search-tokenizer"
-                        ]
-                      },
-                      {
-                        "group": "Token Filters",
-                        "pages": [
-                          "documentation/token-filters/overview",
-                          "documentation/token-filters/alphanumeric",
-                          "documentation/token-filters/ascii-folding",
-                          "documentation/token-filters/lowercase",
-                          "documentation/token-filters/stopwords",
-                          "documentation/token-filters/stemming",
-                          "documentation/token-filters/token-length",
-                          "documentation/token-filters/trim"
-                        ]
-                      },
-                      {
-                        "group": "Full Text Search",
-                        "pages": [
-                          "documentation/full-text/overview",
-                          "documentation/full-text/match",
-                          "documentation/full-text/phrase",
-                          "documentation/full-text/term",
-                          "documentation/full-text/fuzzy",
-                          "documentation/sorting/score",
-                          "documentation/sorting/boost",
-                          "documentation/full-text/highlight",
-                          "documentation/full-text/proximity",
-                          {
-                            "group": "Advanced Query Functions",
-                            "pages": [
-                              "documentation/query-builder/overview",
-                              "documentation/query-builder/compound/all",
-                              "documentation/query-builder/specialized/more-like-this",
-                              "documentation/query-builder/phrase/phrase-prefix",
-                              "documentation/query-builder/compound/query-parser",
-                              "documentation/query-builder/term/range-term",
-                              "documentation/query-builder/term/regex",
-                              "documentation/query-builder/phrase/regex-phrase"
-                            ]
-                          }
-                        ]
-                      },
-                      {
-                        "group": "Vector Search",
-                        "pages": [
-                          "documentation/vector/overview",
-                          "documentation/vector/querying",
-                          "documentation/vector/tuning"
-                        ]
-                      },
-                      {
-                        "group": "Hybrid Search",
-                        "pages": [
-                          "documentation/hybrid/overview",
-                          "documentation/hybrid/rrf"
-                        ]
-                      },
-                      "documentation/sorting/topk",
-                      {
-                        "group": "Filtering",
-                        "pages": [
-                          "documentation/filtering/overview",
-                          "documentation/filtering/indexed",
-                          "documentation/filtering/external-indexes"
-                        ]
-                      },
-                      {
-                        "group": "Aggregates",
-                        "pages": [
-                          "documentation/aggregates/overview",
-                          {
-                            "group": "Bucket",
-                            "pages": [
-                              "documentation/aggregates/bucket/datehistogram",
-                              "documentation/aggregates/bucket/filters",
-                              "documentation/aggregates/bucket/histogram",
-                              "documentation/aggregates/bucket/range",
-                              "documentation/aggregates/bucket/terms"
-                            ]
-                          },
-                          {
-                            "group": "Metrics",
-                            "pages": [
-                              "documentation/aggregates/metrics/average",
-                              "documentation/aggregates/metrics/cardinality",
-                              "documentation/aggregates/metrics/count",
-                              "documentation/aggregates/metrics/minmax",
-                              "documentation/aggregates/metrics/percentiles",
-                              "documentation/aggregates/metrics/stats",
-                              "documentation/aggregates/metrics/sum",
-                              "documentation/aggregates/metrics/tophits"
-                            ]
-                          },
-                          "documentation/aggregates/facets",
-                          "documentation/aggregates/tuning",
-                          "documentation/aggregates/limitations"
-                        ]
-                      },
-                      {
-                        "group": "Joins",
-                        "pages": [
-                          "documentation/joins/overview"
-                        ]
-                      },
-                      {
-                        "group": "Performance Tuning",
-                        "pages": [
-                          "documentation/performance-tuning/overview",
-                          "documentation/performance-tuning/create-index",
-                          "documentation/performance-tuning/reads",
-                          "documentation/performance-tuning/writes"
-                        ]
-                      }
-                    ]
-                  },
-                  "welcome/support"
+                  "start/choose-your-path",
+                  "documentation/getting-started/install",
+                  "deploy/self-hosted/extension",
+                  "deploy/logical-replication/getting-started"
                 ]
-              }
+              },
+              "documentation/getting-started/environment",
+              "start/create-your-first-index",
+              "documentation/getting-started/queries",
+              "documentation/getting-started/load",
+              "start/go-to-production",
+              "documentation/getting-started/ai-agents"
             ]
           },
           {
-            "anchor": "Deploy",
-            "icon": "server",
-            "groups": [
+            "group": "Guides",
+            "pages": [
+              "guides/search-as-you-type",
+              "guides/faceted-search",
+              "guides/hybrid-search",
+              "guides/multi-language-search",
+              "documentation/joins/overview",
+              "guides/search-json",
+              "documentation/migration/elasticsearch-feature-comparison",
+              "guides/rag-and-agents"
+            ]
+          },
+          {
+            "group": "Concepts",
+            "pages": [
+              "concepts/why-search-inside-postgres",
+              "welcome/architecture",
+              "concepts/how-the-paradedb-index-works",
+              "documentation/full-text/overview",
+              "concepts/how-tantivy-works",
+              "concepts/how-block-wand-works",
+              "concepts/what-is-pgrx",
+              "welcome/guarantees",
+              "welcome/limitations"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
               {
-                "group": "Deploy",
+                "group": "Querying",
                 "pages": [
-                  "deploy/overview",
+                  "reference/operators-and-functions",
+                  "documentation/full-text/match",
+                  "documentation/full-text/term",
                   {
-                    "group": "Self-Hosted",
+                    "group": "Phrase and Proximity",
                     "pages": [
-                      "deploy/self-hosted/kubernetes",
-                      "deploy/self-hosted/extension",
-                      "deploy/self-hosted/high-availability"
+                      "documentation/full-text/phrase",
+                      "documentation/full-text/proximity",
+                      "documentation/query-builder/phrase/phrase-prefix",
+                      "documentation/query-builder/phrase/regex-phrase"
                     ]
                   },
+                  "documentation/full-text/fuzzy",
+                  "documentation/query-builder/term/regex",
+                  "documentation/query-builder/term/range-term",
+                  "documentation/query-builder/specialized/more-like-this",
+                  "documentation/query-builder/compound/query-parser",
+                  "documentation/query-builder/compound/all",
+                  "documentation/filtering"
+                ]
+              },
+              {
+                "group": "Relevance",
+                "pages": [
+                  "documentation/sorting/score",
+                  "documentation/sorting/boost",
+                  "documentation/full-text/highlight"
+                ]
+              },
+              {
+                "group": "Vector and Hybrid",
+                "pages": [
+                  "documentation/vector/overview",
+                  "documentation/vector/querying",
+                  "documentation/vector/tuning",
+                  "documentation/hybrid/overview",
+                  "documentation/hybrid/rrf"
+                ]
+              },
+              {
+                "group": "Aggregations",
+                "pages": [
+                  "documentation/aggregates/overview",
+                  {
+                    "group": "Bucket",
+                    "pages": [
+                      "documentation/aggregates/bucket/terms",
+                      "documentation/aggregates/bucket/filters",
+                      "documentation/aggregates/bucket/histogram",
+                      "documentation/aggregates/bucket/datehistogram",
+                      "documentation/aggregates/bucket/range"
+                    ]
+                  },
+                  {
+                    "group": "Metrics",
+                    "pages": [
+                      "documentation/aggregates/metrics/average",
+                      "documentation/aggregates/metrics/cardinality",
+                      "documentation/aggregates/metrics/count",
+                      "documentation/aggregates/metrics/minmax",
+                      "documentation/aggregates/metrics/percentiles",
+                      "documentation/aggregates/metrics/stats",
+                      "documentation/aggregates/metrics/sum",
+                      "documentation/aggregates/metrics/tophits"
+                    ]
+                  },
+                  "documentation/aggregates/facets",
+                  "documentation/aggregates/tuning",
+                  "documentation/aggregates/limitations"
+                ]
+              },
+              {
+                "group": "Indexing",
+                "pages": [
+                  "documentation/indexing/create-index",
+                  "reference/choosing-a-key-field",
+                  "documentation/indexing/indexing-expressions",
+                  "documentation/indexing/indexing-json",
+                  "documentation/indexing/indexing-arrays",
+                  "documentation/indexing/indexing-composite",
+                  "documentation/indexing/indexing-partial",
+                  "documentation/indexing/columnar",
+                  "documentation/indexing/indexing-vectors",
+                  "documentation/indexing/reindexing",
+                  "documentation/indexing/verify-index"
+                ]
+              },
+              {
+                "group": "Text Analysis",
+                "pages": [
+                  "documentation/tokenizers/overview",
+                  {
+                    "group": "Tokenizers",
+                    "pages": [
+                      "documentation/tokenizers/available-tokenizers/unicode",
+                      "documentation/tokenizers/available-tokenizers/literal",
+                      "documentation/tokenizers/available-tokenizers/literal-normalized",
+                      "documentation/tokenizers/available-tokenizers/whitespace",
+                      "documentation/tokenizers/available-tokenizers/ngrams",
+                      "documentation/tokenizers/available-tokenizers/edge-ngrams",
+                      "documentation/tokenizers/available-tokenizers/simple",
+                      "documentation/tokenizers/available-tokenizers/regex",
+                      "documentation/tokenizers/available-tokenizers/chinese-compatible",
+                      "documentation/tokenizers/available-tokenizers/lindera",
+                      "documentation/tokenizers/available-tokenizers/icu",
+                      "documentation/tokenizers/available-tokenizers/jieba",
+                      "documentation/tokenizers/available-tokenizers/source-code"
+                    ]
+                  },
+                  {
+                    "group": "Token Filters",
+                    "pages": [
+                      "documentation/token-filters/overview",
+                      "documentation/token-filters/alphanumeric",
+                      "documentation/token-filters/ascii-folding",
+                      "documentation/token-filters/lowercase",
+                      "documentation/token-filters/stopwords",
+                      "documentation/token-filters/stemming",
+                      "documentation/token-filters/token-length",
+                      "documentation/token-filters/trim"
+                    ]
+                  },
+                  "documentation/tokenizers/multiple-per-field",
+                  "documentation/tokenizers/search-tokenizer"
+                ]
+              },
+              {
+                "group": "Sorting and Pagination",
+                "pages": [
+                  "documentation/sorting/topk"
+                ]
+              },
+              "reference/configuration",
+              "reference/sql-functions"
+            ]
+          },
+          {
+            "group": "Operate",
+            "pages": [
+              {
+                "group": "Deployment",
+                "pages": [
+                  "deploy/overview",
+                  "deploy/self-hosted/kubernetes",
                   {
                     "group": "Cloud Platforms",
                     "pages": [
                       "deploy/cloud-platforms/railway",
                       "deploy/cloud-platforms/render",
-                      "deploy/cloud-platforms/fly",
                       "deploy/cloud-platforms/digitalocean",
+                      "deploy/cloud-platforms/fly",
                       "deploy/cloud-platforms/dokku"
                     ]
                   },
                   {
                     "group": "Logical Replication",
                     "pages": [
-                      "deploy/logical-replication/getting-started",
                       "deploy/logical-replication/operational-guide",
                       "deploy/logical-replication/configuration",
                       "deploy/logical-replication/multi-database"
                     ]
                   },
+                  "deploy/self-hosted/high-availability",
                   "deploy/byoc",
-                  "deploy/enterprise",
-                  "deploy/upgrading",
-                  "deploy/third-party-extensions",
-                  "deploy/citus",
-                  {
-                    "group": "Continuous Integration",
-                    "pages": [
-                      "deploy/ci/github-actions",
-                      "deploy/ci/gitlab-ci"
-                    ]
-                  }
+                  "deploy/enterprise"
+                ]
+              },
+              {
+                "group": "Performance",
+                "pages": [
+                  "documentation/performance-tuning/overview",
+                  "documentation/performance-tuning/create-index",
+                  "documentation/performance-tuning/reads",
+                  "documentation/performance-tuning/writes"
+                ]
+              },
+              {
+                "group": "Troubleshooting",
+                "pages": [
+                  "operate/troubleshooting/my-query-returns-no-rows",
+                  "operate/troubleshooting/my-query-is-slow",
+                  "operate/troubleshooting/my-query-is-not-using-the-index",
+                  "operate/troubleshooting/reading-explain",
+                  "operate/troubleshooting/error-messages",
+                  "operate/troubleshooting/index-size-and-segments"
+                ]
+              },
+              "deploy/upgrading",
+              "deploy/third-party-extensions",
+              "deploy/citus",
+              {
+                "group": "Continuous Integration",
+                "pages": [
+                  "deploy/ci/github-actions",
+                  "deploy/ci/gitlab-ci"
                 ]
               }
             ]
           },
           {
-            "anchor": "Changelog",
-            "icon": "clock",
-            "groups": [
+            "group": "Project",
+            "pages": [
+              "welcome/roadmap",
               {
                 "group": "Changelog",
                 "pages": [
@@ -393,6 +406,106 @@
                   "changelog/0.14.1",
                   "changelog/0.14.0",
                   "changelog/deprecated"
+                ]
+              },
+              "welcome/support"
+            ]
+          }
+        ]
+      },
+      {
+        "version": "Legacy (pre-0.20)",
+        "groups": [
+          {
+            "group": "Legacy Docs",
+            "pages": [
+              {
+                "group": "Indexing",
+                "pages": [
+                  "legacy/indexing/create-index",
+                  "legacy/indexing/inspect-index"
+                ]
+              },
+              {
+                "group": "Field Configuration",
+                "pages": [
+                  "legacy/indexing/field-options",
+                  "legacy/indexing/tokenizers",
+                  "legacy/indexing/token-filters",
+                  "legacy/indexing/fast-fields",
+                  "legacy/indexing/record"
+                ]
+              },
+              {
+                "group": "Full Text Search",
+                "pages": [
+                  "legacy/full-text/overview",
+                  "legacy/full-text/boolean",
+                  "legacy/full-text/phrase",
+                  "legacy/full-text/filtering",
+                  "legacy/full-text/pagination",
+                  "legacy/full-text/scoring",
+                  "legacy/full-text/highlighting",
+                  "legacy/full-text/sorting",
+                  "legacy/full-text/boosting"
+                ]
+              },
+              {
+                "group": "Query Builder",
+                "pages": [
+                  "legacy/advanced/overview",
+                  {
+                    "group": "Full Text Queries",
+                    "pages": [
+                      "legacy/advanced/full-text/match"
+                    ]
+                  },
+                  {
+                    "group": "Term-Level Queries",
+                    "pages": [
+                      "legacy/advanced/term/exists",
+                      "legacy/advanced/term/fuzzy-term",
+                      "legacy/advanced/term/range",
+                      "legacy/advanced/term/range-term",
+                      "legacy/advanced/term/regex",
+                      "legacy/advanced/term/term",
+                      "legacy/advanced/term/term-set"
+                    ]
+                  },
+                  {
+                    "group": "Phrase-Level Queries",
+                    "pages": [
+                      "legacy/advanced/phrase/phrase",
+                      "legacy/advanced/phrase/phrase-prefix"
+                    ]
+                  },
+                  {
+                    "group": "JSON Queries",
+                    "pages": [
+                      "legacy/advanced/json/overview",
+                      "legacy/advanced/json/arrays",
+                      "legacy/advanced/json/range"
+                    ]
+                  },
+                  {
+                    "group": "Compound Queries",
+                    "pages": [
+                      "legacy/advanced/compound/overview",
+                      "legacy/advanced/compound/all",
+                      "legacy/advanced/compound/boolean",
+                      "legacy/advanced/compound/boost",
+                      "legacy/advanced/compound/const",
+                      "legacy/advanced/compound/disjunction-max",
+                      "legacy/advanced/compound/empty",
+                      "legacy/advanced/compound/parse"
+                    ]
+                  },
+                  {
+                    "group": "Specialized Queries",
+                    "pages": [
+                      "legacy/advanced/specialized/more-like-this"
+                    ]
+                  }
                 ]
               }
             ]

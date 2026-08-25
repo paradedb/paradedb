@@ -100,14 +100,14 @@ Let's consider a few more hypothetical documents to see whether they would be re
 These examples assume that the index uses the default tokenizer and token filters, and that the query is
 `running shoes`.
 
-| Original Text       | Tokens                    | Match | Reason                                  | Related                                                               |
-| ------------------- | ------------------------- | ----- | --------------------------------------- | --------------------------------------------------------------------- |
-| Sleek running shoes | `sleek` `running` `shoes` | ✅    | Contains both `running` and `shoes`.    |
-| Running shoes sleek | `sleek` `running` `shoes` | ✅    | Contains both `running` and `shoes`.    | [Phrase](/documentation/full-text/phrase)                             |
-| SLeeK RUNNING ShOeS | `sleek` `running` `shoes` | ✅    | Contains both `running` and `shoes`.    | [Lowercasing](/documentation/indexing/create-index)                   |
-| Sleek run shoe      | `sleek` `run` `shoe`      | ❌    | Contains neither `running` nor `shoes`. | [Stemming](/documentation/indexing/create-index)                      |
-| Sleke ruining shoez | `sleke` `ruining` `shoez` | ❌    | Contains neither `running` nor `shoes`. | [Fuzzy](/documentation/full-text/fuzzy)                               |
-| White jogging shoes | `white` `jogging` `shoes` | ✅    | Contains `shoes`.                       | [Match conjunction](/documentation/full-text/match#match-conjunction) |
+| Original Text       | Tokens                    | Match | Reason                                     | Related                                             |
+| ------------------- | ------------------------- | ----- | ------------------------------------------ | --------------------------------------------------- |
+| Sleek running shoes | `sleek` `running` `shoes` | ✅    | Contains `running` or `shoes` (here both). |                                                     |
+| Running shoes sleek | `sleek` `running` `shoes` | ✅    | Contains `running` or `shoes` (here both). | [Phrase](/documentation/full-text/phrase)           |
+| SLeeK RUNNING ShOeS | `sleek` `running` `shoes` | ✅    | Contains `running` or `shoes` (here both). | [Lowercasing](/documentation/indexing/create-index) |
+| Sleek run shoe      | `sleek` `run` `shoe`      | ❌    | Contains neither `running` nor `shoes`.    | [Stemming](/documentation/indexing/create-index)    |
+| Sleke ruining shoez | `sleke` `ruining` `shoez` | ❌    | Contains neither `running` nor `shoes`.    | [Fuzzy](/documentation/full-text/fuzzy)             |
+| White jogging shoes | `white` `jogging` `shoes` | ✅    | Contains `shoes`.                          | [Match conjunction](#match-conjunction)             |
 
 ## Match Conjunction
 

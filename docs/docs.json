@@ -22,6 +22,7 @@
             "icon": "rocket",
             "pages": [
               "welcome/introduction",
+              "start/choose-your-path",
               {
                 "group": "Getting Started",
                 "pages": [

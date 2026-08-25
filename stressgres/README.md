@@ -30,6 +30,17 @@ cargo run -p stressgres -- auto /path/to/pg_config stressgres/suites/single-node
 
 Suites are TOML files in `stressgres/suites/`. Each suite describes a planner workload or PostgreSQL topology exercised by Stressgres.
 
+A job can verify its query plan once whenever Stressgres opens a connection. Use a
+string for one required fragment or an array when several nodes must be present;
+the checks are case-insensitive and run after `on_connect` settings:
+
+```toml
+[[jobs]]
+on_connect = "SET max_parallel_workers_per_gather = 0"
+sql = "SELECT id FROM test WHERE message ||| 'beer' LIMIT 10"
+sql_plan_contains = ["TopKScanExecState", "Custom Scan"]
+```
+
 ## Docker
 
 To run Stressgres from within Docker, use:

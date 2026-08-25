@@ -46,10 +46,12 @@ jobs:
     name: Run Benchmarker Suite
     runs-on:
       - runs-on=${{ github.run_id }}
-      # 8 vCPU / 32 GiB Graviton4 + NVMe. The hn-ci compose pins the DB to
-      # cores 0-3 and pgbouncer to 4; k6 is tasksetted onto 5-7 in the run
-      # step. Bump the size for wider concurrency.
-      - family=m8gd.2xlarge
+      # Same whole-host metal runner as the queries/stressgres benchmarks: no
+      # noisy neighbours sharing memory bandwidth, so run-to-run numbers are
+      # comparable (a .2xlarge slice swung ~±15% between runs). The hn-ci
+      # compose still pins the DB to cores 0-3 and pgbouncer to 4; k6 is
+      # tasksetted onto 5-7 in the run step.
+      - family=m8gd.metal-24xl # Chosen for its performance consistency across hosts
       - image=ubuntu24-full-arm64
       - extras=s3-cache # S3-backed cache; https://runs-on.com/caching/magic-cache/
       # No EBS volume: on-machine NVMe avoids run-to-run variance.

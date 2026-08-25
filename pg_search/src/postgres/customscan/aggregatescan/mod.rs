@@ -993,7 +993,7 @@ impl AggregateScan {
         crate::postgres::customscan::mpp::launch::launch_mpp_aggregate(physical, args)
     }
 
-    /// Build the aggregate's DataFusion physical plan under `ctx`. `mpp_views` marks that
+    /// Build the aggregate's DataFusion physical plan under `ctx`. `mpp_manifests` marks that
     /// parallel execution is being attempted and stamps each provider's per-source dispatch
     /// metadata (`is_parallel`, `mpp_source_idx`); the worker-bound stage encodes carry that
     /// metadata, so it must be present on the plan the dispatch payload is derived from. It also
@@ -1005,7 +1005,7 @@ impl AggregateScan {
         df_state: &mut scan_state::DataFusionAggState,
         runtime: &tokio::runtime::Runtime,
         ctx: &datafusion::prelude::SessionContext,
-        mpp_views: Option<&[SegmentView]>,
+        mpp_manifests: Option<&[SearchIndexManifest]>,
         runtime_expr_context: Option<*mut pg_sys::ExprContext>,
         runtime_planstate: Option<*mut pg_sys::PlanState>,
     ) -> Arc<dyn ExecutionPlan> {
@@ -1023,7 +1023,7 @@ impl AggregateScan {
                 ctx,
                 runtime_expr_context,
                 runtime_planstate,
-                mpp_views,
+                mpp_manifests,
             )
             .await?;
             df_state.group_df_indices = group_df_indices;
@@ -1651,15 +1651,11 @@ impl AggregateScan {
                 create_aggregate_session_context()
             };
             // Capture before the `df_state` borrow below. `prepare_mpp` pinned the manifests at
-            // begin, so these are the views `launch_mpp` ships to the workers.
-            let mpp_views: Vec<SegmentView> = if is_mpp {
+            // begin; the providers build their readers from them, and `launch_mpp` ships their
+            // views to the workers.
+            let mpp_manifests: Vec<SearchIndexManifest> = if is_mpp {
                 Self::ensure_source_manifests(state);
-                state
-                    .custom_state()
-                    .source_manifests
-                    .iter()
-                    .map(|m| m.segment_view())
-                    .collect()
+                state.custom_state().source_manifests.to_vec()
             } else {
                 Vec::new()
             };
@@ -1675,7 +1671,7 @@ impl AggregateScan {
                     df_state,
                     &runtime,
                     &plan_ctx,
-                    is_mpp.then_some(mpp_views.as_slice()),
+                    is_mpp.then_some(mpp_manifests.as_slice()),
                     runtime_expr_context,
                     runtime_planstate,
                 )

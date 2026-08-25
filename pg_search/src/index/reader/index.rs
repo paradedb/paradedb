@@ -20,6 +20,7 @@ use std::collections::BTreeMap;
 use std::fmt::{Debug, Display};
 use std::path::PathBuf;
 use std::ptr::NonNull;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
@@ -376,12 +377,25 @@ pub struct SearchIndexReader {
     _cleanup_lock: Arc<PinnedBuffer>,
 }
 
-/// A queryless snapshot of visible segments used to capture canonical manifests for parallel
-/// JoinScan initialization without requiring executor state.
-pub struct SearchIndexManifest {
-    searcher: Searcher,
-    directory: MVCCDirectory,
-    _cleanup_lock: Arc<PinnedBuffer>,
+/// A queryless snapshot of visible segments used to initialize parallel JoinScan and
+/// AggregateScan sources without requiring executor state. Clones are cheap handles to the same
+/// backend-local components, keeping the captured segment set and its pins alive together.
+#[derive(Clone)]
+pub struct SearchIndexManifest(Rc<SearchIndexManifestInner>);
+
+struct SearchIndexManifestInner {
+    components: IndexComponents,
+}
+
+impl std::fmt::Debug for SearchIndexManifest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SearchIndexManifest")
+            .field(
+                "segments",
+                &self.components().searcher.segment_readers().len(),
+            )
+            .finish_non_exhaustive()
+    }
 }
 
 impl Clone for SearchIndexReader {
@@ -404,6 +418,67 @@ impl Clone for SearchIndexReader {
     }
 }
 
+#[cfg(any(test, feature = "pg_test"))]
+pub(crate) mod test_support {
+    use super::PgSearchRelation;
+    use pgrx::Spi;
+    use std::sync::atomic::AtomicUsize;
+
+    /// How many times the index was actually opened (metadata walk, pins, searcher build).
+    /// Tests use it to prove reuse paths perform zero additional opens.
+    pub(crate) static INDEX_COMPONENT_OPENS: AtomicUsize = AtomicUsize::new(0);
+
+    /// Test fixture shared by the reuse/laziness tests: a table + BM25 index laid out as
+    /// `immutable_batches` frozen segments of 10 rows (batch 0's titles contain "silver dragon",
+    /// later batches "quiet river"), plus an optional 5-row mutable segment. Returns the opened
+    /// index relation and the heap relation's OID.
+    pub(crate) fn segmented_index_fixture(
+        name: &str,
+        immutable_batches: usize,
+        with_mutable: bool,
+    ) -> (PgSearchRelation, pgrx::pg_sys::Oid) {
+        let mut sql = format!(
+            "CREATE TABLE {name} (id bigint PRIMARY KEY, title text NOT NULL);
+             CREATE INDEX {name}_idx ON {name} USING paradedb (id, title)
+             WITH (key_field = 'id', target_segment_count = 8, background_layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;"
+        );
+        for batch in 0..immutable_batches {
+            let (lo, hi) = (batch * 10 + 1, batch * 10 + 10);
+            let words = if batch == 0 {
+                "silver dragon"
+            } else {
+                "quiet river"
+            };
+            sql.push_str(&format!(
+                "INSERT INTO {name} SELECT g, '{words} ' || g FROM generate_series({lo}, {hi}) g;"
+            ));
+        }
+        if with_mutable {
+            let lo = immutable_batches * 10 + 1;
+            sql.push_str(&format!(
+                "SET paradedb.global_mutable_segment_rows = 10000;
+                 INSERT INTO {name} SELECT g, 'mutable ' || g FROM generate_series({lo}, {}) g;",
+                lo + 4
+            ));
+        }
+        sql.push_str("RESET paradedb.global_mutable_segment_rows;");
+        Spi::run(&sql).expect("fixture setup");
+        unsafe { pgrx::pg_sys::CommandCounterIncrement() };
+
+        let index_oid =
+            Spi::get_one::<pgrx::pg_sys::Oid>(&format!("SELECT '{name}_idx'::regclass::oid"))
+                .unwrap()
+                .unwrap();
+        let heap_oid =
+            Spi::get_one::<pgrx::pg_sys::Oid>(&format!("SELECT '{name}'::regclass::oid"))
+                .unwrap()
+                .unwrap();
+        (PgSearchRelation::open(index_oid), heap_oid)
+    }
+}
+
+#[derive(Clone)]
 struct IndexComponents {
     cleanup_lock: Arc<PinnedBuffer>,
     directory: MVCCDirectory,
@@ -421,6 +496,8 @@ impl SearchIndexReader {
         mvcc_style: MvccSatisfies,
         needs_tokenizer_manager: bool,
     ) -> Result<IndexComponents> {
+        #[cfg(any(test, feature = "pg_test"))]
+        test_support::INDEX_COMPONENT_OPENS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let cleanup_lock = Arc::new(MetaPage::open(index_relation).cleanup_lock_pinned());
 
         let directory = mvcc_style.directory(index_relation);
@@ -489,8 +566,61 @@ impl SearchIndexReader {
         planstate: Option<NonNull<pgrx::pg_sys::PlanState>>,
         needs_tokenizer_manager: bool,
     ) -> Result<Self> {
+        // Derive the tokenizer need from the query as well as the caller's flag: a caller
+        // passing `false` alongside a query that tokenizes must not silently parse wrong.
+        let needs_tokenizer_manager =
+            needs_tokenizer_manager || search_query_input.needs_tokenizer();
         let components =
             Self::open_index_components(index_relation, mvcc_style, needs_tokenizer_manager)?;
+        Self::from_components(
+            index_relation,
+            components,
+            search_query_input,
+            need_scores,
+            expr_context,
+            planstate,
+        )
+    }
+
+    /// Build a reader over `manifest`'s already-open components: same searcher, same frozen
+    /// segment set, no additional I/O. A fresh open would also install the index's
+    /// tokenizers, so [`register_tokenizers`] does that here, into the managers the
+    /// manifest's searcher already shares.
+    ///
+    /// [`register_tokenizers`]: crate::index::search::register_tokenizers
+    pub fn from_manifest(
+        manifest: &SearchIndexManifest,
+        index_relation: &PgSearchRelation,
+        search_query_input: SearchQueryInput,
+        need_scores: bool,
+        expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
+        needs_tokenizer_manager: bool,
+    ) -> Result<Self> {
+        if needs_tokenizer_manager || search_query_input.needs_tokenizer() {
+            crate::index::search::register_tokenizers(
+                index_relation,
+                &manifest.components().index,
+            )?;
+        }
+        Self::from_components(
+            index_relation,
+            manifest.components().clone(),
+            search_query_input,
+            need_scores,
+            expr_context,
+            None,
+        )
+    }
+
+    /// The shared tail of [`Self::open_with_context`] and [`Self::from_manifest`].
+    fn from_components(
+        index_relation: &PgSearchRelation,
+        components: IndexComponents,
+        search_query_input: SearchQueryInput,
+        need_scores: bool,
+        expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
+        planstate: Option<NonNull<pgrx::pg_sys::PlanState>>,
+    ) -> Result<Self> {
         let IndexComponents {
             cleanup_lock,
             directory,
@@ -1724,21 +1854,24 @@ impl SearchIndexReader {
 /// Shape-only inspection — never reads segment contents. The planning-time
 /// gate relies on this to use a one-segment (`LargestSegment`) reader.
 impl SearchIndexManifest {
+    fn components(&self) -> &IndexComponents {
+        &self.0.components
+    }
+
     /// Capture the currently visible segment set without building a search query.
     pub fn capture(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Result<Self> {
         let components =
             SearchIndexReader::open_index_components(index_relation, mvcc_style, false)?;
-        Ok(Self {
-            searcher: components.searcher,
-            directory: components.directory,
-            _cleanup_lock: components.cleanup_lock,
-        })
+        Ok(Self(Rc::new(SearchIndexManifestInner { components })))
     }
 
     /// This manifest's segment view, for other readers to replay through
     /// [`MvccSatisfies::ParallelWorker`].
     pub fn segment_view(&self) -> SegmentView {
-        SegmentView::capture(self.searcher.segment_readers(), &self.directory)
+        SegmentView::capture(
+            self.components().searcher.segment_readers(),
+            &self.components().directory,
+        )
     }
 }
 
@@ -1797,5 +1930,92 @@ impl ErasedFeatures {
             OwnedValue::Null => None,
             _ => panic!("expected a f64 for the score"),
         })
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::test_support::{segmented_index_fixture, INDEX_COMPONENT_OPENS};
+    use super::*;
+    use pgrx::prelude::*;
+
+    /// `from_manifest` must reuse the capture's open (zero additional index opens) and must
+    /// still install the index's tokenizers: the `Parse` query below matches rows only if
+    /// the shared managers now hold them.
+    #[pg_test]
+    fn from_manifest_reuses_the_captured_open() {
+        let (index_rel, _heap) = segmented_index_fixture("manifest_reuse_test", 2, false);
+        let manifest = SearchIndexManifest::capture(&index_rel, MvccSatisfies::Snapshot)
+            .expect("manifest capture");
+        assert!(
+            manifest.segment_view().len() >= 2,
+            "fixture must span several segments"
+        );
+
+        let opens_before = INDEX_COMPONENT_OPENS.load(std::sync::atomic::Ordering::Relaxed);
+        let reader = SearchIndexReader::from_manifest(
+            &manifest,
+            &index_rel,
+            SearchQueryInput::Parse {
+                query_string: "title:silver".to_string(),
+                lenient: None,
+                conjunction_mode: None,
+            },
+            /* need_scores */ false,
+            None,
+            /* needs_tokenizer_manager */ true,
+        )
+        .expect("from_manifest");
+
+        assert_eq!(
+            INDEX_COMPONENT_OPENS.load(std::sync::atomic::Ordering::Relaxed),
+            opens_before,
+            "building a reader from a manifest must not open the index again"
+        );
+        assert_eq!(
+            reader.segment_view(),
+            manifest.segment_view(),
+            "the reader replays the capture's frozen segment set"
+        );
+        assert_eq!(
+            reader.search().count(),
+            10,
+            "the tokenized query resolves through the registered tokenizers"
+        );
+
+        // Registration must reach managers shared with the already-built searcher (execution
+        // paths like MoreLikeThis and fast-field normalization look tokenizers up through it,
+        // not through the parse-time index handle).
+        use tantivy::tokenizer::{RawTokenizer, TextAnalyzer};
+        let probe = || TextAnalyzer::from(RawTokenizer::default());
+        manifest
+            .components()
+            .index
+            .tokenizers()
+            .register("test_probe", probe());
+        manifest
+            .components()
+            .index
+            .fast_field_tokenizer()
+            .register("test_probe", probe());
+        assert!(
+            reader
+                .searcher()
+                .index()
+                .tokenizers()
+                .get("test_probe")
+                .is_some(),
+            "registering into the manifest's manager must be visible through the searcher"
+        );
+        assert!(
+            reader
+                .searcher()
+                .index()
+                .fast_field_tokenizer()
+                .get("test_probe")
+                .is_some(),
+            "the fast-field manager must be shared the same way"
+        );
     }
 }

@@ -31,8 +31,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::HashSet;
 use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, WhichFastField};
-use crate::index::mvcc::{MvccSatisfies, SegmentView};
-use crate::index::reader::index::SearchIndexReader;
+use crate::index::mvcc::MvccSatisfies;
+use crate::index::reader::index::{SearchIndexManifest, SearchIndexReader};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
@@ -124,11 +124,12 @@ pub struct PgSearchTableProvider {
     /// ignores parallel state segments and yields statically partitioned streams.
     range_sample: Option<RangePartitioningSample>,
 
-    /// The segment view this source's reader replays, for an MPP source whose workers resolve
-    /// the addresses it packs. Backend-local (a plan's readers do not travel), so re-injected
-    /// by the codec on deserialization, keyed by `source_idx`.
+    /// The manifest this source was captured with, for an MPP source: `scan()` builds its
+    /// reader from it, replaying exactly the view the DSM was populated from. Backend-local
+    /// (readers do not travel), so re-injected by the codec on deserialization, keyed by
+    /// `source_idx`.
     #[serde(skip)]
-    segment_view: Option<SegmentView>,
+    manifest: Option<SearchIndexManifest>,
 }
 
 mod atomic_bool_serde {
@@ -168,11 +169,13 @@ impl Clone for PgSearchTableProvider {
             ),
             source_idx: self.source_idx,
             range_sample: self.range_sample.clone(),
-            segment_view: self.segment_view.clone(),
+            manifest: self.manifest.clone(),
         }
     }
 }
 
+// SAFETY: pg_search runs DataFusion on a single-threaded runtime inside the backend, so the
+// process-local fields (raw pointers, the reference-counted manifest) never cross a thread.
 unsafe impl Send for PgSearchTableProvider {}
 unsafe impl Sync for PgSearchTableProvider {}
 
@@ -194,7 +197,7 @@ impl PgSearchTableProvider {
             late_materialization_active: AtomicBool::new(false),
             source_idx,
             range_sample: None,
-            segment_view: None,
+            manifest: None,
         }
     }
 
@@ -235,8 +238,8 @@ impl PgSearchTableProvider {
         self.source_idx
     }
 
-    pub(crate) fn set_segment_view(&mut self, view: SegmentView) {
-        self.segment_view = Some(view);
+    pub(crate) fn set_manifest(&mut self, manifest: SearchIndexManifest) {
+        self.manifest = Some(manifest);
     }
 
     fn enable_deferred_columns(&mut self, required_early_columns: &HashSet<String>) {
@@ -666,27 +669,40 @@ impl PgSearchTableProvider {
             query.init_postgres_expressions(planstate);
             query.solve_postgres_expressions(expr_context);
         }
-        // Replay the view the codec injected for this source, when there is one: the leader's
-        // reader then matches the manifest the DSM was populated from. Any other reader opens a
-        // plain snapshot.
+        // An MPP source builds its reader from the manifest the codec injected: no second
+        // open, and it replays exactly the view the DSM was populated from.
         //
-        // Workers never reach this. An MPP worker decodes physical plans, and plans build
-        // address-free, so `parallel_state` is still null here and arrives on the physical scan
-        // later through `stamp_parallel_state`.
-        let mvcc_style = match self.segment_view.clone() {
-            Some(view) => MvccSatisfies::ParallelWorker(view),
-            None => MvccSatisfies::Snapshot,
-        };
-
-        let reader = SearchIndexReader::open_with_context(
-            &index_rel,
-            query.clone(),
-            self.scan_info.score_needed,
-            mvcc_style,
-            expr_context.and_then(std::ptr::NonNull::new),
-            None,
-            query.needs_tokenizer() || needs_tokenizer,
-        )
+        // Workers never reach the manifest arm. An MPP worker decodes physical plans, and
+        // plans build address-free, so `parallel_state` is still null here and arrives on the
+        // physical scan later through `stamp_parallel_state`.
+        let expr_ctx = expr_context.and_then(std::ptr::NonNull::new);
+        let needs_tokenizer = query.needs_tokenizer() || needs_tokenizer;
+        let reader = match self.manifest.as_ref() {
+            Some(manifest) => {
+                assert_eq!(
+                    unsafe { pg_sys::ParallelWorkerNumber },
+                    -1,
+                    "captured manifests are only valid while the MPP leader builds its plan"
+                );
+                SearchIndexReader::from_manifest(
+                    manifest,
+                    &index_rel,
+                    query.clone(),
+                    self.scan_info.score_needed,
+                    expr_ctx,
+                    needs_tokenizer,
+                )
+            }
+            None => SearchIndexReader::open_with_context(
+                &index_rel,
+                query.clone(),
+                self.scan_info.score_needed,
+                MvccSatisfies::Snapshot,
+                expr_ctx,
+                None,
+                needs_tokenizer,
+            ),
+        }
         .map_err(|e| DataFusionError::Internal(format!("Failed to open reader: {e}")))?;
 
         let ffhelper = FFHelper::with_fields(&reader, &projected_fields);

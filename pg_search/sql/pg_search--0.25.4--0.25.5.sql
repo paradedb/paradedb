@@ -1,5 +1,8 @@
-\echo Use "ALTER EXTENSION pg_search UPDATE TO '0.26.0'" to load this file. \quit
+\echo Use "ALTER EXTENSION pg_search UPDATE TO '0.25.5'" to load this file. \quit
 
+-- TODO: Do NOT release this in `0.25.5`! This snippet should be moved into `0.26.0` when
+-- that upgrade script becomes available, because it is intended for the `0.26.0` release.
+--
 -- Rename paradedb.create_bm25_test_table to paradedb.create_paradedb_test_table
 -- (#5903).
 DROP PROCEDURE IF EXISTS paradedb.create_bm25_test_table(table_name pg_catalog."varchar", schema_name pg_catalog."varchar", table_type paradedb.testtable);

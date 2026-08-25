@@ -104,45 +104,6 @@
                 ]
               },
               {
-                "group": "Text Analysis",
-                "pages": [
-                  "documentation/tokenizers/overview",
-                  {
-                    "group": "Tokenizers",
-                    "pages": [
-                      "documentation/tokenizers/available-tokenizers/unicode",
-                      "documentation/tokenizers/available-tokenizers/literal",
-                      "documentation/tokenizers/available-tokenizers/literal-normalized",
-                      "documentation/tokenizers/available-tokenizers/whitespace",
-                      "documentation/tokenizers/available-tokenizers/ngrams",
-                      "documentation/tokenizers/available-tokenizers/edge-ngrams",
-                      "documentation/tokenizers/available-tokenizers/simple",
-                      "documentation/tokenizers/available-tokenizers/regex",
-                      "documentation/tokenizers/available-tokenizers/chinese-compatible",
-                      "documentation/tokenizers/available-tokenizers/lindera",
-                      "documentation/tokenizers/available-tokenizers/icu",
-                      "documentation/tokenizers/available-tokenizers/jieba",
-                      "documentation/tokenizers/available-tokenizers/source-code"
-                    ]
-                  },
-                  {
-                    "group": "Token Filters",
-                    "pages": [
-                      "documentation/token-filters/overview",
-                      "documentation/token-filters/alphanumeric",
-                      "documentation/token-filters/ascii-folding",
-                      "documentation/token-filters/lowercase",
-                      "documentation/token-filters/stopwords",
-                      "documentation/token-filters/stemming",
-                      "documentation/token-filters/token-length",
-                      "documentation/token-filters/trim"
-                    ]
-                  },
-                  "documentation/tokenizers/multiple-per-field",
-                  "documentation/tokenizers/search-tokenizer"
-                ]
-              },
-              {
                 "group": "Full-Text / Lexical Search",
                 "pages": [
                   {
@@ -180,6 +141,45 @@
                       "documentation/sorting/score",
                       "documentation/sorting/boost",
                       "documentation/full-text/highlight"
+                    ]
+                  },
+                  {
+                    "group": "Text Analysis",
+                    "pages": [
+                      "documentation/tokenizers/overview",
+                      {
+                        "group": "Tokenizers",
+                        "pages": [
+                          "documentation/tokenizers/available-tokenizers/unicode",
+                          "documentation/tokenizers/available-tokenizers/literal",
+                          "documentation/tokenizers/available-tokenizers/literal-normalized",
+                          "documentation/tokenizers/available-tokenizers/whitespace",
+                          "documentation/tokenizers/available-tokenizers/ngrams",
+                          "documentation/tokenizers/available-tokenizers/edge-ngrams",
+                          "documentation/tokenizers/available-tokenizers/simple",
+                          "documentation/tokenizers/available-tokenizers/regex",
+                          "documentation/tokenizers/available-tokenizers/chinese-compatible",
+                          "documentation/tokenizers/available-tokenizers/lindera",
+                          "documentation/tokenizers/available-tokenizers/icu",
+                          "documentation/tokenizers/available-tokenizers/jieba",
+                          "documentation/tokenizers/available-tokenizers/source-code"
+                        ]
+                      },
+                      {
+                        "group": "Token Filters",
+                        "pages": [
+                          "documentation/token-filters/overview",
+                          "documentation/token-filters/alphanumeric",
+                          "documentation/token-filters/ascii-folding",
+                          "documentation/token-filters/lowercase",
+                          "documentation/token-filters/stopwords",
+                          "documentation/token-filters/stemming",
+                          "documentation/token-filters/token-length",
+                          "documentation/token-filters/trim"
+                        ]
+                      },
+                      "documentation/tokenizers/multiple-per-field",
+                      "documentation/tokenizers/search-tokenizer"
                     ]
                   }
                 ]

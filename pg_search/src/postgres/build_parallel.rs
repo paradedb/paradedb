@@ -835,6 +835,9 @@ impl<'a> WorkerBuildState<'a> {
             if current_pid != Some(pid) {
                 if current_pid.is_some() {
                     self.finish_cell(&mut cell_metas)?;
+                    // A cell merge leaves the status at garbage collecting while the drain
+                    // goes on indexing the next cell.
+                    unsafe { set_ps_display_suffix(INDEXING.as_ptr()) };
                 }
                 if self.writer.is_none() {
                     self.open_cell_writer()?;

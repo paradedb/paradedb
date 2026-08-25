@@ -53,21 +53,6 @@
             ]
           },
           {
-            "tab": "Concepts",
-            "icon": "lightbulb",
-            "pages": [
-              "concepts/why-search-inside-postgres",
-              "welcome/architecture",
-              "concepts/how-the-paradedb-index-works",
-              "documentation/full-text/overview",
-              "concepts/how-tantivy-works",
-              "concepts/how-block-wand-works",
-              "concepts/what-is-pgrx",
-              "welcome/guarantees",
-              "welcome/limitations"
-            ]
-          },
-          {
             "tab": "Reference",
             "icon": "book-open",
             "pages": [
@@ -245,6 +230,21 @@
                 ],
                 "expanded": false
               }
+            ]
+          },
+          {
+            "tab": "Concepts",
+            "icon": "lightbulb",
+            "pages": [
+              "concepts/why-search-inside-postgres",
+              "welcome/architecture",
+              "concepts/how-the-paradedb-index-works",
+              "documentation/full-text/overview",
+              "concepts/how-tantivy-works",
+              "concepts/how-block-wand-works",
+              "concepts/what-is-pgrx",
+              "welcome/guarantees",
+              "welcome/limitations"
             ]
           },
           {

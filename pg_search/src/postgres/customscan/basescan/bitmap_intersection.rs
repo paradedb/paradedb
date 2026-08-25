@@ -55,8 +55,6 @@ pub struct BitmapPlanner {
     rel: *mut pg_sys::RelOptInfo,
     bm25_oid: pg_sys::Oid,
     heap_exprs: Vec<*mut pg_sys::Node>,
-    /// Estimated rows the driving ParadeDB index scan will emit, when the caller has one.
-    /// Feeds the cost ledger; without it, harvest falls back to first-match.
     bm25_row_estimate: Option<f64>,
 }
 

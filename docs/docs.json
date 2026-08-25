@@ -107,43 +107,6 @@
                 "group": "Full-Text / Lexical Search",
                 "pages": [
                   {
-                    "group": "Query Types",
-                    "pages": [
-                      "documentation/full-text/match",
-                      "documentation/full-text/term",
-                      {
-                        "group": "Phrase and Proximity",
-                        "pages": [
-                          "documentation/full-text/phrase",
-                          "documentation/full-text/proximity",
-                          "documentation/query-builder/phrase/phrase-prefix",
-                          "documentation/query-builder/phrase/regex-phrase"
-                        ]
-                      },
-                      "documentation/full-text/fuzzy",
-                      "documentation/query-builder/term/regex",
-                      "documentation/query-builder/term/range-term",
-                      "documentation/query-builder/specialized/more-like-this",
-                      "documentation/query-builder/compound/query-parser",
-                      "documentation/query-builder/compound/all"
-                    ]
-                  },
-                  {
-                    "group": "Filtering and Sorting",
-                    "pages": [
-                      "documentation/filtering",
-                      "documentation/sorting/topk"
-                    ]
-                  },
-                  {
-                    "group": "Relevance Tuning",
-                    "pages": [
-                      "documentation/sorting/score",
-                      "documentation/sorting/boost",
-                      "documentation/full-text/highlight"
-                    ]
-                  },
-                  {
                     "group": "Text Analysis",
                     "pages": [
                       "documentation/tokenizers/overview",
@@ -180,6 +143,43 @@
                       },
                       "documentation/tokenizers/multiple-per-field",
                       "documentation/tokenizers/search-tokenizer"
+                    ]
+                  },
+                  {
+                    "group": "Query Types",
+                    "pages": [
+                      "documentation/full-text/match",
+                      "documentation/full-text/term",
+                      {
+                        "group": "Phrase and Proximity",
+                        "pages": [
+                          "documentation/full-text/phrase",
+                          "documentation/full-text/proximity",
+                          "documentation/query-builder/phrase/phrase-prefix",
+                          "documentation/query-builder/phrase/regex-phrase"
+                        ]
+                      },
+                      "documentation/full-text/fuzzy",
+                      "documentation/query-builder/term/regex",
+                      "documentation/query-builder/term/range-term",
+                      "documentation/query-builder/specialized/more-like-this",
+                      "documentation/query-builder/compound/query-parser",
+                      "documentation/query-builder/compound/all"
+                    ]
+                  },
+                  {
+                    "group": "Filtering and Sorting",
+                    "pages": [
+                      "documentation/filtering",
+                      "documentation/sorting/topk"
+                    ]
+                  },
+                  {
+                    "group": "Relevance Tuning",
+                    "pages": [
+                      "documentation/sorting/score",
+                      "documentation/sorting/boost",
+                      "documentation/full-text/highlight"
                     ]
                   }
                 ]

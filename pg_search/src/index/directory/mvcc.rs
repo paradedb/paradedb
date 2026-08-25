@@ -19,17 +19,15 @@ use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
 use crate::api::HashMap;
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
-use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::{ExpressionState, HeapFetchState};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     bm25_max_free_space, FileEntry, MVCCEntry, SegmentMetaEntry, SegmentMetaEntryContent,
     SegmentMetaEntryImmutable, SegmentMetaEntryMutable,
 };
-use crate::postgres::storage::buffer::{BorrowedBuffer, BufferManager, PinnedBuffer};
+use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
-use crate::schema::FieldSource;
 use parking_lot::Mutex;
 use pgrx::pg_sys;
 use std::any::Any;
@@ -876,16 +874,8 @@ pub fn index_memory_segment(
     mvcc_style: &MvccSatisfies,
 ) -> anyhow::Result<RamDirectory> {
     use crate::index::writer::index::SerialIndexWriter;
-    use crate::postgres::utils::{
-        resolve_field_value, row_to_search_document, u64_to_item_pointer,
-    };
-    use pgrx::{
-        pg_sys::{
-            heap_deform_tuple, GetOldestNonRemovableTransactionId, HTSV_Result,
-            HeapTupleSatisfiesVacuum,
-        },
-        PgTupleDesc,
-    };
+    use crate::postgres::heap::HeapDocFetcher;
+    use pgrx::PgTupleDesc;
 
     /// RAII guard that guarantees an active snapshot for the duration of the heap reads and
     /// detoasting performed while materializing a mutable segment.
@@ -945,25 +935,13 @@ pub fn index_memory_segment(
     let search_schema = indexrel.schema()?;
     let categorized_fields = search_schema.categorized_fields();
     let created_by_version = indexrel.created_by_version();
-    let oldest_xmin = unsafe { GetOldestNonRemovableTransactionId(heaprel.as_ptr()) };
-
-    let mut values = vec![pg_sys::Datum::null(); heaptupdesc.len()];
-    let mut isnull = vec![false; heaptupdesc.len()];
 
     // Query-visible materialization (Snapshot / ParallelWorker / LargestSegment) fetches each ctid
-    // with the active MVCC snapshot so that detoasting is safe: that registered snapshot holds back
-    // the global xmin horizon, preventing a concurrent VACUUM from reclaiming the external TOAST
-    // chunks we read. Fetching such rows with SnapshotAny could instead select DEAD /
-    // RECENTLY_DEAD versions whose TOAST has already been (or is being) freed, raising spurious
-    // "missing/unexpected chunk number ... in pg_toast_*" errors. Because materialization happens
-    // lazily inside query planning or execution, the active snapshot here is the snapshot that
-    // defines query-visible heap rows, so indexing an invisible ctid as empty cannot change a
-    // query result or estimate.
-    //
-    // Maintenance materialization (e.g. Mergeable) must index every live ctid regardless of any
-    // single snapshot, since the resulting segment may serve future snapshots, so it keeps using
-    // SnapshotAny and filters dead tuples with HeapTupleSatisfiesVacuum.
-    // See: https://github.com/paradedb/paradedb/issues/5365
+    // with the active MVCC snapshot; maintenance materialization (e.g. Mergeable) must index every
+    // live ctid regardless of any single snapshot. See the `HeapDocFetcher` docs for the full
+    // reasoning. Because query-visible materialization happens lazily inside query planning or
+    // execution, the active snapshot here is the snapshot that defines query-visible heap rows,
+    // so indexing an invisible ctid as empty cannot change a query result or estimate.
     let query_visible = match mvcc_style {
         MvccSatisfies::Snapshot
         | MvccSatisfies::ParallelWorker(_)
@@ -971,209 +949,23 @@ pub fn index_memory_segment(
         MvccSatisfies::Vacuum | MvccSatisfies::Mergeable => false,
     };
 
-    'next_ctid: for ctid in ctids {
-        // Guard against stale ctids referencing heap blocks truncated by VACUUM.
-        if !unsafe {
-            crate::postgres::utils::ctid_satisfies_nblocks(
-                ctid,
-                heaprel.as_ptr(),
-                heaprel.fork_number(),
-            )
-        } {
-            writer.insert(tantivy::TantivyDocument::new(), ctid, || {
-                unreachable!("No limits configured: should not finalize.")
-            })?;
-            continue 'next_ctid;
-        }
+    let mut fetcher = HeapDocFetcher::new(
+        heap_fetch_state,
+        expression_state,
+        &heaprel,
+        &heaptupdesc,
+        categorized_fields.as_slice(),
+        created_by_version,
+        query_visible,
+    );
 
-        let mut ipd = pg_sys::ItemPointerData::default();
-        u64_to_item_pointer(ctid, &mut ipd);
-
-        unsafe {
-            // See `query_visible` above for why these two styles fetch with different snapshots.
-            let fetch_snapshot = if query_visible {
-                pg_sys::GetActiveSnapshot()
-            } else {
-                &raw mut pg_sys::SnapshotAnyData
-            };
-            let mut call_again = false;
-            'next_hot_chain: loop {
-                let fetched = pg_sys::table_index_fetch_tuple(
-                    heap_fetch_state.scan,
-                    &mut ipd,
-                    fetch_snapshot,
-                    heap_fetch_state.slot(),
-                    // call_again: This parameter will be set to true if this `ctid` points to multiple
-                    // tuples as part of a HOT chain. We must attempt to find one live version of the
-                    // tuple, and it may not be the first one in the chain.
-                    &mut call_again,
-                    // all_dead: Can hypothetically signal that a `ctid` is dead in all
-                    // transactions: in practice, never actually seems to be anything but false
-                    // when used with `SnapshotAnyData`.
-                    &mut false,
-                );
-
-                if !fetched {
-                    // Either the tuple is not visible to `fetch_snapshot` (query-visible mode) or
-                    // heap page pruning removed it (SnapshotAny mode). In both cases there is no
-                    // content to index for this ctid, so insert an empty document.
-                    writer.insert(tantivy::TantivyDocument::new(), ctid, || {
-                        unreachable!("No limits configured: should not finalize.")
-                    })?;
-                    continue 'next_ctid;
-                }
-
-                if query_visible {
-                    // Visible to the snapshot: skip the SnapshotAny dead-tuple filtering below and
-                    // index it.
-                    break;
-                }
-
-                let mut htsv_result = {
-                    let buffer = (*heap_fetch_state.buffer_heap_slot()).buffer;
-                    let _lock = BorrowedBuffer::from_pg(buffer);
-                    HeapTupleSatisfiesVacuum(
-                        (*heap_fetch_state.buffer_heap_slot()).base.tuple,
-                        oldest_xmin,
-                        buffer,
-                    )
-                };
-
-                if htsv_result == HTSV_Result::HEAPTUPLE_RECENTLY_DEAD {
-                    // Our `oldest_xmin` might be stale compared to a concurrent VACUUM.
-                    // If VACUUM saw this tuple as DEAD and deleted its TOAST chunks, we
-                    // must also see it as DEAD, otherwise we'll crash trying to read them.
-                    //
-                    // A single re-check is sufficient (no loop needed) because
-                    // `GetOldestNonRemovableTransactionId` returns the current global
-                    // XID horizon. If the tuple is still RECENTLY_DEAD under this fresh
-                    // horizon, then no concurrent VACUUM could have considered it DEAD
-                    // (VACUUM uses the same or an older horizon), so its TOAST data is
-                    // guaranteed to still exist.
-                    let fresh_oldest_xmin =
-                        pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr());
-                    if fresh_oldest_xmin != oldest_xmin {
-                        let buffer = (*heap_fetch_state.buffer_heap_slot()).buffer;
-                        let _lock = BorrowedBuffer::from_pg(buffer);
-                        htsv_result = HeapTupleSatisfiesVacuum(
-                            (*heap_fetch_state.buffer_heap_slot()).base.tuple,
-                            fresh_oldest_xmin,
-                            buffer,
-                        );
-                    }
-                }
-
-                if htsv_result == HTSV_Result::HEAPTUPLE_DEAD {
-                    // table_index_fetch_tuple stored this dead tuple in a buffer-backed slot. Since
-                    // this branch skips the tuple, clear the slot before any HOT-chain retry or ctid
-                    // skip so the slot releases its buffer pin.
-                    pg_sys::ExecClearTuple(heap_fetch_state.slot());
-
-                    // This copy of the tuple is no longer visible to any transaction. Are there
-                    // more in the HOT chain?
-                    if call_again {
-                        // There are more entries in the hot chain: find the first one that is
-                        // visible.
-                        continue 'next_hot_chain;
-                    } else {
-                        // There are no more entries in the HOT chain, so no copy of the tuple is
-                        // visible in any transaction.
-                        writer.insert(tantivy::TantivyDocument::new(), ctid, || {
-                            unreachable!("No limits configured: should not finalize.")
-                        })?;
-                        continue 'next_ctid;
-                    }
-                }
-
-                // We successfully fetched a tuple. Break out to fetch and deform it.
-                break;
-            }
-
-            // We have a completely valid tuple to index: fetch and deform it.
-            //
-            // NOTE: We intentionally pass `false` (don't materialize) to keep the
-            // buffer pin held by the BufferHeapTupleTableSlot. This pin blocks
-            // VACUUM's LockBufferForCleanup, which prevents it from removing the
-            // heap tuple and deleting its TOAST chunks while we read them below.
-            // See: https://github.com/paradedb/paradedb/issues/5076
-            let htup = pg_sys::ExecFetchSlotHeapTuple(
-                heap_fetch_state.slot(),
-                false,
-                std::ptr::null_mut(),
-            );
-
-            heap_deform_tuple(
-                htup,
-                heaptupdesc.as_ptr(),
-                values.as_mut_ptr(),
-                isnull.as_mut_ptr(),
-            );
-
-            // Eagerly detoast all variable-length (varlena) datums while the
-            // buffer pin is still held. Without this, the lazy detoasting in
-            // row_to_search_document can race with VACUUM deleting TOAST chunks
-            // after we release the pin (the "missing chunk number 0" crash).
-            // pg_detoast_datum is a no-op for already-inline / non-TOASTed data.
-            for i in 0..heaptupdesc.len() {
-                if !isnull[i] {
-                    let att = heaptupdesc.get(i).expect("valid attribute");
-                    if att.attlen == -1 {
-                        values[i] =
-                            pg_sys::Datum::from(pg_sys::pg_detoast_datum(values[i].cast_mut_ptr()));
-                    }
-                }
-            }
-
-            let expr_results = expression_state.evaluate(heap_fetch_state.slot());
-
-            let mut doc = tantivy::TantivyDocument::new();
-
-            // Unpack all composites upfront from expr_results
-            let unpacked_composites = CompositeSlotValues::from_composites(
-                categorized_fields.iter().filter_map(|(_, cat)| {
-                    if let FieldSource::CompositeField {
-                        expression_idx,
-                        composite_type_oid,
-                        ..
-                    } = cat.source
-                    {
-                        let (datum, is_null) = expr_results[expression_idx];
-                        Some((expression_idx, datum, is_null, composite_type_oid))
-                    } else {
-                        None
-                    }
-                }),
-            );
-
-            row_to_search_document(
-                categorized_fields.iter().map(|(field, categorized)| {
-                    let (datum, is_null) = resolve_field_value(
-                        &categorized.source,
-                        &values,
-                        &isnull,
-                        &expr_results,
-                        &unpacked_composites,
-                    );
-                    (datum, is_null, field, categorized)
-                }),
-                &mut doc,
-                created_by_version,
-            )
-            .unwrap_or_else(|e| {
-                panic!("Failed to create document from row: {e}");
-            });
-
-            writer.insert(doc, ctid, || {
-                unreachable!("No limits configured: should not finalize.")
-            })?;
-
-            // Eagerly release the buffer pin now that all datum values have
-            // been detoasted into palloc'd memory. Without this, the pin would
-            // stay held until the next table_index_fetch_tuple call (which
-            // replaces the slot contents) or until HeapFetchState is dropped at
-            // end-of-query, unnecessarily blocking VACUUM on this buffer.
-            pg_sys::ExecClearTuple(heap_fetch_state.slot());
-        }
+    for ctid in ctids {
+        // A ctid with nothing to index becomes an empty document: the segment must contain
+        // every ctid in the mutable snapshot.
+        let doc = unsafe { fetcher.fetch_doc(ctid) }.unwrap_or_else(tantivy::TantivyDocument::new);
+        writer.insert(doc, ctid, || {
+            unreachable!("No limits configured: should not finalize.")
+        })?;
     }
 
     writer.finalize_nocommit()?.expect(

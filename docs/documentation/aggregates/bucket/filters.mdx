@@ -101,8 +101,12 @@ await dbContext
 </CodeGroup>
 
 <Note>
-  Use lowercase `electronics` and `footwear`. The default BM25 tokenizer
-  lowercases terms, so `Electronics` and `Footwear` would not match here.
+  `===` matches indexed terms exactly, so the casing depends on `category`'s
+  tokenizer. With the default tokenizer or
+  [`literal_normalized`](/documentation/tokenizers/available-tokenizers/literal-normalized),
+  terms are lowercased: use `electronics`. With the
+  [`literal`](/documentation/tokenizers/available-tokenizers/literal) tokenizer,
+  which preserves the original casing, use `Electronics`.
 </Note>
 
 ```ini Expected Response

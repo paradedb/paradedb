@@ -62,6 +62,7 @@ use crate::index::fast_fields_helper::FFHelper;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::index::stats::segments_for_partition;
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::customscan::parallel::segment_view;
@@ -1056,9 +1057,13 @@ impl ExecutionPlan for PgSearchScanPlan {
                 false
             };
 
-            let search_results = if range_boundaries.is_some() {
-                // Range partitioned mode explicitly scans all segments
-                reader.search()
+            let search_results = if let Some(range_boundaries) = &range_boundaries {
+                // Range partitioned mode has no shared scan state: each partition searches the
+                // segments its bounds can reach, per their `.stats`. The query above still
+                // filters the rows, so a segment kept in doubt costs time, not correctness.
+                let segment_ids =
+                    segments_for_partition(&reader, range_boundaries, target_partition);
+                reader.search_segments(segment_ids.into_iter())
             } else {
                 // Standard mode delegates to the parallel state if present
                 match parallel_state {

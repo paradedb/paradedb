@@ -34,6 +34,7 @@ use crate::index::fast_fields_helper::FFType;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::index::stats::persisted_split_points;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::SearchQueryInput;
@@ -396,6 +397,18 @@ fn sample_fast_field(
     partition_by: &FieldName,
 ) -> Result<RangePartitioningSample> {
     let index_rel = PgSearchRelation::open(provider.scan_info.indexrelid);
+    // A partitioned build fixed its cell boundaries up front and stamped them on its segments.
+    // They describe the whole table, unlike a sample of one segment, and cost one small read
+    // per segment.
+    let persisted = persisted_split_points(&index_rel, partition_by.as_ref()).map_err(|e| {
+        DataFusionError::Internal(format!("Failed to read segment statistics: {e}"))
+    })?;
+    if !persisted.is_empty() {
+        return Ok(RangePartitioningSample {
+            partition_by: partition_by.clone(),
+            sample_points: persisted,
+        });
+    }
     // TODO: Reading the index during planning adds latency to DataFusion logical planning.
     // This is a temporary situation for M1. In M2, we will migrate this sampling to
     // something that happens prior to CREATE INDEX, or switch to using pg_statistic.

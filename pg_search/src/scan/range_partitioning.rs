@@ -117,6 +117,33 @@ impl RangePartitioning {
         }
     }
 
+    /// The value range of `partition` as bounds, or `None` when the partition is not a range:
+    /// no split points at all (every row), or a NULL upper split (no row).
+    pub fn partition_range(
+        &self,
+        partition: usize,
+    ) -> Option<(
+        std::ops::Bound<PdbOwnedValue>,
+        std::ops::Bound<PdbOwnedValue>,
+    )> {
+        if self.split_points.is_empty() {
+            return None;
+        }
+        let lower = match partition
+            .checked_sub(1)
+            .and_then(|i| self.split_points.get(i))
+        {
+            None | Some(PdbOwnedValue::Null) => std::ops::Bound::Unbounded,
+            Some(val) => std::ops::Bound::Included(val.clone()),
+        };
+        let upper = match self.split_points.get(partition) {
+            Some(PdbOwnedValue::Null) => return None,
+            Some(val) => std::ops::Bound::Excluded(val.clone()),
+            None => std::ops::Bound::Unbounded,
+        };
+        Some((lower, upper))
+    }
+
     /// Translates these boundaries into a DataFusion [`Partitioning::Range`] declaration
     /// over `schema`, so the planner can co-partition operators (e.g. joins) without a
     /// repartition or broadcast.

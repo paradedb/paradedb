@@ -42,6 +42,7 @@ mod imp {
     struct SegmentIo {
         components: BTreeMap<String, IoCounters>,
         stages: BTreeMap<String, IoCounters>,
+        scan_init_components: BTreeMap<String, IoCounters>,
     }
 
     impl SegmentIo {
@@ -64,13 +65,19 @@ mod imp {
             blks_read: read1.saturating_sub(read0) as u64,
         };
         CURRENT.with_borrow_mut(|current| {
-            let slot = current.components.entry(component.to_string()).or_default();
+            let component = component.to_string();
+            let slot = current.components.entry(component.clone()).or_default();
             slot.blks_hit += delta.blks_hit;
             slot.blks_read += delta.blks_read;
             if let Some(stage) = stage_name(current_vector_stage()) {
-                let stage = current.stages.entry(stage).or_default();
-                stage.blks_hit += delta.blks_hit;
-                stage.blks_read += delta.blks_read;
+                let stage_slot = current.stages.entry(stage.clone()).or_default();
+                stage_slot.blks_hit += delta.blks_hit;
+                stage_slot.blks_read += delta.blks_read;
+                if stage == "scan_init" {
+                    let component_slot = current.scan_init_components.entry(component).or_default();
+                    component_slot.blks_hit += delta.blks_hit;
+                    component_slot.blks_read += delta.blks_read;
+                }
             }
         });
         result
@@ -79,6 +86,7 @@ mod imp {
     fn stage_name(stage: Stage) -> Option<String> {
         match stage {
             Stage::Other => None,
+            Stage::ScanInit => Some("scan_init".to_string()),
             Stage::QueryPrep => Some("query_prep".to_string()),
             Stage::Routing => Some("routing".to_string()),
             Stage::LayerScan(layer) => Some(format!("layer{layer}_scan")),
@@ -157,6 +165,26 @@ mod imp {
                             (counters.blks_hit + counters.blks_read).into(),
                         );
                     }
+                }
+                for (component, counters) in io.scan_init_components {
+                    let component = component
+                        .chars()
+                        .map(|character| {
+                            if character.is_ascii_alphanumeric() {
+                                character.to_ascii_lowercase()
+                            } else {
+                                '_'
+                            }
+                        })
+                        .collect::<String>();
+                    map.insert(
+                        format!("scan_init_io_{component}_buffer_hits"),
+                        counters.blks_hit.into(),
+                    );
+                    map.insert(
+                        format!("scan_init_io_{component}_buffer_reads"),
+                        counters.blks_read.into(),
+                    );
                 }
             }
         }

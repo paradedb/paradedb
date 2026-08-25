@@ -21,7 +21,7 @@ CREATE TABLE all_types
     whitespace_col         pdb.whitespace,
     source_code_col        pdb.source_code
 );
-ERROR:  type "pdb.regex" does not exist at character 499
+ERROR:  type "pdb.regex" does not exist
 INSERT INTO all_types(text_col, varchar_col, chinese_compatible_col, exact_col, jieba_col, lindera_chinese_col,
                       lindera_japanese_col, lindera_korean_col,
                       ngram_col, regex_col, simple_col, stemmed_en_col, whitespace_col, source_code_col)

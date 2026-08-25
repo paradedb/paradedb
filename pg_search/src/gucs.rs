@@ -26,14 +26,23 @@ use tantivy::aggregation::DEFAULT_BUCKET_LIMIT;
 
 use crate::postgres::options::MAX_MUTABLE_SEGMENT_ROWS;
 
+#[derive(pgrx::PostgresGucEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum PlannerWarnings {
+    Off,
+    #[default]
+    Warning,
+    Error,
+}
+
 /// Allows the user to toggle the use of our "ParadeDB Base Scan".
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Allows the user to toggle the use of our "ParadeDB Aggregate Scan".
 static ENABLE_AGGREGATE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-/// Validate aggregate scan eligibility
-static CHECK_AGGREGATE_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
+/// Controls the behavior of ParadeDB planner warnings when an optimized scan cannot be used
+static PLANNER_WARNINGS: GucSetting<PlannerWarnings> =
+    GucSetting::<PlannerWarnings>::new(PlannerWarnings::Warning);
 
 /// Allows the user to toggle the use of our "ParadeDB Join Scan".
 static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
@@ -102,9 +111,6 @@ static GLOBAL_TARGET_SEGMENT_COUNT: GucSetting<i32> = GucSetting::<i32>::new(0);
 static GLOBAL_ENABLE_BACKGROUND_MERGING: GucSetting<bool> = GucSetting::<bool>::new(true);
 static GLOBAL_MUTABLE_SEGMENT_ROWS: GucSetting<i32> = GucSetting::<i32>::new(-1);
 static EXPLAIN_RECURSIVE_ESTIMATES: GucSetting<bool> = GucSetting::<bool>::new(false);
-
-/// Validate Top K scan eligibility for LIMIT queries
-static CHECK_TOPK_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// When true, queries with expensive scorer construction (fuzzy, regex, range)
 /// use a cheap heuristic for selectivity estimation instead of building a full Tantivy scorer.
@@ -289,13 +295,13 @@ pub fn init() {
         GucFlags::default(),
     );
 
-    GucRegistry::define_bool_guc(
-        c"paradedb.check_aggregate_scan",
-        c"Validate Aggregate scan eligibility",
-        c"When enabled, logs a warning if a query expected to use the aggregate scan cannot. \
-          This helps detect performance issues during development where queries expected \
-          to use the aggregate scan fall back to slower execution methods.",
-        &CHECK_AGGREGATE_SCAN,
+    GucRegistry::define_enum_guc(
+        c"paradedb.planner_warnings",
+        c"Controls the behavior of ParadeDB planner warnings when an optimized scan cannot be used",
+        c"When set to 'warning' (default), logs a warning if a query expected to use an optimized \
+          scan (BaseScan / Top K, AggregateScan, or JoinScan) cannot. When set to 'error', raises \
+          an error instead. When set to 'off', suppresses checks and warnings.",
+        &PLANNER_WARNINGS,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -526,17 +532,6 @@ pub fn init() {
     );
 
     GucRegistry::define_bool_guc(
-        c"paradedb.check_topk_scan",
-        c"Validate Top K scan eligibility for LIMIT queries",
-        c"When enabled, logs a warning if a query with LIMIT cannot use the Top K scan. \
-          This helps detect performance issues during development where queries expected \
-          to use the Top K optimization fall back to slower execution methods.",
-        &CHECK_TOPK_SCAN,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
-    GucRegistry::define_bool_guc(
         c"paradedb.enable_heuristic_selectivity",
         c"Use heuristic selectivity for expensive query types",
         c"When enabled, fuzzy, regex, and range queries use a cheap heuristic for planner selectivity estimation instead of constructing a full Tantivy scorer. Default is true.",
@@ -713,8 +708,8 @@ pub fn enable_aggregate_custom_scan() -> bool {
     ENABLE_AGGREGATE_CUSTOM_SCAN.get()
 }
 
-pub fn check_aggregate_scan() -> bool {
-    CHECK_AGGREGATE_SCAN.get()
+pub fn planner_warnings() -> PlannerWarnings {
+    PLANNER_WARNINGS.get()
 }
 
 pub fn enable_join_custom_scan() -> bool {
@@ -874,10 +869,6 @@ pub fn global_mutable_segment_rows() -> Option<usize> {
 
 pub fn explain_recursive_estimates() -> bool {
     EXPLAIN_RECURSIVE_ESTIMATES.get()
-}
-
-pub fn check_topk_scan() -> bool {
-    CHECK_TOPK_SCAN.get()
 }
 
 pub fn enable_heuristic_selectivity() -> bool {

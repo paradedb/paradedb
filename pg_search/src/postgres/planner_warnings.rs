@@ -192,9 +192,97 @@ pub fn clear_planner_warnings() {
     });
 }
 
+thread_local! {
+    /// Tracks whether the current execution is within an `EXPLAIN` statement.
+    ///
+    /// When `paradedb.planner_warnings` is set to `error`, queries that cannot use
+    /// accelerated ParadeDB custom scans fail with an `ERROR`. However, running `EXPLAIN`
+    /// on those queries should still succeed so users can inspect the fallback execution plan
+    /// and diagnose optimization issues. When `IN_EXPLAIN` is `true`, `emit_planner_warnings()`
+    /// downgrades errors to `WARNING`s.
+    static IN_EXPLAIN: Cell<bool> = const { Cell::new(false) };
+}
+
+/// An RAII guard that sets `IN_EXPLAIN` to `true` if `is_explain` is true, and restores
+/// the previous state when dropped (supporting nested utility statements and clean unwinds).
+pub struct ExplainGuard {
+    prev: bool,
+}
+
+impl ExplainGuard {
+    /// Creates a new `ExplainGuard`. If `is_explain` is `true`, marks the thread-local
+    /// state as being inside an `EXPLAIN` query.
+    pub fn new(is_explain: bool) -> Self {
+        let prev = IN_EXPLAIN.with(|cell| {
+            let prev = cell.get();
+            if is_explain {
+                cell.set(true);
+            }
+            prev
+        });
+        Self { prev }
+    }
+}
+
+impl Drop for ExplainGuard {
+    fn drop(&mut self) {
+        IN_EXPLAIN.with(|cell| cell.set(self.prev));
+    }
+}
+
+/// Returns whether the current thread is currently planning or executing an `EXPLAIN` query.
+pub fn is_in_explain() -> bool {
+    IN_EXPLAIN.with(|cell| cell.get())
+}
+
+static mut PREV_PROCESS_UTILITY_HOOK: pg_sys::ProcessUtility_hook_type = None;
+
+#[allow(clippy::too_many_arguments)]
+#[rustfmt::skip]
+#[pgrx::pg_guard]
+unsafe extern "C-unwind" fn paradedb_process_utility_hook(
+    pstmt: *mut pg_sys::PlannedStmt,
+    query_string: *const ::core::ffi::c_char,
+    read_only_tree: bool,
+    context: pg_sys::ProcessUtilityContext::Type,
+    params: pg_sys::ParamListInfo,
+    query_env: *mut pg_sys::QueryEnvironment,
+    dest: *mut pg_sys::DestReceiver,
+    qc: *mut pg_sys::QueryCompletion,
+) {
+    let is_explain = !pstmt.is_null()
+        && !(*pstmt).utilityStmt.is_null()
+        && (*(*pstmt).utilityStmt).type_ == pg_sys::NodeTag::T_ExplainStmt;
+    let _explain_guard = ExplainGuard::new(is_explain);
+
+    if let Some(prev_hook) = PREV_PROCESS_UTILITY_HOOK {
+        prev_hook(pstmt, query_string, read_only_tree, context, params, query_env, dest, qc);
+    } else {
+        pg_sys::standard_ProcessUtility(pstmt, query_string, read_only_tree, context, params, query_env, dest, qc);
+    }
+}
+
+/// Register a `ProcessUtility_hook` to track when queries are being planned/executed under `EXPLAIN`.
+///
+/// This allows `emit_planner_warnings()` to downgrade `paradedb.planner_warnings = 'error'`
+/// to warnings during `EXPLAIN`, allowing users to inspect the query plan.
+pub unsafe fn register_explain_hook() {
+    PREV_PROCESS_UTILITY_HOOK = pg_sys::ProcessUtility_hook;
+    pg_sys::ProcessUtility_hook = Some(paradedb_process_utility_hook);
+}
+
 pub fn emit_planner_warnings() {
+    let mode = crate::gucs::planner_warnings();
+    if mode == crate::gucs::PlannerWarnings::Off {
+        return;
+    }
+
+    let in_explain = is_in_explain();
+
     PLANNER_STATE.with(|state| {
         let state = state.borrow();
+        let mut messages = Vec::new();
+
         // Flatten the map to iterate over all messages regardless of category
         for category_warnings in state.warnings.values() {
             for (message, warning_data) in category_warnings.iter() {
@@ -216,7 +304,7 @@ pub fn emit_planner_warnings() {
                 }
 
                 if warning_data.contexts.is_empty() {
-                    pgrx::warning!("{}", output);
+                    messages.push(output);
                 } else {
                     let label = if warning_data.contexts.len() > 1 {
                         "tables"
@@ -230,8 +318,25 @@ pub fn emit_planner_warnings() {
                         .cloned()
                         .collect::<Vec<_>>()
                         .join(", ");
-                    pgrx::warning!("{output} ({label}: {context_str})");
+                    messages.push(format!("{output} ({label}: {context_str})"));
                 }
+            }
+        }
+
+        if messages.is_empty() {
+            return;
+        }
+
+        if mode == crate::gucs::PlannerWarnings::Error && !in_explain {
+            if messages.len() == 1 {
+                pgrx::error!("{}", messages[0]);
+            } else {
+                let combined = messages.join("\n- ");
+                pgrx::error!("ParadeDB planner scan errors:\n- {combined}");
+            }
+        } else {
+            for msg in messages {
+                pgrx::warning!("{msg}");
             }
         }
     });

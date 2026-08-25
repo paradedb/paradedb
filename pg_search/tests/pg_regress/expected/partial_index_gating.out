@@ -36,7 +36,7 @@ END $$ LANGUAGE plpgsql;
 SELECT plan_uses(
   $$SELECT count(*) FROM pig_left WHERE category @@@ 'a'$$,
   'ParadeDB Aggregate Scan') AS agg_when_predicate_missing;
-WARNING:  Aggregate Scan not used: query does not imply the partial index predicate. To disable this warning: SET paradedb.check_aggregate_scan = false (table: pig_left)
+WARNING:  Aggregate Scan not used: query does not imply the partial index predicate. To disable this warning: SET paradedb.planner_warnings = 'off' (table: pig_left)
  agg_when_predicate_missing 
 ----------------------------
  f

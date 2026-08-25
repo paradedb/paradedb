@@ -41,7 +41,7 @@ PREPARE issue_4598_prep(text) AS
 SELECT COUNT(*) FROM issue_4598_repro
 WHERE text_searchable @@@ paradedb.all()
 AND doc_id_hash = $1;
-ERROR:  column "text_searchable" does not exist at character 78
+ERROR:  column "text_searchable" does not exist
 EXECUTE issue_4598_prep('098f6bcd4621d373cade4e832627b4f6');
  count 
 -------

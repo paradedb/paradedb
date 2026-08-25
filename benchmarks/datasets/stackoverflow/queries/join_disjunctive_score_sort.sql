@@ -9,7 +9,7 @@
 --              the impact of scoring and top-K sorting on disjunctive join scans.
 -- TODO:        Implement Block-Max WAND (BMW) scoring optimization for join scans: https://github.com/paradedb/paradedb/issues/5301
 
--- Query Info:
+-- Query Info (statistics from 20m dataset):
 -- - 'python' selectivity:
 --   - comments.text ||| 'python': ~220k matches
 --   - stackoverflow_posts.title ||| 'python': ~170k matches

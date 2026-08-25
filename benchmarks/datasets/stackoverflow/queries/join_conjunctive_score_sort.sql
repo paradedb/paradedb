@@ -9,7 +9,7 @@
 --              conjunctive join scans.
 -- TODO:        Implement Block-Max WAND (BMW) scoring optimization for join scans: https://github.com/paradedb/paradedb/issues/5301
 
--- Query Info:
+-- Query Info (statistics from 20m dataset):
 -- - selectivity:
 --   - comments.text ||| 'question': ~1.9m matches (~6.7%)
 --   - stackoverflow_posts.title ||| 'error': ~290k matches (~1.5%)

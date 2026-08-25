@@ -10,7 +10,7 @@
 --              "local sort" as a distinct benchmark isolates pure join and filter evaluation performance.
 -- TODO:        Implement Block-Max WAND (BMW) scoring optimization for join scans: https://github.com/paradedb/paradedb/issues/5301
 
--- Query Info:
+-- Query Info (statistics from 20m dataset):
 -- - 'python' selectivity:
 --   - comments.text ||| 'python': ~220k matches
 --   - stackoverflow_posts.title ||| 'python': ~170k matches

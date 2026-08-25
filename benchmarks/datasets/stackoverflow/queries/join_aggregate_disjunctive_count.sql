@@ -6,7 +6,7 @@
 --              users can execute broad full-text searches across normalized table boundaries
 --              without paying the storage, memory, or ingestion cost of denormalizing parent/child entities.
 
--- Query Info:
+-- Query Info (statistics from 20m dataset):
 -- - 'python' selectivity:
 --   - comments.text ||| 'python': ~220k matches
 --   - stackoverflow_posts.title ||| 'python': ~170k matches

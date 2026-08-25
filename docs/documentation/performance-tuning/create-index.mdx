@@ -28,8 +28,9 @@ SET maintenance_work_mem = '2GB';
 ```
 
 <Note>
-  Each worker is required to have at least `15MB` memory. If
-  `maintenance_work_mem` is set too low, an error will be returned.
+  The `64MB` per worker above is a performance recommendation. The hard minimum
+  is `15MB` per worker: if `maintenance_work_mem` allots less than that to any
+  worker, an error is returned.
 </Note>
 
 ### Defer Index Creation

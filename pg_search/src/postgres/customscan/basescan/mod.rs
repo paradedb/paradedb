@@ -1059,11 +1059,10 @@ impl CustomScan for BaseScan {
                         )
                         .set_force_path(forced);
 
-                        // Our BaseScan is always parallel-safe (can run in a worker), even when it's not
-                        // parallel-aware (splitting segments).
-                        if consider_parallel_local {
-                            path_builder = path_builder.set_parallel_safe(true);
-                        }
+                        path_builder = path_builder.set_parallel_safe(
+                            consider_parallel_local
+                                && !matches!(reason, WorkerDecisionReason::GlobalVectorSearch),
+                        );
                         if let Some(nworkers) = nworkers {
                             path_builder = path_builder.set_parallel(nworkers.get());
                         }
@@ -1086,6 +1085,11 @@ impl CustomScan for BaseScan {
                         method_private.set_worker_selection_reason(reason);
                         path_builder.build(method_private)
                     };
+
+                if is_vector_orderby {
+                    custom_paths.push(make_path(None, false, force));
+                    continue;
+                }
 
                 match policy {
                     WorkerPathPolicy::SerialOnly { .. } => {

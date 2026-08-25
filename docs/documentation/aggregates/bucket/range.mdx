@@ -97,5 +97,13 @@ await dbContext
 (1 row)
 ```
 
+<Note>
+  The response contains a `6-*` bucket that was not requested. The range
+  aggregation automatically adds unbounded buckets so that the full value range
+  is covered: here the last requested range ends at `6`, so a `6-*` bucket
+  counts any values above it. This differs from Elasticsearch, which returns
+  only the requested ranges.
+</Note>
+
 See the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregation/bucket/struct.RangeAggregation.html)
 for all available options.

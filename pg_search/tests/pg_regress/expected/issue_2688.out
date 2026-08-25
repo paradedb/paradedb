@@ -127,7 +127,7 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY quantity_range, valid_period
 LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.check_topk_scan = false (table: data_records)
+WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: data_records)
  id |   title    | quantity_range |                          valid_period                           
 ----+------------+----------------+-----------------------------------------------------------------
  10 | Product 10 | [0,10)         | ["Wed Jan 11 00:00:00 2023 PST","Sat Feb 11 00:00:00 2023 PST")
@@ -148,7 +148,7 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY quantity_range, valid_period
 LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.check_topk_scan = false (table: data_records)
+WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: data_records)
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -167,7 +167,7 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY price ASC, valid_period ASC
 LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.check_topk_scan = false (table: data_records)
+WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: data_records)
  id |   title    |  price   |                          valid_period                           
 ----+------------+----------+-----------------------------------------------------------------
   1 | Product 1  |  1000.00 | ["Mon Jan 02 00:00:00 2023 PST","Thu Feb 02 00:00:00 2023 PST")
@@ -188,7 +188,7 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY price ASC, valid_period ASC
 LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.check_topk_scan = false (table: data_records)
+WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: data_records)
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit

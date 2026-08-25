@@ -124,7 +124,7 @@ SELECT id, name_icu FROM collation_test
 WHERE id @@@ paradedb.all()
 ORDER BY name_icu
 LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Columnar instead). Reason: ORDER BY columns whose collation is not byte-ordered (C-like) cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Specify COLLATE "C" in your query, or use a byte-ordered collation instead. To disable this warning: SET paradedb.check_topk_scan = false (table: collation_test)
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Columnar instead). Reason: ORDER BY columns whose collation is not byte-ordered (C-like) cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Specify COLLATE "C" in your query, or use a byte-ordered collation instead. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
                            QUERY PLAN                           
 ----------------------------------------------------------------
  Limit
@@ -189,7 +189,7 @@ SELECT id, name_c FROM collation_test
 WHERE id @@@ paradedb.all()
 ORDER BY name_c COLLATE "test_icu"
 LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns whose collation is not byte-ordered (C-like) cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Specify COLLATE "C" in your query, or use a byte-ordered collation instead. To disable this warning: SET paradedb.check_topk_scan = false (table: collation_test)
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns whose collation is not byte-ordered (C-like) cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Specify COLLATE "C" in your query, or use a byte-ordered collation instead. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
                            QUERY PLAN                           
 ----------------------------------------------------------------
  Limit
@@ -307,7 +307,7 @@ FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY name_case_insensitive
 ORDER BY name;
-WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.check_aggregate_scan = false (table: collation_test)
+WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
                                    QUERY PLAN                                    
 ---------------------------------------------------------------------------------
  Sort
@@ -330,7 +330,7 @@ FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY name_case_insensitive
 ORDER BY name;
-WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.check_aggregate_scan = false (table: collation_test)
+WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
     name     | count 
 -------------+-------
  clothing    |     1
@@ -345,7 +345,7 @@ SELECT name_c, COUNT(*)
 FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY GROUPING SETS ((name_c), ());
-WARNING:  Aggregate Scan not used: GROUPING SETS are not supported. To disable this warning: SET paradedb.check_aggregate_scan = false (table: collation_test)
+WARNING:  Aggregate Scan not used: GROUPING SETS are not supported. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
                         QUERY PLAN                        
 ----------------------------------------------------------
  MixedAggregate
@@ -368,7 +368,7 @@ FROM (
     WHERE id @@@ paradedb.all()
     GROUP BY GROUPING SETS ((name_c), ())
 ) AS grouped;
-WARNING:  Aggregate Scan not used: GROUPING SETS are not supported. To disable this warning: SET paradedb.check_aggregate_scan = false (table: collation_test)
+WARNING:  Aggregate Scan not used: GROUPING SETS are not supported. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
  group_count 
 -------------
            6
@@ -386,7 +386,7 @@ SELECT name_c, COUNT(*)
 FROM collation_test
 WHERE name_c = 'apple' AND id @@@ paradedb.all()
 GROUP BY name_c;
-WARNING:  Aggregate Scan not used: could not verify GROUP BY semantics. To disable this warning: SET paradedb.check_aggregate_scan = false (table: collation_test)
+WARNING:  Aggregate Scan not used: could not verify GROUP BY semantics. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
                                                                                              QUERY PLAN                                                                                             
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -413,7 +413,7 @@ SELECT name_case_insensitive, COUNT(*)
 FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY name_case_insensitive;
-WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.check_aggregate_scan = false (table: collation_test)
+WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
                         QUERY PLAN                        
 ----------------------------------------------------------
  HashAggregate
@@ -435,7 +435,7 @@ FROM (
     WHERE id @@@ paradedb.all()
     GROUP BY name_case_insensitive
 ) AS grouped;
-WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.check_aggregate_scan = false (table: collation_test)
+WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
  group_count 
 -------------
            3
@@ -457,7 +457,7 @@ SELECT name_c, name_case_insensitive, COUNT(*) FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY name_c, name_case_insensitive
 ORDER BY name_c, name_case_insensitive;
-WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.check_aggregate_scan = false (table: collation_test)
+WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
                                           QUERY PLAN                                           
 -----------------------------------------------------------------------------------------------
  GroupAggregate
@@ -891,7 +891,7 @@ SELECT id, name_c, name_icu FROM collation_test
 WHERE id @@@ paradedb.all()
 ORDER BY name_c, name_icu
 LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.check_topk_scan = false (table: collation_test)
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
                            QUERY PLAN                            
 -----------------------------------------------------------------
  Limit
@@ -913,7 +913,7 @@ SELECT id, priority, name_icu FROM collation_test
 WHERE id @@@ paradedb.all()
 ORDER BY priority, name_icu
 LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.check_topk_scan = false (table: collation_test)
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
                            QUERY PLAN                           
 ----------------------------------------------------------------
  Limit

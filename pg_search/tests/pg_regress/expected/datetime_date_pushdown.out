@@ -226,7 +226,44 @@ ORDER BY day NULLS LAST, region;
 
 DROP TABLE events_nullable CASCADE;
 -- =====================================================================
--- Test 6: DATE(timestamptz) declines with a named TimeZone reason
+-- Test 6: timestamp boundaries use exact date conversion
+-- =====================================================================
+-- This is the boundary matrix from the PR review. Tantivy's old f64
+-- histogram path rounded the finite values into the next day, errored for
+-- the maximum timestamp and positive infinity, and returned garbage for
+-- negative infinity. DataFusion must match PostgreSQL for every row.
+DROP TABLE IF EXISTS events_boundaries CASCADE;
+CREATE TABLE events_boundaries (
+    id SERIAL PRIMARY KEY,
+    created_at TIMESTAMP NOT NULL
+);
+INSERT INTO events_boundaries (created_at) VALUES
+    ('0001-01-01 23:59:59.999999'),
+    ('9999-12-30 23:59:59.999999'),
+    ('9999-12-31 23:59:59.999999'),
+    ('294276-12-31 23:59:59.999999'),
+    ('infinity'),
+    ('-infinity');
+CREATE INDEX events_boundaries_idx ON events_boundaries USING paradedb (id, created_at)
+WITH (key_field = 'id');
+SELECT DATE(created_at) AS day, COUNT(*) AS cnt
+FROM events_boundaries
+WHERE id @@@ pdb.all()
+GROUP BY DATE(created_at)
+ORDER BY day;
+     day      | cnt 
+--------------+-----
+ -infinity    |   1
+ 01-01-0001   |   1
+ 12-30-9999   |   1
+ 12-31-9999   |   1
+ 12-31-294276 |   1
+ infinity     |   1
+(6 rows)
+
+DROP TABLE events_boundaries CASCADE;
+-- =====================================================================
+-- Test 7: DATE(timestamptz) declines with a named TimeZone reason
 -- =====================================================================
 -- date(timestamptz) [pg_proc 1178] depends on the session TimeZone, which
 -- the plan cannot see; only date(timestamp) [2029] is pushed down. Under

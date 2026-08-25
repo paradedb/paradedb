@@ -7,6 +7,14 @@ canonical: https://www.paradedb.com/docs/documentation/query-builder/term/range-
 `range_term` is the equivalent of Postgres' operators over [range types](https://www.postgresql.org/docs/current/rangetypes.html).
 It supports operations like range containment, overlap, and intersection.
 
+<Note>
+  The relation names describe the query range's perspective, which is the
+  reverse of Postgres' field-centric operator naming: `Contains` matches rows
+  whose range is contained by the query range (`weight_range <@ '(3, 9]'`), and
+  `Within` matches rows whose range contains the query range (`weight_range @>
+  '(3, 9]'`).
+</Note>
+
 ## Term Within
 
 In this example, `weight_range` is an `int4range` type.

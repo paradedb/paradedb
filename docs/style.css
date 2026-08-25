@@ -6,3 +6,13 @@
 img.nav-logo {
   height: 3rem !important;
 }
+
+/* Larger tab bar; Mintlify's default is 0.875rem text with 1rem icons */
+a.nav-tabs-item {
+  font-size: 1.0625rem !important;
+}
+
+a.nav-tabs-item span[class*="h-4"] {
+  height: 1.25rem !important;
+  width: 1.25rem !important;
+}

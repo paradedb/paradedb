@@ -21,10 +21,10 @@
             "tab": "Start",
             "icon": "rocket",
             "pages": [
+              "welcome/introduction",
               {
                 "group": "Getting Started",
                 "pages": [
-                  "welcome/introduction",
                   "documentation/getting-started/install",
                   "documentation/getting-started/environment",
                   "start/create-your-first-index",

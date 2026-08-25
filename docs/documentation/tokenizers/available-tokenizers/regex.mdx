@@ -16,8 +16,11 @@ WITH (key_field='id');
 The regex tokenizer uses the Rust [regex](https://docs.rs/regex/latest/regex/) crate, which supports all regex constructs with the following
 exceptions:
 
-1. Lazy quantifiers such as `+?`
-2. Word boundaries such as `\b`
+1. Look-around assertions such as `(?=...)`
+2. Backreferences such as `\1`
+
+Unlike [regex queries](/documentation/query-builder/term/regex), which match against the index's term dictionary, the tokenizer runs over the
+source text directly, so constructs like word boundaries (`\b`) and lazy quantifiers (`+?`) are supported, as the examples on this page show.
 
 To get a feel for this tokenizer, run the following command and replace the text with your own:
 

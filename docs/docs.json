@@ -72,6 +72,8 @@
             "icon": "book-open",
             "pages": [
               "reference/operators-and-functions",
+              "reference/configuration",
+              "reference/sql-functions",
               {
                 "group": "Indexing",
                 "pages": [
@@ -236,9 +238,7 @@
                 "pages": [
                   "documentation/joins/overview"
                 ]
-              },
-              "reference/configuration",
-              "reference/sql-functions"
+              }
             ]
           },
           {

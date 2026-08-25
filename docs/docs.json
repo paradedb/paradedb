@@ -22,7 +22,6 @@
             "icon": "rocket",
             "pages": [
               "welcome/introduction",
-              "start/choose-your-path",
               "documentation/getting-started/install",
               "documentation/getting-started/environment",
               "start/create-your-first-index",

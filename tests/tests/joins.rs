@@ -283,11 +283,13 @@ fn joinscan_self_join_duplicate_name_sort_matches_fallback(
         explain.contains("Custom Scan (ParadeDB Join Scan)"),
         "{explain}"
     );
-    // The VisibilityFilterExec is absorbed into SegmentedTopKExec, which now owns MVCC
-    // visibility checking, so it no longer appears as a separate node in the plan.
-    assert!(!explain.contains("VisibilityFilterExec"), "{explain}");
     assert!(explain.contains("TantivyLookupExec"), "{explain}");
-    assert!(explain.contains("SegmentedTopKExec"), "{explain}");
+    // Self-join ORDER BY on both aliases is not a SegmentedTopK plan: term
+    // ordinals are not comparable across the two scans (#6023). Sort after
+    // lookup, with visibility still a separate node.
+    assert!(explain.contains("SortExec"), "{explain}");
+    assert!(!explain.contains("SegmentedTopKExec"), "{explain}");
+    assert!(explain.contains("VisibilityFilterExec"), "{explain}");
     // Regression guard: both sort keys must appear at distinct physical indices.
     // A single-key collapse would silently return wrong ordering.
     assert!(

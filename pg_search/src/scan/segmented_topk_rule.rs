@@ -297,22 +297,29 @@ fn try_inject_below_lookup(
                     }
                 }
 
-                // If the sort requires deferred columns from multiple different indexes (tables),
-                // we cannot push the threshold down, because a single segment scanner cannot evaluate
-                // the threshold across multiple tables (it only sees its own base table).
-                // E.g. `ORDER BY f.title ASC, d.category DESC` is a multi-dimensional bound that
-                // spans across the HashJoin. We must gracefully fall back to a standard SortExec.
-                // TODO: Add support for SegmentedTopK executing the TopK, but without pushing down
-                // thresholds: see https://github.com/paradedb/paradedb/issues/4347
-                let first_indexrelid = deferred_columns.first().map(|d| d.canonical.indexrelid);
-                if let Some(id) = first_indexrelid
-                    && deferred_columns
-                        .iter()
-                        .any(|d| d.canonical.indexrelid != id)
+                // If the sort requires deferred columns from multiple join sources,
+                // we cannot push the threshold down: a single segment scanner cannot
+                // evaluate a bound that spans two aliases (even when they share an
+                // index, as in a self-join). Fall back to SortExec after lookup.
+                // E.g. `ORDER BY a.name, b.name` on `sj a JOIN sj b` (#6023).
+                let first_key = deferred_columns.first().map(|d| d.helper_key());
+                if let Some(key) = first_key
+                    && deferred_columns.iter().any(|d| d.helper_key() != key)
                 {
-                    pgrx::warning!(
-                        "SegmentedTopK: ORDER BY includes string columns from multiple tables, which is not currently supported. Falling back to default execution."
-                    );
+                    // Distinct indexes were already a user-visible fallback. A self-join
+                    // shares one index, so keep that path on debug to avoid log noise (#6023).
+                    if deferred_columns
+                        .iter()
+                        .any(|d| d.canonical.indexrelid != key.1)
+                    {
+                        pgrx::warning!(
+                            "SegmentedTopK: ORDER BY includes string columns from multiple tables, which is not currently supported. Falling back to default execution."
+                        );
+                    } else {
+                        pgrx::debug2!(
+                            "SegmentedTopK: ORDER BY includes string columns from multiple join sources, which is not currently supported. Falling back to default execution."
+                        );
+                    }
                     return Ok(None);
                 }
 

@@ -353,10 +353,10 @@ impl SegmentedTopKExec {
         Ok(RowConverter::new(materialized_sort_fields)?)
     }
 
-    fn ffhelper_for(
-        ffhelpers: &HashMap<FFHelperKey, Arc<FFHelper>>,
+    fn ffhelper_for<'a>(
+        ffhelpers: &'a HashMap<FFHelperKey, Arc<FFHelper>>,
         deferred: &DeferredSortColumn,
-    ) -> Result<&FFHelper> {
+    ) -> Result<&'a FFHelper> {
         ffhelpers
             .get(&deferred.helper_key())
             .map(Arc::as_ref)

@@ -1,11 +1,9 @@
 -- Regression test for issue #6023:
--- A self-join that sorts by a late-materialized column used to key the
--- deferred `FFHelper` map by index relid only. Both aliases share one
--- index, so one helper decoded for both. Each alias has its own fast-field
--- list, so `a.name`'s `ff_index` can address the wrong slot on `b`'s helper
--- and `LIMIT` keeps the wrong rows.
---
--- Keying helpers by `(plan_position, indexrelid)` keeps one helper per alias.
+-- A self-join that sorts by late-materialized columns from both aliases used
+-- to inject SegmentedTopK as if they were one source (same index relid).
+-- Term ordinals are not comparable across the two scans, so LIMIT kept the
+-- wrong rows. Helpers are keyed by `(plan_position, indexrelid)` for lookup,
+-- and SegmentedTopK falls back when sort keys span multiple join sources.
 
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan TO OFF;

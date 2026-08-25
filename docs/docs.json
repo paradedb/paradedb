@@ -71,9 +71,14 @@
             "tab": "Reference",
             "icon": "book-open",
             "pages": [
-              "reference/operators-and-functions",
-              "reference/configuration",
-              "reference/sql-functions",
+              {
+                "group": "Cheatsheets",
+                "pages": [
+                  "reference/operators-and-functions",
+                  "reference/configuration",
+                  "reference/sql-functions"
+                ]
+              },
               {
                 "group": "Indexing",
                 "pages": [

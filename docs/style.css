@@ -2,6 +2,7 @@
   visibility: visible;
 }
 
-#sidebar-content {
-  overflow-x: hidden !important;
+/* Enlarge the navbar logo; Mintlify's default is 1.5rem (h-6) */
+img.nav-logo {
+  height: 3rem !important;
 }

@@ -297,9 +297,8 @@ unsafe extern "C-unwind" fn param_resolver_mutator(
 ///   only "this block has matches" and discarding the offsets. Membership is
 ///   untestable, so nothing on these blocks can be rejected and all filters must run.
 /// - `recheck_blocks`: pages whose offsets are exact but whose matches the index AM
-///   flagged as approximate (e.g. GiST answering through bounding boxes; btree never
-///   sets this). Absent ctids are still sound rejections; present ones must also run
-///   the recheck filters.
+///   flagged as approximate. Absent ctids are still sound rejections; present ones
+///   must also run the recheck filters.
 ///
 /// Core's BitmapHeapScan collapses both into one per-page recheck bit because it
 /// visits whole pages; we probe individual ctids, so conflating them would forfeit

@@ -542,7 +542,7 @@
             },
             {
               "key": "url",
-              "value": "https://docs.paradedb.com$path"
+              "value": "https://www.paradedb.com/docs$path"
             }
           ]
         }

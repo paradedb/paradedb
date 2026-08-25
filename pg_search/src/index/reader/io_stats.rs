@@ -27,7 +27,7 @@
 #[cfg(feature = "io_stats")]
 mod imp {
     use pgrx::pg_sys;
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
     use std::collections::BTreeMap;
     use tantivy::index::{SegmentComponent, SegmentId};
     use tantivy::vector::{Stage, current_vector_stage};
@@ -54,6 +54,52 @@ mod imp {
     thread_local! {
         static CURRENT: RefCell<SegmentIo> = RefCell::default();
         static PER_SEGMENT: RefCell<Vec<(SegmentId, SegmentIo)>> = RefCell::default();
+        static PRE_SCAN_INIT: Cell<bool> = const { Cell::new(false) };
+        static PRESERVE_NEXT_RESET: Cell<bool> = const { Cell::new(false) };
+    }
+
+    pub struct ScanInitGuard {
+        hit0: i64,
+        read0: i64,
+    }
+
+    impl Drop for ScanInitGuard {
+        fn drop(&mut self) {
+            let (hit1, read1) = snapshot();
+            let total = IoCounters {
+                blks_hit: hit1.saturating_sub(self.hit0) as u64,
+                blks_read: read1.saturating_sub(self.read0) as u64,
+            };
+            CURRENT.with_borrow_mut(|current| {
+                let attributed = current.stages.get("scan_init").copied().unwrap_or_default();
+                let direct = IoCounters {
+                    blks_hit: total.blks_hit.saturating_sub(attributed.blks_hit),
+                    blks_read: total.blks_read.saturating_sub(attributed.blks_read),
+                };
+                let stage = current.stages.entry("scan_init".to_string()).or_default();
+                stage.blks_hit += direct.blks_hit;
+                stage.blks_read += direct.blks_read;
+                let component = current
+                    .scan_init_components
+                    .entry("executor".to_string())
+                    .or_default();
+                component.blks_hit += direct.blks_hit;
+                component.blks_read += direct.blks_read;
+            });
+            PRE_SCAN_INIT.set(false);
+            PRESERVE_NEXT_RESET.set(true);
+        }
+    }
+
+    /// Start the query-level reader-open window. The next collector reset is
+    /// suppressed so these counters join the first collected segment.
+    pub fn begin_scan_init() -> ScanInitGuard {
+        CURRENT.take();
+        PER_SEGMENT.take();
+        PRESERVE_NEXT_RESET.set(false);
+        PRE_SCAN_INIT.set(true);
+        let (hit0, read0) = snapshot();
+        ScanInitGuard { hit0, read0 }
     }
 
     pub fn record<R>(component: &SegmentComponent, read: impl FnOnce() -> R) -> R {
@@ -69,7 +115,12 @@ mod imp {
             let slot = current.components.entry(component.clone()).or_default();
             slot.blks_hit += delta.blks_hit;
             slot.blks_read += delta.blks_read;
-            if let Some(stage) = stage_name(current_vector_stage()) {
+            let stage = if PRE_SCAN_INIT.get() {
+                Some("scan_init".to_string())
+            } else {
+                stage_name(current_vector_stage())
+            };
+            if let Some(stage) = stage {
                 let stage_slot = current.stages.entry(stage.clone()).or_default();
                 stage_slot.blks_hit += delta.blks_hit;
                 stage_slot.blks_read += delta.blks_read;
@@ -107,6 +158,9 @@ mod imp {
 
     /// Forget any counts from outside a segment-collection window.
     pub fn reset() {
+        if PRESERVE_NEXT_RESET.replace(false) {
+            return;
+        }
         CURRENT.take();
         PER_SEGMENT.take();
     }
@@ -196,6 +250,13 @@ mod imp {
     use std::collections::BTreeMap;
     use tantivy::index::{SegmentComponent, SegmentId};
 
+    pub struct ScanInitGuard;
+
+    #[inline(always)]
+    pub fn begin_scan_init() -> ScanInitGuard {
+        ScanInitGuard
+    }
+
     #[inline(always)]
     pub fn record<R>(_component: &SegmentComponent, read: impl FnOnce() -> R) -> R {
         read()
@@ -211,4 +272,4 @@ mod imp {
     pub fn attach(_segment_info: &mut BTreeMap<SegmentId, serde_json::Value>) {}
 }
 
-pub use imp::{attach, end_segment, record, reset};
+pub use imp::{attach, begin_scan_init, end_segment, record, reset};

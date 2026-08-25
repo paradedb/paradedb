@@ -22,6 +22,7 @@ use std::path::PathBuf;
 use std::ptr::NonNull;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::time::Instant;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::operator::keyset::KeySet;
@@ -366,6 +367,9 @@ pub struct SearchIndexReader {
     total_docs: u64,
     index_created_by_version: Option<Version>,
     segment_ordinal_by_id: HashMap<SegmentId, SegmentOrdinal>,
+    /// Query-level index/searcher open time, charged once to the first vector
+    /// segment so flat-numeric aggregation remains additive.
+    scan_init_ns: u64,
     /// The directory `underlying_index` opened over; kept to capture this reader's
     /// [`SegmentView`].
     directory: MVCCDirectory,
@@ -412,6 +416,7 @@ impl Clone for SearchIndexReader {
             total_docs: self.total_docs,
             index_created_by_version: self.index_created_by_version,
             segment_ordinal_by_id: self.segment_ordinal_by_id.clone(),
+            scan_init_ns: self.scan_init_ns,
             directory: self.directory.clone(),
             _cleanup_lock: self._cleanup_lock.clone(),
         }
@@ -566,20 +571,25 @@ impl SearchIndexReader {
         planstate: Option<NonNull<pgrx::pg_sys::PlanState>>,
         needs_tokenizer_manager: bool,
     ) -> Result<Self> {
+        let scan_init_start = Instant::now();
+        let scan_init_io = io_stats::begin_scan_init();
         // Derive the tokenizer need from the query as well as the caller's flag: a caller
         // passing `false` alongside a query that tokenizes must not silently parse wrong.
         let needs_tokenizer_manager =
             needs_tokenizer_manager || search_query_input.needs_tokenizer();
         let components =
             Self::open_index_components(index_relation, mvcc_style, needs_tokenizer_manager)?;
-        Self::from_components(
+        let mut reader = Self::from_components(
             index_relation,
             components,
             search_query_input,
             need_scores,
             expr_context,
             planstate,
-        )
+        )?;
+        drop(scan_init_io);
+        reader.scan_init_ns = scan_init_start.elapsed().as_nanos() as u64;
+        Ok(reader)
     }
 
     /// Build a reader over `manifest`'s already-open components: same searcher, same frozen
@@ -596,20 +606,25 @@ impl SearchIndexReader {
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
         needs_tokenizer_manager: bool,
     ) -> Result<Self> {
+        let scan_init_start = Instant::now();
+        let scan_init_io = io_stats::begin_scan_init();
         if needs_tokenizer_manager || search_query_input.needs_tokenizer() {
             crate::index::search::register_tokenizers(
                 index_relation,
                 &manifest.components().index,
             )?;
         }
-        Self::from_components(
+        let mut reader = Self::from_components(
             index_relation,
             manifest.components().clone(),
             search_query_input,
             need_scores,
             expr_context,
             None,
-        )
+        )?;
+        drop(scan_init_io);
+        reader.scan_init_ns = scan_init_start.elapsed().as_nanos() as u64;
+        Ok(reader)
     }
 
     /// The shared tail of [`Self::open_with_context`] and [`Self::from_manifest`].
@@ -659,7 +674,6 @@ impl SearchIndexReader {
             .enumerate()
             .map(|(ord, reader)| (reader.segment_id(), ord as SegmentOrdinal))
             .collect();
-
         Ok(Self {
             index_rel: index_relation.clone(),
             searcher,
@@ -672,6 +686,7 @@ impl SearchIndexReader {
             total_docs,
             index_created_by_version,
             segment_ordinal_by_id: segment_ord_by_id,
+            scan_init_ns: 0,
             directory,
             _cleanup_lock: cleanup_lock,
         })
@@ -1300,6 +1315,19 @@ impl SearchIndexReader {
                 };
                 let segment_ids = collected_ids.into_inner();
                 let mut segment_info = probe_stats_to_segment_info(&segment_ids, &fruit.stats);
+                if let Some(first_segment) = segment_ids.first()
+                    && let Some(serde_json::Value::Object(stats)) =
+                        segment_info.get_mut(first_segment)
+                {
+                    let segment_scan_init = stats
+                        .get("scan_init_ns")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0);
+                    stats.insert(
+                        "scan_init_ns".to_string(),
+                        segment_scan_init.saturating_add(self.scan_init_ns).into(),
+                    );
+                }
                 io_stats::attach(&mut segment_info);
                 TopKSearch::with_segment_info(
                     TopKSearchResults::new_for_score(fruit.results, aggregation_results),

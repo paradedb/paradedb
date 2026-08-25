@@ -123,6 +123,9 @@ impl BaseScan {
     ///    In this case, every worker executes the full scan independently using its own
     ///    transaction snapshot (`MvccSatisfies::Snapshot`).
     pub(crate) fn init_search_reader(state: &mut CustomScanStateWrapper<Self>) {
+        let wrapper_start = std::time::Instant::now();
+        let executor_scan_init_ns =
+            std::mem::take(&mut state.custom_state_mut().executor_scan_init_ns);
         let planstate = state.planstate();
         let expr_context = state.runtime_context;
         state
@@ -235,6 +238,15 @@ impl BaseScan {
         unsafe {
             inject_pdb_placeholders(state);
         }
+
+        let wrapper_ns = wrapper_start.elapsed().as_nanos() as u64;
+        let reader = state
+            .custom_state_mut()
+            .search_reader
+            .as_mut()
+            .expect("search reader was initialized above");
+        let wrapper_residual_ns = wrapper_ns.saturating_sub(reader.scan_init_ns());
+        reader.add_scan_init_ns(executor_scan_init_ns.saturating_add(wrapper_residual_ns));
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1620,6 +1632,7 @@ impl CustomScan for BaseScan {
         estate: *mut pg_sys::EState,
         eflags: i32,
     ) {
+        let begin_start = std::time::Instant::now();
         unsafe {
             // open the heap and index relations with the proper locks
             let rte = pg_sys::exec_rt_fetch(state.custom_state().execution_rti, estate);
@@ -1691,6 +1704,10 @@ impl CustomScan for BaseScan {
                 .init_expr_context(estate, planstate);
             state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
         }
+        let begin_ns = begin_start.elapsed().as_nanos() as u64;
+        let custom_state = state.custom_state_mut();
+        custom_state.executor_scan_init_ns =
+            custom_state.executor_scan_init_ns.saturating_add(begin_ns);
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {

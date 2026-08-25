@@ -62,6 +62,9 @@ pub struct BaseScanState {
     base_search_query_input: SearchQueryInput,
     search_query_input: SearchQueryInput,
     pub search_reader: Option<SearchIndexReader>,
+    /// Executor startup before `SearchIndexReader::open`; consumed into the
+    /// reader's flat `scan_init_ns` metric on first execution.
+    pub executor_scan_init_ns: u64,
 
     pub targetlist_len: usize,
 

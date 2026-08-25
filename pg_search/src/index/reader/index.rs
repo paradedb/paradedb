@@ -700,6 +700,14 @@ impl SearchIndexReader {
             .collect()
     }
 
+    pub(crate) fn scan_init_ns(&self) -> u64 {
+        self.scan_init_ns
+    }
+
+    pub(crate) fn add_scan_init_ns(&mut self, elapsed_ns: u64) {
+        self.scan_init_ns = self.scan_init_ns.saturating_add(elapsed_ns);
+    }
+
     /// This reader's segment view, for other readers to replay through
     /// [`MvccSatisfies::ParallelWorker`].
     pub fn segment_view(&self) -> SegmentView {

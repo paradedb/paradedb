@@ -12,9 +12,7 @@ We're a lean team that likes to ship at [incredibly high velocity](https://githu
 
 - **[Native vector search](/documentation/vector/overview) (beta)**. The ParadeDB index natively indexes pgvector's `vector` type, addressing pgvector's limitations around filtered queries — specifically, queries that combine vector similarity with metadata filters or full-text search predicates.
 - **Incremental index maintenance**. Vector search quality currently degrades as indexed rows are updated. We are implementing SPFresh to maintain index quality incrementally.
-- **Quantization**. Scalar (`int8`) and binary quantization, to cut the memory and I/O cost of large vector indexes.
 - **Remaining pgvector types**. Implement support for pgvector's `halfvec`, `sparsevec`, and `bit` types.
-- **Integrated hybrid ranking**. [Reciprocal rank fusion](/documentation/hybrid/rrf) is available today. We are finalizing a more deeply integrated architecture for fusing BM25 scores and vector distances into a single ranking.
 
 ### JOIN Improvements
 

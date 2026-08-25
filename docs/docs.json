@@ -47,7 +47,6 @@
               "guides/faceted-search",
               "guides/hybrid-search",
               "guides/multi-language-search",
-              "documentation/joins/overview",
               "guides/search-json",
               "documentation/migration/elasticsearch-feature-comparison",
               "guides/rag-and-agents"
@@ -72,139 +71,150 @@
             "tab": "Reference",
             "icon": "book-open",
             "pages": [
+              "reference/operators-and-functions",
               {
-                "group": "Querying",
+                "group": "BM25 Index",
                 "pages": [
-                  "reference/operators-and-functions",
-                  "documentation/full-text/match",
-                  "documentation/full-text/term",
                   {
-                    "group": "Phrase and Proximity",
+                    "group": "Indexing",
                     "pages": [
-                      "documentation/full-text/phrase",
-                      "documentation/full-text/proximity",
-                      "documentation/query-builder/phrase/phrase-prefix",
-                      "documentation/query-builder/phrase/regex-phrase"
+                      "documentation/indexing/create-index",
+                      "reference/choosing-a-key-field",
+                      "documentation/indexing/indexing-expressions",
+                      "documentation/indexing/indexing-json",
+                      "documentation/indexing/indexing-arrays",
+                      "documentation/indexing/indexing-composite",
+                      "documentation/indexing/indexing-partial",
+                      "documentation/indexing/columnar",
+                      "documentation/indexing/reindexing",
+                      "documentation/indexing/verify-index"
                     ]
                   },
-                  "documentation/full-text/fuzzy",
-                  "documentation/query-builder/term/regex",
-                  "documentation/query-builder/term/range-term",
-                  "documentation/query-builder/specialized/more-like-this",
-                  "documentation/query-builder/compound/query-parser",
-                  "documentation/query-builder/compound/all",
-                  "documentation/filtering"
+                  {
+                    "group": "Text Analysis",
+                    "pages": [
+                      "documentation/tokenizers/overview",
+                      {
+                        "group": "Tokenizers",
+                        "pages": [
+                          "documentation/tokenizers/available-tokenizers/unicode",
+                          "documentation/tokenizers/available-tokenizers/literal",
+                          "documentation/tokenizers/available-tokenizers/literal-normalized",
+                          "documentation/tokenizers/available-tokenizers/whitespace",
+                          "documentation/tokenizers/available-tokenizers/ngrams",
+                          "documentation/tokenizers/available-tokenizers/edge-ngrams",
+                          "documentation/tokenizers/available-tokenizers/simple",
+                          "documentation/tokenizers/available-tokenizers/regex",
+                          "documentation/tokenizers/available-tokenizers/chinese-compatible",
+                          "documentation/tokenizers/available-tokenizers/lindera",
+                          "documentation/tokenizers/available-tokenizers/icu",
+                          "documentation/tokenizers/available-tokenizers/jieba",
+                          "documentation/tokenizers/available-tokenizers/source-code"
+                        ]
+                      },
+                      {
+                        "group": "Token Filters",
+                        "pages": [
+                          "documentation/token-filters/overview",
+                          "documentation/token-filters/alphanumeric",
+                          "documentation/token-filters/ascii-folding",
+                          "documentation/token-filters/lowercase",
+                          "documentation/token-filters/stopwords",
+                          "documentation/token-filters/stemming",
+                          "documentation/token-filters/token-length",
+                          "documentation/token-filters/trim"
+                        ]
+                      },
+                      "documentation/tokenizers/multiple-per-field",
+                      "documentation/tokenizers/search-tokenizer"
+                    ]
+                  },
+                  {
+                    "group": "Full-Text Search",
+                    "pages": [
+                      "documentation/full-text/match",
+                      "documentation/full-text/term",
+                      {
+                        "group": "Phrase and Proximity",
+                        "pages": [
+                          "documentation/full-text/phrase",
+                          "documentation/full-text/proximity",
+                          "documentation/query-builder/phrase/phrase-prefix",
+                          "documentation/query-builder/phrase/regex-phrase"
+                        ]
+                      },
+                      "documentation/full-text/fuzzy",
+                      "documentation/query-builder/term/regex",
+                      "documentation/query-builder/term/range-term",
+                      "documentation/query-builder/specialized/more-like-this",
+                      "documentation/query-builder/compound/query-parser",
+                      "documentation/query-builder/compound/all",
+                      "documentation/filtering",
+                      "documentation/sorting/topk"
+                    ]
+                  },
+                  {
+                    "group": "Relevance Tuning",
+                    "pages": [
+                      "documentation/sorting/score",
+                      "documentation/sorting/boost",
+                      "documentation/full-text/highlight"
+                    ]
+                  },
+                  {
+                    "group": "Aggregations",
+                    "pages": [
+                      "documentation/aggregates/overview",
+                      {
+                        "group": "Bucket",
+                        "pages": [
+                          "documentation/aggregates/bucket/terms",
+                          "documentation/aggregates/bucket/filters",
+                          "documentation/aggregates/bucket/histogram",
+                          "documentation/aggregates/bucket/datehistogram",
+                          "documentation/aggregates/bucket/range"
+                        ]
+                      },
+                      {
+                        "group": "Metrics",
+                        "pages": [
+                          "documentation/aggregates/metrics/average",
+                          "documentation/aggregates/metrics/cardinality",
+                          "documentation/aggregates/metrics/count",
+                          "documentation/aggregates/metrics/minmax",
+                          "documentation/aggregates/metrics/percentiles",
+                          "documentation/aggregates/metrics/stats",
+                          "documentation/aggregates/metrics/sum",
+                          "documentation/aggregates/metrics/tophits"
+                        ]
+                      },
+                      "documentation/aggregates/facets",
+                      "documentation/aggregates/tuning",
+                      "documentation/aggregates/limitations"
+                    ]
+                  },
+                  {
+                    "group": "JOINs",
+                    "pages": [
+                      "documentation/joins/overview"
+                    ]
+                  }
                 ]
               },
               {
-                "group": "Relevance",
+                "group": "Vector Index",
                 "pages": [
-                  "documentation/sorting/score",
-                  "documentation/sorting/boost",
-                  "documentation/full-text/highlight"
-                ]
-              },
-              {
-                "group": "Vector and Hybrid",
-                "pages": [
+                  "documentation/indexing/indexing-vectors",
                   "documentation/vector/overview",
                   "documentation/vector/querying",
-                  "documentation/vector/tuning",
+                  "documentation/vector/tuning"
+                ]
+              },
+              {
+                "group": "Hybrid Search",
+                "pages": [
                   "documentation/hybrid/overview",
                   "documentation/hybrid/rrf"
-                ]
-              },
-              {
-                "group": "Aggregations",
-                "pages": [
-                  "documentation/aggregates/overview",
-                  {
-                    "group": "Bucket",
-                    "pages": [
-                      "documentation/aggregates/bucket/terms",
-                      "documentation/aggregates/bucket/filters",
-                      "documentation/aggregates/bucket/histogram",
-                      "documentation/aggregates/bucket/datehistogram",
-                      "documentation/aggregates/bucket/range"
-                    ]
-                  },
-                  {
-                    "group": "Metrics",
-                    "pages": [
-                      "documentation/aggregates/metrics/average",
-                      "documentation/aggregates/metrics/cardinality",
-                      "documentation/aggregates/metrics/count",
-                      "documentation/aggregates/metrics/minmax",
-                      "documentation/aggregates/metrics/percentiles",
-                      "documentation/aggregates/metrics/stats",
-                      "documentation/aggregates/metrics/sum",
-                      "documentation/aggregates/metrics/tophits"
-                    ]
-                  },
-                  "documentation/aggregates/facets",
-                  "documentation/aggregates/tuning",
-                  "documentation/aggregates/limitations"
-                ]
-              },
-              {
-                "group": "Indexing",
-                "pages": [
-                  "documentation/indexing/create-index",
-                  "reference/choosing-a-key-field",
-                  "documentation/indexing/indexing-expressions",
-                  "documentation/indexing/indexing-json",
-                  "documentation/indexing/indexing-arrays",
-                  "documentation/indexing/indexing-composite",
-                  "documentation/indexing/indexing-partial",
-                  "documentation/indexing/columnar",
-                  "documentation/indexing/indexing-vectors",
-                  "documentation/indexing/reindexing",
-                  "documentation/indexing/verify-index"
-                ]
-              },
-              {
-                "group": "Text Analysis",
-                "pages": [
-                  "documentation/tokenizers/overview",
-                  {
-                    "group": "Tokenizers",
-                    "pages": [
-                      "documentation/tokenizers/available-tokenizers/unicode",
-                      "documentation/tokenizers/available-tokenizers/literal",
-                      "documentation/tokenizers/available-tokenizers/literal-normalized",
-                      "documentation/tokenizers/available-tokenizers/whitespace",
-                      "documentation/tokenizers/available-tokenizers/ngrams",
-                      "documentation/tokenizers/available-tokenizers/edge-ngrams",
-                      "documentation/tokenizers/available-tokenizers/simple",
-                      "documentation/tokenizers/available-tokenizers/regex",
-                      "documentation/tokenizers/available-tokenizers/chinese-compatible",
-                      "documentation/tokenizers/available-tokenizers/lindera",
-                      "documentation/tokenizers/available-tokenizers/icu",
-                      "documentation/tokenizers/available-tokenizers/jieba",
-                      "documentation/tokenizers/available-tokenizers/source-code"
-                    ]
-                  },
-                  {
-                    "group": "Token Filters",
-                    "pages": [
-                      "documentation/token-filters/overview",
-                      "documentation/token-filters/alphanumeric",
-                      "documentation/token-filters/ascii-folding",
-                      "documentation/token-filters/lowercase",
-                      "documentation/token-filters/stopwords",
-                      "documentation/token-filters/stemming",
-                      "documentation/token-filters/token-length",
-                      "documentation/token-filters/trim"
-                    ]
-                  },
-                  "documentation/tokenizers/multiple-per-field",
-                  "documentation/tokenizers/search-tokenizer"
-                ]
-              },
-              {
-                "group": "Sorting and Pagination",
-                "pages": [
-                  "documentation/sorting/topk"
                 ]
               },
               "reference/configuration",

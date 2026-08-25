@@ -150,6 +150,12 @@ impl ParallelProcessLauncher {
         &self.state_manager
     }
 
+    /// The DSM segment backing the mapped state, for shared regions whose initialization
+    /// registers a detach callback on it (a `SharedFileSet`, for one).
+    pub fn dsm_segment(&self) -> *mut pg_sys::dsm_segment {
+        unsafe { (*self.pcxt.as_ptr()).seg }
+    }
+
     pub fn launch(self) -> Option<ParallelProcessAttach> {
         unsafe {
             let pcxt = self.pcxt.as_ptr();

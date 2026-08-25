@@ -495,7 +495,19 @@ impl ParallelStateManager {
 /// ```
 #[macro_export]
 macro_rules! launch_parallel_process {
-    ($parallel_process_type:ident<$parallel_worker_type:ty>, $process:expr, $worker_style:expr, $nworkers:expr, $mq_size:literal) => {{
+    ($parallel_process_type:ident<$parallel_worker_type:ty>, $process:expr, $worker_style:expr, $nworkers:expr, $mq_size:literal) => {
+        $crate::launch_parallel_process!(
+            $parallel_process_type<$parallel_worker_type>,
+            $process,
+            $worker_style,
+            $nworkers,
+            $mq_size,
+            |_launcher: &$crate::parallel_worker::builder::ParallelProcessLauncher| {}
+        )
+    };
+    // `$before_launch` runs with the DSM mapped and no worker spawned yet, for shared regions the
+    // leader must initialize in place (rather than copy in) before anyone attaches to them.
+    ($parallel_process_type:ident<$parallel_worker_type:ty>, $process:expr, $worker_style:expr, $nworkers:expr, $mq_size:literal, $before_launch:expr) => {{
         {
             const _: () = {
                 const fn assert_is_parallel_worker<T: ParallelProcess>() {}
@@ -530,7 +542,10 @@ macro_rules! launch_parallel_process {
             $nworkers,
             $mq_size,
         )
-        .map(|launcher| launcher.launch())
+        .map(|launcher| {
+            ($before_launch)(&launcher);
+            launcher.launch()
+        })
         .flatten()
         .map(|waiter| waiter.wait_for_attach())
         .flatten()

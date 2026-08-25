@@ -21,8 +21,8 @@ canonical: https://www.paradedb.com/docs/documentation/tokenizers/available-toke
 The literal tokenizer applies no tokenization to the text, preserving it as-is. It is the default for `uuid` fields (since
 exact UUID matching is a common use case), and is useful for doing exact string matching over text fields.
 
-It is also required if the text field is used as a sort field in a [Top K](/documentation/sorting/topk) query,
-or as part of an [aggregate](/documentation/aggregates/overview).
+Text fields used as a sort field in a [Top K](/documentation/sorting/topk) query, or as part of an [aggregate](/documentation/aggregates/overview),
+must use either this tokenizer or [`literal_normalized`](/documentation/tokenizers/available-tokenizers/literal-normalized).
 
 ```sql
 CREATE INDEX search_idx ON mock_items

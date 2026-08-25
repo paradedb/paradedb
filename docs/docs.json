@@ -31,8 +31,8 @@
                   "start/create-your-first-index",
                   "documentation/getting-started/queries",
                   "documentation/getting-started/load",
-                  "start/go-to-production",
-                  "documentation/getting-started/ai-agents"
+                  "documentation/getting-started/ai-agents",
+                  "start/go-to-production"
                 ]
               }
             ]

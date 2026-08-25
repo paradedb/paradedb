@@ -21,6 +21,7 @@ use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList;
 use crate::postgres::customscan::aggregatescan::privdat::{DataFusionTopK, FilterExpr};
+use crate::postgres::customscan::basescan::bitmap_intersection::BitmapExec;
 use crate::postgres::customscan::joinscan::build::{
     JoinLevelSearchPredicate, MultiTablePredicateInfo, RelNode,
 };
@@ -121,6 +122,10 @@ pub struct AggregateScanState {
     pub execution_rti: pg_sys::Index,
     pub aggregate_clause: AggregateCSClause,
     pub base_aggregate_clause: Option<AggregateCSClause>,
+
+    /// Execution state for the child bitmap scan, if a bitmap intersection source was
+    /// harvested at plan time.
+    pub bitmap_exec: Option<BitmapExec>,
 
     /// DataFusion backend state. When `Some`, the DataFusion path is active
     /// and the Tantivy-specific fields above are unused.

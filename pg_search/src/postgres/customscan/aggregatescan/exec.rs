@@ -65,6 +65,18 @@ pub fn aggregation_results_iter(
         .custom_state_mut()
         .prepare_query_for_execution(planstate, expr_context);
 
+    // If an external index's bitmap can be used, attach it to the query's heap filters
+    if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut() {
+        let set = unsafe { bitmap_exec.tid_bitmap_set() };
+        if let Some(set) = set {
+            state
+                .custom_state_mut()
+                .aggregate_clause
+                .query_mut()
+                .attach_tid_bitmap_set(&set);
+        }
+    }
+
     let aggregate_clause = state.custom_state().aggregate_clause.clone();
     let query = aggregate_clause.query().clone();
 

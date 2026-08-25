@@ -21,6 +21,7 @@ use std::collections::BTreeMap;
 use crate::api::{FieldName, HashMap, OrderByInfo, Varno};
 use crate::customscan::CustomScanState;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::customscan::basescan::bitmap_intersection::BitmapExec;
 use crate::postgres::customscan::basescan::cost::WorkerDecisionReason;
 use crate::postgres::customscan::basescan::exec_methods::ExecMethod;
 use crate::postgres::customscan::basescan::parallel::{ParallelRole, ParallelScanHandle};
@@ -36,6 +37,8 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::u64_to_item_pointer;
 use crate::postgres::{ParallelScanArgs, ParallelScanState};
 use crate::query::SearchQueryInput;
+use crate::query::heap_field_filter::TidBitmapSet;
+use std::sync::Arc;
 
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{PgTupleDesc, pg_sys};
@@ -106,6 +109,10 @@ pub struct BaseScanState {
     pub exec_method_type: ExecMethodType,
     pub ambulkdelete_epoch: u32,
 
+    /// Execution state for the child bitmap scan, if a bitmap intersection source was
+    /// harvested at plan time.
+    pub bitmap_exec: Option<BitmapExec>,
+
     pub doc_from_heap_state: Option<HeapFetchState>,
 
     // Window aggregate support
@@ -148,6 +155,10 @@ impl BaseScanState {
 
     pub fn set_base_search_query_input(&mut self, input: SearchQueryInput) {
         self.base_search_query_input = input;
+    }
+
+    pub fn attach_tid_bitmap_set(&mut self, set: &Arc<TidBitmapSet>) {
+        self.search_query_input.attach_tid_bitmap_set(set);
     }
 
     pub fn search_query_input(&self) -> &SearchQueryInput {

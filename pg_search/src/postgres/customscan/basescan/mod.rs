@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 #![allow(clippy::unnecessary_cast)] // helps with integer casting differences between postgres versions
+pub(crate) mod bitmap_intersection;
 mod cost;
 pub mod exec_methods;
 pub mod parallel;
@@ -127,6 +128,25 @@ impl BaseScan {
         state
             .custom_state_mut()
             .prepare_query_for_execution(planstate, expr_context);
+
+        // Build (or reuse) the external index's bitmap set and attach it to the
+        // HeapFilters that were planned against it. Must follow
+        // `prepare_query_for_execution`, which re-clones the query from its base.
+        // Parallel-aware scans build the set once and share it through the query's
+        // DSA; standalone scans build locally.
+        let parallel_pstate = state.custom_state().parallel_state();
+        let es_query_dsa = unsafe { (*state.csstate.ss.ps.state).es_query_dsa };
+        if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut() {
+            let set = unsafe {
+                match parallel_pstate {
+                    Some(pstate) => bitmap_exec.shared_tid_bitmap_set(pstate, es_query_dsa),
+                    None => bitmap_exec.tid_bitmap_set(),
+                }
+            };
+            if let Some(set) = set {
+                state.custom_state_mut().attach_tid_bitmap_set(&set);
+            }
+        }
 
         // Open the index
         let indexrel = state
@@ -850,7 +870,7 @@ impl CustomScan for BaseScan {
                 .collect(),
             );
 
-            let query = SearchQueryInput::from(&quals);
+            let mut query = SearchQueryInput::from(&quals);
             let norm_selec = if restrict_info.len() == 1 {
                 (*restrict_info.get_ptr(0).unwrap()).norm_selec
             } else {
@@ -920,6 +940,21 @@ impl CustomScan for BaseScan {
             }
             .max(1.0);
 
+            // Harvest a bitmap intersection source now that the ParadeDB-side row estimate
+            // exists to feed the cost ledger, and rewrite the covered HeapFilters.
+            let harvested_bitmap = bitmap_intersection::BitmapPlanner::from_query(
+                root,
+                builder.args().rel,
+                bm25_index.oid(),
+                &quals,
+                row_estimate.known_rows().map(|rows| rows as f64),
+            )
+            .and_then(|planner| planner.harvest());
+            if let Some(harvested) = &harvested_bitmap {
+                harvested.rewrite_query(&mut query);
+                custom_private.set_query(query.clone());
+            }
+
             let exec_method_types = choose_exec_method(
                 &custom_private,
                 &topk_pathkey_info,
@@ -932,7 +967,11 @@ impl CustomScan for BaseScan {
             // to decide on parallelism
             //
 
-            let startup_cost = DEFAULT_STARTUP_COST;
+            // The harvested bitmap is built once before the first tuple (and shared
+            // across parallel workers), so its build cost lands in startup, which the
+            // parallel divisor below never touches.
+            let startup_cost =
+                DEFAULT_STARTUP_COST + harvested_bitmap.as_ref().map_or(0.0, |h| h.build_cost);
             let mut custom_paths = Vec::new();
             let parallel_leader_participates = pg_sys::parallel_leader_participation;
             // Seed the cost memo from the open create_custom_path already did for selectivity (if
@@ -1066,6 +1105,12 @@ impl CustomScan for BaseScan {
                             path_builder = path_builder.set_pathkeys(pathkeys);
                         }
 
+                        if let Some(harvested) = &harvested_bitmap {
+                            let mut children = PgList::<pg_sys::Path>::new();
+                            children.push(harvested.path);
+                            path_builder = path_builder.set_custom_paths(children);
+                        }
+
                         let mut method_private = custom_private.clone();
                         method_private.set_exec_method_type(method.clone());
                         method_private.set_use_sorted_path(is_sorted);
@@ -1110,6 +1155,8 @@ impl CustomScan for BaseScan {
 
     fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {
         unsafe {
+            bitmap_intersection::keep_bitmap_child_plan(&mut builder);
+
             let mut tlist = PgList::<pg_sys::TargetEntry>::from_pg(builder.args().tlist.as_ptr());
 
             // Store the length of the target list
@@ -1432,6 +1479,28 @@ impl CustomScan for BaseScan {
     ) {
         explainer.add_text("Table", state.custom_state().heaprelname());
         explainer.add_text("Index", state.custom_state().indexrelname());
+        if let Some(bitmap_exec) = state.custom_state().bitmap_exec.as_ref() {
+            explainer.add_text("Bitmap Intersection", bitmap_exec.index_names().join(", "));
+            if explainer.is_analyze()
+                && let Some(stats) = bitmap_exec.tid_bitmap_stats()
+            {
+                explainer.add_unsigned_integer(
+                    "Bitmap Exact Candidates",
+                    stats.exact_ctids as u64,
+                    None,
+                );
+                explainer.add_unsigned_integer(
+                    "Bitmap Lossy Blocks",
+                    stats.lossy_blocks as u64,
+                    None,
+                );
+                explainer.add_unsigned_integer(
+                    "Bitmap Recheck Blocks",
+                    stats.recheck_blocks as u64,
+                    None,
+                );
+            }
+        }
         if explainer.is_costs() {
             explainer.add_unsigned_integer(
                 "Segment Count",
@@ -1584,6 +1653,18 @@ impl CustomScan for BaseScan {
 
             state.custom_state_mut().open_relations(lockmode);
 
+            // Initialize the harvested child bitmap scan, if any; registering it in
+            // custom_ps lets EXPLAIN render it. Runs before the EXPLAIN-only return so
+            // plain EXPLAIN shows the child node too (node init does no scan work).
+            let cscan = state.csstate.ss.ps.plan.cast::<pg_sys::CustomScan>();
+            if let Some(bitmap_exec) = bitmap_intersection::BitmapExec::init(cscan, estate, eflags)
+            {
+                let mut custom_ps = PgList::<pg_sys::PlanState>::from_pg(state.csstate.custom_ps);
+                custom_ps.push(bitmap_exec.planstate());
+                state.csstate.custom_ps = custom_ps.into_pg();
+                state.custom_state_mut().bitmap_exec = Some(bitmap_exec);
+            }
+
             // For EXPLAIN ANALYZE queries, we need to continue with full initialization
             // For EXPLAIN-only (without ANALYZE), begin_custom_scan is not called at all
             if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) != 0 {
@@ -1639,6 +1720,9 @@ impl CustomScan for BaseScan {
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut() {
+            unsafe { bitmap_exec.rescan() };
+        }
         Self::init_search_reader(state);
         state.custom_state_mut().reset();
     }
@@ -1795,6 +1879,10 @@ impl CustomScan for BaseScan {
         }
 
         // get some things dropped now
+        if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.take() {
+            unsafe { bitmap_exec.shutdown() };
+        }
+
         drop(state.custom_state_mut().visibility_checker.take());
         drop(state.custom_state_mut().doc_from_heap_state.take());
         drop(state.custom_state_mut().search_reader.take());

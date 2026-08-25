@@ -16,10 +16,43 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::operator::searchqueryinput_typoid;
+use crate::query::heap_field_filter::TidBitmapSet;
 use crate::query::{PostgresExpression, SearchQueryInput};
 use pgrx::{PgMemoryContexts, pg_sys};
+use std::sync::Arc;
 
 impl SearchQueryInput {
+    /// The bitmap set attached to this query's HeapFilters, if any.
+    pub fn tid_bitmap_set(&self) -> Option<Arc<TidBitmapSet>> {
+        let mut found = None;
+        self.visit_ref(&mut |sqi| {
+            if let SearchQueryInput::HeapFilter {
+                tid_bitmap_set: Some(set),
+                ..
+            } = sqi
+                && found.is_none()
+            {
+                found = Some(Arc::clone(set));
+            }
+        });
+        found
+    }
+
+    /// Attach the execution-time bitmap set to every HeapFilter that was flagged at
+    /// plan time as covered by an external index's bitmap.
+    pub fn attach_tid_bitmap_set(&mut self, set: &Arc<TidBitmapSet>) {
+        self.visit(&mut |sqi| {
+            if let SearchQueryInput::HeapFilter {
+                uses_tid_bitmap: true,
+                tid_bitmap_set,
+                ..
+            } = sqi
+            {
+                *tid_bitmap_set = Some(Arc::clone(set));
+            }
+        });
+    }
+
     pub fn has_heap_filters(&self) -> bool {
         let mut found = false;
         self.visit_ref(&mut |sqi| {
@@ -43,8 +76,15 @@ impl SearchQueryInput {
     pub fn has_parameters(&self) -> bool {
         let mut found = false;
         self.visit_ref(&mut |sqi| {
-            if let SearchQueryInput::HeapFilter { field_filters, .. } = sqi
-                && field_filters.iter().any(|f| f.has_parameters())
+            if let SearchQueryInput::HeapFilter {
+                always_filters,
+                recheck_filters,
+                ..
+            } = sqi
+                && always_filters
+                    .iter()
+                    .chain(recheck_filters.iter())
+                    .any(|f| f.has_parameters())
             {
                 found = true;
             }
@@ -60,8 +100,12 @@ impl SearchQueryInput {
     pub fn collect_expression_nodes(&mut self) -> Vec<*mut pg_sys::Node> {
         let mut nodes = Vec::new();
         self.visit(&mut |sqi| match sqi {
-            SearchQueryInput::HeapFilter { field_filters, .. } => {
-                for filter in field_filters.iter() {
+            SearchQueryInput::HeapFilter {
+                always_filters,
+                recheck_filters,
+                ..
+            } => {
+                for filter in always_filters.iter().chain(recheck_filters.iter()) {
                     let node = unsafe { filter.get_expression_node() };
                     if !node.is_null() {
                         nodes.push(node);
@@ -131,8 +175,12 @@ impl SearchQueryInput {
                             *sqi = SearchQueryInput::Empty;
                         }
                     }
-                    SearchQueryInput::HeapFilter { field_filters, .. } => {
-                        for filter in field_filters {
+                    SearchQueryInput::HeapFilter {
+                        always_filters,
+                        recheck_filters,
+                        ..
+                    } => {
+                        for filter in always_filters.iter_mut().chain(recheck_filters.iter_mut()) {
                             filter.solve_parameters(expr_context);
                         }
                     }

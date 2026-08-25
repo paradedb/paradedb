@@ -129,16 +129,23 @@ impl ParallelQueryCapable for BaseScan {
             state
                 .custom_state_mut()
                 .attach_parallel(pscan_state, ParallelRole::Leader);
+
+            let es_query_dsa = (*state.csstate.ss.ps.state).es_query_dsa;
+            if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut() {
+                bitmap_exec.shared_tid_bitmap_set(pscan_state, es_query_dsa);
+            }
         }
     }
 
     fn reinitialize_dsm_custom_scan(
-        _state: &mut CustomScanStateWrapper<Self>,
+        state: &mut CustomScanStateWrapper<Self>,
         coordinate: *mut c_void,
     ) {
         let pscan_state = coordinate.cast::<ParallelScanState>();
         assert!(!pscan_state.is_null(), "coordinate is null");
         unsafe {
+            let es_query_dsa = (*state.csstate.ss.ps.state).es_query_dsa;
+            (*pscan_state).bitmap_reset(es_query_dsa);
             (*pscan_state).reset();
         }
     }

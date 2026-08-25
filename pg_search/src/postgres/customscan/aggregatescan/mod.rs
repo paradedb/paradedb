@@ -58,6 +58,7 @@ use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::mpp::launch::mpp_gated_by_min_rows;
 use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parallelism;
 
+use crate::PARAMETERIZED_SELECTIVITY;
 use crate::api::SortDirection;
 use crate::api::agg_funcoid;
 use crate::gucs;
@@ -84,6 +85,7 @@ use crate::postgres::customscan::aggregatescan::privdat::PrivateData;
 use crate::postgres::customscan::aggregatescan::scan_state::{
     AggregateScanState, ExecutionState, WrappedAggregateProjection,
 };
+use crate::postgres::customscan::basescan::bitmap_intersection::{self, BitmapPlanner};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -545,6 +547,8 @@ impl CustomScan for AggregateScan {
     }
 
     fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {
+        unsafe { bitmap_intersection::keep_bitmap_child_plan(&mut builder) };
+
         // Extract values from private data before the match to avoid borrow conflicts.
         let (is_tantivy, heap_rti_val, should_replace_val, clause_count_val) =
             match builder.custom_private() {
@@ -728,6 +732,29 @@ impl CustomScan for AggregateScan {
         _ancestors: *mut pg_sys::List,
         explainer: &mut Explainer,
     ) {
+        if let Some(bitmap_exec) = state.custom_state().bitmap_exec.as_ref() {
+            explainer.add_text("Bitmap Intersection", bitmap_exec.index_names().join(", "));
+            if explainer.is_analyze()
+                && let Some(stats) = bitmap_exec.tid_bitmap_stats()
+            {
+                explainer.add_unsigned_integer(
+                    "Bitmap Exact Candidates",
+                    stats.exact_ctids as u64,
+                    None,
+                );
+                explainer.add_unsigned_integer(
+                    "Bitmap Lossy Blocks",
+                    stats.lossy_blocks as u64,
+                    None,
+                );
+                explainer.add_unsigned_integer(
+                    "Bitmap Recheck Blocks",
+                    stats.recheck_blocks as u64,
+                    None,
+                );
+            }
+        }
+
         if state.custom_state().is_datafusion_backend() {
             explainer.add_text("Backend", "DataFusion");
             if let Some(ref df_state) = state.custom_state().datafusion_state {
@@ -878,6 +905,17 @@ impl CustomScan for AggregateScan {
             // `BaseScanState::open_relations`.
             state.custom_state_mut().open_relations(lockmode);
 
+            // Initialize the harvested child bitmap scan, if any; registering it in
+            // custom_ps lets EXPLAIN render it.
+            let cscan = state.csstate.ss.ps.plan.cast::<pg_sys::CustomScan>();
+            if let Some(bitmap_exec) = bitmap_intersection::BitmapExec::init(cscan, estate, eflags)
+            {
+                let mut custom_ps = PgList::<pg_sys::PlanState>::from_pg(state.csstate.custom_ps);
+                custom_ps.push(bitmap_exec.planstate());
+                state.csstate.custom_ps = custom_ps.into_pg();
+                state.custom_state_mut().bitmap_exec = Some(bitmap_exec);
+            }
+
             state
                 .custom_state_mut()
                 .init_expr_context(estate, planstate);
@@ -907,6 +945,9 @@ impl CustomScan for AggregateScan {
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut() {
+            unsafe { bitmap_exec.rescan() };
+        }
         state.custom_state_mut().state = ExecutionState::NotStarted;
         // Reset DataFusion state so rescan rebuilds the plan and stream.
         // Drop stream before runtime to avoid tokio panics.
@@ -957,6 +998,10 @@ impl CustomScan for AggregateScan {
     }
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.take() {
+            unsafe { bitmap_exec.shutdown() };
+        }
+
         // Explicitly drop DataFusion resources (runtime, stream, batches) at the
         // intended lifecycle boundary rather than relying on Postgres to drop the
         // state wrapper later. Mirrors JoinScan::end_custom_scan.
@@ -1314,10 +1359,42 @@ impl AggregateScan {
         };
 
         match AggregateCSClause::build(builder, heap_rti, &index) {
-            Ok((builder, aggregate_clause)) => {
+            Ok((builder, mut aggregate_clause)) => {
                 Self::mark_contexts_successful(unsafe { rte_alias_or_unknown(heap_rte) });
 
-                let builder = builder.set_rows(shape.rows());
+                let mut builder = builder.set_rows(shape.rows());
+                unsafe {
+                    let root = builder.args().root;
+                    let base_rel = if !(*root).simple_rel_array.is_null()
+                        && (heap_rti as i32) < (*root).simple_rel_array_size
+                    {
+                        *(*root).simple_rel_array.add(heap_rti as usize)
+                    } else {
+                        std::ptr::null_mut()
+                    };
+
+                    let bm25_row_estimate = (!base_rel.is_null() && (*base_rel).tuples > 0.0)
+                        .then(|| (*base_rel).tuples * PARAMETERIZED_SELECTIVITY);
+                    if let Some(harvested) = BitmapPlanner::from_search_query(
+                        root,
+                        base_rel,
+                        index.oid(),
+                        aggregate_clause.query(),
+                        bm25_row_estimate,
+                    )
+                    .and_then(|planner| planner.harvest())
+                    {
+                        harvested.rewrite_query(aggregate_clause.query_mut());
+                        let mut children = PgList::<pg_sys::Path>::new();
+                        children.push(harvested.path);
+                        let startup_cost = builder.startup_cost() + harvested.build_cost;
+                        let total_cost = builder.total_cost() + harvested.build_cost;
+                        builder = builder
+                            .set_custom_paths(children)
+                            .set_startup_cost(startup_cost)
+                            .set_total_cost(total_cost);
+                    }
+                }
 
                 vec![builder.build(PrivateData::Tantivy {
                     heap_rti,

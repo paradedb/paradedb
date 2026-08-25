@@ -697,7 +697,37 @@ pub struct ParallelScanState {
     /// Top-K Shared Threshold Fields
     pub shared_threshold: ParallelScanThresholdState,
 
+    /// Bitmap-intersection build coordination. Protected by `mutex`; waiters
+    /// sleep on `bitmap_cv`.
+    bitmap_build_state: BitmapBuildState,
+    /// DSA pointer to the published flat `TidBitmapSet` bytes; 0 when the build
+    /// produced no set. Valid once `bitmap_build_state` is `Done`.
+    bitmap_dsa_pointer: pg_sys::dsa_pointer,
+    /// Condition variable for waiting on the bitmap build.
+    bitmap_cv: ConditionVariable,
+
     payload: ParallelScanPayload, // must be last field, b/c it allocates on the heap after this struct
+}
+
+/// Bitmap-intersection build progress. Lives in the parallel DSM, so the layout
+/// is pinned to `u32` with fixed discriminants (zeroed shared memory reads as
+/// `NotBuilt`).
+#[derive(Clone, Copy, PartialEq)]
+#[repr(u32)]
+enum BitmapBuildState {
+    NotBuilt = 0,
+    Building = 1,
+    Done = 2,
+}
+
+/// Outcome of asking to build the shared bitmap set.
+pub enum BitmapBuildClaim {
+    /// This participant won the claim and must build + publish.
+    Build,
+    /// Another participant is building; wait via `bitmap_wait_done`.
+    Wait,
+    /// The build finished; the payload is the published DSA pointer.
+    Done(pg_sys::dsa_pointer),
 }
 
 impl ParallelScanState {
@@ -744,6 +774,9 @@ impl ParallelScanState {
         self.mutex.init();
         self.aggregation_cv.init();
         self.init_cv.init();
+        self.bitmap_cv.init();
+        self.bitmap_build_state = BitmapBuildState::NotBuilt;
+        self.bitmap_dsa_pointer = 0;
         self.shared_threshold.init();
         self.populate(
             &args.all_sources,
@@ -751,6 +784,43 @@ impl ParallelScanState {
             args.with_aggregates,
             args.with_segment_info,
         );
+    }
+
+    pub fn bitmap_claim_build(&mut self) -> BitmapBuildClaim {
+        let _lock = self.mutex.acquire();
+        match self.bitmap_build_state {
+            BitmapBuildState::NotBuilt => {
+                self.bitmap_build_state = BitmapBuildState::Building;
+                BitmapBuildClaim::Build
+            }
+            BitmapBuildState::Building => BitmapBuildClaim::Wait,
+            BitmapBuildState::Done => BitmapBuildClaim::Done(self.bitmap_dsa_pointer),
+        }
+    }
+
+    pub fn bitmap_publish(&mut self, pointer: pg_sys::dsa_pointer) {
+        {
+            let _lock = self.mutex.acquire();
+            self.bitmap_dsa_pointer = pointer;
+            self.bitmap_build_state = BitmapBuildState::Done;
+        }
+        self.bitmap_cv.broadcast();
+    }
+
+    pub fn bitmap_wait_done(&mut self) -> pg_sys::dsa_pointer {
+        self.bitmap_cv.prepare_to_sleep();
+        loop {
+            {
+                let _lock = self.mutex.acquire();
+                if self.bitmap_build_state == BitmapBuildState::Done {
+                    break;
+                }
+            }
+            self.bitmap_cv.sleep();
+        }
+        ConditionVariable::cancel_sleep();
+        let _lock = self.mutex.acquire();
+        self.bitmap_dsa_pointer
     }
 
     /// Phase 2: Populate with actual data (assumes mutex already created via `create`).
@@ -1163,6 +1233,20 @@ impl ParallelScanState {
 
     fn query(&self) -> anyhow::Result<Option<SearchQueryInput>> {
         self.payload.query()
+    }
+
+    /// Reset the bitmap-build coordination for a parallel rescan, freeing the previous
+    /// execution's DSA allocation. Called only from `reinitialize_dsm_custom_scan`,
+    /// which runs after the previous cycle's workers have exited and before new ones
+    /// launch, so nothing can still be reading the freed bytes. Never called from the
+    /// leader's per-scan `reset()`: wiping there would race a rebuild that already
+    /// published, stranding CV waiters.
+    pub unsafe fn bitmap_reset(&mut self, dsa: *mut pg_sys::dsa_area) {
+        if self.bitmap_dsa_pointer != 0 && !dsa.is_null() {
+            unsafe { pg_sys::dsa_free(dsa, self.bitmap_dsa_pointer) };
+        }
+        self.bitmap_build_state = BitmapBuildState::NotBuilt;
+        self.bitmap_dsa_pointer = 0;
     }
 
     /// Restore the per-source remaining counts for a rescan. Called by amparallelrescan.

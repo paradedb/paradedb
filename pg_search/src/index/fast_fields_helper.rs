@@ -63,10 +63,12 @@ struct SegmentCache {
 ///
 /// They're organized by index positions and not names to eliminate as much runtime overhead as
 /// possible when looking up the value of a specific fast field.
-// `None` only for the `empty()`/`Default` placeholders, which are never used for column
-// access; `with_fields` always builds the full inner state.
 #[derive(Default)]
-pub struct FFHelper(Option<FFInner>);
+pub struct FFHelper(
+    // `None` only for the `empty()`/`Default` placeholders, which are never used for column
+    // access; `with_fields` always builds the full inner state.
+    Option<FFInner>,
+);
 
 struct FFInner {
     // A segment's fast-field file opens on first column access: the tantivy fork's
@@ -769,7 +771,7 @@ mod tests {
     /// stay cold when only an immutable segment is read.
     #[pg_test]
     fn ffhelper_opens_only_the_segment_it_reads() {
-        let (index_rel, _heap) = crate::index::reader::index::segmented_index_fixture(
+        let (index_rel, _heap) = crate::index::reader::index::test_support::segmented_index_fixture(
             "ffhelper_lazy_test",
             2,
             /* with_mutable */ true,

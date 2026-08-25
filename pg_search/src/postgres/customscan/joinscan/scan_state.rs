@@ -29,7 +29,6 @@
 //! scanned exactly once while achieving distributed execution.
 //!
 
-use std::rc::Rc;
 use std::sync::Arc;
 
 use datafusion::catalog::Session;
@@ -231,7 +230,7 @@ pub struct JoinScanState {
     /// where workers reopen the same segments via `MvccSatisfies::ParallelWorker(view)`.
     /// Dropping manifests early would release the pins and allow segment recycling
     /// before workers can open them.
-    pub source_manifests: Vec<Rc<SearchIndexManifest>>,
+    pub source_manifests: Vec<SearchIndexManifest>,
 
     /// Where MPP sits in its launch lifecycle for this scan: marked pending at begin, launched
     /// on first exec after runtime expressions are resolved and the built plan's stages are

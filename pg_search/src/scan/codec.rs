@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::rc::Rc;
 use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
@@ -49,11 +48,11 @@ struct PgSearchExtensionCodec {
     /// The leader's captured manifest of every join source, indexed by plan_position. A
     /// decoded provider builds its reader from its source's manifest, so packed addresses
     /// stay comparable across the leader and its workers.
-    source_manifests: Vec<Rc<SearchIndexManifest>>,
+    source_manifests: Vec<SearchIndexManifest>,
 }
 
 // SAFETY: pg_search runs DataFusion on a single-threaded runtime inside the backend, so the
-// process-local fields (raw pointers, the `Rc` manifests) never cross a thread.
+// process-local fields (raw pointers, the reference-counted manifests) never cross a thread.
 unsafe impl Send for PgSearchExtensionCodec {}
 unsafe impl Sync for PgSearchExtensionCodec {}
 
@@ -233,7 +232,7 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
                         "missing captured manifest for plan_position {plan_position}"
                     ))
                 })?;
-                provider.set_manifest(Rc::clone(manifest));
+                provider.set_manifest(manifest.clone());
             }
         }
         provider.set_expr_context(self.expr_context);
@@ -318,7 +317,7 @@ pub fn deserialize_logical_plan_with_runtime(
     parallel_state: Option<*mut ParallelScanState>,
     expr_context: Option<*mut ExprContext>,
     planstate: Option<*mut PlanState>,
-    source_manifests: Vec<Rc<SearchIndexManifest>>,
+    source_manifests: Vec<SearchIndexManifest>,
 ) -> Result<LogicalPlan> {
     let codec = PgSearchExtensionCodec {
         parallel_state,
@@ -349,13 +348,15 @@ mod tests {
 
         use crate::index::fast_fields_helper::WhichFastField;
         use crate::index::mvcc::MvccSatisfies;
-        use crate::index::reader::index::{INDEX_COMPONENT_OPENS, SearchIndexManifest};
+        use crate::index::reader::index::SearchIndexManifest;
+        use crate::index::reader::index::test_support::{
+            INDEX_COMPONENT_OPENS, segmented_index_fixture,
+        };
         use crate::scan::info::ScanInfo;
         use crate::scan::table_provider::PgSearchTableProvider;
         use crate::schema::SearchFieldType;
 
-        let (index_rel, heap_oid) =
-            crate::index::reader::index::segmented_index_fixture("codec_manifest_test", 2, false);
+        let (index_rel, heap_oid) = segmented_index_fixture("codec_manifest_test", 2, false);
         unsafe {
             pg_sys::PushActiveSnapshot(pg_sys::GetTransactionSnapshot());
         }
@@ -389,7 +390,7 @@ mod tests {
             None,
             None,
             None,
-            vec![Rc::new(manifest)],
+            vec![manifest],
         )
         .expect("deserialize with manifest");
 

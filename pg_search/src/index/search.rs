@@ -27,6 +27,10 @@ use tokenizers::{
 /// Install this index's tokenizers on a freshly opened `index` by replacing its managers.
 /// Only correct before any reader is built from `index`: replacement swaps this instance's
 /// manager and leaves already-built readers holding the old one.
+///
+/// Reader opens defer this setup until the query reports that it needs tokenization, avoiding
+/// analyzer registration for queries that never use it. Index writers still call it eagerly
+/// while constructing the index, before any reader exists.
 pub fn setup_tokenizers(index_relation: &PgSearchRelation, index: &mut Index) -> Result<()> {
     let tokenizers = collect_search_tokenizers(index_relation)?;
     index.set_tokenizers(create_tokenizer_manager(tokenizers));
@@ -39,6 +43,10 @@ pub fn setup_tokenizers(index_relation: &PgSearchRelation, index: &mut Index) ->
 /// so readers built before this call see the entries too. Unlike [`setup_tokenizers`], the
 /// managers keep tantivy's default entries alongside ours; lookups are by name, so the extra
 /// entries are inert.
+///
+/// Manifest capture deliberately builds its searcher without custom tokenizers. If the eventual
+/// query needs them, reader construction calls this method lazily because replacing the managers
+/// after that searcher exists would not update the managers it already holds.
 pub fn register_tokenizers(index_relation: &PgSearchRelation, index: &Index) -> Result<()> {
     let tokenizers = collect_search_tokenizers(index_relation)?;
     register_tokenizers_into(index.tokenizers(), tokenizers);

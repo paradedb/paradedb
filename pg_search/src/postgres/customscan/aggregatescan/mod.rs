@@ -38,7 +38,6 @@ pub use aggregate_type::AggregateType;
 pub use groupby::GroupingColumn;
 pub use targetlist::TargetListEntry;
 
-use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::postgres::catalog::is_ltree_oid;
@@ -1072,20 +1071,18 @@ impl AggregateScan {
         let Some(df_state) = state.custom_state().datafusion_state.as_ref() else {
             return;
         };
-        let manifests: Vec<Rc<SearchIndexManifest>> = df_state
+        let manifests: Vec<SearchIndexManifest> = df_state
             .plan
             .sources()
             .iter()
             .map(|source| {
                 let rel = PgSearchRelation::open(source.scan_info.indexrelid);
-                let manifest = SearchIndexManifest::capture(&rel, MvccSatisfies::Snapshot)
-                    .unwrap_or_else(|e| {
-                        panic!(
-                            "Failed to capture source manifest for indexrelid {}: {e}",
-                            source.scan_info.indexrelid
-                        )
-                    });
-                Rc::new(manifest)
+                SearchIndexManifest::capture(&rel, MvccSatisfies::Snapshot).unwrap_or_else(|e| {
+                    panic!(
+                        "Failed to capture source manifest for indexrelid {}: {e}",
+                        source.scan_info.indexrelid
+                    )
+                })
             })
             .collect();
         state.custom_state_mut().source_manifests = manifests;
@@ -1149,7 +1146,7 @@ impl AggregateScan {
         df_state: &mut scan_state::DataFusionAggState,
         runtime: &tokio::runtime::Runtime,
         ctx: &datafusion::prelude::SessionContext,
-        mpp_manifests: Option<&[Rc<SearchIndexManifest>]>,
+        mpp_manifests: Option<&[SearchIndexManifest]>,
         runtime_expr_context: Option<*mut pg_sys::ExprContext>,
         runtime_planstate: Option<*mut pg_sys::PlanState>,
     ) -> Arc<dyn ExecutionPlan> {
@@ -1829,14 +1826,9 @@ impl AggregateScan {
             // Capture before the `df_state` borrow below. `prepare_mpp` pinned the manifests at
             // begin; the providers build their readers from them, and `launch_mpp` ships their
             // views to the workers.
-            let mpp_manifests: Vec<Rc<SearchIndexManifest>> = if is_mpp {
+            let mpp_manifests: Vec<SearchIndexManifest> = if is_mpp {
                 Self::ensure_source_manifests(state);
-                state
-                    .custom_state()
-                    .source_manifests
-                    .iter()
-                    .map(Rc::clone)
-                    .collect()
+                state.custom_state().source_manifests.to_vec()
             } else {
                 Vec::new()
             };

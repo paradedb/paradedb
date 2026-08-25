@@ -59,7 +59,6 @@ use datafusion::logical_expr::{Expr, lit};
 use datafusion::prelude::{DataFrame, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
 use pgrx::pg_sys;
-use std::rc::Rc;
 
 /// Creates a DataFusion [`SessionContext`] for aggregate-on-join workloads.
 ///
@@ -86,7 +85,7 @@ pub async fn build_join_aggregate_plan(
     ctx: &SessionContext,
     expr_context: Option<*mut pg_sys::ExprContext>,
     planstate: Option<*mut pg_sys::PlanState>,
-    mpp_manifests: Option<&[Rc<SearchIndexManifest>]>,
+    mpp_manifests: Option<&[SearchIndexManifest]>,
 ) -> Result<(datafusion::logical_expr::LogicalPlan, Vec<usize>)> {
     // Step 1: Build the join DataFrame from the RelNode tree
     let df = build_relnode_df(
@@ -290,7 +289,7 @@ fn build_relnode_df<'a>(
     custom_scan_tlist: *mut pg_sys::List,
     expr_context: Option<*mut pg_sys::ExprContext>,
     planstate: Option<*mut pg_sys::PlanState>,
-    mpp_manifests: Option<&'a [Rc<SearchIndexManifest>]>,
+    mpp_manifests: Option<&'a [SearchIndexManifest]>,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
         match node {
@@ -537,7 +536,7 @@ async fn build_source_df(
     plan_position: usize,
     expr_context: Option<*mut pg_sys::ExprContext>,
     planstate: Option<*mut pg_sys::PlanState>,
-    mpp_manifests: Option<&[Rc<SearchIndexManifest>]>,
+    mpp_manifests: Option<&[SearchIndexManifest]>,
 ) -> Result<DataFrame> {
     let scan_info = source.scan_info.clone();
 
@@ -610,7 +609,7 @@ async fn build_source_df(
                 "missing captured manifest for aggregate source at plan_position {plan_position}"
             )
         });
-        provider.set_manifest(Rc::clone(manifest));
+        provider.set_manifest(manifest.clone());
     }
     if let crate::scan::ScanMode::Tagged { local_queries, .. } = &source.scan_info.mode {
         for tq in local_queries {

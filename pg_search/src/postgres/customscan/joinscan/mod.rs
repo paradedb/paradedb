@@ -202,7 +202,6 @@ use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::DistributedExt;
 use pgrx::{PgList, pg_guard, pg_sys};
 use std::ffi::CStr;
-use std::rc::Rc;
 use std::sync::Arc;
 
 #[derive(Default)]
@@ -782,14 +781,12 @@ impl JoinScan {
             .iter()
             .map(|source| {
                 let rel = PgSearchRelation::open(source.scan_info.indexrelid);
-                let manifest = SearchIndexManifest::capture(&rel, MvccSatisfies::Snapshot)
-                    .unwrap_or_else(|e| {
-                        panic!(
-                            "Failed to capture source manifest for indexrelid {}: {e}",
-                            source.scan_info.indexrelid
-                        )
-                    });
-                Rc::new(manifest)
+                SearchIndexManifest::capture(&rel, MvccSatisfies::Snapshot).unwrap_or_else(|e| {
+                    panic!(
+                        "Failed to capture source manifest for indexrelid {}: {e}",
+                        source.scan_info.indexrelid
+                    )
+                })
             })
             .collect();
 
@@ -812,7 +809,7 @@ impl JoinScan {
         state: &mut CustomScanStateWrapper<Self>,
         _join_clause: &JoinCSClause,
         plan_sources: &[&build::JoinSource],
-    ) -> Vec<Rc<SearchIndexManifest>> {
+    ) -> Vec<SearchIndexManifest> {
         Self::ensure_source_manifests(state);
         (0..plan_sources.len())
             .map(|plan_position| {

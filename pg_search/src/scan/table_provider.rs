@@ -16,7 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use std::fmt::Debug;
-use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
@@ -130,7 +129,7 @@ pub struct PgSearchTableProvider {
     /// (readers do not travel), so re-injected by the codec on deserialization, keyed by
     /// `source_idx`.
     #[serde(skip)]
-    manifest: Option<Rc<SearchIndexManifest>>,
+    manifest: Option<SearchIndexManifest>,
 }
 
 mod atomic_bool_serde {
@@ -176,7 +175,7 @@ impl Clone for PgSearchTableProvider {
 }
 
 // SAFETY: pg_search runs DataFusion on a single-threaded runtime inside the backend, so the
-// process-local fields (raw pointers, the `Rc` manifest) never cross a thread.
+// process-local fields (raw pointers, the reference-counted manifest) never cross a thread.
 unsafe impl Send for PgSearchTableProvider {}
 unsafe impl Sync for PgSearchTableProvider {}
 
@@ -239,7 +238,7 @@ impl PgSearchTableProvider {
         self.source_idx
     }
 
-    pub(crate) fn set_manifest(&mut self, manifest: Rc<SearchIndexManifest>) {
+    pub(crate) fn set_manifest(&mut self, manifest: SearchIndexManifest) {
         self.manifest = Some(manifest);
     }
 
@@ -679,14 +678,21 @@ impl PgSearchTableProvider {
         let expr_ctx = expr_context.and_then(std::ptr::NonNull::new);
         let needs_tokenizer = query.needs_tokenizer() || needs_tokenizer;
         let reader = match self.manifest.as_ref() {
-            Some(manifest) => SearchIndexReader::from_manifest(
-                manifest,
-                &index_rel,
-                query.clone(),
-                self.scan_info.score_needed,
-                expr_ctx,
-                needs_tokenizer,
-            ),
+            Some(manifest) => {
+                assert_eq!(
+                    unsafe { pg_sys::ParallelWorkerNumber },
+                    -1,
+                    "captured manifests are only valid while the MPP leader builds its plan"
+                );
+                SearchIndexReader::from_manifest(
+                    manifest,
+                    &index_rel,
+                    query.clone(),
+                    self.scan_info.score_needed,
+                    expr_ctx,
+                    needs_tokenizer,
+                )
+            }
             None => SearchIndexReader::open_with_context(
                 &index_rel,
                 query.clone(),

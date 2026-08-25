@@ -20,6 +20,7 @@ use std::collections::BTreeMap;
 use std::fmt::{Debug, Display};
 use std::path::PathBuf;
 use std::ptr::NonNull;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
@@ -376,9 +377,13 @@ pub struct SearchIndexReader {
     _cleanup_lock: Arc<PinnedBuffer>,
 }
 
-/// A queryless snapshot of visible segments used to capture canonical manifests for parallel
-/// JoinScan initialization without requiring executor state.
-pub struct SearchIndexManifest {
+/// A queryless snapshot of visible segments used to initialize parallel JoinScan and
+/// AggregateScan sources without requiring executor state. Clones are cheap handles to the same
+/// backend-local components, keeping the captured segment set and its pins alive together.
+#[derive(Clone)]
+pub struct SearchIndexManifest(Rc<SearchIndexManifestInner>);
+
+struct SearchIndexManifestInner {
     components: IndexComponents,
 }
 
@@ -387,7 +392,7 @@ impl std::fmt::Debug for SearchIndexManifest {
         f.debug_struct("SearchIndexManifest")
             .field(
                 "segments",
-                &self.components.searcher.segment_readers().len(),
+                &self.components().searcher.segment_readers().len(),
             )
             .finish_non_exhaustive()
     }
@@ -413,61 +418,64 @@ impl Clone for SearchIndexReader {
     }
 }
 
-/// How many times the index was actually opened (metadata walk, pins, searcher build).
-/// Tests use it to prove reuse paths perform zero additional opens.
 #[cfg(any(test, feature = "pg_test"))]
-pub(crate) static INDEX_COMPONENT_OPENS: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-
-/// Test fixture shared by the reuse/laziness tests: a table + BM25 index laid out as
-/// `immutable_batches` frozen segments of 10 rows (batch 0's titles contain "silver dragon",
-/// later batches "quiet river"), plus an optional 5-row mutable segment. Returns the opened
-/// index relation and the heap relation's OID.
-#[cfg(any(test, feature = "pg_test"))]
-pub(crate) fn segmented_index_fixture(
-    name: &str,
-    immutable_batches: usize,
-    with_mutable: bool,
-) -> (PgSearchRelation, pgrx::pg_sys::Oid) {
+pub(crate) mod test_support {
+    use super::PgSearchRelation;
     use pgrx::Spi;
+    use std::sync::atomic::AtomicUsize;
 
-    let mut sql = format!(
-        "CREATE TABLE {name} (id bigint PRIMARY KEY, title text NOT NULL);
-         CREATE INDEX {name}_idx ON {name} USING paradedb (id, title)
-         WITH (key_field = 'id', target_segment_count = 8, background_layer_sizes = '0');
-         SET paradedb.global_mutable_segment_rows = 0;"
-    );
-    for batch in 0..immutable_batches {
-        let (lo, hi) = (batch * 10 + 1, batch * 10 + 10);
-        let words = if batch == 0 {
-            "silver dragon"
-        } else {
-            "quiet river"
-        };
-        sql.push_str(&format!(
-            "INSERT INTO {name} SELECT g, '{words} ' || g FROM generate_series({lo}, {hi}) g;"
-        ));
-    }
-    if with_mutable {
-        let lo = immutable_batches * 10 + 1;
-        sql.push_str(&format!(
-            "SET paradedb.global_mutable_segment_rows = 10000;
-             INSERT INTO {name} SELECT g, 'mutable ' || g FROM generate_series({lo}, {}) g;",
-            lo + 4
-        ));
-    }
-    sql.push_str("RESET paradedb.global_mutable_segment_rows;");
-    Spi::run(&sql).expect("fixture setup");
-    unsafe { pgrx::pg_sys::CommandCounterIncrement() };
+    /// How many times the index was actually opened (metadata walk, pins, searcher build).
+    /// Tests use it to prove reuse paths perform zero additional opens.
+    pub(crate) static INDEX_COMPONENT_OPENS: AtomicUsize = AtomicUsize::new(0);
 
-    let index_oid =
-        Spi::get_one::<pgrx::pg_sys::Oid>(&format!("SELECT '{name}_idx'::regclass::oid"))
-            .unwrap()
-            .unwrap();
-    let heap_oid = Spi::get_one::<pgrx::pg_sys::Oid>(&format!("SELECT '{name}'::regclass::oid"))
-        .unwrap()
-        .unwrap();
-    (PgSearchRelation::open(index_oid), heap_oid)
+    /// Test fixture shared by the reuse/laziness tests: a table + BM25 index laid out as
+    /// `immutable_batches` frozen segments of 10 rows (batch 0's titles contain "silver dragon",
+    /// later batches "quiet river"), plus an optional 5-row mutable segment. Returns the opened
+    /// index relation and the heap relation's OID.
+    pub(crate) fn segmented_index_fixture(
+        name: &str,
+        immutable_batches: usize,
+        with_mutable: bool,
+    ) -> (PgSearchRelation, pgrx::pg_sys::Oid) {
+        let mut sql = format!(
+            "CREATE TABLE {name} (id bigint PRIMARY KEY, title text NOT NULL);
+             CREATE INDEX {name}_idx ON {name} USING paradedb (id, title)
+             WITH (key_field = 'id', target_segment_count = 8, background_layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;"
+        );
+        for batch in 0..immutable_batches {
+            let (lo, hi) = (batch * 10 + 1, batch * 10 + 10);
+            let words = if batch == 0 {
+                "silver dragon"
+            } else {
+                "quiet river"
+            };
+            sql.push_str(&format!(
+                "INSERT INTO {name} SELECT g, '{words} ' || g FROM generate_series({lo}, {hi}) g;"
+            ));
+        }
+        if with_mutable {
+            let lo = immutable_batches * 10 + 1;
+            sql.push_str(&format!(
+                "SET paradedb.global_mutable_segment_rows = 10000;
+                 INSERT INTO {name} SELECT g, 'mutable ' || g FROM generate_series({lo}, {}) g;",
+                lo + 4
+            ));
+        }
+        sql.push_str("RESET paradedb.global_mutable_segment_rows;");
+        Spi::run(&sql).expect("fixture setup");
+        unsafe { pgrx::pg_sys::CommandCounterIncrement() };
+
+        let index_oid =
+            Spi::get_one::<pgrx::pg_sys::Oid>(&format!("SELECT '{name}_idx'::regclass::oid"))
+                .unwrap()
+                .unwrap();
+        let heap_oid =
+            Spi::get_one::<pgrx::pg_sys::Oid>(&format!("SELECT '{name}'::regclass::oid"))
+                .unwrap()
+                .unwrap();
+        (PgSearchRelation::open(index_oid), heap_oid)
+    }
 }
 
 #[derive(Clone)]
@@ -489,7 +497,7 @@ impl SearchIndexReader {
         needs_tokenizer_manager: bool,
     ) -> Result<IndexComponents> {
         #[cfg(any(test, feature = "pg_test"))]
-        INDEX_COMPONENT_OPENS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        test_support::INDEX_COMPONENT_OPENS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let cleanup_lock = Arc::new(MetaPage::open(index_relation).cleanup_lock_pinned());
 
         let directory = mvcc_style.directory(index_relation);
@@ -589,11 +597,14 @@ impl SearchIndexReader {
         needs_tokenizer_manager: bool,
     ) -> Result<Self> {
         if needs_tokenizer_manager || search_query_input.needs_tokenizer() {
-            crate::index::search::register_tokenizers(index_relation, &manifest.components.index)?;
+            crate::index::search::register_tokenizers(
+                index_relation,
+                &manifest.components().index,
+            )?;
         }
         Self::from_components(
             index_relation,
-            manifest.components.clone(),
+            manifest.components().clone(),
             search_query_input,
             need_scores,
             expr_context,
@@ -1866,19 +1877,23 @@ impl SearchIndexReader {
 /// Shape-only inspection — never reads segment contents. The planning-time
 /// gate relies on this to use a one-segment (`LargestSegment`) reader.
 impl SearchIndexManifest {
+    fn components(&self) -> &IndexComponents {
+        &self.0.components
+    }
+
     /// Capture the currently visible segment set without building a search query.
     pub fn capture(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Result<Self> {
         let components =
             SearchIndexReader::open_index_components(index_relation, mvcc_style, false)?;
-        Ok(Self { components })
+        Ok(Self(Rc::new(SearchIndexManifestInner { components })))
     }
 
     /// This manifest's segment view, for other readers to replay through
     /// [`MvccSatisfies::ParallelWorker`].
     pub fn segment_view(&self) -> SegmentView {
         SegmentView::capture(
-            self.components.searcher.segment_readers(),
-            &self.components.directory,
+            self.components().searcher.segment_readers(),
+            &self.components().directory,
         )
     }
 }
@@ -1944,6 +1959,7 @@ impl ErasedFeatures {
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
+    use super::test_support::{INDEX_COMPONENT_OPENS, segmented_index_fixture};
     use super::*;
     use pgrx::prelude::*;
 
@@ -1997,12 +2013,12 @@ mod tests {
         use tantivy::tokenizer::{RawTokenizer, TextAnalyzer};
         let probe = || TextAnalyzer::from(RawTokenizer::default());
         manifest
-            .components
+            .components()
             .index
             .tokenizers()
             .register("test_probe", probe());
         manifest
-            .components
+            .components()
             .index
             .fast_field_tokenizer()
             .register("test_probe", probe());

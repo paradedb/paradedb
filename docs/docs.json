@@ -293,7 +293,8 @@
                       "changelog/0.25.2",
                       "changelog/0.25.1",
                       "changelog/0.25.0"
-                    ]
+                    ],
+                    "expanded": false
                   },
                   {
                     "group": "Older",
@@ -305,7 +306,8 @@
                           "changelog/0.24.2",
                           "changelog/0.24.1",
                           "changelog/0.24.0"
-                        ]
+                        ],
+                        "expanded": false
                       },
                       {
                         "group": "v0.23",
@@ -316,7 +318,8 @@
                           "changelog/0.23.2",
                           "changelog/0.23.1",
                           "changelog/0.23.0"
-                        ]
+                        ],
+                        "expanded": false
                       },
                       {
                         "group": "v0.22",
@@ -328,7 +331,8 @@
                           "changelog/0.22.2",
                           "changelog/0.22.1",
                           "changelog/0.22.0"
-                        ]
+                        ],
+                        "expanded": false
                       },
                       {
                         "group": "v0.21",
@@ -350,7 +354,8 @@
                           "changelog/0.21.2",
                           "changelog/0.21.1",
                           "changelog/0.21.0"
-                        ]
+                        ],
+                        "expanded": false
                       },
                       {
                         "group": "v0.20",
@@ -367,7 +372,8 @@
                           "changelog/0.20.2",
                           "changelog/0.20.1",
                           "changelog/0.20.0"
-                        ]
+                        ],
+                        "expanded": false
                       },
                       {
                         "group": "v0.19",
@@ -384,7 +390,8 @@
                           "changelog/0.19.2",
                           "changelog/0.19.1",
                           "changelog/0.19.0"
-                        ]
+                        ],
+                        "expanded": false
                       },
                       {
                         "group": "v0.18",
@@ -405,7 +412,8 @@
                           "changelog/0.18.2",
                           "changelog/0.18.1",
                           "changelog/0.18.0"
-                        ]
+                        ],
+                        "expanded": false
                       },
                       {
                         "group": "v0.17",
@@ -422,7 +430,8 @@
                           "changelog/0.17.2",
                           "changelog/0.17.1",
                           "changelog/0.17.0"
-                        ]
+                        ],
+                        "expanded": false
                       },
                       {
                         "group": "v0.16",
@@ -433,7 +442,8 @@
                           "changelog/0.16.2",
                           "changelog/0.16.1",
                           "changelog/0.16.0"
-                        ]
+                        ],
+                        "expanded": false
                       },
                       {
                         "group": "v0.15",
@@ -465,17 +475,20 @@
                           "changelog/0.15.2",
                           "changelog/0.15.1",
                           "changelog/0.15.0"
-                        ]
+                        ],
+                        "expanded": false
                       },
                       {
                         "group": "v0.14",
                         "pages": [
                           "changelog/0.14.1",
                           "changelog/0.14.0"
-                        ]
+                        ],
+                        "expanded": false
                       },
                       "changelog/deprecated"
-                    ]
+                    ],
+                    "expanded": false
                   }
                 ]
               },

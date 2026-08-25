@@ -42,8 +42,7 @@ INSERT INTO numeric_conversion (description, amount) VALUES ('Max U64', 18446744
 -- Max U64 + 1
 INSERT INTO numeric_conversion (description, amount) VALUES ('Above U64', 18446744073709551616);
 
--- For indexing of the mutable segment, which will trigger the type conversions.
--- TODO: See https://github.com/paradedb/paradedb/issues/3579
+-- Query the mutable segment to exercise the same conversions during reads.
 SELECT description, amount FROM numeric_conversion WHERE id @@@ pdb.all() ORDER BY id;
 
 DROP TABLE numeric_conversion;

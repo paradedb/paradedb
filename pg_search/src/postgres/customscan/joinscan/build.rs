@@ -362,6 +362,7 @@ pub struct JoinSourceCandidate {
     pub fields: Vec<FieldInfo>,
     pub partition_by: Vec<crate::api::FieldName>,
     pub estimate: Option<RowEstimate>,
+    pub estimate_from_total_docs: bool,
     pub segment_count: Option<usize>,
 }
 
@@ -379,6 +380,7 @@ impl JoinSourceCandidate {
             fields: Vec::new(),
             partition_by: Vec::new(),
             estimate: None,
+            estimate_from_total_docs: false,
             segment_count: None,
         }
     }
@@ -451,6 +453,7 @@ impl JoinSourceCandidate {
                 .expect("Failed to open index reader for estimation");
             self.segment_count = Some(reader.total_segment_count());
             self.estimate = Some(RowEstimate::Known(reader.total_docs()));
+            self.estimate_from_total_docs = true;
             return;
         }
 
@@ -603,6 +606,7 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
                         candidate.heap_rti
                     )
                 })?,
+                estimate_from_total_docs: candidate.estimate_from_total_docs,
                 segment_count: candidate.segment_count.ok_or_else(|| {
                     anyhow!(
                         "cannot build JoinSource for RTI {}: segment_count is missing",

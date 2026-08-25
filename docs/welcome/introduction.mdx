@@ -2,7 +2,7 @@
 title: Introduction to ParadeDB and pg_search
 sidebarTitle: Introduction
 description: Developer documentation for ParadeDB and the pg_search extension — installation, indexing, query syntax, and deployment guides.
-canonical: https://docs.paradedb.com/welcome/introduction
+canonical: https://www.paradedb.com/docs/welcome/introduction
 ---
 
 ![ParadeDB Banner](/images/paradedb_banner.png)
@@ -61,12 +61,13 @@ ParadeDB accelerates standard SQL queries. That includes:
 - **Text**: relevance-ranked full-text queries like the one above.
 - **Aggregations**: the same index serves faceted search and aggregations, pushing filters and aggregates directly into the index instead
   of computing them afterward.
-- **Vectors**: the ParadeDB index is a high-performance, drop-in compatible version with `pgvector`.
+- **Vectors**: embeddings are indexed alongside your text and metadata, so filtered and [hybrid](/documentation/hybrid/overview) queries resolve against one index instead of
+  intersecting two.
 
 ### One Index Behind Every Query
 
-Behind the SQL is a single custom index: the **ParadeDB index**, built on [Tantivy](https://github.com/quickwit-oss/tantivy), the Rust port of
-Lucene. It goes toe-to-toe with dedicated search engines on full-text performance, often coming out on top. [See how it's built →](/welcome/architecture)
+Behind the SQL is a single custom index: the **ParadeDB index**, built on [Tantivy](https://github.com/quickwit-oss/tantivy), a Rust search
+library inspired by Lucene. It goes toe-to-toe with dedicated search engines on full-text performance, often coming out on top. [See how it's built →](/welcome/architecture)
 
 ### As Reliable As Postgres
 
@@ -77,31 +78,31 @@ Postgres write-ahead logging. See [Guarantees](/welcome/guarantees) for the deta
 
 People usually compare ParadeDB to two other types of systems: OLTP databases like vanilla Postgres and search engines like Elastic.
 
-|                             | **OLTP database**                                                        | **Search engine**                                                                                      | **ParadeDB**                                                                                                                                    |
-| --------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Primary role**            | System of record                                                         | Search and retrieval engine                                                                            | System of record **and** search engine                                                                                                          |
-| **Examples**                | Postgres, MySQL                                                          | Elasticsearch, OpenSearch                                                                              |                                                                                                                                                 |
-| **Search features**         | Basic FTS (no BM25, weak ranking)                                        | Rich search features (BM25, fuzzy matching, faceting, hybrid search)                                   | Rich search features (BM25, fuzzy matching, faceting, hybrid search)                                                                            |
-| **Analytics features**      | Not an analytical DB (no column store, batch processing, etc.)           | Column store, batch processing, parallelization via sharding                                           | Column store, batch processing, parallelization via Postgres [parallel workers](/documentation/performance-tuning/reads#raise-parallel-workers) |
-| **Lag**                     | None in a single cluster                                                 | At least network, ETL transformation, and indexing time                                                | None in a single cluster                                                                                                                        |
-| **Operational complexity**  | Simple (single datastore)                                                | Complex (ETL pipelines, managing multiple systems)                                                     | Simple (single datastore)                                                                                                                       |
-| **Scalability**             | Vertical scaling in a single node, horizontal scaling through Kubernetes | Horizontal scaling through sharding                                                                    | Vertical scaling in a single node, horizontal scaling through [Kubernetes](/deploy/self-hosted/kubernetes)                                      |
-| **Language**                | SQL                                                                      | Custom DSL                                                                                             | Standard SQL with custom search operators                                                                                                       |
-| **ACID guarantees**         | Full ACID compliance, read-after-write guarantees                        | No transactions, atomic only per-document, eventual consistency, durability not guaranteed until flush | Full ACID compliance, read-after-write guarantees                                                                                               |
-| **Update & delete support** | Built for fast-changing data                                             | Struggles with updates/deletes                                                                         | Built for fast-changing data                                                                                                                    |
+|                             | **OLTP database**                                                   | **Search engine**                                                    | **ParadeDB**                                                                                                                                    |
+| --------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Primary role**            | System of record                                                    | Search and retrieval engine                                          | System of record **and** search engine                                                                                                          |
+| **Examples**                | Postgres, MySQL                                                     | Elasticsearch, OpenSearch                                            |                                                                                                                                                 |
+| **Search features**         | Basic FTS (no BM25, weak ranking)                                   | Rich search features (BM25, fuzzy matching, faceting, hybrid search) | Rich search features (BM25, fuzzy matching, faceting, hybrid search)                                                                            |
+| **Analytics features**      | Not an analytical DB (no column store, batch processing, etc.)      | Column store, batch processing, parallelization via sharding         | Column store, batch processing, parallelization via Postgres [parallel workers](/documentation/performance-tuning/reads#raise-parallel-workers) |
+| **Lag**                     | None in a single cluster                                            | At least network, ETL transformation, and indexing time              | None in a single cluster                                                                                                                        |
+| **Operational complexity**  | Simple (single datastore)                                           | Complex (ETL pipelines, managing multiple systems)                   | Simple (single datastore)                                                                                                                       |
+| **Scalability**             | Vertical scaling; horizontal scaling with read replicas or sharding | Horizontal scaling through sharding                                  | Vertical scaling; horizontal scaling with [read replicas](/deploy/self-hosted/kubernetes) or [sharding with Citus](/deploy/citus)               |
+| **Language**                | SQL                                                                 | Custom DSL                                                           | Standard SQL with custom search operators                                                                                                       |
+| **ACID guarantees**         | Full ACID compliance, read-after-write guarantees                   | No multi-document ACID transactions                                  | Full ACID compliance, read-after-write guarantees                                                                                               |
+| **Update & delete support** | Built for fast-changing data                                        | Struggles with updates/deletes                                       | Built for fast-changing data; [incremental vector index maintenance is in progress](/welcome/limitations#vector-search)                         |
 
 ## Production Readiness
 
-ParadeDB launched out of the [Y Combinator (YC)](https://ycombinator.com) S23 batch and has run in production since December 2023.
+[ParadeDB Community](https://github.com/paradedb/paradedb), our open-source edition, has been downloaded more than 2.5 million times. It is durable and crash-safe: changes to ParadeDB indexes are write-ahead logged and support crash recovery and point-in-time recovery. See [Guarantees](/welcome/guarantees) for the full details.
 
-[ParadeDB Community](https://github.com/paradedb/paradedb), the open-source version of ParadeDB, has been deployed over 1.5 million times via its Docker image, and the pg_search extension has been installed over 250,000 times.
-ParadeDB Enterprise, the durable and production-hardened edition of ParadeDB, powers core search and analytics use cases at enterprises ranging from Fortune 500s to fast-growing startups. A few
-examples include:
+[ParadeDB Enterprise](/deploy/enterprise) adds capabilities for multi-node production environments, including physical replication, high availability, and read replicas, as well as commercial licensing and support.
 
-- **Alibaba Cloud**, the largest Asia-Pacific cloud provider, uses ParadeDB to power search inside their data warehouse. [Case study available](https://www.paradedb.com/customers/case-study-alibaba).
-- **Bilt Rewards**, a rent payments technology company that processed over $36B in payments in 2024. [Case study available](https://www.paradedb.com/customers/case-study-bilt).
-- **Modern Treasury**, a financial technology company that automates the full cycle of money movement. [Case study available](https://www.paradedb.com/customers/case-study-modern-treasury).
-- **Span**<sup>1</sup>, one of the fastest-growing AI developer productivity platforms.
+ParadeDB powers core search and analytics workloads at organizations ranging from Fortune 500 companies to fast-growing startups, including:
+
+- **Alibaba Cloud**, the cloud computing arm of Alibaba Group and the largest Asia-Pacific cloud provider. [Case study](https://www.paradedb.com/customers/case-study-alibaba).
+- **Bilt Rewards**, a rent payments technology company that processed over $36B in payments in 2024. [Case study](https://www.paradedb.com/customers/case-study-bilt).
+- **Modern Treasury**, a financial technology company that automates the full cycle of money movement. [Case study](https://www.paradedb.com/customers/case-study-modern-treasury).
+- **Cofactr**, a full-service electronics purchasing platform for hardware teams. [Case study](https://www.paradedb.com/customers/case-study-cofactr).
 - **TCDI**<sup>1</sup>, a giant in the legal software and litigation management space.
 
 _1. Case study coming soon._

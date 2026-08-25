@@ -1,7 +1,7 @@
 ---
 title: How Vector Search Works
 description: Understand how ParadeDB natively supports vector types
-canonical: https://docs.paradedb.com/documentation/vector/overview
+canonical: https://www.paradedb.com/docs/documentation/vector/overview
 ---
 
 <Note>This is a beta feature available in versions `0.25.0` and above.</Note>
@@ -12,6 +12,8 @@ Today, most Postgres users rely on the [pgvector](https://github.com/pgvector/pg
 - **Memory Constraints:** Index build times balloon when the entire index does not fit in memory, preventing pgvector from scaling to large datasets.
 - **Index Quality Under Updates:** Indexes can degrade over time under update-heavy workloads.
 
-The ParadeDB index supports pgvector's `vector` type and is designed to solve these limitations. Vectors are indexed with a SPANN-style index, the state-of-the-art approach for billion-scale vector search.
+ParadeDB uses pgvector only for its `vector` type, not its HNSW or IVFFlat indexes. Instead, ParadeDB stores vectors in its own SPANN-style index alongside text and other fields, addressing pgvector's filtering and build-memory limitations.
+
+Incremental vector index maintenance is not yet available. Updated vectors are immediately searchable, but vector search quality can degrade over time under update-heavy workloads. We plan to address this with SPFresh-based incremental maintenance. See [Limitations & Tradeoffs](/welcome/limitations#vector-search) and the [roadmap](/welcome/roadmap#vector-search).
 
 Because vectors live in the same index as text and filters, vector search can also be combined with [text search](/documentation/full-text/overview) into a single ranking. See [Hybrid Search](/documentation/hybrid/overview).

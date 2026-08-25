@@ -1,20 +1,20 @@
 # ParadeDB Documentation
 
-ParadeDB [documentation](https://docs.paradedb.com) is built using [Mintlify](https://mintlify.com/docs/quickstart).
+ParadeDB [documentation](https://www.paradedb.com/docs) is built using [Mintlify](https://www.mintlify.com/docs/quickstart).
 
 ## 👩‍💻 Development
 
-Install the [Mintlify CLI](https://www.npmjs.com/package/mintlify) to preview
-the documentation changes locally. To install, use the following command:
+Install the [Mintlify CLI](https://www.mintlify.com/docs/cli/install) to preview
+documentation changes locally. The CLI requires Node.js 20.17 or later.
 
 ```bash
-npm i -g mintlify
+npm i -g mint
 ```
 
-Run the following command at the root of your documentation (where `docs.json` is)
+Run the following command from `docs/`, where `docs.json` is located:
 
 ```bash
-mintlify dev
+mint dev
 ```
 
 ## 😎 Publishing Changes
@@ -26,5 +26,5 @@ You can also preview changes using PRs, which generates a preview link of the do
 
 ## Troubleshooting
 
-- Mintlify dev isn't running - Run `mintlify install` it'll re-install dependencies.
-- Page loads as a 404 - Make sure you are running in a folder with `docs.json`
+- Local preview is out of sync with the deployed documentation - Run `mint update`.
+- Page loads as a 404 - Make sure you are running in the `docs/` folder that contains `docs.json`.

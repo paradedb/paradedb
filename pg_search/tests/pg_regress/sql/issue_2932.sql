@@ -7,7 +7,7 @@ CALL paradedb.create_paradedb_test_table(
 
 CREATE INDEX on mock_items USING paradedb (id, description, rating) WITH (key_field='id');
 
--- TODO: Many of these will not get Top K due to https://github.com/paradedb/paradedb/issues/3303
+-- Expressions involving pdb.score currently use a normal scan rather than Top K.
 
 SELECT description, pdb.score(id) * 2 AS score FROM mock_items WHERE description @@@ 'shoes' ORDER BY score DESC LIMIT 3;
 SELECT description, rating, pdb.score(id) * rating AS score FROM mock_items WHERE description @@@ 'shoes' OR rating > 2 ORDER BY score DESC, rating LIMIT 3;

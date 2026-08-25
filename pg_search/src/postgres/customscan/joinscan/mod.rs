@@ -184,6 +184,7 @@ use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::mpp::glue::mpp_is_active;
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
+use crate::postgres::customscan::mpp::launch::mpp_gated_by_min_rows;
 use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parallelism;
 use arrow_array::Array;
 use datafusion_distributed::shm::MppMesh;
@@ -621,11 +622,7 @@ impl JoinScan {
             ));
         }
 
-        if !order_by_columns_are_fast_fields(root, &all_sources, has_distinct) {
-            return Err(JoinDeclineReason::new(
-                "JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation",
-            ));
-        }
+        order_by_columns_are_fast_fields(root, &all_sources, has_distinct)?;
 
         for jk in join_keys {
             let outer_source = all_sources.iter().find(|s| s.contains_rti(jk.outer_rti));
@@ -1341,7 +1338,16 @@ impl CustomScan for JoinScan {
                     .block_on(build_physical_plan(ctx, logical_plan))
                     .expect("Failed to create execution plan")
             };
-            let physical_plan = if mpp_is_active() {
+            let gated = mpp_gated_by_min_rows(
+                state
+                    .custom_state()
+                    .join_clause
+                    .plan
+                    .sources()
+                    .into_iter()
+                    .map(|source| &source.scan_info),
+            );
+            let physical_plan = if mpp_is_active() && !gated {
                 let mpp_plan = build_with(&Self::build_mpp_session_context(None));
                 if mpp_plan_has_data_parallelism(&mpp_plan) {
                     mpp_plan
@@ -1377,9 +1383,20 @@ impl CustomScan for JoinScan {
             // resolved and rebaked at execution time before it is deserialized to build the
             // physical plan. The finished stages then provide the exact dispatch payload before
             // DSM allocation. Only the leader runs this branch (`ParallelWorkerNumber == -1`).
+            // The size gate decides here, before any MPP work: a gated query takes the plain
+            // serial path and never builds the distributed plan or captures manifests.
             if mpp_is_active()
                 && unsafe { pg_sys::ParallelWorkerNumber } == -1
                 && state.custom_state().logical_plan.is_some()
+                && !mpp_gated_by_min_rows(
+                    state
+                        .custom_state()
+                        .join_clause
+                        .plan
+                        .sources()
+                        .into_iter()
+                        .map(|source| &source.scan_info),
+                )
             {
                 state.custom_state_mut().mpp = MppLifecycle::Pending;
             }
@@ -1739,22 +1756,22 @@ unsafe fn compute_output_columns(
                 // the parent plan will not read this position.
                 output_columns.push(privdat::OutputColumnInfo::Pruned);
             }
-        } else {
-            let mut found_score = false;
-            for source in join_clause.plan.sources() {
-                if expr_uses_scores_from_source(check_expr.cast(), source) {
-                    let rti = get_score_func_rti(check_expr.cast()).unwrap_or(0);
-                    output_columns.push(privdat::OutputColumnInfo::Score {
-                        plan_position: source.plan_position,
-                        rti,
-                    });
-                    found_score = true;
-                    break;
-                }
-            }
-            if !found_score {
+        } else if let Some(rti) = get_score_func_rti(check_expr.cast()) {
+            if let Some(source) = join_clause
+                .plan
+                .sources()
+                .iter()
+                .find(|s| s.contains_rti(rti))
+            {
+                output_columns.push(privdat::OutputColumnInfo::Score {
+                    plan_position: source.plan_position,
+                    rti,
+                });
+            } else {
                 output_columns.push(privdat::OutputColumnInfo::Pruned);
             }
+        } else {
+            output_columns.push(privdat::OutputColumnInfo::Pruned);
         }
     }
 

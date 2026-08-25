@@ -15,7 +15,7 @@
   "navigation": {
     "versions": [
       {
-        "version": "v0.25.3",
+        "version": "v0.25.4",
         "anchors": [
           {
             "anchor": "Documentation",
@@ -358,6 +358,7 @@
               {
                 "group": "Changelog",
                 "pages": [
+                  "changelog/0.25.4",
                   "changelog/0.25.3",
                   "changelog/0.25.2",
                   "changelog/0.25.1",
@@ -543,7 +544,7 @@
             },
             {
               "key": "url",
-              "value": "https://docs.paradedb.com$path"
+              "value": "https://www.paradedb.com/docs$path"
             }
           ]
         }
@@ -554,7 +555,7 @@
     "socials": {
       "github": "https://github.com/paradedb/paradedb",
       "slack": "https://paradedb.com/slack",
-      "twitter": "https://twitter.com/paradedb"
+      "twitter": "https://x.com/paradedb"
     }
   },
   "integrations": {
@@ -580,7 +581,7 @@
       "rating": "general",
       "revisit-after": "7 days",
       "language": "en",
-      "copyright": "ParadeDB, Inc. 2025",
+      "copyright": "ParadeDB, Inc. 2026",
       "reply-to": "support@paradedb.com",
       "distribution": "global",
       "coverage": "Worldwide",

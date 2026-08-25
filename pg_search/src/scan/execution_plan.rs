@@ -1063,9 +1063,21 @@ impl ExecutionPlan for PgSearchScanPlan {
                 // Standard mode delegates to the parallel state if present
                 match parallel_state {
                     Some(ps) => reader.search_lazy(ps, source_idx, planner_estimated_rows),
+                    // No shared scan state even though the plan may carry per-source claim
+                    // markers: the serial fallback (size gate, short launch). The plan was
+                    // built while MPP was eligible but executes as a plain serial scan, so
+                    // search everything. Two takers are legitimate here: the leader's serial
+                    // fallback, and a parallel-safe scan replicated whole into a PG worker
+                    // (each worker runs the full serial plan, so a full search is correct).
+                    // MPP-dispatched fragments cannot land here: their decode always injects
+                    // the state, and the worker entrypoint errors when the DSM lacks it.
                     None => reader.search(),
                 }
             };
+            let need_scores = scanner_config
+                .which_fast_fields
+                .iter()
+                .any(|wff| matches!(wff, WhichFastField::Score));
             let mut scanner = Scanner::new(
                 search_results,
                 scanner_config.batch_size_hint,
@@ -1075,7 +1087,7 @@ impl ExecutionPlan for PgSearchScanPlan {
             if let crate::scan::ScanMode::Tagged { local_queries, .. } = &scanner_config.scan_mode {
                 for tq in local_queries {
                     let weight = reader
-                        .compile_match_weight(&tq.query)
+                        .compile_match_weight(&tq.query, need_scores)
                         .map_err(|e| DataFusionError::Internal(format!(
                             "Failed to compile match weight for tag {}: {e}",
                             tq.tag_name
@@ -1102,7 +1114,9 @@ impl ExecutionPlan for PgSearchScanPlan {
                     })
                 };
 
-                scanner.set_score_threshold(score_threshold);
+                if scanner.can_pushdown_score_threshold() {
+                    scanner.set_score_threshold(score_threshold);
+                }
                 let next_batch = scanner.next(
                     &ffhelper,
                     &mut visibility,

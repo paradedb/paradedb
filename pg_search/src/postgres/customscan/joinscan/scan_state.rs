@@ -754,29 +754,29 @@ fn apply_distinct_group_by(
 }
 
 /// Resolve a column reference after the DISTINCT GROUP BY has rewritten every
-/// projection into a `col_N` alias. Score lookups iterate the map (rather than
-/// exact-match) because the parse-time `rti` may not survive cross-table OR
-/// predicate handling. When `distinct_col_map` is empty (DISTINCT not active),
-/// callers should not invoke this — `col_alias` is returned only as a fallback
-/// in case the requested key is missing.
+/// projection into a `col_N` alias. Score lookups try the exact RTI first, and
+/// fall back to iterating the map (rather than exact-match) because the parse-time
+/// `rti` may not survive cross-table OR predicate handling.
 fn resolve_distinct_col(
     distinct_col_map: &DistinctColMap,
     is_score: bool,
     rti: pg_sys::Index,
     attno: pg_sys::AttrNumber,
-    col_alias: &str,
-) -> Expr {
+) -> Option<Expr> {
     if is_score {
         distinct_col_map
-            .iter()
-            .find(|((_, a), _)| *a == 0)
-            .map(|(_, alias)| col(alias.as_str()))
-            .unwrap_or_else(|| col(col_alias))
+            .get(&(rti, 0))
+            .or_else(|| {
+                distinct_col_map
+                    .iter()
+                    .find(|((_, a), _)| *a == 0)
+                    .map(|(_, alias)| alias)
+            })
+            .map(|alias| col(alias.as_str()))
     } else {
         distinct_col_map
             .get(&(rti, attno))
             .map(|alias| col(alias.as_str()))
-            .unwrap_or_else(|| col(col_alias))
     }
 }
 
@@ -785,11 +785,15 @@ fn resolve_orderby_feature(
     feature: &OrderByFeature,
     join_clause: &JoinCSClause,
     distinct_col_map: &DistinctColMap,
-) -> Expr {
+) -> Result<Expr> {
     match feature {
         OrderByFeature::Score { rti } => {
             if !distinct_col_map.is_empty() {
-                resolve_distinct_col(distinct_col_map, true, 0, 0, "")
+                resolve_distinct_col(distinct_col_map, true, *rti, 0).ok_or_else(|| {
+                    DataFusionError::Plan(format!(
+                        "JoinScan: could not resolve DISTINCT score column for RTI {rti}"
+                    ))
+                })
             } else {
                 join_clause
                     .plan
@@ -797,8 +801,45 @@ fn resolve_orderby_feature(
                     .iter()
                     .find(|s| s.scan_info.heap_rti == *rti)
                     .map(|source| make_source_score_col(source))
-                    .unwrap_or_else(|| col("unknown_score"))
+                    .ok_or_else(|| {
+                        DataFusionError::Plan(format!(
+                            "JoinScan: could not find source for score RTI {rti}"
+                        ))
+                    })
             }
+        }
+        OrderByFeature::ScoreSum { rtis } => {
+            let score_cols: Result<Vec<Expr>> = rtis
+                .iter()
+                .map(|rti| {
+                    if !distinct_col_map.is_empty() {
+                        resolve_distinct_col(distinct_col_map, true, *rti, 0).ok_or_else(|| {
+                            DataFusionError::Plan(format!(
+                                "JoinScan: could not resolve DISTINCT score column for RTI {rti} in score sum"
+                            ))
+                        })
+                    } else {
+                        join_clause
+                            .plan
+                            .sources()
+                            .iter()
+                            .find(|s| s.scan_info.heap_rti == *rti)
+                            .map(|source| make_source_score_col(source))
+                            .ok_or_else(|| {
+                                DataFusionError::Plan(format!(
+                                    "JoinScan: could not find source for score sum RTI {rti}"
+                                ))
+                            })
+                    }
+                })
+                .collect();
+
+            score_cols?
+                .into_iter()
+                .reduce(|acc, col_expr| acc + col_expr)
+                .ok_or_else(|| {
+                    DataFusionError::Plan("JoinScan: empty RTI list in ScoreSum".to_string())
+                })
         }
         OrderByFeature::Field { name, rti } => join_clause
             .plan
@@ -806,16 +847,24 @@ fn resolve_orderby_feature(
             .iter()
             .find(|s| s.contains_rti(*rti))
             .map(|source| make_source_col(source, name.as_ref()))
-            .unwrap_or_else(|| {
-                pgrx::warning!("JoinScan: could not find source for RTI {rti} when building sort expression for field '{name}'");
-                col(name.as_ref())
+            .ok_or_else(|| {
+                DataFusionError::Plan(format!(
+                    "JoinScan: could not find source for RTI {rti} when building sort expression for field '{name}'"
+                ))
             }),
         OrderByFeature::Var { rti, attno, .. } => {
             if !distinct_col_map.is_empty() {
-                resolve_distinct_col(distinct_col_map, false, *rti, *attno, "")
+                resolve_distinct_col(distinct_col_map, false, *rti, *attno).ok_or_else(|| {
+                    DataFusionError::Plan(format!(
+                        "JoinScan: could not resolve DISTINCT var column for RTI {rti}, attno {attno}"
+                    ))
+                })
             } else {
-                resolve_var_to_df_col(join_clause, *rti, *attno)
-                    .unwrap_or_else(|| col("unknown_col"))
+                resolve_var_to_df_col(join_clause, *rti, *attno).ok_or_else(|| {
+                    DataFusionError::Plan(format!(
+                        "JoinScan: could not resolve var column for RTI {rti}, attno {attno}"
+                    ))
+                })
             }
         }
         OrderByFeature::NullTest { .. } => {
@@ -846,13 +895,13 @@ fn apply_sort(
                 inner,
                 nulltesttype,
             } => {
-                let inner_expr = resolve_orderby_feature(inner, join_clause, distinct_col_map);
+                let inner_expr = resolve_orderby_feature(inner, join_clause, distinct_col_map)?;
                 match nulltesttype {
                     NullTestKind::IsNull => inner_expr.is_null(),
                     NullTestKind::IsNotNull => inner_expr.is_not_null(),
                 }
             }
-            other => resolve_orderby_feature(other, join_clause, distinct_col_map),
+            other => resolve_orderby_feature(other, join_clause, distinct_col_map)?,
         };
 
         let asc = matches!(
@@ -888,11 +937,13 @@ fn apply_output_projection(
                 match proj {
                     build::ChildProjection::Expression { .. } => col(&col_alias),
                     build::ChildProjection::Score { rti } => {
-                        resolve_distinct_col(distinct_col_map, true, *rti, 0, &col_alias)
+                        resolve_distinct_col(distinct_col_map, true, *rti, 0)
+                            .unwrap_or_else(|| col(&col_alias))
                     }
                     build::ChildProjection::Column { rti, attno }
                     | build::ChildProjection::IndexedExpression { rti, attno } => {
-                        resolve_distinct_col(distinct_col_map, false, *rti, *attno, &col_alias)
+                        resolve_distinct_col(distinct_col_map, false, *rti, *attno)
+                            .unwrap_or_else(|| col(&col_alias))
                     }
                 }
             } else {
@@ -1067,7 +1118,9 @@ fn build_source_df<'a>(
                             required_early.insert(col_name);
                         }
                     }
-                    OrderByFeature::Score { .. } | OrderByFeature::VectorDistance { .. } => {}
+                    OrderByFeature::Score { .. }
+                    | OrderByFeature::ScoreSum { .. }
+                    | OrderByFeature::VectorDistance { .. } => {}
                     OrderByFeature::NullTest { inner, .. } => match inner.as_ref() {
                         OrderByFeature::Field { name, rti } if source.contains_rti(*rti) => {
                             insert_field_name_required_early(

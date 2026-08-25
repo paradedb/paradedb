@@ -3,7 +3,7 @@
 # Antithesis singleton driver: runs the `qgen` property tests once against the
 # in-cluster ParadeDB primary, with concurrency forced on and a server-side
 # statement_timeout enforced (see PARADEDB_FORCE_PARALLEL and
-# PARADEDB_QGEN_STATEMENT_TIMEOUT_MS in tests/tests/fixtures/querygen/mod.rs).
+# PARADEDB_QGEN_STATEMENT_TIMEOUT_MS in tests/src/fixtures/querygen/mod.rs).
 #
 # Antithesis singleton drivers must finish within the test duration; qgen
 # already iterates internally (24 tests * PROPTEST_CASES proptest cases each),

@@ -55,7 +55,7 @@ runs:
         sudo install -d -m 0755 /usr/share/keyrings
         curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
           | sudo tee /usr/share/keyrings/postgresql.asc > /dev/null
-        echo "deb [signed-by=/usr/share/keyrings/postgresql.asc] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+        echo "deb [signed-by=/usr/share/keyrings/postgresql.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
           | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
         sudo apt-get update
         # clang for bindgen; libopenblas-dev for pg_search's BLAS backend
@@ -91,7 +91,7 @@ runs:
 
     - name: Cache cargo-pgrx binary
       id: cache-pgrx
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ~/.cargo/bin/cargo-pgrx
         key: cargo-pgrx-${{ steps.versions.outputs.pgrx }}-${{ runner.os }}-${{ runner.arch }}

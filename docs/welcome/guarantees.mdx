@@ -1,13 +1,13 @@
 ---
 title: Guarantees
 description: ParadeDB ensures ACID compliance, concurrency, data integrity, and replication safety
-canonical: https://docs.paradedb.com/welcome/guarantees
+canonical: https://www.paradedb.com/docs/welcome/guarantees
 ---
 
 ### ACID
 
 All reads and writes go through Postgres’ transaction engine. This means that inserts, updates, and deletes to indexed columns are atomic, consistent, and respect Postgres' [isolation levels](https://www.postgresql.org/docs/current/transaction-iso.html).
-As of `0.24.0`, transactions are also durable, meaning they are write-ahead (WAL) logged and will survive crashes.
+As of `0.24.0`, transactions in ParadeDB Community are also durable, meaning they are write-ahead (WAL) logged and will survive crashes.
 
 ### Concurrency
 
@@ -21,8 +21,7 @@ whereas writes can be improved by increasing [per-statement memory](/documentati
 
 ### Correctness vs. Performance
 
-While ParadeDB optimizes heavily around performance, there are some situations where the database can squeeze more performance by relaxing correctness
-constraints. In these cases, ParadeDB — like Postgres — will guarantee correctness, even if it comes at the cost of slower query execution.
+By default, ParadeDB favors correctness, even when it comes at the cost of slower query execution. For `pdb.agg`, MVCC visibility filtering is enabled by default. If your workload can tolerate potentially stale aggregate results, you can disable it with `solve_mvcc => false` to improve performance.
 
 ### Replication Safety
 

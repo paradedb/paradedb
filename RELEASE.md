@@ -8,13 +8,13 @@ All releases are **manually triggered** using the [**Publish GitHub Release** wo
 
 Releases must always be triggered **from the branch being released** (e.g., `main` for a minor or beta release, or a hotfix branch for patches).
 
-| Type          | Description                                                                                             |
-| ------------- | ------------------------------------------------------------------------------------------------------- |
-| **Minor**     | Triggered from the `main` branch.                                                                       |
-| **Patch**     | A patch bump off an existing tag (e.g., `v1.4.0 → v1.4.1`).                                             |
-| **Beta (RC)** | Marked with `beta: true`. Produces a prerelease tag like `vX.Y.Z-rc.N`. Requires `-rc` in `Cargo.toml`. |
+| Type          | Description                                                                                               |
+| ------------- | --------------------------------------------------------------------------------------------------------- |
+| **Minor**     | Triggered from the `main` branch.                                                                         |
+| **Patch**     | A patch bump off an existing tag (e.g., `v1.4.0 → v1.4.1`).                                               |
+| **Beta (RC)** | Marked with `beta: true`. Produces a prerelease tag like `vX.Y.Z-rc.N`. Requires `-rc.N` in `Cargo.toml`. |
 
-> **Note:** The Minor and Patch releases publish Docker images for all supported PostgreSQL major versions and prebuilt extension binaries for all supported platforms. The Beta release only publishes a Docker image for the default PostgreSQL major version and does not release prebuilt extension binaries.
+> **Note:** Minor and patch releases publish Docker images for all supported PostgreSQL major versions and prebuilt extension binaries for all supported platforms. Beta releases publish only the PostgreSQL 18 Docker image and the Debian 13 packages required to build it; the remaining prebuilt extension binaries are skipped.
 
 ## Workflow Inputs
 
@@ -24,27 +24,28 @@ Releases must always be triggered **from the branch being released** (e.g., `mai
 | `beta`         | boolean | `false` | If `true`, creates a beta release (`vX.Y.Z-rc.N`) and marks it as a pre-release in GitHub.     |
 | `confirmation` | boolean | `false` | **Required** Confirms that version bump, SQL upgrade script, docs, and changelog are complete. |
 
-> **Note:** The `version` provided _must_ match that of the `Cargo.toml` of the branch being released file and contain `-rc.X` in the case of a beta release. The workflow will not run unless `confirmation: true`.
+> **Note:** The `version` provided _must_ match the version in the `Cargo.toml` file on the branch being released and contain `-rc.X` in the case of a beta release. The workflow will not run unless `confirmation: true`.
 
 ## Release Preparation
 
-Before triggering the workflow, create a **Release Preparation PR** against `main`. This is true even when releasing a patch from a stable branch like `0.23.x`: the prep PR always targets `main`, and the PR description should reference the stable branch the release is being cut from. The actual release is then triggered against the stable branch via the workflow.
+Before triggering the workflow, create a **Release Preparation PR** against `main`. For a patch release from a stable branch such as `0.25.x`, merge the preparation PR into `main`, backport it to the stable branch, and trigger the release workflow from the stable branch.
 
 - Update the `Cargo.toml` version:
   - `a.b.c-rc.d` for **beta** releases
   - `a.b.0` for **minor** releases
-- Run `cargo check` to refresh the `Cargo.lock` file with the new version
-- Add a `pg_search--<previous-version>--<upcoming-version>` upgrade script
-- Update the version references in the upgrade docs and in `docs/docs.json`
-- Write a changelog entry and add it to `docs/docs.json`
+  - `a.b.c` for **patch** releases
+- Run `cargo check` to refresh `Cargo.lock` with the new version.
+- Add a `pg_search--<previous-version>--<upcoming-version>.sql` upgrade script.
+- Update the version references in the deployment and upgrade docs and in `docs/docs.json`.
+- Write a changelog entry and add it to `docs/docs.json`.
 
-Here is an [example release preparation PR](https://github.com/paradedb/paradedb/pull/2770) for your reference.
+See the [0.25.3 release preparation PR](https://github.com/paradedb/paradedb/pull/5982) for an example.
 
 ## Triggering a Release
 
 ### Minor & Beta
 
-To publish a minor or beta release for the current ongoing latest `main`:
+To publish a minor or beta release from `main`:
 
 1. Create and merge the Release Preparation PR
 2. Go to [Actions → Publish GitHub Release](https://github.com/paradedb/paradedb/actions/workflows/publish-github-release.yml)
@@ -57,20 +58,14 @@ To publish a patch for an older release:
 
 1. **Branch off** the target tag (e.g. `git checkout -b 0.16.x <release-tag>`), if a stable branch does not already exist
 2. Cherry-pick the fixes you need into the stable branch
-3. Complete the Release Preparation PR work in the stable branch
+3. Create and merge the Release Preparation PR against `main`, then backport it to the stable branch
 4. Go to [Actions → Publish GitHub Release](https://github.com/paradedb/paradedb/actions/workflows/publish-github-release.yml)
 5. Click **Run workflow**, select the stable branch as the release branch, and set your inputs
 
 ## Post-Release Steps
 
-1. **Verify** that the GitHub Release and GitHub Tag properly created and that all jobs completed successfully.
+1. **Verify** that the GitHub release and tag were created correctly and that all jobs completed successfully.
 2. **Release** `paradedb/paradedb-enterprise` by following the instructions in the repository's RELEASE.md file.
-3. **Open a post-release PR** against `main` to bump `Cargo.toml` to the next development version (e.g. `0.24.2` if the previous version was `0.24.1`), run `cargo check` to refresh `Cargo.lock`, and merge it so `main` reflects ongoing work.
-
-> [!IMPORTANT]
-> **Do step 3 before merging any new schema work.** Until `main` is bumped, the
-> current upgrade script targets the version you just released, so it's frozen —
-> changes added to it never reach users already on that version. The
-> **Check Released Migrations** CI guard enforces this.
+3. **Open a post-release PR** against the released branch to bump `Cargo.toml` to the next development version (e.g., `0.24.2` after releasing `0.24.1`), add the corresponding empty upgrade script, and run `cargo check` to refresh `Cargo.lock`.
 
 That's it! Go for a walk, you deserve it.

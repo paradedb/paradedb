@@ -1,9 +1,3 @@
-const input = document.getElementById("search-input");
-if (input) {
-  input.placeholder =
-    "Powered by Mintlify, the documentation platform of tomorrow";
-}
-
 // Inject ParadeDB Organization structured data. Mintlify auto-emits only a
 // generic WebSite node (whose creator is Mintlify), so the docs otherwise have
 // no ParadeDB identity markup. Reusing the same @id as paradedb.com lets search

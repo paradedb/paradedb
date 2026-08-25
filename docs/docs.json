@@ -22,15 +22,8 @@
             "icon": "rocket",
             "pages": [
               "welcome/introduction",
-              {
-                "group": "Choose Your Path",
-                "pages": [
-                  "start/choose-your-path",
-                  "documentation/getting-started/install",
-                  "deploy/self-hosted/extension",
-                  "deploy/logical-replication/getting-started"
-                ]
-              },
+              "start/choose-your-path",
+              "documentation/getting-started/install",
               "documentation/getting-started/environment",
               "start/create-your-first-index",
               "documentation/getting-started/queries",
@@ -255,6 +248,7 @@
                 "group": "Deployment",
                 "pages": [
                   "deploy/overview",
+                  "deploy/self-hosted/extension",
                   "deploy/self-hosted/kubernetes",
                   {
                     "group": "Cloud Platforms",
@@ -269,6 +263,7 @@
                   {
                     "group": "Logical Replication",
                     "pages": [
+                      "deploy/logical-replication/getting-started",
                       "deploy/logical-replication/operational-guide",
                       "deploy/logical-replication/configuration",
                       "deploy/logical-replication/multi-database"

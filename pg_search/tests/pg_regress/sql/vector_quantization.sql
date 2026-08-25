@@ -97,13 +97,16 @@ WITH (
 );
 DROP TABLE q_below_floor;
 
--- d=768 cosine, using the SQL shorthand for the default [1,4] schedule.
+-- d=768 cosine, using the SQL shorthand for the default [1,4] schedule. Forty
+-- centroids keep the 25% Gate-C probe non-exhaustive despite the 16-work-unit
+-- small-segment probe floor.
 CREATE TABLE q_cosine (id integer PRIMARY KEY, vec vector(768));
 CREATE INDEX q_cosine_idx ON q_cosine
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
     key_field = id,
     vector_fields = '{"vec":{"dims":768,"quantization":true}}',
+    centroid_ratio = 0.2,
     target_segment_count = 1,
     mutable_segment_rows = 0,
     layer_sizes = '400kb',
@@ -115,6 +118,23 @@ VACUUM q_cosine;
 
 SELECT bool_or(vector_format = 'ivf') AS cosine_has_ivf
 FROM paradedb.vector_info('q_cosine_idx', 'vec');
+
+-- Save the level-0 oracle before calibration. A fractional probe budget makes
+-- this the unquantized-IVF baseline, not an exhaustive scan; the calibrated
+-- level-0 query below must preserve its result order and exact scores.
+SET paradedb.vector_cluster_max_probe = 0.25;
+CREATE TEMP TABLE q_cosine_unquantized_ivf AS
+SELECT
+    row_number() OVER (ORDER BY distance, id) AS ordinal,
+    id,
+    distance
+FROM (
+    SELECT id, vec <=> quant_fixture_vector(768, 0) AS distance
+    FROM q_cosine
+    WHERE id @@@ pdb.all()
+    ORDER BY vec <=> quant_fixture_vector(768, 0), id
+    LIMIT 10
+) hits;
 
 -- An uncalibrated quantized field must announce and use the routed,
 -- full-precision IVF path. The NOTICE is query-scoped even though the fixture
@@ -136,6 +156,7 @@ SELECT
         AS uncalibrated_skips_quantized_layers
 FROM segment_info;
 SET client_min_messages = WARNING;
+SET paradedb.vector_cluster_max_probe = 1.0;
 
 -- The SQL boundary rejects NULLs itself (the function is intentionally not
 -- STRICT), validates every array element, and measures a bounded prefix.
@@ -293,48 +314,88 @@ FROM (
     LIMIT 10
 ) hits;
 
--- Prefix depth zero flips all three fields to the exact path in this same
--- session. The fixture's quantized path must already have recall@10 = 1.0.
+-- A sub-threshold segment remains flat. Level zero must retain this existing
+-- brute-force behavior while IVF segments keep routing and the probe budget.
+CREATE TABLE q_flat (id integer PRIMARY KEY, vec vector(100));
+CREATE INDEX q_flat_idx ON q_flat
+USING paradedb (id, vec vector_cosine_ops)
+WITH (
+    key_field = id,
+    vector_fields = '{"vec":{"dims":100,"quantization":true}}'
+);
+INSERT INTO q_flat SELECT g, quant_fixture_vector(100, g) FROM generate_series(1, 32) g;
+
+-- Prefix depth zero disables quantized scoring but keeps the same IVF routing
+-- and work budget. Use the same fractional probe as the saved uncalibrated
+-- baseline so order, ids, and exact scores can be compared directly.
 SET paradedb.max_scan_levels = 0;
+SET paradedb.vector_cluster_max_probe = 0.25;
 
-SELECT quantized.ids = exact.ids AS cosine_recall_at_10_is_one
-FROM q_cosine_quantized quantized
-CROSS JOIN LATERAL (
-    SELECT array_agg(id) AS ids
-    FROM (
-        SELECT id
-        FROM q_cosine
-        WHERE id @@@ pdb.all()
-        ORDER BY vec <=> quant_fixture_vector(768, 0), id
-        LIMIT 10
-    ) hits
-) exact;
+CREATE TEMP TABLE q_cosine_lvl0 AS
+SELECT
+    row_number() OVER (ORDER BY distance, id) AS ordinal,
+    id,
+    distance
+FROM (
+    SELECT id, vec <=> quant_fixture_vector(768, 0) AS distance
+    FROM q_cosine
+    WHERE id @@@ pdb.all()
+    ORDER BY vec <=> quant_fixture_vector(768, 0), id
+    LIMIT 10
+) hits;
 
-SELECT quantized.ids = exact.ids AS l2_recall_at_10_is_one
-FROM q_l2_quantized quantized
-CROSS JOIN LATERAL (
-    SELECT array_agg(id) AS ids
-    FROM (
-        SELECT id
-        FROM q_l2
-        WHERE id @@@ pdb.all()
-        ORDER BY vec <-> quant_fixture_vector(768, 0), id
-        LIMIT 10
-    ) hits
-) exact;
+SELECT
+    count(*) = 10
+        AND bool_and(baseline.id IS NOT DISTINCT FROM lvl0.id)
+        AND bool_and(baseline.distance IS NOT DISTINCT FROM lvl0.distance)
+        AS lvl0_matches_uncalibrated_ivf
+FROM q_cosine_unquantized_ivf baseline
+FULL JOIN q_cosine_lvl0 lvl0 USING (ordinal);
 
-SELECT quantized.ids = exact.ids AS odd_recall_at_10_is_one
-FROM q_odd_quantized quantized
-CROSS JOIN LATERAL (
-    SELECT array_agg(id) AS ids
-    FROM (
-        SELECT id
-        FROM q_odd
-        WHERE id @@@ pdb.all()
-        ORDER BY vec <-> quant_fixture_vector(100, 0), id
-        LIMIT 10
-    ) hits
-) exact;
+WITH plan AS (
+    SELECT quant_explain(
+        'SELECT id FROM q_cosine WHERE id @@@ pdb.all() '
+        'ORDER BY vec <=> quant_fixture_vector(768, 0), id LIMIT 10'
+    ) AS value
+), segment_info AS (
+    SELECT (jsonb_path_query_first(value, '$.**."Segment Info"') #>> '{}')::jsonb AS value
+    FROM plan
+)
+SELECT
+    (jsonb_path_query_first(value, '$.**.routing_visited_count') #>> '{}')::bigint > 0
+        AS lvl0_routing_populated,
+    (jsonb_path_query_first(value, '$.**.postings_row') #>> '{}')::bigint > 0
+        AS lvl0_postings_populated,
+    (jsonb_path_query_first(value, '$.**.candidates_scored') #>> '{}')::bigint > 0
+        AND (jsonb_path_query_first(value, '$.**.candidates_scored') #>> '{}')::bigint
+            < (jsonb_path_query_first(value, '$.**.segment_rows') #>> '{}')::bigint
+        AS lvl0_scores_nonexhaustive_rows,
+    (jsonb_path_query_first(value, '$.**.exact_scan_ns') #>> '{}')::bigint > 0
+        AS lvl0_uses_exact_scoring,
+    jsonb_path_query_first(value, '$.**.layer0_scored') IS NULL
+        AS lvl0_has_no_layer_fields
+FROM segment_info;
+
+WITH plan AS (
+    SELECT quant_explain(
+        'SELECT id FROM q_flat WHERE id @@@ pdb.all() '
+        'ORDER BY vec <=> quant_fixture_vector(100, 0), id LIMIT 10'
+    ) AS value
+), segment_info AS (
+    SELECT (jsonb_path_query_first(value, '$.**."Segment Info"') #>> '{}')::jsonb AS value
+    FROM plan
+)
+SELECT
+    (jsonb_path_query_first(value, '$.**.exact_rows_read') #>> '{}')::bigint = 32
+        AS flat_reads_every_row,
+    (jsonb_path_query_first(value, '$.**.routing_visited_count') #>> '{}')::bigint = 0
+        AND (jsonb_path_query_first(value, '$.**.postings_row') #>> '{}')::bigint = 0
+        AS flat_skips_ivf_routing,
+    (jsonb_path_query_first(value, '$.**.exact_scan_ns') #>> '{}')::bigint > 0
+        AS flat_uses_exact_scoring,
+    jsonb_path_query_first(value, '$.**.layer0_scored') IS NULL
+        AS flat_has_no_layer_fields
+FROM segment_info;
 
 RESET paradedb.max_scan_levels;
 RESET paradedb.vector_cluster_max_probe;
@@ -343,5 +404,6 @@ RESET paradedb.vector_clustering_threshold;
 DROP TABLE q_cosine;
 DROP TABLE q_l2;
 DROP TABLE q_odd;
+DROP TABLE q_flat;
 DROP FUNCTION quant_explain(text);
 DROP FUNCTION quant_fixture_vector(integer, integer);

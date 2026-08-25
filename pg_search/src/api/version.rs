@@ -34,6 +34,10 @@ pub const DATETIME_I64_STORAGE_VERSION: Version = Version::new(0, 24, 1);
 /// layout that sorts them correctly (`decimal-bytes` 0.5). Indexes created earlier keep receiving
 /// the previous layout for new rows and query terms, since the two layouts do not sort together;
 /// a `REINDEX` moves such an index to the current layout.
+///
+/// TODO: remove this constant, `stores_sortable_negative_numeric_bytes`, and the legacy branch in
+/// `decimal_to_index_bytes` once every deployment runs v0.25.4 or later and its indexes have been
+/// rebuilt. `Decimal::to_legacy_bytes` can go from `decimal-bytes` at the same time.
 pub const NUMERIC_BYTES_SORTABLE_NEGATIVES_VERSION: Version = Version::new(0, 25, 4);
 
 impl Version {

@@ -51,7 +51,7 @@ When you're ready to deploy, check out our [hosting options](https://www.paraded
   - [x] [Highlighting](https://www.paradedb.com/docs/documentation/full-text/highlight)
   - [x] [Tokenizers & Token Filters](https://www.paradedb.com/docs/documentation/tokenizers/overview)
 - [ ] [Vector Search](https://www.paradedb.com/docs/documentation/vector/overview)
-- [ ] [Hybrid Search](https://www.paradedb.com/docs/documentation/hybrid/overview)
+- [x] [Hybrid Search](https://www.paradedb.com/docs/documentation/hybrid/overview)
 - [x] [Filtering](https://www.paradedb.com/docs/documentation/filtering)
 - [x] [Aggregates](https://www.paradedb.com/docs/documentation/aggregates/overview)
   - [x] [Columnar Storage](https://www.paradedb.com/docs/documentation/indexing/columnar)
@@ -66,7 +66,7 @@ Star and watch this repository to follow along. See our [current projects](https
 ParadeDB integrates battle-tested Rust libraries for search and analytics inside Postgres, contributing upstream whenever possible. Our primary dependencies are:
 
 - [pgrx](https://github.com/pgcentralfoundation/pgrx) — bridges Postgres and Rust
-- [Tantivy](https://github.com/quickwit-oss/tantivy) — powers full-text search
+- [Tantivy](https://github.com/quickwit-oss/tantivy) — powers full-text and vector search
 - [Apache DataFusion](https://github.com/apache/datafusion) — handles OLAP processing
 
 For a deeper dive, see our [architecture docs](https://www.paradedb.com/docs/welcome/architecture) or [CMU Database Group talk](https://db.cs.cmu.edu/events/building-blocks-paradedb-philippe-noel/).

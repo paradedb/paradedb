@@ -91,23 +91,28 @@
               {
                 "group": "Full-Text / Lexical Search",
                 "pages": [
-                  "documentation/full-text/match",
-                  "documentation/full-text/term",
                   {
-                    "group": "Phrase and Proximity",
+                    "group": "Queries",
                     "pages": [
-                      "documentation/full-text/phrase",
-                      "documentation/full-text/proximity",
-                      "documentation/query-builder/phrase/phrase-prefix",
-                      "documentation/query-builder/phrase/regex-phrase"
+                      "documentation/full-text/match",
+                      "documentation/full-text/term",
+                      {
+                        "group": "Phrase and Proximity",
+                        "pages": [
+                          "documentation/full-text/phrase",
+                          "documentation/full-text/proximity",
+                          "documentation/query-builder/phrase/phrase-prefix",
+                          "documentation/query-builder/phrase/regex-phrase"
+                        ]
+                      },
+                      "documentation/full-text/fuzzy",
+                      "documentation/query-builder/term/regex",
+                      "documentation/query-builder/term/range-term",
+                      "documentation/query-builder/specialized/more-like-this",
+                      "documentation/query-builder/compound/query-parser",
+                      "documentation/query-builder/compound/all"
                     ]
                   },
-                  "documentation/full-text/fuzzy",
-                  "documentation/query-builder/term/regex",
-                  "documentation/query-builder/term/range-term",
-                  "documentation/query-builder/specialized/more-like-this",
-                  "documentation/query-builder/compound/query-parser",
-                  "documentation/query-builder/compound/all",
                   "documentation/filtering",
                   "documentation/sorting/topk",
                   {

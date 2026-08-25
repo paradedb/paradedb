@@ -297,35 +297,46 @@ MockItem.with(text: text, vector: vector, weighted: weighted, fused: fused)
 ```
 
 ```cs EF Core
+// EF Core cannot express RANK() OVER in LINQ, so run the documented
+// query directly; fusion still happens inside the database
 var queryEmbedding = new float[] { 1, 2, 3, 4, 5, 6, 7, 8 };
+var query = "running shoes";
 
-var text = await dbContext
-    .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "running shoes"))
-    .OrderByDescending(item => EF.Functions.Score(item.Id))
-    .ThenBy(item => item.Id)
-    .Select(item => new { item.Id, item.Description })
-    .Take(20)
+var results = await dbContext.Database
+    .SqlQuery<RrfResult>($"""
+        WITH text AS (
+            SELECT id, RANK() OVER (ORDER BY pdb.score(id) DESC, id) AS rank
+            FROM mock_items
+            WHERE description ||| {query}
+            ORDER BY pdb.score(id) DESC, id
+            LIMIT 20
+        ),
+        vector AS (
+            SELECT id, RANK() OVER (ORDER BY embedding <=> {queryEmbedding}::vector, id) AS rank
+            FROM mock_items
+            WHERE id @@@ pdb.all()
+            ORDER BY embedding <=> {queryEmbedding}::vector, id
+            LIMIT 20
+        ),
+        fused AS (
+            SELECT id, sum(weight) AS score
+            FROM (
+                SELECT id, 1.0 / (60 + rank) AS weight FROM text
+                UNION ALL
+                SELECT id, 0.7 / (60 + rank) AS weight FROM vector
+            ) u
+            GROUP BY id
+        )
+        SELECT m.id AS "Id", m.description AS "Description",
+               f.score::double precision AS "Score"
+        FROM fused f
+        JOIN mock_items m USING (id)
+        ORDER BY f.score DESC, m.id
+        LIMIT 5
+        """)
     .ToListAsync();
 
-var vector = await dbContext
-    .MockItems.Where(item => EF.Functions.All(item.Id))
-    .OrderBy(item => EF.Functions.CosineDistance(item.Embedding, queryEmbedding))
-    .ThenBy(item => item.Id)
-    .Select(item => new { item.Id, item.Description })
-    .Take(20)
-    .ToListAsync();
-
-var results = text
-    .Select((item, index) => (item.Id, item.Description, Weight: 1.0 / (60 + index + 1)))
-    .Concat(
-        vector.Select((item, index) => (item.Id, item.Description, Weight: 0.7 / (60 + index + 1)))
-    )
-    .GroupBy(row => row.Id)
-    .Select(group => (group.Key, group.First().Description, Score: group.Sum(row => row.Weight)))
-    .OrderByDescending(row => row.Score)
-    .ThenBy(row => row.Key)
-    .Take(5)
-    .ToList();
+public sealed record RrfResult(int Id, string Description, double Score);
 ```
 
 </CodeGroup>

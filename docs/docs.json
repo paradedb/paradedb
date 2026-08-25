@@ -22,7 +22,7 @@
             "icon": "rocket",
             "pages": [
               "welcome/introduction",
-              "start/choose-your-path",
+              "start/choose-your-deployment",
               {
                 "group": "Getting Started",
                 "pages": [

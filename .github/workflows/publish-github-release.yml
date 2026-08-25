@@ -1,8 +1,8 @@
 # workflows/publish-github-release.yml
 #
 # Publish GitHub Release
-# Publish a ParadeDB GitHub Release, which triggers the entire release process. This workflow
-# is always triggered manually via the GitHub Actions UI and deploys the branch that it is being run from.
+# Orchestrates fragment assembly, version syncing, and publishes a ParadeDB GitHub Release.
+# This workflow is triggered manually via the GitHub Actions UI and deploys the branch that it is being run from.
 
 name: Publish GitHub Release
 
@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The version to release, in semver format (e.g. 0.22.0). This must match the version in Cargo.toml."
+        description: "The version to release, in semver format (e.g. 0.22.0)."
         type: string
         required: true
         default: ""
@@ -18,11 +18,6 @@ on:
         description: "Whether this release is a beta release. Defaults to false."
         type: boolean
         required: false
-        default: false
-      confirmation:
-        description: "I confirm that the version was incremented, the SQL upgrade script was written, and the docs and changelog were updated. Defaults to false."
-        type: boolean
-        required: true
         default: false
 
 concurrency:
@@ -38,23 +33,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Confirm the Pre-Release Checklist Was Completed
-        run: |
-          echo "Confirmation: ${{ github.event.inputs.confirmation }}"
-          if [[ "${{ github.event.inputs.confirmation }}" == "true" ]]; then
-            echo "Thank you for confirming that the version was incremented, the SQL upgrade script was written, and the docs and changelog were updated."
-          else
-            echo "Confirmation failed! Please confirm that the version was incremented, the SQL upgrade script was written, and the docs and changelog were updated."
-            exit 1
-          fi
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
 
       - name: Checkout Git Repository
         uses: actions/checkout@v7
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
 
-      # We confirm that if the release type is beta, the version in Cargo.toml matches with "-rc.X", and that the
-      # version provided matches the version in Cargo.toml. If the user forgot to increment the version, they will
-      # need to do it in a PR, which will trigger the workflow test_pg_search-upgrade.yml, ensuring that the upgrade is tested.
-      - name: Validate Cargo.toml Version Matches Release Type
+      - name: Validate Release Inputs
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -66,25 +58,19 @@ jobs:
           echo "Release check passed!"
 
           if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
-            echo "Validating that the version in Cargo.toml contains "-rc.X"..."
+            echo "Validating that the version contains '-rc.X'..."
             if [[ "${{ github.event.inputs.version }}" != *"-rc."* ]]; then
-              echo "Version (${{ github.event.inputs.version }}) does not contain "-rc.X" but is marked as a beta release."
+              echo "Version (${{ github.event.inputs.version }}) does not contain '-rc.X' but is marked as a beta release."
               exit 1
             fi
           else
-            echo "Validating that the version in Cargo.toml does not contain "-rc.X"..."
+            echo "Validating that the version does not contain '-rc.X'..."
             if [[ "${{ github.event.inputs.version }}" == *"-rc."* ]]; then
-              echo "Version (${{ github.event.inputs.version }}) contains "-rc.X" but is not marked as a beta release."
+              echo "Version (${{ github.event.inputs.version }}) contains '-rc.X' but is not marked as a beta release."
               exit 1
             fi
           fi
 
-          CARGO_VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
-          echo "Validating that the version in Cargo.toml matches the upcoming version..."
-          if [[ "${{ github.event.inputs.version }}" != "$CARGO_VERSION" ]]; then
-            echo "Version in top-level Cargo.toml ($CARGO_VERSION) does not match upcoming version (${{ github.event.inputs.version }})."
-            exit 1
-          fi
           if [[ "${{ github.ref_name }}" == "main" ]]; then
             echo "Validating that the version is a minor release on the main branch..."
             if [[ ! "${{ github.event.inputs.version }}" =~ ^[0-9]+\.[0-9]+\.0(-rc\.[0-9]+)?$ ]]; then
@@ -92,38 +78,65 @@ jobs:
               echo "Provided version '${{ github.event.inputs.version }}' is not a minor release."
               exit 1
             fi
+          elif [[ "${{ github.ref_name }}" =~ ^([0-9]+\.[0-9]+)\.x$ ]]; then
+            BRANCH_PREFIX="${BASH_REMATCH[1]}"
+            echo "Validating that version matches stable branch '${BRANCH_PREFIX}.x'..."
+            if [[ ! "${{ github.event.inputs.version }}" =~ ^${BRANCH_PREFIX}\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
+              echo "❌ Error: On stable branch '${{ github.ref_name }}', version must match '${BRANCH_PREFIX}.<patch>'."
+              echo "Provided version '${{ github.event.inputs.version }}' does not match."
+              exit 1
+            fi
           fi
-          echo "Version check passed!"
+          echo "Input validation passed!"
 
-      - name: Validate the SQL Upgrade Script Exists
-        working-directory: pg_search/sql/
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
+          rustflags: ""
+
+      - name: Install Determinate Nix
+        uses: DeterminateSystems/determinate-nix-action@main
+
+      - name: Assemble SQL Upgrade Scripts
         run: |
-          set -euo pipefail
-
-          target_version="${{ github.event.inputs.version }}"
-          echo "Original target version: ${target_version}"
-
-          # Strip prerelease suffixes like -rc.1, -beta.2, etc.
-          stripped_version="${target_version%%-*}"
-
-          echo "Normalized target version (without prerelease tag): ${stripped_version}"
-          echo "Looking for SQL upgrade scripts targeting version: ${stripped_version}"
-
-          # Enable nullglob so an empty glob expands to nothing
-          shopt -s nullglob
-
-          matches=(pg_search--*--"${stripped_version}".sql)
-
-          if (( ${#matches[@]} == 0 )); then
-            echo "❌ No SQL upgrade script found for version ${stripped_version} in $(pwd)."
-            echo "Expected at least one file named: pg_search--<past-version>--${stripped_version}.sql"
-            exit 1
+          if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
+            ./scripts/assemble_sql.sh "${{ github.event.inputs.version }}" --transient
+          else
+            ./scripts/assemble_sql.sh "${{ github.event.inputs.version }}"
           fi
 
-          echo "✅ Found SQL upgrade script(s):"
-          for f in "${matches[@]}"; do
-            echo " - ${f}"
-          done
+      - name: Assemble Changelog
+        run: |
+          if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
+            ./scripts/assemble_changelog.sh "${{ github.event.inputs.version }}" --dry-run
+          else
+            ./scripts/assemble_changelog.sh "${{ github.event.inputs.version }}"
+          fi
+
+      - name: Update Cargo Version, Lockfile, and Nix Hash
+        run: |
+          TARGET_VERSION="${{ github.event.inputs.version }}"
+          # Update version in Cargo.toml
+          python3 -c "
+          import re
+          with open('Cargo.toml', 'r') as f:
+              content = f.read()
+          content = re.sub(r'(?m)^version = \"[^\"]+\"', f'version = \"${TARGET_VERSION}\"', content, count=1)
+          with open('Cargo.toml', 'w') as f:
+              f.write(content)
+          "
+          cargo update --workspace
+          chmod +x scripts/update-nix-cargo-hash.sh
+          scripts/update-nix-cargo-hash.sh 18
+
+      - name: Commit and Push Release Artifacts
+        run: |
+          git config user.name "paradedb-github-app[bot]"
+          git config user.email "282009505+paradedb-github-app[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: Prepare \`${{ github.event.inputs.version }}\`."
+          git push origin HEAD:${{ github.ref_name }}
 
       - name: Determine if Release Should be Marked as Latest
         id: release_latest
@@ -155,20 +168,60 @@ jobs:
             echo "is_latest=false" >> $GITHUB_OUTPUT
           fi
 
-      # Create the tag ref ourselves, using the GitHub App token, BEFORE
-      # calling softprops/action-gh-release. Since v2.5.0, that action publishes releases
-      # via a draft-first flow where the tag ref is created as a side effect of the
-      # publish API call, which does not emit a cascading `push` event — so our downstream
-      # `publish-*` workflows (triggered on `push: tags: v*`) never fire. Pushing the tag
-      # ref directly with the app token here ensures the push event is attributed to the app and
-      # cascades to the downstream workflows. The subsequent release-creation step then
-      # attaches the release to the already-existing tag.
-      - name: Generate GitHub App Token
-        id: app-token
-        uses: actions/create-github-app-token@v3.2.0
-        with:
-          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
-          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+      - name: Sync Release Artifacts to Main
+        if: github.ref_name != 'main'
+        run: |
+          RELEASE_VERSION="${{ github.event.inputs.version }}"
+          CLEAN_VERSION="${RELEASE_VERSION%%-*}"
+          IS_LATEST="${{ steps.release_latest.outputs.is_latest }}"
+
+          # Record newly created release files and consumed fragment paths from the release commit
+          NEW_SQL="pg_search/sql/pg_search--*--${CLEAN_VERSION}.sql"
+          NEW_CHANGELOG="docs/changelog/${CLEAN_VERSION}.mdx"
+          DOCS_SNIPPET="docs/snippets/version.mdx"
+          DELETED_FRAGMENTS=$(git diff HEAD~1 --diff-filter=D --name-only -- 'pg_search/sql/unreleased/' 'docs/changelog/unreleased/')
+
+          echo "Switching to main branch to sync release artifacts..."
+          git fetch origin main:main
+          git checkout main
+
+          echo "Checking out assembled release files from the release commit..."
+          if [[ "$IS_LATEST" == "true" ]]; then
+            git checkout "${{ github.ref_name }}" -- ${NEW_SQL} ${NEW_CHANGELOG} ${DOCS_SNIPPET}
+          else
+            git checkout "${{ github.ref_name }}" -- ${NEW_SQL} ${NEW_CHANGELOG}
+          fi
+
+          if [[ -n "$DELETED_FRAGMENTS" ]]; then
+            echo "Removing consumed fragments from main..."
+            echo "$DELETED_FRAGMENTS" | while read -r fragment; do
+              if [[ -f "$fragment" ]]; then
+                echo " - Removing $fragment"
+                rm -f "$fragment"
+              fi
+            done
+          fi
+
+          echo "Registering ${CLEAN_VERSION} in docs/docs.json on main (is_latest=${IS_LATEST})..."
+          if [[ "$IS_LATEST" == "true" ]]; then
+            python3 .github/scripts/assemble_changelog.py --register-only "${CLEAN_VERSION}" --is-latest
+          else
+            python3 .github/scripts/assemble_changelog.py --register-only "${CLEAN_VERSION}" --no-is-latest
+          fi
+
+          git config user.name "paradedb-github-app[bot]"
+          git config user.email "282009505+paradedb-github-app[bot]@users.noreply.github.com"
+          git add -A
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: Sync \`${RELEASE_VERSION}\` release artifacts to main."
+            git push origin main
+            echo "✅ Successfully synced release artifacts to main."
+          else
+            echo "No changes needed on main."
+          fi
+
+          # Switch back to the release branch for tagging and release creation
+          git checkout "${{ github.ref_name }}"
 
       - name: Create Tag
         env:
@@ -179,6 +232,27 @@ jobs:
           gh api -X POST "repos/${{ github.repository }}/git/refs" \
             -f ref="refs/tags/v${{ github.event.inputs.version }}" \
             -f sha="$sha"
+
+      - name: Create Stable Branch
+        if: github.ref_name == 'main' && github.event.inputs.beta != 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          MAJOR_MINOR=$(echo "$VERSION" | awk -F. '{print $1"."$2}')
+          STABLE_BRANCH="${MAJOR_MINOR}.x"
+          sha=$(git rev-parse HEAD)
+
+          echo "Checking if stable branch refs/heads/${STABLE_BRANCH} exists..."
+          if ! gh api "repos/${{ github.repository }}/git/ref/heads/${STABLE_BRANCH}" > /dev/null 2>&1; then
+            echo "Creating stable branch refs/heads/${STABLE_BRANCH} pointing at $sha"
+            gh api -X POST "repos/${{ github.repository }}/git/refs" \
+              -f ref="refs/heads/${STABLE_BRANCH}" \
+              -f sha="$sha"
+            echo "✅ Created stable branch ${STABLE_BRANCH}"
+          else
+            echo "ℹ️ Stable branch ${STABLE_BRANCH} already exists."
+          fi
 
       # The tag_name will have "-rc.X" suffix and be marked as a prerelease for beta releases,
       # and no suffix and marked as a full release for prod releases. The tag has already been
@@ -193,6 +267,62 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Post-Release Development Version Bump
+        run: |
+          RELEASE_VERSION="${{ github.event.inputs.version }}"
+          CLEAN_VERSION="${RELEASE_VERSION%%-*}"
+          IS_BETA="${{ github.event.inputs.beta }}"
+          REF_NAME="${{ github.ref_name }}"
+
+          if [[ "$REF_NAME" == "main" ]]; then
+            if [[ "$IS_BETA" == "true" ]]; then
+              NEXT_DEV_VERSION="$CLEAN_VERSION"
+              COMMIT_MSG="chore: Reset development version to \`${NEXT_DEV_VERSION}\`."
+            else
+              # Next minor dev version: e.g. 0.26.0 -> 0.27.0
+              NEXT_DEV_VERSION=$(python3 -c "
+              major, minor, patch = map(int, '${CLEAN_VERSION}'.split('.'))
+              print(f'{major}.{minor + 1}.0')
+              ")
+              COMMIT_MSG="chore: Start development of \`${NEXT_DEV_VERSION}\`."
+            fi
+            TARGET_BRANCH="main"
+          else
+            # Patch release on stable branch: switch back to stable branch
+            git checkout "$REF_NAME"
+            # Next patch dev version: e.g. 0.25.5 -> 0.25.6
+            NEXT_DEV_VERSION=$(python3 -c "
+            major, minor, patch = map(int, '${CLEAN_VERSION}'.split('.'))
+            print(f'{major}.{minor}.{patch + 1}')
+            ")
+            COMMIT_MSG="chore: Start development of \`${NEXT_DEV_VERSION}\`."
+            TARGET_BRANCH="$REF_NAME"
+          fi
+
+          echo "Bumping ${TARGET_BRANCH} to development version ${NEXT_DEV_VERSION}..."
+          python3 -c "
+          import re
+          with open('Cargo.toml', 'r') as f:
+              content = f.read()
+          content = re.sub(r'(?m)^version = \"[^\"]+\"', f'version = \"${NEXT_DEV_VERSION}\"', content, count=1)
+          with open('Cargo.toml', 'w') as f:
+              f.write(content)
+          "
+          cargo update --workspace
+          chmod +x scripts/update-nix-cargo-hash.sh
+          scripts/update-nix-cargo-hash.sh 18
+
+          git config user.name "paradedb-github-app[bot]"
+          git config user.email "282009505+paradedb-github-app[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock nix/pg_search.nix
+          if ! git diff --staged --quiet; then
+            git commit -m "$COMMIT_MSG"
+            git push origin HEAD:"$TARGET_BRANCH"
+            echo "✅ Successfully bumped ${TARGET_BRANCH} to ${NEXT_DEV_VERSION}."
+          else
+            echo "No development bump needed."
+          fi
 
       - name: Notify Slack on Failure
         if: failure()

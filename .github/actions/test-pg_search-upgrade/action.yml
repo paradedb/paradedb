@@ -123,6 +123,12 @@ runs:
       shell: bash
       run: cargo pgrx init "--pg${{ inputs.pg_version }}=/usr/lib/postgresql/${{ inputs.pg_version }}/bin/pg_config"
 
+    - name: Assemble SQL Upgrade Scripts (Transient)
+      shell: bash
+      run: |
+        VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
+        ./scripts/assemble_sql.sh "$VERSION" --transient
+
     - name: Compile & install pg_search
       working-directory: pg_search/
       shell: bash

@@ -30,7 +30,7 @@ mod imp {
     use std::cell::RefCell;
     use std::collections::BTreeMap;
     use tantivy::index::{SegmentComponent, SegmentId};
-    use tantivy::vector::{VectorIoPhase, current_vector_io_phase};
+    use tantivy::vector::{Stage, current_vector_stage};
 
     #[derive(Debug, Default, Clone, Copy, serde::Serialize)]
     struct IoCounters {
@@ -41,13 +41,7 @@ mod imp {
     #[derive(Debug, Default)]
     struct SegmentIo {
         components: BTreeMap<String, IoCounters>,
-        query_prep: IoCounters,
-        routing: IoCounters,
-        plane1: IoCounters,
-        boundary: IoCounters,
-        plane2: IoCounters,
-        rerank_fetch: IoCounters,
-        rerank_score: IoCounters,
+        stages: BTreeMap<String, IoCounters>,
     }
 
     impl SegmentIo {
@@ -73,22 +67,27 @@ mod imp {
             let slot = current.components.entry(component.to_string()).or_default();
             slot.blks_hit += delta.blks_hit;
             slot.blks_read += delta.blks_read;
-            let stage = match current_vector_io_phase() {
-                VectorIoPhase::Other => None,
-                VectorIoPhase::QueryPrep => Some(&mut current.query_prep),
-                VectorIoPhase::Routing => Some(&mut current.routing),
-                VectorIoPhase::Plane1 => Some(&mut current.plane1),
-                VectorIoPhase::Boundary => Some(&mut current.boundary),
-                VectorIoPhase::Plane2 => Some(&mut current.plane2),
-                VectorIoPhase::RerankFetch => Some(&mut current.rerank_fetch),
-                VectorIoPhase::RerankScore => Some(&mut current.rerank_score),
-            };
-            if let Some(stage) = stage {
+            if let Some(stage) = stage_name(current_vector_stage()) {
+                let stage = current.stages.entry(stage).or_default();
                 stage.blks_hit += delta.blks_hit;
                 stage.blks_read += delta.blks_read;
             }
         });
         result
+    }
+
+    fn stage_name(stage: Stage) -> Option<String> {
+        match stage {
+            Stage::Other => None,
+            Stage::QueryPrep => Some("query_prep".to_string()),
+            Stage::Routing => Some("routing".to_string()),
+            Stage::LayerScan(layer) => Some(format!("layer{layer}_scan")),
+            Stage::Boundary(layer) => Some(format!("boundary{layer}")),
+            Stage::ExactScan => Some("exact_scan".to_string()),
+            Stage::ResultAssembly => Some("result_assembly".to_string()),
+            Stage::RerankFetch => Some("rerank_fetch".to_string()),
+            Stage::RerankScore => Some("rerank_score".to_string()),
+        }
     }
 
     fn snapshot() -> (i64, i64) {
@@ -147,29 +146,18 @@ mod imp {
                     "blocks_fetched".to_string(),
                     (total.blks_hit + total.blks_read).into(),
                 );
-                let mut attach_stage = |name: &str, counters: IoCounters| {
+                for (name, counters) in io.stages {
                     map.insert(format!("{name}_buffer_hits"), counters.blks_hit.into());
                     map.insert(format!("{name}_buffer_reads"), counters.blks_read.into());
-                };
-                attach_stage("query_prep", io.query_prep);
-                attach_stage("routing", io.routing);
-                attach_stage("plane1", io.plane1);
-                attach_stage("boundary", io.boundary);
-                attach_stage("plane2", io.plane2);
-                attach_stage("rerank_fetch", io.rerank_fetch);
-                attach_stage("rerank_score", io.rerank_score);
-                map.insert(
-                    "rerank_buffer_hits".to_string(),
-                    io.rerank_fetch.blks_hit.into(),
-                );
-                map.insert(
-                    "rerank_buffer_reads".to_string(),
-                    io.rerank_fetch.blks_read.into(),
-                );
-                map.insert(
-                    "rerank_blocks_fetched".to_string(),
-                    (io.rerank_fetch.blks_hit + io.rerank_fetch.blks_read).into(),
-                );
+                    if name == "rerank_fetch" {
+                        map.insert("rerank_buffer_hits".to_string(), counters.blks_hit.into());
+                        map.insert("rerank_buffer_reads".to_string(), counters.blks_read.into());
+                        map.insert(
+                            "rerank_blocks_fetched".to_string(),
+                            (counters.blks_hit + counters.blks_read).into(),
+                        );
+                    }
+                }
             }
         }
     }

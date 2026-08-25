@@ -39,6 +39,55 @@ pub struct ScanTelemetry {
 }
 
 impl ScanTelemetry {
+    pub fn stage_elapsed_ns(&self) -> u64 {
+        self.segment_info.values().fold(0u64, |total, value| {
+            let Some(fields) = value.as_object() else {
+                return total;
+            };
+            fields.iter().fold(total, |segment_total, (name, value)| {
+                let is_stage = matches!(
+                    name.as_str(),
+                    "scan_init_ns"
+                        | "query_prep_ns"
+                        | "routing_ns"
+                        | "exact_scan_ns"
+                        | "result_assembly_ns"
+                        | "rerank_fetch_ns"
+                        | "rerank_score_ns"
+                ) || (name.starts_with("layer") && name.ends_with("_scan_ns"))
+                    || (name.starts_with("boundary") && name.ends_with("_ns"));
+                if is_stage {
+                    segment_total.saturating_add(value.as_u64().unwrap_or_default())
+                } else {
+                    segment_total
+                }
+            })
+        })
+    }
+
+    pub fn add_result_assembly_ns(&mut self, elapsed_ns: u64) {
+        let Some((_, value)) = self.segment_info.first_key_value() else {
+            return;
+        };
+        let Some(fields) = value.as_object() else {
+            return;
+        };
+        let current = fields
+            .get("result_assembly_ns")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or_default();
+        let first = self
+            .segment_info
+            .first_entry()
+            .expect("the first segment was checked above");
+        if let Some(fields) = first.into_mut().as_object_mut() {
+            fields.insert(
+                "result_assembly_ns".to_string(),
+                current.saturating_add(elapsed_ns).into(),
+            );
+        }
+    }
+
     pub fn record_query(&mut self) {
         self.query_count += 1;
     }

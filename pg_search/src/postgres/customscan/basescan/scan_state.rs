@@ -65,6 +65,9 @@ pub struct BaseScanState {
     /// Executor startup before `SearchIndexReader::open`; consumed into the
     /// reader's flat `scan_init_ns` metric on first execution.
     pub executor_scan_init_ns: u64,
+    /// End-to-end CustomScan execution interval used to assign only the
+    /// residual around named nested stages to result assembly.
+    pub executor_stage_start: Option<std::time::Instant>,
 
     pub targetlist_len: usize,
 

@@ -1633,6 +1633,7 @@ impl CustomScan for BaseScan {
         eflags: i32,
     ) {
         let begin_start = std::time::Instant::now();
+        state.custom_state_mut().executor_stage_start = Some(begin_start);
         unsafe {
             // open the heap and index relations with the proper locks
             let rte = pg_sys::exec_rt_fetch(state.custom_state().execution_rti, estate);
@@ -1741,6 +1742,14 @@ impl CustomScan for BaseScan {
             match exec_method.next(state.custom_state_mut()) {
                 // reached the end of the SearchResults
                 ExecState::Eof => {
+                    if let Some(start) = state.custom_state_mut().executor_stage_start.take() {
+                        let elapsed_ns = start.elapsed().as_nanos() as u64;
+                        let accounted_ns = state.custom_state().telemetry.stage_elapsed_ns();
+                        state
+                            .custom_state_mut()
+                            .telemetry
+                            .add_result_assembly_ns(elapsed_ns.saturating_sub(accounted_ns));
+                    }
                     return std::ptr::null_mut();
                 }
 

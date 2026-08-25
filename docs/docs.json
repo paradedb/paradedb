@@ -72,14 +72,6 @@
             "icon": "book-open",
             "pages": [
               {
-                "group": "Cheatsheets",
-                "pages": [
-                  "reference/operators-and-functions",
-                  "reference/configuration",
-                  "reference/sql-functions"
-                ]
-              },
-              {
                 "group": "Indexing",
                 "pages": [
                   {
@@ -243,6 +235,15 @@
                 "pages": [
                   "documentation/joins/overview"
                 ]
+              },
+              {
+                "group": "Cheatsheets",
+                "pages": [
+                  "reference/operators-and-functions",
+                  "reference/configuration",
+                  "reference/sql-functions"
+                ],
+                "expanded": false
               }
             ]
           },

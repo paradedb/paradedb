@@ -17,3 +17,4 @@ CREATE  FUNCTION "vector_clusters"(
 STRICT
 LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'vector_clusters_wrapper';
+

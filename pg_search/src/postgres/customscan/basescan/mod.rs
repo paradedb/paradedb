@@ -1633,7 +1633,7 @@ impl CustomScan for BaseScan {
         eflags: i32,
     ) {
         let begin_start = std::time::Instant::now();
-        let explain_analyze = unsafe { !(*state.planstate()).instrument.is_null() };
+        let explain_analyze = unsafe { (*estate).es_instrument != 0 };
         state.custom_state_mut().executor_stage_start = explain_analyze.then_some(begin_start);
         unsafe {
             // open the heap and index relations with the proper locks

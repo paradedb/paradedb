@@ -1633,7 +1633,8 @@ impl CustomScan for BaseScan {
         eflags: i32,
     ) {
         let begin_start = std::time::Instant::now();
-        state.custom_state_mut().executor_stage_start = Some(begin_start);
+        let explain_analyze = unsafe { !(*state.planstate()).instrument.is_null() };
+        state.custom_state_mut().executor_stage_start = explain_analyze.then_some(begin_start);
         unsafe {
             // open the heap and index relations with the proper locks
             let rte = pg_sys::exec_rt_fetch(state.custom_state().execution_rti, estate);

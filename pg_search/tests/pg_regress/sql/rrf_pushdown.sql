@@ -139,7 +139,7 @@ FROM wlp WHERE label @@@ 'shoes'
 ORDER BY grp DESC LIMIT 3;
 
 -- GROUP BY on an expression the Aggregate Scan can't resolve, so it falls through to Base Scan
-SET paradedb.check_aggregate_scan = false;
+SET paradedb.planner_warnings = 'off';
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT grp + 0 AS g, RANK() OVER (ORDER BY grp + 0 DESC) AS rank
@@ -154,7 +154,7 @@ SELECT grp + 0 AS g, RANK() OVER (ORDER BY grp + 0 DESC) AS rank
 FROM wlp WHERE label @@@ 'shoes'
 GROUP BY grp + 0 HAVING count(*) > 0 ORDER BY grp + 0 DESC LIMIT 3;
 
-RESET paradedb.check_aggregate_scan;
+RESET paradedb.planner_warnings;
 
 -- ============================================================
 -- The RRF shape itself: both branches must be Top K

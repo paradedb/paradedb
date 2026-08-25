@@ -1973,7 +1973,7 @@ unsafe fn window_funcs_are_position_only(parse: *mut pg_sys::Query) -> bool {
 ///
 /// Validates whether a query that should use Top K scan is actually using it.
 ///
-/// When `paradedb.check_topk_scan` is enabled, this function checks if a query with LIMIT
+/// When `paradedb.planner_warnings` is not 'off', this function checks if a query with LIMIT
 /// that uses ParadeDB's search operators is using the Top K execution method. If Top K was
 /// expected but not chosen, it logs a warning with diagnostic information to help developers
 /// identify performance issues.
@@ -1988,7 +1988,7 @@ fn validate_topk_expectation(
     table_name: &str,
 ) {
     // Fast path: if validation is disabled, return immediately
-    if !crate::gucs::check_topk_scan() {
+    if crate::gucs::planner_warnings() == crate::gucs::PlannerWarnings::Off {
         return;
     }
 
@@ -2097,7 +2097,7 @@ fn validate_topk_expectation(
              Reason: {}. \
              This may cause poor performance on large datasets. \
              Remedies: {}. \
-             To disable this warning: SET paradedb.check_topk_scan = false",
+             To disable this warning: SET paradedb.planner_warnings = 'off'",
             limit, method_name, reason, remedies
         ),
         table_name,

@@ -481,7 +481,7 @@ SELECT category, COUNT(DISTINCT rating), SUM(price)
 FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category;
-WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/paradedb/paradedb/issues/new/choose). To disable this warning: SET paradedb.check_aggregate_scan = false (table: products)
+WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/paradedb/paradedb/issues/new/choose). To disable this warning: SET paradedb.planner_warnings = 'off' (table: products)
                                                                                   QUERY PLAN                                                                                   
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -505,7 +505,7 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
-WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/paradedb/paradedb/issues/new/choose). To disable this warning: SET paradedb.check_aggregate_scan = false (table: products)
+WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/paradedb/paradedb/issues/new/choose). To disable this warning: SET paradedb.planner_warnings = 'off' (table: products)
   category   | count |   sum   
 -------------+-------+---------
  Electronics |     2 | 2529.96

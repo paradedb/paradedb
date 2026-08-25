@@ -1733,4 +1733,52 @@ mod tests {
 
         Spi::run("DROP TABLE partitioned_parity;").unwrap();
     }
+
+    /// A cell holding more segments than `CELL_MERGE_FANIN` must merge down across more than one
+    /// pass. A vector schema gets there cheaply: its writer caps every segment at
+    /// `DEFAULT_MAX_DOCS_PER_SEGMENT` docs whatever the memory budget, and a single-cell tree
+    /// puts all of them in one cell. The vectors are seeded: the clusterer's behavior depends on
+    /// the data, and a merge test must not change its input from run to run.
+    #[pg_test]
+    fn test_partitioned_build_merges_cell_in_passes() {
+        let nrows = crate::index::writer::index::DEFAULT_MAX_DOCS_PER_SEGMENT as usize
+            * (super::CELL_MERGE_FANIN + 1);
+        Spi::run("CREATE EXTENSION IF NOT EXISTS vector;").unwrap();
+        Spi::run(&format!(
+            r#"
+            CREATE TABLE partitioned_passes (id SERIAL8, tenant_id BIGINT, emb vector(8));
+            SELECT setseed(0.42);
+            INSERT INTO partitioned_passes (tenant_id, emb)
+            SELECT i % 4,
+                   ('[' || array_to_string(array(SELECT random() FROM generate_series(1, 8)), ',') || ']')::vector
+            FROM generate_series(1, {nrows}) i;
+            "#
+        ))
+        .unwrap();
+        Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
+        Spi::run(
+            "CREATE INDEX partitioned_passes_idx ON partitioned_passes USING paradedb (id, tenant_id, emb vector_cosine_ops) WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 1);",
+        )
+        .unwrap();
+
+        let count: i64 = Spi::get_one(
+            "SELECT COUNT(*)::bigint FROM paradedb.index_info('partitioned_passes_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            count, 1,
+            "the cell must merge down to one segment across passes"
+        );
+
+        let num_docs: i64 = Spi::get_one(
+            "SELECT COALESCE(SUM(num_docs), 0)::bigint FROM paradedb.index_info('partitioned_passes_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            num_docs, nrows as i64,
+            "the merged cell must keep every row"
+        );
+    }
 }

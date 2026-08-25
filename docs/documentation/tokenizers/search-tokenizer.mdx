@@ -9,10 +9,10 @@ tokenized the same way the data was indexed.
 
 But sometimes you need different tokenizers. The classic example is **autocomplete**:
 
-- **Index time** — edge ngram: `"shoes"` → `s`, `sh`, `sho`, `shoe`, `shoes`
-- **Search time** — unicode: `"sho"` → `sho`
+- **Index time** — prefix ngrams (`ngram` with `prefix_only=true`): `"shoes"` → `s`, `sh`, `sho`, `shoe`, `shoes`
+- **Search time** — `unicode_words`: `"sho"` → `sho`
 
-If you used edge ngram at search time too, typing `"sho"` would produce `s`, `sh`, `sho` — matching far too many documents.
+If you used `ngram` with `prefix_only=true` at search time too, typing `"sho"` would produce `s`, `sh`, `sho` — matching far too many documents.
 
 ## Usage
 
@@ -28,7 +28,7 @@ USING paradedb (
 
 With this configuration:
 
-- **Index time**: `title` is tokenized with edge ngram to create prefix tokens
+- **Index time**: `title` is tokenized into prefix ngrams
 - **Search time**: queries against `title` automatically use the unicode tokenizer
 
 The `search_tokenizer` value can include parameters, e.g. `search_tokenizer='simple(lowercase=false)'`.
@@ -60,7 +60,7 @@ SELECT id, title FROM products WHERE title ||| 'sho' ORDER BY id;
 SELECT id, title FROM products WHERE title ||| 's' ORDER BY id;
 ```
 
-Without `search_tokenizer`, the query `'sho'` would be edge-ngrammed into `s`, `sh`, `sho` and match
+Without `search_tokenizer`, the query `'sho'` would be tokenized into the prefix ngrams `s`, `sh`, `sho` and match
 every title starting with `s` — not just those starting with `sho`.
 
 ## Overriding at Query Time
@@ -68,7 +68,7 @@ every title starting with `s` — not just those starting with `sho`.
 You can still override the search tokenizer for a specific query by casting the query string:
 
 ```sql
--- Force edge ngram tokenization at query time
+-- Force prefix ngram tokenization at query time
 SELECT id, title FROM products WHERE title ||| 'sho'::pdb.ngram(1, 10, 'prefix_only=true') ORDER BY id;
 ```
 

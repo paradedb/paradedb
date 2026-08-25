@@ -142,7 +142,7 @@ pub struct AggregateScanState {
     /// 2. Keeps Tantivy buffer pins alive through `exec_custom_scan` so
     ///    background merges don't recycle the canonical segments before
     ///    workers can open them via `MvccSatisfies::ParallelWorker(ids)`.
-    pub source_manifests: Vec<crate::index::reader::index::SearchIndexManifest>,
+    pub source_manifests: Vec<std::rc::Rc<crate::index::reader::index::SearchIndexManifest>>,
 
     /// A collection of things needed for result-rewriting decisions that
     /// are expensive to look up.

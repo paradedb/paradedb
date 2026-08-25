@@ -19,9 +19,36 @@ use crate::postgres::rel::PgSearchRelation;
 use anyhow::Result;
 use tantivy::Index;
 use tokenizers::manager::SearchTokenizerFilters;
-use tokenizers::{SearchTokenizer, create_normalizer_manager, create_tokenizer_manager};
+use tokenizers::{
+    SearchTokenizer, create_normalizer_manager, create_tokenizer_manager,
+    register_normalizers_into, register_tokenizers_into,
+};
 
+/// Install this index's tokenizers on a freshly opened `index` by replacing its managers.
+/// Only correct before any reader is built from `index`: replacement swaps this instance's
+/// manager and leaves already-built readers holding the old one.
 pub fn setup_tokenizers(index_relation: &PgSearchRelation, index: &mut Index) -> Result<()> {
+    let tokenizers = collect_search_tokenizers(index_relation)?;
+    index.set_tokenizers(create_tokenizer_manager(tokenizers));
+    index.set_fast_field_tokenizers(create_normalizer_manager());
+    Ok(())
+}
+
+/// Install this index's tokenizers by registering into the managers `index` already shares
+/// with live readers (e.g. a manifest's searcher). Registration mutates the shared registry,
+/// so readers built before this call see the entries too. Unlike [`setup_tokenizers`], the
+/// managers keep tantivy's default entries alongside ours; lookups are by name, so the extra
+/// entries are inert.
+pub fn register_tokenizers(index_relation: &PgSearchRelation, index: &Index) -> Result<()> {
+    let tokenizers = collect_search_tokenizers(index_relation)?;
+    register_tokenizers_into(index.tokenizers(), tokenizers);
+    register_normalizers_into(index.fast_field_tokenizer());
+    Ok(())
+}
+
+/// Every tokenizer this index's fields can reference at query time, including the
+/// deprecated-name aliases older index versions were built with.
+fn collect_search_tokenizers(index_relation: &PgSearchRelation) -> Result<Vec<SearchTokenizer>> {
     let schema = index_relation.schema()?;
     let categorized_fields = schema.categorized_fields();
 
@@ -101,7 +128,5 @@ pub fn setup_tokenizers(index_relation: &PgSearchRelation, index: &mut Index) ->
     // In 0.20.0 we changed the default tokenizer from `simple` to `unicode_words`
     tokenizers.push(SearchTokenizer::Simple(SearchTokenizerFilters::default()));
 
-    index.set_tokenizers(create_tokenizer_manager(tokenizers));
-    index.set_fast_field_tokenizers(create_normalizer_manager());
-    Ok(())
+    Ok(tokenizers)
 }

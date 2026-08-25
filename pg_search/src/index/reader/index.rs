@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt::{Debug, Display};
 use std::path::PathBuf;
 use std::ptr::NonNull;
@@ -370,6 +370,9 @@ pub struct SearchIndexReader {
     /// Query-level index/searcher open time, charged once to the first vector
     /// segment so flat-numeric aggregation remains additive.
     scan_init_ns: u64,
+    /// Shared by clones of this query reader so each uncalibrated quantized
+    /// field emits one fallback NOTICE for the query, never one per segment.
+    uncalibrated_quantization_noticed_fields: Arc<std::sync::Mutex<HashSet<String>>>,
     /// The directory `underlying_index` opened over; kept to capture this reader's
     /// [`SegmentView`].
     directory: MVCCDirectory,
@@ -417,6 +420,9 @@ impl Clone for SearchIndexReader {
             index_created_by_version: self.index_created_by_version,
             segment_ordinal_by_id: self.segment_ordinal_by_id.clone(),
             scan_init_ns: self.scan_init_ns,
+            uncalibrated_quantization_noticed_fields: Arc::clone(
+                &self.uncalibrated_quantization_noticed_fields,
+            ),
             directory: self.directory.clone(),
             _cleanup_lock: self._cleanup_lock.clone(),
         }
@@ -687,6 +693,9 @@ impl SearchIndexReader {
             index_created_by_version,
             segment_ordinal_by_id: segment_ord_by_id,
             scan_init_ns: 0,
+            uncalibrated_quantization_noticed_fields: Arc::new(std::sync::Mutex::new(
+                HashSet::new(),
+            )),
             directory,
             _cleanup_lock: cleanup_lock,
         })
@@ -1265,6 +1274,27 @@ impl SearchIndexReader {
                 tantivy::vector::set_fixed_probe_cost_rows(
                     crate::gucs::vector_fixed_probe_cost_rows(),
                 );
+                let max_scan_levels = crate::gucs::vector_max_scan_levels();
+                let quantization_uncalibrated = max_scan_levels > 0
+                    && self
+                        .underlying_index
+                        .settings()
+                        .vector_quantization
+                        .iter()
+                        .find(|config| config.field == name.as_ref())
+                        .is_some_and(|config| config.calibration().is_none());
+                let first_uncalibrated_notice_for_field = quantization_uncalibrated
+                    && self
+                        .uncalibrated_quantization_noticed_fields
+                        .lock()
+                        .expect("uncalibrated quantization NOTICE set poisoned")
+                        .insert(name.to_string());
+                if first_uncalibrated_notice_for_field {
+                    pgrx::notice!(
+                        "quantized vector field \"{}\" is not calibrated; falling back to unquantized IVF scoring for this query",
+                        name
+                    );
+                }
                 let collector = TopDocs::with_limit(n)
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
@@ -1272,7 +1302,7 @@ impl SearchIndexReader {
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
                         ..Default::default()
                     })
-                    .with_max_scan_levels(crate::gucs::vector_max_scan_levels());
+                    .with_max_scan_levels(max_scan_levels);
 
                 let mut erased_features = erased_features;
                 let score_index = erased_features.score_index();

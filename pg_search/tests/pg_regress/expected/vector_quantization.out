@@ -33,6 +33,52 @@ BEGIN
     RETURN plan;
 END
 $$;
+-- Relation-shape diagnostics are deterministic and run before any calibration
+-- state exists. Partition parents name every child index and direct callers to
+-- calibrate the physical children independently.
+CREATE TABLE q_cal_parent (id integer, vec vector(64)) PARTITION BY RANGE (id);
+CREATE TABLE q_cal_parent_low PARTITION OF q_cal_parent
+    FOR VALUES FROM (MINVALUE) TO (0);
+CREATE TABLE q_cal_parent_high PARTITION OF q_cal_parent
+    FOR VALUES FROM (0) TO (MAXVALUE);
+CREATE INDEX q_cal_parent_idx ON ONLY q_cal_parent (id);
+CREATE INDEX q_cal_parent_low_idx ON q_cal_parent_low (id);
+CREATE INDEX q_cal_parent_high_idx ON q_cal_parent_high (id);
+ALTER INDEX q_cal_parent_idx ATTACH PARTITION q_cal_parent_low_idx;
+ALTER INDEX q_cal_parent_idx ATTACH PARTITION q_cal_parent_high_idx;
+SELECT * FROM paradedb.vector_calibrate(
+    'q_cal_parent_idx',
+    'vec',
+    ARRAY[quant_fixture_vector(64, 0)]
+);
+ERROR:  cannot calibrate a partitioned index parent; child indexes: q_cal_parent_high_idx, q_cal_parent_low_idx; calibrate each child index individually with paradedb.vector_calibrate
+SELECT * FROM paradedb.vector_calibrate(
+    'q_cal_parent_low',
+    'vec',
+    ARRAY[quant_fixture_vector(64, 0)]
+);
+ERROR:  vector calibration requires a physical index
+SELECT * FROM paradedb.vector_calibrate(
+    'q_cal_parent_low_idx',
+    'vec',
+    ARRAY[quant_fixture_vector(64, 0)]
+);
+ERROR:  vector calibration requires a ParadeDB index
+DROP TABLE q_cal_parent;
+CREATE TABLE q_cal_unquantized (id integer PRIMARY KEY, vec vector(64));
+CREATE INDEX q_cal_unquantized_idx ON q_cal_unquantized
+USING paradedb (id, vec vector_cosine_ops)
+WITH (
+    key_field = id,
+    vector_fields = '{"vec":{"dims":64}}'
+);
+SELECT * FROM paradedb.vector_calibrate(
+    'q_cal_unquantized_idx',
+    'vec',
+    ARRAY[quant_fixture_vector(64, 0)]
+);
+ERROR:  field "vec" is not configured for quantization
+DROP TABLE q_cal_unquantized;
 -- CREATE INDEX validation: the configured dimension must match the schema,
 -- and quantized fields are inside the validated d >= 64 model envelope.
 CREATE TABLE q_bad_dims (id integer PRIMARY KEY, vec vector(100));
@@ -73,6 +119,69 @@ FROM paradedb.vector_info('q_cosine_idx', 'vec');
  cosine_has_ivf 
 ----------------
  t
+(1 row)
+
+-- An uncalibrated quantized field must announce and use the routed,
+-- full-precision IVF path. The NOTICE is query-scoped even though the fixture
+-- can contain multiple segments.
+SET client_min_messages = NOTICE;
+WITH plan AS (
+    SELECT quant_explain(
+        'SELECT id FROM q_cosine WHERE id @@@ pdb.all() '
+        'ORDER BY vec <=> quant_fixture_vector(768, 0), id LIMIT 10'
+    ) AS value
+), segment_info AS (
+    SELECT (jsonb_path_query_first(value, '$.**."Segment Info"') #>> '{}')::jsonb AS value
+    FROM plan
+)
+SELECT
+    (jsonb_path_query_first(value, '$.**.exact_scan_ns') #>> '{}')::bigint > 0
+        AS uncalibrated_uses_ivf_exact,
+    jsonb_path_query_first(value, '$.**.layer0_scored') IS NULL
+        AS uncalibrated_skips_quantized_layers
+FROM segment_info;
+NOTICE:  quantized vector field "vec" is not calibrated; falling back to unquantized IVF scoring for this query
+ uncalibrated_uses_ivf_exact | uncalibrated_skips_quantized_layers 
+-----------------------------+-------------------------------------
+ t                           | t
+(1 row)
+
+SET client_min_messages = WARNING;
+-- The SQL boundary rejects NULLs itself (the function is intentionally not
+-- STRICT), validates every array element, and measures a bounded prefix.
+SELECT * FROM paradedb.vector_calibrate(NULL, 'vec', ARRAY[quant_fixture_vector(768, 0)]);
+ERROR:  index must not be NULL
+SELECT * FROM paradedb.vector_calibrate('q_cosine_idx', NULL, ARRAY[quant_fixture_vector(768, 0)]);
+ERROR:  field must not be NULL
+SELECT * FROM paradedb.vector_calibrate('q_cosine_idx', 'vec', NULL);
+ERROR:  queries must not be NULL
+SELECT * FROM paradedb.vector_calibrate('q_cosine_idx', 'vec', ARRAY[]::vector[]);
+ERROR:  queries must not be empty
+SELECT * FROM paradedb.vector_calibrate('q_cosine_idx', 'vec', ARRAY[NULL::vector]);
+ERROR:  quantization calibration query 1 is NULL
+SELECT * FROM paradedb.vector_calibrate(
+    'q_cosine_idx',
+    'vec',
+    ARRAY[quant_fixture_vector(100, 0)]
+);
+ERROR:  quantization calibration query 1 has dimension 100; expected 768
+SELECT
+    array_agg(depth ORDER BY depth) = ARRAY[1, 2] AS cosine_depths,
+    bool_and(source = 'real_query') AS cosine_real_query_source,
+    bool_and(sample_count > 0) AS cosine_has_samples
+FROM paradedb.vector_calibrate(
+    'q_cosine_idx',
+    'vec',
+    ARRAY[
+        quant_fixture_vector(768, 0),
+        quant_fixture_vector(768, 1),
+        quant_fixture_vector(768, 2),
+        quant_fixture_vector(768, 3)
+    ]
+);
+ cosine_depths | cosine_real_query_source | cosine_has_samples 
+---------------+--------------------------+--------------------
+ t             | t                        | t
 (1 row)
 
 CREATE TEMP TABLE q_cosine_quantized AS
@@ -140,6 +249,25 @@ FROM paradedb.vector_info('q_l2_idx', 'vec');
  t
 (1 row)
 
+SELECT
+    array_agg(depth ORDER BY depth) = ARRAY[1, 2] AS l2_depths,
+    bool_and(source = 'real_query') AS l2_real_query_source,
+    bool_and(sample_count > 0) AS l2_has_samples
+FROM paradedb.vector_calibrate(
+    'q_l2_idx',
+    'vec',
+    ARRAY[
+        quant_fixture_vector(768, 0),
+        quant_fixture_vector(768, 1),
+        quant_fixture_vector(768, 2),
+        quant_fixture_vector(768, 3)
+    ]
+);
+ l2_depths | l2_real_query_source | l2_has_samples 
+-----------+----------------------+----------------
+ t         | t                    | t
+(1 row)
+
 CREATE TEMP TABLE q_l2_quantized AS
 SELECT array_agg(id) AS ids
 FROM (
@@ -169,6 +297,25 @@ FROM paradedb.vector_info('q_odd_idx', 'vec');
  odd_has_ivf 
 -------------
  t
+(1 row)
+
+SELECT
+    array_agg(depth ORDER BY depth) = ARRAY[1, 2] AS odd_depths,
+    bool_and(source = 'real_query') AS odd_real_query_source,
+    bool_and(sample_count > 0) AS odd_has_samples
+FROM paradedb.vector_calibrate(
+    'q_odd_idx',
+    'vec',
+    ARRAY[
+        quant_fixture_vector(100, 0),
+        quant_fixture_vector(100, 1),
+        quant_fixture_vector(100, 2),
+        quant_fixture_vector(100, 3)
+    ]
+);
+ odd_depths | odd_real_query_source | odd_has_samples 
+------------+-----------------------+-----------------
+ t          | t                     | t
 (1 row)
 
 CREATE TEMP TABLE q_odd_quantized AS

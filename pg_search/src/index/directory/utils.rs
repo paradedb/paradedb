@@ -18,12 +18,13 @@
 use crate::api::{HashMap, HashSet};
 use crate::index::mvcc::{MvccSatisfies, PinCushion};
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::storage::LinkedBytesList;
 use crate::postgres::storage::block::{
     DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, STATS_EXT, SegmentFileDetails,
     SegmentMetaEntry, SegmentMetaEntryImmutable, VECTOR_CENTROIDS_EXT, VECTOR_VEC_EXT,
 };
 use crate::postgres::storage::metadata::MetaPage;
-use anyhow::Result;
+use anyhow::{Result, ensure};
 use pgrx::pg_sys;
 use std::path::PathBuf;
 use tantivy::index::SegmentComponent;
@@ -51,6 +52,44 @@ pub fn save_settings(indexrel: &PgSearchRelation, tantivy_settings: &IndexSettin
         unsafe {
             settings.writer().write(&bytes)?;
         }
+    }
+    Ok(())
+}
+
+/// Replace the persisted index settings under an AccessExclusive relation lock.
+///
+/// Settings lists are immutable.  The replacement is therefore written and
+/// finalized in full before the metapage pointer is changed.  The WAL-logged
+/// `settings_start` swap is the commit point; only after it completes is the
+/// old list handed to the existing transaction-horizon-aware FSM path.
+pub fn replace_settings(
+    indexrel: &PgSearchRelation,
+    tantivy_settings: &IndexSettings,
+) -> Result<()> {
+    ensure!(
+        indexrel.lockmode() == Some(pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE),
+        "replacing index settings requires AccessExclusiveLock"
+    );
+
+    let bytes = serde_json::to_vec(tantivy_settings)?;
+    let settings = LinkedBytesList::create_with_fsm(indexrel);
+    let mut writer = settings.writer();
+    unsafe {
+        writer.write(&bytes)?;
+    }
+    let settings = writer.finalize_and_write()?;
+    let new_settings_start = settings.header_blockno;
+
+    let old_settings_start = {
+        let mut metapage = MetaPage::open(indexrel);
+        metapage.replace_settings_start(new_settings_start)
+    };
+
+    // The active pointer now names the new immutable list.  `return_to_fsm`
+    // tags the old blocks with the current transaction horizon, so they cannot
+    // be reused while any overlapping reader could still hold them.
+    unsafe {
+        LinkedBytesList::open(indexrel, old_settings_start).return_to_fsm();
     }
     Ok(())
 }

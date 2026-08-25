@@ -89,7 +89,8 @@ pub struct MetaPageData {
 
 /// Provides read access to the metadata page
 /// Because the metadata page does not change after it's initialized in MetaPage::open(),
-// (with the exception of the `ambulkdelete_epoch` field, see comment below)
+// (with the exceptions of `ambulkdelete_epoch` and the atomically replaced
+// `settings_start` pointer, see their methods below)
 /// we do not need to hold a share lock for the lifetime of this struct.
 pub struct MetaPage {
     data: MetaPageData,
@@ -359,6 +360,31 @@ impl MetaPage {
             self.data.settings_start
         };
         LinkedBytesList::open(self.bman.buffer_access().rel(), blockno)
+    }
+
+    /// Atomically makes `new_settings_start` the active immutable settings list.
+    ///
+    /// The returned block is the header of the previously active list.  The
+    /// caller must not recycle it until this method returns: dropping the
+    /// mutable metapage buffer is the WAL-logged pointer-swap commit point.
+    pub fn replace_settings_start(
+        &mut self,
+        new_settings_start: pg_sys::BlockNumber,
+    ) -> pg_sys::BlockNumber {
+        assert!(block_number_is_valid(new_settings_start));
+
+        let mut buffer = self.bman.get_buffer_mut(METAPAGE);
+        let mut page = buffer.page_mut();
+        let metadata = page.contents_mut::<MetaPageData>();
+        let stored_old_start = metadata.settings_start;
+        metadata.settings_start = new_settings_start;
+        self.data.settings_start = new_settings_start;
+
+        if stored_old_start == 0 {
+            Self::LEGACY_SETTINGS_START
+        } else {
+            stored_old_start
+        }
     }
 
     pub fn segment_metas(&self) -> LinkedItemList<SegmentMetaEntry> {

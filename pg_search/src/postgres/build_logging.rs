@@ -15,29 +15,41 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Minimal, targeted `log` → Postgres NOTICE bridge for IVF build timings.
+//! Minimal, targeted `log` → Postgres bridge for IVF build timings and
+//! quantization-calibration stability.
 //!
 //! tantivy's IVF build emits one `log::info!` line per vector field on the
-//! target `paradedb::ivf_build`. This forwards ONLY that target to
-//! `pgrx::notice!`, so the timings surface during `CREATE INDEX` and are
-//! captured by NOTICE-reading clients (e.g. the benchmark harness via
-//! psycopg). Every other record is rejected at `enabled()`, so this never acts
-//! as a general logger or reconfigures logging broadly. The IVF build runs
-//! synchronously in the backend during `CREATE INDEX`, so emitting via
-//! `ereport` (NOTICE) here is on the backend thread.
+//! target `paradedb::ivf_build`. This forwards that target to `pgrx::notice!`,
+//! so the timings surface during `CREATE INDEX` and are captured by
+//! NOTICE-reading clients (e.g. the benchmark harness via psycopg).
+//! `paradedb::quantization_calibration` carries caller-query stability records
+//! and is forwarded to the server LOG: the record remains Info-level in Rust,
+//! while nondeterministic measurements do not pollute SQL result streams.
+//! Every other record is rejected at `enabled()`, so this never acts as a
+//! general logger or reconfigures logging broadly. Both producers run
+//! synchronously on the backend thread, where calling Postgres logging is safe.
 
 const IVF_BUILD_TARGET: &str = "paradedb::ivf_build";
+pub(crate) const QUANTIZATION_CALIBRATION_TARGET: &str = "paradedb::quantization_calibration";
 
 struct IvfBuildLogger;
 
 impl log::Log for IvfBuildLogger {
     fn enabled(&self, metadata: &log::Metadata) -> bool {
-        metadata.target() == IVF_BUILD_TARGET && metadata.level() <= log::Level::Info
+        matches!(
+            metadata.target(),
+            IVF_BUILD_TARGET | QUANTIZATION_CALIBRATION_TARGET
+        ) && metadata.level() <= log::Level::Info
     }
 
     fn log(&self, record: &log::Record) {
-        if self.enabled(record.metadata()) {
-            pgrx::notice!("{}", record.args());
+        if !self.enabled(record.metadata()) {
+            return;
+        }
+        match record.target() {
+            IVF_BUILD_TARGET => pgrx::notice!("{}", record.args()),
+            QUANTIZATION_CALIBRATION_TARGET => pgrx::log!("{}", record.args()),
+            _ => unreachable!("enabled rejects every other logging target"),
         }
     }
 

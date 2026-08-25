@@ -1634,7 +1634,7 @@ impl CustomScan for BaseScan {
     ) {
         let begin_start = std::time::Instant::now();
         let explain_analyze = unsafe { (*estate).es_instrument != 0 };
-        state.custom_state_mut().executor_stage_start = explain_analyze.then_some(begin_start);
+        state.custom_state_mut().explain_stage_accounting = explain_analyze;
         unsafe {
             // open the heap and index relations with the proper locks
             let rte = pg_sys::exec_rt_fetch(state.custom_state().execution_rti, estate);
@@ -1738,19 +1738,28 @@ impl CustomScan for BaseScan {
 
         loop {
             let exec_method = state.custom_state_mut().exec_method_mut();
+            let next_accounting = state.custom_state().explain_stage_accounting.then(|| {
+                (
+                    std::time::Instant::now(),
+                    state.custom_state().telemetry.stage_elapsed_ns(),
+                )
+            });
+            let next = exec_method.next(state.custom_state_mut());
+            if let Some((next_start, stages_before_next)) = next_accounting {
+                let stage_delta = state
+                    .custom_state()
+                    .telemetry
+                    .stage_elapsed_ns()
+                    .saturating_sub(stages_before_next);
+                state.custom_state_mut().telemetry.add_result_assembly_ns(
+                    (next_start.elapsed().as_nanos() as u64).saturating_sub(stage_delta),
+                );
+            }
 
             // get the next matching document from our search results and look for it in the heap
-            match exec_method.next(state.custom_state_mut()) {
+            match next {
                 // reached the end of the SearchResults
                 ExecState::Eof => {
-                    if let Some(start) = state.custom_state_mut().executor_stage_start.take() {
-                        let elapsed_ns = start.elapsed().as_nanos() as u64;
-                        let accounted_ns = state.custom_state().telemetry.stage_elapsed_ns();
-                        state
-                            .custom_state_mut()
-                            .telemetry
-                            .add_result_assembly_ns(elapsed_ns.saturating_sub(accounted_ns));
-                    }
                     return std::ptr::null_mut();
                 }
 
@@ -1760,6 +1769,18 @@ impl CustomScan for BaseScan {
                     score,
                     doc_address: _,
                 } => {
+                    // Tantivy's `result_assembly_ns` ends when the collector has
+                    // produced its `(score, DocAddress)` results.  The CustomScan
+                    // still has to turn each result into a PostgreSQL tuple: check
+                    // visibility, evaluate executor-only quals, and project the
+                    // output slot.  Time that delivery directly: an end-of-scan
+                    // residual cannot infer it reliably because LIMIT may stop
+                    // before EOF and nested stage timers can make a whole-scan
+                    // `elapsed - stage_sum` saturate to zero.
+                    let result_assembly_start = state
+                        .custom_state()
+                        .explain_stage_accounting
+                        .then(std::time::Instant::now);
                     unsafe {
                         let slot = match check_visibility(state, ctid, state.scanslot().cast()) {
                             // the ctid is visible
@@ -1770,6 +1791,12 @@ impl CustomScan for BaseScan {
 
                             // the ctid is not visible
                             None => {
+                                if let Some(start) = result_assembly_start {
+                                    state
+                                        .custom_state_mut()
+                                        .telemetry
+                                        .add_result_assembly_ns(start.elapsed().as_nanos() as u64);
+                                }
                                 continue;
                             }
                         };
@@ -1778,6 +1805,12 @@ impl CustomScan for BaseScan {
                         // that couldn't be pushed into the tantivy query.
                         // These are set as plan.qual in plan_custom_path.
                         if !satisfies_subplan_quals(state, slot) {
+                            if let Some(start) = result_assembly_start {
+                                state
+                                    .custom_state_mut()
+                                    .telemetry
+                                    .add_result_assembly_ns(start.elapsed().as_nanos() as u64);
+                            }
                             continue;
                         }
 
@@ -1793,7 +1826,14 @@ impl CustomScan for BaseScan {
                             //
 
                             (*(*state.projection_info()).pi_exprContext).ecxt_scantuple = slot;
-                            return pg_sys::ExecProject(state.projection_info());
+                            let projected = pg_sys::ExecProject(state.projection_info());
+                            if let Some(start) = result_assembly_start {
+                                state
+                                    .custom_state_mut()
+                                    .telemetry
+                                    .add_result_assembly_ns(start.elapsed().as_nanos() as u64);
+                            }
+                            return projected;
                         } else {
                             //
                             // we do need scores or snippets
@@ -1831,7 +1871,7 @@ impl CustomScan for BaseScan {
                             }
 
                             // finally, do the projection
-                            return per_tuple_context.switch_to(|_| {
+                            let projected = per_tuple_context.switch_to(|_| {
                                 // TODO: We go _back_ to the heap to get snippet information here
                                 // inside of `make_snippet` and `get_snippet_positions`. It's possible
                                 // that we could use a wider tuple slot to fetch the extra columns that
@@ -1855,12 +1895,29 @@ impl CustomScan for BaseScan {
                                 );
                                 pg_sys::ExecProject(proj_info)
                             });
+                            if let Some(start) = result_assembly_start {
+                                state
+                                    .custom_state_mut()
+                                    .telemetry
+                                    .add_result_assembly_ns(start.elapsed().as_nanos() as u64);
+                            }
+                            return projected;
                         }
                     }
                 }
 
                 ExecState::Virtual { slot } => {
+                    let result_assembly_start = state
+                        .custom_state()
+                        .explain_stage_accounting
+                        .then(std::time::Instant::now);
                     state.custom_state_mut().virtual_tuple_count += 1;
+                    if let Some(start) = result_assembly_start {
+                        state
+                            .custom_state_mut()
+                            .telemetry
+                            .add_result_assembly_ns(start.elapsed().as_nanos() as u64);
+                    }
                     return slot;
                 }
             }

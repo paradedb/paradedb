@@ -92,7 +92,7 @@
                 "group": "Full-Text / Lexical Search",
                 "pages": [
                   {
-                    "group": "Queries",
+                    "group": "Query Types",
                     "pages": [
                       "documentation/full-text/match",
                       "documentation/full-text/term",
@@ -113,8 +113,21 @@
                       "documentation/query-builder/compound/all"
                     ]
                   },
-                  "documentation/filtering",
-                  "documentation/sorting/topk",
+                  {
+                    "group": "Filtering and Sorting",
+                    "pages": [
+                      "documentation/filtering",
+                      "documentation/sorting/topk"
+                    ]
+                  },
+                  {
+                    "group": "Relevance Tuning",
+                    "pages": [
+                      "documentation/sorting/score",
+                      "documentation/sorting/boost",
+                      "documentation/full-text/highlight"
+                    ]
+                  },
                   {
                     "group": "Text Analysis",
                     "pages": [
@@ -152,14 +165,6 @@
                       },
                       "documentation/tokenizers/multiple-per-field",
                       "documentation/tokenizers/search-tokenizer"
-                    ]
-                  },
-                  {
-                    "group": "Relevance Tuning",
-                    "pages": [
-                      "documentation/sorting/score",
-                      "documentation/sorting/boost",
-                      "documentation/full-text/highlight"
                     ]
                   }
                 ]

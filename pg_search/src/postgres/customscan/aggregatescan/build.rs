@@ -40,16 +40,12 @@ use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 
 use crate::postgres::customscan::limit_offset::LimitOffset;
-use crate::postgres::datetime::unix_micros_to_pg_micros;
-use crate::query::pdb_query::pdb;
 use anyhow::Result;
 use pgrx::PgList;
 use pgrx::pg_sys;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
-use tantivy::aggregation::bucket::{
-    CustomOrder, HistogramAggregation, OrderTarget, TermsAggregation,
-};
+use tantivy::aggregation::bucket::{CustomOrder, OrderTarget, TermsAggregation};
 use tantivy::aggregation::metric::CountAggregation;
 
 pub trait AggregationKey {
@@ -69,16 +65,6 @@ impl AggregationKey for GroupedKey {
 pub struct FilterSentinelKey;
 impl AggregationKey for FilterSentinelKey {
     const NAME: &'static str = "filter_sentinel";
-}
-
-/// Sibling of [`GroupedKey`] holding the rows whose grouping column has no value.
-/// A histogram only produces buckets for documents that have a value and (unlike
-/// terms) has no `missing` parameter, so NULL rows would be silently dropped; a
-/// sibling `filter` aggregation under this key (`NOT exists(field)`) collects
-/// them into their own group, carrying the same metric sub-aggregations.
-pub struct MissingKey;
-impl AggregationKey for MissingKey {
-    const NAME: &'static str = "missing";
 }
 
 /// Identifies which aggregate metric the ORDER BY targets.
@@ -679,61 +665,6 @@ unsafe fn detect_aggregate_orderby(
 }
 
 impl CollectNested<GroupedKey> for AggregateCSClause {
-    /// Adds a [`MissingKey`] sibling next to the `grouped` bucket when a grouping column is
-    /// date-bucketed. A histogram only emits buckets for documents that have a value, so rows
-    /// with a NULL timestamp are in no bucket at all; this filter collects them separately.
-    /// The metrics are duplicated into it so the NULL group gets its own aggregate values.
-    fn collect(
-        &self,
-        mut aggregations: Aggregations,
-        children: Aggregations,
-    ) -> Result<Aggregations> {
-        let groupings: Vec<_> = <Self as CollectNested<GroupedKey>>::iter_leaves(self)?.collect();
-
-        // Only a date-bucketed column produces a histogram, and only a histogram needs the
-        // sibling. The field name is recoverable from the aggregation itself.
-        let missing_field = groupings.iter().find_map(|leaf| match leaf {
-            AggregationVariants::Histogram(histogram) => Some(histogram.field.clone()),
-            _ => None,
-        });
-
-        let nested = groupings.into_iter().rfold(children.clone(), |sub, leaf| {
-            Aggregations::from_iter([(
-                GroupedKey::NAME.to_string(),
-                Aggregation {
-                    agg: leaf,
-                    sub_aggregation: sub,
-                },
-            )])
-        });
-        aggregations.extend(nested);
-
-        if let Some(field) = missing_field {
-            // Every document, minus those that have a value for the field: the NULL rows.
-            // The `All` clause is required — Tantivy scores a lone `MustNot` as an empty
-            // scorer, which would silently produce a NULL group containing nothing.
-            let query = SearchQueryInput::Boolean {
-                must: vec![SearchQueryInput::All],
-                should: vec![],
-                must_not: vec![SearchQueryInput::FieldedQuery {
-                    field: field.into(),
-                    query: pdb::Query::Exists,
-                }],
-                minimum_should_match: None,
-            };
-
-            aggregations.insert(
-                MissingKey::NAME.to_string(),
-                Aggregation {
-                    agg: new_filter_query(query, self.indexrelid)?.into(),
-                    sub_aggregation: children,
-                },
-            );
-        }
-
-        Ok(aggregations)
-    }
-
     fn iter_leaves(&self) -> Result<impl Iterator<Item = AggregationVariants>> {
         let orderby_info = self.orderby.orderby_info();
         let grouping_columns = self.targetlist.grouping_columns();
@@ -790,40 +721,30 @@ impl CollectNested<GroupedKey> for AggregateCSClause {
                 }
             });
 
-            if column.date_bucket.is_some() {
-                AggregationVariants::Histogram(HistogramAggregation {
-                    field: column.field_name.clone(),
-                    interval: 86_400_000_000.0,
-                    offset: Some(unix_micros_to_pg_micros(0) as f64),
-                    min_doc_count: Some(1),
-                    ..Default::default()
-                })
-            } else {
-                let mut terms_agg = TermsAggregation {
-                    field: column.field_name.clone(),
-                    size: Some(size),
-                    // Always collect all buckets per segment for accurate counts.
-                    // Only the final merge output is limited to `size`.
-                    segment_size: Some(max_buckets),
-                    ..Default::default()
-                };
+            let mut terms_agg = TermsAggregation {
+                field: column.field_name.clone(),
+                size: Some(size),
+                // Always collect all buckets per segment for accurate counts.
+                // Only the final merge output is limited to `size`.
+                segment_size: Some(max_buckets),
+                ..Default::default()
+            };
 
-                if let Some(ref agg_order) = aggregate_orderby {
-                    // Only COUNT-based ordering is pushed down (detect_aggregate_orderby
-                    // rejects non-COUNT targets due to Tantivy/Postgres NULL semantics mismatch).
-                    terms_agg.order = Some(CustomOrder {
-                        target: OrderTarget::Count,
-                        order: agg_order.direction.into(),
-                    });
-                } else if let Some(orderby) = orderby {
-                    terms_agg.order = Some(CustomOrder {
-                        target: OrderTarget::Key,
-                        order: orderby.direction.into(),
-                    });
-                }
-
-                AggregationVariants::Terms(terms_agg)
+            if let Some(ref agg_order) = aggregate_orderby {
+                // Only COUNT-based ordering is pushed down (detect_aggregate_orderby
+                // rejects non-COUNT targets due to Tantivy/Postgres NULL semantics mismatch).
+                terms_agg.order = Some(CustomOrder {
+                    target: OrderTarget::Count,
+                    order: agg_order.direction.into(),
+                });
+            } else if let Some(orderby) = orderby {
+                terms_agg.order = Some(CustomOrder {
+                    target: OrderTarget::Key,
+                    order: orderby.direction.into(),
+                });
             }
+
+            AggregationVariants::Terms(terms_agg)
         }))
     }
 }

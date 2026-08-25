@@ -15,8 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::version::VersionInfo;
-use crate::nodecast;
 use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::customscan::aggregatescan::{
@@ -28,21 +26,12 @@ use crate::postgres::utils::strip_unnest_and_relabel;
 use crate::postgres::var::{VarContext, find_one_var_and_fieldname, find_var_relation};
 use pgrx::PgList;
 use pgrx::pg_sys;
-use pgrx::{IntoDatum, direct_function_call};
-use std::sync::OnceLock;
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub enum DateBucket {
-    /// One calendar day. Produced by `DATE(<timestamp>)`
-    Day,
-}
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GroupingColumn {
     pub field_name: String,
     pub attno: pg_sys::AttrNumber,
     pub original_type_oid: pg_sys::Oid,
-    pub date_bucket: Option<DateBucket>,
 }
 
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -117,7 +106,7 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
 
                     let var_context = VarContext::from_planner(args.root);
 
-                    let (field_name, attno, date_bucket) = if let Some((var, field_name)) =
+                    let (field_name, attno) = if let Some((var, field_name)) =
                         find_one_var_and_fieldname(var_context, expr)
                     {
                         // JSON operator expression or complex field access
@@ -127,18 +116,14 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                                 Some("find_var_relation returned InvalidOid for var".to_string());
                             continue;
                         }
-                        (field_name.to_string(), attno, None)
+                        (field_name.to_string(), attno)
                     } else if let Some(ff) = find_matching_fast_field(
                         expr,
                         &index_expressions,
                         schema.clone(),
                         _heap_rti,
                     ) {
-                        (ff.name(), 0, None) // Complex expressions don't have a single attno
-                    } else if let Some((name, attno)) =
-                        extract_date_func_field(var_context, expr, args.root)
-                    {
-                        (name, attno, Some(DateBucket::Day))
+                        (ff.name(), 0) // Complex expressions don't have a single attno
                     } else {
                         last_error =
                             Some("could not resolve grouping column from expression".to_string());
@@ -189,7 +174,6 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                                 field_name,
                                 attno,
                                 original_type_oid,
-                                date_bucket,
                             });
                             found_valid_column = true;
                             break; // Found a valid grouping column for this pathkey
@@ -219,74 +203,6 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
             }
         }
 
-        // Rows whose date column is NULL fall into no histogram bucket; they are
-        // counted by a sibling "missing" filter aggregation instead. That sibling is
-        // a single flat bucket: it yields the date's NULL key but carries no
-        // breakdown by any other grouping column, so with multiple grouping columns
-        // the NULL rows' groups cannot be reconstructed (their result rows would
-        // have fewer keys than grouping columns). Refuse and fall back.
-        if grouping_columns.len() > 1 && grouping_columns.iter().any(|c| c.date_bucket.is_some()) {
-            return Err(
-                "DATE() grouping combined with other grouping columns is not supported".into(),
-            );
-        }
-
-        // Pre-0.24.1 indexes store datetimes as Unix-epoch nanoseconds; the histogram
-        // request we build assumes PG-epoch microseconds, so buckets would be silently
-        // wrong. One request/decode path by design — legacy indexes fall back until
-        // reindexed.
-        if grouping_columns.iter().any(|c| c.date_bucket.is_some())
-            && !index.created_by_version().stores_datetimes_in_i64()
-        {
-            return Err(
-                "DATE() grouping requires an index built by pg_search 0.24.1 or later".into(),
-            );
-        }
-
         Ok(Self { grouping_columns })
     }
-}
-
-pub(crate) unsafe fn extract_date_func_field(
-    var_context: VarContext,
-    expr: *mut pg_sys::Node,
-    root: *mut pg_sys::PlannerInfo,
-) -> Option<(String, pg_sys::AttrNumber)> {
-    let fun_expr = nodecast!(FuncExpr, T_FuncExpr, expr)?;
-
-    if (*fun_expr).funcid != date_timestamp_funcoid() {
-        return None;
-    }
-
-    let args = PgList::<pg_sys::Node>::from_pg((*fun_expr).args);
-    if args.len() != 1 {
-        return None;
-    }
-    let inner_arg = args.get_ptr(0)?;
-
-    let (var, field_name) = find_one_var_and_fieldname(var_context, inner_arg)?;
-
-    // The resolver looks through coercion wrappers, so `DATE(text_col::timestamp)`
-    // resolves here with the *text* column as the Var — and text-to-timestamp
-    // parsing depends on the session DateStyle, which the plan cannot see
-    if (*var).vartype != pg_sys::TIMESTAMPOID {
-        return None;
-    }
-
-    let (heaprelid, attno, _) = find_var_relation(var, root);
-    if heaprelid == pg_sys::InvalidOid {
-        return None;
-    }
-    Some((field_name.to_string(), attno))
-}
-
-fn date_timestamp_funcoid() -> pg_sys::Oid {
-    static OID_CACHE: OnceLock<pg_sys::Oid> = OnceLock::new();
-    *OID_CACHE.get_or_init(|| unsafe {
-        direct_function_call::<pg_sys::Oid>(
-            pg_sys::regprocedurein,
-            &[c"pg_catalog.date(timestamp)".into_datum()],
-        )
-        .expect("the `pg_catalog.date(timestamp)` function should exist")
-    })
 }

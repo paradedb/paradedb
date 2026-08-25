@@ -34,6 +34,20 @@ fn assert_uses_custom_scan(conn: &mut PgConnection, enabled: bool, query: impl A
     );
 }
 
+fn assert_uses_datafusion_aggregate_scan(conn: &mut PgConnection, query: impl AsRef<str>) {
+    let (plan,) = format!("EXPLAIN (FORMAT JSON) {}", query.as_ref()).fetch_one::<(Value,)>(conn);
+
+    let plan = plan.to_string();
+    assert!(
+        plan.contains("ParadeDB Aggregate Scan"),
+        "expected ParadeDB Aggregate Scan:\n{plan}"
+    );
+    assert!(
+        plan.contains("DataFusion Physical Plan"),
+        "expected DataFusion backend:\n{plan}"
+    );
+}
+
 #[rstest]
 fn test_count(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
@@ -233,8 +247,8 @@ fn test_group_by_date_function(mut conn: PgConnection) {
         "one row per day bucket, plus the NULL group"
     );
 
-    // The feature itself: the grouping must be pushed into the index.
-    assert_uses_custom_scan(&mut conn, true, query);
+    // DATE(timestamp) grouping must be executed by the DataFusion backend.
+    assert_uses_datafusion_aggregate_scan(&mut conn, query);
 
     // Parity: the same query planned by Postgres must give the same answer.
     "SET paradedb.enable_aggregate_custom_scan TO off;".execute(&mut conn);
@@ -252,9 +266,8 @@ fn test_group_by_date_function(mut conn: PgConnection) {
 
 #[rstest]
 fn test_group_by_date_null_group_metrics(mut conn: PgConnection) {
-    // Rows with a NULL timestamp aren't in the histogram bucket;
-    // its metrics are computed by a sibling "missing" filter aggregation and
-    // read back on bucket "missing" in flatten_grouped
+    // DataFusion groups the NULL result of DATE(created_at) natively. Verify
+    // that the NULL group carries every aggregate value, not only COUNT(*).
     r#"
     CREATE TABLE date_pushdown_metrics (
         id SERIAL PRIMARY KEY,
@@ -292,8 +305,8 @@ fn test_group_by_date_null_group_metrics(mut conn: PgConnection) {
         "NULL group must have real metrics"
     );
 
-    // Guard against the values silently coming from Postgres instead
-    assert_uses_custom_scan(&mut conn, true, query);
+    // Guard against the values silently coming from Postgres or Tantivy instead.
+    assert_uses_datafusion_aggregate_scan(&mut conn, query);
 
     // Parity: the same query planned by Postgres must give the same answer.
     "SET paradedb.enable_aggregate_custom_scan TO off;".execute(&mut conn);
@@ -306,11 +319,9 @@ fn test_group_by_date_null_group_metrics(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn test_group_by_date_with_filter_falls_back(mut conn: PgConnection) {
-    // The FILTER read path (flatten_grouped_with_filter) never reads the
-    // "missing" sibling that carries NULL group's metrics, so this shape
-    // must refuse pushdown. The NULL group's non-zero filtered count is the
-    // value that pushdown would silently return as 0.
+fn test_group_by_date_with_filter(mut conn: PgConnection) {
+    // DataFusion must apply the aggregate FILTER independently inside each
+    // date group, including the group produced by a NULL timestamp.
     r#"
     CREATE TABLE date_pushdown_filter (
         id SERIAL PRIMARY KEY,
@@ -335,8 +346,7 @@ fn test_group_by_date_with_filter_falls_back(mut conn: PgConnection) {
                    WHERE id @@@ pdb.all() \
                    GROUP BY DATE(created_at)";
 
-    // even with the GUC on, this shape must not push down.
-    assert_uses_custom_scan(&mut conn, false, query);
+    assert_uses_datafusion_aggregate_scan(&mut conn, query);
 
     let rows = format!("{query} ORDER BY day NULLS LAST").fetch::<(Option<Date>, i64)>(&mut conn);
 
@@ -345,19 +355,26 @@ fn test_group_by_date_with_filter_falls_back(mut conn: PgConnection) {
         vec![
             (Some(date!(2024 - 01 - 01)), 0),
             (Some(date!(2024 - 01 - 02)), 0),
-            (None, 2), // both NULL-date rows exceed 50 — pushdown returned 0 here
+            (None, 2), // both NULL-date rows exceed 50
         ],
-        "fallback must compute the filtered NULL group correctly"
+        "DataFusion must compute the filtered NULL group correctly"
     );
+
+    // Verify parity with native PostgreSQL aggregation.
+    "SET paradedb.enable_aggregate_custom_scan TO off;".execute(&mut conn);
+    assert_uses_custom_scan(&mut conn, false, query);
+
+    let fallback = format!("{query} ORDER BY day NULLS LAST -- fallback")
+        .fetch::<(Option<Date>, i64)>(&mut conn);
+
+    assert_eq!(rows, fallback, "DataFusion must match Postgres exactly");
 }
 
 #[rstest]
-fn test_group_by_date_multi_column_falls_back(mut conn: PgConnection) {
-    // NULL-date rows land in no histogram bucket, and the sibling "missing"
-    // aggregation yields only the date's NULL key — no breakdown by other
-    // grouping columns — so multi-column DATE() grouping must refuse pushdown
-    // (it previously panicked with index-out-of-bounds). The NULL rows split
-    // by region below are exactly what pushdown cannot yet produce.
+fn test_group_by_date_multi_column(mut conn: PgConnection) {
+    // DataFusion must combine a transformed DATE(timestamp) grouping column
+    // with an ordinary identity grouping column. NULL dates must remain split
+    // by region rather than being collapsed into one NULL group.
     r#"
     CREATE TABLE date_pushdown_multi (
         id SERIAL PRIMARY KEY,
@@ -383,8 +400,7 @@ fn test_group_by_date_multi_column_falls_back(mut conn: PgConnection) {
                  WHERE id @@@ pdb.all() \
                  GROUP BY DATE(created_at), region";
 
-    // even with the GUC on, this shape must not push down.
-    assert_uses_custom_scan(&mut conn, false, query);
+    assert_uses_datafusion_aggregate_scan(&mut conn, query);
 
     let rows = format!("{query} ORDER BY day NULLS LAST, region")
         .fetch::<(Option<Date>, String, i64)>(&mut conn);
@@ -395,29 +411,38 @@ fn test_group_by_date_multi_column_falls_back(mut conn: PgConnection) {
             (Some(date!(2024 - 01 - 01)), "east".into(), 1),
             (Some(date!(2024 - 01 - 01)), "west".into(), 1),
             (Some(date!(2024 - 01 - 02)), "east".into(), 1),
-            (None, "east".into(), 1), // NULL dates still split by region —
-            (None, "west".into(), 1), // the rows pushdown cannot yet produce
+            (None, "east".into(), 1),
+            (None, "west".into(), 1),
         ],
-        "fallback must group NULL dates by the remaining column"
+        "DataFusion must group NULL dates by the remaining column"
     );
 
-    // The gate must fire regardless of where DATE() appears in the column list
-    // (a per-iteration check would miss one of the orders).
-    assert_uses_custom_scan(
+    // Verify that the transform stays attached to DATE(created_at) regardless
+    // of where that expression appears in the GROUP BY list.
+    assert_uses_datafusion_aggregate_scan(
         &mut conn,
-        false,
         "SELECT region, DATE(created_at) AS day, COUNT(*) AS cnt \
          FROM date_pushdown_multi \
          WHERE id @@@ pdb.all() \
          GROUP BY region, DATE(created_at)",
     );
+
+    // Verify parity with native PostgreSQL aggregation.
+    "SET paradedb.enable_aggregate_custom_scan TO off;".execute(&mut conn);
+    assert_uses_custom_scan(&mut conn, false, query);
+
+    let fallback =
+        format!("{query} ORDER BY day NULLS LAST, region -- fallback")
+            .fetch::<(Option<Date>, String, i64)>(&mut conn);
+
+    assert_eq!(rows, fallback, "DataFusion must match Postgres exactly");
 }
 
 #[rstest]
 fn test_group_by_date_of_cast_falls_back(mut conn: PgConnection) {
-    // DATE(text_col::timestamp) resolves to date(timestamp) and, because the
-    // field resolver looks through casts, to the underlying *text* column —
-    // which previously pushed down as a histogram over a string field
+    // The DataFusion transform accepts DATE() only over a bare timestamp
+    // column. Parsing text as a timestamp can depend on session settings such
+    // as DateStyle, so DATE(text_col::timestamp) must remain in PostgreSQL.
 
     r#"
       CREATE TABLE date_pushdown_cast (

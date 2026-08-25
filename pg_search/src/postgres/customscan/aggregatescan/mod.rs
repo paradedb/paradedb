@@ -2320,13 +2320,6 @@ unsafe fn group_key_to_datum(
                 .try_into_datum(expected_typoid.into())
                 .expect("should be able to convert into datum")
         }
-        PdbOwnedValue::F64(pg_micros) => {
-            let pgdt = PostgresDateTime::try_from_raw(*pg_micros as i64)
-                .expect("We should never see an invalid timestamp coming back from tantivy");
-            TantivyValue(PdbOwnedValue::Date(pgdt))
-                .try_into_datum(expected_typoid.into())
-                .expect("should be able to convert into datum")
-        }
         _ => key
             .try_into_datum(pgrx::PgOid::from(expected_typoid))
             .expect("should be able to convert to datum"),

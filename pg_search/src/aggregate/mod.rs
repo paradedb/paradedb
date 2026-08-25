@@ -483,6 +483,22 @@ pub fn execute_aggregate(
                 let count = reader.count_matched_docs()?;
                 return Ok(bare_count_results(count as f64));
             }
+            // The heap is not fully all-visible, so per-document MVCC checks are required --
+            // but a count still doesn't need the aggregation framework: wrap tantivy's plain
+            // `Count` collector in the MVCC filter so ctids are fetched once (for the
+            // visibility check) and visible documents are merely counted, instead of running
+            // a `value_count` aggregation that decodes the ctid fast field a second time.
+            if let Some(heaprel) = index.heap_relation() {
+                let mvcc_count = MVCCFilterCollector::new(
+                    tantivy::collector::Count,
+                    crate::postgres::heap::VisibilityChecker::with_rel_and_snap(
+                        &heaprel,
+                        pg_sys::GetActiveSnapshot(),
+                    ),
+                );
+                let count = reader.collect(InterruptableCollector::new(mvcc_count)) as f64;
+                return Ok(bare_count_results(count));
+            }
         }
 
         let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();

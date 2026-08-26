@@ -424,12 +424,6 @@ fn decode_ctid_record(bytes: &[u8]) -> u64 {
     )
 }
 
-/// The most partitions a build plans, whatever `target_segment_count` asks for. Each partition
-/// keeps a spill file buffer open through phase 1 outside the worker budget, and each will
-/// carry its own segments as the index grows, so a count in the thousands would cost more than
-/// its pruning could pay back.
-const MAX_PARTITIONS: usize = 1024;
-
 /// `open(2)` flag for `BufFileOpenFileSet`, and `whence` for `BufFileSeek`. pgrx binds no
 /// `fcntl.h` constants; both are 0 on every platform Postgres runs on.
 const O_RDONLY: c_int = 0;
@@ -450,7 +444,7 @@ enum SpillFileset {
 /// its partition's file; phase 2 hands a partition's owner every participant's file for that partition.
 ///
 /// Every open `BufFile` carries a `BLCKSZ` buffer outside the worker budget, so phase 1 holds
-/// `8KB x partitions` per participant; [`MAX_PARTITIONS`] bounds it.
+/// `8KB x partitions` per participant; the bound on `target_segment_count` keeps that small.
 struct PartitionSpillFiles {
     fileset: SpillFileset,
     participant: usize,
@@ -550,10 +544,9 @@ impl PartitionSpillFiles {
         }
     }
 
-    /// Collect `partition`'s ctids from every participant into a sort, or `None` when no participant
-    /// saw a row of the partition. The sort is an `int8` tuplesort on `budget` bytes: it sorts in
-    /// memory while the partition fits and spills past that, so no in-memory special case is needed.
-    /// A packed ctid is 48 bits, so it orders the same as an `int8`.
+    /// Collect `partition`'s ctids from every participant into an `int8` tuplesort on `budget`
+    /// bytes, or `None` when no participant saw a row of the partition. A packed ctid is 48
+    /// bits, so it orders the same as an `int8`.
     unsafe fn gather(
         &mut self,
         partition: usize,
@@ -1337,17 +1330,11 @@ pub(super) fn build_index(
     let partitioning = if concurrent {
         None
     } else {
-        let target_partitions = plan::adjusted_target_segment_count(&heaprel, &indexrel);
-        if target_partitions > MAX_PARTITIONS {
-            pgrx::debug1!(
-                "build_index: capping {target_partitions} partitions at {MAX_PARTITIONS}"
-            );
-        }
         plan_partition_boundaries(
             &heaprel,
             &indexrel,
             snapshot.0,
-            target_partitions.min(MAX_PARTITIONS),
+            plan::adjusted_target_segment_count(&heaprel, &indexrel),
         )?
     };
     if let Some(partitioning) = &partitioning {
@@ -2008,44 +1995,15 @@ mod tests {
         Spi::run("DROP TABLE partitioned_deleted;").unwrap();
     }
 
-    /// The partition count is capped at `MAX_PARTITIONS` whatever the target asks for: a unique
-    /// key and a target far above the cap must come out at exactly the cap.
-    #[pg_test]
-    fn test_partitioned_build_caps_partitions() {
-        Spi::run(
-            r#"
-            CREATE TABLE partitioned_capped (id BIGSERIAL PRIMARY KEY, name TEXT);
-            INSERT INTO partitioned_capped (name)
-            SELECT 'lorem ipsum ' || i || ' ' || repeat('padding word here ', 50)
-            FROM generate_series(1, 20000) i;
-            "#,
-        )
-        .unwrap();
-        Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
+    /// The partition count is bounded where the target is validated, so a target above the
+    /// reloption's maximum never reaches the build.
+    #[pg_test(error = "value 10000 out of bounds for option \"target_segment_count\"")]
+    fn test_partitioned_build_rejects_a_target_above_the_bound() {
+        Spi::run("CREATE TABLE partitioned_capped (id BIGSERIAL PRIMARY KEY, name TEXT);").unwrap();
         Spi::run(
             "CREATE INDEX partitioned_capped_idx ON partitioned_capped USING paradedb (id, name) WITH (key_field = 'id', partition_by = 'id', target_segment_count = 10000);",
         )
         .unwrap();
-
-        let count: i64 = Spi::get_one(
-            "SELECT COUNT(*)::bigint FROM paradedb.index_info('partitioned_capped_idx');",
-        )
-        .unwrap()
-        .unwrap();
-        assert_eq!(
-            count,
-            super::MAX_PARTITIONS as i64,
-            "one segment per capped partition"
-        );
-
-        let num_docs: i64 = Spi::get_one(
-            "SELECT COALESCE(SUM(num_docs), 0)::bigint FROM paradedb.index_info('partitioned_capped_idx');",
-        )
-        .unwrap()
-        .unwrap();
-        assert_eq!(num_docs, 20000, "every row is indexed once");
-
-        Spi::run("DROP TABLE partitioned_capped;").unwrap();
     }
 
     /// A partition whose ctids outgrow the drain's in-memory share of the worker budget is sorted

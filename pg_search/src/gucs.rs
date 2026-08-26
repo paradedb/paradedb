@@ -25,6 +25,7 @@ use std::num::NonZeroUsize;
 use tantivy::aggregation::DEFAULT_BUCKET_LIMIT;
 
 use crate::postgres::options::MAX_MUTABLE_SEGMENT_ROWS;
+use crate::postgres::options::MAX_TARGET_SEGMENT_COUNT;
 
 #[derive(pgrx::PostgresGucEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum PlannerWarnings {
@@ -462,7 +463,7 @@ pub fn init() {
         c"Setting this to a non-zero value ignores the `target_segment_count` property on all indexes in favor of this value",
         &GLOBAL_TARGET_SEGMENT_COUNT,
         0,
-        8192,
+        MAX_TARGET_SEGMENT_COUNT,
         GucContext::Sighup,
         GucFlags::default(),
     );

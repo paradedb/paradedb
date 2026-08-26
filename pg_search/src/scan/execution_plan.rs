@@ -688,15 +688,29 @@ impl PgSearchScanPlan {
             scanner_config,
             ffhelper: Arc::clone(&ffhelper),
             visibility: Box::new(visibility) as Box<VisibilityChecker>,
-            reader,
+            reader: reader.clone(),
         };
 
         let deferred = descriptor.deferred_fields;
         let deferred_ctid_plan_position = descriptor.deferred_ctid_plan_position;
         let ffhelper_arg = if deferred.is_empty() && deferred_ctid_plan_position.is_none() {
             None
-        } else {
+        } else if deferred.is_empty() {
             Some(ffhelper)
+        } else {
+            let width = deferred
+                .iter()
+                .map(|d| d.canonical.ff_index + 1)
+                .max()
+                .unwrap_or(0);
+            let mut which: Vec<WhichFastField> = vec![WhichFastField::Junk(String::new()); width];
+            for d in &deferred {
+                if let Some(ref rb) = d.rebuild {
+                    which[d.canonical.ff_index] =
+                        WhichFastField::Named(rb.field_name.clone(), rb.field_type);
+                }
+            }
+            Some(Arc::new(FFHelper::with_fields(&reader, &which)))
         };
 
         let mut plan = PgSearchScanPlan::new(

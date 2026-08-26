@@ -241,8 +241,13 @@ impl SerialIndexWriter {
     }
 
     /// The logical box a partitioned build assigned to the rows this writer receives from here
-    /// on. Each segment it creates records the box in its `.stats` component.
+    /// on. Each segment it creates from now on records the box in its `.stats` component; a
+    /// segment already open keeps the box it started with, so callers set it between segments.
     pub fn set_logical_bounds(&mut self, bounds: Option<Arc<LogicalBoundsByField>>) {
+        debug_assert!(
+            self.pending_segment.is_none(),
+            "logical bounds must be set before a segment receives documents"
+        );
         self.logical_bounds = bounds;
     }
 
@@ -333,8 +338,9 @@ impl SerialIndexWriter {
         let tantivy_schema: tantivy::schema::Schema = schema.clone().into();
 
         let settings = index_settings(index_relation.options(), &tantivy_schema);
+        // No stats plugin here: the segment is a throwaway materialization that nothing
+        // reads statistics from, and it is rebuilt per reader.
         let mut index = Index::create(directory, tantivy_schema, settings)?;
-        stats::register(&mut index);
         if schema.has_vector_field() {
             set_ivf_clusterer(&mut index, index_relation.options());
         }

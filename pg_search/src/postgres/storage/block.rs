@@ -997,7 +997,11 @@ mod tests {
 
     use super::*;
 
-    fn entry_with(vec: Option<FileEntry>, stats: Option<FileEntry>) -> SegmentMetaEntry {
+    fn entry_with(
+        vec: Option<FileEntry>,
+        centroids: Option<FileEntry>,
+        stats: Option<FileEntry>,
+    ) -> SegmentMetaEntry {
         SegmentMetaEntry::new_immutable(
             SegmentId::generate_random(),
             42,
@@ -1008,6 +1012,7 @@ mod tests {
                     total_bytes: 100,
                 }),
                 vec,
+                centroids,
                 stats,
                 ..Default::default()
             },
@@ -1033,18 +1038,18 @@ mod tests {
                 total_bytes: 100 * block as usize,
             })
         };
-        let full = entry_with(file(8), file(9));
+        let full = entry_with(file(8), file(10), file(9));
         assert_eq!(decoded(encoded(full)), full);
 
         // The vector generation stopped before the stats marker.
-        let vector_era = entry_with(file(8), None);
+        let vector_era = entry_with(file(8), file(10), None);
         let bytes = encoded(vector_era);
         assert_eq!(decoded(bytes), vector_era);
         assert_eq!(decoded(&bytes[..bytes.len() - 1]), vector_era);
 
         // The first generation stopped before the vector markers too: one `None` byte each for
         // `vec`, `centroids`, and `stats`.
-        let first = entry_with(None, None);
+        let first = entry_with(None, None, None);
         let bytes = encoded(first);
         assert_eq!(decoded(&bytes[..bytes.len() - 3]), first);
     }

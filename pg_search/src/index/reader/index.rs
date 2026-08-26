@@ -33,7 +33,6 @@ use crate::index::reader::io_stats;
 use crate::index::reader::scorer::{DeferredScorer, LazyWeight, ScorerIter};
 use crate::index::reader::sort_by_range::SortByRange;
 use crate::index::setup_tokenizers;
-use crate::index::stats;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::rel::PgSearchRelation;
@@ -504,7 +503,6 @@ impl SearchIndexReader {
 
         let directory = mvcc_style.directory(index_relation);
         let mut index = Index::open(directory.clone())?;
-        stats::register(&mut index);
         let total_segment_count = directory
             .total_segment_count()
             .load(std::sync::atomic::Ordering::Relaxed);
@@ -811,13 +809,13 @@ impl SearchIndexReader {
         self.searcher.segment_readers()
     }
 
-    pub fn index_rel(&self) -> &PgSearchRelation {
+    pub(crate) fn index_rel(&self) -> &PgSearchRelation {
         &self.index_rel
     }
 
     /// The stored entry of one of this reader's segments, for the components read outside
     /// tantivy, like `.stats`.
-    pub fn segment_meta_entry(&self, segment_id: &SegmentId) -> Option<SegmentMetaEntry> {
+    pub(crate) fn segment_meta_entry(&self, segment_id: &SegmentId) -> Option<SegmentMetaEntry> {
         self.directory.segment_meta_entry(segment_id)
     }
 

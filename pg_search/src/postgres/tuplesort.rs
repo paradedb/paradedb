@@ -95,14 +95,6 @@ impl Sorter {
         }
     }
 
-    /// Release the sort's memory and temporary files.
-    pub fn end(mut self) {
-        unsafe {
-            self.free_last_returned();
-            pg_sys::tuplesort_end(self.state)
-        }
-    }
-
     /// Free the copy PG15's `tuplesort_getdatum` handed us for the previous record. A no-op on
     /// PG16+, where `copy: false` leaves ownership with the sort and the datum is simply valid
     /// until the next call.
@@ -114,6 +106,16 @@ impl Sorter {
         }
     }
 }
+
+// Outside a transaction the sort's memory context is already gone, so there is nothing to end.
+crate::impl_safe_drop!(Sorter, |self| {
+    unsafe {
+        if crate::postgres::utils::IsTransactionState() {
+            self.free_last_returned();
+            pg_sys::tuplesort_end(self.state);
+        }
+    }
+});
 
 /// Wraps a `Tuplesortstate` over by-value `int8` datums. No allocation per record on either side
 /// of the sort, and about a third of the sort memory a `bytea` record of the same size takes.
@@ -162,12 +164,15 @@ impl Int8Sorter {
                 .then(|| val.value() as i64)
         }
     }
-
-    /// Release the sort's memory and temporary files.
-    pub fn end(self) {
-        unsafe { pg_sys::tuplesort_end(self.state) }
-    }
 }
+
+crate::impl_safe_drop!(Int8Sorter, |self| {
+    unsafe {
+        if crate::postgres::utils::IsTransactionState() {
+            pg_sys::tuplesort_end(self.state);
+        }
+    }
+});
 
 /// Build a transient `bytea` Datum from `bytes` (palloc'd in the current context).
 unsafe fn bytea_datum(bytes: &[u8]) -> pg_sys::Datum {

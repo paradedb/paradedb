@@ -182,7 +182,7 @@ impl Spilled {
                 count += 1;
             }
 
-            sorter.end();
+            drop(sorter);
 
             Spilled { file, index, count }
         }

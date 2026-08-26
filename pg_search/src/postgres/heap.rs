@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::VecDeque;
 use std::ops::Deref;
 
 use crate::api::version::Version;
@@ -738,6 +739,10 @@ impl<'a> HeapDocFetcher<'a> {
                     }
                 }
 
+                // The raw HOT bit is enough here. `HeapTupleHeaderIsHotUpdated` also wants a
+                // valid xmax and xmin, and under the visibility check taken in the same locked
+                // block an aborted updater reads as LIVE and an aborted inserter as DEAD, so
+                // neither reaches this branch.
                 if self.root_ctids
                     && hot_updated
                     && (htsv_result == pg_sys::HTSV_Result::HEAPTUPLE_RECENTLY_DEAD
@@ -893,5 +898,73 @@ mod util {
             heapBlk: BlockNumber,
             buf: *mut Buffer,
         ) -> u8;
+    }
+}
+
+/// Streams ctids in the order given and prefetches their heap blocks `distance` blocks ahead,
+/// so that a block miss overlaps with the work on the blocks before it rather than stalling on
+/// it. The ctids are expected in heap order: a block's rows then arrive together and the block
+/// is prefetched once, when its first row enters the window.
+pub struct PrefetchWindow<'a, I: Iterator<Item = u64>> {
+    heaprel: &'a PgSearchRelation,
+    source: I,
+    window: VecDeque<u64>,
+    distance: usize,
+    /// Distinct blocks among the ctids in `window`.
+    blocks_in_window: usize,
+}
+
+impl<'a, I: Iterator<Item = u64>> PrefetchWindow<'a, I> {
+    /// `distance` is in blocks; `maintenance_io_concurrency` is the usual choice for a build.
+    pub fn new(heaprel: &'a PgSearchRelation, source: I, distance: usize) -> Self {
+        Self {
+            heaprel,
+            source,
+            window: VecDeque::new(),
+            distance,
+            blocks_in_window: 0,
+        }
+    }
+}
+
+impl<I: Iterator<Item = u64>> Iterator for PrefetchWindow<'_, I> {
+    type Item = u64;
+
+    fn next(&mut self) -> Option<u64> {
+        // Keep the block being read plus `distance` more in the window.
+        while self.blocks_in_window <= self.distance {
+            let Some(ctid) = self.source.next() else {
+                break;
+            };
+            let block = utils::u64_ctid_block_number(ctid);
+            if self
+                .window
+                .back()
+                .map(|&last| utils::u64_ctid_block_number(last))
+                != Some(block)
+            {
+                self.blocks_in_window += 1;
+                if self.distance > 0 {
+                    unsafe {
+                        pg_sys::PrefetchBuffer(
+                            self.heaprel.as_ptr(),
+                            pg_sys::ForkNumber::MAIN_FORKNUM,
+                            block,
+                        );
+                    }
+                }
+            }
+            self.window.push_back(ctid);
+        }
+        let ctid = self.window.pop_front()?;
+        if self
+            .window
+            .front()
+            .map(|&next| utils::u64_ctid_block_number(next))
+            != Some(utils::u64_ctid_block_number(ctid))
+        {
+            self.blocks_in_window -= 1;
+        }
+        Some(ctid)
     }
 }

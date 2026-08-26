@@ -821,20 +821,13 @@ pub fn adjust_maintenance_work_mem(nlaunched: usize) -> NonZeroUsize {
         );
     }
 
-    NonZeroUsize::new(per_worker_memory_budget(nlaunched).get() * nlaunched).unwrap()
-}
-
-/// The share of `maintenance_work_mem` one of `nlaunched` build workers gets, clamped to what a
-/// tantivy writer accepts. Unlike [`adjust_maintenance_work_mem`] this only sizes, so a caller
-/// can estimate a budget before it knows how many workers will launch.
-pub fn per_worker_memory_budget(nlaunched: usize) -> NonZeroUsize {
-    let nlaunched = nlaunched.max(1);
-    let mwm_as_bytes = unsafe { pg_sys::maintenance_work_mem as usize } * 1024;
-    let per_worker_budget = (mwm_as_bytes / nlaunched).clamp(
+    // clamp the per_worker_budget to the min/max values
+    let per_worker_budget = per_worker_budget.clamp(
         limits::MEMORY_BUDGET_NUM_BYTES_MIN,
         limits::MEMORY_BUDGET_NUM_BYTES_MAX - 1,
     );
-    NonZeroUsize::new(per_worker_budget).unwrap()
+
+    NonZeroUsize::new(per_worker_budget * nlaunched).unwrap()
 }
 
 /// Which interpretation of the `work_mem` setting to return from [`WorkMem::get`].

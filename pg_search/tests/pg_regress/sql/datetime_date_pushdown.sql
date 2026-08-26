@@ -102,7 +102,27 @@ GROUP BY DATE(created_at)
 ORDER BY day NULLS LAST;
 
 -- =====================================================================
--- Test 4: aggregate FILTER executes through DataFusion
+-- Test 4: key-ordered TopK retains the NULL date group
+-- =====================================================================
+-- DESC uses NULLS FIRST by default, so the NULL group must be the first
+-- result rather than disappearing before the LIMIT is applied.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DATE(created_at) AS day, COUNT(*) AS cnt
+FROM events_nullable
+WHERE id @@@ pdb.all()
+GROUP BY DATE(created_at)
+ORDER BY 1 DESC
+LIMIT 2;
+
+SELECT DATE(created_at) AS day, COUNT(*) AS cnt
+FROM events_nullable
+WHERE id @@@ pdb.all()
+GROUP BY DATE(created_at)
+ORDER BY 1 DESC
+LIMIT 2;
+
+-- =====================================================================
+-- Test 5: aggregate FILTER executes through DataFusion
 -- =====================================================================
 -- The filter is evaluated independently inside each date group. In
 -- particular, the NULL group's filtered count must be 2, not 0.
@@ -120,7 +140,7 @@ GROUP BY DATE(created_at)
 ORDER BY day NULLS LAST;
 
 -- =====================================================================
--- Test 5: multi-column GROUP BY executes through DataFusion
+-- Test 6: multi-column GROUP BY executes through DataFusion
 -- =====================================================================
 -- DATE(created_at) uses the timestamp-to-date transform while region remains
 -- an identity grouping expression. NULL dates must still split by region.
@@ -139,7 +159,7 @@ ORDER BY day NULLS LAST, region;
 DROP TABLE events_nullable CASCADE;
 
 -- =====================================================================
--- Test 6: timestamp boundaries use exact date conversion
+-- Test 7: timestamp boundaries use exact date conversion
 -- =====================================================================
 -- This is the boundary matrix from the PR review. Tantivy's old f64
 -- histogram path rounded the finite values into the next day, errored for
@@ -172,7 +192,7 @@ ORDER BY day;
 DROP TABLE events_boundaries CASCADE;
 
 -- =====================================================================
--- Test 7: DATE(timestamptz) declines with a named TimeZone reason
+-- Test 8: DATE(timestamptz) declines with a named TimeZone reason
 -- =====================================================================
 -- date(timestamptz) [pg_proc 1178] depends on the session TimeZone, which
 -- the plan cannot see; only date(timestamp) [2029] is pushed down. Under

@@ -250,6 +250,25 @@ fn test_group_by_date_function(mut conn: PgConnection) {
     // DATE(timestamp) grouping must be executed by the DataFusion backend.
     assert_uses_datafusion_aggregate_scan(&mut conn, query);
 
+    // ORDER BY an aggregate with LIMIT is the common dashboard TopK shape
+    // called out in the review. The counts are deliberately distinct at the
+    // cutoff: 2024-01-01 has 3 rows and the NULL group has 2.
+    let topk_query = "SELECT DATE(created_at) AS day, COUNT(*) AS cnt \
+                      FROM date_pushdown_events \
+                      WHERE id @@@ pdb.all() \
+                      GROUP BY DATE(created_at) \
+                      ORDER BY COUNT(*) DESC \
+                      LIMIT 2";
+
+    assert_uses_datafusion_aggregate_scan(&mut conn, topk_query);
+
+    let topk_rows = topk_query.fetch::<(Option<Date>, i64)>(&mut conn);
+    assert_eq!(
+        topk_rows,
+        vec![(Some(date!(2024 - 01 - 01)), 3), (None, 2)],
+        "DataFusion TopK must retain the NULL date group"
+    );
+
     // Parity: the same query planned by Postgres must give the same answer.
     "SET paradedb.enable_aggregate_custom_scan TO off;".execute(&mut conn);
     assert_uses_custom_scan(&mut conn, false, query);
@@ -262,6 +281,12 @@ fn test_group_by_date_function(mut conn: PgConnection) {
         .fetch::<(Option<Date>, i64)>(&mut conn);
 
     assert_eq!(rows, fallback, "pushdown must match Postgres exactly");
+
+    let topk_fallback = format!("{topk_query} -- fallback").fetch::<(Option<Date>, i64)>(&mut conn);
+    assert_eq!(
+        topk_rows, topk_fallback,
+        "DataFusion TopK must match Postgres exactly"
+    );
 }
 
 #[rstest]

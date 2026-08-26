@@ -612,6 +612,9 @@ struct PartitionSpill {
     /// fields so the callback can project each scanned row onto them.
     dim_fields: Vec<(SearchField, CategorizedFieldData)>,
     files: PartitionSpillFiles,
+    /// A key's encoding can depend on the version that created the index, so routing has to
+    /// convert values the way the document build does.
+    created_by_version: Option<Version>,
 }
 
 impl PartitionSpill {
@@ -619,6 +622,7 @@ impl PartitionSpill {
         tree: KdTree,
         categorized_fields: &[(SearchField, CategorizedFieldData)],
         files: PartitionSpillFiles,
+        created_by_version: Option<Version>,
     ) -> anyhow::Result<Self> {
         let dim_fields = tree
             .dims()
@@ -638,6 +642,7 @@ impl PartitionSpill {
             tree,
             dim_fields,
             files,
+            created_by_version,
         })
     }
 
@@ -665,10 +670,13 @@ impl PartitionSpill {
                     return Ok(PdbOwnedValue::Null);
                 }
                 let datum = unwrap_alias_datum(datum, categorized.pg_type);
-                Ok(
-                    scalar_datum_to_tantivy_value(datum, field.field_type(), categorized.base_oid)?
-                        .0,
-                )
+                Ok(scalar_datum_to_tantivy_value(
+                    datum,
+                    field.field_type(),
+                    categorized.base_oid,
+                    self.created_by_version,
+                )?
+                .0)
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
         Ok(self.tree.route(&point))
@@ -785,7 +793,9 @@ impl<'a> WorkerBuildState<'a> {
 
         let (participant, nparticipants) = (spill_files.participant, spill_files.nparticipants);
         let partitioning = partitioning
-            .map(|tree| PartitionSpill::new(tree, &categorized_fields, spill_files))
+            .map(|tree| {
+                PartitionSpill::new(tree, &categorized_fields, spill_files, created_by_version)
+            })
             .transpose()?;
 
         Ok(Self {

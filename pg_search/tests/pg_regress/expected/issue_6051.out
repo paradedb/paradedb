@@ -251,7 +251,7 @@ SELECT count(*) FROM (
     WHERE discarded_at IS NULL AND id @@@ paradedb.range('amt_78', numrange(-20500, -20300))
 ) s
 WHERE NOT (amt_78 >= -20500 AND amt_78 < -20300);
-WARNING:  Aggregate Scan not used: query does not imply the partial index predicate. To disable this warning: SET paradedb.check_aggregate_scan = false (table: amounts)
+WARNING:  Aggregate Scan not used: query does not imply the partial index predicate. To disable this warning: SET paradedb.planner_warnings = 'off' (table: amounts)
  count 
 -------
      0

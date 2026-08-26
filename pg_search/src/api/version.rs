@@ -37,9 +37,9 @@ pub const DATETIME_I64_STORAGE_VERSION: Version = Version::new(0, 24, 1);
 ///
 /// TODO: remove this constant, `stores_sortable_negative_numeric_bytes`, the legacy branch in
 /// `decimal_to_index_bytes`, and the JoinScan decline in `numeric_bytes_layouts_differ` once every
-/// deployment runs v0.25.4 or later and its indexes have been rebuilt. `Decimal::to_legacy_bytes`
+/// deployment runs v0.25.5 or later and its indexes have been rebuilt. `Decimal::to_legacy_bytes`
 /// can go from `decimal-bytes` at the same time.
-pub const NUMERIC_BYTES_SORTABLE_NEGATIVES_VERSION: Version = Version::new(0, 25, 4);
+pub const NUMERIC_BYTES_SORTABLE_NEGATIVES_VERSION: Version = Version::new(0, 25, 5);
 
 impl Version {
     pub const fn new(major: u16, minor: u16, patch: u16) -> Self {

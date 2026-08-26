@@ -505,10 +505,13 @@ mod tests {
         assert_ne!(current, legacy);
 
         assert_eq!(decimal_to_index_bytes(decimal.clone(), None), legacy);
-        assert_eq!(
-            decimal_to_index_bytes(decimal.clone(), Some(Version::new(0, 25, 3))),
-            legacy
-        );
+        // The releases that shipped `decimal-bytes` 0.4 wrote the legacy layout.
+        for legacy_version in [Version::new(0, 25, 3), Version::new(0, 25, 4)] {
+            assert_eq!(
+                decimal_to_index_bytes(decimal.clone(), Some(legacy_version)),
+                legacy
+            );
+        }
         assert_eq!(
             decimal_to_index_bytes(
                 decimal.clone(),

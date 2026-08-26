@@ -17,6 +17,7 @@
 
 use crate::customscan::aggregatescan::exec::AggregationResultsRow;
 use crate::customscan::aggregatescan::AggregateCSClause;
+use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList;
 use crate::postgres::customscan::aggregatescan::privdat::{DataFusionTopK, FilterExpr};
 use crate::postgres::customscan::joinscan::build::{
@@ -142,7 +143,7 @@ pub struct AggregateScanState {
     /// 2. Keeps Tantivy buffer pins alive through `exec_custom_scan` so
     ///    background merges don't recycle the canonical segments before
     ///    workers can open them via `MvccSatisfies::ParallelWorker(ids)`.
-    pub source_manifests: Vec<crate::index::reader::index::SearchIndexManifest>,
+    pub source_manifests: Vec<SearchIndexManifest>,
 
     /// A collection of things needed for result-rewriting decisions that
     /// are expensive to look up.

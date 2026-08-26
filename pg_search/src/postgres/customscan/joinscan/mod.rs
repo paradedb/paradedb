@@ -261,6 +261,9 @@ impl JoinDeclineReason {
     }
 
     fn emit(&self, aliases: &[String]) {
+        if crate::gucs::planner_warnings() == crate::gucs::PlannerWarnings::Off {
+            return;
+        }
         match self {
             Self::ContainsAggregate => {
                 if crate::gucs::enable_aggregate_custom_scan() {

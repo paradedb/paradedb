@@ -574,7 +574,7 @@ JOIN product_categories pc ON tp.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
 WHERE c.is_active = true
 ORDER BY pr.avg_rating DESC, pdb.score(tp.id), tp.price DESC;
-WARNING:  Aggregate Scan not used: grouping column product_id is missing from index. To disable this warning: SET paradedb.check_aggregate_scan = false (table: reviews)
+WARNING:  Aggregate Scan not used: grouping column product_id is missing from index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: reviews)
                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                      
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -632,7 +632,7 @@ JOIN product_categories pc ON tp.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
 WHERE c.is_active = true
 ORDER BY pr.avg_rating DESC, pdb.score(tp.id), tp.price DESC;
-WARNING:  Aggregate Scan not used: grouping column product_id is missing from index. To disable this warning: SET paradedb.check_aggregate_scan = false (table: reviews)
+WARNING:  Aggregate Scan not used: grouping column product_id is missing from index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: reviews)
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- Test 5: Union of results from different tables
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -813,7 +813,7 @@ ORDER BY
     END DESC,
     pdb.score(p.id),
     p.price;
-WARNING:  Aggregate Scan not used: grouping column product_id is missing from index. To disable this warning: SET paradedb.check_aggregate_scan = false (table: reviews)
+WARNING:  Aggregate Scan not used: grouping column product_id is missing from index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: reviews)
                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -857,7 +857,7 @@ ORDER BY
     END DESC,
     pdb.score(p.id),
     p.price;
-WARNING:  Aggregate Scan not used: grouping column product_id is missing from index. To disable this warning: SET paradedb.check_aggregate_scan = false (table: reviews)
+WARNING:  Aggregate Scan not used: grouping column product_id is missing from index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: reviews)
     name    | price |  review_status  
 ------------+-------+-----------------
  Product 19 |   240 | Great reviews

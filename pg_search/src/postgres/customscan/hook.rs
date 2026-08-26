@@ -328,7 +328,7 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
 }
 
 /// Static variable to store the previous planner hook (e.g., from Citus or other extensions)
-/// This MUST be outside both register_window_aggregate_hook() and paradedb_planner_hook()
+/// This MUST be outside both register_planner_hook() and paradedb_planner_hook()
 /// so they both reference the same variable for proper hook chaining.
 static mut PREV_PLANNER_HOOK: pg_sys::planner_hook_type = None;
 
@@ -356,7 +356,7 @@ static mut PREV_PLANNER_HOOK: pg_sys::planner_hook_type = None;
 /// 3. **Simpler Integration**: The replacement happens once, early, and the rest
 ///    of the planning process sees our placeholder functions as regular function
 ///    calls that get projected through the plan tree.
-pub unsafe fn register_window_aggregate_hook() {
+pub unsafe fn register_planner_hook() {
     PREV_PLANNER_HOOK = pg_sys::planner_hook;
     pg_sys::planner_hook = Some(paradedb_planner_hook);
 }

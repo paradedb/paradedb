@@ -333,11 +333,13 @@ impl CustomScan for AggregateScan {
         if let Err(reason) = unsafe { validate_grouping_pushdown(builder.args()) } {
             if has_paradedb_agg {
                 pgrx::error!("Cannot execute pdb.agg: {}", reason.detail());
-            } else if gucs::enable_aggregate_custom_scan() && gucs::check_aggregate_scan() {
+            } else if gucs::enable_aggregate_custom_scan()
+                && gucs::planner_warnings() != gucs::PlannerWarnings::Off
+            {
                 Self::add_planner_warning(
                     format!(
                         "Aggregate Scan not used: {}. \
-                         To disable this warning: SET paradedb.check_aggregate_scan = false",
+                         To disable this warning: SET paradedb.planner_warnings = 'off'",
                         reason.detail()
                     ),
                     unsafe { resolve_decline_alias(builder.args()) },
@@ -1184,10 +1186,12 @@ impl AggregateScan {
             Err(CustomScanBuildError::Incompatible(e)) => {
                 if has_paradedb_agg {
                     pgrx::error!("Cannot execute pdb.agg: {}", e);
-                } else if gucs::enable_aggregate_custom_scan() && gucs::check_aggregate_scan() {
+                } else if gucs::enable_aggregate_custom_scan()
+                    && gucs::planner_warnings() != gucs::PlannerWarnings::Off
+                {
                     let warning_msg = format!(
                         "Aggregate Scan not used: {}. \
-                         To disable this warning: SET paradedb.check_aggregate_scan = false",
+                         To disable this warning: SET paradedb.planner_warnings = 'off'",
                         e,
                     );
                     Self::add_planner_warning(warning_msg, _table.name().to_string());
@@ -1209,7 +1213,7 @@ impl AggregateScan {
             Err(AggregatePathDecline::Warn(reason)) => {
                 if has_paradedb_agg {
                     reason.emit_error();
-                } else if gucs::check_aggregate_scan() {
+                } else if gucs::planner_warnings() != gucs::PlannerWarnings::Off {
                     reason.emit();
                 }
                 Vec::new()

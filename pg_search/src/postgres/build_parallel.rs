@@ -449,7 +449,8 @@ enum SpillFileset {
 /// its cell's file; phase 2 hands a cell's owner every participant's file for that cell.
 ///
 /// Every open `BufFile` carries a `BLCKSZ` buffer outside the worker budget, so phase 1 holds
-/// `8KB x cells` per participant: `target_segment_count` sizes it.
+/// `8KB x cells` per participant. [`max_partitions`] caps the cell count so that this fits in
+/// the share of the budget phase 2 spends on the gather.
 struct CellSpillFiles {
     fileset: SpillFileset,
     participant: usize,
@@ -680,6 +681,23 @@ impl PrefetchWindow {
     }
 }
 
+/// The bytes of a worker's budget a partitioned drain may hold in ctids per cell before it sorts
+/// the cell through a spilling tuplesort. It never pushes the writer under the floor that
+/// `adjust_maintenance_work_mem` promised; at the floor the ctids just sort on disk.
+fn gather_budget(per_worker_budget: NonZeroUsize) -> usize {
+    let budget = per_worker_budget.get();
+    (budget / 8)
+        .min(budget.saturating_sub(gucs::limits::MEMORY_BUDGET_NUM_BYTES_MIN))
+        .max(1)
+}
+
+/// The most cells a partitioned build plans for a participant with `per_worker_budget`: one
+/// spill file buffer per cell has to fit in the gather share, since those buffers are the one
+/// allocation of the build that no budget otherwise bounds.
+fn max_partitions(per_worker_budget: NonZeroUsize) -> usize {
+    (gather_budget(per_worker_budget) / pg_sys::BLCKSZ as usize).max(1)
+}
+
 /// Phase-1 state for a partitioned build: rows are not indexed during the scan. Each row is
 /// routed to a partition cell by the leader's kd-tree boundaries and its ctid appended to the
 /// cell's spill file. Phase 2 assigns every cell to one participant, which drains it from all
@@ -841,13 +859,8 @@ impl<'a> WorkerBuildState<'a> {
         // worker budget and the writer gets the rest: the worker's peak stays at the share of
         // `maintenance_work_mem` that `adjust_maintenance_work_mem` sized. Phase 1 holds only
         // the spill files' write buffers.
-        // The gather share never pushes the writer under the floor that
-        // `adjust_maintenance_work_mem` promised it; at the floor the ctids just sort on disk.
         let gather_budget = if partitioning.is_some() {
-            let budget = per_worker_memory_budget.get();
-            (budget / 8)
-                .min(budget.saturating_sub(gucs::limits::MEMORY_BUDGET_NUM_BYTES_MIN))
-                .max(1)
+            gather_budget(per_worker_memory_budget)
         } else {
             0
         };
@@ -1408,14 +1421,26 @@ pub(super) fn build_index(
     // workers to deserialize and drop.
     // TODO(M3): the target segment count doubles as the partition count for now; rename the
     // reloption to `partition_count` once partitioned storage lands.
+    let nworkers = plan::create_index_nworkers(&heaprel, &indexrel);
     let partitioning = if concurrent {
         None
     } else {
+        // Fewer workers may launch than asked for; each then gets a bigger share, so the cap
+        // estimated here is the tighter one.
+        let nparticipants =
+            nworkers + usize::from(unsafe { pg_sys::parallel_leader_participation });
+        let max_partitions = max_partitions(gucs::per_worker_memory_budget(nparticipants));
+        let target_partitions = plan::adjusted_target_segment_count(&heaprel, &indexrel);
+        if target_partitions > max_partitions {
+            pgrx::debug1!(
+                "build_index: capping {target_partitions} partitions at {max_partitions} for the memory budget"
+            );
+        }
         plan_partition_boundaries(
             &heaprel,
             &indexrel,
             snapshot.0,
-            plan::adjusted_target_segment_count(&heaprel, &indexrel),
+            target_partitions.min(max_partitions),
         )?
         // A single cell is the one segment the regular path builds in a single pass, so the
         // spill and re-fetch would only cost.
@@ -1435,7 +1460,6 @@ pub(super) fn build_index(
 
     let process = ParallelBuild::new(&heaprel, snapshot.0, config, partitioning_bytes);
     let is_partitioned = partitioning.is_some();
-    let nworkers = plan::create_index_nworkers(&heaprel, &indexrel);
     pgrx::debug1!("build_index: asked for {nworkers} workers");
 
     // This is updating `tuples_total` in the `pg_stat_progress_create_index` view - `tuples_done` is incremented in `build_callback`
@@ -2075,6 +2099,44 @@ mod tests {
         );
 
         Spi::run("DROP TABLE partitioned_deleted;").unwrap();
+    }
+
+    /// The partition count is capped so that one spill file buffer per cell fits in the gather
+    /// share of the worker budget: 24MB serial gives a 3MB share, 384 `BLCKSZ` buffers. A
+    /// unique key and a target far above that must come out at exactly the cap.
+    #[pg_test]
+    fn test_partitioned_build_caps_partitions_by_budget() {
+        Spi::run(
+            r#"
+            CREATE TABLE partitioned_capped (id BIGSERIAL PRIMARY KEY, name TEXT);
+            INSERT INTO partitioned_capped (name)
+            SELECT 'lorem ipsum ' || i || ' ' || repeat('padding word here ', 50)
+            FROM generate_series(1, 20000) i;
+            "#,
+        )
+        .unwrap();
+        Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
+        Spi::run("SET maintenance_work_mem = '24MB';").unwrap();
+        Spi::run(
+            "CREATE INDEX partitioned_capped_idx ON partitioned_capped USING paradedb (id, name) WITH (key_field = 'id', partition_by = 'id', target_segment_count = 10000);",
+        )
+        .unwrap();
+
+        let count: i64 = Spi::get_one(
+            "SELECT COUNT(*)::bigint FROM paradedb.index_info('partitioned_capped_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(count, 384, "one segment per capped partition");
+
+        let num_docs: i64 = Spi::get_one(
+            "SELECT COALESCE(SUM(num_docs), 0)::bigint FROM paradedb.index_info('partitioned_capped_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(num_docs, 20000, "every row is indexed once");
+
+        Spi::run("DROP TABLE partitioned_capped;").unwrap();
     }
 
     /// A cell whose ctids outgrow the drain's in-memory share of the worker budget is sorted

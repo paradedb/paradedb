@@ -19,9 +19,8 @@ use crate::api::builder_fns::{term_set_str, term_str};
 use crate::api::operator::boost::BoostType;
 use crate::api::operator::fuzzy::FuzzyType;
 use crate::api::operator::{
-    RHSValue, ReturnedNodePointer, build_pdb_query_funcexpr, build_text_funcexpr,
-    classify_pdb_query_input, get_expr_result_type, is_pdb_query_castable, request_simplify,
-    validate_lhs_type_as_text_compatible,
+    RHSValue, ReturnedNodePointer, build_exec_rewrite_funcexpr, classify_pdb_query_input,
+    request_simplify, validate_lhs_type_as_text_compatible,
 };
 use crate::query::SearchQueryInput;
 use crate::query::pdb_query::{pdb, to_search_query_input};
@@ -109,28 +108,12 @@ fn search_with_term_support(arg: Internal) -> ReturnedNodePointer {
                 _ => unreachable!("The right-hand side of the `===(field, TEXT)` operator must be a text or text array value")
             }
         }, |field, lhs, rhs| {
-            validate_lhs_type_as_text_compatible(lhs, "===");
-            let field = field.expect("The left hand side of the `===(field, TEXT)` operator must be a field.");
-            // Under a generic prepared plan, `Param` nodes bypass const folding so the RHS is
-            // not a `Const` we can inspect at planning time. Recognize the `pdb.*` shape and
-            // build a runtime call that evaluates the parameter, mirroring the const-path in
-            // `rewrite_rhs_to_search_query_input`. Fixes issue #5779 where
-            // `... === $1::pdb.fuzzy(...)` errored on execution 6 with "must be a text or text
-            // array value" because the RHS type (`pdb.fuzzy`) failed the text-only check in
-            // `build_text_funcexpr`.
-            let rhs_type = get_expr_result_type(rhs);
-            if is_pdb_query_castable(rhs_type) {
-                build_pdb_query_funcexpr(
-                    field, rhs, rhs_type,
-                    c"paradedb.term_search_query_input(paradedb.fieldname, pdb.query)",
-                )
-            } else {
-                build_text_funcexpr(
-                    field, rhs, "===",
-                    c"paradedb.term(paradedb.fieldname, text)",
-                    c"paradedb.term_set(paradedb.fieldname, text[])",
-                )
-            }
+            build_exec_rewrite_funcexpr(
+                field, lhs, rhs, "===",
+                c"paradedb.term_search_query_input(paradedb.fieldname, pdb.query)",
+                c"paradedb.term(paradedb.fieldname, text)",
+                c"paradedb.term_set(paradedb.fieldname, text[])",
+            )
         })
             .unwrap_or(ReturnedNodePointer(None))
     }

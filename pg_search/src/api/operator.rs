@@ -1045,7 +1045,7 @@ unsafe fn build_text_funcexpr(
 /// `pdb.boost`, `pdb.slop`, `pdb.const`). Used by operator `exec_rewrite` paths to decide
 /// whether an RHS whose type is a `pdb.*` composite needs the runtime pdb.query dispatch
 /// rather than the text/text[] dispatch.
-pub(crate) fn is_pdb_query_castable(oid: pg_sys::Oid) -> bool {
+fn is_pdb_query_castable(oid: pg_sys::Oid) -> bool {
     oid == pdb_query_typoid()
         || oid == fuzzy_typoid()
         || oid == boost_typoid()
@@ -1064,7 +1064,7 @@ pub(crate) fn is_pdb_query_castable(oid: pg_sys::Oid) -> bool {
 /// function; different operators dispatch to different runtime constructors (for example, the
 /// `===` operator uses `paradedb.term_search_query_input` to match its const path, which
 /// classifies `UnclassifiedString`/`UnclassifiedArray` into `term`/`term_set`).
-pub(crate) unsafe fn build_pdb_query_funcexpr(
+unsafe fn build_pdb_query_funcexpr(
     field: FieldName,
     rhs: *mut pg_sys::Node,
     rhs_type: pg_sys::Oid,
@@ -1129,6 +1129,32 @@ pub(crate) unsafe fn build_pdb_query_funcexpr(
         inputcollid: pg_sys::Oid::INVALID,
         args: args.into_pg(),
         location: -1,
+    }
+}
+
+/// Shared `exec_rewrite` body for the text operators (`===`, `&&&`, `|||`, `###`): validate the
+/// LHS, then route the RHS by its declared type. A `pdb.*`-typed RHS (a `Param` under a generic
+/// prepared plan, see #5779) goes through the runtime dispatch in `pdb_fn`; anything else goes
+/// through the text/text[] dispatch in `text_fn` / `array_fn`. Signatures are `regprocedure`
+/// strings, same as [`build_text_funcexpr`] and [`build_pdb_query_funcexpr`].
+unsafe fn build_exec_rewrite_funcexpr(
+    field: Option<FieldName>,
+    lhs: *mut pg_sys::Node,
+    rhs: *mut pg_sys::Node,
+    operator_name: &str,
+    pdb_fn: &std::ffi::CStr,
+    text_fn: &std::ffi::CStr,
+    array_fn: &std::ffi::CStr,
+) -> pg_sys::FuncExpr {
+    validate_lhs_type_as_text_compatible(lhs, operator_name);
+    let field = field.unwrap_or_else(|| {
+        panic!("The left hand side of the `{operator_name}(field, TEXT)` operator must be a field.")
+    });
+    let rhs_type = get_expr_result_type(rhs);
+    if is_pdb_query_castable(rhs_type) {
+        build_pdb_query_funcexpr(field, rhs, rhs_type, pdb_fn)
+    } else {
+        build_text_funcexpr(field, rhs, operator_name, text_fn, array_fn)
     }
 }
 

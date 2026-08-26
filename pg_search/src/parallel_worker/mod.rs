@@ -58,11 +58,13 @@ impl From<TocKeys> for u64 {
     }
 }
 
-/// Marker for plain-old-data types stored in DSM entries as raw bytes. An entry is written
-/// by copying a live value, and [`ParallelStateManager`] checks the recorded type name
-/// before handing it back, so a reader always sees a valid instance of the type it asked
-/// for.
-pub trait ParallelStateType: Copy {}
+/// Marker for plain-old-data types stored in DSM entries as raw bytes.
+///
+/// Requires [`bytemuck::Pod`], which guarantees: `#[repr(C)]` layout, no
+/// uninitialised padding bytes, and every bit pattern is a valid instance.
+/// These properties let `as_bytes()` and `object()`/`slice()` operate
+/// without undefined behaviour.
+pub trait ParallelStateType: bytemuck::Pod {}
 
 pub trait ParallelState {
     /// A binary representation of the header information necessary to store/retrieve [`ParallelState`]
@@ -162,12 +164,10 @@ impl ParallelStateType for i64 {}
 impl ParallelStateType for isize {}
 impl ParallelStateType for f32 {}
 impl ParallelStateType for f64 {}
-impl ParallelStateType for bool {}
-impl ParallelStateType for () {}
 
 impl<T: ParallelStateType> ParallelState for T {
     fn as_bytes(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self as *const _ as *const u8, self.size_of()) }
+        bytemuck::bytes_of(self)
     }
 }
 
@@ -182,7 +182,7 @@ impl<T: ParallelStateType> ParallelState for Vec<T> {
         self.len()
     }
     fn as_bytes(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self.as_ptr() as *const u8, self.size_of()) }
+        bytemuck::cast_slice(self.as_slice())
     }
 }
 
@@ -276,7 +276,7 @@ impl ParallelStateManager {
         }
     }
 
-    unsafe fn decode_info<T: ParallelStateType>(
+    unsafe fn decode_info<T: Copy + 'static>(
         &self,
         i: usize,
     ) -> Result<Option<(usize, &str)>, ValueError> {
@@ -306,21 +306,17 @@ impl ParallelStateManager {
         Ok(Some((len, type_name)))
     }
 
-    /// Retrieve a **mutable** reference to the object stored in the state at index `i`.
-    ///
-    /// Returns a [`ValueError`] if the type `T` doesn't match the type of the object at index `i`.
-    /// Returns `None` if `i` is out of bounds
-    pub fn object<T: ParallelStateType>(
+    unsafe fn lookup_entry<T: Copy + 'static>(
         &self,
         i: usize,
-    ) -> Result<Option<&'static mut T>, ValueError> {
+    ) -> Result<Option<(usize, *mut T)>, ValueError> {
         if i >= self.len {
             return Ok(None);
         }
 
         let i = i * 2;
         unsafe {
-            let Some((_, _)) = self.decode_info::<T>(i)? else {
+            let Some((len, _)) = self.decode_info::<T>(i)? else {
                 return Ok(None);
             };
 
@@ -330,7 +326,21 @@ impl ParallelStateManager {
             if ptr.is_null() {
                 return Ok(None);
             }
-            Ok(Some(&mut *ptr.cast()))
+            Ok(Some((len, ptr.cast())))
+        }
+    }
+
+    /// Retrieve a **mutable** reference to the object stored in the state at index `i`.
+    ///
+    /// Returns a [`ValueError`] if the type `T` doesn't match the type of the object at index `i`.
+    /// Returns `None` if `i` is out of bounds
+    pub fn object<T: ParallelStateType>(
+        &self,
+        i: usize,
+    ) -> Result<Option<&'static mut T>, ValueError> {
+        unsafe {
+            self.lookup_entry::<T>(i)
+                .map(|opt| opt.map(|(_, p)| &mut *p))
         }
     }
 
@@ -342,24 +352,9 @@ impl ParallelStateManager {
         &self,
         i: usize,
     ) -> Result<Option<&'static [T]>, ValueError> {
-        if i >= self.len {
-            return Ok(None);
-        }
-
-        let i = i * 2;
         unsafe {
-            let Some((len, _)) = self.decode_info::<T>(i)? else {
-                return Ok(None);
-            };
-
-            let idx: u64 = TocKeys::UserState.into();
-            let idx = idx + i as u64 + 1;
-            let ptr = pg_sys::shm_toc_lookup(self.toc.as_ptr(), idx, true);
-            if ptr.is_null() {
-                return Ok(None);
-            }
-            let slice = std::slice::from_raw_parts(ptr.cast(), len);
-            Ok(Some(slice))
+            self.lookup_entry::<T>(i)
+                .map(|opt| opt.map(|(len, p)| std::slice::from_raw_parts(p, len)))
         }
     }
 
@@ -371,25 +366,28 @@ impl ParallelStateManager {
         &self,
         i: usize,
     ) -> Result<Option<&'static mut [T]>, ValueError> {
-        if i >= self.len {
-            return Ok(None);
-        }
-
-        let i = i * 2;
         unsafe {
-            let Some((len, _)) = self.decode_info::<T>(i)? else {
-                return Ok(None);
-            };
-
-            let idx: u64 = TocKeys::UserState.into();
-            let idx = idx + i as u64 + 1;
-            let ptr = pg_sys::shm_toc_lookup(self.toc.as_ptr(), idx, true);
-            if ptr.is_null() {
-                return Ok(None);
-            }
-            let slice = std::slice::from_raw_parts_mut(ptr.cast(), len);
-            Ok(Some(slice))
+            self.lookup_entry::<T>(i)
+                .map(|opt| opt.map(|(len, p)| std::slice::from_raw_parts_mut(p, len)))
         }
+    }
+
+    /// Retrieve a raw pointer to the object stored in the state at index `i`.
+    ///
+    /// Unlike [`Self::object`], this method does not require `T: ParallelStateType`.
+    /// Use it for foreign types that cannot implement `Pod` (e.g. bindgen-generated
+    /// Postgres structs). The type-name check still runs.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the DSM bytes at index `i` form a valid
+    /// instance of `T`. This is satisfied when the leader wrote a valid `T`
+    /// into this slot before workers were launched.
+    pub unsafe fn object_raw<T: Copy + 'static>(
+        &self,
+        i: usize,
+    ) -> Result<Option<*mut T>, ValueError> {
+        unsafe { self.lookup_entry::<T>(i).map(|opt| opt.map(|(_, p)| p)) }
     }
 }
 
@@ -434,8 +432,8 @@ impl ParallelStateManager {
 /// use pg_search::parallel_worker::mqueue::MessageQueueSender;
 ///
 /// // Define a ParallelState type
+/// #[derive(Copy, Clone, bytemuck::Zeroable, bytemuck::Pod)]
 /// #[repr(C)]
-/// #[derive(Copy, Clone)]
 /// struct MyState {
 ///     junk: u32
 /// }
@@ -624,8 +622,8 @@ mod tests {
 
     #[pg_test]
     fn test_parallel_workers() {
+        #[derive(Copy, Clone, bytemuck::Zeroable, bytemuck::Pod)]
         #[repr(C)]
-        #[derive(Copy, Clone)]
         struct MyState {
             junk: u32,
         }
@@ -740,6 +738,41 @@ mod tests {
         // Any other send error, including unknown future/Postgres-specific
         // codes, must still panic.
         finish_parallel_worker(Err(MessageQueueSendError::Unknown(42 as _).into()));
+    }
+
+    #[pg_test]
+    fn test_pod_struct_bytes_of_round_trip() {
+        #[derive(Copy, Clone, Debug, PartialEq, bytemuck::Zeroable, bytemuck::Pod)]
+        #[repr(C)]
+        struct TestPod {
+            a: u32,
+            _pad: [u8; 4],
+            b: u64,
+        }
+
+        impl ParallelStateType for TestPod {}
+
+        let original = TestPod {
+            a: 42,
+            _pad: [0; 4],
+            b: 12345,
+        };
+        let bytes = <TestPod as ParallelState>::as_bytes(&original);
+        assert_eq!(bytes.len(), std::mem::size_of::<TestPod>());
+
+        let recovered: &TestPod = bytemuck::from_bytes(bytes);
+        assert_eq!(recovered.a, 42);
+        assert_eq!(recovered.b, 12345);
+    }
+
+    #[pg_test]
+    fn test_pod_vec_cast_slice_round_trip() {
+        let values: Vec<u32> = vec![1, 2, 3, 4, 5];
+        let bytes = <Vec<u32> as ParallelState>::as_bytes(&values);
+        assert_eq!(bytes.len(), 5 * std::mem::size_of::<u32>());
+
+        let recovered: &[u32] = bytemuck::cast_slice(bytes);
+        assert_eq!(recovered, &[1, 2, 3, 4, 5]);
     }
 }
 

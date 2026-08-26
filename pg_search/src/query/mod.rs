@@ -473,6 +473,39 @@ impl SearchQueryInput {
         }
     }
 
+    /// Returns `true` if any part of this query evaluates a heap-field filter
+    /// (a Postgres expression checked per candidate document against the heap,
+    /// e.g. an ILIKE alongside an indexed predicate). Such queries should not
+    /// take count fast paths that drain a raw scorer: the per-document heap
+    /// evaluation dominates, and the aggregation framework path handles it.
+    pub fn has_heap_filter(&self) -> bool {
+        match self {
+            SearchQueryInput::HeapFilter { .. } => true,
+
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+                ..
+            } => must
+                .iter()
+                .chain(should.iter())
+                .chain(must_not.iter())
+                .any(Self::has_heap_filter),
+            SearchQueryInput::Boost { query, .. }
+            | SearchQueryInput::ConstScore { query, .. }
+            | SearchQueryInput::WithIndex { query, .. } => query.has_heap_filter(),
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+                disjuncts.iter().any(Self::has_heap_filter)
+            }
+            SearchQueryInput::ScoreFilter {
+                query: Some(query), ..
+            } => query.has_heap_filter(),
+
+            _ => false,
+        }
+    }
+
     /// Returns `true` if constructing a Tantivy Scorer for this query would be expensive.
     /// Used by `estimate_selectivity` to short-circuit and return a heuristic instead.
     pub fn is_expensive_to_estimate(&self) -> bool {

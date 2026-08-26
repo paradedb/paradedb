@@ -305,29 +305,10 @@ impl SolvePostgresExpressions for JoinScanState {
     }
 }
 
-/// Selects which physical optimizer rules to install on top of the shared
-/// base session for a given consumer.
-///
-/// JoinScan needs `SegmentedTopKRule`; AggregateScan needs a single
-/// `FilterPushdown` post-pass. Exposing the difference as an explicit profile
-/// keeps the choice grep-able from the call site.
-#[derive(Copy, Clone, Debug)]
-pub enum SessionContextProfile {
-    /// JoinScan execution: enables `topk_dynamic_filter_pushdown` and installs
-    /// `SegmentedTopKRule`, which transfers ownership of the SortExec's already
-    /// pushed-down dynamic filter into the injected `SegmentedTopKExec`.
-    Join,
-    /// AggregateScan execution: single `FilterPushdown` post-pass, no
-    /// SegmentedTopK, no topk dynamic filter pushdown.
-    Aggregate,
-}
-
 /// Build the shared core of a DataFusion [`SessionStateBuilder`] with:
 /// - Visibility filtering (logical + physical)
 /// - Late materialization
 /// - `PgSearchQueryPlanner`
-///
-/// Callers append their own TopK rule and FilterPushdown passes.
 pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
     use super::visibility_filter::VisibilityFilterOptimizerRule;
     use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
@@ -356,21 +337,11 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
         .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
 }
 
-/// Creates a DataFusion [`SessionContext`] for either JoinScan or AggregateScan.
-///
-/// The base session (visibility filtering, late materialization, the
-/// `PgSearchQueryPlanner`, and the visibility-ctid resolver) is shared via
-/// [`build_base_session`]. The supplied [`SessionContextProfile`] then layers on
-/// the physical optimizer rules each consumer needs:
-///
-/// - [`SessionContextProfile::Join`]: enables `topk_dynamic_filter_pushdown`,
-///   then appends `SegmentedTopKRule`. No trailing `FilterPushdown` pass is
-///   needed: `SegmentedTopKRule` transfers ownership of the SortExec's already
-///   pushed-down `DynamicFilterPhysicalExpr` into `SegmentedTopKExec`, so the
-///   scans stay wired to the same filter the SortExec would have driven.
-/// - [`SessionContextProfile::Aggregate`]: appends a single `FilterPushdown`
-///   post-pass; SegmentedTopK does not apply to aggregate-on-join queries.
-pub fn create_datafusion_session_context(profile: SessionContextProfile) -> SessionContext {
+/// Creates a DataFusion [`SessionContext`] with visibility filtering, late materialization,
+/// `PgSearchQueryPlanner`, topk dynamic filtering, range partitioning, and post-optimization filter pushdown.
+pub fn create_datafusion_session_context() -> SessionContext {
+    use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
+
     let mut config = SessionConfig::new().with_target_partitions(1);
 
     // Configure dynamic filter pushdown thresholds from our GUCs
@@ -390,35 +361,24 @@ pub fn create_datafusion_session_context(profile: SessionContextProfile) -> Sess
         .optimizer
         .hash_join_inlist_pushdown_max_distinct_values =
         crate::gucs::hash_join_inlist_pushdown_max_distinct_values() as usize;
-
-    if matches!(profile, SessionContextProfile::Join) {
-        config
-            .options_mut()
-            .optimizer
-            .enable_topk_dynamic_filter_pushdown = true;
-    }
+    config
+        .options_mut()
+        .optimizer
+        .enable_topk_dynamic_filter_pushdown = true;
 
     let mut builder = build_base_session(config);
 
-    match profile {
-        SessionContextProfile::Join => {
-            use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
-            builder = builder
-                .with_physical_optimizer_rule(Arc::new(
-                    crate::scan::segmented_topk_rule::SegmentedTopKRule,
-                ))
-                // SegmentedTopKRule absorbs VisibilityFilterExec and creates a fresh
-                // AbsorbedVisibilityData with empty ctid resolvers.  We must run
-                // VisibilityCtidResolverRule again here, *after* SegmentedTopKRule, so
-                // that it wires resolvers into the STK node rather than the (now-removed)
-                // VisibilityFilterExec node.
-                .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule));
-        }
-        SessionContextProfile::Aggregate => {
-            builder = builder
-                .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
-        }
-    }
+    builder = builder
+        .with_physical_optimizer_rule(Arc::new(
+            crate::scan::segmented_topk_rule::SegmentedTopKRule,
+        ))
+        // SegmentedTopKRule absorbs VisibilityFilterExec and creates a fresh
+        // AbsorbedVisibilityData with empty ctid resolvers.  We must run
+        // VisibilityCtidResolverRule again here, *after* SegmentedTopKRule, so
+        // that it wires resolvers into the STK node rather than the (now-removed)
+        // VisibilityFilterExec node.
+        .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
+        .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
 
     SessionContext::new_with_state(builder.build())
 }
@@ -434,7 +394,7 @@ pub async fn build_joinscan_logical_plan(
     custom_exprs: *mut pg_sys::List,
     force_serial: bool,
 ) -> Result<datafusion::logical_expr::LogicalPlan> {
-    let ctx = create_datafusion_session_context(SessionContextProfile::Join);
+    let ctx = create_datafusion_session_context();
     let is_parallel = !force_serial && crate::postgres::customscan::mpp::glue::mpp_is_active();
     let df = build_clause_df(&ctx, join_clause, private_data, custom_exprs, is_parallel).await?;
     df.into_optimized_plan()

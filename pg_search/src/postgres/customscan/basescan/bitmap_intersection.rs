@@ -811,17 +811,18 @@ impl IndexClause {
                 return None;
             }
 
-            let mut req = pg_sys::SupportRequestIndexCondition::default();
-            req.type_ = pg_sys::NodeTag::T_SupportRequestIndexCondition;
-            req.root = root;
-            req.funcid = funcid;
-            req.node = (*ri).clause.cast();
-            req.indexarg = indexarg;
-            req.index = ioi;
-            req.indexcol = indexcol;
-            req.opfamily = *(*ioi).opfamily.add(indexcol as usize);
-            req.indexcollation = *(*ioi).indexcollations.add(indexcol as usize);
-            req.lossy = true;
+            let mut req = pg_sys::SupportRequestIndexCondition {
+                type_: pg_sys::NodeTag::T_SupportRequestIndexCondition,
+                root,
+                funcid,
+                node: (*ri).clause.cast(),
+                indexarg,
+                index: ioi,
+                indexcol,
+                opfamily: *(*ioi).opfamily.add(indexcol as usize),
+                indexcollation: *(*ioi).indexcollations.add(indexcol as usize),
+                lossy: true,
+            };
 
             let result = pg_sys::OidFunctionCall1Coll(
                 prosupport,

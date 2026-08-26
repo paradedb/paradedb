@@ -80,6 +80,13 @@ static MAX_TOPK_CHUNK_SIZE: GucSetting<i32> = GucSetting::<i32>::new(100_000);
 /// The maximum number of buckets that can be returned by a TermsAggregation
 static MAX_TERM_AGG_BUCKETS: GucSetting<i32> = GucSetting::<i32>::new(DEFAULT_BUCKET_LIMIT as i32);
 
+/// Estimated matching row count below which `visibility => 'threshold'` applies
+/// transaction visibility checking. At or above it, the aggregate reads raw index
+/// data. Small result sets are where an unvacuumed dead tuple visibly skews the
+/// answer, so those keep the checks; large ones trade a negligible error margin
+/// for the scan.
+static VISIBILITY_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(10_000);
+
 /// The maximum response size in bytes for a window aggregate.
 static MAX_WINDOW_AGGREGATE_RESPONSE_BYTES: GucSetting<i32> = GucSetting::<i32>::new(1_048_576);
 
@@ -454,6 +461,17 @@ pub fn init() {
         &MAX_TERM_AGG_BUCKETS,
         1,
         DEFAULT_BUCKET_LIMIT as i32,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.visibility_threshold",
+        c"Estimated matching row count below which `visibility => 'threshold'` applies transaction visibility checking",
+        c"An aggregate using `visibility => 'threshold'` applies MVCC visibility checking when the query's estimated matching row count is strictly less than this, and reads raw index data otherwise. Has no effect on `visibility => 'transaction'` or `visibility => 'raw'`.",
+        &VISIBILITY_THRESHOLD,
+        0,
+        i32::MAX,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -880,6 +898,10 @@ pub fn limit_fetch_multiplier() -> f64 {
 
 pub fn expensive_query_cost_factor() -> f64 {
     EXPENSIVE_QUERY_COST_FACTOR.get()
+}
+
+pub fn visibility_threshold() -> u64 {
+    VISIBILITY_THRESHOLD.get().max(0) as u64
 }
 
 pub fn max_term_agg_buckets() -> i32 {

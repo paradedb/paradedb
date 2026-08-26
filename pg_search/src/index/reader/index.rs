@@ -1053,7 +1053,7 @@ impl SearchIndexReader {
                 tantivy::vector::set_fixed_probe_cost_rows(
                     crate::gucs::vector_fixed_probe_cost_rows(),
                 );
-                let collector = TopDocs::with_limit(n)
+                let vector_search = TopDocs::with_limit(n)
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
                     .with_adaptive_params(AdaptiveProbeParams {
@@ -1073,11 +1073,9 @@ impl SearchIndexReader {
                 }
 
                 // Vector search is ONE global probe loop across every
-                // segment of the searcher's snapshot (the collector must
-                // be top-level — its `collect_global` fires inside
-                // `searcher.search`), so it cannot ride the per-segment
-                // wrappers: window aggregates are rejected at plan time,
-                // and the parallel path never claims vector scans.
+                // segment of the searcher's snapshot, so it cannot ride
+                // the per-segment wrappers: window aggregates are rejected
+                // at plan time, and the parallel path never claims vector scans.
                 assert!(
                     aux_collector.is_none(),
                     "vector ORDER BY cannot run with an auxiliary aggregation collector; this \
@@ -1095,16 +1093,25 @@ impl SearchIndexReader {
                 let mut tie_breaks = tie_breaks.into_iter();
                 let mut next = || tie_breaks.next().expect("tie-break feature should exist");
                 let fruit = match tie_break_count {
-                    0 => self.collect(collector),
-                    1 => self.collect(collector.with_tie_break(next())),
-                    2 => self.collect(collector.with_tie_break((next(), next()))),
-                    3 => self.collect(collector.with_tie_break((next(), next(), next()))),
-                    4 => self.collect(collector.with_tie_break((next(), next(), next(), next()))),
+                    0 => vector_search.search(&self.searcher, self.query()),
+                    1 => vector_search
+                        .with_tie_break(next())
+                        .search(&self.searcher, self.query()),
+                    2 => vector_search
+                        .with_tie_break((next(), next()))
+                        .search(&self.searcher, self.query()),
+                    3 => vector_search
+                        .with_tie_break((next(), next(), next()))
+                        .search(&self.searcher, self.query()),
+                    4 => vector_search
+                        .with_tie_break((next(), next(), next(), next()))
+                        .search(&self.searcher, self.query()),
                     x => panic!(
                         "Unsupported sort-field count: {}. At most {MAX_TOPK_FEATURES} are supported.",
                         x + 1
                     ),
-                };
+                }
+                .expect("vector search should not fail");
                 let mut segment_info = BTreeMap::new();
                 io_stats::attach(&mut segment_info);
                 TopKSearch::with_vector_search(

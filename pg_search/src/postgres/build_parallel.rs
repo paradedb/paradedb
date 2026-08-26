@@ -649,6 +649,7 @@ impl PartitionSpill {
         values: *mut pg_sys::Datum,
         isnull: *mut bool,
         unpacked_composites: &CompositeSlotValues,
+        created_by_version: Option<Version>,
     ) -> anyhow::Result<usize> {
         let point = self
             .dim_fields
@@ -665,10 +666,13 @@ impl PartitionSpill {
                     return Ok(PdbOwnedValue::Null);
                 }
                 let datum = unwrap_alias_datum(datum, categorized.pg_type);
-                Ok(
-                    scalar_datum_to_tantivy_value(datum, field.field_type(), categorized.base_oid)?
-                        .0,
-                )
+                Ok(scalar_datum_to_tantivy_value(
+                    datum,
+                    field.field_type(),
+                    categorized.base_oid,
+                    created_by_version,
+                )?
+                .0)
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
         Ok(self.tree.route(&point))
@@ -994,7 +998,12 @@ impl<'a> WorkerBuildState<'a> {
                     values,
                     isnull,
                 ));
-            partitioning.route(values, isnull, &unpacked_composites)
+            partitioning.route(
+                values,
+                isnull,
+                &unpacked_composites,
+                self.index_created_by_version,
+            )
         });
         self.per_row_context.reset();
         partitioning.files.append(pid?, ctid);

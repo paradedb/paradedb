@@ -27,6 +27,7 @@
 use std::ops::Bound;
 use std::str::FromStr;
 
+use crate::api::version::{Version, VersionInfo};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::schema::SearchFieldType;
 use anyhow::Result;
@@ -104,9 +105,6 @@ pub fn scale_owned_value(value: PdbOwnedValue, scale: i16) -> Result<PdbOwnedVal
 // NumericBytes Conversions
 // ============================================================================
 
-/// Convert a numeric value to a hex-encoded string for NumericBytes storage.
-///
-/// Used for NumericBytes storage where precision exceeds 18 digits.
 /// Convert a numeric value to its Decimal representation.
 /// Helper function used by both raw bytes and hex string conversions.
 fn value_to_decimal(value: &PdbOwnedValue) -> Result<Decimal> {
@@ -124,15 +122,37 @@ fn value_to_decimal(value: &PdbOwnedValue) -> Result<Decimal> {
     }
 }
 
+/// Encode `decimal` in the byte layout used by the index that `index_created_by_version`
+/// identifies. Stored values and query terms have to agree on the layout, because the index
+/// compares them bytewise.
+///
+/// See [`crate::api::version::NUMERIC_BYTES_SORTABLE_NEGATIVES_VERSION`].
+pub fn decimal_to_index_bytes(
+    decimal: Decimal,
+    index_created_by_version: Option<Version>,
+) -> Vec<u8> {
+    if index_created_by_version.stores_sortable_negative_numeric_bytes() {
+        decimal.into_bytes()
+    } else {
+        decimal.to_legacy_bytes()
+    }
+}
+
 /// Convert a numeric value to raw bytes (PdbOwnedValue::Bytes).
 ///
 /// Uses `decimal_bytes::Decimal` for arbitrary-precision decimal encoding.
 /// The byte encoding is lexicographically sortable for range queries.
 ///
 /// Used for NumericBytes fields which are stored as Tantivy Bytes columns.
-pub fn numeric_value_to_decimal_bytes(value: PdbOwnedValue) -> Result<PdbOwnedValue> {
+pub fn numeric_value_to_decimal_bytes(
+    value: PdbOwnedValue,
+    index_created_by_version: Option<Version>,
+) -> Result<PdbOwnedValue> {
     let decimal = value_to_decimal(&value)?;
-    Ok(PdbOwnedValue::Bytes(decimal.into_bytes()))
+    Ok(PdbOwnedValue::Bytes(decimal_to_index_bytes(
+        decimal,
+        index_created_by_version,
+    )))
 }
 
 /// Convert a numeric value to a hex-encoded string (PdbOwnedValue::Str).
@@ -145,9 +165,15 @@ pub fn numeric_value_to_decimal_bytes(value: PdbOwnedValue) -> Result<PdbOwnedVa
 ///
 /// TODO: Consider changing Range field storage to support raw bytes instead of JSON,
 /// which would eliminate the hex encoding overhead.
-pub fn numeric_value_to_hex_string(value: PdbOwnedValue) -> Result<PdbOwnedValue> {
+pub fn numeric_value_to_hex_string(
+    value: PdbOwnedValue,
+    index_created_by_version: Option<Version>,
+) -> Result<PdbOwnedValue> {
     let decimal = value_to_decimal(&value)?;
-    Ok(PdbOwnedValue::Str(bytes_to_hex(decimal.as_bytes())))
+    Ok(PdbOwnedValue::Str(bytes_to_hex(&decimal_to_index_bytes(
+        decimal,
+        index_created_by_version,
+    ))))
 }
 
 /// Convert a byte slice to a hex-encoded string.
@@ -300,8 +326,13 @@ pub fn scale_numeric_bound(
 
 /// Convert a numeric bound to lexicographically sortable raw bytes.
 /// Used for NumericBytes fields stored as Tantivy Bytes columns.
-pub fn numeric_bound_to_bytes(bound: Bound<PdbOwnedValue>) -> Result<Bound<PdbOwnedValue>> {
-    convert_bound(bound, numeric_value_to_decimal_bytes)
+pub fn numeric_bound_to_bytes(
+    bound: Bound<PdbOwnedValue>,
+    index_created_by_version: Option<Version>,
+) -> Result<Bound<PdbOwnedValue>> {
+    convert_bound(bound, |v| {
+        numeric_value_to_decimal_bytes(v, index_created_by_version)
+    })
 }
 
 // ============================================================================
@@ -319,6 +350,7 @@ pub fn numeric_bound_to_bytes(bound: Bound<PdbOwnedValue>) -> Result<Bound<PdbOw
 pub fn convert_value_for_range_field(
     value: PdbOwnedValue,
     field_type: &SearchFieldType,
+    index_created_by_version: Option<Version>,
 ) -> PdbOwnedValue {
     use pgrx::pg_sys::BuiltinOid;
 
@@ -353,7 +385,7 @@ pub fn convert_value_for_range_field(
         Ok(BuiltinOid::NUMRANGEOID) => {
             // Numeric ranges are indexed as hex-encoded sortable bytes
             // Use numeric_value_to_hex_string for JSON storage
-            numeric_value_to_hex_string(value.clone()).unwrap_or(value)
+            numeric_value_to_hex_string(value.clone(), index_created_by_version).unwrap_or(value)
         }
         _ => value,
     }
@@ -371,16 +403,20 @@ pub fn convert_value_for_range_field(
 /// # Arguments
 /// * `value` - The input value to convert
 /// * `field_type` - The target field type determining the conversion
+/// * `index_created_by_version` - Selects the `NumericBytes` byte layout
 ///
 /// # Returns
 /// The converted value, or an error if conversion fails for Numeric64/NumericBytes.
 pub fn convert_value_for_field(
     value: PdbOwnedValue,
     field_type: &SearchFieldType,
+    index_created_by_version: Option<Version>,
 ) -> Result<PdbOwnedValue> {
     match field_type {
         SearchFieldType::Numeric64(_, scale) => scale_owned_value(value, *scale),
-        SearchFieldType::NumericBytes(..) => numeric_value_to_decimal_bytes(value),
+        SearchFieldType::NumericBytes(..) => {
+            numeric_value_to_decimal_bytes(value, index_created_by_version)
+        }
         SearchFieldType::Json(_) => Ok(string_to_json_numeric(value)),
         SearchFieldType::I64(_) => Ok(string_to_i64(value)),
         SearchFieldType::U64(_) => Ok(string_to_u64(value)),
@@ -457,6 +493,39 @@ mod tests {
             string_to_json_numeric(PdbOwnedValue::Str("1e10".to_string())),
             PdbOwnedValue::F64(1e10)
         );
+    }
+
+    #[test]
+    fn test_decimal_to_index_bytes_follows_index_version() {
+        use crate::api::version::NUMERIC_BYTES_SORTABLE_NEGATIVES_VERSION;
+
+        let decimal = Decimal::from_str("-49990").unwrap();
+        let current = decimal.clone().into_bytes();
+        let legacy = decimal.to_legacy_bytes();
+        assert_ne!(current, legacy);
+
+        assert_eq!(decimal_to_index_bytes(decimal.clone(), None), legacy);
+        // The releases that shipped `decimal-bytes` 0.4 wrote the legacy layout.
+        for legacy_version in [Version::new(0, 25, 3), Version::new(0, 25, 4)] {
+            assert_eq!(
+                decimal_to_index_bytes(decimal.clone(), Some(legacy_version)),
+                legacy
+            );
+        }
+        assert_eq!(
+            decimal_to_index_bytes(
+                decimal.clone(),
+                Some(NUMERIC_BYTES_SORTABLE_NEGATIVES_VERSION)
+            ),
+            current
+        );
+        assert_eq!(
+            decimal_to_index_bytes(decimal, Some(Version::new(1, 0, 0))),
+            current
+        );
+
+        // Both layouts decode to the same value.
+        assert_eq!(Decimal::from_bytes(&legacy).unwrap().to_string(), "-49990");
     }
 
     #[test]

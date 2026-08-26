@@ -55,9 +55,7 @@ use crate::parallel_worker::{
     generic_parallel_worker_entry_point,
 };
 use crate::postgres::customscan::aggregatescan::datafusion_exec::create_aggregate_session_context;
-use crate::postgres::customscan::joinscan::scan_state::{
-    SessionContextProfile, create_datafusion_session_context,
-};
+use crate::postgres::customscan::joinscan::scan_state::create_datafusion_session_context;
 use crate::postgres::customscan::mpp::dispatch::dispatch_payload_from_stages;
 use crate::postgres::customscan::mpp::exec_worker::{MppWorkerInputs, run_mpp_worker};
 use crate::postgres::customscan::mpp::glue::{
@@ -164,9 +162,7 @@ pub unsafe extern "C-unwind" fn mpp_launched_worker_join(
     toc: *mut pg_sys::shm_toc,
 ) {
     let (state_manager, _mq_sender) = generic_parallel_worker_entry_point(seg, toc, MPP_MQ_SIZE);
-    run_launched_worker(state_manager, || {
-        create_datafusion_session_context(SessionContextProfile::Join)
-    });
+    run_launched_worker(state_manager, create_datafusion_session_context);
 }
 
 /// Shared worker body: wait for the leader's go signal, attach to the ring mesh, reconstruct the

@@ -527,7 +527,8 @@ impl PgSearchTableProvider {
         parallel_state: Option<*mut ParallelScanState>,
         reader: &SearchIndexReader,
         which_fast_fields: Vec<WhichFastField>,
-        ffhelper: FFHelper,
+        scan_ffhelper: Arc<FFHelper>,
+        table_ffhelper: Arc<FFHelper>,
         visibility: VisibilityChecker,
         heap_relid: pg_sys::Oid,
         schema: SchemaRef,
@@ -536,9 +537,8 @@ impl PgSearchTableProvider {
         source_idx: Option<usize>,
         partition_count: usize,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        let ffhelper = Arc::new(ffhelper);
         let scanner_config = crate::scan::execution_plan::ScannerConfig {
-            which_fast_fields: which_fast_fields.clone(),
+            which_fast_fields,
             heap_relid: heap_relid.into(),
             batch_size_hint: None,
             score_needed: self.scan_info.score_needed,
@@ -552,7 +552,7 @@ impl PgSearchTableProvider {
             source_idx,
             planner_estimated_rows,
             scanner_config,
-            ffhelper: ffhelper.clone(),
+            ffhelper: scan_ffhelper,
             visibility: Box::new(visibility) as Box<VisibilityChecker>,
             reader: reader.clone(),
         };
@@ -561,7 +561,7 @@ impl PgSearchTableProvider {
             Some(state),
             schema,
             resolved_query,
-            ffhelper,
+            table_ffhelper,
             partition_count,
             parallel_state,
         )
@@ -638,6 +638,21 @@ impl PgSearchTableProvider {
         // TODO: We should support limit pushdown here to allow providing a batch size hint
         // to the Scanner.
 
+        let active_fields: Vec<_> = if self.late_materialization_active.load(Ordering::Relaxed) {
+            self.fields.clone()
+        } else {
+            self.fields
+                .iter()
+                .map(|wff| {
+                    if let WhichFastField::Deferred(name, ty) = wff {
+                        WhichFastField::Named(name.clone(), *ty)
+                    } else {
+                        wff.clone()
+                    }
+                })
+                .collect()
+        };
+
         let (projected_fields, projected_schema) = self.projected_fields_and_schema(projection)?;
         let heap_relid = self.scan_info.heaprelid;
         let index_relid = self.scan_info.indexrelid;
@@ -705,7 +720,8 @@ impl PgSearchTableProvider {
         }
         .map_err(|e| DataFusionError::Internal(format!("Failed to open reader: {e}")))?;
 
-        let ffhelper = FFHelper::with_fields(&reader, &projected_fields);
+        let scan_ffhelper = Arc::new(FFHelper::with_fields(&reader, &projected_fields));
+        let table_ffhelper = Arc::new(FFHelper::with_fields(&reader, &active_fields));
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
 
@@ -730,7 +746,8 @@ impl PgSearchTableProvider {
             parallel_state,
             &reader,
             projected_fields,
-            ffhelper,
+            scan_ffhelper,
+            table_ffhelper,
             visibility,
             heap_relid,
             projected_schema,

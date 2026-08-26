@@ -66,7 +66,6 @@ pub mod pdb_owned_value;
 pub mod planner_warnings;
 pub mod rel;
 pub mod storage;
-pub mod tuplesort;
 pub mod types;
 pub mod types_arrow;
 pub mod utils;

@@ -100,9 +100,7 @@ def main() -> int:
     """Extract all supported verification snippets from the docs tree."""
     output_dirs = build_output_dirs()
 
-    docs = sorted(
-        path for path in DOCS_ROOT.rglob("*.mdx") if "legacy" not in path.parts
-    )
+    docs = sorted(DOCS_ROOT.rglob("*.mdx"))
     if not docs:
         print(f"No .mdx files found under {DOCS_ROOT}", file=sys.stderr)
         return 1

@@ -42,7 +42,7 @@ use crate::postgres::ps_status::{
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::tuplesort::Sorter;
+use crate::postgres::tuplesort::Int8Sorter;
 use crate::postgres::utils::{
     collect_composites_for_unpacking, get_field_value, row_to_search_document,
     scalar_datum_to_tantivy_value, u64_ctid_block_number, unwrap_alias_datum,
@@ -406,7 +406,7 @@ impl<'a> BuildWorker<'a> {
     }
 }
 
-/// One spill record: a ctid, big-endian so that the spilled sort's `memcmp` order is ctid order.
+/// One spill record: a ctid as 8 bytes.
 const CTID_RECORD_LEN: usize = 8;
 
 fn encode_ctid_record(ctid: u64) -> [u8; CTID_RECORD_LEN] {
@@ -550,7 +550,8 @@ impl CellSpillFiles {
 
     /// Collect `cell`'s ctids from every participant, in ctid order, or `None` when no
     /// participant saw a row of the cell. Up to `budget` bytes of records sort in memory; a
-    /// bigger cell goes through a tuplesort that spills past the same budget.
+    /// bigger cell goes through an `int8` tuplesort that spills past the same budget (a packed
+    /// ctid is 48 bits, so it orders the same as an `int8`).
     unsafe fn gather(&mut self, cell: usize, budget: usize) -> anyhow::Result<Option<CellCtids>> {
         let readers = self.readers(cell);
         if readers.is_empty() {
@@ -571,9 +572,9 @@ impl CellSpillFiles {
             ctids.sort_unstable();
             CellCtids::InMemory(ctids.into_iter())
         } else {
-            let mut sorter = Sorter::new(budget);
+            let mut sorter = Int8Sorter::new(budget);
             for (file, _) in readers {
-                read_ctid_records(file, |record| sorter.put(record))?;
+                read_ctid_records(file, |record| sorter.put(decode_ctid_record(record) as i64))?;
                 pg_sys::BufFileClose(file);
             }
             sorter.performsort();
@@ -606,14 +607,14 @@ unsafe fn read_ctid_records(
 /// A cell's ctids in ctid order, held in memory or read back from a spilled sort.
 enum CellCtids {
     InMemory(std::vec::IntoIter<u64>),
-    Spilled(Sorter),
+    Spilled(Int8Sorter),
 }
 
 impl CellCtids {
     fn next(&mut self) -> Option<u64> {
         match self {
             CellCtids::InMemory(ctids) => ctids.next(),
-            CellCtids::Spilled(sorter) => sorter.next_sorted().map(decode_ctid_record),
+            CellCtids::Spilled(sorter) => sorter.next_sorted().map(|ctid| ctid as u64),
         }
     }
 

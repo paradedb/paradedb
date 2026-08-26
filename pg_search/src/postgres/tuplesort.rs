@@ -115,6 +115,60 @@ impl Sorter {
     }
 }
 
+/// Wraps a `Tuplesortstate` over by-value `int8` datums. No allocation per record on either side
+/// of the sort, and about a third of the sort memory a `bytea` record of the same size takes.
+pub struct Int8Sorter {
+    state: *mut pg_sys::Tuplesortstate,
+}
+
+impl Int8Sorter {
+    /// `budget` is in bytes; the sort spills to temporary files beyond it.
+    pub fn new(budget: usize) -> Self {
+        unsafe {
+            let tcache =
+                pg_sys::lookup_type_cache(pg_sys::INT8OID, pg_sys::TYPECACHE_LT_OPR as c_int);
+            let lt_op = (*tcache).lt_opr;
+            let state = pg_sys::tuplesort_begin_datum(
+                pg_sys::INT8OID,
+                lt_op,
+                pg_sys::InvalidOid,
+                false,
+                (budget / 1024).max(64) as c_int,
+                std::ptr::null_mut(),
+                0,
+            );
+            Int8Sorter { state }
+        }
+    }
+
+    pub fn put(&mut self, value: i64) {
+        unsafe { pg_sys::tuplesort_putdatum(self.state, pg_sys::Datum::from(value), false) }
+    }
+
+    /// Finish loading and sort. Call once, before the first [`Self::next_sorted`].
+    pub fn performsort(&mut self) {
+        unsafe { pg_sys::tuplesort_performsort(self.state) }
+    }
+
+    /// The next value in ascending order, or `None` once the sort is exhausted.
+    pub fn next_sorted(&mut self) -> Option<i64> {
+        unsafe {
+            let mut val: pg_sys::Datum = pg_sys::Datum::from(0);
+            let mut is_null = false;
+            let mut abbrev: pg_sys::Datum = pg_sys::Datum::from(0);
+            // A by-value datum comes back in `val` itself on every version; the PG15 copy
+            // semantics only concern by-reference types.
+            tuplesort_getdatum_forward(self.state, &mut val, &mut is_null, &mut abbrev)
+                .then(|| val.value() as i64)
+        }
+    }
+
+    /// Release the sort's memory and temporary files.
+    pub fn end(self) {
+        unsafe { pg_sys::tuplesort_end(self.state) }
+    }
+}
+
 /// Build a transient `bytea` Datum from `bytes` (palloc'd in the current context).
 unsafe fn bytea_datum(bytes: &[u8]) -> pg_sys::Datum {
     use pgrx::IntoDatum;

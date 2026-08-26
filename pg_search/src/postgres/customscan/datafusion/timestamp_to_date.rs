@@ -15,6 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+//! Converts timestamp fast-field values, encoded as PostgreSQL-epoch
+//! microseconds, into Arrow Date32 values.
+//!
+//! Finite timestamps become Unix-epoch day counts. PostgreSQL's i64::MIN/MAX
+//! timestamp infinity sentinels become i32::MIN/MAX Date32 values. This is a
+//! ParadeDB-internal convention; Arrow Date32 has no native infinity values.
+
 use crate::postgres::datetime::pg_timestamp_micros_to_date32;
 use arrow_array::{Array, Date32Array};
 use datafusion::arrow::datatypes::{DataType, TimeUnit};
@@ -33,7 +40,7 @@ pub struct TimestampToDateUdf {
 }
 
 impl TimestampToDateUdf {
-    pub fn new() -> Self {
+    fn new() -> Self {
         let signature = Signature::exact(
             vec![DataType::Timestamp(TimeUnit::Microsecond, None)],
             Volatility::Immutable,
@@ -65,7 +72,7 @@ impl ScalarUDFImpl for TimestampToDateUdf {
             )));
         };
 
-        let input = arg.clone().into_array_of_size(args.number_rows)?;
+        let input = arg.to_array_of_size(args.number_rows)?;
 
         let timestamps = input
             .as_any()
@@ -98,20 +105,9 @@ mod tests {
     use datafusion::arrow::datatypes::Field;
     use datafusion::common::config::ConfigOptions;
 
-    #[test]
-    fn converts_timestamp_array_to_date32() {
-        let input = TimestampMicrosecondArray::from(vec![
-            Some(0),
-            Some(-1),
-            None,
-            Some(i64::MAX),
-            Some(i64::MIN),
-        ]);
-
-        let number_rows = input.len();
-
+    fn assert_date_conversion(input: ColumnarValue, expected: Date32Array) {
         let args = ScalarFunctionArgs {
-            args: vec![ColumnarValue::Array(Arc::new(input))],
+            args: vec![input],
             arg_fields: vec![
                 Field::new(
                     "timestamp",
@@ -120,7 +116,7 @@ mod tests {
                 )
                 .into(),
             ],
-            number_rows,
+            number_rows: expected.len(),
             return_field: Field::new("date", DataType::Date32, true).into(),
             config_options: Arc::new(ConfigOptions::default()),
         };
@@ -138,6 +134,19 @@ mod tests {
             .downcast_ref::<Date32Array>()
             .expect("timestamp-to-date UDF should return Date32");
 
+        assert_eq!(dates, &expected);
+    }
+
+    #[test]
+    fn converts_timestamp_array_to_date32() {
+        let input = TimestampMicrosecondArray::from(vec![
+            Some(0),
+            Some(-1),
+            None,
+            Some(i64::MAX),
+            Some(i64::MIN),
+        ]);
+
         let expected = Date32Array::from(vec![
             Some(10_957),
             Some(10_956),
@@ -146,6 +155,14 @@ mod tests {
             Some(i32::MIN),
         ]);
 
-        assert_eq!(dates, &expected);
+        assert_date_conversion(ColumnarValue::Array(Arc::new(input)), expected);
+    }
+
+    #[test]
+    fn converts_empty_timestamp_array_to_date32() {
+        let input = TimestampMicrosecondArray::from(Vec::<Option<i64>>::new());
+        let expected = Date32Array::from(Vec::<Option<i32>>::new());
+
+        assert_date_conversion(ColumnarValue::Array(Arc::new(input)), expected);
     }
 }

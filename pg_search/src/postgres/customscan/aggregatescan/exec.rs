@@ -448,6 +448,7 @@ impl AggregationResults {
                     ..
                 })) = current.get(GroupedKey::NAME)
                 {
+                    // find the bucket whose key matches this level
                     let maybe_bucket = buckets.iter().find(|b| match (&b.key, &key.0) {
                         (Key::Str(s), PdbOwnedValue::Str(v)) => s == v,
                         (Key::I64(i), PdbOwnedValue::I64(v)) => i == v,

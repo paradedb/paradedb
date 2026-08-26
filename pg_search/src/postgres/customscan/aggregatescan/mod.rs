@@ -522,9 +522,13 @@ impl CustomScan for AggregateScan {
                             // NUMERIC field therefore keeps declining until the spec
                             // gains a DataFusion translation.
                             || (!has_paradedb_agg && builder.args().has_numeric_aggregate())
-                            // DATE grouping requires exact integer timestamp arithmetic.
-                            // Tantivy histogram aggregation converts bucket keys to f64,
-                            // which cannot represent Postgres full timestamp range.
+                            // Route DATE grouping to DataFusion for exact integer day conversion
+                            // and explicit handling of PostgreSQL infinities. Tantivy histograms
+                            // use f64 arithmetic, which can round timestamps near midnight into
+                            // the wrong day.
+                            //
+                            // This only selects the backend to consider: the extractor still
+                            // rejects DATE(timestamptz) and non-bare timestamp expressions.
                             || (!has_paradedb_agg && builder.args().has_date_group())
                     };
                 if use_datafusion {

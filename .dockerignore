@@ -1,5 +1,4 @@
 .git/
-target/
 **/target/
 **/*.csv
 **/*.csv.gz

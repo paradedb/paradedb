@@ -822,13 +822,10 @@ fn term_set(
     let search_field_type = search_field.field_type();
 
     // Convert terms based on field type (uses same logic as term())
-    let converted_terms: Vec<PdbOwnedValue> = terms
+    let converted_terms = terms
         .into_iter()
-        .map(|term| {
-            convert_value_for_field(term, &search_field_type, index_created_by_version)
-                .unwrap_or(PdbOwnedValue::Null)
-        })
-        .collect();
+        .map(|term| convert_value_for_field(term, &search_field_type, index_created_by_version))
+        .collect::<anyhow::Result<Vec<PdbOwnedValue>>>()?;
 
     Ok(Box::new(TermSetQuery::new(
         converted_terms.into_iter().map(|term| {

@@ -1434,16 +1434,22 @@ impl SearchQueryInput {
                 Ok(builder.build_leaf(query, || "Parse Query".to_string(), cloned_for_estimate))
             }
             SearchQueryInput::TermSet { terms: fields } => {
-                let query = Box::new(TermSetQuery::new(fields.into_iter().map(
-                    |TermInput { field, value }| {
+                let terms = fields
+                    .into_iter()
+                    .map(|TermInput { field, value }| {
                         let search_field = schema
                             .search_field(field.root())
-                            .ok_or_else(|| QueryError::NonIndexedField(field.clone()))
-                            .expect("could not find search field");
+                            .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
                         let field_type = search_field.field_entry().field_type();
 
-                        // Convert string numeric values to appropriate types for JSON fields
-                        let value = convert_for_field_type(&value, field_type);
+                        // The tantivy `FieldType` can't tell a scaled `Numeric64` or an encoded
+                        // `NumericBytes` column from a plain `I64` or `Bytes` one, so the term has
+                        // to be converted from the schema-level type, same as a single `Term`.
+                        let value = numeric::convert_value_for_field(
+                            value,
+                            &search_field.field_type(),
+                            index_created_by_version,
+                        )?;
 
                         value_to_term(
                             search_field.field(),
@@ -1452,9 +1458,9 @@ impl SearchQueryInput {
                             field.path().as_deref(),
                             index_created_by_version,
                         )
-                        .expect("could not convert argument to search term")
-                    },
-                )));
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let query = Box::new(TermSetQuery::new(terms));
 
                 Ok(builder.build_leaf(query, || "TermSet Query".to_string(), cloned_for_estimate))
             }
@@ -1550,27 +1556,6 @@ impl SearchQueryInput {
             expr_context,
             planstate,
         )
-    }
-}
-
-/// Convert a string-encoded numeric value to the appropriate type based on field type.
-/// Used for JSON field comparisons where NUMERIC constants need to match stored JSON numbers.
-fn convert_for_field_type(value: &PdbOwnedValue, field_type: &FieldType) -> PdbOwnedValue {
-    use crate::query::numeric::{
-        string_to_f64, string_to_i64, string_to_json_numeric, string_to_u64,
-    };
-
-    // Only convert string values - other types pass through unchanged
-    if !matches!(value, PdbOwnedValue::Str(_)) {
-        return value.clone();
-    }
-
-    match field_type {
-        FieldType::JsonObject(_) => string_to_json_numeric(value.clone()),
-        FieldType::I64(_) => string_to_i64(value.clone()),
-        FieldType::U64(_) => string_to_u64(value.clone()),
-        FieldType::F64(_) => string_to_f64(value.clone()),
-        _ => value.clone(),
     }
 }
 

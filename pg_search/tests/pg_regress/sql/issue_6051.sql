@@ -147,6 +147,24 @@ SELECT id, amt_scaled FROM amounts
 WHERE discarded_at IS NULL AND id @@@ paradedb.term('amt_scaled', -0.5::numeric)
 ORDER BY id;
 
+-- IN (...) is pushed down as a term set and has to use the same term conversion.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, amt_78 FROM amounts
+WHERE discarded_at IS NULL AND id @@@ paradedb.all() AND amt_78 IN (-49999, -49990, 5)
+ORDER BY id;
+
+SELECT id, amt_78 FROM amounts
+WHERE discarded_at IS NULL AND id @@@ paradedb.all() AND amt_78 IN (-49999, -49990, 5)
+ORDER BY id;
+
+SELECT id, amt_scaled FROM amounts
+WHERE discarded_at IS NULL AND id @@@ paradedb.all() AND amt_scaled IN (-0.5, -0.50001)
+ORDER BY id;
+
+-- A term that can't be parsed as a number is an error, not an empty match.
+SELECT id FROM amounts
+WHERE discarded_at IS NULL AND amt_78 @@@ pdb.term_set(ARRAY['not-a-number']::text[]);
+
 -- Rows written after the index build take the same byte layout as the build.
 INSERT INTO amounts (direction, amt_18, amt_78, amt_any, amt_scaled)
 VALUES ('debit', -49995, -49995, -49995, -0.49995);
@@ -160,6 +178,27 @@ WHERE discarded_at IS NULL AND id @@@ paradedb.term('amt_78', -49995::numeric)
 ORDER BY id;
 
 DROP TABLE amounts;
+
+-- NUMERIC with precision <= 18 is stored as a scaled integer, and IN (...) has to scale too.
+CREATE TABLE prices (
+    id serial PRIMARY KEY,
+    price numeric(10,2)
+);
+
+INSERT INTO prices (price) VALUES (1.23), (4.56), (1.00), (4.00), (-1.23);
+
+CREATE INDEX prices_idx ON prices USING bm25 (id, price) WITH (key_field = 'id');
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, price FROM prices
+WHERE id @@@ paradedb.all() AND price IN (1.23, 4.56, -1.23)
+ORDER BY id;
+
+SELECT id, price FROM prices
+WHERE id @@@ paradedb.all() AND price IN (1.23, 4.56, -1.23)
+ORDER BY id;
+
+DROP TABLE prices;
 
 -- numrange bounds are stored with the same encoding.
 CREATE TABLE spans (

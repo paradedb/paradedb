@@ -247,6 +247,15 @@ pub trait SolvePostgresExpressions {
 
     fn init_search_query_input(&mut self) {}
 
+    /// Build (or reuse) the execution-time bitmap set for this scan's bitmap
+    /// intersection. Scans that carry a `BitmapExec` override this.
+    fn tid_bitmap_set(&mut self, _planstate: *mut pg_sys::PlanState) -> Option<Arc<TidBitmapSet>> {
+        None
+    }
+
+    /// Attach `set` to the HeapFilters that were planned against the bitmap.
+    fn attach_tid_bitmap_set(&mut self, _set: &Arc<TidBitmapSet>) {}
+
     fn prepare_query_for_execution(
         &mut self,
         planstate: *mut pg_sys::PlanState,
@@ -256,6 +265,11 @@ pub trait SolvePostgresExpressions {
         if self.has_postgres_expressions() || self.has_parameters() {
             self.init_postgres_expressions(planstate);
             self.solve_postgres_expressions(expr_context);
+        }
+        // Attach after `init_search_query_input` re-clones the query from its base,
+        // which wipes the serde-skipped set.
+        if let Some(set) = self.tid_bitmap_set(planstate) {
+            self.attach_tid_bitmap_set(&set);
         }
     }
 }

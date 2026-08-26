@@ -28,6 +28,8 @@ use crate::postgres::customscan::joinscan::build::{
 use crate::postgres::customscan::mpp::glue::MppLaunchTiming;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
+use crate::query::heap_field_filter::TidBitmapSet;
+use std::sync::Arc;
 
 use arrow_array::RecordBatch;
 use datafusion::physical_plan::SendableRecordBatchStream;
@@ -233,6 +235,14 @@ impl SolvePostgresExpressions for AggregateScanState {
         {
             df.join_level_predicates = base.clone();
         }
+    }
+
+    fn tid_bitmap_set(&mut self, _planstate: *mut pg_sys::PlanState) -> Option<Arc<TidBitmapSet>> {
+        unsafe { self.bitmap_exec.as_mut()?.tid_bitmap_set() }
+    }
+
+    fn attach_tid_bitmap_set(&mut self, set: &Arc<TidBitmapSet>) {
+        self.aggregate_clause.query_mut().attach_tid_bitmap_set(set);
     }
 
     fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {

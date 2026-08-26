@@ -157,10 +157,6 @@ impl BaseScanState {
         self.base_search_query_input = input;
     }
 
-    pub fn attach_tid_bitmap_set(&mut self, set: &Arc<TidBitmapSet>) {
-        self.search_query_input.attach_tid_bitmap_set(set);
-    }
-
     pub fn search_query_input(&self) -> &SearchQueryInput {
         if matches!(self.search_query_input, SearchQueryInput::Uninitialized) {
             panic!("search_query_input should be initialized");
@@ -554,6 +550,24 @@ impl SolvePostgresExpressions for BaseScanState {
     fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
         self.search_query_input
             .solve_postgres_expressions(expr_context);
+    }
+
+    /// Parallel-aware scans build the set once and share it through the query's
+    /// DSA; standalone scans build locally.
+    fn tid_bitmap_set(&mut self, planstate: *mut pg_sys::PlanState) -> Option<Arc<TidBitmapSet>> {
+        let parallel_pstate = self.parallel_state();
+        let bitmap_exec = self.bitmap_exec.as_mut()?;
+        unsafe {
+            let es_query_dsa = (*(*planstate).state).es_query_dsa;
+            match parallel_pstate {
+                Some(pstate) => bitmap_exec.shared_tid_bitmap_set(pstate, es_query_dsa),
+                None => bitmap_exec.tid_bitmap_set(),
+            }
+        }
+    }
+
+    fn attach_tid_bitmap_set(&mut self, set: &Arc<TidBitmapSet>) {
+        self.search_query_input.attach_tid_bitmap_set(set);
     }
 }
 

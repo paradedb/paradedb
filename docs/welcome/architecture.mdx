@@ -19,8 +19,8 @@ When a table row is inserted or updated, the ParadeDB index is immediately notif
 
 ![Data Model](/images/architecture_lsm.png)
 
-The ParadeDB index is laid out as an [LSM tree](#lsm-tree), where each segment in the tree contains an inverted index, a columnar index, and, when vector fields are indexed, a vector index.
-The per-segment indexes optimize for fast reads, while the LSM tree optimizes for high-frequency writes.
+The ParadeDB index is laid out as an [LSM tree](#lsm-tree), where each segment in the tree consists of both an inverted index and columnar index.
+The inverted and columnar indexes optimize for fast reads, while the LSM tree optimizes for high-frequency writes.
 
 ### Inverted Index
 
@@ -35,18 +35,6 @@ are stored in the columnstore.
 
 In Tantivy these structures are referred to as [fast fields](https://docs.rs/tantivy/latest/tantivy/fastfield/index.html), but they are largely transparent in ParadeDB.
 
-### Vector Index
-
-Segments can also hold a vector index for any [indexed vector column](/documentation/indexing/indexing-vectors). Vectors are clustered with k-means and stored in a SPANN-style
-structure, which is similar to an IVF index but keeps per-cluster bounds that let the scan skip clusters that provably cannot improve the current top-K.
-
-Because vectors sit in the same segments as the inverted and columnar indexes, filtered vector search can evaluate similarity and indexed predicates in a single index scan instead
-of intersecting results from separate ParadeDB and pgvector indexes. [Hybrid search](/documentation/hybrid/overview) currently runs BM25 and vector branches against the same
-ParadeDB index and then fuses their rankings with [reciprocal rank fusion](/documentation/hybrid/rrf).
-
-In the current beta, inserts and updates are immediately searchable, but the vector cluster layout is not maintained incrementally and search quality can degrade under
-update-heavy workloads. SPFresh-based incremental maintenance is [in progress](/welcome/roadmap#vector-search).
-
 ### LSM Tree
 
 To support real-time updates, the ParadeDB index uses a [Log-Structured Merge (LSM) tree](https://en.wikipedia.org/wiki/Log-structured_merge-tree).
@@ -55,9 +43,8 @@ An LSM tree is a write-optimized data structure commonly used in systems like Ro
 
 These segment files are organized by size into layers or levels. Newer data is written to the topmost layer. Over time, data is gradually pushed down into lower levels through a process called merging or compaction, where data from smaller segments is merged, deduplicated, and rewritten into larger segments.
 
-ParadeDB reuses the current mutable segment across `INSERT`, `UPDATE`, and `COPY` statements until it reaches that threshold. Each resulting immutable segment has its own inverted
-and columnar indexes and, when applicable, vector indexes. The ParadeDB index is therefore a collection of per-segment structures that can rapidly filter and rank matches before
-merging the results.
+ParadeDB reuses the current mutable segment across `INSERT`, `UPDATE`, and `COPY` statements until it reaches that threshold. Each resulting immutable segment has its own inverted index and columnar index, which means that the ParadeDB index
+is actually a collection of many inverted/columnar indexes, each of which allows for very dense intersection queries to rapidly filter matches.
 
 ## Query Execution
 
@@ -123,9 +110,8 @@ Postgres supports [parallel scans, joins, and two-stage aggregation](https://www
 
 ## Dependencies
 
-The four main dependencies of `pg_search` are:
+The three main dependencies of `pg_search` are:
 
-- [pgvector](https://github.com/pgvector/pgvector) — defines vector types
-- [pgrx](https://github.com/pgcentralfoundation/pgrx) — bridges Postgres and Rust
-- [Tantivy](https://github.com/quickwit-oss/tantivy) — powers full-text and vector search
-- [Apache DataFusion](https://github.com/apache/datafusion) — handles OLAP processing
+- [pgrx](https://github.com/pgcentralfoundation/pgrx/tree/develop) — the library for writing Postgres extensions in Rust
+- [Tantivy](https://github.com/quickwit-oss/tantivy) — a Rust-based full-text search library inspired by [Lucene](https://github.com/apache/lucene)
+- [Apache DataFusion](https://github.com/apache/datafusion) — an extensible query execution framework for OLAP processing

@@ -30,6 +30,17 @@ pub struct Version {
 /// time to gate which storage representation an index uses.
 pub const DATETIME_I64_STORAGE_VERSION: Version = Version::new(0, 24, 1);
 
+/// The first pg_search version whose `NumericBytes` fast fields store negative values in a byte
+/// layout that sorts them correctly (`decimal-bytes` 0.5). Indexes created earlier keep receiving
+/// the previous layout for new rows and query terms, since the two layouts do not sort together;
+/// a `REINDEX` moves such an index to the current layout.
+///
+/// TODO: remove this constant, `stores_sortable_negative_numeric_bytes`, the legacy branch in
+/// `decimal_to_index_bytes`, and the JoinScan decline in `numeric_bytes_layouts_differ` once every
+/// deployment runs v0.25.5 or later and its indexes have been rebuilt. `Decimal::to_legacy_bytes`
+/// can go from `decimal-bytes` at the same time.
+pub const NUMERIC_BYTES_SORTABLE_NEGATIVES_VERSION: Version = Version::new(0, 25, 5);
+
 impl Version {
     pub const fn new(major: u16, minor: u16, patch: u16) -> Self {
         Self {
@@ -52,15 +63,23 @@ impl std::fmt::Display for Version {
 /// existed; for capability checks that gate new behavior, treat `None` as "does not have it".
 pub trait VersionInfo {
     fn stores_datetimes_in_i64(&self) -> bool;
+    fn stores_sortable_negative_numeric_bytes(&self) -> bool;
 }
 impl VersionInfo for Version {
     fn stores_datetimes_in_i64(&self) -> bool {
         self >= &DATETIME_I64_STORAGE_VERSION
     }
+    fn stores_sortable_negative_numeric_bytes(&self) -> bool {
+        self >= &NUMERIC_BYTES_SORTABLE_NEGATIVES_VERSION
+    }
 }
 impl VersionInfo for Option<Version> {
     fn stores_datetimes_in_i64(&self) -> bool {
         self.filter(|v| v.stores_datetimes_in_i64()).is_some()
+    }
+    fn stores_sortable_negative_numeric_bytes(&self) -> bool {
+        self.filter(|v| v.stores_sortable_negative_numeric_bytes())
+            .is_some()
     }
 }
 

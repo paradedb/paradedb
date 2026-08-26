@@ -51,14 +51,7 @@ When you're ready to deploy, check out our [hosting options](https://www.paraded
   - [x] [Highlighting](https://www.paradedb.com/docs/documentation/full-text/highlight)
   - [x] [Tokenizers & Token Filters](https://www.paradedb.com/docs/documentation/tokenizers/overview)
 - [ ] [Vector Search](https://www.paradedb.com/docs/documentation/vector/overview)
-  - [x] [L2, Cosine & Inner Product Distance](https://www.paradedb.com/docs/documentation/indexing/indexing-vectors)
-  - [x] [Dense Vector Indexing](https://www.paradedb.com/docs/documentation/indexing/indexing-vectors)
-  - [ ] Sparse Vector Indexing
-  - [ ] Quantization
-  - [ ] Incremental Index Maintenance
-- [ ] [Hybrid Search](https://www.paradedb.com/docs/documentation/hybrid/overview)
-  - [x] [Reciprocal Rank Fusion](https://www.paradedb.com/docs/documentation/hybrid/rrf)
-  - [ ] Native Hybrid Scoring
+- [x] [Hybrid Search](https://www.paradedb.com/docs/documentation/hybrid/overview)
 - [x] [Filtering](https://www.paradedb.com/docs/documentation/filtering)
 - [x] [Aggregates](https://www.paradedb.com/docs/documentation/aggregates/overview)
   - [x] [Columnar Storage](https://www.paradedb.com/docs/documentation/indexing/columnar)
@@ -72,7 +65,6 @@ Star and watch this repository to follow along. See our [current projects](https
 
 ParadeDB integrates battle-tested Rust libraries for search and analytics inside Postgres, contributing upstream whenever possible. Our primary dependencies are:
 
-- [pgvector](https://github.com/pgvector/pgvector) — defines vector types
 - [pgrx](https://github.com/pgcentralfoundation/pgrx) — bridges Postgres and Rust
 - [Tantivy](https://github.com/quickwit-oss/tantivy) — powers full-text and vector search
 - [Apache DataFusion](https://github.com/apache/datafusion) — handles OLAP processing
@@ -102,8 +94,8 @@ ParadeDB integrates with the tools you already use, with more on the way.
 
 - [Railway](https://www.paradedb.com/docs/deploy/cloud-platforms/railway)
 - [Render](https://www.paradedb.com/docs/deploy/cloud-platforms/render)
-- [DigitalOcean](https://www.paradedb.com/docs/deploy/cloud-platforms/digitalocean)
 - [Fly.io](https://www.paradedb.com/docs/deploy/cloud-platforms/fly)
+- [DigitalOcean](https://www.paradedb.com/docs/deploy/cloud-platforms/digitalocean)
 - [Dokku](https://www.paradedb.com/docs/deploy/cloud-platforms/dokku)
 - More coming (Heroku, and others)
 

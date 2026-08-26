@@ -263,6 +263,9 @@ impl JoinDeclineReason {
     }
 
     fn emit(&self, aliases: &[String]) {
+        if crate::gucs::planner_warnings() == crate::gucs::PlannerWarnings::Off {
+            return;
+        }
         match self {
             Self::ContainsAggregate => {
                 if crate::gucs::enable_aggregate_custom_scan() {
@@ -805,11 +808,11 @@ impl JoinScan {
     ///
     /// The manifests are also what populates the DSM, so the leader's providers and every
     /// worker reader open the same view.
-    fn build_index_segment_views(
+    fn build_source_manifests(
         state: &mut CustomScanStateWrapper<Self>,
         _join_clause: &JoinCSClause,
         plan_sources: &[&build::JoinSource],
-    ) -> Vec<SegmentView> {
+    ) -> Vec<SearchIndexManifest> {
         Self::ensure_source_manifests(state);
         (0..plan_sources.len())
             .map(|plan_position| {
@@ -823,7 +826,7 @@ impl JoinScan {
                              {plan_position}"
                         )
                     })
-                    .segment_view()
+                    .clone()
             })
             .collect()
     }
@@ -1464,8 +1467,8 @@ impl CustomScan for JoinScan {
                     .clone()
                     .expect("Logical plan is required");
 
-                let index_segment_views =
-                    Self::build_index_segment_views(state, &join_clause, &plan_sources);
+                let source_manifests =
+                    Self::build_source_manifests(state, &join_clause, &plan_sources);
 
                 // For parameterized LIMIT/OFFSET, the planning-time logical plan has no Limit
                 // node. Resolve the fetch once; each planning pass below injects it (before
@@ -1499,7 +1502,7 @@ impl CustomScan for JoinScan {
                             None,
                             Some(runtime_context),
                             Some(planstate),
-                            index_segment_views.clone(),
+                            source_manifests.clone(),
                         )
                         .expect("Failed to deserialize logical plan");
                         let logical_plan = match runtime_fetch {
@@ -1565,7 +1568,7 @@ impl CustomScan for JoinScan {
                                 None,
                                 Some(runtime_context),
                                 Some(planstate),
-                                index_segment_views.clone(),
+                                source_manifests.clone(),
                             )
                             .expect("Failed to deserialize serial fallback logical plan");
                             let logical_plan = match runtime_fetch {

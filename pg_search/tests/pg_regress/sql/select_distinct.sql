@@ -181,16 +181,16 @@ FROM dist_products
 WHERE name @@@ 'laptop'
 ORDER BY name;
 
--- With paradedb.check_aggregate_scan = false the decline warning must be
+-- With paradedb.planner_warnings = 'off' the decline warning must be
 -- suppressed; the query still runs correctly via native PG.
-SET paradedb.check_aggregate_scan = false;
+SET paradedb.planner_warnings = 'off';
 
 SELECT DISTINCT name
 FROM dist_products
 WHERE name @@@ 'laptop'
 ORDER BY name;
 
-RESET paradedb.check_aggregate_scan;
+RESET paradedb.planner_warnings;
 
 -- =============================================================================
 -- TEST 6: DISTINCT ON - must fall back gracefully (DISTINCT ON is not supported)
@@ -209,16 +209,16 @@ FROM dist_products
 WHERE name @@@ 'laptop OR keyboard'
 ORDER BY category, name;
 
--- With paradedb.check_aggregate_scan = false the decline warning must be
+-- With paradedb.planner_warnings = 'off' the decline warning must be
 -- suppressed; the query still runs correctly via native PG.
-SET paradedb.check_aggregate_scan = false;
+SET paradedb.planner_warnings = 'off';
 
 SELECT DISTINCT ON (category) category, name
 FROM dist_products
 WHERE name @@@ 'laptop OR keyboard'
 ORDER BY category, name;
 
-RESET paradedb.check_aggregate_scan;
+RESET paradedb.planner_warnings;
 
 -- =============================================================================
 -- TEST 7: DISTINCT with empty result set

@@ -113,7 +113,6 @@ jobs:
           echo "Checking that each file has title, description, and canonical URL..."
           missing_meta=0
           for file in $(find . -name "*.mdx" \
-            ! -path "./legacy/*" \
             ! -path "./changelog/*" \
             ! -path "./welcome/support.mdx"); do
 

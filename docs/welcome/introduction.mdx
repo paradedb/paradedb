@@ -61,8 +61,7 @@ ParadeDB accelerates standard SQL queries. That includes:
 - **Text**: relevance-ranked full-text queries like the one above.
 - **Aggregations**: the same index serves faceted search and aggregations, pushing filters and aggregates directly into the index instead
   of computing them afterward.
-- **Vectors**: embeddings are indexed alongside your text and metadata, so filtered and [hybrid](/documentation/hybrid/overview) queries resolve against one index instead of
-  intersecting two.
+- **Vectors**: the ParadeDB index is a high-performance, drop-in compatible version with `pgvector`.
 
 ### One Index Behind Every Query
 
@@ -89,7 +88,7 @@ People usually compare ParadeDB to two other types of systems: OLTP databases li
 | **Scalability**             | Vertical scaling; horizontal scaling with read replicas or sharding | Horizontal scaling through sharding                                  | Vertical scaling; horizontal scaling with [read replicas](/deploy/self-hosted/kubernetes) or [sharding with Citus](/deploy/citus)               |
 | **Language**                | SQL                                                                 | Custom DSL                                                           | Standard SQL with custom search operators                                                                                                       |
 | **ACID guarantees**         | Full ACID compliance, read-after-write guarantees                   | No multi-document ACID transactions                                  | Full ACID compliance, read-after-write guarantees                                                                                               |
-| **Update & delete support** | Built for fast-changing data                                        | Struggles with updates/deletes                                       | Built for fast-changing data; [incremental vector index maintenance is in progress](/welcome/limitations#vector-search)                         |
+| **Update & delete support** | Built for fast-changing data                                        | Struggles with updates/deletes                                       | Built for fast-changing data                                                                                                                    |
 
 ## Production Readiness
 

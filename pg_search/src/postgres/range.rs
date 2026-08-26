@@ -15,29 +15,45 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::version::Version;
 use crate::postgres::types::{TantivyValue, TantivyValueError};
-use crate::query::numeric::bytes_to_hex;
+use crate::query::numeric::{bytes_to_hex, decimal_to_index_bytes};
 use crate::schema::range::{TantivyRange, TantivyRangeBuilder};
-use decimal_bytes::Decimal;
+use decimal_bytes::{Decimal, DecimalError};
 use pgrx::datum::{Date, RangeBound, Timestamp, TimestampWithTimeZone};
+use pgrx::pg_sys::Datum;
+use pgrx::{AnyNumeric, FromDatum};
 use std::str::FromStr;
 
 use super::pdb_owned_value::PdbOwnedValue;
 
-/// A wrapper around `Decimal` that serializes to hex-encoded lexicographically sortable bytes.
-/// This allows string comparison in Tantivy's JSON fields to give correct numeric ordering.
+/// A NUMERIC range bound as lexicographically sortable bytes, which serialize to hex so that
+/// string comparison in Tantivy's JSON fields gives correct numeric ordering.
 ///
 /// Used for `numrange` to preserve full NUMERIC precision in range queries.
 #[derive(Clone, Debug)]
-pub(crate) struct SortableDecimal(pub Decimal);
+pub(crate) struct SortableDecimal(Vec<u8>);
 
-impl TryFrom<pgrx::AnyNumeric> for SortableDecimal {
-    type Error = decimal_bytes::DecimalError;
+impl SortableDecimal {
+    /// Encodes `val` in the byte layout of the index identified by `index_created_by_version`.
+    pub(crate) fn for_index(
+        val: AnyNumeric,
+        index_created_by_version: Option<Version>,
+    ) -> Result<Self, DecimalError> {
+        let decimal = Decimal::from_str(val.normalize())?;
+        Ok(SortableDecimal(decimal_to_index_bytes(
+            decimal,
+            index_created_by_version,
+        )))
+    }
+}
 
-    fn try_from(val: pgrx::AnyNumeric) -> Result<Self, Self::Error> {
-        let numeric_str = val.normalize().to_string();
-        let decimal = Decimal::from_str(&numeric_str)?;
-        Ok(SortableDecimal(decimal))
+impl TryFrom<AnyNumeric> for SortableDecimal {
+    type Error = DecimalError;
+
+    fn try_from(val: AnyNumeric) -> Result<Self, Self::Error> {
+        let decimal = Decimal::from_str(val.normalize())?;
+        Ok(SortableDecimal(decimal.into_bytes()))
     }
 }
 
@@ -49,8 +65,27 @@ impl TryFrom<SortableDecimal> for TantivyValue {
         // Hex encoding preserves lexicographic ordering since:
         // - Each byte maps to exactly 2 hex chars
         // - Hex chars compare in the same order as byte values
-        let hex_str = bytes_to_hex(value.0.as_bytes());
+        let hex_str = bytes_to_hex(&value.0);
         Ok(TantivyValue(PdbOwnedValue::Str(hex_str)))
+    }
+}
+
+impl TantivyValue {
+    /// Convert a NUMRANGE datum for writing into the index identified by
+    /// `index_created_by_version`, so its bounds use that index's byte layout.
+    pub unsafe fn try_from_numrange(
+        datum: Datum,
+        index_created_by_version: Option<Version>,
+    ) -> Result<Self, TantivyValueError> {
+        let range = unsafe { pgrx::Range::<AnyNumeric>::from_datum(datum, false) }
+            .ok_or(TantivyValueError::DatumDeref)?;
+        Self::from_range_with(range, |n| {
+            SortableDecimal::for_index(n, index_created_by_version).map_err(|e| {
+                TantivyValueError::NumericConversion(format!(
+                    "Failed to convert NUMRANGE bound to bytes: {e:?}"
+                ))
+            })
+        })
     }
 }
 
@@ -62,19 +97,26 @@ where
     TantivyValue: TryFrom<S, Error = TantivyValueError>,
 {
     fn from_range(val: pgrx::Range<T>) -> Result<TantivyValue, TantivyValueError> {
+        Self::from_range_with(val, |v| Ok(S::try_from(v).unwrap()))
+    }
+
+    fn from_range_with(
+        val: pgrx::Range<T>,
+        convert: impl Fn(T) -> Result<S, TantivyValueError>,
+    ) -> Result<TantivyValue, TantivyValueError> {
         match val.is_empty() {
             true => Ok(<TantivyValue as TryFrom<TantivyRange<S>>>::try_from(
                 TantivyRangeBuilder::<S>::new().empty(true).build(),
             )?),
             false => {
                 let lower = match val.lower() {
-                    Some(RangeBound::Inclusive(val)) => Some(S::try_from(val.clone()).unwrap()),
-                    Some(RangeBound::Exclusive(val)) => Some(S::try_from(val.clone()).unwrap()),
+                    Some(RangeBound::Inclusive(val)) => Some(convert(val.clone())?),
+                    Some(RangeBound::Exclusive(val)) => Some(convert(val.clone())?),
                     Some(RangeBound::Infinite) | None => None,
                 };
                 let upper = match val.upper() {
-                    Some(RangeBound::Inclusive(val)) => Some(S::try_from(val.clone()).unwrap()),
-                    Some(RangeBound::Exclusive(val)) => Some(S::try_from(val.clone()).unwrap()),
+                    Some(RangeBound::Inclusive(val)) => Some(convert(val.clone())?),
+                    Some(RangeBound::Exclusive(val)) => Some(convert(val.clone())?),
                     Some(RangeBound::Infinite) | None => None,
                 };
 

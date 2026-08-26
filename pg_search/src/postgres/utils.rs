@@ -239,11 +239,17 @@ pub fn item_pointer_to_u64(ctid: pg_sys::ItemPointerData) -> u64 {
 /// bitpacking or compressing these values.
 #[inline(always)]
 pub fn u64_to_item_pointer(value: u64, tid: &mut pg_sys::ItemPointerData) {
-    // shift right 16 bits to pop off the OffsetNumber, leaving only the BlockNumber
-    // pgrx's version must shift right 32 bits to be in parity with `item_pointer_to_u64()`
-    let blockno = (value >> 16) as pg_sys::BlockNumber;
+    let blockno = u64_ctid_block_number(value);
     let offno = value as pg_sys::OffsetNumber;
     item_pointer_set_all(tid, blockno, offno);
+}
+
+/// The block number packed into a ctid by [`item_pointer_to_u64`].
+#[inline(always)]
+pub fn u64_ctid_block_number(value: u64) -> pg_sys::BlockNumber {
+    // shift right 16 bits to pop off the OffsetNumber, leaving only the BlockNumber
+    // pgrx's version must shift right 32 bits to be in parity with `item_pointer_to_u64()`
+    (value >> 16) as pg_sys::BlockNumber
 }
 
 /// Returns `true` if the block referenced by `ctid` (u64-packed form) exists

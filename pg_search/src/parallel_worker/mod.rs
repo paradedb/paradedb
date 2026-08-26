@@ -243,6 +243,7 @@ fn log_detached_send() {
 pub struct ParallelStateManager {
     toc: NonNull<pg_sys::shm_toc>,
     len: usize,
+    seg: *mut pg_sys::dsm_segment,
 }
 
 #[derive(Debug)]
@@ -263,7 +264,7 @@ impl Display for ValueError {
 }
 
 impl ParallelStateManager {
-    pub(crate) fn new(toc: *mut pg_sys::shm_toc) -> Self {
+    pub(crate) fn new(toc: *mut pg_sys::shm_toc, seg: *mut pg_sys::dsm_segment) -> Self {
         assert!(!toc.is_null());
         unsafe {
             let ptr = pg_sys::shm_toc_lookup(toc, TocKeys::UserStateLength.into(), true);
@@ -272,8 +273,15 @@ impl ParallelStateManager {
             Self {
                 toc: NonNull::new(toc).unwrap_unchecked(),
                 len,
+                seg,
             }
         }
+    }
+
+    /// The DSM segment the state lives in, for shared regions whose lifetime hooks onto it (a
+    /// `SharedFileSet` a worker attaches to, for one).
+    pub fn dsm_segment(&self) -> *mut pg_sys::dsm_segment {
+        self.seg
     }
 
     unsafe fn decode_info<T: ParallelStateType>(
@@ -404,15 +412,20 @@ impl ParallelStateManager {
 /// launch_parallel_process!(
 ///     ParallelProcessType<ParallelWorkerType>,
 ///     parallel_process_instance,
+///     worker_style,
 ///     number_of_workers,
-///     message_queue_size
+///     message_queue_size,
+///     [before_launch]
 /// )
 /// ```
 ///
 /// - **ParallelProcessType**: A type that implements the [`ParallelProcess`] trait. Represents the process logic.
 /// - **ParallelWorkerType**: The worker type that performs the parallel task. Must implement the [`ParallelWorker`] trait and must be zero-sized.
 /// - **parallel_process_instance**: An instance of the specified [`ParallelProcess`].
+/// - **worker_style**: The [`WorkerStyle`] that bounds the number of workers.
 /// - **number_of_workers**: The number of workers to be spawned for this parallel process.
+/// - **before_launch** (optional): A `|launcher: &ParallelProcessLauncher| { .. }` closure that runs
+///   with the DSM mapped and no worker spawned, to initialize shared regions in place.
 /// - **message_queue_size**: The size of the shared message queue used for communication back to the leader
 ///
 /// # Constraints
@@ -567,7 +580,7 @@ pub unsafe fn generic_parallel_worker_entry_point(
         .add(pg_sys::ParallelWorkerNumber as usize * mq_size)
         .cast::<pg_sys::shm_mq>();
 
-    let state_manager = ParallelStateManager::new(toc);
+    let state_manager = ParallelStateManager::new(toc, seg);
     let mq_sender = MessageQueueSender::new(seg, mq);
     (state_manager, mq_sender)
 }

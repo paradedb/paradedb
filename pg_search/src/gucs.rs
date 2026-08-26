@@ -788,7 +788,7 @@ pub fn global_enable_background_merging() -> bool {
 }
 
 // NB:  MEMORY_BUDGET_NUM_BYTES_MIN comes from [`tantivy::index_writer::MEMORY_BUDGET_NUM_BYTES_MIN`], which is not publicly exposed
-mod limits {
+pub(crate) mod limits {
     const MARGIN_IN_BYTES: usize = 1_000_000;
     // Size of the margin for the `memory_arena`. A segment is closed when the remaining memory
     // in the `memory_arena` goes below MARGIN_IN_BYTES.

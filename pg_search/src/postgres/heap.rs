@@ -685,13 +685,13 @@ impl<'a> HeapDocFetcher<'a> {
                     break;
                 }
 
-                let mut htsv_result = {
+                let (mut htsv_result, hot_updated) = {
                     let buffer = (*self.fetch_state.buffer_heap_slot()).buffer;
                     let _lock = BorrowedBuffer::from_pg(buffer);
-                    pg_sys::HeapTupleSatisfiesVacuum(
-                        (*self.fetch_state.buffer_heap_slot()).base.tuple,
-                        self.oldest_xmin,
-                        buffer,
+                    let tuple = (*self.fetch_state.buffer_heap_slot()).base.tuple;
+                    (
+                        pg_sys::HeapTupleSatisfiesVacuum(tuple, self.oldest_xmin, buffer),
+                        u32::from((*(*tuple).t_data).t_infomask2) & pg_sys::HEAP_HOT_UPDATED != 0,
                     )
                 };
 
@@ -739,16 +739,18 @@ impl<'a> HeapDocFetcher<'a> {
                 }
 
                 if self.root_ctids
-                    && call_again
+                    && hot_updated
                     && (htsv_result == pg_sys::HTSV_Result::HEAPTUPLE_RECENTLY_DEAD
                         || htsv_result == pg_sys::HTSV_Result::HEAPTUPLE_DELETE_IN_PROGRESS)
                 {
-                    // This member survives for old snapshots, but the chain continues: a newer
-                    // member carries the values the build callback delivered for this root.
-                    // Skip forward so the segment holds the live version, matching what
-                    // heapam_index_build_range_scan indexes for a broken HOT chain. (A LIVE
-                    // member whose updater aborted also reports call_again; it correctly
-                    // breaks below, since its successor is dead.)
+                    // This member survives for old snapshots, but a newer HOT member carries
+                    // the values the build callback delivered for this root. Skip forward so
+                    // the segment holds the live version, matching what
+                    // heapam_index_build_range_scan indexes for a broken HOT chain. A member
+                    // that was deleted outright (not HOT-updated) is indexed below instead,
+                    // as heapam does: a pre-existing snapshot may still need to see it. Under
+                    // SnapshotAny `call_again` is set after every fetch, so it says nothing
+                    // about whether the chain goes on; the tuple's own HOT flag does.
                     pg_sys::ExecClearTuple(self.fetch_state.slot());
                     continue 'next_hot_chain;
                 }

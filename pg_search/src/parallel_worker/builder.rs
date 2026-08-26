@@ -130,7 +130,10 @@ impl ParallelProcessBuilder {
             Some(ParallelProcessLauncher {
                 pcxt,
                 mq_handles: mq_receivers,
-                state_manager: ParallelStateManager::new((*pcxt.as_ptr()).toc),
+                state_manager: ParallelStateManager::new(
+                    (*pcxt.as_ptr()).toc,
+                    (*pcxt.as_ptr()).seg,
+                ),
             })
         }
     }

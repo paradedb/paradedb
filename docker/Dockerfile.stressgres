@@ -47,9 +47,8 @@ RUN cargo fetch --manifest-path /home/app/Cargo.toml && \
     env "CARGO_TARGET_$(echo "$TARGET" | tr 'a-z-' 'A-Z_')_RUSTFLAGS=-Ccodegen-units=1 -Cpasses=sancov-module -Cllvm-args=-sanitizer-coverage-level=3 -Cllvm-args=-sanitizer-coverage-trace-pc-guard -Clink-args=-Wl,--build-id" \
         cargo build --offline --profile dst --target "$TARGET" \
         --manifest-path /home/app/Cargo.toml -p stressgres --features dst && \
-    cp "/home/app/target/$TARGET/dst/stressgres" /tmp/stressgres
-
-RUN cp "$(find /usr/lib/postgresql -path '*/bin/psql' -print -quit)" /tmp/psql
+    cp "/home/app/target/$TARGET/dst/stressgres" /tmp/stressgres && \
+    cp /usr/lib/postgresql/17/bin/psql /tmp/psql
 
 # Keep compilers, development headers, Cargo sources, and build intermediates
 # out of the image that actually runs. Besides making the image much smaller,
@@ -74,15 +73,14 @@ RUN useradd --create-home --shell /bin/bash app
 
 WORKDIR /home/app
 
-# Preserve the paths used by the public Docker examples and Antithesis while
-# copying only runtime inputs. The unstripped binary under /symbols lets
-# Antithesis symbolize instrumented crashes.
-COPY --from=builder /tmp/stressgres /symbols/stressgres
+# Preserve the paths used by the public Docker examples and Antithesis while copying only runtime
+# inputs. The unstripped binary under /symbols lets Antithesis symbolize instrumented crashes.
+COPY --chown=app:app --from=builder /tmp/stressgres /symbols/stressgres
+# Copy the native client without postgresql-client-common and its unused Perl runtime. Because the
+# Debian package database is not copied with it, package-based scanners may not inventory psql.
 COPY --from=builder /tmp/psql /usr/local/bin/psql
 COPY --chown=app:app stressgres/suites/ stressgres/suites/
 COPY stressgres/suites/antithesis/ /opt/antithesis/test/v1/paradedb/
-
-RUN chown -R app:app /symbols
 
 USER app
 

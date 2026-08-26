@@ -11,13 +11,13 @@
 #       memory: "4Gi"
 #       cpu: "2000m"
 
-FROM rust:1.97-slim-trixie
+FROM rust:1.97-slim-trixie AS builder
 
 # pipefail for the piped build command below (hadolint DL4006).
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# Install build and runtime dependencies. Upgrade existing OS packages first so
-# we pick up the latest Debian security fixes regardless of the base layer's age.
+# Install build dependencies. None of these packages or the Rust toolchain are
+# copied into the runtime image below.
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     build-essential \
     lld \
@@ -27,35 +27,15 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     libpng-dev \
     libjpeg-dev \
     libfontconfig1-dev \
-    ca-certificates \
     curl \
     postgresql-client \
-    libpq5 \
-    util-linux \
     && rm -rf /var/lib/apt/lists/*
-
-# Create app user
-RUN useradd --create-home --shell /bin/bash app
-
-# Symbolization: Antithesis reads debug info from /symbols. The build step below symlinks the
-# (unstripped) binary in, so make it app-owned.
-RUN mkdir -p /symbols && chown app:app /symbols
 
 # Set working directory
 WORKDIR /home/app
 
-# Copy the entire paradedb/paradedb source code
-COPY --chown=app:app . .
-
-# Import Antithesis test drivers
-COPY stressgres/suites/antithesis/ /opt/antithesis/test/v1/paradedb/
-
-# Switch to app user
-USER app
-
-# Set environment variables
-ENV RUST_LOG=info
-ENV PGCLIENTENCODING=UTF8
+# Copy the source needed to compile Stressgres.
+COPY . .
 
 # Prefetch while online; the image runs air-gapped in Antithesis. Sancov flags are scoped to the
 # host triple (resolved here, not hardcoded, so it also builds on arm64 CI) via
@@ -67,6 +47,46 @@ RUN cargo fetch --manifest-path /home/app/Cargo.toml && \
     env "CARGO_TARGET_$(echo "$TARGET" | tr 'a-z-' 'A-Z_')_RUSTFLAGS=-Ccodegen-units=1 -Cpasses=sancov-module -Cllvm-args=-sanitizer-coverage-level=3 -Cllvm-args=-sanitizer-coverage-trace-pc-guard -Clink-args=-Wl,--build-id" \
         cargo build --offline --profile dst --target "$TARGET" \
         --manifest-path /home/app/Cargo.toml -p stressgres --features dst && \
-    ln -sf "/home/app/target/$TARGET/dst/stressgres" /symbols/stressgres
+    cp "/home/app/target/$TARGET/dst/stressgres" /tmp/stressgres
+
+RUN cp "$(find /usr/lib/postgresql -path '*/bin/psql' -print -quit)" /tmp/psql
+
+# Keep compilers, development headers, Cargo sources, and build intermediates
+# out of the image that actually runs. Besides making the image much smaller,
+# this avoids reporting build-only packages such as linux-libc-dev as runtime
+# vulnerabilities.
+FROM debian:trixie-slim AS runtime
+
+# Upgrade the runtime packages so a rebuild picks up all available Debian
+# security fixes. psql is used by the Antithesis setup/verification scripts;
+# util-linux provides flock for the recovery-liveness script.
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
+    bash \
+    ca-certificates \
+    libfontconfig1 \
+    libpq5 \
+    libreadline8t64 \
+    libssl3t64 \
+    util-linux \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd --create-home --shell /bin/bash app
+
+WORKDIR /home/app
+
+# Preserve the paths used by the public Docker examples and Antithesis while
+# copying only runtime inputs. The unstripped binary under /symbols lets
+# Antithesis symbolize instrumented crashes.
+COPY --from=builder /tmp/stressgres /symbols/stressgres
+COPY --from=builder /tmp/psql /usr/local/bin/psql
+COPY --chown=app:app stressgres/suites/ stressgres/suites/
+COPY stressgres/suites/antithesis/ /opt/antithesis/test/v1/paradedb/
+
+RUN chown -R app:app /symbols
+
+USER app
+
+ENV RUST_LOG=info
+ENV PGCLIENTENCODING=UTF8
 
 CMD ["sleep", "infinity"]

@@ -46,10 +46,12 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
 
-      - name: Validate Release Inputs
+      - name: Validate Inputs and Setup
+        id: validate
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          echo "start_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
           echo "Checking for existing release..."
           if gh release view v${{ github.event.inputs.version }} > /dev/null 2>&1; then
             echo "Release v${{ github.event.inputs.version }} already exists. All releases must be unique."
@@ -98,20 +100,12 @@ jobs:
       - name: Install Determinate Nix
         uses: DeterminateSystems/determinate-nix-action@main
 
-      - name: Assemble SQL Upgrade Scripts
+      - name: Assemble Release Artifacts
         run: |
           if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
-            ./scripts/assemble_sql.sh "${{ github.event.inputs.version }}" --transient
+            ./scripts/assemble_release_fragments.sh all "${{ github.event.inputs.version }}" --preserve-fragments
           else
-            ./scripts/assemble_sql.sh "${{ github.event.inputs.version }}"
-          fi
-
-      - name: Assemble Changelog
-        run: |
-          if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
-            ./scripts/assemble_changelog.sh "${{ github.event.inputs.version }}" --dry-run
-          else
-            ./scripts/assemble_changelog.sh "${{ github.event.inputs.version }}"
+            ./scripts/assemble_release_fragments.sh all "${{ github.event.inputs.version }}"
           fi
 
       - name: Update Cargo Version, Lockfile, and Nix Hash
@@ -132,6 +126,19 @@ jobs:
 
       - name: Commit and Push Release Artifacts
         run: |
+          # Verify that the remote branch has not advanced since the workflow started.
+          # If new commits merged into main or the stable branch during assembly/nix build,
+          # abort to prevent releasing mismatched code and migration fragments.
+          # TODO: In the future, we could potentially implement a retry loop that pulls and re-assembles.
+          git fetch origin ${{ github.ref_name }}
+          REMOTE_SHA=$(git rev-parse origin/${{ github.ref_name }})
+          START_SHA="${{ steps.validate.outputs.start_sha }}"
+          if [[ "$REMOTE_SHA" != "$START_SHA" ]]; then
+            echo "❌ Error: Remote branch '${{ github.ref_name }}' has advanced ($START_SHA -> $REMOTE_SHA) since this release workflow started."
+            echo "New commits/fragments may have landed on the branch. Aborting release so all changes can be cleanly included."
+            exit 1
+          fi
+
           git config user.name "paradedb-github-app[bot]"
           git config user.email "282009505+paradedb-github-app[bot]@users.noreply.github.com"
           git add -A
@@ -204,9 +211,9 @@ jobs:
 
           echo "Registering ${CLEAN_VERSION} in docs/docs.json on main (is_latest=${IS_LATEST})..."
           if [[ "$IS_LATEST" == "true" ]]; then
-            python3 .github/scripts/assemble_changelog.py --register-only "${CLEAN_VERSION}" --is-latest
+            ./scripts/assemble_release_fragments.sh changelog "${CLEAN_VERSION}" --register-only --is-latest
           else
-            python3 .github/scripts/assemble_changelog.py --register-only "${CLEAN_VERSION}" --no-is-latest
+            ./scripts/assemble_release_fragments.sh changelog "${CLEAN_VERSION}" --register-only --no-is-latest
           fi
 
           git config user.name "paradedb-github-app[bot]"

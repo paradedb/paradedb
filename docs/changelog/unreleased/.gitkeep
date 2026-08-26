@@ -10,7 +10,7 @@
 #   Fixed an issue where blocks could get added to the free space map twice.
 #
 # Valid header keys are defined in .changelog_headers.json (e.g. features, performance, stability, breaking, docs).
-# At release time, scripts/assemble_changelog.sh groups and compiles these fragments into docs/changelog/<version>.mdx.
+# At release time, scripts/assemble_release_fragments.sh groups and compiles these fragments into docs/changelog/<version>.mdx.
 #
 # For full documentation on the workflow, see:
 #   - CONTRIBUTING.md (Pull Request Workflow)

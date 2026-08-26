@@ -38,8 +38,7 @@ To publish a minor or beta release from `main`:
 2. Click **Run workflow**, select `main` as the release branch, and provide the target `version` (e.g. `0.26.0` or `0.26.0-rc.1` with `beta: true`).
 3. Click **Run workflow** to start the job.
 4. The workflow will automatically:
-   - Run `scripts/assemble_sql.sh` to assemble `pg_search/sql/unreleased/*.sql` into `pg_search--<prev>--<version>.sql` and remove the consumed fragments.
-   - Run `scripts/assemble_changelog.sh` to assemble `docs/changelog/unreleased/*.mdx` into `docs/changelog/<version>.mdx`, register the page in `docs/docs.json`, and remove the consumed fragments.
+   - Run `scripts/assemble_release_fragments.sh all` to assemble `pg_search/sql/unreleased/*.sql` into `pg_search--<prev>--<version>.sql`, assemble `docs/changelog/unreleased/*.mdx` into `docs/changelog/<version>.mdx`, register the release in `docs/docs.json`, and remove the consumed fragments.
    - Bump `workspace.package.version` in `Cargo.toml` and synchronize `Cargo.lock`.
    - Commit and push the release commit to `main`.
    - Create the Git tag `v<version>`, triggering downstream packaging and publishing workflows.

@@ -123,11 +123,13 @@ runs:
       shell: bash
       run: cargo pgrx init "--pg${{ inputs.pg_version }}=/usr/lib/postgresql/${{ inputs.pg_version }}/bin/pg_config"
 
-    - name: Assemble SQL Upgrade Scripts (Transient)
+    # Assemble unreleased fragments into an upgrade script so ALTER EXTENSION pg_search UPDATE
+    # can be tested, while preserving the fragment files on disk during the test.
+    - name: Assemble SQL Upgrade Scripts
       shell: bash
       run: |
         VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
-        ./scripts/assemble_sql.sh "$VERSION" --transient
+        ./scripts/assemble_release_fragments.sh sql "$VERSION" --preserve-fragments
 
     - name: Compile & install pg_search
       working-directory: pg_search/

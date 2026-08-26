@@ -28,6 +28,7 @@ use std::sync::OnceLock;
 
 pub mod aggregatescan;
 pub mod basescan;
+pub(crate) mod bitmap_intersection;
 mod builders;
 pub mod collation_semantics;
 pub mod datafusion;

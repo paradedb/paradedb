@@ -49,6 +49,18 @@ ORDER BY id LIMIT 5;
 SELECT count(*) AS btree_eq_count FROM (
     SELECT id FROM providers
     WHERE description === 'cardiology' AND specialty = 'specialty13') q;
+-- Executed through the Base Scan itself (TopK), not absorbed by the Aggregate Scan.
+SELECT id FROM providers
+WHERE description === 'cardiology' AND specialty = 'specialty13'
+ORDER BY id LIMIT 5;
+
+-- EXPLAIN (VERBOSE) recursive estimates treat the heap filter as a wrapper.
+SET paradedb.explain_recursive_estimates = on;
+EXPLAIN (VERBOSE, COSTS OFF, TIMING OFF)
+SELECT id FROM providers
+WHERE description === 'cardiology' AND specialty = 'specialty13'
+ORDER BY id LIMIT 5;
+RESET paradedb.explain_recursive_estimates;
 
 -- Commuted clause: constant on the left.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -76,6 +88,10 @@ ORDER BY id LIMIT 5;
 SELECT count(*) AS like_count FROM (
     SELECT id FROM providers
     WHERE description === 'cardiology' AND specialty LIKE 'specialty1%') q;
+-- Executed through the Base Scan itself.
+SELECT id FROM providers
+WHERE description === 'cardiology' AND specialty LIKE 'specialty1%'
+ORDER BY id LIMIT 5;
 
 -- GiST containment, then parity against plain heap filtering with the index gone.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -89,6 +105,12 @@ SELECT count(*) AS gist_count FROM (
     WHERE description === 'cardiology'
       AND gender === 'female'
       AND location <@ circle(point(50, 50), 5)) q;
+-- Executed through the Base Scan itself (window count defeats the Aggregate Scan).
+SELECT count(*) OVER () AS gist_window_count FROM providers
+WHERE description === 'cardiology'
+  AND gender === 'female'
+  AND location <@ circle(point(50, 50), 5)
+LIMIT 1;
 DROP INDEX providers_location;
 SELECT count(*) AS gist_count_no_bitmap FROM (
     SELECT id FROM providers
@@ -149,6 +171,44 @@ ORDER BY id LIMIT 5;
 
 -- Parallel partial paths carry the same bitmap child (one build shared via DSA);
 -- not golden-tested because the parallel plan shape depends on segment count.
+
+-- True executor rescans: a lateral nested loop rescans the inner Base Scan per
+-- outer row (a generic-plan EXECUTE only creates fresh executor states).
+SELECT v.k, s.id FROM (VALUES (13), (17)) v(k)
+CROSS JOIN LATERAL (
+    SELECT id FROM providers
+    WHERE description === 'cardiology' AND specialty = 'specialty' || v.k
+    ORDER BY id LIMIT 2) s
+ORDER BY v.k, s.id;
+-- Rescan with a harvested bitmap: freed and rebuilt per outer row.
+SELECT v.k, count(*) AS n FROM (VALUES (2), (4)) v(k)
+CROSS JOIN LATERAL (
+    SELECT id FROM providers
+    WHERE description === 'cardiology' AND location <@ circle(point(50, 50), 5)
+    ORDER BY id LIMIT v.k) s
+GROUP BY v.k ORDER BY v.k;
+
+-- Rescan where the covered qual itself changes per outer row: the circle rides
+-- in as a correlated-subquery exec param, so each rescan must free the previous
+-- bitmap and rebuild with the new parameter value.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT v.x, s.id FROM (VALUES (30)) v(x)
+CROSS JOIN LATERAL (
+    SELECT id FROM providers
+    WHERE description === 'cardiology' AND location <@ (SELECT circle(point(v.x, 50), 5))
+    ORDER BY id LIMIT 3) s
+ORDER BY v.x, s.id;
+SELECT v.x, s.id FROM (VALUES (30), (60)) v(x)
+CROSS JOIN LATERAL (
+    SELECT id FROM providers
+    WHERE description === 'cardiology' AND location <@ (SELECT circle(point(v.x, 50), 5))
+    ORDER BY id LIMIT 3) s
+ORDER BY v.x, s.id;
+SELECT v.x, s.n FROM (VALUES (30), (60)) v(x)
+CROSS JOIN LATERAL (
+    SELECT count(*) AS n FROM providers
+    WHERE description === 'cardiology' AND location <@ (SELECT circle(point(v.x, 50), 5))) s
+ORDER BY v.x;
 
 -- Rescan: a generic plan rebuilds the bitmap on every execution.
 SET plan_cache_mode = force_generic_plan;
@@ -233,6 +293,24 @@ DROP POLICY providers_policy ON providers;
 ALTER TABLE providers DISABLE ROW LEVEL SECURITY;
 REVOKE SELECT ON providers FROM regress_bitmap_rls_user;
 DROP ROLE regress_bitmap_rls_user;
+
+-- ctid-order gate: the probe requires ctid-ascending segments; sort_by='none' never harvests.
+CREATE TABLE unsorted_providers (id BIGINT, description TEXT, location POINT);
+INSERT INTO unsorted_providers
+SELECT i, 'cardiology notes ' || i, point(i % 100, i / 100)
+FROM generate_series(0, 999) i;
+CREATE INDEX unsorted_paradedb ON unsorted_providers
+    USING bm25 (id, description) WITH (key_field = 'id', sort_by = 'none');
+CREATE INDEX unsorted_location ON unsorted_providers USING gist (location);
+VACUUM ANALYZE unsorted_providers;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM unsorted_providers
+WHERE description === 'cardiology' AND location <@ circle(point(50, 5), 3)
+ORDER BY id;
+SELECT count(*) AS unsorted_count FROM (
+    SELECT id FROM unsorted_providers
+    WHERE description === 'cardiology' AND location <@ circle(point(50, 5), 3)) q;
+DROP TABLE unsorted_providers CASCADE;
 
 -- Partial index: predicate implication is not checked, so it is never a source.
 BEGIN;

@@ -21,7 +21,6 @@ use std::collections::BTreeMap;
 use crate::api::{FieldName, HashMap, OrderByInfo, Varno};
 use crate::customscan::CustomScanState;
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::customscan::basescan::bitmap_intersection::BitmapExec;
 use crate::postgres::customscan::basescan::cost::WorkerDecisionReason;
 use crate::postgres::customscan::basescan::exec_methods::ExecMethod;
 use crate::postgres::customscan::basescan::parallel::{ParallelRole, ParallelScanHandle};
@@ -29,6 +28,7 @@ use crate::postgres::customscan::basescan::projections::snippet::SnippetType;
 use crate::postgres::customscan::basescan::projections::snippet::pdb::IntArray2D;
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::basescan::telemetry::ScanTelemetry;
+use crate::postgres::customscan::bitmap_intersection::BitmapExec;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::qual_inspect::Qual;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
@@ -37,8 +37,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::u64_to_item_pointer;
 use crate::postgres::{ParallelScanArgs, ParallelScanState};
 use crate::query::SearchQueryInput;
-use crate::query::heap_field_filter::TidBitmapSet;
-use std::sync::Arc;
+use crate::query::tid_bitmap_stream::BitmapCell;
 
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{PgTupleDesc, pg_sys};
@@ -112,6 +111,7 @@ pub struct BaseScanState {
     /// Execution state for the child bitmap scan, if a bitmap intersection source was
     /// harvested at plan time.
     pub bitmap_exec: Option<BitmapExec>,
+    pub bitmap_cell: Option<BitmapCell>,
 
     pub doc_from_heap_state: Option<HeapFetchState>,
 
@@ -167,6 +167,21 @@ impl BaseScanState {
     /// Get the original base search query input before any modifications
     pub fn base_search_query_input(&self) -> &SearchQueryInput {
         &self.base_search_query_input
+    }
+
+    /// Drop the active search results (whose scorers hold bitmap cursors),
+    /// keeping the selected exec method: `reset()` re-binds it to the rebuilt
+    /// reader after a rescan. Replacing the method here would leave the
+    /// default `UnknownScanStyle`, which panics on its next use.
+    pub fn reset_exec_results(&mut self) {
+        self.exec_method_mut().reset(self);
+    }
+
+    /// Drop the current exec method (and with it any search results whose
+    /// scorers hold bitmap cursors) before the bitmap machinery is torn down.
+    pub fn drop_exec_method(&mut self) {
+        self.exec_method = UnsafeCell::new(Default::default());
+        self.exec_method_name = String::new();
     }
 
     #[inline(always)]
@@ -552,22 +567,30 @@ impl SolvePostgresExpressions for BaseScanState {
             .solve_postgres_expressions(expr_context);
     }
 
-    /// Parallel-aware scans build the set once and share it through the query's
-    /// DSA; standalone scans build locally.
-    fn tid_bitmap_set(&mut self, planstate: *mut pg_sys::PlanState) -> Option<Arc<TidBitmapSet>> {
-        let parallel_pstate = self.parallel_state();
-        let bitmap_exec = self.bitmap_exec.as_mut()?;
-        unsafe {
-            let es_query_dsa = (*(*planstate).state).es_query_dsa;
-            match parallel_pstate {
-                Some(pstate) => bitmap_exec.shared_tid_bitmap_set(pstate, es_query_dsa),
-                None => bitmap_exec.tid_bitmap_set(),
-            }
+    /// Install the late-bound source cell. Workers attach the published claim
+    /// table immediately; the leader's (or a serial scan's) cell is filled after
+    /// its reader opens (serial: privately in `init_search_reader`; parallel:
+    /// with the shared view at DSM initialization).
+    fn bitmap_source_cell(&mut self, _planstate: *mut pg_sys::PlanState) -> Option<BitmapCell> {
+        self.bitmap_exec.as_ref()?;
+        let cell = self
+            .bitmap_cell
+            .get_or_insert_with(BitmapCell::default)
+            .clone();
+        let is_worker = self.parallel.map(|p| !p.is_leader()).unwrap_or(false);
+        if is_worker
+            && cell.get().is_none()
+            && let Some(pstate) = self.parallel_state()
+            && let Some(handle) = unsafe { (*pstate).bitmap_wait_done() }
+            && let Some(bitmap_exec) = self.bitmap_exec.as_mut()
+        {
+            cell.fill(unsafe { bitmap_exec.worker_attach_source(handle) });
         }
+        Some(cell)
     }
 
-    fn attach_tid_bitmap_set(&mut self, set: &Arc<TidBitmapSet>) {
-        self.search_query_input.attach_tid_bitmap_set(set);
+    fn attach_bitmap_cell(&mut self, cell: &BitmapCell) {
+        self.search_query_input.attach_bitmap_cell(cell);
     }
 }
 

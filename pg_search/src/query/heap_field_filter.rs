@@ -16,11 +16,11 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use std::ptr::NonNull;
-use std::sync::Arc;
 
 use crate::postgres::heap::HeapFetchState;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::PostgresPointer;
+use crate::query::tid_bitmap_stream::{BitmapCell, BitmapCursor};
 
 use pgrx::FromDatum;
 use pgrx::{PgMemoryContexts, pg_sys};
@@ -286,30 +286,6 @@ unsafe extern "C-unwind" fn param_resolver_mutator(
         pg_sys::expression_tree_mutator_impl(node, Some(param_resolver_mutator), context)
     }
 }
-
-/// Row locations produced by an external index's `BitmapIndexScan`, converted into a
-/// probe-able form. `exact_ctids` uses the same `(block << 16) | offset`
-/// packing as `item_pointer_to_u64`.
-///
-/// The two block lists record different kinds of information loss, with different
-/// consequences for pruning:
-/// - `lossy_blocks`: pages the TIDBitmap degraded under `work_mem` pressure, keeping
-///   only "this block has matches" and discarding the offsets. Membership is
-///   untestable, so nothing on these blocks can be rejected and all filters must run.
-/// - `recheck_blocks`: pages whose offsets are exact but whose matches the index AM
-///   flagged as approximate. Absent ctids are still sound rejections; present ones
-///   must also run the recheck filters.
-///
-/// Core's BitmapHeapScan collapses both into one per-page recheck bit because it
-/// visits whole pages; we probe individual ctids, so conflating them would forfeit
-/// rejection on recheck pages.
-#[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct TidBitmapSet {
-    pub exact_ctids: Vec<u64>,
-    pub lossy_blocks: Vec<u32>,
-    pub recheck_blocks: Vec<u32>,
-}
-
 pub enum TidProbe {
     /// Not in the bitmap: the row cannot match, skip it with zero heap access.
     Reject,
@@ -319,32 +295,14 @@ pub enum TidProbe {
     NeedsRecheck,
 }
 
-impl TidBitmapSet {
-    pub fn probe(&self, ctid: u64) -> TidProbe {
-        let block = (ctid >> 16) as u32;
-        // Lossy blocks first: `exact_ctids` holds nothing for them, so a membership
-        // miss there must not be read as a rejection.
-        if self.lossy_blocks.binary_search(&block).is_ok() {
-            return TidProbe::NeedsRecheck;
-        }
-        if self.exact_ctids.binary_search(&ctid).is_err() {
-            return TidProbe::Reject;
-        }
-        if self.recheck_blocks.binary_search(&block).is_ok() {
-            TidProbe::NeedsRecheck
-        } else {
-            TidProbe::Candidate
-        }
-    }
-}
-
 /// Tantivy query that combines indexed search with heap field filtering
 #[derive(Debug)]
 pub struct HeapFilterQuery {
     indexed_query: Box<dyn Query>,
     always_filters: Vec<HeapFieldFilter>,
     recheck_filters: Vec<HeapFieldFilter>,
-    tid_bitmap_set: Option<Arc<TidBitmapSet>>,
+    bitmap_consumer_id: Option<u32>,
+    bitmap_cell: Option<BitmapCell>,
     rel_oid: pg_sys::Oid,
     expr_context: NonNull<pg_sys::ExprContext>,
     planstate: Option<NonNull<pg_sys::PlanState>>,
@@ -360,7 +318,8 @@ impl HeapFilterQuery {
         indexed_query: Box<dyn Query>,
         always_filters: Vec<HeapFieldFilter>,
         recheck_filters: Vec<HeapFieldFilter>,
-        tid_bitmap_set: Option<Arc<TidBitmapSet>>,
+        bitmap_consumer_id: Option<u32>,
+        bitmap_cell: Option<BitmapCell>,
         rel_oid: pg_sys::Oid,
         expr_context: NonNull<pg_sys::ExprContext>,
         planstate: Option<NonNull<pg_sys::PlanState>>,
@@ -369,7 +328,8 @@ impl HeapFilterQuery {
             indexed_query,
             always_filters,
             recheck_filters,
-            tid_bitmap_set,
+            bitmap_consumer_id,
+            bitmap_cell,
             rel_oid,
             expr_context,
             planstate,
@@ -383,7 +343,8 @@ impl tantivy::query::QueryClone for HeapFilterQuery {
             indexed_query: self.indexed_query.box_clone(),
             always_filters: self.always_filters.clone(),
             recheck_filters: self.recheck_filters.clone(),
-            tid_bitmap_set: self.tid_bitmap_set.clone(),
+            bitmap_consumer_id: self.bitmap_consumer_id,
+            bitmap_cell: self.bitmap_cell.clone(),
             rel_oid: self.rel_oid,
             expr_context: self.expr_context,
             planstate: self.planstate,
@@ -398,7 +359,8 @@ impl Query for HeapFilterQuery {
             indexed_weight,
             always_filters: self.always_filters.clone(),
             recheck_filters: self.recheck_filters.clone(),
-            tid_bitmap_set: self.tid_bitmap_set.clone(),
+            bitmap_consumer_id: self.bitmap_consumer_id,
+            bitmap_cell: self.bitmap_cell.clone(),
             rel_oid: self.rel_oid,
             expr_context: self.expr_context,
             planstate: self.planstate,
@@ -419,7 +381,8 @@ struct HeapFilterWeight {
     indexed_weight: Box<dyn Weight>,
     always_filters: Vec<HeapFieldFilter>,
     recheck_filters: Vec<HeapFieldFilter>,
-    tid_bitmap_set: Option<Arc<TidBitmapSet>>,
+    bitmap_consumer_id: Option<u32>,
+    bitmap_cell: Option<BitmapCell>,
     rel_oid: pg_sys::Oid,
     expr_context: NonNull<pg_sys::ExprContext>,
     planstate: Option<NonNull<pg_sys::PlanState>>,
@@ -437,11 +400,24 @@ impl Weight for HeapFilterWeight {
         let fast_fields_reader = reader.fast_fields();
         let ctid_ff = crate::index::fast_fields_helper::FFType::new_ctid(fast_fields_reader);
 
+        // Claim this (consumer, segment) stream's cursor. No cell installed means
+        // no bitmap was planned (or this is an estimation clone): evaluate filters
+        // directly. An installed-but-unfilled cell is an invariant violation.
+        let cursor = match (self.bitmap_consumer_id, &self.bitmap_cell) {
+            (Some(consumer_id), Some(cell)) => {
+                let source = cell
+                    .get()
+                    .unwrap_or_else(|| panic!("bitmap cursor source was never initialized"));
+                Some(unsafe { source.claim(consumer_id, reader.segment_id()) })
+            }
+            _ => None,
+        };
+
         let scorer = HeapFilterScorer::new(
             indexed_scorer,
             self.always_filters.clone(),
             self.recheck_filters.clone(),
-            self.tid_bitmap_set.clone(),
+            cursor,
             ctid_ff,
             self.rel_oid,
             self.expr_context,
@@ -462,9 +438,9 @@ struct HeapFilterScorer {
     /// Evaluated on every doc that survives the bitmap probe (or every doc when no
     /// bitmap set is attached). See `SearchQueryInput::HeapFilter`.
     always_filters: Vec<HeapFieldFilter>,
-    /// Evaluated only for lossy/recheck probes, or when no bitmap set is attached.
+    /// Evaluated only for lossy/recheck probes, or when no bitmap cursor is attached.
     recheck_filters: Vec<HeapFieldFilter>,
-    tid_bitmap_set: Option<Arc<TidBitmapSet>>,
+    bitmap_cursor: Option<BitmapCursor>,
     ctid_ff: crate::index::fast_fields_helper::FFType,
     heaprel: PgSearchRelation,
     current_doc: DocId,
@@ -482,7 +458,7 @@ impl HeapFilterScorer {
         indexed_scorer: Box<dyn Scorer>,
         always_filters: Vec<HeapFieldFilter>,
         recheck_filters: Vec<HeapFieldFilter>,
-        tid_bitmap_set: Option<Arc<TidBitmapSet>>,
+        bitmap_cursor: Option<BitmapCursor>,
         ctid_ff: crate::index::fast_fields_helper::FFType,
         rel_oid: pg_sys::Oid,
         expr_context: NonNull<pg_sys::ExprContext>,
@@ -492,7 +468,7 @@ impl HeapFilterScorer {
             indexed_scorer,
             always_filters,
             recheck_filters,
-            tid_bitmap_set,
+            bitmap_cursor,
             ctid_ff,
             heaprel: PgSearchRelation::open(rel_oid),
             current_doc: TERMINATED,
@@ -527,10 +503,10 @@ impl HeapFilterScorer {
 
         // Probe the external index's bitmap first: a miss rejects the doc with zero
         // heap access, and exact non-recheck membership skips the recheck filters.
-        // With no bitmap set attached, both filter lists must run: the bitmap
-        // proof the recheck split relies on doesn't exist.
-        let needs_recheck_filters = match &self.tid_bitmap_set {
-            Some(set) => match set.probe(ctid_value) {
+        // With no cursor attached, both filter lists must run: the bitmap proof
+        // the recheck split relies on doesn't exist.
+        let needs_recheck_filters = match &mut self.bitmap_cursor {
+            Some(cursor) => match unsafe { cursor.probe(ctid_value) } {
                 TidProbe::Reject => return false,
                 TidProbe::Candidate => false,
                 TidProbe::NeedsRecheck => true,
@@ -538,12 +514,17 @@ impl HeapFilterScorer {
             None => true,
         };
 
+        let run_recheck = needs_recheck_filters && !self.recheck_filters.is_empty();
+        if self.always_filters.is_empty() && !run_recheck {
+            return true;
+        }
+
         // Convert u64 ctid back to ItemPointer
         let mut item_pointer = pg_sys::ItemPointerData::default();
         crate::postgres::utils::u64_to_item_pointer(ctid_value, &mut item_pointer);
 
         let mut no_filters = Vec::new();
-        let recheck_filters = if needs_recheck_filters {
+        let recheck_filters = if run_recheck {
             &mut self.recheck_filters
         } else {
             &mut no_filters

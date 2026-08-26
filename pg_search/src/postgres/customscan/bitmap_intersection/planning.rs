@@ -15,40 +15,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Finds a `BitmapHeapPath` over a non-ParadeDB index (btree, GIN, PostGIS GiST) whose
-//! bitmapqual covers quals we would otherwise evaluate as a `heap_filter`, so the
-//! index's TIDBitmap can be intersected with the Tantivy result set.
-//!
-//! Plan time: `BitmapPlanner::from_query` gathers the coverable HeapExpr quals and
-//! `harvest` finds or builds a covering `BitmapHeapPath`, which the caller attaches as
-//! a `custom_paths` child and rewrites the covered HeapFilters. Execution time:
-//! `BitmapExec` runs the planned child `BitmapIndexScan` and converts its TIDBitmap
-//! into the `TidBitmapSet` the HeapFilter scorer probes.
-//!
-//! Scope: a single `BitmapIndexScan` or `BitmapAnd` tree over top-level AND clauses;
+//! Planner half: qual collection, candidate index scoring, `BitmapHeapPath`
+//! construction, and the covered-HeapFilter query rewrite.
 
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
-use crate::postgres::customscan::qual_inspect::Qual;
+use crate::postgres::customscan::qual_inspect::{PlannerContext, Qual};
+use crate::postgres::deparse::deparse_expr;
+use crate::postgres::planner_warnings::add_planner_warning;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::{BitmapBuildClaim, ParallelScanState};
 use crate::query::SearchQueryInput;
-use crate::query::heap_field_filter::TidBitmapSet;
 use pgrx::{PgList, pg_sys};
-use std::ffi::CStr;
-use std::sync::Arc;
-
-pub struct TidBitmapStats {
-    /// Row locations the bitmap knows precisely; misses are rejected with no heap
-    /// access or filter evaluation at all.
-    pub exact_ctids: usize,
-    /// Heap blocks the TIDBitmap degraded under `work_mem` pressure. Membership is
-    /// untestable there: nothing can be rejected, and every row runs all filters.
-    pub lossy_blocks: usize,
-    /// Heap blocks whose exact candidates the index AM flagged as approximate matches.
-    /// Absent ctids still reject; present ones also run the recheck filters.
-    pub recheck_blocks: usize,
-}
 
 pub struct BitmapPlanner {
     root: *mut pg_sys::PlannerInfo,
@@ -81,11 +58,13 @@ impl HarvestedBitmap {
     /// bitmap membership and only needs re-evaluation on lossy/recheck pages. Lossy
     /// clauses stay in `always_filters`, which run on every bitmap survivor.
     pub unsafe fn rewrite_query(&self, query: &mut SearchQueryInput) {
+        let mut next_consumer_id = 0u32;
         query.visit(&mut |sqi| {
             if let SearchQueryInput::HeapFilter {
                 always_filters,
                 recheck_filters,
                 uses_tid_bitmap,
+                bitmap_consumer_id,
                 ..
             } = sqi
             {
@@ -106,6 +85,12 @@ impl HarvestedBitmap {
                         }
                         None => i += 1,
                     }
+                }
+                // Each covered node is one claim-table consumer; its scorers claim
+                // one cursor per segment.
+                if *uses_tid_bitmap && bitmap_consumer_id.is_none() {
+                    *bitmap_consumer_id = Some(next_consumer_id);
+                    next_consumer_id += 1;
                 }
             }
         });
@@ -217,8 +202,39 @@ impl BitmapPlanner {
     /// non-IndexPath paths, so a harvested pointer could be freed before plan creation.
     pub unsafe fn harvest(&self) -> Option<HarvestedBitmap> {
         unsafe {
-            self.build_bitmap_path()
-                .and_then(|(bhp, build_cost)| self.accept(bhp, build_cost))
+            let harvested = self
+                .build_bitmap_path()
+                .and_then(|(bhp, build_cost)| self.accept(bhp, build_cost))?;
+            let bm25 = PgSearchRelation::open(self.bm25_oid);
+            if !bm25.is_ctid_sorted_asc() {
+                let covered = harvested
+                    .covered
+                    .iter()
+                    .map(|(clause, _)| {
+                        deparse_expr(
+                            Some(&PlannerContext::from_planner(self.root)),
+                            &bm25,
+                            *clause,
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" AND ");
+                // No table context: the scan itself plans successfully, and a
+                // successful plan clears context-keyed warnings for its alias.
+                add_planner_warning(
+                    "Bitmap Intersection",
+                    format!(
+                        "a faster query path is likely available for {covered}, but index \
+                         \"{}\" is not sorted by ctid so a slower path is being used; recreate \
+                         the index with sort_by = 'ctid' to enable the faster path. To disable \
+                         this warning: SET paradedb.planner_warnings = 'off'",
+                        bm25.name()
+                    ),
+                    (),
+                );
+                return None;
+            }
+            Some(harvested)
         }
     }
 
@@ -478,208 +494,6 @@ pub unsafe fn keep_bitmap_child_plan<CS: CustomScan>(builder: &mut CustomScanBui
     }
 }
 
-/// Execution half: owns the initialized child `BitmapIndexScan`/`BitmapAnd` planned
-/// from the harvested path, and converts its TIDBitmap into a probe-able
-/// `TidBitmapSet` on first execution.
-pub struct BitmapExec {
-    child: *mut pg_sys::PlanState,
-    consumed: bool,
-    set: Option<Arc<TidBitmapSet>>,
-}
-
-impl BitmapExec {
-    /// Initialize the CustomScan's planned child bitmap scan, if it carries one.
-    pub unsafe fn init(
-        cscan: *mut pg_sys::CustomScan,
-        estate: *mut pg_sys::EState,
-        eflags: i32,
-    ) -> Option<Self> {
-        unsafe {
-            let child_plan = PgList::<pg_sys::Plan>::from_pg((*cscan).custom_plans).get_ptr(0)?;
-            Some(Self {
-                child: pg_sys::ExecInitNode(child_plan, estate, eflags),
-                consumed: false,
-                set: None,
-            })
-        }
-    }
-
-    pub fn planstate(&self) -> *mut pg_sys::PlanState {
-        self.child
-    }
-
-    /// Names of the indexes feeding the bitmap, in plan order (a `BitmapAnd`
-    /// child contributes every leaf scan's index).
-    pub fn index_names(&self) -> Vec<String> {
-        unsafe fn collect(plan: *mut pg_sys::Plan, out: &mut Vec<String>) {
-            unsafe {
-                match (*plan).type_ {
-                    pg_sys::NodeTag::T_BitmapIndexScan => {
-                        let name =
-                            pg_sys::get_rel_name((*plan.cast::<pg_sys::BitmapIndexScan>()).indexid);
-                        if !name.is_null() {
-                            out.push(CStr::from_ptr(name).to_string_lossy().into_owned());
-                        }
-                    }
-                    pg_sys::NodeTag::T_BitmapAnd => {
-                        let subplans = (*plan.cast::<pg_sys::BitmapAnd>()).bitmapplans;
-                        for sub in PgList::<pg_sys::Plan>::from_pg(subplans).iter_ptr() {
-                            collect(sub, out);
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-        unsafe {
-            let mut names = Vec::new();
-            collect((*self.child).plan, &mut names);
-            names
-        }
-    }
-
-    /// Sizes of the built `TidBitmapSet`, if the child scan has run.
-    pub fn tid_bitmap_stats(&self) -> Option<TidBitmapStats> {
-        self.set.as_ref().map(|set| TidBitmapStats {
-            exact_ctids: set.exact_ctids.len(),
-            lossy_blocks: set.lossy_blocks.len(),
-            recheck_blocks: set.recheck_blocks.len(),
-        })
-    }
-
-    pub unsafe fn shutdown(self) {
-        unsafe { pg_sys::ExecEndNode(self.child) }
-    }
-
-    /// Prepare for a rescan: params may have changed, so the bitmap must be rebuilt on
-    /// the next execution.
-    pub unsafe fn rescan(&mut self) {
-        unsafe { pg_sys::ExecReScan(self.child) };
-        self.consumed = false;
-        self.set = None;
-    }
-
-    /// Parallel variant of `tid_bitmap_set`: the first participant to arrive builds the
-    /// set from its own child scan and publishes the flat bytes into the query's DSA;
-    /// every other participant waits on the shared state and reads them back.
-    /// (Parallel Bitmap Heap Scan's build-once coordination, with our own probe-able
-    /// representation instead of a shared TIDBitmap.)
-    pub unsafe fn shared_tid_bitmap_set(
-        &mut self,
-        pstate: *mut ParallelScanState,
-        dsa: *mut pg_sys::dsa_area,
-    ) -> Option<Arc<TidBitmapSet>> {
-        unsafe {
-            if pstate.is_null() || dsa.is_null() {
-                return self.tid_bitmap_set();
-            }
-            match (*pstate).bitmap_claim_build() {
-                BitmapBuildClaim::Build => {
-                    let set = self.tid_bitmap_set();
-                    let pointer = set
-                        .as_deref()
-                        .map_or(0, |set| DsaTidBitmapSet::from_set(dsa, set).raw());
-                    (*pstate).bitmap_publish(pointer);
-                    set
-                }
-                BitmapBuildClaim::Wait => DsaTidBitmapSet((*pstate).bitmap_wait_done()).read(dsa),
-                BitmapBuildClaim::Done(pointer) => DsaTidBitmapSet(pointer).read(dsa),
-            }
-        }
-    }
-
-    /// Run the child via `MultiExecProcNode` (first execution only) and convert its
-    /// TIDBitmap into a `TidBitmapSet`.
-    pub unsafe fn tid_bitmap_set(&mut self) -> Option<Arc<TidBitmapSet>> {
-        if !self.consumed {
-            self.consumed = true;
-            self.set = unsafe { self.build_tid_bitmap_set() };
-        }
-        self.set.clone()
-    }
-
-    unsafe fn build_tid_bitmap_set(&mut self) -> Option<Arc<TidBitmapSet>> {
-        unsafe {
-            let result = pg_sys::MultiExecProcNode(self.child);
-            if result.is_null() {
-                return None;
-            }
-            assert_eq!(
-                (*result).type_,
-                pg_sys::NodeTag::T_TIDBitmap,
-                "MultiExecProcNode must return a TIDBitmap"
-            );
-            let tbm: *mut pg_sys::TIDBitmap = result.cast();
-
-            // TIDBitmap iteration returns pages in block order with ascending offsets,
-            // so the vecs below are built sorted, as `TidBitmapSet::probe` requires.
-            let mut set = TidBitmapSet::default();
-            let pack = |blockno: u32, offset: pg_sys::OffsetNumber| {
-                ((blockno as u64) << 16) | (offset as u64)
-            };
-
-            #[cfg(feature = "pg18")]
-            {
-                // Safe over-approximation of MaxHeapTuplesPerPage (which divides by
-                // >= 28 per tuple) for any BLCKSZ; the macro is not in the bindings.
-                const OFFSETS_CAP: usize = (pg_sys::BLCKSZ as usize) / 16;
-                let iter = pg_sys::tbm_begin_private_iterate(tbm);
-                let mut res = pg_sys::TBMIterateResult::default();
-                let mut offsets = [0 as pg_sys::OffsetNumber; OFFSETS_CAP];
-                while pg_sys::tbm_private_iterate(iter, &mut res) {
-                    if res.lossy {
-                        set.lossy_blocks.push(res.blockno);
-                    } else {
-                        let ntuples = pg_sys::tbm_extract_page_tuple(
-                            &mut res,
-                            offsets.as_mut_ptr(),
-                            OFFSETS_CAP as u32,
-                        );
-                        for &offset in &offsets[..ntuples as usize] {
-                            set.exact_ctids.push(pack(res.blockno, offset));
-                        }
-                        if res.recheck {
-                            set.recheck_blocks.push(res.blockno);
-                        }
-                    }
-                }
-                pg_sys::tbm_end_private_iterate(iter);
-            }
-
-            #[cfg(not(feature = "pg18"))]
-            {
-                let iter = pg_sys::tbm_begin_iterate(tbm);
-                loop {
-                    let res = pg_sys::tbm_iterate(iter);
-                    if res.is_null() {
-                        break;
-                    }
-                    if (*res).ntuples < 0 {
-                        set.lossy_blocks.push((*res).blockno);
-                    } else {
-                        for &offset in (*res).offsets.as_slice((*res).ntuples as usize) {
-                            set.exact_ctids.push(pack((*res).blockno, offset));
-                        }
-                        if (*res).recheck {
-                            set.recheck_blocks.push((*res).blockno);
-                        }
-                    }
-                }
-                pg_sys::tbm_end_iterate(iter);
-            }
-
-            pg_sys::tbm_free(tbm);
-            pgrx::debug1!(
-                "[bitmap_intersection] TidBitmapSet: {} exact ctids, {} lossy blocks, {} recheck blocks",
-                set.exact_ctids.len(),
-                set.lossy_blocks.len(),
-                set.recheck_blocks.len(),
-            );
-            Some(Arc::new(set))
-        }
-    }
-}
-
 struct IndexClause(*mut pg_sys::IndexClause);
 
 impl IndexClause {
@@ -869,68 +683,6 @@ impl IndexClause {
     }
 
     fn into_pg(self) -> *mut pg_sys::IndexClause {
-        self.0
-    }
-}
-
-/// A `TidBitmapSet` serialized into one DSA allocation, so a single build can be
-/// shared across every process of a parallel scan. Wraps the `dsa_pointer` that
-/// `ParallelScanState` carries; `0` (invalid) means nothing was published.
-///
-/// Flat layout: `[exact_len u64][lossy_len u64][recheck_len u64]` followed by the
-/// three arrays. DSA allocations are MAXALIGNed, so the typed copies are aligned.
-#[derive(Clone, Copy)]
-struct DsaTidBitmapSet(pg_sys::dsa_pointer);
-
-impl DsaTidBitmapSet {
-    unsafe fn from_set(dsa: *mut pg_sys::dsa_area, set: &TidBitmapSet) -> Self {
-        unsafe {
-            let (ne, nl, nr) = (
-                set.exact_ctids.len(),
-                set.lossy_blocks.len(),
-                set.recheck_blocks.len(),
-            );
-            let size = 24 + ne * 8 + nl * 4 + nr * 4;
-            let pointer = pg_sys::dsa_allocate_extended(dsa, size, 0);
-            let base = pg_sys::dsa_get_address(dsa, pointer).cast::<u8>();
-
-            let header = base.cast::<u64>();
-            header.write(ne as u64);
-            header.add(1).write(nl as u64);
-            header.add(2).write(nr as u64);
-
-            let mut dst = base.add(24);
-            std::ptr::copy_nonoverlapping(set.exact_ctids.as_ptr().cast::<u8>(), dst, ne * 8);
-            dst = dst.add(ne * 8);
-            std::ptr::copy_nonoverlapping(set.lossy_blocks.as_ptr().cast::<u8>(), dst, nl * 4);
-            dst = dst.add(nl * 4);
-            std::ptr::copy_nonoverlapping(set.recheck_blocks.as_ptr().cast::<u8>(), dst, nr * 4);
-            Self(pointer)
-        }
-    }
-
-    /// Deserialize into a process-local copy; `None` when nothing was published.
-    unsafe fn read(self, dsa: *mut pg_sys::dsa_area) -> Option<Arc<TidBitmapSet>> {
-        unsafe {
-            if self.0 == 0 {
-                return None;
-            }
-            let base = pg_sys::dsa_get_address(dsa, self.0).cast::<u8>();
-            let header = std::slice::from_raw_parts(base.cast::<u64>(), 3);
-            let (ne, nl, nr) = (header[0] as usize, header[1] as usize, header[2] as usize);
-            let exact = std::slice::from_raw_parts(base.add(24).cast::<u64>(), ne);
-            let lossy = std::slice::from_raw_parts(base.add(24 + ne * 8).cast::<u32>(), nl);
-            let recheck =
-                std::slice::from_raw_parts(base.add(24 + ne * 8 + nl * 4).cast::<u32>(), nr);
-            Some(Arc::new(TidBitmapSet {
-                exact_ctids: exact.to_vec(),
-                lossy_blocks: lossy.to_vec(),
-                recheck_blocks: recheck.to_vec(),
-            }))
-        }
-    }
-
-    fn raw(self) -> pg_sys::dsa_pointer {
         self.0
     }
 }

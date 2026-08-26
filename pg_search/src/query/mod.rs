@@ -24,11 +24,12 @@ pub mod pdb_query;
 pub(crate) mod proximity;
 mod range;
 mod score;
+pub mod tid_bitmap_stream;
 
+use crate::query::tid_bitmap_stream::BitmapCell;
 use builder::{QueryBuilder, QueryOnlyBuilder, QueryTreeBuilder};
 use estimate_tree::QueryWithEstimates;
-use heap_field_filter::{HeapFieldFilter, TidBitmapSet};
-use std::sync::Arc;
+use heap_field_filter::HeapFieldFilter;
 
 use crate::api::FieldName;
 use crate::api::HashMap;
@@ -151,12 +152,17 @@ pub enum SearchQueryInput {
         #[serde(skip_serializing_if = "Vec::is_empty")]
         recheck_filters: Vec<HeapFieldFilter>,
         /// Set at plan time when an external index's bitmap covers this filter's
-        /// clauses; the bitmap set itself is attached at execution time.
+        /// clauses; the cursor source itself is attached at execution time.
         #[serde(default)]
         #[serde(skip_serializing_if = "is_false")]
         uses_tid_bitmap: bool,
+        /// Which claim-table consumer this node is, when covered. Serialized so
+        /// parallel workers claim the same streams the build owner prepared.
+        #[serde(default)]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        bitmap_consumer_id: Option<u32>,
         #[serde(skip)]
-        tid_bitmap_set: Option<Arc<TidBitmapSet>>,
+        bitmap_cell: Option<BitmapCell>,
     },
 
     #[serde(serialize_with = "serialize_fielded_query")]
@@ -1494,7 +1500,8 @@ impl SearchQueryInput {
                 always_filters,
                 recheck_filters,
                 uses_tid_bitmap: _,
-                tid_bitmap_set,
+                bitmap_consumer_id,
+                bitmap_cell,
             } => {
                 // Convert indexed query first
                 let inner_output = recurse(*indexed_query)?;
@@ -1510,7 +1517,8 @@ impl SearchQueryInput {
                     indexed_tantivy_query,
                     always_filters.clone(),
                     recheck_filters.clone(),
-                    tid_bitmap_set.clone(),
+                    bitmap_consumer_id,
+                    bitmap_cell.clone(),
                     relation_oid.expect("relation_oid is required for HeapFilter queries"),
                     expr_context,
                     planstate,
@@ -2206,7 +2214,8 @@ mod tests {
                 always_filters: vec![],
                 recheck_filters: vec![],
                 uses_tid_bitmap: false,
-                tid_bitmap_set: None,
+                bitmap_consumer_id: None,
+                bitmap_cell: None,
             }
             .is_full_scan_query()
         );
@@ -2287,7 +2296,8 @@ mod tests {
                         always_filters: vec![],
                         recheck_filters: vec![],
                         uses_tid_bitmap: false,
-                        tid_bitmap_set: None,
+                        bitmap_consumer_id: None,
+                        bitmap_cell: None,
                     }),
                 }],
                 tie_breaker: None,

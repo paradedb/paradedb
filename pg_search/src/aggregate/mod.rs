@@ -37,14 +37,15 @@ use crate::postgres::customscan::aggregatescan::build::{AggregateCSClause, Colle
 use crate::postgres::customscan::aggregatescan::json_rewrite::{
     rewrite_date_histogram_to_histogram, rewrite_json_date_histogram_to_histogram,
 };
+use crate::postgres::customscan::bitmap_intersection::BitmapExec;
 use crate::postgres::locks::{AcquiredSpinLock, Spinlock};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
-use crate::query::heap_field_filter::TidBitmapSet;
+use crate::query::tid_bitmap_stream::SharedBitmapHandle;
+use crate::query::tid_bitmap_stream::{BitmapCell, BitmapCursorSource};
 use crate::schema::SearchIndexSchema;
-use std::sync::Arc;
 
 use pgrx::{check_for_interrupts, pg_sys};
 use tantivy::aggregation::Key;
@@ -114,7 +115,7 @@ struct ParallelAggregation {
     config: Config,
     query_bytes: Vec<u8>,
     agg_req_bytes: Vec<u8>,
-    tid_bitmap_bytes: Vec<u8>,
+    bitmap_handle_bytes: Vec<u8>,
     segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
     ambulkdelete_epoch: u32,
 }
@@ -132,7 +133,7 @@ impl ParallelProcess for ParallelAggregation {
             &self.query_bytes,
             &self.segment_ids,
             &self.ambulkdelete_epoch,
-            &self.tid_bitmap_bytes,
+            &self.bitmap_handle_bytes,
         ]
     }
 }
@@ -148,6 +149,7 @@ impl ParallelAggregation {
         bucket_limit: u32,
         segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
         ambulkdelete_epoch: u32,
+        bitmap_handle: Option<SharedBitmapHandle>,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             state: State {
@@ -164,7 +166,7 @@ impl ParallelAggregation {
             },
             agg_req_bytes: serde_json::to_vec(&aggregation)?,
             query_bytes: serde_json::to_vec(query)?,
-            tid_bitmap_bytes: postcard::to_allocvec(&query.tid_bitmap_set().as_deref())?,
+            bitmap_handle_bytes: postcard::to_allocvec(&bitmap_handle)?,
             segment_ids,
             ambulkdelete_epoch,
         })
@@ -179,9 +181,40 @@ struct ParallelAggregationWorker<'a> {
     segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
     #[allow(dead_code)]
     ambulkdelete_epoch: u32,
+    /// The owner's published claim table, attached lazily by bgworkers (the
+    /// leader must not re-attach the area it created).
+    bitmap_handle: Option<SharedBitmapHandle>,
+    /// The area this bgworker attached, detached at the end of `run` (cursors
+    /// are gone once aggregation finishes; the leader's own area is not ours).
+    attached_area: *mut pg_sys::dsa_area,
 }
 
 impl<'a> ParallelAggregationWorker<'a> {
+    /// bgworkers only: attach the owner's claim table so this worker's scorers
+    /// stream their (consumer, segment) cursors. The area detaches at process
+    /// exit.
+    fn attach_bitmap_handle(&mut self) {
+        if let Some(handle) = self.bitmap_handle.take() {
+            let area = unsafe { pg_sys::dsa_attach(handle.area) };
+            self.attached_area = area;
+            let cell = BitmapCell::default();
+            cell.fill(std::sync::Arc::new(BitmapCursorSource::shared(
+                area,
+                handle.table,
+            )));
+            self.query.attach_bitmap_cell(&cell);
+        }
+    }
+
+    /// Leader participation: inject the leader's existing source instead of
+    /// re-attaching the DSA area it created.
+    fn attach_bitmap_source(&mut self, source: std::sync::Arc<BitmapCursorSource>) {
+        self.bitmap_handle = None;
+        let cell = BitmapCell::default();
+        cell.fill(source);
+        self.query.attach_bitmap_cell(&cell);
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn new_local(
         aggregation: AggregateRequest,
@@ -207,6 +240,8 @@ impl<'a> ParallelAggregationWorker<'a> {
             query,
             segment_ids,
             ambulkdelete_epoch,
+            bitmap_handle: None,
+            attached_area: std::ptr::null_mut(),
         }
     }
 
@@ -342,20 +377,17 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
             .expect("wrong type for ambulkdelete_epoch")
             .expect("missing ambulkdelete_epoch value");
 
-        let tid_bitmap_bytes = state_manager
+        let bitmap_handle_bytes = state_manager
             .slice::<u8>(6)
-            .expect("wrong type for tid_bitmap_bytes")
-            .expect("missing tid_bitmap_bytes value");
+            .expect("wrong type for bitmap_handle_bytes")
+            .expect("missing bitmap_handle_bytes value");
 
         let aggregation = serde_json::from_slice::<AggregateRequest>(agg_req_bytes)
             .expect("agg_req_bytes should deserialize into an Aggregations");
-        let mut query = serde_json::from_slice::<SearchQueryInput>(query_bytes)
+        let query = serde_json::from_slice::<SearchQueryInput>(query_bytes)
             .expect("query_bytes should deserialize into an SearchQueryInput");
-        if let Some(set) = postcard::from_bytes::<Option<TidBitmapSet>>(tid_bitmap_bytes)
-            .expect("tid_bitmap_bytes should deserialize into an Option<TidBitmapSet>")
-        {
-            query.attach_tid_bitmap_set(&Arc::new(set));
-        }
+        let bitmap_handle = postcard::from_bytes::<Option<SharedBitmapHandle>>(bitmap_handle_bytes)
+            .expect("bitmap_handle_bytes should deserialize");
         Self {
             state,
             config: *config,
@@ -363,19 +395,26 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
             query,
             segment_ids: segment_ids.to_vec(),
             ambulkdelete_epoch: *ambulkdelete_epoch,
+            bitmap_handle,
+            attached_area: std::ptr::null_mut(),
         }
     }
 
     fn run(mut self, mq_sender: &MessageQueueSender, worker_number: i32) -> anyhow::Result<()> {
+        self.attach_bitmap_handle();
         // wait for all workers to launch
         while self.state.launched_workers() == 0 {
             check_for_interrupts!();
             std::thread::yield_now();
         }
 
-        if let Some(intermediate_results) =
-            self.execute_aggregate(QueryWorkerStyle::ParallelWorker(worker_number), None, None)?
-        {
+        let result =
+            self.execute_aggregate(QueryWorkerStyle::ParallelWorker(worker_number), None, None);
+        if !self.attached_area.is_null() {
+            unsafe { pg_sys::dsa_detach(self.attached_area) };
+            self.attached_area = std::ptr::null_mut();
+        }
+        if let Some(intermediate_results) = result? {
             let bytes = postcard::to_allocvec(&intermediate_results)?;
             Ok(mq_sender.send(bytes)?)
         } else {
@@ -394,6 +433,7 @@ pub fn execute_aggregate(
     bucket_limit: u32,
     expr_context: *mut pg_sys::ExprContext,
     planstate: *mut pg_sys::PlanState,
+    mut bitmap_exec: Option<&mut BitmapExec>,
 ) -> Result<AggregationResults, Box<dyn Error>> {
     if index.created_by_version().stores_datetimes_in_i64() {
         // We need to rewrite date_histogram requests to regular histogram requests because we are
@@ -443,6 +483,14 @@ pub fn execute_aggregate(
         if !solve_mvcc
             && matches!(&agg_req, AggregateRequest::Sql(clause) if clause.is_bare_doc_count())
         {
+            // Serial execution: the scorers claim private cursors.
+            if let Some(bitmap_exec) = bitmap_exec.as_deref_mut()
+                && let Some(cell) = query.bitmap_cell()
+                && cell.get().is_none()
+                && let Some(source) = bitmap_exec.private_source()
+            {
+                cell.fill(source);
+            }
             let count = reader.count_matched_docs()?;
             let mut results = AggregationResults::default();
             // Key "0" matches `CollectAggregations::collect`'s enumeration of
@@ -466,6 +514,26 @@ pub fn execute_aggregate(
             .iter()
             .map(|r| (r.segment_id(), r.num_deleted_docs()))
             .collect::<Vec<_>>();
+        // Publish the bitmap claim table for the worker pool: rebuild the
+        // leader's bitmap into this scan's own DSA area, prepare one iterator
+        // state per (consumer, segment) stream, and refresh the leader's cell
+        // (cloned into `query`) with the shared view.
+        let mut leader_bitmap_source = None;
+        let bitmap_handle = bitmap_exec.and_then(|bitmap_exec| {
+            let consumers = query.bitmap_consumer_count();
+            if consumers == 0 {
+                return None;
+            }
+            let segments: Vec<SegmentId> = segment_ids.iter().map(|(id, _)| *id).collect();
+            let handle = bitmap_exec.shared_source(consumers, &segments)?;
+            if let Some(cell) = query.bitmap_cell()
+                && let Some(source) = bitmap_exec.source()
+            {
+                cell.fill(source);
+            }
+            leader_bitmap_source = bitmap_exec.source();
+            Some(handle)
+        });
         let process = ParallelAggregation::new(
             index.oid(),
             &query,
@@ -475,6 +543,7 @@ pub fn execute_aggregate(
             bucket_limit,
             segment_ids,
             ambulkdelete_epoch,
+            bitmap_handle,
         )?;
 
         // limit number of workers to the number of segments
@@ -518,6 +587,9 @@ pub fn execute_aggregate(
             if pg_sys::parallel_leader_participation {
                 let mut worker =
                     ParallelAggregationWorker::new_parallel_worker(*process.state_manager());
+                if let Some(source) = leader_bitmap_source.clone() {
+                    worker.attach_bitmap_source(source);
+                }
                 if let Some(result) = worker.execute_aggregate(
                     QueryWorkerStyle::ParallelLeader,
                     Some(expr_context),

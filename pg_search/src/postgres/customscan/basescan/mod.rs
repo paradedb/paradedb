@@ -16,7 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 #![allow(clippy::unnecessary_cast)] // helps with integer casting differences between postgres versions
-pub(crate) mod bitmap_intersection;
 mod cost;
 pub mod exec_methods;
 pub mod parallel;
@@ -56,6 +55,7 @@ use crate::postgres::customscan::basescan::projections::window_agg::{
     resolve_window_aggregate_filters_at_plan_time,
 };
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
+use crate::postgres::customscan::bitmap_intersection;
 use crate::postgres::customscan::builders::custom_path::{
     CustomPathBuilder, ExecMethodType, Flags, RestrictInfoType, restrict_info,
 };
@@ -168,6 +168,16 @@ impl BaseScan {
         )
         .expect("should be able to open the search index reader");
         state.custom_state_mut().search_reader = Some(search_reader);
+
+        let parallel_aware = unsafe { (*(*state.planstate()).plan).parallel_aware };
+        if !parallel_aware
+            && let Some(cell) = state.custom_state().bitmap_cell.clone()
+            && cell.get().is_none()
+            && let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut()
+            && let Some(source) = unsafe { bitmap_exec.private_source() }
+        {
+            cell.fill(source);
+        }
 
         let csstate = addr_of_mut!(state.csstate);
         state.custom_state_mut().init_exec_method(csstate);
@@ -921,8 +931,6 @@ impl CustomScan for BaseScan {
             }
             .max(1.0);
 
-            // Harvest a bitmap intersection source now that the ParadeDB-side row estimate
-            // exists to feed the cost ledger, and rewrite the covered HeapFilters.
             let harvested_bitmap = bitmap_intersection::BitmapPlanner::from_query(
                 root,
                 builder.args().rel,
@@ -948,9 +956,6 @@ impl CustomScan for BaseScan {
             // to decide on parallelism
             //
 
-            // The harvested bitmap is built once before the first tuple (and shared
-            // across parallel workers), so its build cost lands in startup, which the
-            // parallel divisor below never touches.
             let startup_cost =
                 DEFAULT_STARTUP_COST + harvested_bitmap.as_ref().map_or(0.0, |h| h.build_cost);
             let mut custom_paths = Vec::new();
@@ -1463,23 +1468,12 @@ impl CustomScan for BaseScan {
         if let Some(bitmap_exec) = state.custom_state().bitmap_exec.as_ref() {
             explainer.add_text("Bitmap Intersection", bitmap_exec.index_names().join(", "));
             if explainer.is_analyze()
-                && let Some(stats) = bitmap_exec.tid_bitmap_stats()
+                && let Some((exact, lossy, recheck, rejected)) = bitmap_exec.cursor_stats()
             {
-                explainer.add_unsigned_integer(
-                    "Bitmap Exact Candidates",
-                    stats.exact_ctids as u64,
-                    None,
-                );
-                explainer.add_unsigned_integer(
-                    "Bitmap Lossy Blocks",
-                    stats.lossy_blocks as u64,
-                    None,
-                );
-                explainer.add_unsigned_integer(
-                    "Bitmap Recheck Blocks",
-                    stats.recheck_blocks as u64,
-                    None,
-                );
+                explainer.add_unsigned_integer("Bitmap Exact Pages", exact, None);
+                explainer.add_unsigned_integer("Bitmap Lossy Pages", lossy, None);
+                explainer.add_unsigned_integer("Bitmap Recheck Pages", recheck, None);
+                explainer.add_unsigned_integer("Bitmap Rejected Docs", rejected, None);
             }
         }
         if explainer.is_costs() {
@@ -1585,7 +1579,7 @@ impl CustomScan for BaseScan {
                     if let Some(search_reader) = state.custom_state().search_reader.as_ref() {
                         // EXPLAIN ANALYZE: use the existing search reader
                         search_reader
-                            .build_query_tree_with_estimates(base_query.clone())
+                            .build_query_tree_with_estimates(base_query.without_heap_filters())
                             .expect("building query tree with estimates should not fail")
                     } else {
                         // EXPLAIN (without ANALYZE): create a temporary reader for estimates
@@ -1597,7 +1591,7 @@ impl CustomScan for BaseScan {
 
                         let temp_reader = SearchIndexReader::open_with_context(
                             indexrel,
-                            base_query.clone(),
+                            base_query.without_heap_filters(),
                             false,                         // don't need scores for estimates
                             MvccSatisfies::LargestSegment, // Use largest segment for estimation
                             None,                          // No expr_context needed for estimates
@@ -1607,7 +1601,7 @@ impl CustomScan for BaseScan {
                         .expect("opening temporary search reader for estimates should not fail");
 
                         temp_reader
-                            .build_query_tree_with_estimates(base_query.clone())
+                            .build_query_tree_with_estimates(base_query.without_heap_filters())
                             .expect("building query tree with estimates should not fail")
                     };
 
@@ -1635,8 +1629,7 @@ impl CustomScan for BaseScan {
             state.custom_state_mut().open_relations(lockmode);
 
             // Initialize the harvested child bitmap scan, if any; registering it in
-            // custom_ps lets EXPLAIN render it. Runs before the EXPLAIN-only return so
-            // plain EXPLAIN shows the child node too (node init does no scan work).
+            // custom_ps lets EXPLAIN render it.
             let cscan = state.csstate.ss.ps.plan.cast::<pg_sys::CustomScan>();
             if let Some(bitmap_exec) = bitmap_intersection::BitmapExec::init(cscan, estate, eflags)
             {
@@ -1701,6 +1694,16 @@ impl CustomScan for BaseScan {
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        // Drop the previous execution's scorers (whose cursors point into the
+        // bitmap) and the stale source cell before the bitmap is freed; only then
+        // rebuild for the new params. The exec method itself is preserved and
+        // re-bound by `reset()` below. No reader means the scan never executed:
+        // there are no scorers, and the exec method may not even be bound yet.
+        if state.custom_state().search_reader.is_some() {
+            state.custom_state_mut().reset_exec_results();
+        }
+        drop(state.custom_state_mut().search_reader.take());
+        state.custom_state_mut().bitmap_cell = None;
         if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut() {
             unsafe { bitmap_exec.rescan() };
         }
@@ -1859,17 +1862,20 @@ impl CustomScan for BaseScan {
             }
         }
 
-        // get some things dropped now
-        if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.take() {
-            unsafe { bitmap_exec.shutdown() };
-        }
-
+        // get some things dropped now. Order matters: scorers hold bitmap
+        // cursors into the TIDBitmap/DSA, so everything that can hold a scorer
+        // drops before the bitmap machinery is torn down.
+        state.custom_state_mut().drop_exec_method();
         drop(state.custom_state_mut().visibility_checker.take());
         drop(state.custom_state_mut().doc_from_heap_state.take());
         drop(state.custom_state_mut().search_reader.take());
         drop(std::mem::take(
             &mut state.custom_state_mut().snippet_generators,
         ));
+        state.custom_state_mut().bitmap_cell = None;
+        if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.take() {
+            unsafe { bitmap_exec.shutdown() };
+        }
 
         state.custom_state_mut().heaprel.take();
         state.custom_state_mut().indexrel.take();

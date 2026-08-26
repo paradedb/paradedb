@@ -28,6 +28,7 @@ use crate::postgres::locks::Spinlock;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::shared_threshold::ParallelScanThresholdState;
 use crate::query::SearchQueryInput;
+use crate::query::tid_bitmap_stream::SharedBitmapHandle;
 
 use pgrx::*;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
@@ -700,9 +701,10 @@ pub struct ParallelScanState {
     /// Bitmap-intersection build coordination. Protected by `mutex`; waiters
     /// sleep on `bitmap_cv`.
     bitmap_build_state: BitmapBuildState,
-    /// DSA pointer to the published flat `TidBitmapSet` bytes; 0 when the build
-    /// produced no set. Valid once `bitmap_build_state` is `Done`.
-    bitmap_dsa_pointer: pg_sys::dsa_pointer,
+    /// Handle of the owner's DSA area and the claim table within it; (0, 0)
+    /// when the build produced nothing. Valid once `bitmap_build_state` is `Done`.
+    bitmap_area_handle: pg_sys::dsa_handle,
+    bitmap_table: pg_sys::dsa_pointer,
     /// Condition variable for waiting on the bitmap build.
     bitmap_cv: ConditionVariable,
 
@@ -711,23 +713,13 @@ pub struct ParallelScanState {
 
 /// Bitmap-intersection build progress. Lives in the parallel DSM, so the layout
 /// is pinned to `u32` with fixed discriminants (zeroed shared memory reads as
-/// `NotBuilt`).
+/// `NotBuilt`). The leader is the only builder: it publishes at DSM
+/// (re)initialization and workers wait for `Done`.
 #[derive(Clone, Copy, PartialEq)]
 #[repr(u32)]
 enum BitmapBuildState {
     NotBuilt = 0,
-    Building = 1,
-    Done = 2,
-}
-
-/// Outcome of asking to build the shared bitmap set.
-pub enum BitmapBuildClaim {
-    /// This participant won the claim and must build + publish.
-    Build,
-    /// Another participant is building; wait via `bitmap_wait_done`.
-    Wait,
-    /// The build finished; the payload is the published DSA pointer.
-    Done(pg_sys::dsa_pointer),
+    Done = 1,
 }
 
 impl ParallelScanState {
@@ -776,7 +768,8 @@ impl ParallelScanState {
         self.init_cv.init();
         self.bitmap_cv.init();
         self.bitmap_build_state = BitmapBuildState::NotBuilt;
-        self.bitmap_dsa_pointer = 0;
+        self.bitmap_area_handle = 0;
+        self.bitmap_table = 0;
         self.shared_threshold.init();
         self.populate(
             &args.all_sources,
@@ -786,28 +779,17 @@ impl ParallelScanState {
         );
     }
 
-    pub fn bitmap_claim_build(&mut self) -> BitmapBuildClaim {
-        let _lock = self.mutex.acquire();
-        match self.bitmap_build_state {
-            BitmapBuildState::NotBuilt => {
-                self.bitmap_build_state = BitmapBuildState::Building;
-                BitmapBuildClaim::Build
-            }
-            BitmapBuildState::Building => BitmapBuildClaim::Wait,
-            BitmapBuildState::Done => BitmapBuildClaim::Done(self.bitmap_dsa_pointer),
-        }
-    }
-
-    pub fn bitmap_publish(&mut self, pointer: pg_sys::dsa_pointer) {
+    pub fn publish_bitmap_handle(&mut self, handle: Option<SharedBitmapHandle>) {
         {
             let _lock = self.mutex.acquire();
-            self.bitmap_dsa_pointer = pointer;
+            self.bitmap_area_handle = handle.map(|h| h.area).unwrap_or(0);
+            self.bitmap_table = handle.map(|h| h.table).unwrap_or(0);
             self.bitmap_build_state = BitmapBuildState::Done;
         }
         self.bitmap_cv.broadcast();
     }
 
-    pub fn bitmap_wait_done(&mut self) -> pg_sys::dsa_pointer {
+    pub fn bitmap_wait_done(&mut self) -> Option<SharedBitmapHandle> {
         self.bitmap_cv.prepare_to_sleep();
         loop {
             {
@@ -820,7 +802,10 @@ impl ParallelScanState {
         }
         ConditionVariable::cancel_sleep();
         let _lock = self.mutex.acquire();
-        self.bitmap_dsa_pointer
+        (self.bitmap_area_handle != 0).then_some(SharedBitmapHandle {
+            area: self.bitmap_area_handle,
+            table: self.bitmap_table,
+        })
     }
 
     /// Phase 2: Populate with actual data (assumes mutex already created via `create`).
@@ -1241,12 +1226,10 @@ impl ParallelScanState {
     /// launch, so nothing can still be reading the freed bytes. Never called from the
     /// leader's per-scan `reset()`: wiping there would race a rebuild that already
     /// published, stranding CV waiters.
-    pub unsafe fn bitmap_reset(&mut self, dsa: *mut pg_sys::dsa_area) {
-        if self.bitmap_dsa_pointer != 0 && !dsa.is_null() {
-            unsafe { pg_sys::dsa_free(dsa, self.bitmap_dsa_pointer) };
-        }
+    pub fn bitmap_reset(&mut self) {
         self.bitmap_build_state = BitmapBuildState::NotBuilt;
-        self.bitmap_dsa_pointer = 0;
+        self.bitmap_area_handle = 0;
+        self.bitmap_table = 0;
     }
 
     /// Restore the per-source remaining counts for a rescan. Called by amparallelrescan.

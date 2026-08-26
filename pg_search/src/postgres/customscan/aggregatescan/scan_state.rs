@@ -21,15 +21,14 @@ use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList;
 use crate::postgres::customscan::aggregatescan::privdat::{DataFusionTopK, FilterExpr};
-use crate::postgres::customscan::basescan::bitmap_intersection::BitmapExec;
+use crate::postgres::customscan::bitmap_intersection::BitmapExec;
 use crate::postgres::customscan::joinscan::build::{
     JoinLevelSearchPredicate, MultiTablePredicateInfo, RelNode,
 };
 use crate::postgres::customscan::mpp::glue::MppLaunchTiming;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
-use crate::query::heap_field_filter::TidBitmapSet;
-use std::sync::Arc;
+use crate::query::tid_bitmap_stream::BitmapCell;
 
 use arrow_array::RecordBatch;
 use datafusion::physical_plan::SendableRecordBatchStream;
@@ -128,6 +127,7 @@ pub struct AggregateScanState {
     /// Execution state for the child bitmap scan, if a bitmap intersection source was
     /// harvested at plan time.
     pub bitmap_exec: Option<BitmapExec>,
+    pub bitmap_cell: Option<BitmapCell>,
 
     /// DataFusion backend state. When `Some`, the DataFusion path is active
     /// and the Tantivy-specific fields above are unused.
@@ -237,12 +237,22 @@ impl SolvePostgresExpressions for AggregateScanState {
         }
     }
 
-    fn tid_bitmap_set(&mut self, _planstate: *mut pg_sys::PlanState) -> Option<Arc<TidBitmapSet>> {
-        unsafe { self.bitmap_exec.as_mut()?.tid_bitmap_set() }
+    /// The aggregate's leader builds and streams privately; its MPP workers do
+    /// not receive a cell yet and evaluate filters directly (correct, unpruned).
+    fn bitmap_source_cell(&mut self, _planstate: *mut pg_sys::PlanState) -> Option<BitmapCell> {
+        self.bitmap_exec.as_ref()?;
+        // The cell is filled in `execute_aggregate`, which knows whether the
+        // build must be private (count fast path) or shared (worker pool) —
+        // building privately here would be thrown away by the shared rebuild.
+        Some(
+            self.bitmap_cell
+                .get_or_insert_with(BitmapCell::default)
+                .clone(),
+        )
     }
 
-    fn attach_tid_bitmap_set(&mut self, set: &Arc<TidBitmapSet>) {
-        self.aggregate_clause.query_mut().attach_tid_bitmap_set(set);
+    fn attach_bitmap_cell(&mut self, cell: &BitmapCell) {
+        self.aggregate_clause.query_mut().attach_bitmap_cell(cell);
     }
 
     fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {

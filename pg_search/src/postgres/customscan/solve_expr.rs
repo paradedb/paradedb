@@ -16,41 +16,71 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::operator::searchqueryinput_typoid;
-use crate::query::heap_field_filter::TidBitmapSet;
+use crate::query::tid_bitmap_stream::BitmapCell;
 use crate::query::{PostgresExpression, SearchQueryInput};
 use pgrx::{PgMemoryContexts, pg_sys};
-use std::sync::Arc;
 
 impl SearchQueryInput {
-    /// The bitmap set attached to this query's HeapFilters, if any.
-    pub fn tid_bitmap_set(&self) -> Option<Arc<TidBitmapSet>> {
+    /// The cursor-source cell attached to this query's HeapFilters, if any.
+    pub fn bitmap_cell(&self) -> Option<BitmapCell> {
         let mut found = None;
         self.visit_ref(&mut |sqi| {
             if let SearchQueryInput::HeapFilter {
-                tid_bitmap_set: Some(set),
+                bitmap_cell: Some(cell),
                 ..
             } = sqi
                 && found.is_none()
             {
-                found = Some(Arc::clone(set));
+                found = Some(cell.clone());
             }
         });
         found
     }
 
-    /// Attach the execution-time bitmap set to every HeapFilter that was flagged at
-    /// plan time as covered by an external index's bitmap.
-    pub fn attach_tid_bitmap_set(&mut self, set: &Arc<TidBitmapSet>) {
+    /// Install the late-bound cursor-source cell on every HeapFilter that was
+    /// assigned a consumer id at plan time.
+    pub fn attach_bitmap_cell(&mut self, cell: &BitmapCell) {
         self.visit(&mut |sqi| {
             if let SearchQueryInput::HeapFilter {
-                uses_tid_bitmap: true,
-                tid_bitmap_set,
+                bitmap_consumer_id: Some(_),
+                bitmap_cell,
                 ..
             } = sqi
             {
-                *tid_bitmap_set = Some(Arc::clone(set));
+                *bitmap_cell = Some(cell.clone());
             }
         });
+    }
+
+    /// Number of claim-table consumers: covered HeapFilters carry ids 0..n.
+    pub fn bitmap_consumer_count(&self) -> u32 {
+        let mut max_id = None;
+        self.visit_ref(&mut |sqi| {
+            if let SearchQueryInput::HeapFilter {
+                bitmap_consumer_id: Some(id),
+                ..
+            } = sqi
+            {
+                max_id = Some(max_id.map_or(*id, |m: u32| m.max(*id)));
+            }
+        });
+        max_id.map_or(0, |m| m + 1)
+    }
+
+    /// A copy with every HeapFilter wrapper replaced by its indexed child, for
+    /// estimation paths that cannot evaluate heap filters (no ExprContext).
+    pub fn without_heap_filters(&self) -> SearchQueryInput {
+        let mut clone = self.clone();
+        // `visit` is pre-order: the callback runs, then the walk descends into the
+        // mutated node. Unwrapping until the node is no longer a HeapFilter strips
+        // arbitrary nesting in a single pass.
+        clone.visit(&mut |sqi| {
+            while let SearchQueryInput::HeapFilter { indexed_query, .. } = sqi {
+                *sqi = std::mem::replace(indexed_query.as_mut(), SearchQueryInput::Uninitialized);
+            }
+        });
+        debug_assert!(!clone.has_heap_filters());
+        clone
     }
 
     pub fn has_heap_filters(&self) -> bool {
@@ -247,14 +277,15 @@ pub trait SolvePostgresExpressions {
 
     fn init_search_query_input(&mut self) {}
 
-    /// Build (or reuse) the execution-time bitmap set for this scan's bitmap
-    /// intersection. Scans that carry a `BitmapExec` override this.
-    fn tid_bitmap_set(&mut self, _planstate: *mut pg_sys::PlanState) -> Option<Arc<TidBitmapSet>> {
+    /// Produce (and for workers, fill) the late-bound cursor-source cell for this
+    /// scan's bitmap intersection. Scans that carry a `BitmapExec` override this.
+    fn bitmap_source_cell(&mut self, _planstate: *mut pg_sys::PlanState) -> Option<BitmapCell> {
         None
     }
 
-    /// Attach `set` to the HeapFilters that were planned against the bitmap.
-    fn attach_tid_bitmap_set(&mut self, _set: &Arc<TidBitmapSet>) {}
+    /// Install `cell` on the HeapFilters that were assigned consumer ids at plan
+    /// time.
+    fn attach_bitmap_cell(&mut self, _cell: &BitmapCell) {}
 
     fn prepare_query_for_execution(
         &mut self,
@@ -267,9 +298,9 @@ pub trait SolvePostgresExpressions {
             self.solve_postgres_expressions(expr_context);
         }
         // Attach after `init_search_query_input` re-clones the query from its base,
-        // which wipes the serde-skipped set.
-        if let Some(set) = self.tid_bitmap_set(planstate) {
-            self.attach_tid_bitmap_set(&set);
+        // which wipes the serde-skipped cell.
+        if let Some(cell) = self.bitmap_source_cell(planstate) {
+            self.attach_bitmap_cell(&cell);
         }
     }
 }

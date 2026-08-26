@@ -85,7 +85,7 @@ use crate::postgres::customscan::aggregatescan::privdat::PrivateData;
 use crate::postgres::customscan::aggregatescan::scan_state::{
     AggregateScanState, ExecutionState, WrappedAggregateProjection,
 };
-use crate::postgres::customscan::basescan::bitmap_intersection::{self, BitmapPlanner};
+use crate::postgres::customscan::bitmap_intersection::{self, BitmapPlanner};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -735,23 +735,12 @@ impl CustomScan for AggregateScan {
         if let Some(bitmap_exec) = state.custom_state().bitmap_exec.as_ref() {
             explainer.add_text("Bitmap Intersection", bitmap_exec.index_names().join(", "));
             if explainer.is_analyze()
-                && let Some(stats) = bitmap_exec.tid_bitmap_stats()
+                && let Some((exact, lossy, recheck, rejected)) = bitmap_exec.cursor_stats()
             {
-                explainer.add_unsigned_integer(
-                    "Bitmap Exact Candidates",
-                    stats.exact_ctids as u64,
-                    None,
-                );
-                explainer.add_unsigned_integer(
-                    "Bitmap Lossy Blocks",
-                    stats.lossy_blocks as u64,
-                    None,
-                );
-                explainer.add_unsigned_integer(
-                    "Bitmap Recheck Blocks",
-                    stats.recheck_blocks as u64,
-                    None,
-                );
+                explainer.add_unsigned_integer("Bitmap Exact Pages", exact, None);
+                explainer.add_unsigned_integer("Bitmap Lossy Pages", lossy, None);
+                explainer.add_unsigned_integer("Bitmap Recheck Pages", recheck, None);
+                explainer.add_unsigned_integer("Bitmap Rejected Docs", rejected, None);
             }
         }
 
@@ -945,6 +934,7 @@ impl CustomScan for AggregateScan {
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        state.custom_state_mut().bitmap_cell = None;
         if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut() {
             unsafe { bitmap_exec.rescan() };
         }
@@ -998,6 +988,7 @@ impl CustomScan for AggregateScan {
     }
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        state.custom_state_mut().bitmap_cell = None;
         if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.take() {
             unsafe { bitmap_exec.shutdown() };
         }

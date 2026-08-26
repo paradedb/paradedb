@@ -235,40 +235,61 @@ pub fn is_in_explain() -> bool {
     IN_EXPLAIN.with(|cell| cell.get())
 }
 
-static mut PREV_PROCESS_UTILITY_HOOK: pg_sys::ProcessUtility_hook_type = None;
+static mut PREV_EXPLAIN_ONE_QUERY_HOOK: pg_sys::ExplainOneQuery_hook_type = None;
 
 #[allow(clippy::too_many_arguments)]
 #[rustfmt::skip]
 #[pgrx::pg_guard]
-unsafe extern "C-unwind" fn paradedb_process_utility_hook(
-    pstmt: *mut pg_sys::PlannedStmt,
+unsafe extern "C-unwind" fn paradedb_explain_one_query_hook(
+    query: *mut pg_sys::Query,
+    cursor_options: ::core::ffi::c_int,
+    into: *mut pg_sys::IntoClause,
+    es: *mut pg_sys::ExplainState,
     query_string: *const ::core::ffi::c_char,
-    read_only_tree: bool,
-    context: pg_sys::ProcessUtilityContext::Type,
     params: pg_sys::ParamListInfo,
     query_env: *mut pg_sys::QueryEnvironment,
-    dest: *mut pg_sys::DestReceiver,
-    qc: *mut pg_sys::QueryCompletion,
 ) {
-    let is_explain = !pstmt.is_null()
-        && !(*pstmt).utilityStmt.is_null()
-        && (*(*pstmt).utilityStmt).type_ == pg_sys::NodeTag::T_ExplainStmt;
-    let _explain_guard = ExplainGuard::new(is_explain);
+    let _explain_guard = ExplainGuard::new(true);
 
-    if let Some(prev_hook) = PREV_PROCESS_UTILITY_HOOK {
-        prev_hook(pstmt, query_string, read_only_tree, context, params, query_env, dest, qc);
+    if let Some(prev_hook) = PREV_EXPLAIN_ONE_QUERY_HOOK {
+        prev_hook(query, cursor_options, into, es, query_string, params, query_env);
     } else {
-        pg_sys::standard_ProcessUtility(pstmt, query_string, read_only_tree, context, params, query_env, dest, qc);
+        #[cfg(any(feature = "pg15", feature = "pg16"))]
+        {
+            let plan = pg_sys::pg_plan_query(query, query_string, cursor_options, params);
+            pg_sys::ExplainOnePlan(
+                plan,
+                into,
+                es,
+                query_string,
+                params,
+                query_env,
+                core::ptr::null(),
+                core::ptr::null(),
+            );
+        }
+        #[cfg(not(any(feature = "pg15", feature = "pg16")))]
+        {
+            pg_sys::standard_ExplainOneQuery(
+                query,
+                cursor_options,
+                into,
+                es,
+                query_string,
+                params,
+                query_env,
+            );
+        }
     }
 }
 
-/// Register a `ProcessUtility_hook` to track when queries are being planned/executed under `EXPLAIN`.
+/// Register an `ExplainOneQuery_hook` to track when queries are being planned/executed under `EXPLAIN`.
 ///
 /// This allows `emit_planner_warnings()` to downgrade `paradedb.planner_warnings = 'error'`
 /// to warnings during `EXPLAIN`, allowing users to inspect the query plan.
 pub unsafe fn register_explain_hook() {
-    PREV_PROCESS_UTILITY_HOOK = pg_sys::ProcessUtility_hook;
-    pg_sys::ProcessUtility_hook = Some(paradedb_process_utility_hook);
+    PREV_EXPLAIN_ONE_QUERY_HOOK = pg_sys::ExplainOneQuery_hook;
+    pg_sys::ExplainOneQuery_hook = Some(paradedb_explain_one_query_hook);
 }
 
 pub fn emit_planner_warnings() {

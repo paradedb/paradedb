@@ -32,7 +32,6 @@
 
 use crate::api::HashSet;
 use crate::gucs::WorkMem;
-use crate::postgres::tuplesort::Sorter;
 use crate::postgres::types::TantivyValue;
 use pgrx::pg_sys;
 use std::os::raw::c_int;
@@ -124,7 +123,88 @@ impl KeySetBuilder {
     fn finish(self) -> KeySet {
         match self.sort {
             None => KeySet::InMemory(self.in_memory),
-            Some(sort) => KeySet::Spilled(Spilled::from_sorter(sort)),
+            Some(sort) => KeySet::Spilled(sort.finish()),
+        }
+    }
+}
+
+/// Thin wrapper over a `bytea` `tuplesort` used to externally sort the serialized keys.
+struct Sorter {
+    state: *mut pg_sys::Tuplesortstate,
+}
+
+impl Sorter {
+    fn new(budget: usize) -> Self {
+        unsafe {
+            // `<` operator for bytea, so the sort orders by memcmp of the serialized keys.
+            let tcache =
+                pg_sys::lookup_type_cache(pg_sys::BYTEAOID, pg_sys::TYPECACHE_LT_OPR as c_int);
+            let lt_op = (*tcache).lt_opr;
+            let state = pg_sys::tuplesort_begin_datum(
+                pg_sys::BYTEAOID,
+                lt_op,
+                pg_sys::InvalidOid, // bytea has no collation
+                false,              // nullsFirstFlag (there are no nulls)
+                (budget / 1024).max(64) as c_int,
+                std::ptr::null_mut(), // not parallel
+                0,                    // sortopt: no random access
+            );
+            Sorter { state }
+        }
+    }
+
+    fn put(&mut self, bytes: &[u8]) {
+        unsafe {
+            let datum = bytea_datum(bytes);
+            pg_sys::tuplesort_putdatum(self.state, datum, false);
+            // `tuplesort_putdatum` copies the value, so free our transient bytea.
+            pg_sys::pfree(datum.cast_mut_ptr());
+        }
+    }
+
+    /// Drain the sorted keys into a `BufFile` + sparse index.
+    fn finish(self) -> Spilled {
+        unsafe {
+            pg_sys::tuplesort_performsort(self.state);
+
+            // The BufFile is probed on later scan rows, so both the file (via its resource owner)
+            // and the BufFile *struct* (via the current memory context) must outlive the current
+            // per-tuple ExprContext. Create it against the transaction's owner/context; `Spilled`'s
+            // Drop closes it when the function's cache is torn down at end of query.
+            let saved_owner = pg_sys::CurrentResourceOwner;
+            let saved_cxt = pg_sys::CurrentMemoryContext;
+            pg_sys::CurrentResourceOwner = pg_sys::CurTransactionResourceOwner;
+            pg_sys::CurrentMemoryContext = pg_sys::CurTransactionContext;
+            let file = pg_sys::BufFileCreateTemp(false);
+            pg_sys::CurrentResourceOwner = saved_owner;
+            pg_sys::CurrentMemoryContext = saved_cxt;
+            let mut index: Vec<IndexEntry> = Vec::new();
+            let mut count: usize = 0;
+
+            let mut val: pg_sys::Datum = pg_sys::Datum::from(0);
+            let mut is_null = false;
+            let mut abbrev: pg_sys::Datum = pg_sys::Datum::from(0);
+            while tuplesort_getdatum_forward(self.state, &mut val, &mut is_null, &mut abbrev) {
+                let bytes = datum_bytea(val);
+
+                if count.is_multiple_of(INDEX_STRIDE) {
+                    let (fileno, offset) = buffile_tell(file);
+                    index.push(IndexEntry {
+                        key: bytes.to_vec(),
+                        fileno,
+                        offset,
+                    });
+                }
+
+                let len = bytes.len() as u32;
+                buffile_write(file, &len.to_ne_bytes());
+                buffile_write(file, bytes);
+                count += 1;
+            }
+
+            pg_sys::tuplesort_end(self.state);
+
+            Spilled { file, index, count }
         }
     }
 }
@@ -147,47 +227,6 @@ struct IndexEntry {
 }
 
 impl Spilled {
-    /// Drain the sorted keys into a `BufFile` + sparse index.
-    fn from_sorter(mut sorter: Sorter) -> Self {
-        unsafe {
-            sorter.performsort();
-
-            // The BufFile is probed on later scan rows, so both the file (via its resource owner)
-            // and the BufFile *struct* (via the current memory context) must outlive the current
-            // per-tuple ExprContext. Create it against the transaction's owner/context; `Spilled`'s
-            // Drop closes it when the function's cache is torn down at end of query.
-            let saved_owner = pg_sys::CurrentResourceOwner;
-            let saved_cxt = pg_sys::CurrentMemoryContext;
-            pg_sys::CurrentResourceOwner = pg_sys::CurTransactionResourceOwner;
-            pg_sys::CurrentMemoryContext = pg_sys::CurTransactionContext;
-            let file = pg_sys::BufFileCreateTemp(false);
-            pg_sys::CurrentResourceOwner = saved_owner;
-            pg_sys::CurrentMemoryContext = saved_cxt;
-
-            let mut index: Vec<IndexEntry> = Vec::new();
-            let mut count: usize = 0;
-            while let Some(bytes) = sorter.next_sorted() {
-                if count.is_multiple_of(INDEX_STRIDE) {
-                    let (fileno, offset) = buffile_tell(file);
-                    index.push(IndexEntry {
-                        key: bytes.to_vec(),
-                        fileno,
-                        offset,
-                    });
-                }
-
-                let len = bytes.len() as u32;
-                buffile_write(file, &len.to_ne_bytes());
-                buffile_write(file, bytes);
-                count += 1;
-            }
-
-            sorter.end();
-
-            Spilled { file, index, count }
-        }
-    }
-
     fn contains(&self, value: &TantivyValue) -> bool {
         if self.count == 0 {
             return false;
@@ -244,6 +283,21 @@ impl Drop for Spilled {
     }
 }
 
+/// Build a transient `bytea` Datum from `bytes` (palloc'd in the current context).
+unsafe fn bytea_datum(bytes: &[u8]) -> pg_sys::Datum {
+    use pgrx::IntoDatum;
+    bytes
+        .to_vec()
+        .into_datum()
+        .expect("byte slice should convert to a bytea datum")
+}
+
+/// View a `bytea` Datum's payload as bytes (valid until the datum is freed/overwritten).
+unsafe fn datum_bytea<'a>(datum: pg_sys::Datum) -> &'a [u8] {
+    let varlena = datum.cast_mut_ptr::<pg_sys::varlena>();
+    pgrx::varlena_to_byte_slice(varlena)
+}
+
 unsafe fn buffile_tell(file: *mut pg_sys::BufFile) -> (c_int, pg_sys::off_t) {
     let mut fileno: c_int = 0;
     let mut offset: pg_sys::off_t = 0;
@@ -252,6 +306,24 @@ unsafe fn buffile_tell(file: *mut pg_sys::BufFile) -> (c_int, pg_sys::off_t) {
 }
 
 // The following wrap Postgres APIs whose signatures differ across supported versions.
+
+/// `tuplesort_getdatum`, always reading forward. `copy: false` -- the returned datum is valid until
+/// the next call, which is all we need. (PG16 added the `copy` parameter.)
+unsafe fn tuplesort_getdatum_forward(
+    state: *mut pg_sys::Tuplesortstate,
+    val: *mut pg_sys::Datum,
+    is_null: *mut bool,
+    abbrev: *mut pg_sys::Datum,
+) -> bool {
+    #[cfg(feature = "pg15")]
+    {
+        pg_sys::tuplesort_getdatum(state, true, val, is_null, abbrev)
+    }
+    #[cfg(not(feature = "pg15"))]
+    {
+        pg_sys::tuplesort_getdatum(state, true, false, val, is_null, abbrev)
+    }
+}
 
 /// Write `data` to `file`. (PG15's `BufFileWrite` takes `*mut`; PG16+ takes `*const`.)
 unsafe fn buffile_write(file: *mut pg_sys::BufFile, data: &[u8]) {

@@ -389,6 +389,17 @@ fn merged_sample(
     let r_sample = sample_fast_field(r_provider, r_field)?;
     sample.sample_points.extend(r_sample.sample_points);
     sort_sample_points(&mut sample.sample_points);
+    // A grid describes its whole table and lines up with that side's segments, so the other
+    // side's sample must not dilute it. Two grids merge the way two samples do.
+    if sample.persisted_points.is_empty() {
+        sample.persisted_points = r_sample.persisted_points;
+    } else if !r_sample.persisted_points.is_empty() {
+        sample.persisted_points.extend(r_sample.persisted_points);
+        sort_sample_points(&mut sample.persisted_points);
+        sample
+            .persisted_points
+            .dedup_by(|a, b| a.total_cmp(b) == std::cmp::Ordering::Equal);
+    }
     Ok(Some(sample))
 }
 
@@ -398,17 +409,11 @@ fn sample_fast_field(
 ) -> Result<RangePartitioningSample> {
     let index_rel = PgSearchRelation::open(provider.scan_info.indexrelid);
     // A partitioned build fixed its cell boundaries up front and stamped them on its segments.
-    // They describe the whole table, unlike a sample of one segment, and cost one small read
-    // per segment.
-    let persisted = persisted_split_points(&index_rel, partition_by.as_ref()).map_err(|e| {
-        DataFusionError::Internal(format!("Failed to read segment statistics: {e}"))
-    })?;
-    if !persisted.is_empty() {
-        return Ok(RangePartitioningSample {
-            partition_by: partition_by.clone(),
-            sample_points: persisted,
-        });
-    }
+    // They describe the whole table, unlike a sample of one segment, and line up with the
+    // segments. The sample stays as the fallback for layouts the grid is too coarse for.
+    let persisted_points = persisted_split_points(&index_rel, partition_by.as_ref())
+        .map_err(|e| DataFusionError::Internal(format!("Failed to read segment statistics: {e}")))?
+        .unwrap_or_default();
     // TODO: Reading the index during planning adds latency to DataFusion logical planning.
     // This is a temporary situation for M1. In M2, we will migrate this sampling to
     // something that happens prior to CREATE INDEX, or switch to using pg_statistic.
@@ -425,6 +430,7 @@ fn sample_fast_field(
         return Ok(RangePartitioningSample {
             partition_by: partition_by.clone(),
             sample_points: vec![],
+            persisted_points: persisted_points.clone(),
         });
     }
 
@@ -436,6 +442,7 @@ fn sample_fast_field(
         return Ok(RangePartitioningSample {
             partition_by: partition_by.clone(),
             sample_points: vec![],
+            persisted_points: persisted_points.clone(),
         });
     }
 
@@ -469,6 +476,7 @@ fn sample_fast_field(
     Ok(RangePartitioningSample {
         partition_by: partition_by.clone(),
         sample_points,
+        persisted_points,
     })
 }
 

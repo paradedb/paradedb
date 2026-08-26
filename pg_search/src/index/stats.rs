@@ -43,7 +43,7 @@ use tantivy::directory::footer::Footer;
 use tantivy::directory::{CompositeFile, CompositeWrite, FileSlice};
 use tantivy::index::{Segment, SegmentComponent, SegmentId, SegmentReader};
 use tantivy::indexer::DocIdMapping;
-use tantivy::schema::{Field, Schema};
+use tantivy::schema::{Field, FieldType, Schema};
 use tantivy::{
     Index, PluginMergeContext, PluginWriter, PluginWriterContext, SegmentPlugin, TantivyError,
 };
@@ -64,21 +64,21 @@ const LOGICAL_IDX: usize = 1;
 /// Empirical `min`/`max` of one fast field within one segment. `nullable` is false only when
 /// every document holds exactly one value, so a segment without it may hide NULLs.
 #[derive(Debug, Clone, PartialEq)]
-pub struct EmpiricalStats {
-    pub min: PdbOwnedValue,
-    pub max: PdbOwnedValue,
-    pub nullable: bool,
+pub(crate) struct EmpiricalStats {
+    pub(crate) min: PdbOwnedValue,
+    pub(crate) max: PdbOwnedValue,
+    pub(crate) nullable: bool,
 }
 
 /// The half-open box a partitioned build assigned to a segment's cell on one field.
 #[derive(Debug, Clone, PartialEq)]
-pub struct LogicalBounds {
-    pub lower: Bound<PdbOwnedValue>,
-    pub upper: Bound<PdbOwnedValue>,
+pub(crate) struct LogicalBounds {
+    pub(crate) lower: Bound<PdbOwnedValue>,
+    pub(crate) upper: Bound<PdbOwnedValue>,
 }
 
 /// Logical bounds keyed by field name, in the order the file lays them out.
-pub type LogicalBoundsByField = BTreeMap<String, LogicalBounds>;
+pub(crate) type LogicalBoundsByField = BTreeMap<String, LogicalBounds>;
 
 /// The default `PdbOwnedValue` serde is lossy (a non-negative `I64` comes back as `U64`), so the
 /// entries carry the exact scalar wire form the kd-tree also ships over the DSM.
@@ -137,7 +137,7 @@ impl From<LogicalWire> for LogicalBounds {
 }
 
 /// True when `hi` ends before `lo` starts, so two ranges with these ends cannot share a value.
-fn ends_before(hi: &Bound<PdbOwnedValue>, lo: &Bound<PdbOwnedValue>) -> bool {
+fn ends_before(hi: Bound<&PdbOwnedValue>, lo: Bound<&PdbOwnedValue>) -> bool {
     match (hi, lo) {
         (Bound::Unbounded, _) | (_, Bound::Unbounded) => false,
         (Bound::Included(h), Bound::Included(l)) => h.total_cmp(l) == Ordering::Less,
@@ -148,10 +148,10 @@ fn ends_before(hi: &Bound<PdbOwnedValue>, lo: &Bound<PdbOwnedValue>) -> bool {
 }
 
 fn ranges_intersect(
-    a_lo: &Bound<PdbOwnedValue>,
-    a_hi: &Bound<PdbOwnedValue>,
-    b_lo: &Bound<PdbOwnedValue>,
-    b_hi: &Bound<PdbOwnedValue>,
+    a_lo: Bound<&PdbOwnedValue>,
+    a_hi: Bound<&PdbOwnedValue>,
+    b_lo: Bound<&PdbOwnedValue>,
+    b_hi: Bound<&PdbOwnedValue>,
 ) -> bool {
     !ends_before(a_hi, b_lo) && !ends_before(b_hi, a_lo)
 }
@@ -237,7 +237,7 @@ fn bound_comparable(bound: &Bound<PdbOwnedValue>, value: &PdbOwnedValue) -> bool
 
 impl LogicalBounds {
     /// The smallest box that holds both.
-    pub fn union(&self, other: &Self) -> Self {
+    pub(crate) fn union(&self, other: &Self) -> Self {
         Self {
             lower: min_lower(&self.lower, &other.lower),
             upper: max_upper(&self.upper, &other.upper),
@@ -246,7 +246,11 @@ impl LogicalBounds {
 
     /// Whether a value in this box can fall in `[lower, upper)`. Bounds of a kind this box
     /// cannot be ranked against count as intersecting.
-    pub fn intersects(&self, lower: &Bound<PdbOwnedValue>, upper: &Bound<PdbOwnedValue>) -> bool {
+    pub(crate) fn intersects(
+        &self,
+        lower: &Bound<PdbOwnedValue>,
+        upper: &Bound<PdbOwnedValue>,
+    ) -> bool {
         for own in [&self.lower, &self.upper] {
             if let Bound::Included(v) | Bound::Excluded(v) = own
                 && !(bound_comparable(lower, v) && bound_comparable(upper, v))
@@ -254,11 +258,16 @@ impl LogicalBounds {
                 return true;
             }
         }
-        ranges_intersect(&self.lower, &self.upper, lower, upper)
+        ranges_intersect(
+            self.lower.as_ref(),
+            self.upper.as_ref(),
+            lower.as_ref(),
+            upper.as_ref(),
+        )
     }
 
     /// A build routes NULLs below every split, so only a box open at the bottom can hold them.
-    pub fn may_hold_nulls(&self) -> bool {
+    pub(crate) fn may_hold_nulls(&self) -> bool {
         matches!(self.lower, Bound::Unbounded)
     }
 }
@@ -266,15 +275,19 @@ impl LogicalBounds {
 impl EmpiricalStats {
     /// Whether a value in `[min, max]` can fall in `[lower, upper)`. Bounds of a kind these
     /// statistics cannot be ranked against count as intersecting.
-    pub fn intersects(&self, lower: &Bound<PdbOwnedValue>, upper: &Bound<PdbOwnedValue>) -> bool {
+    pub(crate) fn intersects(
+        &self,
+        lower: &Bound<PdbOwnedValue>,
+        upper: &Bound<PdbOwnedValue>,
+    ) -> bool {
         if !(bound_comparable(lower, &self.min) && bound_comparable(upper, &self.max)) {
             return true;
         }
         ranges_intersect(
-            &Bound::Included(self.min.clone()),
-            &Bound::Included(self.max.clone()),
-            lower,
-            upper,
+            Bound::Included(&self.min),
+            Bound::Included(&self.max),
+            lower.as_ref(),
+            upper.as_ref(),
         )
     }
 
@@ -296,11 +309,12 @@ impl EmpiricalStats {
 }
 
 /// The plugin that writes and merges the `.stats` component.
-pub struct StatsPlugin;
+pub(crate) struct StatsPlugin;
 
-/// Attaches the plugin to an index. Every `Index` pg_search opens or creates must call this:
-/// tantivy restores only its built-in plugins, and the index metadata lists `stats` as required.
-pub fn register(index: &mut Index) {
+/// Attaches the plugin to an index. Every `Index` pg_search writes or merges through must call
+/// this: tantivy restores only its built-in plugins, and the index metadata lists `stats` as
+/// required. A read-only `Index` has no use for it.
+pub(crate) fn register(index: &mut Index) {
     index.register_plugin(Arc::new(StatsPlugin));
 }
 
@@ -321,12 +335,12 @@ impl SegmentPlugin for StatsPlugin {
 
 /// Per-segment writer. It records nothing per document: the statistics come off the finished
 /// `.fast` file, which the built-in plugins serialize before this one runs.
-pub struct StatsWriter {
+pub(crate) struct StatsWriter {
     logical: Option<Arc<LogicalBoundsByField>>,
 }
 
 impl StatsWriter {
-    pub fn set_logical_bounds(&mut self, bounds: Arc<LogicalBoundsByField>) {
+    pub(crate) fn set_logical_bounds(&mut self, bounds: Arc<LogicalBoundsByField>) {
         self.logical = Some(bounds);
     }
 }
@@ -378,6 +392,9 @@ fn write_stats(
         let Ok(field) = schema.get_field(name) else {
             continue;
         };
+        if !logical_bounds_hold(schema, field) {
+            continue;
+        }
         let bytes = encode(&LogicalWire::from(bounds))?;
         write
             .for_field_with_idx(field, LOGICAL_IDX)
@@ -385,6 +402,16 @@ fn write_stats(
     }
     write.close()?;
     Ok(())
+}
+
+/// The build routes on raw values, but a partition's range query runs on the fast column. A
+/// text normalizer other than `raw` reorders that column, so a box in raw order could prune a
+/// segment the query still needs.
+fn logical_bounds_hold(schema: &Schema, field: Field) -> bool {
+    match schema.get_field_entry(field).field_type() {
+        FieldType::Str(options) => options.get_fast_field_tokenizer_name() == Some("raw"),
+        _ => true,
+    }
 }
 
 /// `min`/`max` of every fast field column of `segment`, read off its `.fast` file.
@@ -442,11 +469,21 @@ fn column_stats(handle: &DynamicColumnHandle) -> tantivy::Result<Option<Empirica
             PdbOwnedValue::Bool(c.max_value()),
             c.get_cardinality(),
         ),
-        DynamicColumn::DateTime(c) => (
-            PdbOwnedValue::from(c.min_value()),
-            PdbOwnedValue::from(c.max_value()),
-            c.get_cardinality(),
-        ),
+        DynamicColumn::DateTime(c) => {
+            // A value Postgres can't represent has no place in a segment, but a statistic is
+            // not worth failing the write over.
+            let (Ok(min), Ok(max)) = (
+                PostgresDateTime::try_from(c.min_value()),
+                PostgresDateTime::try_from(c.max_value()),
+            ) else {
+                return Ok(None);
+            };
+            (
+                PdbOwnedValue::Date(min),
+                PdbOwnedValue::Date(max),
+                c.get_cardinality(),
+            )
+        }
         DynamicColumn::IpAddr(c) => (
             PdbOwnedValue::IpAddr(c.min_value()),
             PdbOwnedValue::IpAddr(c.max_value()),
@@ -527,12 +564,12 @@ fn merged_logical_bounds(
 }
 
 /// A segment's `.stats` file, opened on its footer. Entries are decoded on request.
-pub struct SegmentStats {
+pub(crate) struct SegmentStats {
     file: CompositeFile,
 }
 
 impl SegmentStats {
-    pub fn open(slice: FileSlice) -> io::Result<Self> {
+    pub(crate) fn open(slice: FileSlice) -> io::Result<Self> {
         Ok(Self {
             file: CompositeFile::open(&slice)?,
         })
@@ -540,7 +577,7 @@ impl SegmentStats {
 
     /// The `.stats` of a persisted segment, read straight off the index blocks. `None` when the
     /// segment was written without the component.
-    pub fn open_persisted(
+    pub(crate) fn open_persisted(
         indexrel: &PgSearchRelation,
         entry: &SegmentMetaEntry,
     ) -> io::Result<Option<Self>> {
@@ -555,13 +592,13 @@ impl SegmentStats {
         Self::open(body).map(Some)
     }
 
-    pub fn empirical(&self, field: Field) -> io::Result<Option<EmpiricalStats>> {
+    pub(crate) fn empirical(&self, field: Field) -> io::Result<Option<EmpiricalStats>> {
         Ok(self
             .read::<EmpiricalWire>(field, EMPIRICAL_IDX)?
             .map(EmpiricalStats::from))
     }
 
-    pub fn logical(&self, field: Field) -> io::Result<Option<LogicalBounds>> {
+    pub(crate) fn logical(&self, field: Field) -> io::Result<Option<LogicalBounds>> {
         Ok(self
             .read::<LogicalWire>(field, LOGICAL_IDX)?
             .map(LogicalBounds::from))
@@ -578,24 +615,29 @@ impl SegmentStats {
     }
 }
 
-/// The split values a partitioned build stamped on the visible segments for `partition_by`,
-/// sorted and deduplicated. Empty when no segment carries logical bounds on that field.
-pub fn persisted_split_points(
+/// The split grid a partitioned build stamped on the visible segments for `partition_by`,
+/// sorted and deduplicated, or `None` once any visible segment lacks a box on it. An insert or a
+/// merge with an unboxed segment breaks the grid, and what is left of it would give a coarse,
+/// skewed layout where a value sample still divides the space evenly.
+pub(crate) fn persisted_split_points(
     indexrel: &PgSearchRelation,
     partition_by: &str,
-) -> anyhow::Result<Vec<PdbOwnedValue>> {
+) -> anyhow::Result<Option<Vec<PdbOwnedValue>>> {
+    if indexrel.options().partition_by().is_empty() {
+        return Ok(None);
+    }
     let directory = MvccSatisfies::Snapshot.directory(indexrel);
     let index = Index::open(directory.clone())?;
     let Ok(field) = index.schema().get_field(partition_by) else {
-        return Ok(Vec::new());
+        return Ok(None);
     };
     let mut points = Vec::new();
     for entry in directory.all_entries().values() {
         let Some(stats) = SegmentStats::open_persisted(indexrel, entry)? else {
-            continue;
+            return Ok(None);
         };
         let Some(bounds) = stats.logical(field)? else {
-            continue;
+            return Ok(None);
         };
         for bound in [bounds.lower, bounds.upper] {
             if let Bound::Included(v) | Bound::Excluded(v) = bound {
@@ -605,13 +647,13 @@ pub fn persisted_split_points(
     }
     points.sort_unstable_by(PdbOwnedValue::total_cmp);
     points.dedup_by(|a, b| a.total_cmp(b) == Ordering::Equal);
-    Ok(points)
+    Ok((!points.is_empty()).then_some(points))
 }
 
 /// The segments of `reader` that can hold a row of `partition`. A segment without statistics
 /// it can be ranked against is kept, so the query the caller still applies stays the source of
 /// truth.
-pub fn segments_for_partition(
+pub(crate) fn segments_for_partition(
     reader: &SearchIndexReader,
     boundaries: &RangePartitioning,
     partition: usize,
@@ -798,8 +840,8 @@ mod tests {
         );
     }
 
-    /// A cell whose rows outgrow the writer budget flushes several segments and merges them, so
-    /// the surviving segment's statistics come from the merge path.
+    /// A regular build whose rows outgrow the writer budget flushes several segments and merges
+    /// them at commit, so the surviving segment's statistics come from the merge path.
     #[pg_test]
     fn merge_recomputes_empirical_stats() {
         Spi::run(
@@ -834,7 +876,8 @@ mod tests {
             r#"
             CREATE TABLE stats_part (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
             INSERT INTO stats_part (tenant_id, name)
-            SELECT (i * 7919) % 100, 'lorem ipsum ' || i || ' ' || repeat('padding word here ', 50)
+            SELECT CASE WHEN i % 10 = 0 THEN NULL ELSE (i * 7919) % 100 END,
+                   'lorem ipsum ' || i || ' ' || repeat('padding word here ', 50)
             FROM generate_series(1, 20000) i;
             SET max_parallel_maintenance_workers = 0;
             CREATE INDEX stats_part_idx ON stats_part USING paradedb (id, tenant_id, name)
@@ -855,9 +898,10 @@ mod tests {
                 .expect("every cell has a box");
             open_below += usize::from(matches!(bounds.lower, Bound::Unbounded));
             open_above += usize::from(matches!(bounds.upper, Bound::Unbounded));
-            // The rows inside the box: what the build routed there.
+            // The rows inside the box: what the build routed there. NULLs route below every
+            // split, so only the bottom cell may hold them.
             let empirical = segment.empirical(field).unwrap().unwrap();
-            assert!(!empirical.nullable);
+            assert_eq!(empirical.nullable, bounds.may_hold_nulls(), "{bounds:?}");
             if let Bound::Included(lower) = &bounds.lower {
                 assert!(!below(&empirical.min, lower), "{empirical:?} vs {bounds:?}");
             }
@@ -867,7 +911,9 @@ mod tests {
         }
         assert_eq!((open_below, open_above), (1, 1));
 
-        let split_points = persisted_split_points(&indexrel, "tenant_id").unwrap();
+        let split_points = persisted_split_points(&indexrel, "tenant_id")
+            .unwrap()
+            .expect("every cell segment carries its box");
         assert_eq!(split_points.len(), 7, "{split_points:?}");
         assert!(split_points.windows(2).all(|w| below(&w[0], &w[1])));
 
@@ -949,6 +995,172 @@ mod tests {
             pruned_somewhere |= chosen.len() < stats.len();
         }
         assert!(pruned_somewhere);
+    }
+
+    /// A cell that outgrows the writer budget flushes several segments, and `finish_cell`
+    /// merges them: the merged segment must keep the cell's box.
+    #[pg_test]
+    fn cell_merge_keeps_logical_bounds() {
+        Spi::run(
+            r#"
+            CREATE TABLE stats_cell_merge (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            INSERT INTO stats_cell_merge (tenant_id, name)
+            SELECT (i * 7919) % 4,
+                   (SELECT string_agg(md5((i * 32 + j)::text), ' ') FROM generate_series(1, 32) j)
+            FROM generate_series(1, 24000) i;
+            SET max_parallel_maintenance_workers = 0;
+            SET maintenance_work_mem = '16MB';
+            CREATE INDEX stats_cell_merge_idx ON stats_cell_merge USING paradedb (id, tenant_id, name)
+                WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 2);
+            "#,
+        )
+        .unwrap();
+        let indexrel = open_index("stats_cell_merge_idx");
+        let (field, stats) = segment_stats(&indexrel, "tenant_id");
+        assert_eq!(stats.len(), 2, "each cell merges down to one segment");
+        let mut lowers = Vec::new();
+        for segment in &stats {
+            let bounds = segment
+                .logical(field)
+                .unwrap()
+                .expect("the merge keeps the box");
+            let empirical = segment.empirical(field).unwrap().unwrap();
+            if let Bound::Included(lower) = &bounds.lower {
+                assert!(!below(&empirical.min, lower));
+            }
+            if let Bound::Excluded(upper) = &bounds.upper {
+                assert!(below(&empirical.max, upper));
+            }
+            lowers.push(bounds.lower);
+        }
+        assert!(lowers.contains(&Bound::Unbounded));
+        assert_eq!(
+            persisted_split_points(&indexrel, "tenant_id")
+                .unwrap()
+                .map(|p| p.len()),
+            Some(1)
+        );
+    }
+
+    /// An insert after the build lands in a segment without a box. The grid is gone, so the
+    /// planner samples again, and every partition keeps the new segment.
+    #[pg_test]
+    fn insert_after_build_drops_the_persisted_grid() {
+        Spi::run(
+            r#"
+            CREATE TABLE stats_grow (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            INSERT INTO stats_grow (tenant_id, name)
+            SELECT (i * 7919) % 100, 'lorem ipsum ' || i || ' ' || repeat('padding word here ', 50)
+            FROM generate_series(1, 20000) i;
+            SET max_parallel_maintenance_workers = 0;
+            CREATE INDEX stats_grow_idx ON stats_grow USING paradedb (id, tenant_id, name)
+                WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 4);
+            "#,
+        )
+        .unwrap();
+        let indexrel = open_index("stats_grow_idx");
+        let split_points = persisted_split_points(&indexrel, "tenant_id")
+            .unwrap()
+            .expect("fresh build");
+        assert_eq!(split_points.len(), 3);
+
+        Spi::run("INSERT INTO stats_grow (tenant_id, name) VALUES (42, 'late row');").unwrap();
+        assert!(
+            persisted_split_points(&indexrel, "tenant_id")
+                .unwrap()
+                .is_none()
+        );
+
+        let reader = SearchIndexReader::open(
+            &indexrel,
+            SearchQueryInput::All,
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .unwrap();
+        assert_eq!(
+            reader.segment_ids().len(),
+            5,
+            "four cells plus the new segment"
+        );
+        let boundaries = RangePartitioning {
+            partition_by: FieldName::from("tenant_id"),
+            split_points,
+        };
+        let mut everywhere: Option<Vec<SegmentId>> = None;
+        for partition in 0..4 {
+            let chosen = segments_for_partition(&reader, &boundaries, partition);
+            assert_eq!(
+                chosen.len(),
+                2,
+                "its cell and the unboxed segment: {chosen:?}"
+            );
+            everywhere = Some(match everywhere {
+                None => chosen,
+                Some(prev) => prev.into_iter().filter(|id| chosen.contains(id)).collect(),
+            });
+        }
+        assert_eq!(
+            everywhere.unwrap().len(),
+            1,
+            "the unboxed segment survives every partition"
+        );
+    }
+
+    fn text_partitioned_index(table: &str, index: &str, normalizer: &str) {
+        Spi::run(&format!(
+            r#"
+            CREATE TABLE {table} (id BIGSERIAL PRIMARY KEY, name TEXT, about TEXT);
+            INSERT INTO {table} (name, about)
+            SELECT CASE WHEN i % 3 = 0 THEN 'Zed' || i WHEN i % 3 = 1 THEN 'alice' || i ELSE 'Bob' || i END,
+                   repeat('padding word here ', 50)
+            FROM generate_series(1, 20000) i;
+            SET max_parallel_maintenance_workers = 0;
+            CREATE INDEX {index} ON {table} USING paradedb (id, name)
+                WITH (key_field = 'id', partition_by = 'name', target_segment_count = 4,
+                      text_fields = '{{"name": {{"tokenizer": {{"type": "keyword"}}, "fast": true, "normalizer": "{normalizer}"}}}}');
+            "#
+        ))
+        .unwrap();
+    }
+
+    /// Routing compares raw text, but the partition query reads the fast column. A normalizer
+    /// reorders that column, so such a field gets no box.
+    #[pg_test]
+    fn normalized_text_field_gets_no_logical_bounds() {
+        text_partitioned_index("stats_text_lower", "stats_text_lower_idx", "lowercase");
+        let indexrel = open_index("stats_text_lower_idx");
+        let (field, stats) = segment_stats(&indexrel, "name");
+        assert!(stats.len() > 1);
+        for segment in &stats {
+            assert!(segment.logical(field).unwrap().is_none());
+            let empirical = segment.empirical(field).unwrap().unwrap();
+            assert!(matches!(empirical.min, PdbOwnedValue::Str(_)));
+        }
+        assert!(persisted_split_points(&indexrel, "name").unwrap().is_none());
+    }
+
+    /// With the raw normalizer the fast column keeps the routing order, so the box holds.
+    #[pg_test]
+    fn raw_text_field_gets_logical_bounds() {
+        text_partitioned_index("stats_text_raw", "stats_text_raw_idx", "raw");
+        let indexrel = open_index("stats_text_raw_idx");
+        let (field, stats) = segment_stats(&indexrel, "name");
+        assert!(stats.len() > 1);
+        for segment in &stats {
+            let bounds = segment
+                .logical(field)
+                .unwrap()
+                .expect("raw text keeps its box");
+            let empirical = segment.empirical(field).unwrap().unwrap();
+            if let Bound::Included(lower) = &bounds.lower {
+                assert!(!below(&empirical.min, lower));
+            }
+            if let Bound::Excluded(upper) = &bounds.upper {
+                assert!(below(&empirical.max, upper));
+            }
+        }
+        assert!(persisted_split_points(&indexrel, "name").unwrap().is_some());
     }
 
     #[test]

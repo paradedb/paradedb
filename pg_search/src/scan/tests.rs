@@ -491,6 +491,7 @@ mod tests {
 
         let sample = RangePartitioningSample {
             partition_by: FieldName::from("id"),
+            persisted_points: vec![],
             sample_points: vec![
                 PdbOwnedValue::I64(10),
                 PdbOwnedValue::I64(20),
@@ -534,6 +535,7 @@ mod tests {
 
         let sample = RangePartitioningSample {
             partition_by: FieldName::from("id"),
+            persisted_points: vec![],
             sample_points: vec![
                 PdbOwnedValue::Null,
                 PdbOwnedValue::Null,
@@ -574,6 +576,7 @@ mod tests {
 
         let sample = RangePartitioningSample {
             partition_by: FieldName::from("id"),
+            persisted_points: vec![],
             sample_points: vec![PdbOwnedValue::Null, PdbOwnedValue::Null],
         };
 
@@ -604,6 +607,7 @@ mod tests {
 
         let sample = RangePartitioningSample {
             partition_by: FieldName::from("id"),
+            persisted_points: vec![],
             sample_points: vec![
                 PdbOwnedValue::I64(10),
                 PdbOwnedValue::I64(10),
@@ -680,6 +684,7 @@ mod tests {
 
         let sample = crate::scan::range_partitioning::RangePartitioningSample {
             partition_by: crate::api::FieldName::from("id"),
+            persisted_points: vec![],
             sample_points: vec![
                 crate::postgres::pdb_owned_value::PdbOwnedValue::I64(10),
                 crate::postgres::pdb_owned_value::PdbOwnedValue::I64(20),
@@ -888,6 +893,7 @@ mod tests {
         // (-inf, 25), [25, 50), [50, 75), [75, inf).
         let sample = crate::scan::range_partitioning::RangePartitioningSample {
             partition_by: crate::api::FieldName::from("id"),
+            persisted_points: vec![],
             sample_points: vec![
                 crate::postgres::pdb_owned_value::PdbOwnedValue::I64(25),
                 crate::postgres::pdb_owned_value::PdbOwnedValue::I64(50),

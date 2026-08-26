@@ -204,6 +204,9 @@ pub struct RangePartitioningSample {
     /// than the target number of partitions, allowing us to safely down-sample to compute
     /// relatively uniform distribution boundaries.
     pub sample_points: Vec<PdbOwnedValue>,
+    /// The split grid a partitioned build stamped on its segments, sorted ascending, or empty.
+    /// Partitions cut on it line up with the segments, so each one searches only its cell.
+    pub persisted_points: Vec<PdbOwnedValue>,
 }
 
 impl RangePartitioningSample {
@@ -214,14 +217,23 @@ impl RangePartitioningSample {
     /// To avoid scheduling unnecessary tasks scanning empty ranges, `target_partitions`
     /// is capped at `sample_points.len() + 1`.
     pub fn build(&self, target_partitions: usize) -> RangePartitioning {
+        // The grid is exact but coarse. Below the requested partition count it would cost
+        // parallelism, and the sample still divides the space evenly.
+        let points = if !self.persisted_points.is_empty()
+            && self.persisted_points.len() + 1 >= target_partitions
+        {
+            &self.persisted_points
+        } else {
+            &self.sample_points
+        };
         debug_assert!(
-            self.sample_points
+            points
                 .windows(2)
                 .all(|w| w[0].total_cmp(&w[1]) != std::cmp::Ordering::Greater),
-            "RangePartitioningSample requires sample_points to be sorted ascending"
+            "RangePartitioningSample requires its points to be sorted ascending"
         );
 
-        let num_samples = self.sample_points.len();
+        let num_samples = points.len();
 
         // Cap target_partitions to avoid scheduling unnecessary empty ranges
         let actual_partitions = if target_partitions > num_samples + 1 {
@@ -242,7 +254,7 @@ impl RangePartitioningSample {
         // Down-sample evenly. We want `actual_partitions - 1` split points.
         for i in 1..actual_partitions {
             let split_idx = (i * num_samples) / actual_partitions;
-            new_split_points.push(self.sample_points[split_idx].clone());
+            new_split_points.push(points[split_idx].clone());
         }
 
         RangePartitioning {

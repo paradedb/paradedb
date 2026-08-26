@@ -35,6 +35,7 @@ use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 
 use crate::api::FieldName;
+use crate::api::version::Version;
 use crate::index::kdtree::{KdTree, Point};
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::{ExpressionState, HeapBufferPin};
@@ -172,6 +173,7 @@ unsafe fn sample_partition_fields(
         pg_sys::MakeTupleTableSlot(heaprel.rd_att, &raw const pg_sys::TTSOpsBufferHeapTuple)
     };
     let natts = unsafe { (*heaprel.rd_att).natts as usize };
+    let created_by_version = indexrel.created_by_version();
 
     let mut sample: Vec<Point> = Vec::new();
     let mut seen_rows = 0usize;
@@ -247,7 +249,8 @@ unsafe fn sample_partition_fields(
                         .map(|state| state.evaluate(slot))
                         .unwrap_or_default();
 
-                    let point = project_row(&fields, values, isnull, &expr_results);
+                    let point =
+                        project_row(&fields, values, isnull, &expr_results, created_by_version);
                     // The stored pointer targets this iteration's `tuple`; clear it before that
                     // goes out of scope, on the error path too.
                     pg_sys::ExecClearTuple(slot);
@@ -282,6 +285,7 @@ unsafe fn project_row(
     values: &[pg_sys::Datum],
     isnull: &[bool],
     expr_results: &[(pg_sys::Datum, bool)],
+    created_by_version: Option<Version>,
 ) -> anyhow::Result<Point> {
     let unpacked_composites = unsafe {
         CompositeSlotValues::from_composites(fields.iter().filter_map(|f| {
@@ -314,7 +318,12 @@ unsafe fn project_row(
             }
             let datum = unsafe { unwrap_alias_datum(datum, f.categorized.pg_type) };
             let value = unsafe {
-                scalar_datum_to_tantivy_value(datum, f.field.field_type(), f.categorized.base_oid)
+                scalar_datum_to_tantivy_value(
+                    datum,
+                    f.field.field_type(),
+                    f.categorized.base_oid,
+                    created_by_version,
+                )
             }
             .map_err(|e| {
                 anyhow::anyhow!(

@@ -40,8 +40,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM providers
 WHERE description === 'cardiology' AND specialty = 'specialty13'
 ORDER BY id LIMIT 5;
-                                                                                                                                               QUERY PLAN                                                                                                                                                
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                QUERY PLAN                                                                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on providers
          Table: providers
@@ -51,7 +51,7 @@ ORDER BY id LIMIT 5;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 5
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"field_filters":[],"recheck_filters":[{"heap_filter":"(specialty = 'specialty13'::text)"}],"uses_tid_bitmap":true}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(specialty = 'specialty13'::text)"}],"uses_tid_bitmap":true}}]}}
          ->  Bitmap Index Scan on providers_specialty
                Index Cond: (specialty = 'specialty13'::text)
 (12 rows)
@@ -69,8 +69,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM providers
 WHERE description === 'cardiology' AND 'specialty13' = specialty
 ORDER BY id LIMIT 5;
-                                                                                                                                               QUERY PLAN                                                                                                                                                
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                QUERY PLAN                                                                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on providers
          Table: providers
@@ -80,7 +80,7 @@ ORDER BY id LIMIT 5;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 5
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"field_filters":[],"recheck_filters":[{"heap_filter":"('specialty13'::text = specialty)"}],"uses_tid_bitmap":true}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"('specialty13'::text = specialty)"}],"uses_tid_bitmap":true}}]}}
          ->  Bitmap Index Scan on providers_specialty
                Index Cond: (specialty = 'specialty13'::text)
 (12 rows)
@@ -98,8 +98,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM providers
 WHERE description === 'cardiology' AND starts_with(specialty, 'specialty13')
 ORDER BY id LIMIT 5;
-                                                                                                                                          QUERY PLAN                                                                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                          QUERY PLAN                                                                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on providers
          Table: providers
@@ -109,7 +109,7 @@ ORDER BY id LIMIT 5;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 5
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"field_filters":[{"heap_filter":"starts_with(specialty, 'specialty13'::text)"}],"uses_tid_bitmap":true}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[{"heap_filter":"starts_with(specialty, 'specialty13'::text)"}],"uses_tid_bitmap":true}}]}}
          ->  Bitmap Index Scan on providers_specialty
                Index Cond: ((specialty ~>=~ 'specialty13'::text) AND (specialty ~<~ 'specialty14'::text))
 (12 rows)
@@ -127,8 +127,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM providers
 WHERE description === 'cardiology' AND specialty LIKE 'specialty1%'
 ORDER BY id LIMIT 5;
-                                                                                                                                     QUERY PLAN                                                                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                      QUERY PLAN                                                                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on providers
          Table: providers
@@ -138,7 +138,7 @@ ORDER BY id LIMIT 5;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 5
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"field_filters":[{"heap_filter":"(specialty ~~ 'specialty1%'::text)"}],"uses_tid_bitmap":true}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[{"heap_filter":"(specialty ~~ 'specialty1%'::text)"}],"uses_tid_bitmap":true}}]}}
          ->  Bitmap Index Scan on providers_specialty
                Index Cond: ((specialty ~>=~ 'specialty1'::text) AND (specialty ~<~ 'specialty2'::text))
 (12 rows)
@@ -158,8 +158,8 @@ WHERE description === 'cardiology'
   AND gender === 'female'
   AND location <@ circle(point(50, 50), 5)
 ORDER BY id;
-                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                    
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on providers
@@ -169,7 +169,7 @@ ORDER BY id;
          Exec Method: ColumnarExecState
          Fast Fields: id
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}},{"with_index":{"query":{"term":{"field":"gender","value":"female"}}}}]}},"field_filters":[],"recheck_filters":[{"heap_filter":"(location <@ '<(50,50),5>'::circle)"}],"uses_tid_bitmap":true}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}},{"with_index":{"query":{"term":{"field":"gender","value":"female"}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(location <@ '<(50,50),5>'::circle)"}],"uses_tid_bitmap":true}}]}}
          ->  Bitmap Index Scan on providers_location
                Index Cond: (location <@ '<(50,50),5>'::circle)
 (12 rows)
@@ -201,8 +201,8 @@ WHERE description === 'cardiology'
   AND gender === 'female'
   AND location <@ circle(point(50, 50), 5)
 ORDER BY id;
-                                                                                                                                                             QUERY PLAN                                                                                                                                                              
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                              QUERY PLAN                                                                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on providers
@@ -211,7 +211,7 @@ ORDER BY id;
          Exec Method: ColumnarExecState
          Fast Fields: id
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}},{"with_index":{"query":{"term":{"field":"gender","value":"female"}}}}]}},"field_filters":[{"heap_filter":"(location <@ '<(50,50),5>'::circle)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}},{"with_index":{"query":{"term":{"field":"gender","value":"female"}}}}]}},"always_filters":[{"heap_filter":"(location <@ '<(50,50),5>'::circle)"}]}}]}}
 (9 rows)
 
 CREATE INDEX providers_location ON providers USING gist (location);
@@ -221,12 +221,12 @@ SELECT count(*) FROM providers
 WHERE description === 'cardiology'
   AND gender === 'female'
   AND location <@ circle(point(50, 50), 5);
-                                                                                                                                                                        QUERY PLAN                                                                                                                                                                        
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                        QUERY PLAN                                                                                                                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on providers
    Bitmap Intersection: providers_location
    Index: providers_paradedb
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}},{"with_index":{"query":{"term":{"field":"gender","value":"female"}}}},{"heap_filter":{"indexed_query":"all","field_filters":[],"recheck_filters":[{"heap_filter":"(location <@ '<(50,50),5>'::circle)"}],"uses_tid_bitmap":true}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}},{"with_index":{"query":{"term":{"field":"gender","value":"female"}}}},{"heap_filter":{"indexed_query":"all","always_filters":[],"recheck_filters":[{"heap_filter":"(location <@ '<(50,50),5>'::circle)"}],"uses_tid_bitmap":true}}]}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
    ->  Bitmap Index Scan on providers_location
@@ -269,8 +269,8 @@ WHERE description === 'cardiology'
   AND service_area && circle(point(50, 50), 1)
   AND location <@ circle(point(50, 50), 5)
 ORDER BY id;
-                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on providers
@@ -280,7 +280,7 @@ ORDER BY id;
          Exec Method: ColumnarExecState
          Fast Fields: id
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"field_filters":[],"recheck_filters":[{"heap_filter":"(service_area && '<(50,50),1>'::circle)"}],"uses_tid_bitmap":true}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"field_filters":[],"recheck_filters":[{"heap_filter":"(location <@ '<(50,50),5>'::circle)"}],"uses_tid_bitmap":true}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(service_area && '<(50,50),1>'::circle)"}],"uses_tid_bitmap":true}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(location <@ '<(50,50),5>'::circle)"}],"uses_tid_bitmap":true}}]}}
          ->  Bitmap Index Scan on providers_loc_area
                Index Cond: ((location <@ '<(50,50),5>'::circle) AND (service_area && '<(50,50),1>'::circle))
 (12 rows)
@@ -303,8 +303,8 @@ WHERE description === 'cardiology'
   AND specialty LIKE 'specialty1%'
   AND location <@ circle(point(50, 50), 5)
 ORDER BY id LIMIT 5;
-                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on providers
          Table: providers
@@ -314,7 +314,7 @@ ORDER BY id LIMIT 5;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 5
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"field_filters":[{"heap_filter":"(specialty ~~ 'specialty1%'::text)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"field_filters":[],"recheck_filters":[{"heap_filter":"(location <@ '<(50,50),5>'::circle)"}],"uses_tid_bitmap":true}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[{"heap_filter":"(specialty ~~ 'specialty1%'::text)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(location <@ '<(50,50),5>'::circle)"}],"uses_tid_bitmap":true}}]}}
          ->  Bitmap Index Scan on providers_location
                Index Cond: (location <@ '<(50,50),5>'::circle)
 (12 rows)
@@ -367,8 +367,8 @@ SELECT id FROM providers
 WHERE description === 'cardiology'
   AND (location <@ circle(point(50, 50), 5) OR specialty LIKE 'specialty1%')
 ORDER BY id LIMIT 5;
-                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                      
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                       
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on providers
          Table: providers
@@ -377,7 +377,7 @@ ORDER BY id LIMIT 5;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 5
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}},{"boolean":{"should":[{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(location <@ '<(50,50),5>'::circle)"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(specialty ~~ 'specialty1%'::text)"}]}}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}},{"boolean":{"should":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(location <@ '<(50,50),5>'::circle)"}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(specialty ~~ 'specialty1%'::text)"}]}}]}}]}}
 (9 rows)
 
 -- NOT-positioned heap predicate.
@@ -386,8 +386,8 @@ SELECT id FROM providers
 WHERE description === 'cardiology'
   AND NOT (location <@ circle(point(50, 50), 5))
 ORDER BY id LIMIT 5;
-                                                                                                                                       QUERY PLAN                                                                                                                                       
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                       QUERY PLAN                                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on providers
          Table: providers
@@ -396,7 +396,7 @@ ORDER BY id LIMIT 5;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 5
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}},{"boolean":{"must":["all"],"must_not":[{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(location <@ '<(50,50),5>'::circle)"}]}}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}},{"boolean":{"must":["all"],"must_not":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(location <@ '<(50,50),5>'::circle)"}]}}]}}]}}
 (9 rows)
 
 SELECT count(*) AS not_count FROM (
@@ -413,8 +413,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM providers
 WHERE description === 'cardiology' AND specialty LIKE 'specialty%'
 ORDER BY id LIMIT 5;
-                                                                                                                         QUERY PLAN                                                                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                          QUERY PLAN                                                                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on providers
          Table: providers
@@ -423,7 +423,7 @@ ORDER BY id LIMIT 5;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 5
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"field_filters":[{"heap_filter":"(specialty ~~ 'specialty%'::text)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[{"heap_filter":"(specialty ~~ 'specialty%'::text)"}]}}]}}
 (9 rows)
 
 SELECT count(*) AS unselective_like_count FROM (
@@ -440,8 +440,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM providers
 WHERE description === 'cardiology' AND specialty COLLATE "C" > 'specialty49'
 ORDER BY id LIMIT 5;
-                                                                                                                                                   QUERY PLAN                                                                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                    QUERY PLAN                                                                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on providers
          Table: providers
@@ -451,7 +451,7 @@ ORDER BY id LIMIT 5;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 5
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"field_filters":[],"recheck_filters":[{"heap_filter":"((specialty)::text > 'specialty49'::text)"}],"uses_tid_bitmap":true}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"((specialty)::text > 'specialty49'::text)"}],"uses_tid_bitmap":true}}]}}
          ->  Bitmap Index Scan on providers_specialty_c
                Index Cond: ((specialty)::text > 'specialty49'::text)
 (12 rows)
@@ -460,8 +460,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM providers
 WHERE description === 'cardiology' AND specialty COLLATE "POSIX" > 'specialty49'
 ORDER BY id LIMIT 5;
-                                                                                                                             QUERY PLAN                                                                                                                              
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                              QUERY PLAN                                                                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on providers
          Table: providers
@@ -470,7 +470,7 @@ ORDER BY id LIMIT 5;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 5
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"field_filters":[{"heap_filter":"((specialty)::text > 'specialty49'::text)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[{"heap_filter":"((specialty)::text > 'specialty49'::text)"}]}}]}}
 (9 rows)
 
 SELECT count(*) AS collation_count FROM (
@@ -493,8 +493,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM providers
 WHERE description === 'cardiology' AND specialty LIKE 'specialty13%'
 ORDER BY id LIMIT 5;
-                                                                                                                                                               QUERY PLAN                                                                                                                                                               
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                               QUERY PLAN                                                                                                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on providers
          Table: providers
@@ -503,7 +503,7 @@ ORDER BY id LIMIT 5;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 5
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"range":{"field":"id","lower_bound":{"included":0},"upper_bound":null}},{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"field_filters":[{"heap_filter":"(specialty ~~ 'specialty13%'::text)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"range":{"field":"id","lower_bound":{"included":0},"upper_bound":null}},{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[{"heap_filter":"(specialty ~~ 'specialty13%'::text)"}]}}]}}
 (9 rows)
 
 SELECT count(*) AS rls_like_count FROM (
@@ -530,8 +530,8 @@ WHERE description === 'cardiology'
   AND provider_type === 'facility'
   AND location <@ circle(point(50, 50), 5)
 ORDER BY id LIMIT 5;
-                                                                                                                                                                  QUERY PLAN                                                                                                                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                  QUERY PLAN                                                                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on providers
          Table: providers
@@ -540,7 +540,7 @@ ORDER BY id LIMIT 5;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 5
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}},{"with_index":{"query":{"term":{"field":"provider_type","value":"facility"}}}}]}},"field_filters":[{"heap_filter":"(location <@ '<(50,50),5>'::circle)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}},{"with_index":{"query":{"term":{"field":"provider_type","value":"facility"}}}}]}},"always_filters":[{"heap_filter":"(location <@ '<(50,50),5>'::circle)"}]}}]}}
 (9 rows)
 
 ROLLBACK;
@@ -555,8 +555,8 @@ WHERE description === 'cardiology'
   AND specialty LIKE 'specialty13%'
   AND service_area && circle(point(50, 50), 1)
 ORDER BY id LIMIT 5;
-                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                           
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on providers
          Table: providers
@@ -566,7 +566,7 @@ ORDER BY id LIMIT 5;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 5
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"field_filters":[{"heap_filter":"(specialty ~~ 'specialty13%'::text)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"field_filters":[],"recheck_filters":[{"heap_filter":"(service_area && '<(50,50),1>'::circle)"}],"uses_tid_bitmap":true}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[{"heap_filter":"(specialty ~~ 'specialty13%'::text)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(service_area && '<(50,50),1>'::circle)"}],"uses_tid_bitmap":true}}]}}
          ->  Bitmap Index Scan on providers_service_area
                Index Cond: (service_area && '<(50,50),1>'::circle)
 (12 rows)
@@ -577,8 +577,8 @@ SELECT id FROM providers
 WHERE description === 'cardiology'
   AND (location <@ circle(point(20, 20), 3) OR location <@ circle(point(80, 80), 3))
 ORDER BY id LIMIT 5;
-                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                       
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on providers
          Table: providers
@@ -587,7 +587,7 @@ ORDER BY id LIMIT 5;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 5
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}},{"boolean":{"should":[{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(location <@ '<(20,20),3>'::circle)"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(location <@ '<(80,80),3>'::circle)"}]}}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}},{"boolean":{"should":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(location <@ '<(20,20),3>'::circle)"}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(location <@ '<(80,80),3>'::circle)"}]}}]}}]}}
 (9 rows)
 
 -- TODO ScalarArrayOpExpr: = ANY could use the btree; today it stays a heap filter.
@@ -595,8 +595,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM providers
 WHERE description === 'cardiology' AND specialty = ANY('{specialty13,specialty14}')
 ORDER BY id LIMIT 5;
-                                                                                                                                    QUERY PLAN                                                                                                                                     
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                     QUERY PLAN                                                                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on providers
          Table: providers
@@ -605,7 +605,7 @@ ORDER BY id LIMIT 5;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 5
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"field_filters":[{"heap_filter":"(specialty = ANY ('{specialty13,specialty14}'::text[]))"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[{"heap_filter":"(specialty = ANY ('{specialty13,specialty14}'::text[]))"}]}}]}}
 (9 rows)
 
 SELECT count(*) AS saop_count FROM (

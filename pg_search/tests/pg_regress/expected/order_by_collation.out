@@ -387,8 +387,8 @@ FROM collation_test
 WHERE name_c = 'apple' AND id @@@ paradedb.all()
 GROUP BY name_c;
 WARNING:  Aggregate Scan not used: could not verify GROUP BY semantics. To disable this warning: SET paradedb.check_aggregate_scan = false (table: collation_test)
-                                                                                             QUERY PLAN                                                                                             
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                             QUERY PLAN                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
    ->  Custom Scan (ParadeDB Base Scan) on collation_test
          Table: collation_test
@@ -397,7 +397,7 @@ WARNING:  Aggregate Scan not used: could not verify GROUP BY semantics. To disab
          Fast Fields: name_c
          Scores: false
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"heap_filter":"(name_c = 'apple'::text)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(name_c = 'apple'::text)"}]}}]}}
 (9 rows)
 
 SELECT name_c, pdb.agg('{"value_count": {"field": "id"}}'::jsonb)

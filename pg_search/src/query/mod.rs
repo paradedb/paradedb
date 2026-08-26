@@ -140,9 +140,7 @@ pub enum SearchQueryInput {
         /// covers them, or the covering index qual is lossy (e.g. `ST_DWithin` matched
         /// only through its bounding-box qual). Evaluated against the heap for every
         /// document that survives the bitmap probe -- and for every document when no
-        /// bitmap was planned. Serialized under the field's pre-bitmap name to keep
-        /// EXPLAIN output and stored plans stable.
-        #[serde(rename = "field_filters")]
+        /// bitmap was planned.
         always_filters: Vec<HeapFieldFilter>,
         /// Predicates proven by exact bitmap membership: their clause matched an
         /// external index exactly (`IndexClause.lossy == false`), so a document found

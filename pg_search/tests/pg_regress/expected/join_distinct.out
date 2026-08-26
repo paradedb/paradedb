@@ -511,7 +511,7 @@ ORDER BY p.name
            :     SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=10, visibility_checks=[s, p]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, name@4]
            :         CooperativeExec
-           :           PgSearchScan: table=s, segments=1, query={"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(name = 'TechCorp'::text)"}]}}
+           :           PgSearchScan: table=s, segments=1, query={"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(name = 'TechCorp'::text)"}]}}
            :         CooperativeExec
            :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
@@ -1030,8 +1030,8 @@ WHERE deleted_at IS NULL
   )
 ORDER BY profile_id
 LIMIT 50;
-                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                    
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Custom Scan (ParadeDB Join Scan)
@@ -1047,9 +1047,9 @@ LIMIT 50;
                  :     VisibilityFilterExec: tables=[pp]
                  :       HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(profile_id@1, profile_id@0)]
                  :         CooperativeExec
-                 :           PgSearchScan: table=pp, segments=1, query={"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
+                 :           PgSearchScan: table=pp, segments=1, query={"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
                  :         CooperativeExec
-                 :           PgSearchScan: table=pp2, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
+                 :           PgSearchScan: table=pp2, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
 (18 rows)
 
 SELECT DISTINCT profile_id
@@ -1090,8 +1090,8 @@ WHERE deleted_at IS NULL
 ORDER BY profile_id
 LIMIT 50;
 WARNING:  Aggregate Scan (DataFusion) not used: outer-join ON residual predicates are not supported (table: join)
-                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Merge Anti Join
@@ -1103,7 +1103,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: outer-join ON residual predicate
                            Index: profiles_positions_bm25
                            Exec Method: NormalScanExecState
                            Scores: false
-                           Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
+                           Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
                ->  Sort
                      Sort Key: pp2.profile_id
                      ->  Custom Scan (ParadeDB Base Scan) on profiles_positions pp2
@@ -1111,7 +1111,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: outer-join ON residual predicate
                            Index: profiles_positions_bm25
                            Exec Method: NormalScanExecState
                            Scores: false
-                           Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
+                           Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
 (20 rows)
 
 SELECT DISTINCT profile_id

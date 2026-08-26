@@ -983,8 +983,8 @@ WHERE dp.name @@@ 'laptop OR jacket OR shoes'
 ORDER BY dp.category
 LIMIT 10;
 WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to volatile functions (tables: dp, dr)
-                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: dp.category
@@ -999,7 +999,7 @@ WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to volatile functions 
                  :       CooperativeExec
                  :         PgSearchScan: table=dr, segments=1, dynamic_filters=1, query="all"
                  :       CooperativeExec
-                 :         PgSearchScan: table=dp, segments=1, dynamic_filters=2, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(((id)::double precision + random()) > '0'::double precision)"}]}}]}}
+                 :         PgSearchScan: table=dp, segments=1, dynamic_filters=2, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(((id)::double precision + random()) > '0'::double precision)"}]}}]}}
 (15 rows)
 
 SELECT DISTINCT dp.category

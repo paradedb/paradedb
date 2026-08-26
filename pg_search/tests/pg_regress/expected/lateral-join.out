@@ -552,8 +552,8 @@ WHERE a.content @@@ 'machine learning'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
 WARNING:  Aggregate Scan not used: field 'created_at' does not support aggregate pushdown. To disable this warning: SET paradedb.check_aggregate_scan = false (table: comments)
-                                                                                                                                                             QUERY PLAN                                                                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                             QUERY PLAN                                                                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Nested Loop Left Join
          ->  Custom Scan (ParadeDB Base Scan) on articles a
@@ -563,7 +563,7 @@ WARNING:  Aggregate Scan not used: field 'created_at' does not support aggregate
                Scores: true
                   TopK Order By: pdb.score() desc
                   TopK Limit: 5
-               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"machine learning","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(author_id = ANY ('{1,2}'::integer[]))"}]}}]}}
+               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"machine learning","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(author_id = ANY ('{1,2}'::integer[]))"}]}}]}}
          ->  Aggregate
                ->  Seq Scan on comments c
                      Filter: (article_id = a.id)

@@ -9,7 +9,7 @@
 --
 -- Data notes:
 --   * 2024-01-01 has three rows, including both edges of the day
---     (00:00:00 and 23:59:59); they must collapse into a single bucket.
+--     (00:00:00 and 23:59:59); they must collapse into a single date group.
 --   * 2024-01-04 has no rows and must not appear as an empty bucket.
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;

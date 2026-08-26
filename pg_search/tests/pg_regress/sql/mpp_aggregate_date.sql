@@ -33,7 +33,6 @@ INSERT INTO mpp_date_events (created_at, amount) VALUES
     ('1999-12-31 23:59:59.999999', 1), -- 1 microsecond before the Postgres epoch
     ('294276-12-31 23:59:59.999999', 1); -- Maximum finite PostgreSQL timestamp
 
-
 INSERT INTO mpp_date_events (created_at, amount) VALUES
     ('2024-01-01 00:00:00', 2),
     ('2024-01-01 08:00:00', 2),

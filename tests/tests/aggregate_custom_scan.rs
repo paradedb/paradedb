@@ -204,8 +204,8 @@ fn test_other_aggregates(mut conn: PgConnection) {
 #[rstest]
 fn test_group_by_date_function(mut conn: PgConnection) {
     // 2024-01-01 has three rows spanning both edges of the day, which must
-    // collapse into a single bucket. 2024-01-04 has no rows and must not
-    // appear as an empty bucket. The two NULL rows must form their own group,
+    // collapse into a single date group. 2024-01-04 has no rows and must not
+    // appear as an empty date group. The two NULL rows must form their own group,
     // as they do for a plain `GROUP BY <timestamp column>`.
     r#"
     CREATE TABLE date_pushdown_events (
@@ -241,10 +241,10 @@ fn test_group_by_date_function(mut conn: PgConnection) {
             (Some(date!(2024 - 01 - 01)), 3), // 00:00:00, 08:00:00 and 23:59:59 collapse
             (Some(date!(2024 - 01 - 02)), 1),
             (Some(date!(2024 - 01 - 03)), 1),
-            (Some(date!(2024 - 01 - 05)), 1), // 01-04 absent: no empty bucket
+            (Some(date!(2024 - 01 - 05)), 1), // 01-04 absent: no empty date group
             (None, 2),                        // both NULL-timestamp rows
         ],
-        "one row per day bucket, plus the NULL group"
+        "one row per date group, plus the NULL group"
     );
 
     // DATE(timestamp) grouping must be executed by the DataFusion backend.
@@ -464,7 +464,7 @@ fn test_group_by_date_multi_column(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn test_group_by_date_of_cast_falls_back(mut conn: PgConnection) {
+fn test_group_by_date_over_cast_falls_back(mut conn: PgConnection) {
     // The DataFusion transform accepts DATE() only over a bare timestamp
     // column. Parsing text as a timestamp can depend on session settings such
     // as DateStyle, so DATE(text_col::timestamp) must remain in PostgreSQL.

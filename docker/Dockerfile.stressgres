@@ -37,8 +37,8 @@ WORKDIR /home/app
 # Copy the source needed to compile Stressgres.
 COPY . .
 
-# Prefetch while online; the image runs air-gapped in Antithesis. Sancov flags are scoped to the
-# host triple (resolved here, not hardcoded, so it also builds on arm64 CI) via
+# Fetch dependencies before the offline Cargo build. Sancov flags are scoped to the host triple
+# (resolved here, not hardcoded, so it also builds on arm64 CI) via
 # CARGO_TARGET_<triple>_RUSTFLAGS + --target, keeping them off host build scripts. Coverage shim
 # comes from `--features dst`; its build script needs curl + a C toolchain.
 # See https://antithesis.com/docs/reference/sdk/rust/instrumentation

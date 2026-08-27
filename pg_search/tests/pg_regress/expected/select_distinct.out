@@ -978,8 +978,8 @@ WHERE dp.name @@@ 'laptop OR jacket OR shoes'
 ORDER BY dp.category
 LIMIT 10;
 WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to volatile functions (tables: dp, dr)
-                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Sort
@@ -992,7 +992,7 @@ WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to volatile functions 
                            Exec Method: ColumnarExecState
                            Fast Fields: category
                            Scores: false
-                           Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(((id)::double precision + random()) > '0'::double precision)"}]}}]}}
+                           Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(((id)::double precision + random()) > '0'::double precision)"}]}}]}}
                      ->  Seq Scan on dist_regions dr
 (14 rows)
 

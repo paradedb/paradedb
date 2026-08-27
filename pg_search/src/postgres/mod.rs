@@ -27,6 +27,7 @@ use crate::postgres::condition_variable::ConditionVariable;
 use crate::postgres::locks::Spinlock;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::shared_threshold::ParallelScanThresholdState;
+use crate::query::tid_bitmap_stream::SharedBitmapHandle;
 use crate::query::SearchQueryInput;
 
 use pgrx::*;
@@ -697,7 +698,28 @@ pub struct ParallelScanState {
     /// Top-K Shared Threshold Fields
     pub shared_threshold: ParallelScanThresholdState,
 
+    /// Bitmap-intersection build coordination. Protected by `mutex`; waiters
+    /// sleep on `bitmap_cv`.
+    bitmap_build_state: BitmapBuildState,
+    /// Handle of the owner's DSA area and the claim table within it; (0, 0)
+    /// when the build produced nothing. Valid once `bitmap_build_state` is `Done`.
+    bitmap_area_handle: pg_sys::dsa_handle,
+    bitmap_table: pg_sys::dsa_pointer,
+    /// Condition variable for waiting on the bitmap build.
+    bitmap_cv: ConditionVariable,
+
     payload: ParallelScanPayload, // must be last field, b/c it allocates on the heap after this struct
+}
+
+/// Bitmap-intersection build progress. Lives in the parallel DSM, so the layout
+/// is pinned to `u32` with fixed discriminants (zeroed shared memory reads as
+/// `NotBuilt`). The leader is the only builder: it publishes at DSM
+/// (re)initialization and workers wait for `Done`.
+#[derive(Clone, Copy, PartialEq)]
+#[repr(u32)]
+enum BitmapBuildState {
+    NotBuilt = 0,
+    Done = 1,
 }
 
 impl ParallelScanState {
@@ -744,6 +766,10 @@ impl ParallelScanState {
         self.mutex.init();
         self.aggregation_cv.init();
         self.init_cv.init();
+        self.bitmap_cv.init();
+        self.bitmap_build_state = BitmapBuildState::NotBuilt;
+        self.bitmap_area_handle = 0;
+        self.bitmap_table = 0;
         self.shared_threshold.init();
         self.populate(
             &args.all_sources,
@@ -751,6 +777,35 @@ impl ParallelScanState {
             args.with_aggregates,
             args.with_segment_info,
         );
+    }
+
+    pub fn publish_bitmap_handle(&mut self, handle: Option<SharedBitmapHandle>) {
+        {
+            let _lock = self.mutex.acquire();
+            self.bitmap_area_handle = handle.map(|h| h.area).unwrap_or(0);
+            self.bitmap_table = handle.map(|h| h.table).unwrap_or(0);
+            self.bitmap_build_state = BitmapBuildState::Done;
+        }
+        self.bitmap_cv.broadcast();
+    }
+
+    pub fn bitmap_wait_done(&mut self) -> Option<SharedBitmapHandle> {
+        self.bitmap_cv.prepare_to_sleep();
+        loop {
+            {
+                let _lock = self.mutex.acquire();
+                if self.bitmap_build_state == BitmapBuildState::Done {
+                    break;
+                }
+            }
+            self.bitmap_cv.sleep();
+        }
+        ConditionVariable::cancel_sleep();
+        let _lock = self.mutex.acquire();
+        (self.bitmap_area_handle != 0).then_some(SharedBitmapHandle {
+            area: self.bitmap_area_handle,
+            table: self.bitmap_table,
+        })
     }
 
     /// Phase 2: Populate with actual data (assumes mutex already created via `create`).
@@ -1163,6 +1218,18 @@ impl ParallelScanState {
 
     fn query(&self) -> anyhow::Result<Option<SearchQueryInput>> {
         self.payload.query()
+    }
+
+    /// Reset the bitmap-build coordination for a parallel rescan, freeing the previous
+    /// execution's DSA allocation. Called only from `reinitialize_dsm_custom_scan`,
+    /// which runs after the previous cycle's workers have exited and before new ones
+    /// launch, so nothing can still be reading the freed bytes. Never called from the
+    /// leader's per-scan `reset()`: wiping there would race a rebuild that already
+    /// published, stranding CV waiters.
+    pub fn bitmap_reset(&mut self) {
+        self.bitmap_build_state = BitmapBuildState::NotBuilt;
+        self.bitmap_area_handle = 0;
+        self.bitmap_table = 0;
     }
 
     /// Restore the per-source remaining counts for a rescan. Called by amparallelrescan.

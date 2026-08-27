@@ -55,6 +55,7 @@ use crate::postgres::customscan::basescan::projections::window_agg::{
     WindowAggregateInfo,
 };
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
+use crate::postgres::customscan::bitmap_intersection;
 use crate::postgres::customscan::builders::custom_path::{
     restrict_info, CustomPathBuilder, ExecMethodType, Flags, RestrictInfoType,
 };
@@ -167,6 +168,19 @@ impl BaseScan {
         )
         .expect("should be able to open the search index reader");
         state.custom_state_mut().search_reader = Some(search_reader);
+
+        let parallel_aware = unsafe { (*(*state.planstate()).plan).parallel_aware };
+        if !parallel_aware {
+            if let Some(cell) = state.custom_state().bitmap_cell.clone() {
+                if cell.get().is_none() {
+                    if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut() {
+                        if let Some(source) = unsafe { bitmap_exec.private_source() } {
+                            cell.fill(source);
+                        }
+                    }
+                }
+            }
+        }
 
         let csstate = addr_of_mut!(state.csstate);
         state.custom_state_mut().init_exec_method(csstate);
@@ -852,7 +866,7 @@ impl CustomScan for BaseScan {
                 .collect(),
             );
 
-            let query = SearchQueryInput::from(&quals);
+            let mut query = SearchQueryInput::from(&quals);
             let norm_selec = if restrict_info.len() == 1 {
                 (*restrict_info.get_ptr(0).unwrap()).norm_selec
             } else {
@@ -922,6 +936,19 @@ impl CustomScan for BaseScan {
             }
             .max(1.0);
 
+            let harvested_bitmap = bitmap_intersection::BitmapPlanner::from_query(
+                root,
+                builder.args().rel,
+                bm25_index.oid(),
+                &quals,
+                row_estimate.known_rows().map(|rows| rows as f64),
+            )
+            .and_then(|planner| planner.harvest());
+            if let Some(harvested) = &harvested_bitmap {
+                harvested.rewrite_query(&mut query);
+                custom_private.set_query(query.clone());
+            }
+
             let exec_method_types = choose_exec_method(
                 &custom_private,
                 &topk_pathkey_info,
@@ -934,7 +961,8 @@ impl CustomScan for BaseScan {
             // to decide on parallelism
             //
 
-            let startup_cost = DEFAULT_STARTUP_COST;
+            let startup_cost =
+                DEFAULT_STARTUP_COST + harvested_bitmap.as_ref().map_or(0.0, |h| h.build_cost);
             let mut custom_paths = Vec::new();
             let parallel_leader_participates = pg_sys::parallel_leader_participation;
             // Seed the cost memo from the open create_custom_path already did for selectivity (if
@@ -1068,6 +1096,12 @@ impl CustomScan for BaseScan {
                             path_builder = path_builder.set_pathkeys(pathkeys);
                         }
 
+                        if let Some(harvested) = &harvested_bitmap {
+                            let mut children = PgList::<pg_sys::Path>::new();
+                            children.push(harvested.path);
+                            path_builder = path_builder.set_custom_paths(children);
+                        }
+
                         let mut method_private = custom_private.clone();
                         method_private.set_exec_method_type(method.clone());
                         method_private.set_use_sorted_path(is_sorted);
@@ -1112,6 +1146,8 @@ impl CustomScan for BaseScan {
 
     fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {
         unsafe {
+            bitmap_intersection::keep_bitmap_child_plan(&mut builder);
+
             let mut tlist = PgList::<pg_sys::TargetEntry>::from_pg(builder.args().tlist.as_ptr());
 
             // Store the length of the target list
@@ -1434,6 +1470,17 @@ impl CustomScan for BaseScan {
     ) {
         explainer.add_text("Table", state.custom_state().heaprelname());
         explainer.add_text("Index", state.custom_state().indexrelname());
+        if let Some(bitmap_exec) = state.custom_state().bitmap_exec.as_ref() {
+            explainer.add_text("Bitmap Intersection", bitmap_exec.index_names().join(", "));
+            if explainer.is_analyze() {
+                if let Some((exact, lossy, recheck, rejected)) = bitmap_exec.cursor_stats() {
+                    explainer.add_unsigned_integer("Bitmap Exact Pages", exact, None);
+                    explainer.add_unsigned_integer("Bitmap Lossy Pages", lossy, None);
+                    explainer.add_unsigned_integer("Bitmap Recheck Pages", recheck, None);
+                    explainer.add_unsigned_integer("Bitmap Rejected Docs", rejected, None);
+                }
+            }
+        }
         if explainer.is_costs() {
             explainer.add_unsigned_integer(
                 "Segment Count",
@@ -1537,7 +1584,7 @@ impl CustomScan for BaseScan {
                     if let Some(search_reader) = state.custom_state().search_reader.as_ref() {
                         // EXPLAIN ANALYZE: use the existing search reader
                         search_reader
-                            .build_query_tree_with_estimates(base_query.clone())
+                            .build_query_tree_with_estimates(base_query.without_heap_filters())
                             .expect("building query tree with estimates should not fail")
                     } else {
                         // EXPLAIN (without ANALYZE): create a temporary reader for estimates
@@ -1549,7 +1596,7 @@ impl CustomScan for BaseScan {
 
                         let temp_reader = SearchIndexReader::open_with_context(
                             indexrel,
-                            base_query.clone(),
+                            base_query.without_heap_filters(),
                             false,                         // don't need scores for estimates
                             MvccSatisfies::LargestSegment, // Use largest segment for estimation
                             None,                          // No expr_context needed for estimates
@@ -1559,7 +1606,7 @@ impl CustomScan for BaseScan {
                         .expect("opening temporary search reader for estimates should not fail");
 
                         temp_reader
-                            .build_query_tree_with_estimates(base_query.clone())
+                            .build_query_tree_with_estimates(base_query.without_heap_filters())
                             .expect("building query tree with estimates should not fail")
                     };
 
@@ -1585,6 +1632,17 @@ impl CustomScan for BaseScan {
             let lockmode = (*rte).rellockmode as pg_sys::LOCKMODE;
 
             state.custom_state_mut().open_relations(lockmode);
+
+            // Initialize the harvested child bitmap scan, if any; registering it in
+            // custom_ps lets EXPLAIN render it.
+            let cscan = state.csstate.ss.ps.plan.cast::<pg_sys::CustomScan>();
+            if let Some(bitmap_exec) = bitmap_intersection::BitmapExec::init(cscan, estate, eflags)
+            {
+                let mut custom_ps = PgList::<pg_sys::PlanState>::from_pg(state.csstate.custom_ps);
+                custom_ps.push(bitmap_exec.planstate());
+                state.csstate.custom_ps = custom_ps.into_pg();
+                state.custom_state_mut().bitmap_exec = Some(bitmap_exec);
+            }
 
             // For EXPLAIN ANALYZE queries, we need to continue with full initialization
             // For EXPLAIN-only (without ANALYZE), begin_custom_scan is not called at all
@@ -1641,6 +1699,19 @@ impl CustomScan for BaseScan {
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        // Drop the previous execution's scorers (whose cursors point into the
+        // bitmap) and the stale source cell before the bitmap is freed; only then
+        // rebuild for the new params. The exec method itself is preserved and
+        // re-bound by `reset()` below. No reader means the scan never executed:
+        // there are no scorers, and the exec method may not even be bound yet.
+        if state.custom_state().search_reader.is_some() {
+            state.custom_state_mut().reset_exec_results();
+        }
+        drop(state.custom_state_mut().search_reader.take());
+        state.custom_state_mut().bitmap_cell = None;
+        if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut() {
+            unsafe { bitmap_exec.rescan() };
+        }
         Self::init_search_reader(state);
         state.custom_state_mut().reset();
     }
@@ -1796,13 +1867,20 @@ impl CustomScan for BaseScan {
             }
         }
 
-        // get some things dropped now
+        // get some things dropped now. Order matters: scorers hold bitmap
+        // cursors into the TIDBitmap/DSA, so everything that can hold a scorer
+        // drops before the bitmap machinery is torn down.
+        state.custom_state_mut().drop_exec_method();
         drop(state.custom_state_mut().visibility_checker.take());
         drop(state.custom_state_mut().doc_from_heap_state.take());
         drop(state.custom_state_mut().search_reader.take());
         drop(std::mem::take(
             &mut state.custom_state_mut().snippet_generators,
         ));
+        state.custom_state_mut().bitmap_cell = None;
+        if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.take() {
+            unsafe { bitmap_exec.shutdown() };
+        }
 
         state.custom_state_mut().heaprel.take();
         state.custom_state_mut().indexrel.take();

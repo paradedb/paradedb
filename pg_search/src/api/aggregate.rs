@@ -106,6 +106,7 @@ fn aggregate_impl(
         bucket_limit_u32,
         standalone_context.as_ptr(),
         std::ptr::null_mut(), // No planstate in API context
+        None,                 // No bitmap intersection in API context
     )?;
 
     if aggregate.0.is_empty() {

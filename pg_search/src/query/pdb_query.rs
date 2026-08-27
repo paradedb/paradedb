@@ -822,12 +822,10 @@ fn term_set(
     let search_field_type = search_field.field_type();
 
     // Convert terms based on field type (uses same logic as term())
-    let converted_terms: Vec<PdbOwnedValue> = terms
+    let converted_terms = terms
         .into_iter()
-        .map(|term| {
-            convert_value_for_field(term, &search_field_type).unwrap_or(PdbOwnedValue::Null)
-        })
-        .collect();
+        .map(|term| convert_value_for_field(term, &search_field_type, index_created_by_version))
+        .collect::<anyhow::Result<Vec<PdbOwnedValue>>>()?;
 
     Ok(Box::new(TermSetQuery::new(
         converted_terms.into_iter().map(|term| {
@@ -857,7 +855,8 @@ fn term(
     let search_field_type = search_field.field_type();
 
     // Convert value based on field type (handles NUMERIC scaling, JSON types, etc.)
-    let value = convert_value_for_field(value.clone(), &search_field_type)?;
+    let value =
+        convert_value_for_field(value.clone(), &search_field_type, index_created_by_version)?;
 
     let term = value_to_term(
         search_field.field(),
@@ -920,7 +919,8 @@ fn range_within(
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let typeoid = search_field.field_type().typeoid();
-    let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
+    let (lower_bound, upper_bound) =
+        check_range_bounds(typeoid, lower_bound, upper_bound, index_created_by_version)?;
 
     let range_field = RangeField::new(search_field.field());
 
@@ -1091,7 +1091,11 @@ fn range_term(
     // - INT4RANGEOID, INT8RANGEOID: indexed as i32/i64 → convert to I64
     // - NUMRANGEOID: indexed as hex-encoded sortable bytes (see SortableDecimal) → convert to hex string
     // - Date/time ranges: handling is determined by examining the schema
-    let value = convert_value_for_range_field(value.clone(), &search_field.field_type());
+    let value = convert_value_for_range_field(
+        value.clone(),
+        &search_field.field_type(),
+        index_created_by_version,
+    );
 
     let range_field = RangeField::new(search_field.field());
 
@@ -1205,7 +1209,8 @@ fn range_intersects(
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let typeoid = search_field.field_type().typeoid();
 
-    let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
+    let (lower_bound, upper_bound) =
+        check_range_bounds(typeoid, lower_bound, upper_bound, index_created_by_version)?;
     let range_field = RangeField::new(search_field.field());
 
     let mut satisfies_lower_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
@@ -1376,7 +1381,8 @@ fn range_contains(
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let typeoid = search_field.field_type().typeoid();
-    let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
+    let (lower_bound, upper_bound) =
+        check_range_bounds(typeoid, lower_bound, upper_bound, index_created_by_version)?;
     let range_field = RangeField::new(search_field.field());
 
     let mut satisfies_lower_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
@@ -1560,36 +1566,36 @@ fn range(
         }
         SearchFieldType::NumericBytes(..) => {
             // Convert bounds to lexicographically sortable bytes
-            let lower = numeric_bound_to_bytes(lower_bound)?;
-            let upper = numeric_bound_to_bytes(upper_bound)?;
+            let lower = numeric_bound_to_bytes(lower_bound, index_created_by_version)?;
+            let upper = numeric_bound_to_bytes(upper_bound, index_created_by_version)?;
             (lower, upper)
         }
         SearchFieldType::Json(_) => {
             // For JSON fields, convert string numeric values to appropriate JSON types
             let lower = map_bound(lower_bound, string_to_json_numeric);
             let upper = map_bound(upper_bound, string_to_json_numeric);
-            check_range_bounds(typeoid, lower, upper)?
+            check_range_bounds(typeoid, lower, upper, index_created_by_version)?
         }
         SearchFieldType::I64(_) => {
             let lower = map_bound(lower_bound, string_to_i64);
             let upper = map_bound(upper_bound, string_to_i64);
-            check_range_bounds(typeoid, lower, upper)?
+            check_range_bounds(typeoid, lower, upper, index_created_by_version)?
         }
         SearchFieldType::U64(_) => {
             let lower = map_bound(lower_bound, string_to_u64);
             let upper = map_bound(upper_bound, string_to_u64);
-            check_range_bounds(typeoid, lower, upper)?
+            check_range_bounds(typeoid, lower, upper, index_created_by_version)?
         }
         SearchFieldType::F64(_) => {
             let lower = map_bound(lower_bound, string_to_f64);
             let upper = map_bound(upper_bound, string_to_f64);
-            check_range_bounds(typeoid, lower, upper)?
+            check_range_bounds(typeoid, lower, upper, index_created_by_version)?
         }
         _ => {
             // Standard path for other field types
             let lower_bound = coerce_bound_to_field_type(lower_bound, field_type);
             let upper_bound = coerce_bound_to_field_type(upper_bound, field_type);
-            check_range_bounds(typeoid, lower_bound, upper_bound)?
+            check_range_bounds(typeoid, lower_bound, upper_bound, index_created_by_version)?
         }
     };
 
@@ -1874,7 +1880,8 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
     ) {
         // Convert the query string to the appropriate numeric format
         let value = PdbOwnedValue::Str(query_string.trim().to_string());
-        if let Ok(converted) = convert_value_for_field(value, &field_type) {
+        if let Ok(converted) = convert_value_for_field(value, &field_type, index_created_by_version)
+        {
             let tantivy_field_type = search_field.field_entry().field_type();
             let term = value_to_term(
                 search_field.field(),

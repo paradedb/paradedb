@@ -32,6 +32,7 @@ use super::privdat::{OutputColumnInfo, PrivateData};
 use super::JoinDeclineReason;
 
 use crate::api::operator::anyelement_query_input_opoid;
+use crate::api::version::VersionInfo;
 use crate::api::{NullTestKind, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
@@ -54,6 +55,7 @@ use crate::postgres::utils::{
 };
 use crate::postgres::var::{fieldname_from_var, strip_identity_wrappers};
 use crate::query::SearchQueryInput;
+use crate::schema::SearchFieldType;
 
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::schema::SearchIndexSchema;
@@ -667,15 +669,29 @@ unsafe fn collect_join_sources_join_rel(
                     let outer_ir = PgSearchRelation::open(outer_indexrelid);
                     let inner_hr = PgSearchRelation::open(inner_heaprelid);
                     let inner_ir = PgSearchRelation::open(inner_indexrelid);
-                    if resolve_fast_field(jk.outer_attno as i32, &outer_hr.tuple_desc(), &outer_ir)
-                        .is_none()
-                        || resolve_fast_field(
+                    let (Some(outer_ff), Some(inner_ff)) = (
+                        resolve_fast_field(
+                            jk.outer_attno as i32,
+                            &outer_hr.tuple_desc(),
+                            &outer_ir,
+                        ),
+                        resolve_fast_field(
                             jk.inner_attno as i32,
                             &inner_hr.tuple_desc(),
                             &inner_ir,
-                        )
-                        .is_none()
-                    {
+                        ),
+                    ) else {
+                        return None;
+                    };
+
+                    // A `NumericBytes` key is hashed on its stored bytes, so both indexes must
+                    // encode negative values the same way or equal values never match.
+                    if numeric_bytes_layouts_differ(&outer_ff, &outer_ir, &inner_ff, &inner_ir) {
+                        crate::postgres::customscan::joinscan::JoinScan::add_planner_warning(
+                            "join key NUMERIC columns are stored in different byte layouts; \
+                             reindex the older index",
+                            (),
+                        );
                         return None;
                     }
                 }
@@ -1025,6 +1041,30 @@ unsafe fn try_extract_null_and_subplan(
         null_test_varno: null_varno,
         null_test_attno: null_attno,
     })
+}
+
+/// Whether two `NumericBytes` join keys come from indexes that encode negative values
+/// differently. See `NUMERIC_BYTES_SORTABLE_NEGATIVES_VERSION`.
+fn numeric_bytes_layouts_differ(
+    outer_ff: &WhichFastField,
+    outer_ir: &PgSearchRelation,
+    inner_ff: &WhichFastField,
+    inner_ir: &PgSearchRelation,
+) -> bool {
+    let is_numeric_bytes = |ff: &WhichFastField| {
+        matches!(
+            ff,
+            WhichFastField::Named(_, SearchFieldType::NumericBytes(..))
+        )
+    };
+    is_numeric_bytes(outer_ff)
+        && is_numeric_bytes(inner_ff)
+        && outer_ir
+            .created_by_version()
+            .stores_sortable_negative_numeric_bytes()
+            != inner_ir
+                .created_by_version()
+                .stores_sortable_negative_numeric_bytes()
 }
 
 /// Extracts equi-join keys from a subplan's testexpr for `Semi`/`Anti` joins.

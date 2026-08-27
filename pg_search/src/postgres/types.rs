@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::tokenizers::type_is_tokenizer;
+use crate::api::version::Version;
 use crate::nodecast;
 use crate::postgres::catalog::is_citext_oid;
 use crate::postgres::catalog::{facet_encoded_str_to_ltree_text, is_ltree_oid};
@@ -23,6 +24,7 @@ use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::jsonb_support::jsonb_datum_to_serde_json_value;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::range::RangeToTantivyValue;
+use crate::query::numeric::decimal_to_index_bytes;
 use crate::schema::AnyEnum;
 use ordered_float::OrderedFloat;
 use pgrx::datum::datetime_support::DateTimeConversionError;
@@ -779,8 +781,12 @@ impl TantivyValue {
     /// Convert a PostgreSQL NUMERIC datum to a TantivyValue with raw bytes storage.
     /// Used for NUMERIC with precision > 18 or unlimited precision.
     ///
-    /// The byte encoding is lexicographically sortable, supporting range queries.
-    pub unsafe fn try_from_numeric_bytes(datum: Datum) -> Result<Self, TantivyValueError> {
+    /// The byte encoding is lexicographically sortable, supporting range queries. Its layout
+    /// follows the index the value is written to, see [`decimal_to_index_bytes`].
+    pub unsafe fn try_from_numeric_bytes(
+        datum: Datum,
+        index_created_by_version: Option<Version>,
+    ) -> Result<Self, TantivyValueError> {
         use decimal_bytes::Decimal;
         use std::str::FromStr;
 
@@ -798,7 +804,10 @@ impl TantivyValue {
         })?;
 
         // Store as raw bytes for Bytes field storage
-        Ok(TantivyValue(PdbOwnedValue::Bytes(decimal.into_bytes())))
+        Ok(TantivyValue(PdbOwnedValue::Bytes(decimal_to_index_bytes(
+            decimal,
+            index_created_by_version,
+        ))))
     }
 
     /// Convert a PostgreSQL NUMERIC[] array to TantivyValues with I64 fixed-point storage.
@@ -838,6 +847,7 @@ impl TantivyValue {
     /// Used for NUMERIC arrays with precision > 18 or unlimited precision.
     pub unsafe fn try_from_numeric_array_bytes(
         datum: Datum,
+        index_created_by_version: Option<Version>,
     ) -> Result<Vec<Self>, TantivyValueError> {
         use decimal_bytes::Decimal;
         use std::str::FromStr;
@@ -861,7 +871,10 @@ impl TantivyValue {
                 })?;
 
                 // Store as raw bytes for Bytes field storage
-                Ok(TantivyValue(PdbOwnedValue::Bytes(decimal.into_bytes())))
+                Ok(TantivyValue(PdbOwnedValue::Bytes(decimal_to_index_bytes(
+                    decimal,
+                    index_created_by_version,
+                ))))
             })
             .collect()
     }

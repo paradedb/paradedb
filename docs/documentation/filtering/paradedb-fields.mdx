@@ -1,10 +1,14 @@
 ---
-title: Filtering
-description: Filter search results based on metadata from other fields
-canonical: https://www.paradedb.com/docs/documentation/filtering
+title: ParadeDB Fields
+description: Push filters into the ParadeDB index scan
+canonical: https://www.paradedb.com/docs/documentation/filtering/paradedb-fields
 ---
 
-Adding filters to a search query is as simple as using Postgres's built-in `WHERE` clauses and operators.
+ParadeDB fields are columns or expressions included in the ParadeDB index.
+For filters over built-in scalar types and literal text fields, this is the most efficient path because the filter can be pushed directly into the ParadeDB scan.
+For filters backed by another Postgres index, see [Non-ParadeDB Fields](/documentation/filtering/non-paradedb-fields).
+
+Adding filters to a search query is as simple as using regular SQL `WHERE` clauses.
 For instance, the following query filters out results that do not meet `rating > 2`.
 
 <CodeGroup>
@@ -79,7 +83,7 @@ In order for the ParadeDB index to be used, at least one ParadeDB operator must 
 
 | Operator | Meaning                                                                                           |
 | -------- | ------------------------------------------------------------------------------------------------- |
-| `@@@`    | [General search predicate](/documentation/full-text/overview)                                     |
+| `@@@`    | [General search condition](/documentation/full-text/overview)                                     |
 | `\|\|\|` | [Match disjunction](/documentation/full-text/match#match-disjunction) — contains any of the terms |
 | `&&&`    | [Match conjunction](/documentation/full-text/match#match-conjunction) — contains all of the terms |
 | `===`    | [Term](/documentation/full-text/term) — exact token match                                         |

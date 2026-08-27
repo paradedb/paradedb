@@ -48,7 +48,7 @@
 //!    - Future work will allow no-limit joins when both sides have search predicates.
 //!
 //! 4. **Search predicate**: At least one side must have:
-//!    - A BM25 index on the table
+//!    - A ParadeDB index on the table
 //!    - A `@@@` search predicate in the WHERE clause
 //!
 //! 5. **Multi-level Joins**: JoinScan supports multi-level joins (e.g., `(A JOIN B) JOIN C`).
@@ -56,7 +56,7 @@
 //!    multiple JoinScan operators.
 //!
 //! 6. **Fast-field columns**: All columns used in the join must be fast fields in their
-//!    respective BM25 indexes. This allows the join to be executed entirely within the index:
+//!    respective ParadeDB indexes. This allows the join to be executed entirely within the index:
 //!    - Equi-join keys (e.g., `a.id = b.id`) must be fast fields for join execution
 //!    - Multi-table predicates (e.g., `a.price > b.min_price`) must reference fast fields
 //!    - ORDER BY columns must be fast fields for efficient sorting
@@ -89,7 +89,7 @@
 //! WHERE p.description @@@ 'wireless'
 //! LIMIT 10;
 //!
-//! -- JoinScan IS proposed if price/min_price are fast fields in BM25 indexes
+//! -- JoinScan IS proposed if price/min_price are fast fields in ParadeDB indexes
 //! SELECT p.name, s.name
 //! FROM products p
 //! JOIN suppliers s ON p.supplier_id = s.id
@@ -575,7 +575,7 @@ impl JoinScan {
             .any(|s| s.scan_info.indexrelid == pg_sys::InvalidOid)
         {
             return Err(JoinDeclineReason::new(
-                "JoinScan not used: at least one relation lacks a BM25 index",
+                "JoinScan not used: at least one relation lacks a ParadeDB index",
             ));
         }
 

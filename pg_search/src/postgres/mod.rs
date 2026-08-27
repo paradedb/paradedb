@@ -98,7 +98,7 @@ impl TryFrom<pg_sys::StrategyNumber> for ScanStrategy {
 CREATE FUNCTION bm25_handler(internal) RETURNS index_am_handler PARALLEL SAFE IMMUTABLE STRICT COST 0.0001 LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
 CREATE ACCESS METHOD paradedb TYPE INDEX HANDLER bm25_handler;
 CREATE ACCESS METHOD bm25 TYPE INDEX HANDLER bm25_handler;
-COMMENT ON ACCESS METHOD bm25 IS 'bm25 index access method';
+COMMENT ON ACCESS METHOD bm25 IS 'backwards-compatible alias for the paradedb index access method';
 ")]
 fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRoutine> {
     let mut amroutine =
@@ -143,8 +143,8 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
 /// along with the heap relation. Returns [`None`] if there isn't one.
 ///
 /// Filters out indexes that aren't yet `indisvalid` (e.g. mid-`CREATE INDEX CONCURRENTLY`
-/// or a failed `REINDEX`). When more than one valid bm25 index exists on the relation
-/// (only possible via `CREATE INDEX CONCURRENTLY`, which bypasses the single-bm25-index
+/// or a failed `REINDEX`). When more than one valid ParadeDB index exists on the relation
+/// (only possible via `CREATE INDEX CONCURRENTLY`, which bypasses the single-ParadeDB-index
 /// check), the highest-OID one is chosen so that the index added most recently wins.
 pub fn rel_get_bm25_index(
     relid: pg_sys::Oid,

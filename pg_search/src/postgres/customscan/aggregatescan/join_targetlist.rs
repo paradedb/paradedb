@@ -181,7 +181,7 @@ pub struct AggOrderByEntry {
     /// 1-based attribute number in the source relation's tuple descriptor.
     /// Load-bearing for fast-field projection.
     pub attno: pg_sys::AttrNumber,
-    /// Resolved field name (from the BM25 index schema).
+    /// Resolved field name (from the ParadeDB index schema).
     pub field_name: String,
     /// Sort direction including NULLS FIRST/LAST.
     pub direction: crate::api::SortDirection,

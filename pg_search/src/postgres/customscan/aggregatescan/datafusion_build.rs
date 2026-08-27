@@ -86,13 +86,13 @@ pub struct JoinAggSource {
     /// [`JoinAggSource::column_name`] and the downstream
     /// [`JoinSource::column_name`] / `build_source_df` paths agree on the
     /// BM25-registered field name for every heap attno. Empty when the
-    /// relation has no BM25 index.
+    /// relation has no ParadeDB index.
     pub fields: Vec<FieldInfo>,
 }
 
 impl JoinAggSource {
     /// Resolve a heap attribute number to its DataFusion-facing column name
-    /// via the BM25 index.
+    /// via the ParadeDB index.
     ///
     /// Returns the BM25 field name (which may be an alias like
     /// `"company_name_words"`), **not** the heap attribute name. This keeps
@@ -114,7 +114,7 @@ impl JoinAggSource {
 }
 
 /// Walk every column in the heap tuple descriptor, resolving each through the
-/// given BM25 index. Returns an empty vec when `bm25_index` is `None`.
+/// given ParadeDB index. Returns an empty vec when `bm25_index` is `None`.
 unsafe fn collect_source_fields(
     relid: pg_sys::Oid,
     bm25_index: Option<&PgSearchRelation>,
@@ -137,7 +137,7 @@ unsafe fn collect_source_fields(
 }
 
 /// Extract all tables participating in the join from `input_rel.relids` and look up
-/// their RTE / BM25 index information.
+/// their RTE / ParadeDB index information.
 ///
 /// Delegates per-relation metadata lookup to the shared [`lookup_base_rel_info`]
 /// in `joinscan/build.rs`.
@@ -427,7 +427,7 @@ unsafe fn build_scan_node(
 
     let bm25_index = source.bm25_index.as_ref().ok_or_else(|| {
         format!(
-            "table at RTI {} ({}) has no BM25 index",
+            "table at RTI {} ({}) has no ParadeDB index",
             rti,
             source.alias.as_deref().unwrap_or("unknown")
         )
@@ -596,7 +596,7 @@ unsafe fn build_join_node(
 /// Extract equi-join keys from an expression tree (ON clause or WHERE clause).
 ///
 /// Looks for `OpExpr` nodes where the operator is `=` and the arguments are `Var`
-/// nodes referencing different tables that have BM25 indexes.
+/// nodes referencing different tables that have ParadeDB indexes.
 unsafe fn extract_equi_keys_from_expr(
     node: *mut pg_sys::Node,
     sources: &[JoinAggSource],
@@ -1311,12 +1311,12 @@ impl FilterExpr {
     }
 }
 
-/// Validate that at least one table in the join has a BM25 index.
+/// Validate that at least one table in the join has a ParadeDB index.
 pub fn has_any_bm25_index(sources: &[JoinAggSource]) -> bool {
     sources.iter().any(|s| s.bm25_index.is_some())
 }
 
-/// Validate that all tables in the join have a BM25 index.
+/// Validate that all tables in the join have a ParadeDB index.
 /// Required because DataFusion needs to scan all tables via `PgSearchTableProvider`.
 pub fn all_have_bm25_index(sources: &[JoinAggSource]) -> bool {
     sources.iter().all(|s| s.bm25_index.is_some())

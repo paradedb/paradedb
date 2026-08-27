@@ -103,7 +103,7 @@ pub enum SchemaError {
 impl Display for SchemaError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::RelationNotBM25Index => write!(f, "relation is not a BM25 index"),
+            Self::RelationNotBM25Index => write!(f, "relation is not a ParadeDB index"),
             Self::Other(e) => write!(f, "{e}"),
         }
     }

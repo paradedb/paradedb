@@ -302,7 +302,7 @@ impl JoinKeyPair {
 pub struct JoinLevelSearchPredicate {
     /// The RTI of the relation this predicate applies to (used for column resolution).
     pub rti: pg_sys::Index,
-    /// The OID of the BM25 index to use.
+    /// The OID of the ParadeDB index to use.
     pub indexrelid: pg_sys::Oid,
     /// The OID of the heap relation for visibility checks.
     pub heaprelid: pg_sys::Oid,
@@ -743,7 +743,7 @@ impl JoinNode {
     ///
     /// PG emits the right-oriented form (joinrels.c) when its hash-join cost
     /// model prefers to hash the preserved side -- a physical choice JoinScan
-    /// discards, since it joins BM25 indexes in DataFusion rather than via PG's
+    /// discards, since it joins ParadeDB indexes in DataFusion rather than via PG's
     /// hash table. A right-semi is just a left-semi with the inputs swapped
     /// (same rows, same key). The swap restores the `left == preserved side`
     /// invariant that [`RelNode::output_sources`], visibility filtering, and
@@ -1720,7 +1720,7 @@ pub unsafe fn try_extract_equi_key(
     })
 }
 
-/// Look up base-relation metadata for a given RTI: relid, alias, and BM25 index.
+/// Look up base-relation metadata for a given RTI: relid, alias, and ParadeDB index.
 ///
 /// Shared between JoinScan's `collect_join_sources_base_rel` and AggregateScan's
 /// `collect_join_agg_sources`. Returns `None` if the RTI doesn't point to a

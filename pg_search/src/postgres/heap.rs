@@ -64,7 +64,7 @@ crate::impl_safe_drop!(HeapBufferPin, |self| {
 
 /// Helper to validate that a "ctid" is currently visible to a snapshot.
 ///
-/// When querying BM25 indexes, individual ctid entries may be stale. After an UPDATE,
+/// When querying ParadeDB indexes, individual ctid entries may be stale. After an UPDATE,
 /// the old tuple is marked dead and a new tuple is created at a new ctid, but the
 /// index still has the old ctid until VACUUM runs.
 ///

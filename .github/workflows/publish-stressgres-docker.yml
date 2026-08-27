@@ -107,6 +107,16 @@ jobs:
             }' > provenance.json
           cosign attest --yes --type slsaprovenance --predicate provenance.json "$IMAGE_REF"
 
+      # Docker Scout's dashboard policy evaluator is deprecated. Evaluate the pushed,
+      # attested image in CI and publish the results to the workflow run summary instead.
+      - name: Evaluate Docker Scout Policies
+        uses: docker/scout-action@v1
+        with:
+          command: policy
+          image: index.docker.io/paradedb/stressgres@${{ steps.build-push.outputs.digest }}
+          organization: paradedb
+          platform: linux/amd64
+
       - name: Notify Slack on Failure
         if: failure()
         uses: paradedb/actions/slack-alert@v10

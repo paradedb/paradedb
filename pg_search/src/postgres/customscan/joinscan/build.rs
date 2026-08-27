@@ -546,6 +546,9 @@ impl JoinSource {
 
     /// Resolve an attribute number to its DataFusion column name.
     pub fn column_name(&self, attno: pg_sys::AttrNumber) -> Option<String> {
+        if attno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber {
+            return Some(CtidColumn::new(self.plan_position).to_string());
+        }
         self.scan_info
             .fields
             .iter()

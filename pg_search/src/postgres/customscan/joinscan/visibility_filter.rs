@@ -247,6 +247,124 @@ fn collect_visibility_source_metadata(
     Ok(metadata)
 }
 
+/// Returns true if `node` reduces, filters, or limits rows.
+fn is_reduction_node(node: &LogicalPlan) -> bool {
+    match node {
+        LogicalPlan::Filter(_)
+        | LogicalPlan::Join(_)
+        | LogicalPlan::Limit(_)
+        | LogicalPlan::Distinct(_) => true,
+        LogicalPlan::Sort(sort) => sort.fetch.is_some(),
+        _ => false,
+    }
+}
+
+/// Recursively traverses `plan` tracking the ancestor chain down to each `TableScan`.
+/// For each `TableScan` with configured deferred ctid plan position, checks if there is
+/// any intermediate reduction node on the path between the scan and the first ancestor
+/// that acts as a barrier (or the root).
+fn collect_beneficial_deferred_visibility_inner<'a>(
+    node: &'a LogicalPlan,
+    ancestors: &mut Vec<&'a LogicalPlan>,
+    beneficial: &mut BTreeSet<usize>,
+) {
+    if let LogicalPlan::TableScan(scan) = node {
+        let provider = pg_search_provider_from_scan(scan);
+        if let Some(provider) = provider
+            && let Some(plan_pos) = provider.configured_deferred_ctid_plan_position()
+        {
+            let mut has_reduction = false;
+            let mut is_beneficial = false;
+
+            for ancestor in ancestors.iter().rev() {
+                if !matches!(barrier_status(ancestor), BarrierStatus::None) {
+                    if has_reduction {
+                        is_beneficial = true;
+                    }
+                    break;
+                }
+                if is_reduction_node(ancestor) {
+                    has_reduction = true;
+                }
+            }
+
+            if !is_beneficial && has_reduction {
+                is_beneficial = true;
+            }
+
+            if is_beneficial {
+                beneficial.insert(plan_pos);
+            }
+        }
+        return;
+    }
+
+    ancestors.push(node);
+    for child in node.inputs() {
+        collect_beneficial_deferred_visibility_inner(child, ancestors, beneficial);
+    }
+    ancestors.pop();
+}
+
+fn collect_beneficial_deferred_visibility(plan: &LogicalPlan) -> BTreeSet<usize> {
+    let mut beneficial = BTreeSet::new();
+    let mut ancestors = Vec::new();
+    collect_beneficial_deferred_visibility_inner(plan, &mut ancestors, &mut beneficial);
+    beneficial
+}
+
+fn ensure_scan_projects_ctid(
+    scan: &datafusion::logical_expr::TableScan,
+    plan_pos: usize,
+) -> Result<datafusion::logical_expr::TableScan> {
+    let ctid_name = CtidColumn::new(plan_pos).to_string();
+    if scan
+        .projected_schema
+        .index_of_column_by_name(None, &ctid_name)
+        .is_some()
+    {
+        return Ok(scan.clone());
+    }
+
+    let source_schema = scan.source.schema();
+    let Ok(ctid_source_idx) = source_schema.index_of(&ctid_name) else {
+        return Ok(scan.clone());
+    };
+
+    let mut projected_indices: Vec<usize> = scan
+        .projected_schema
+        .fields()
+        .iter()
+        .map(|f| scan.source.schema().index_of(f.name()))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    projected_indices.push(ctid_source_idx);
+
+    let projected_arrow_schema = source_schema.project(&projected_indices)?;
+    let mut new_qualified_fields = Vec::new();
+    for (i, field) in projected_arrow_schema.fields().iter().enumerate() {
+        let qualifier = if i < scan.projected_schema.fields().len() {
+            let (q, _) = scan.projected_schema.qualified_field(i);
+            q.cloned()
+        } else if !scan.projected_schema.fields().is_empty() {
+            let (q, _) = scan.projected_schema.qualified_field(0);
+            q.cloned()
+        } else {
+            Some(scan.table_name.clone())
+        };
+        new_qualified_fields.push((qualifier, field.clone()));
+    }
+
+    let mut new_scan = scan.clone();
+    new_scan.projection = Some(projected_indices);
+    new_scan.projected_schema = Arc::new(datafusion::common::DFSchema::new_with_metadata(
+        new_qualified_fields,
+        scan.projected_schema.metadata().clone(),
+    )?);
+
+    Ok(new_scan)
+}
+
 impl OptimizerRule for VisibilityFilterOptimizerRule {
     fn name(&self) -> &str {
         "VisibilityFilterInjection"
@@ -262,13 +380,88 @@ impl OptimizerRule for VisibilityFilterOptimizerRule {
         plan: LogicalPlan,
         _config: &dyn OptimizerConfig,
     ) -> Result<Transformed<LogicalPlan>> {
-        let plan_pos_metadata = collect_visibility_source_metadata(&plan)?;
+        let beneficial = collect_beneficial_deferred_visibility(&plan);
+        if beneficial.is_empty() {
+            return Ok(Transformed::no(plan));
+        }
+
+        let mut plan_pos_metadata = collect_visibility_source_metadata(&plan)?;
+        plan_pos_metadata.retain(|pos, _| beneficial.contains(pos));
 
         if plan_pos_metadata.is_empty() {
             return Ok(Transformed::no(plan));
         }
 
-        let (result, final_state) = analyze_and_inject(plan, &plan_pos_metadata)?;
+        let prepared_plan = plan.transform_up(|node| {
+            if let LogicalPlan::TableScan(scan) = &node
+                && let Some(provider) = pg_search_provider_from_scan(scan)
+                && let Some(plan_pos) = provider.configured_deferred_ctid_plan_position()
+                && beneficial.contains(&plan_pos)
+            {
+                provider.enable_deferred_visibility_schema();
+                let updated_scan = ensure_scan_projects_ctid(scan, plan_pos)?;
+                return Ok(Transformed::yes(LogicalPlan::TableScan(updated_scan)));
+            }
+
+            if matches!(barrier_status(&node), BarrierStatus::None) {
+                if let LogicalPlan::Projection(proj) = &node {
+                    let mut new_exprs = proj.expr.clone();
+                    let mut added = false;
+                    for (i, field) in proj.input.schema().fields().iter().enumerate() {
+                        if let Ok(ctid_col) = CtidColumn::try_from(field.name().as_str()) {
+                            let plan_pos = ctid_col.plan_position();
+                            if beneficial.contains(&plan_pos)
+                                && proj
+                                    .schema
+                                    .index_of_column_by_name(None, field.name())
+                                    .is_none()
+                            {
+                                let (qualifier, _) = proj.input.schema().qualified_field(i);
+                                let col_expr =
+                                    datafusion::logical_expr::col(datafusion::common::Column::new(
+                                        qualifier.cloned(),
+                                        field.name().clone(),
+                                    ));
+                                new_exprs.push(col_expr);
+                                added = true;
+                            }
+                        }
+                    }
+                    if added {
+                        let new_proj = datafusion::logical_expr::Projection::try_new(
+                            new_exprs,
+                            proj.input.clone(),
+                        )?;
+                        return Ok(Transformed::yes(LogicalPlan::Projection(new_proj)));
+                    }
+                }
+
+                if let LogicalPlan::Join(join) = &node {
+                    let new_join = datafusion::logical_expr::logical_plan::Join::try_new(
+                        join.left.clone(),
+                        join.right.clone(),
+                        join.on.clone(),
+                        join.filter.clone(),
+                        join.join_type,
+                        join.join_constraint,
+                        join.null_equality,
+                        join.null_aware,
+                    )?;
+                    return Ok(Transformed::yes(LogicalPlan::Join(new_join)));
+                }
+
+                let new_node = node.with_new_exprs(
+                    node.expressions(),
+                    node.inputs().into_iter().cloned().collect(),
+                )?;
+                let recomputed = new_node.recompute_schema()?;
+                return Ok(Transformed::yes(recomputed));
+            }
+
+            Ok(Transformed::no(node))
+        })?;
+
+        let (result, final_state) = analyze_and_inject(prepared_plan.data, &plan_pos_metadata)?;
 
         // Root boundary fallback: any plan_position still unverified must be checked here.
         let unverified: BTreeSet<usize> = final_state
@@ -1281,10 +1474,30 @@ mod tests {
     }
 
     #[pg_test]
-    fn root_injection_is_idempotent() -> Result<()> {
+    fn single_scan_without_reduction_is_not_transformed() -> Result<()> {
         let config = OptimizerContext::new();
         let rule = make_rule();
         let plan = make_ctid_plan(TEST_PLAN_POS, pg_sys::Oid::from(42), Some("test_table"))?;
+
+        let result = rule.rewrite(plan, &config)?;
+        assert!(!result.transformed);
+        assert_eq!(count_visibility_nodes(&result.data), 0);
+        Ok(())
+    }
+
+    #[pg_test]
+    fn root_injection_is_idempotent() -> Result<()> {
+        let config = OptimizerContext::new();
+        let rule = make_rule();
+        let plan = LogicalPlanBuilder::from(make_ctid_plan(
+            TEST_PLAN_POS,
+            pg_sys::Oid::from(42),
+            Some("test_table"),
+        )?)
+        .filter(
+            col(CtidColumn::new(TEST_PLAN_POS).to_string()).gt(datafusion::logical_expr::lit(10)),
+        )?
+        .build()?;
 
         let first = rule.rewrite(plan, &config)?;
         assert!(first.transformed);
@@ -1299,11 +1512,17 @@ mod tests {
 
     /// Builds a barrier plan, asserts injection + idempotency.
     fn assert_barrier(build: impl FnOnce(LogicalPlanBuilder) -> Result<LogicalPlan>) -> Result<()> {
-        let plan = build(LogicalPlanBuilder::from(make_ctid_plan(
-            TEST_PLAN_POS,
-            pg_sys::Oid::from(42),
-            Some("test_table"),
-        )?))?;
+        let plan = build(
+            LogicalPlanBuilder::from(make_ctid_plan(
+                TEST_PLAN_POS,
+                pg_sys::Oid::from(42),
+                Some("test_table"),
+            )?)
+            .filter(
+                col(CtidColumn::new(TEST_PLAN_POS).to_string())
+                    .gt(datafusion::logical_expr::lit(10)),
+            )?,
+        )?;
         assert_barrier_injection(plan)
     }
 
@@ -1316,6 +1535,9 @@ mod tests {
             pg_sys::Oid::from(42),
             Some("test_table"),
         )?)
+        .filter(
+            col(CtidColumn::new(TEST_PLAN_POS).to_string()).gt(datafusion::logical_expr::lit(10)),
+        )?
         .limit(0, Some(5))?
         .build()?;
 
@@ -1367,6 +1589,9 @@ mod tests {
             pg_sys::Oid::from(42),
             Some("test_table"),
         )?)
+        .filter(
+            col(CtidColumn::new(TEST_PLAN_POS).to_string()).gt(datafusion::logical_expr::lit(10)),
+        )?
         .sort(vec![
             col(CtidColumn::new(TEST_PLAN_POS).to_string()).sort(true, false),
         ])?

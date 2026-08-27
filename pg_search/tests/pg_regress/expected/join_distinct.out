@@ -571,8 +571,8 @@ FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
     LIMIT 10;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: (pdb.agg_fn('COUNT(*)'::text))
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -582,12 +582,13 @@ WHERE p.description @@@ 'wireless'
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0]
-           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@0)], projection=[]
-           :     CooperativeExec
-           :       PgSearchScan: table=s, segments=1, query="all"
-           :     CooperativeExec
-           :       PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
+           :   VisibilityFilterExec: tables=[p, s]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@0)], projection=[ctid_0@3, ctid_1@1]
+           :       CooperativeExec
+           :         PgSearchScan: table=s, segments=1, query="all"
+           :       CooperativeExec
+           :         PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
 
 -- =============================================================================
 -- TEST 12: Aggregate correctness — COUNT not capped by LIMIT
@@ -619,8 +620,8 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p, s)
-                                                                                                       QUERY PLAN                                                                                                       
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: p.name, s.name
    Sort Key: p.name
@@ -632,12 +633,13 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p,
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[name@0 as name, name@1 as name], aggr=[]
            :   TantivyLookupExec: decode=[name, name]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[name@2, name@1]
-           :       CooperativeExec
-           :         PgSearchScan: table=s, segments=1, query="all"
-           :       CooperativeExec
-           :         PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+           :     VisibilityFilterExec: tables=[p, s]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[name@3, name@1, ctid_0@5, ctid_1@2]
+           :         CooperativeExec
+           :           PgSearchScan: table=s, segments=1, query="all"
+           :         CooperativeExec
+           :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
 
 -- =============================================================================
 -- TEST 14: DISTINCT with search predicates on both sides
@@ -919,7 +921,7 @@ LIMIT 50;
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=50), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[id@2 as col_1, name@3 as col_2], aggr=[min(j_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                 :     VisibilityFilterExec: tables=[j, p]
+                 :     VisibilityFilterExec: tables=[j]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(person_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, id@3, name@4]
                  :         CooperativeExec
                  :           PgSearchScan: table=j, segments=1, query={"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}}
@@ -959,8 +961,8 @@ WHERE j.id @@@ paradedb.parse('title:developer')
   )
 ORDER BY p.id
 LIMIT 50;
-                                                                                     QUERY PLAN                                                                                     
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                      QUERY PLAN                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: p.id
@@ -971,15 +973,16 @@ LIMIT 50;
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=50), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[id@0 as id, name@1 as name], aggr=[]
-                 :     HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(person_id@0, id@0)]
-                 :       CooperativeExec
-                 :         PgSearchScan: table=j, segments=1, query={"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}}
-                 :       HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@0, person_id@0)], null_aware
+                 :     VisibilityFilterExec: tables=[j]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(person_id@0, id@0)], projection=[id@2, name@3, ctid_2@1]
                  :         CooperativeExec
-                 :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query="all"
-                 :         CooperativeExec
-                 :           PgSearchScan: table=j2, segments=1, query={"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+                 :           PgSearchScan: table=j, segments=1, query={"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}}
+                 :         HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@0, person_id@0)], null_aware
+                 :           CooperativeExec
+                 :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query="all"
+                 :           CooperativeExec
+                 :             PgSearchScan: table=j2, segments=1, query={"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
 
 SELECT DISTINCT p.id, p.name
 FROM persons p
@@ -1031,8 +1034,8 @@ WHERE deleted_at IS NULL
   )
 ORDER BY profile_id
 LIMIT 50;
-                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Custom Scan (ParadeDB Join Scan)
@@ -1045,13 +1048,12 @@ LIMIT 50;
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=50), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[profile_id@1 as col_1], aggr=[min(pp_0.ctid_0) as ctid_0]
-                 :     VisibilityFilterExec: tables=[pp]
-                 :       HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(profile_id@1, profile_id@0)]
-                 :         CooperativeExec
-                 :           PgSearchScan: table=pp, segments=1, query={"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
-                 :         CooperativeExec
-                 :           PgSearchScan: table=pp2, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
-(18 rows)
+                 :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(profile_id@1, profile_id@0)]
+                 :       CooperativeExec
+                 :         PgSearchScan: table=pp, segments=1, query={"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
+                 :       CooperativeExec
+                 :         PgSearchScan: table=pp2, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
+(17 rows)
 
 SELECT DISTINCT profile_id
 FROM profiles_positions pp

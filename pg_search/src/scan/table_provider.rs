@@ -115,6 +115,14 @@ pub struct PgSearchTableProvider {
     #[serde(with = "atomic_bool_serde")]
     late_materialization_active: AtomicBool,
 
+    /// A lifecycle toggle for deferred visibility.
+    ///
+    /// When true, the provider participates in deferred visibility and emits
+    /// packed DocAddresses in `ctid_<plan_position>`.
+    /// When false, the provider performs eager in-scanner visibility checks.
+    #[serde(with = "atomic_bool_serde")]
+    deferred_visibility_active: AtomicBool,
+
     /// Source position in the unified-sources array. When set, the codec's
     /// `parallel_state` routes per-source claims via
     /// `checkout_segment_for_source(source_idx)`. `None` for serial scans.
@@ -167,6 +175,10 @@ impl Clone for PgSearchTableProvider {
                 self.late_materialization_active
                     .load(std::sync::atomic::Ordering::Relaxed),
             ),
+            deferred_visibility_active: std::sync::atomic::AtomicBool::new(
+                self.deferred_visibility_active
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            ),
             source_idx: self.source_idx,
             range_sample: self.range_sample.clone(),
             manifest: self.manifest.clone(),
@@ -195,6 +207,7 @@ impl PgSearchTableProvider {
             planstate: None,
             visibility_mode: VisibilityMode::Eager,
             late_materialization_active: AtomicBool::new(false),
+            deferred_visibility_active: AtomicBool::new(false),
             source_idx,
             range_sample: None,
             manifest: None,
@@ -218,6 +231,16 @@ impl PgSearchTableProvider {
     pub fn enable_late_materialization_schema(&self) {
         self.late_materialization_active
             .store(true, Ordering::Relaxed);
+    }
+
+    /// Activates deferred visibility mode (emitting packed DocAddresses for VisibilityFilterExec)
+    pub fn enable_deferred_visibility_schema(&self) {
+        self.deferred_visibility_active
+            .store(true, Ordering::Relaxed);
+    }
+
+    pub(crate) fn is_deferred_visibility_active(&self) -> bool {
+        self.deferred_visibility_active.load(Ordering::Relaxed)
     }
 
     pub(crate) fn set_parallel_state(&mut self, parallel_state: Option<*mut ParallelScanState>) {
@@ -309,16 +332,24 @@ impl PgSearchTableProvider {
         }
     }
 
-    /// Returns the JoinScan source identity when visibility has been deferred.
-    pub(crate) fn deferred_ctid_plan_position(&self) -> Option<usize> {
+    /// Returns the JoinScan source identity configured for deferred visibility,
+    /// regardless of whether deferred visibility is currently active.
+    pub(crate) fn configured_deferred_ctid_plan_position(&self) -> Option<usize> {
         self.visibility_mode().deferred_plan_position()
     }
 
+    /// Returns the JoinScan source identity when visibility has been deferred and is active.
+    pub(crate) fn deferred_ctid_plan_position(&self) -> Option<usize> {
+        if self.is_deferred_visibility_active() {
+            self.configured_deferred_ctid_plan_position()
+        } else {
+            None
+        }
+    }
+
     /// Returns the per-source metadata needed by `VisibilityFilterOptimizerRule`.
-    ///
-    /// This is only available once the provider has deferred its ctid column.
     pub(crate) fn visibility_source_metadata(&self) -> Option<VisibilitySourceMetadata> {
-        let plan_position = self.deferred_ctid_plan_position()?;
+        let plan_position = self.configured_deferred_ctid_plan_position()?;
         let table_name = self
             .scan_info
             .alias
@@ -372,12 +403,11 @@ impl PgSearchTableProvider {
                     let logical_fields: Vec<_> = self
                         .fields
                         .iter()
-                        .map(|wff| {
-                            if let WhichFastField::Deferred(name, ty) = wff {
+                        .map(|wff| match wff {
+                            WhichFastField::Deferred(name, ty) => {
                                 WhichFastField::Named(name.clone(), *ty)
-                            } else {
-                                wff.clone()
                             }
+                            _ => wff.clone(),
                         })
                         .collect();
                     crate::index::fast_fields_helper::build_arrow_schema(&logical_fields)
@@ -390,20 +420,17 @@ impl PgSearchTableProvider {
         &self,
         projection: Option<&Vec<usize>>,
     ) -> Result<(Vec<WhichFastField>, SchemaRef)> {
-        let active_fields: Vec<_> = if self.late_materialization_active.load(Ordering::Relaxed) {
-            self.fields.clone()
-        } else {
-            self.fields
-                .iter()
-                .map(|wff| {
-                    if let WhichFastField::Deferred(name, ty) = wff {
-                        WhichFastField::Named(name.clone(), *ty)
-                    } else {
-                        wff.clone()
-                    }
-                })
-                .collect()
-        };
+        let is_late_active = self.late_materialization_active.load(Ordering::Relaxed);
+        let active_fields: Vec<_> = self
+            .fields
+            .iter()
+            .map(|wff| match wff {
+                WhichFastField::Deferred(name, ty) if !is_late_active => {
+                    WhichFastField::Named(name.clone(), *ty)
+                }
+                _ => wff.clone(),
+            })
+            .collect();
 
         let schema = self.get_schema();
         match projection {
@@ -537,6 +564,18 @@ impl PgSearchTableProvider {
         source_idx: Option<usize>,
         partition_count: usize,
     ) -> Result<Arc<dyn ExecutionPlan>> {
+        let which_fast_fields = if self.is_deferred_visibility_active() {
+            which_fast_fields
+        } else {
+            which_fast_fields
+                .into_iter()
+                .map(|wff| match wff {
+                    WhichFastField::DeferredCtid(_) => WhichFastField::Ctid,
+                    other => other,
+                })
+                .collect()
+        };
+
         let scanner_config = crate::scan::execution_plan::ScannerConfig {
             which_fast_fields,
             heap_relid: heap_relid.into(),

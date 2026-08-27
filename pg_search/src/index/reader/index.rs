@@ -36,7 +36,6 @@ use crate::index::setup_tokenizers;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::postgres::storage::buffer::PinnedBuffer;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::query::SearchQueryInput;
@@ -807,16 +806,6 @@ impl SearchIndexReader {
 
     pub fn segment_readers(&self) -> &[SegmentReader] {
         self.searcher.segment_readers()
-    }
-
-    pub(crate) fn index_rel(&self) -> &PgSearchRelation {
-        &self.index_rel
-    }
-
-    /// The stored entry of one of this reader's segments, for the components read outside
-    /// tantivy, like `.stats`.
-    pub(crate) fn segment_meta_entry(&self, segment_id: &SegmentId) -> Option<SegmentMetaEntry> {
-        self.directory.segment_meta_entry(segment_id)
     }
 
     pub fn schema(&self) -> &SearchIndexSchema {

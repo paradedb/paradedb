@@ -39,7 +39,6 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tantivy::columnar::{Cardinality, ColumnarReader, DynamicColumn, DynamicColumnHandle};
 use tantivy::directory::error::OpenReadError;
-use tantivy::directory::footer::Footer;
 use tantivy::directory::{CompositeFile, CompositeWrite, FileSlice};
 use tantivy::index::{Segment, SegmentComponent, SegmentId, SegmentReader};
 use tantivy::indexer::DocIdMapping;
@@ -51,11 +50,10 @@ use tantivy::{
 use crate::api::HashMap;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
-use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::{PdbOwnedValue, exact_scalar_wire};
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::{STATS_EXT, SegmentMetaEntry};
+use crate::postgres::storage::block::STATS_EXT;
 use crate::postgres::types::is_datetime_type;
 use crate::scan::range_partitioning::RangePartitioning;
 use crate::schema::SearchFieldType;
@@ -535,12 +533,11 @@ fn merged_logical_bounds(
 ) -> tantivy::Result<Option<LogicalBoundsByField>> {
     let mut sources = Vec::with_capacity(readers.len());
     for reader in readers {
-        match reader.open_read(stats_component()) {
-            Ok(slice) => sources.push(SegmentStats::open(slice)?),
+        match SegmentStats::of_reader(reader)? {
+            Some(stats) => sources.push(stats),
             // A segment written before the component existed. The merge cannot claim a box it
             // cannot prove for it.
-            Err(OpenReadError::FileDoesNotExist(_)) => return Ok(None),
-            Err(e) => return Err(e.into()),
+            None => return Ok(None),
         }
     }
     if sources.is_empty() {
@@ -577,21 +574,24 @@ impl SegmentStats {
         })
     }
 
-    /// The `.stats` of a persisted segment, read straight off the index blocks. `None` when the
-    /// segment was written without the component.
-    pub(crate) fn open_persisted(
-        indexrel: &PgSearchRelation,
-        entry: &SegmentMetaEntry,
-    ) -> io::Result<Option<Self>> {
-        let Some(file_entry) = entry.stats() else {
-            return Ok(None);
-        };
-        let handle =
-            unsafe { SegmentComponentReader::new(indexrel, file_entry, Some(stats_component())) };
-        // A direct block read still carries tantivy's file footer, which the managed directory
-        // strips for the segment readers.
-        let (_, body) = Footer::extract_footer(FileSlice::new(Arc::new(handle)))?;
-        Self::open(body).map(Some)
+    /// The `.stats` of `segment`, through its directory. `None` when the segment was written
+    /// without the component.
+    pub(crate) fn of_segment(segment: &Segment) -> io::Result<Option<Self>> {
+        Self::from_component(segment.open_read(stats_component()))
+    }
+
+    /// The `.stats` of an open segment reader. `None` when the segment was written without the
+    /// component.
+    pub(crate) fn of_reader(reader: &SegmentReader) -> io::Result<Option<Self>> {
+        Self::from_component(reader.open_read(stats_component()))
+    }
+
+    fn from_component(opened: Result<FileSlice, OpenReadError>) -> io::Result<Option<Self>> {
+        match opened {
+            Ok(slice) => Self::open(slice).map(Some),
+            Err(OpenReadError::FileDoesNotExist(_)) => Ok(None),
+            Err(e) => Err(io::Error::other(e)),
+        }
     }
 
     pub(crate) fn empirical(&self, field: Field) -> io::Result<Option<EmpiricalStats>> {
@@ -617,10 +617,9 @@ impl SegmentStats {
     }
 }
 
-/// The split grid a partitioned build stamped on the visible segments for `partition_by`,
-/// sorted and deduplicated, or `None` once any visible segment lacks a box on it. An insert or a
-/// merge with an unboxed segment breaks the grid, and what is left of it would give a coarse,
-/// skewed layout where a value sample still divides the space evenly.
+/// The split points a partitioned build stamped on the index: the edges of every box a visible
+/// segment carries for `partition_by`. `None` when no segment carries one. A segment without a
+/// box does not veto the grid, since its own statistics place it at execution.
 pub(crate) fn persisted_split_points(
     indexrel: &PgSearchRelation,
     partition_by: &str,
@@ -634,12 +633,20 @@ pub(crate) fn persisted_split_points(
         return Ok(None);
     };
     let mut points = Vec::new();
-    for entry in directory.all_entries().values() {
-        let Some(stats) = SegmentStats::open_persisted(indexrel, entry)? else {
-            return Ok(None);
+    for segment in index.searchable_segments()? {
+        // Opening a component of a mutable segment materializes the whole segment first, and its
+        // entry already says it has no `.stats`.
+        let has_stats = directory
+            .segment_meta_entry(&segment.id())
+            .is_some_and(|entry| entry.stats().is_some());
+        if !has_stats {
+            continue;
+        }
+        let Some(stats) = SegmentStats::of_segment(&segment)? else {
+            continue;
         };
         let Some(bounds) = stats.logical(field)? else {
-            return Ok(None);
+            continue;
         };
         for bound in [bounds.lower, bounds.upper] {
             if let Bound::Included(v) | Bound::Excluded(v) = bound {
@@ -682,12 +689,11 @@ pub(crate) fn segments_for_partition(
     // NULLs route to partition 0, so it keeps every segment that may hold one.
     let catches_nulls = partition == 0;
 
-    all.into_iter()
-        .filter(|segment_id| {
-            let Some(entry) = reader.segment_meta_entry(segment_id) else {
-                return true;
-            };
-            let Ok(Some(stats)) = SegmentStats::open_persisted(reader.index_rel(), &entry) else {
+    reader
+        .segment_readers()
+        .iter()
+        .filter(|segment_reader| {
+            let Ok(Some(stats)) = SegmentStats::of_reader(segment_reader) else {
                 return true;
             };
             match stats.logical(field) {
@@ -711,6 +717,7 @@ pub(crate) fn segments_for_partition(
             };
             (catches_nulls && empirical.nullable) || empirical.intersects(&lower, &upper)
         })
+        .map(SegmentReader::segment_id)
         .collect()
 }
 
@@ -738,15 +745,17 @@ mod tests {
         let directory = MvccSatisfies::Snapshot.directory(indexrel);
         let index = Index::open(directory.clone()).unwrap();
         let field = index.schema().get_field(field_name).unwrap();
-        let stats = directory
-            .all_entries()
-            .values()
-            .map(|entry| {
-                SegmentStats::open_persisted(indexrel, entry)
+        let stats = index
+            .searchable_segments()
+            .unwrap()
+            .iter()
+            .map(|segment| {
+                SegmentStats::of_segment(segment)
                     .unwrap()
                     .expect("every segment of a fresh index carries a .stats component")
             })
             .collect();
+        drop(directory);
         (field, stats)
     }
 
@@ -1049,9 +1058,9 @@ mod tests {
     }
 
     /// An insert after the build lands in a mutable segment, which carries no statistics at all.
-    /// The grid is gone, so the planner samples again, and every partition keeps the new segment.
+    /// The grid stays, and every partition keeps the new segment.
     #[pg_test]
-    fn insert_after_build_drops_the_persisted_grid() {
+    fn insert_after_build_keeps_the_persisted_grid() {
         Spi::run(
             r#"
             CREATE TABLE stats_grow (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
@@ -1071,10 +1080,9 @@ mod tests {
         assert_eq!(split_points.len(), 3);
 
         Spi::run("INSERT INTO stats_grow (tenant_id, name) VALUES (42, 'late row');").unwrap();
-        assert!(
-            persisted_split_points(&indexrel, "tenant_id")
-                .unwrap()
-                .is_none()
+        assert_eq!(
+            persisted_split_points(&indexrel, "tenant_id").unwrap(),
+            Some(split_points.clone())
         );
 
         let reader = SearchIndexReader::open(
@@ -1114,8 +1122,9 @@ mod tests {
     }
 
     /// Without a mutable segment, a late insert lands in an immutable segment that carries
-    /// empirical statistics but no box. The grid is gone, yet the segment still prunes on its own
-    /// range, and a merge that takes it in keeps the statistics and drops the box.
+    /// empirical statistics but no box. The grid stays and the segment prunes on its own range.
+    /// A merge that takes it in keeps the statistics and drops the box, and once no segment has a
+    /// box the grid is gone.
     #[pg_test]
     fn unboxed_segment_prunes_on_empirical_stats_and_merges_without_a_box() {
         Spi::run(
@@ -1145,10 +1154,9 @@ mod tests {
             "#,
         )
         .unwrap();
-        assert!(
-            persisted_split_points(&indexrel, "tenant_id")
-                .unwrap()
-                .is_none()
+        assert_eq!(
+            persisted_split_points(&indexrel, "tenant_id").unwrap(),
+            Some(split_points.clone())
         );
         let reader = SearchIndexReader::open(
             &indexrel,

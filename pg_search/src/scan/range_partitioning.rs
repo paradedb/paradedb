@@ -200,33 +200,14 @@ impl RangePartitioning {
 pub struct RangePartitioningSample {
     /// The index field used to define the boundaries.
     pub partition_by: FieldName,
-    /// A sample of values from the data space. This sample is typically much larger
-    /// than the target number of partitions, allowing us to safely down-sample to compute
-    /// relatively uniform distribution boundaries.
+    /// The points to cut on, sorted ascending. An index built with `partition_by` supplies the
+    /// grid its build stamped on the segments, so a partition cut on it lines up with its
+    /// segments; any other index supplies a sample of one segment. Either is typically larger
+    /// than the target number of partitions, so `build` can down-sample it evenly.
     pub sample_points: Vec<PdbOwnedValue>,
-    /// The split grid a partitioned build stamped on its segments, sorted ascending, or empty.
-    /// Partitions cut on it line up with the segments, so each one searches only its segment.
-    pub persisted_points: Vec<PdbOwnedValue>,
 }
 
 impl RangePartitioningSample {
-    /// The points `build` cuts for `target_partitions`, so a caller that sizes partitions
-    /// agrees with the partitioning it gets.
-    ///
-    /// The grid wins whenever it can seat every partition. Its cuts fall on whole build
-    /// partitions, so a count that does not divide them leaves some range partitions one build
-    /// partition heavier. The sample describes one segment, which after a partitioned build is
-    /// a single build partition, so it cannot place cuts across the table. Below the requested count the grid would idle
-    /// workers, and only then does the sample take over.
-    pub fn points_for(&self, target_partitions: usize) -> &[PdbOwnedValue] {
-        if !self.persisted_points.is_empty() && self.persisted_points.len() + 1 >= target_partitions
-        {
-            &self.persisted_points
-        } else {
-            &self.sample_points
-        }
-    }
-
     /// Generates a concrete `RangePartitioning` bounding exactly `target_partitions`.
     ///
     /// If `target_partitions` is smaller than the sample's inherent size, the
@@ -234,7 +215,7 @@ impl RangePartitioningSample {
     /// To avoid scheduling unnecessary tasks scanning empty ranges, `target_partitions`
     /// is capped at `sample_points.len() + 1`.
     pub fn build(&self, target_partitions: usize) -> RangePartitioning {
-        let points = self.points_for(target_partitions);
+        let points = &self.sample_points;
         debug_assert!(
             points
                 .windows(2)

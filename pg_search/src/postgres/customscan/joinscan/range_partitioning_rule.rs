@@ -364,7 +364,16 @@ fn sort_sample_points(points: &mut [PdbOwnedValue]) {
     points.sort_unstable_by(PdbOwnedValue::total_cmp);
 }
 
-/// Samples both sides of the join and merges the two distributions, so the split
+/// One join side's split points.
+enum SidePoints {
+    /// The grid a partitioned build stamped on the side's segments. It describes the whole
+    /// table and lines up with the segments.
+    Grid(Vec<PdbOwnedValue>),
+    /// A sample of one segment of a side built without `partition_by`.
+    Sample(Vec<PdbOwnedValue>),
+}
+
+/// Collects both sides of the join and merges the two distributions, so the split
 /// points reflect the combined key space rather than one side's skew.
 ///
 /// Returns `None` when the two key columns expose different arrow types: a shared
@@ -385,36 +394,47 @@ fn merged_sample(
         return Ok(None);
     }
 
-    let mut sample = sample_fast_field(l_provider, l_field)?;
-    let r_sample = sample_fast_field(r_provider, r_field)?;
-    sample.sample_points.extend(r_sample.sample_points);
-    sort_sample_points(&mut sample.sample_points);
-    // A grid describes its whole table and lines up with that side's segments, so the other
-    // side's sample must not dilute it. Two grids merge the way two samples do; the cuts then
-    // line up with a side only where the grids agree, and that side prunes less.
-    if sample.persisted_points.is_empty() {
-        sample.persisted_points = r_sample.persisted_points;
-    } else if !r_sample.persisted_points.is_empty() {
-        sample.persisted_points.extend(r_sample.persisted_points);
-        sort_sample_points(&mut sample.persisted_points);
-        sample
-            .persisted_points
-            .dedup_by(|a, b| a.total_cmp(b) == std::cmp::Ordering::Equal);
-    }
-    Ok(Some(sample))
+    let sample_points = match (
+        sample_fast_field(l_provider, l_field)?,
+        sample_fast_field(r_provider, r_field)?,
+    ) {
+        // Two grids merge like two samples, so the cuts line up with a side only where the
+        // grids agree. Grid edges repeat across sides, and a repeated cut would be an empty
+        // partition.
+        (SidePoints::Grid(mut points), SidePoints::Grid(other)) => {
+            points.extend(other);
+            sort_sample_points(&mut points);
+            points.dedup_by(|a, b| a.total_cmp(b) == std::cmp::Ordering::Equal);
+            points
+        }
+        // A sample of one segment must not dilute a grid that describes a whole table.
+        (SidePoints::Grid(points), SidePoints::Sample(_))
+        | (SidePoints::Sample(_), SidePoints::Grid(points)) => points,
+        (SidePoints::Sample(mut points), SidePoints::Sample(other)) => {
+            points.extend(other);
+            sort_sample_points(&mut points);
+            points
+        }
+    };
+    Ok(Some(RangePartitioningSample {
+        partition_by: l_field.clone(),
+        sample_points,
+    }))
 }
 
 fn sample_fast_field(
     provider: &PgSearchTableProvider,
     partition_by: &FieldName,
-) -> Result<RangePartitioningSample> {
+) -> Result<SidePoints> {
     let index_rel = PgSearchRelation::open(provider.scan_info.indexrelid);
-    // A partitioned build fixed its partition boundaries up front and stamped them on its segments.
-    // They describe the whole table, unlike a sample of one segment, and line up with the
-    // segments. The sample stays as the fallback for layouts the grid is too coarse for.
-    let persisted_points = persisted_split_points(&index_rel, partition_by.as_ref())
+    // A partitioned build fixed its partition boundaries up front and stamped them on its
+    // segments. They describe the whole table, unlike a sample of one segment, so a sample is
+    // only taken from an index that has none.
+    if let Some(points) = persisted_split_points(&index_rel, partition_by.as_ref())
         .map_err(|e| DataFusionError::Internal(format!("Failed to read segment statistics: {e}")))?
-        .unwrap_or_default();
+    {
+        return Ok(SidePoints::Grid(points));
+    }
     // TODO: Reading the index during planning adds latency to DataFusion logical planning.
     // This is a temporary situation for M1. In M2, we will migrate this sampling to
     // something that happens prior to CREATE INDEX, or switch to using pg_statistic.
@@ -428,11 +448,7 @@ fn sample_fast_field(
 
     let segment_readers = reader.segment_readers();
     if segment_readers.is_empty() {
-        return Ok(RangePartitioningSample {
-            partition_by: partition_by.clone(),
-            sample_points: vec![],
-            persisted_points: persisted_points.clone(),
-        });
+        return Ok(SidePoints::Sample(vec![]));
     }
 
     let largest_segment: &SegmentReader =
@@ -440,11 +456,7 @@ fn sample_fast_field(
 
     let max_doc = largest_segment.max_doc();
     if max_doc == 0 {
-        return Ok(RangePartitioningSample {
-            partition_by: partition_by.clone(),
-            sample_points: vec![],
-            persisted_points: persisted_points.clone(),
-        });
+        return Ok(SidePoints::Sample(vec![]));
     }
 
     // TODO: Validate that all partition_by columns are fast fields at `CREATE INDEX` time.
@@ -474,11 +486,7 @@ fn sample_fast_field(
 
     sort_sample_points(&mut sample_points);
 
-    Ok(RangePartitioningSample {
-        partition_by: partition_by.clone(),
-        sample_points,
-        persisted_points,
-    })
+    Ok(SidePoints::Sample(sample_points))
 }
 
 /// Physical optimizer rule that converts a `CollectLeft` inner hash join to

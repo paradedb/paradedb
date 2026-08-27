@@ -894,7 +894,7 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
 name = "benchmarks"
-version = "0.25.5"
+version = "0.25.6-rc.1"
 dependencies = [
  "anyhow",
  "approx",
@@ -2886,7 +2886,7 @@ checksum = "117240f60069e65410b3ae1bb213295bd828f707b5bec6596a1afc8793ce0cbc"
 
 [[package]]
 name = "dst"
-version = "0.25.5"
+version = "0.25.6-rc.1"
 dependencies = [
  "antithesis-instrumentation",
  "antithesis_sdk",
@@ -4990,7 +4990,7 @@ dependencies = [
 
 [[package]]
 name = "macros"
-version = "0.25.5"
+version = "0.25.6-rc.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5664,7 +5664,7 @@ dependencies = [
 
 [[package]]
 name = "pg_search"
-version = "0.25.5"
+version = "0.25.6-rc.1"
 dependencies = [
  "antithesis-instrumentation",
  "anyhow",
@@ -7848,7 +7848,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "stressgres"
-version = "0.25.5"
+version = "0.25.6-rc.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -8256,7 +8256,7 @@ dependencies = [
 
 [[package]]
 name = "tests"
-version = "0.25.5"
+version = "0.25.6-rc.1"
 dependencies = [
  "anyhow",
  "approx",
@@ -8424,7 +8424,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokenizers"
-version = "0.25.5"
+version = "0.25.6-rc.1"
 dependencies = [
  "anyhow",
  "emojis",

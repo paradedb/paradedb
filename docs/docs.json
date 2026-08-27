@@ -15,7 +15,7 @@
   "navigation": {
     "versions": [
       {
-        "version": "v0.25.5",
+        "version": "v0.25.6",
         "anchors": [
           {
             "anchor": "Documentation",
@@ -249,7 +249,9 @@
                       "legacy/advanced/overview",
                       {
                         "group": "Full Text Queries",
-                        "pages": ["legacy/advanced/full-text/match"]
+                        "pages": [
+                          "legacy/advanced/full-text/match"
+                        ]
                       },
                       {
                         "group": "Term-Level Queries",
@@ -359,6 +361,7 @@
               {
                 "group": "Changelog",
                 "pages": [
+                  "changelog/0.25.6",
                   "changelog/0.25.5",
                   "changelog/0.25.4",
                   "changelog/0.25.3",

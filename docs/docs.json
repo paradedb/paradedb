@@ -361,7 +361,6 @@
               {
                 "group": "Changelog",
                 "pages": [
-                  "changelog/0.25.6",
                   "changelog/0.25.5",
                   "changelog/0.25.4",
                   "changelog/0.25.3",

@@ -191,8 +191,6 @@ pub struct CustomPathBuilder<CS: CustomScan> {
     flags: HashSet<Flags>,
 
     custom_path_node: pg_sys::CustomPath,
-
-    custom_paths: PgList<pg_sys::Path>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -247,7 +245,6 @@ impl<CS: CustomScan> CustomPathBuilder<CS> {
                     methods: CS::custom_path_methods(),
                     ..Default::default()
                 },
-                custom_paths: PgList::default(),
             }
         }
     }
@@ -268,12 +265,6 @@ impl<CS: CustomScan> CustomPathBuilder<CS> {
 
     pub fn set_flag(mut self, flag: Flags) -> Self {
         self.flags.insert(flag);
-        self
-    }
-
-    #[allow(dead_code)]
-    pub fn add_custom_path(mut self, path: *mut pg_sys::Path) -> Self {
-        self.custom_paths.push(path);
         self
     }
 
@@ -360,7 +351,6 @@ impl<CS: CustomScan> CustomPathBuilder<CS> {
     ///
     /// `custom_private` can be used to store the custom path's private data.
     pub fn build(mut self, custom_private: CS::PrivateData) -> pg_sys::CustomPath {
-        self.custom_path_node.custom_paths = self.custom_paths.into_pg();
         self.custom_path_node.custom_private = custom_private.into();
         self.custom_path_node.flags = self
             .flags

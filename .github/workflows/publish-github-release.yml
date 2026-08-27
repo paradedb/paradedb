@@ -110,19 +110,7 @@ jobs:
 
       - name: Update Cargo Version, Lockfile, and Nix Hash
         run: |
-          TARGET_VERSION="${{ github.event.inputs.version }}"
-          # Update version in Cargo.toml
-          python3 -c "
-          import re
-          with open('Cargo.toml', 'r') as f:
-              content = f.read()
-          content = re.sub(r'(?m)^version = \"[^\"]+\"', f'version = \"${TARGET_VERSION}\"', content, count=1)
-          with open('Cargo.toml', 'w') as f:
-              f.write(content)
-          "
-          cargo update --workspace
-          chmod +x scripts/update-nix-cargo-hash.sh
-          scripts/update-nix-cargo-hash.sh 18
+          ./scripts/assemble_release_fragments.sh set-version "${{ github.event.inputs.version }}"
 
       - name: Commit and Push Release Artifacts
         run: |
@@ -147,36 +135,17 @@ jobs:
 
       - name: Determine if Release Should be Marked as Latest
         id: release_latest
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Beta releases should never be the latest release
+          FLAGS=""
           if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
-            echo "is_latest=false" >> $GITHUB_OUTPUT
-            exit 0
+            FLAGS="--beta"
           fi
-
-          current_tag_version="${{ github.event.inputs.version }}"
-          latest_tag_version=$(gh release list --jq '.[] | select(.isLatest == true) | .name' --json=name,isLatest | sed 's/^v//')
-          echo "Current latest release is $latest_tag_version"
-          echo "Current version to be released is $current_tag_version"
-
-          echo ""
-          echo "Install semver CLI via npm to compare versions..."
-          npm install semver
-
-          echo ""
-          echo "Comparing versions to determine if the current version is the latest..."
-          if npx semver -r ">$latest_tag_version" "$current_tag_version"; then
-            echo "is_latest=true"
-            echo "is_latest=true" >> $GITHUB_OUTPUT
-          else
-            echo "is_latest=false"
-            echo "is_latest=false" >> $GITHUB_OUTPUT
-          fi
+          IS_LATEST=$(./scripts/assemble_release_fragments.sh is-latest "${{ github.event.inputs.version }}" $FLAGS)
+          echo "is_latest=${IS_LATEST}"
+          echo "is_latest=${IS_LATEST}" >> $GITHUB_OUTPUT
 
       - name: Sync Release Artifacts to Main
-        if: github.ref_name != 'main'
+        if: github.ref_name != 'main' && github.event.inputs.beta != 'true'
         run: |
           RELEASE_VERSION="${{ github.event.inputs.version }}"
           CLEAN_VERSION="${RELEASE_VERSION%%-*}"
@@ -277,56 +246,34 @@ jobs:
 
       - name: Post-Release Development Version Bump
         run: |
-          RELEASE_VERSION="${{ github.event.inputs.version }}"
-          CLEAN_VERSION="${RELEASE_VERSION%%-*}"
-          IS_BETA="${{ github.event.inputs.beta }}"
           REF_NAME="${{ github.ref_name }}"
-
-          if [[ "$REF_NAME" == "main" ]]; then
-            if [[ "$IS_BETA" == "true" ]]; then
-              NEXT_DEV_VERSION="$CLEAN_VERSION"
-              COMMIT_MSG="chore: Reset development version to \`${NEXT_DEV_VERSION}\`."
-            else
-              # Next minor dev version: e.g. 0.26.0 -> 0.27.0
-              NEXT_DEV_VERSION=$(python3 -c "
-              major, minor, patch = map(int, '${CLEAN_VERSION}'.split('.'))
-              print(f'{major}.{minor + 1}.0')
-              ")
-              COMMIT_MSG="chore: Start development of \`${NEXT_DEV_VERSION}\`."
-            fi
-            TARGET_BRANCH="main"
-          else
-            # Patch release on stable branch: switch back to stable branch
-            git checkout "$REF_NAME"
-            # Next patch dev version: e.g. 0.25.5 -> 0.25.6
-            NEXT_DEV_VERSION=$(python3 -c "
-            major, minor, patch = map(int, '${CLEAN_VERSION}'.split('.'))
-            print(f'{major}.{minor}.{patch + 1}')
-            ")
-            COMMIT_MSG="chore: Start development of \`${NEXT_DEV_VERSION}\`."
-            TARGET_BRANCH="$REF_NAME"
+          FLAGS="--branch ${REF_NAME}"
+          if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
+            FLAGS="${FLAGS} --beta"
           fi
 
-          echo "Bumping ${TARGET_BRANCH} to development version ${NEXT_DEV_VERSION}..."
-          python3 -c "
-          import re
-          with open('Cargo.toml', 'r') as f:
-              content = f.read()
-          content = re.sub(r'(?m)^version = \"[^\"]+\"', f'version = \"${NEXT_DEV_VERSION}\"', content, count=1)
-          with open('Cargo.toml', 'w') as f:
-              f.write(content)
-          "
-          cargo update --workspace
-          chmod +x scripts/update-nix-cargo-hash.sh
-          scripts/update-nix-cargo-hash.sh 18
+          if [[ "$REF_NAME" != "main" ]]; then
+            git checkout "$REF_NAME"
+          fi
+
+          NEXT_DEV_VERSION=$(./scripts/assemble_release_fragments.sh next-dev-version "${{ github.event.inputs.version }}" $FLAGS)
+
+          if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
+            COMMIT_MSG="chore: Reset development version to \`${NEXT_DEV_VERSION}\`."
+          else
+            COMMIT_MSG="chore: Start development of \`${NEXT_DEV_VERSION}\`."
+          fi
+
+          echo "Bumping ${REF_NAME} to development version ${NEXT_DEV_VERSION}..."
+          ./scripts/assemble_release_fragments.sh set-version "$NEXT_DEV_VERSION"
 
           git config user.name "paradedb-github-app[bot]"
           git config user.email "282009505+paradedb-github-app[bot]@users.noreply.github.com"
           git add Cargo.toml Cargo.lock nix/pg_search.nix
           if ! git diff --staged --quiet; then
             git commit -m "$COMMIT_MSG"
-            git push origin HEAD:"$TARGET_BRANCH"
-            echo "✅ Successfully bumped ${TARGET_BRANCH} to ${NEXT_DEV_VERSION}."
+            git push origin HEAD:"$REF_NAME"
+            echo "✅ Successfully bumped ${REF_NAME} to ${NEXT_DEV_VERSION}."
           else
             echo "No development bump needed."
           fi

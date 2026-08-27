@@ -406,6 +406,63 @@ def assemble_changelog_files(
 
 
 # ==============================================================================
+# Version Mutation and Calculation
+# ==============================================================================
+
+
+def set_cargo_version(repo_root, version, skip_nix=False):
+    """Update workspace package version in Cargo.toml, sync Cargo.lock, and update Nix hash."""
+    cargo_toml = repo_root / "Cargo.toml"
+    if not cargo_toml.exists():
+        print(f"❌ Error: {cargo_toml} not found", file=sys.stderr)
+        sys.exit(1)
+
+    with open(cargo_toml, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    new_content = re.sub(
+        r'(?m)^version = "[^"]+"',
+        f'version = "{version}"',
+        content,
+        count=1,
+    )
+    with open(cargo_toml, "w", encoding="utf-8") as f:
+        f.write(new_content)
+    print(f"✅ Updated {cargo_toml} version to '{version}'")
+
+    print("Syncing Cargo.lock via cargo update --workspace...")
+    subprocess.run(["cargo", "update", "--workspace"], cwd=repo_root, check=True)
+
+    if not skip_nix:
+        nix_script = repo_root / "scripts" / "update-nix-cargo-hash.sh"
+        if nix_script.exists():
+            print("Updating Nix cargo hash...")
+            subprocess.run(["bash", str(nix_script), "18"], cwd=repo_root, check=True)
+
+
+def compute_next_dev_version(version, branch, is_beta=False):
+    """Compute the next development version string."""
+    clean = clean_version(version)
+    if is_beta:
+        return clean
+    major, minor, patch = parse_semver(clean)
+    if branch == "main":
+        return f"{major}.{minor + 1}.0"
+    return f"{major}.{minor}.{patch + 1}"
+
+
+def check_is_latest(version, is_beta=False):
+    """Determine whether a version should be marked as latest release."""
+    if is_beta:
+        return False
+    target = parse_semver(clean_version(version))
+    tags = [parse_semver(t) for t in get_git_tags()]
+    if not tags:
+        return True
+    return target >= max(tags)
+
+
+# ==============================================================================
 # CLI Dispatcher
 # ==============================================================================
 
@@ -468,6 +525,26 @@ def handle_all_command(args, repo_root):
         preserve_fragments=args.preserve_fragments,
         is_latest=args.is_latest,
     )
+
+
+def handle_set_version_command(args, repo_root):
+    """Handle set-version subcommand."""
+    target_version = detect_target_version(repo_root, args.version)
+    set_cargo_version(repo_root, target_version, skip_nix=args.skip_nix)
+
+
+def handle_next_dev_version_command(args, repo_root):
+    """Handle next-dev-version subcommand."""
+    target_version = detect_target_version(repo_root, args.version)
+    next_ver = compute_next_dev_version(target_version, args.branch, is_beta=args.beta)
+    print(next_ver)
+
+
+def handle_is_latest_command(args, repo_root):
+    """Handle is-latest subcommand."""
+    target_version = detect_target_version(repo_root, args.version)
+    is_latest = check_is_latest(target_version, is_beta=args.beta)
+    print("true" if is_latest else "false")
 
 
 def main():
@@ -535,6 +612,44 @@ def main():
         help="Whether this version is the latest release",
     )
 
+    set_ver_parser = subparsers.add_parser(
+        "set-version",
+        help="Update version in Cargo.toml, Cargo.lock, and nix/pg_search.nix",
+    )
+    add_common_args(set_ver_parser)
+    set_ver_parser.add_argument(
+        "--skip-nix",
+        action="store_true",
+        help="Skip updating Nix cargo hash",
+    )
+
+    next_dev_parser = subparsers.add_parser(
+        "next-dev-version",
+        help="Compute post-release development version",
+    )
+    add_common_args(next_dev_parser)
+    next_dev_parser.add_argument(
+        "--branch",
+        required=True,
+        help="Release branch name (e.g. main or 0.25.x)",
+    )
+    next_dev_parser.add_argument(
+        "--beta",
+        action="store_true",
+        help="Whether this was a beta release",
+    )
+
+    is_latest_parser = subparsers.add_parser(
+        "is-latest",
+        help="Determine if version is latest release",
+    )
+    add_common_args(is_latest_parser)
+    is_latest_parser.add_argument(
+        "--beta",
+        action="store_true",
+        help="Whether this is a beta release",
+    )
+
     args = parser.parse_args()
     default_root = Path(__file__).resolve().parent.parent.parent
     repo_root = Path(args.repo_root or default_root)
@@ -545,6 +660,12 @@ def main():
         handle_changelog_command(args, repo_root)
     elif args.command == "all":
         handle_all_command(args, repo_root)
+    elif args.command == "set-version":
+        handle_set_version_command(args, repo_root)
+    elif args.command == "next-dev-version":
+        handle_next_dev_version_command(args, repo_root)
+    elif args.command == "is-latest":
+        handle_is_latest_command(args, repo_root)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""scripts/assemble_release_fragments.py.
+""".github/scripts/release.py.
 
 Unified release artifact assembler for ParadeDB:
 - Assembles unreleased SQL migration fragments into pg_search--<prev>--<target>.sql
@@ -365,7 +365,7 @@ def update_version_snippet(repo_root, clean_ver):
         f"""\
         // This snippet exports the latest released version of ParadeDB for the documentation site.
         // Do not edit manually during development: Cargo.toml tracks the unreleased development version,
-        // while this file is updated automatically by assemble_release_fragments.py upon release.
+        // while this file is updated automatically by release.py upon release.
         export const version = "{clean_ver}";
         """
     )

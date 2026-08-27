@@ -103,14 +103,14 @@ jobs:
       - name: Assemble Release Artifacts
         run: |
           if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
-            ./scripts/assemble_release_fragments.sh all "${{ github.event.inputs.version }}" --preserve-fragments
+            ./scripts/release.sh all "${{ github.event.inputs.version }}" --preserve-fragments
           else
-            ./scripts/assemble_release_fragments.sh all "${{ github.event.inputs.version }}"
+            ./scripts/release.sh all "${{ github.event.inputs.version }}"
           fi
 
       - name: Update Cargo Version, Lockfile, and Nix Hash
         run: |
-          ./scripts/assemble_release_fragments.sh set-version "${{ github.event.inputs.version }}"
+          ./scripts/release.sh set-version "${{ github.event.inputs.version }}"
 
       - name: Commit and Push Release Artifacts
         run: |
@@ -140,7 +140,7 @@ jobs:
           if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
             FLAGS="--beta"
           fi
-          IS_LATEST=$(./scripts/assemble_release_fragments.sh is-latest "${{ github.event.inputs.version }}" $FLAGS)
+          IS_LATEST=$(./scripts/release.sh is-latest "${{ github.event.inputs.version }}" $FLAGS)
           echo "is_latest=${IS_LATEST}"
           echo "is_latest=${IS_LATEST}" >> $GITHUB_OUTPUT
 
@@ -180,9 +180,9 @@ jobs:
 
           echo "Registering ${CLEAN_VERSION} in docs/docs.json on main (is_latest=${IS_LATEST})..."
           if [[ "$IS_LATEST" == "true" ]]; then
-            ./scripts/assemble_release_fragments.sh changelog "${CLEAN_VERSION}" --register-only --is-latest
+            ./scripts/release.sh changelog "${CLEAN_VERSION}" --register-only --is-latest
           else
-            ./scripts/assemble_release_fragments.sh changelog "${CLEAN_VERSION}" --register-only --no-is-latest
+            ./scripts/release.sh changelog "${CLEAN_VERSION}" --register-only --no-is-latest
           fi
 
           git config user.name "paradedb-github-app[bot]"
@@ -256,7 +256,7 @@ jobs:
             git checkout "$REF_NAME"
           fi
 
-          NEXT_DEV_VERSION=$(./scripts/assemble_release_fragments.sh next-dev-version "${{ github.event.inputs.version }}" $FLAGS)
+          NEXT_DEV_VERSION=$(./scripts/release.sh next-dev-version "${{ github.event.inputs.version }}" $FLAGS)
 
           if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
             COMMIT_MSG="chore: Reset development version to \`${NEXT_DEV_VERSION}\`."
@@ -265,7 +265,7 @@ jobs:
           fi
 
           echo "Bumping ${REF_NAME} to development version ${NEXT_DEV_VERSION}..."
-          ./scripts/assemble_release_fragments.sh set-version "$NEXT_DEV_VERSION"
+          ./scripts/release.sh set-version "$NEXT_DEV_VERSION"
 
           git config user.name "paradedb-github-app[bot]"
           git config user.email "282009505+paradedb-github-app[bot]@users.noreply.github.com"

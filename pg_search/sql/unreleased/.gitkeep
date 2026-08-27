@@ -1,0 +1,12 @@
+# Unreleased SQL Migration Fragments
+#
+# Place PR-level SQL migration fragments in this directory:
+#   pg_search/sql/unreleased/<PR_NUMBER>.<short_description>.sql (e.g. 1234.add_snippets.sql)
+#
+# These fragments contain DDL modifications (functions, types, opclasses, etc.) introduced by a PR.
+# SchemaBot validates fragment contents against schema diffs in CI.
+# At release time, scripts/assemble_release_fragments.sh concatenates these fragments into the release upgrade script.
+#
+# For full documentation on the workflow, see:
+#   - CONTRIBUTING.md (Pull Request Workflow)
+#   - RELEASE.md

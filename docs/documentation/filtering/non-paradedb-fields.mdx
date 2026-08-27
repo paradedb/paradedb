@@ -155,7 +155,8 @@ ORDER BY id LIMIT 10;
 ```
 
 The plan should have changed to include a `Bitmap Index Scan`.
-This means the `location` filter is no longer being checked row by row.
+This means the `location` filter is no longer being checked row by row. Over large result sets, this results
+in a significant reduction in page reads and, consequently, query time improvement.
 
 ```text
 Custom Scan (ParadeDB Base Scan) on mock_items_geo

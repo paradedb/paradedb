@@ -38,7 +38,8 @@ To publish a minor release from `main`:
 4. The workflow will automatically:
    - Run `scripts/release.sh all` to assemble `pg_search/sql/unreleased/*.sql` into `pg_search--<prev>--<version>.sql`, assemble `docs/changelog/unreleased/*.mdx` into `docs/changelog/<version>.mdx`, register the release in `docs/docs.json`, and remove the consumed fragments.
    - Bump `workspace.package.version` in `Cargo.toml` and synchronize `Cargo.lock`.
-   - Commit and push the release commit to `main`.
+   - Open a manual approval issue for `@pg_search-maintainers` displaying the release details and rendered changelog.
+   - Upon approval (by commenting `approved` on the issue), commit and push the release commit to `main`.
    - Create the Git tag `v<version>`, triggering downstream packaging and publishing workflows.
    - Create the stable branch `x.y.x` pointing at the release commit.
    - Bump `main` to the next development version (e.g., `0.27.0`).
@@ -66,7 +67,8 @@ To publish a patch release from a stable branch:
 3. The workflow will automatically:
    - Assemble the unreleased fragments present on the stable branch into `pg_search--<prev>--<version>.sql` and `docs/changelog/<version>.mdx`.
    - Bump `Cargo.toml` and synchronize `Cargo.lock` on the stable branch.
-   - Commit, tag `v<version>`, and publish the GitHub release.
+   - Open a manual approval issue for `@pg_search-maintainers` displaying the release details and rendered changelog.
+   - Upon approval (by commenting `approved` on the issue), commit, tag `v<version>`, and publish the GitHub release.
    - **Sync to `main`:** Check out `main`, copy the assembled SQL script and changelog page, update `docs/docs.json`, delete the consumed fragments from `main`, and push the sync commit to `main`.
 
 ## Post-Release Steps

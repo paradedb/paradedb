@@ -520,6 +520,7 @@ impl OptimizerRule for LateMaterializationRule {
                             new_qualified_fields.push((qualifier.cloned(), field.clone()));
                         }
 
+                        new_scan.projection = Some(projected_indices);
                         new_scan.projected_schema =
                             Arc::new(datafusion::common::DFSchema::new_with_metadata(
                                 new_qualified_fields,

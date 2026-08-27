@@ -651,18 +651,20 @@ WHERE a.id NOT IN (
    Aggregates: COUNT(*), SUM(val)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0, sum(b_3.val) as agg_1]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, a_id@0)], filter=val@1 > threshold@0, projection=[val@3]
-     :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@0, aid@0)], null_aware
+     :   VisibilityFilterExec: tables=[b]
+     :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, a_id@0)], filter=val@1 > threshold@0, projection=[val@3, ctid_3@4]
+     :       HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@0, aid@0)], null_aware
+     :         CooperativeExec
+     :           PgSearchScan: table=a, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"outermatch","lenient":null,"conjunction_mode":null}}}}
+     :         VisibilityFilterExec: tables=[y, x]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, y_id@1)], projection=[aid@2, ctid_1@1, ctid_2@4]
+     :             CooperativeExec
+     :               PgSearchScan: table=y, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"block","lenient":null,"conjunction_mode":null}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=x, segments=1, dynamic_filters=1, query="all"
      :       CooperativeExec
-     :         PgSearchScan: table=a, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"outermatch","lenient":null,"conjunction_mode":null}}}}
-     :       HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, y_id@1)], projection=[aid@0]
-     :         CooperativeExec
-     :           PgSearchScan: table=y, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"block","lenient":null,"conjunction_mode":null}}}}
-     :         CooperativeExec
-     :           PgSearchScan: table=x, segments=1, dynamic_filters=1, query="all"
-     :     CooperativeExec
-     :       PgSearchScan: table=b, segments=1, dynamic_filters=1, query="all"
-(18 rows)
+     :         PgSearchScan: table=b, segments=1, dynamic_filters=1, query="all"
+(20 rows)
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT COUNT(*), SUM(b.val)

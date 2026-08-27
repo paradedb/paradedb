@@ -48,8 +48,8 @@ FROM repro_cccf cccf
 JOIN repro_ti ti ON cccf.company_id = ti.company_id
 GROUP BY company_name
 ORDER BY company_name;
-                                                              QUERY PLAN                                                               
----------------------------------------------------------------------------------------------------------------------------------------
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: cccf.company_name
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -60,12 +60,13 @@ ORDER BY company_name;
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[company_name_words@0 as company_name_words], aggr=[count(1) as agg_0]
            :   TantivyLookupExec: decode=[company_name_words]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@0, company_id@0)], projection=[company_name_words@1]
-           :       CooperativeExec
-           :         PgSearchScan: table=cccf, segments=1, query="all"
-           :       CooperativeExec
-           :         PgSearchScan: table=ti, segments=1, dynamic_filters=1, query="all"
-(15 rows)
+           :     VisibilityFilterExec: tables=[cccf, ti]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@0, company_id@0)], projection=[company_name_words@1, ctid_0@2, ctid_1@4]
+           :         CooperativeExec
+           :           PgSearchScan: table=cccf, segments=1, query="all"
+           :         CooperativeExec
+           :           PgSearchScan: table=ti, segments=1, dynamic_filters=1, query="all"
+(16 rows)
 
 SELECT company_name, count(*)
 FROM repro_cccf cccf
@@ -101,8 +102,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT count(DISTINCT company_name)
 FROM repro_cccf cccf
 JOIN repro_ti ti ON cccf.company_id = ti.company_id;
-                                                           QUERY PLAN                                                            
----------------------------------------------------------------------------------------------------------------------------------
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: repro_cccf_idx (cccf), repro_ti_idx (ti)
@@ -110,12 +111,13 @@ JOIN repro_ti ti ON cccf.company_id = ti.company_id;
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[count(DISTINCT cccf_0.company_name_words) as agg_0]
      :   TantivyLookupExec: decode=[company_name_words]
-     :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@0, company_id@0)], projection=[company_name_words@1]
-     :       CooperativeExec
-     :         PgSearchScan: table=cccf, segments=1, query="all"
-     :       CooperativeExec
-     :         PgSearchScan: table=ti, segments=1, dynamic_filters=1, query="all"
-(12 rows)
+     :     VisibilityFilterExec: tables=[cccf, ti]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@0, company_id@0)], projection=[company_name_words@1, ctid_0@2, ctid_1@4]
+     :         CooperativeExec
+     :           PgSearchScan: table=cccf, segments=1, query="all"
+     :         CooperativeExec
+     :           PgSearchScan: table=ti, segments=1, dynamic_filters=1, query="all"
+(13 rows)
 
 SELECT count(DISTINCT company_name)
 FROM repro_cccf cccf
@@ -144,8 +146,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT string_agg(company_name, ',' ORDER BY company_name)
 FROM repro_cccf cccf
 JOIN repro_ti ti ON cccf.company_id = ti.company_id;
-                                                                       QUERY PLAN                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: repro_cccf_idx (cccf), repro_ti_idx (ti)
@@ -154,12 +156,13 @@ JOIN repro_ti ti ON cccf.company_id = ti.company_id;
      : AggregateExec: mode=Single, gby=[], aggr=[string_agg(cccf_0.company_name_words, ,) ORDER BY [cccf_0.company_name_words ASC NULLS LAST] as agg_0]
      :   SortExec: expr=[company_name_words@0 ASC NULLS LAST], preserve_partitioning=[false]
      :     TantivyLookupExec: decode=[company_name_words]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@0, company_id@0)], projection=[company_name_words@1]
-     :         CooperativeExec
-     :           PgSearchScan: table=cccf, segments=1, query="all"
-     :         CooperativeExec
-     :           PgSearchScan: table=ti, segments=1, dynamic_filters=1, query="all"
-(13 rows)
+     :       VisibilityFilterExec: tables=[cccf, ti]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@0, company_id@0)], projection=[company_name_words@1, ctid_0@2, ctid_1@4]
+     :           CooperativeExec
+     :             PgSearchScan: table=cccf, segments=1, query="all"
+     :           CooperativeExec
+     :             PgSearchScan: table=ti, segments=1, dynamic_filters=1, query="all"
+(14 rows)
 
 SELECT string_agg(company_name, ',' ORDER BY company_name)
 FROM repro_cccf cccf

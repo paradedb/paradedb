@@ -390,7 +390,8 @@ fn merged_sample(
     sample.sample_points.extend(r_sample.sample_points);
     sort_sample_points(&mut sample.sample_points);
     // A grid describes its whole table and lines up with that side's segments, so the other
-    // side's sample must not dilute it. Two grids merge the way two samples do.
+    // side's sample must not dilute it. Two grids merge the way two samples do; the cuts then
+    // line up with a side only where the grids agree, and that side prunes less.
     if sample.persisted_points.is_empty() {
         sample.persisted_points = r_sample.persisted_points;
     } else if !r_sample.persisted_points.is_empty() {

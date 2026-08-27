@@ -903,8 +903,12 @@ impl ExecutionPlan for PgSearchScanPlan {
                     .range_sample
                     .as_ref()
                     .map(|sample| {
-                        self.global_partition_count
-                            .min(sample.sample_points.len().saturating_add(1))
+                        self.global_partition_count.min(
+                            sample
+                                .points_for(self.global_partition_count)
+                                .len()
+                                .saturating_add(1),
+                        )
                     })
                     .unwrap_or(self.global_partition_count);
                 let rows = if global_partition < populated_partition_count {

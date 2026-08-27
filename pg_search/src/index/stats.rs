@@ -30,7 +30,7 @@
 
 use std::any::Any;
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::io::{self, Write};
 use std::ops::Bound;
 use std::sync::Arc;
@@ -48,6 +48,7 @@ use tantivy::{
     Index, PluginMergeContext, PluginWriter, PluginWriterContext, SegmentPlugin, TantivyError,
 };
 
+use crate::api::HashMap;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::reader::segment_component::SegmentComponentReader;
@@ -426,7 +427,7 @@ fn empirical_stats(
         Err(e) => return Err(e.into()),
     };
     let columnar = ColumnarReader::open(fast)?;
-    let mut by_field: HashMap<Field, Vec<DynamicColumnHandle>> = HashMap::new();
+    let mut by_field: HashMap<Field, Vec<DynamicColumnHandle>> = HashMap::default();
     for (name, handle) in columnar.iter_columns()? {
         // JSON subpaths carry no schema field of their own.
         let Ok(field) = schema.get_field(&name) else {
@@ -1047,8 +1048,8 @@ mod tests {
         );
     }
 
-    /// An insert after the build lands in a segment without a box. The grid is gone, so the
-    /// planner samples again, and every partition keeps the new segment.
+    /// An insert after the build lands in a mutable segment, which carries no statistics at all.
+    /// The grid is gone, so the planner samples again, and every partition keeps the new segment.
     #[pg_test]
     fn insert_after_build_drops_the_persisted_grid() {
         Spi::run(
@@ -1109,6 +1110,116 @@ mod tests {
             everywhere.unwrap().len(),
             1,
             "the unboxed segment survives every partition"
+        );
+    }
+
+    /// Without a mutable segment, a late insert lands in an immutable segment that carries
+    /// empirical statistics but no box. The grid is gone, yet the segment still prunes on its own
+    /// range, and a merge that takes it in keeps the statistics and drops the box.
+    #[pg_test]
+    fn unboxed_segment_prunes_on_empirical_stats_and_merges_without_a_box() {
+        Spi::run(
+            r#"
+            CREATE TABLE stats_unboxed (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            INSERT INTO stats_unboxed (tenant_id, name)
+            SELECT (i * 7919) % 100, 'lorem ipsum ' || i || ' ' || repeat('padding word here ', 50)
+            FROM generate_series(1, 20000) i;
+            SET max_parallel_maintenance_workers = 0;
+            CREATE INDEX stats_unboxed_idx ON stats_unboxed USING paradedb (id, tenant_id, name)
+                WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 4,
+                      mutable_segment_rows = 0);
+            "#,
+        )
+        .unwrap();
+        let indexrel = open_index("stats_unboxed_idx");
+        let split_points = persisted_split_points(&indexrel, "tenant_id")
+            .unwrap()
+            .expect("fresh build");
+        assert_eq!(split_points.len(), 3);
+
+        Spi::run(
+            r#"
+            INSERT INTO stats_unboxed (tenant_id, name)
+            SELECT 42, 'lorem ipsum ' || i || ' ' || repeat('padding word here ', 50)
+            FROM generate_series(1, 5000) i;
+            "#,
+        )
+        .unwrap();
+        assert!(
+            persisted_split_points(&indexrel, "tenant_id")
+                .unwrap()
+                .is_none()
+        );
+        let reader = SearchIndexReader::open(
+            &indexrel,
+            SearchQueryInput::All,
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .unwrap();
+        assert_eq!(reader.segment_ids().len(), 5);
+        let boundaries = RangePartitioning {
+            partition_by: FieldName::from("tenant_id"),
+            split_points,
+        };
+        let late_row = EmpiricalStats {
+            min: PdbOwnedValue::I64(42),
+            max: PdbOwnedValue::I64(42),
+            nullable: false,
+        };
+        for partition in 0..4 {
+            let (lower, upper) = boundaries.partition_range(partition).unwrap();
+            let expected = if late_row.intersects(&lower, &upper) {
+                2
+            } else {
+                1
+            };
+            let chosen = segments_for_partition(&reader, &boundaries, partition);
+            assert_eq!(chosen.len(), expected, "partition {partition}: {chosen:?}");
+        }
+        // `ALTER INDEX` refuses a relation this transaction still holds open.
+        drop(reader);
+        drop(indexrel);
+
+        // A layer takes segments no larger than itself and closes a candidate once it fills the
+        // layer by a third over. Five near-equal segments fill 3.4 layers only with the fifth one
+        // in, so one candidate takes them all. Background layers would hand the merge to a worker
+        // that cannot see this transaction's segments.
+        let largest: i64 = Spi::get_one(
+            "SELECT max(byte_size)::bigint FROM paradedb.index_info('stats_unboxed_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        Spi::run(&format!(
+            "ALTER INDEX stats_unboxed_idx SET (layer_sizes = '{}', background_layer_sizes = '0');",
+            largest * 17 / 5
+        ))
+        .unwrap();
+        // The row that triggers the merge lands in its own segment beside the merged one.
+        Spi::run("INSERT INTO stats_unboxed (tenant_id, name) VALUES (43, 'later row');").unwrap();
+        let indexrel = open_index("stats_unboxed_idx");
+        let (field, stats) = segment_stats(&indexrel, "tenant_id");
+        assert_eq!(stats.len(), 2, "the merged segment and the trigger row");
+        let ranges: Vec<EmpiricalStats> = stats
+            .iter()
+            .map(|s| {
+                assert!(
+                    s.logical(field).unwrap().is_none(),
+                    "a source without a box leaves the merge without one"
+                );
+                s.empirical(field).unwrap().unwrap()
+            })
+            .collect();
+        assert!(
+            ranges
+                .iter()
+                .any(|r| r.min == PdbOwnedValue::I64(0) && r.max == PdbOwnedValue::I64(99)),
+            "the merge recomputes the range over every source: {ranges:?}"
+        );
+        assert!(
+            persisted_split_points(&indexrel, "tenant_id")
+                .unwrap()
+                .is_none()
         );
     }
 

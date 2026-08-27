@@ -210,6 +210,23 @@ pub struct RangePartitioningSample {
 }
 
 impl RangePartitioningSample {
+    /// The points `build` cuts for `target_partitions`, so a caller that sizes partitions
+    /// agrees with the partitioning it gets.
+    ///
+    /// The grid wins whenever it can seat every partition. Its cuts fall on whole cells, so a
+    /// count that does not divide the cells leaves some partitions one cell heavier. The
+    /// sample describes one segment, which after a partitioned build is a single cell, so it
+    /// cannot place cuts across the table. Below the requested count the grid would idle
+    /// workers, and only then does the sample take over.
+    pub fn points_for(&self, target_partitions: usize) -> &[PdbOwnedValue] {
+        if !self.persisted_points.is_empty() && self.persisted_points.len() + 1 >= target_partitions
+        {
+            &self.persisted_points
+        } else {
+            &self.sample_points
+        }
+    }
+
     /// Generates a concrete `RangePartitioning` bounding exactly `target_partitions`.
     ///
     /// If `target_partitions` is smaller than the sample's inherent size, the
@@ -217,15 +234,7 @@ impl RangePartitioningSample {
     /// To avoid scheduling unnecessary tasks scanning empty ranges, `target_partitions`
     /// is capped at `sample_points.len() + 1`.
     pub fn build(&self, target_partitions: usize) -> RangePartitioning {
-        // The grid is exact but coarse. Below the requested partition count it would cost
-        // parallelism, and the sample still divides the space evenly.
-        let points = if !self.persisted_points.is_empty()
-            && self.persisted_points.len() + 1 >= target_partitions
-        {
-            &self.persisted_points
-        } else {
-            &self.sample_points
-        };
+        let points = self.points_for(target_partitions);
         debug_assert!(
             points
                 .windows(2)

@@ -462,6 +462,89 @@ def check_is_latest(version, is_beta=False):
     return target >= max(tags)
 
 
+def get_rendered_changelog_body(repo_root, clean_ver):
+    """Retrieve rendered changelog body from existing MDX file or assemble in-memory."""
+    changelog_file = repo_root / "docs" / "changelog" / f"{clean_ver}.mdx"
+    if changelog_file.exists():
+        with open(changelog_file, "r", encoding="utf-8") as f:
+            _, body = parse_frontmatter(f.read())
+        return body
+
+    unreleased_dir = repo_root / "docs" / "changelog" / "unreleased"
+    headers_map = load_headers_map(repo_root / ".changelog_headers.json")
+    _, grouped, extras = collect_changelog_fragments(unreleased_dir, headers_map)
+    rendered = render_changelog(clean_ver, headers_map, grouped, extras)
+    _, body = parse_frontmatter(rendered)
+    return body
+
+
+def generate_approval_body(
+    repo_root,
+    target_version,
+    branch,
+    prev_version=None,
+):
+    """Generate Markdown description for manual release approval issue."""
+    clean_ver = clean_version(target_version)
+    sql_dir = repo_root / "pg_search" / "sql"
+    prev_ver = resolve_prev_version(repo_root, sql_dir, clean_ver, prev_version)
+    is_latest = check_is_latest(target_version, is_beta=False)
+    next_dev = compute_next_dev_version(target_version, branch, is_beta=False)
+
+    if branch == "main":
+        release_type = "Minor release"
+        major, minor, _ = parse_semver(clean_ver)
+        branch_action = f"Create stable branch `{major}.{minor}.x`"
+    else:
+        release_type = "Patch release"
+        branch_action = "Sync release artifacts to `main`"
+
+    changelog_body = get_rendered_changelog_body(repo_root, clean_ver)
+    template = dedent(
+        """\
+        Please review and approve the release of **ParadeDB `v{clean_ver}`**.
+
+        ### 📋 Release Details
+
+        | Property | Value |
+        | --- | --- |
+        | **Target Version** | `{clean_ver}` (`v{clean_ver}`) |
+        | **Release Type** | {release_type} |
+        | **Release Branch** | `{branch}` |
+        | **Previous Version** | `{prev_ver}` |
+        | **Is Latest Release** | {is_latest} |
+        | **SQL Upgrade Script** | `pg_search/sql/pg_search--{prev_ver}--{clean_ver}.sql` |
+        | **Changelog Document** | `docs/changelog/{clean_ver}.mdx` |
+        | **Post-Release Dev Version** | `{next_dev}` |
+        | **Post-Release Action** | {branch_action} |
+
+        ---
+
+        ### 📝 Rendered Changelog
+
+        {changelog_body}
+
+        ---
+
+        ### 📣 Approval Instructions
+
+        - To **approve** this release, comment `approved` on this issue.
+        - To **deny** this release, comment `denied` on this issue.
+        """
+    )
+
+    return template.format(
+        clean_ver=clean_ver,
+        release_type=release_type,
+        branch=branch,
+        prev_ver=prev_ver,
+        is_latest="true" if is_latest else "false",
+        next_dev=next_dev,
+        branch_action=branch_action,
+        changelog_body=changelog_body,
+    ).strip()
+
+
 # ==============================================================================
 # CLI Dispatcher
 # ==============================================================================
@@ -553,8 +636,28 @@ def handle_is_latest_command(args, repo_root):
     print("true" if is_latest else "false")
 
 
-def main():
-    """Main CLI entry point."""
+def handle_approval_body_command(args, repo_root):
+    """Handle approval-body subcommand."""
+    target_version = detect_target_version(repo_root, args.version)
+    body = generate_approval_body(
+        repo_root,
+        target_version,
+        branch=args.branch,
+        prev_version=args.prev_version,
+    )
+    if args.output_file:
+        output_path = Path(args.output_file)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(body)
+            f.write("\n")
+        print(f"✅ Wrote approval body to {output_path}")
+    else:
+        print(body)
+
+
+def build_parser():
+    """Build CLI argument parser."""
     parser = argparse.ArgumentParser(
         description="Unified ParadeDB release artifact assembler."
     )
@@ -661,22 +764,49 @@ def main():
         help="Whether this is a beta release",
     )
 
+    approval_parser = subparsers.add_parser(
+        "approval-body",
+        help="Generate Markdown body for manual release approval issue",
+    )
+    add_common_args(approval_parser)
+    approval_parser.add_argument(
+        "--branch",
+        required=True,
+        help="Release branch name (e.g. main or 0.25.x)",
+    )
+    approval_parser.add_argument(
+        "--prev-version",
+        default=None,
+        help="Previous version (e.g. 0.25.4)",
+    )
+    approval_parser.add_argument(
+        "--output-file",
+        default=None,
+        help="Optional file path to write Markdown output to",
+    )
+
+    return parser
+
+
+def main():
+    """Main CLI entry point."""
+    parser = build_parser()
     args = parser.parse_args()
     default_root = Path(__file__).resolve().parent.parent.parent
     repo_root = Path(args.repo_root or default_root)
 
-    if args.command == "sql":
-        handle_sql_command(args, repo_root)
-    elif args.command == "changelog":
-        handle_changelog_command(args, repo_root)
-    elif args.command == "all":
-        handle_all_command(args, repo_root)
-    elif args.command == "set-version":
-        handle_set_version_command(args, repo_root)
-    elif args.command == "next-dev-version":
-        handle_next_dev_version_command(args, repo_root)
-    elif args.command == "is-latest":
-        handle_is_latest_command(args, repo_root)
+    commands = {
+        "sql": handle_sql_command,
+        "changelog": handle_changelog_command,
+        "all": handle_all_command,
+        "set-version": handle_set_version_command,
+        "next-dev-version": handle_next_dev_version_command,
+        "is-latest": handle_is_latest_command,
+        "approval-body": handle_approval_body_command,
+    }
+    handler = commands.get(args.command)
+    if handler:
+        handler(args, repo_root)
 
 
 if __name__ == "__main__":

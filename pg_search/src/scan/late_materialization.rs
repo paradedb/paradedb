@@ -374,6 +374,85 @@ fn should_anchor(node: &LogicalPlan, deferred_fields: &[DeferredField]) -> bool 
     }
 }
 
+/// Returns true if `node` reduces, filters, or limits rows.
+fn is_reduction_node(node: &LogicalPlan) -> bool {
+    match node {
+        LogicalPlan::Filter(_)
+        | LogicalPlan::Join(_)
+        | LogicalPlan::Limit(_)
+        | LogicalPlan::Distinct(_) => true,
+        LogicalPlan::Sort(sort) => sort.fetch.is_some(),
+        _ => false,
+    }
+}
+
+/// Recursively traverses `plan` tracking the ancestor chain down to each `TableScan`.
+/// For each deferred field of a `TableScan`, checks if there is any intermediate reduction
+/// node (`Filter`, `Join`, `Limit`, etc.) on the path between the scan and the first ancestor
+/// that anchors the field (or the root).
+fn collect_beneficial_deferred_fields_inner<'a>(
+    node: &'a LogicalPlan,
+    ancestors: &mut Vec<&'a LogicalPlan>,
+    beneficial: &mut HashSet<CanonicalColumn>,
+) {
+    if let LogicalPlan::TableScan(scan) = node {
+        let provider = if let Some(default_source) =
+            scan.source
+                .downcast_ref::<datafusion::catalog::default_table_source::DefaultTableSource>()
+        {
+            default_source
+                .table_provider
+                .downcast_ref::<PgSearchTableProvider>()
+        } else {
+            (scan.source.as_ref() as &dyn std::any::Any).downcast_ref::<PgSearchTableProvider>()
+        };
+
+        if let Some(provider) = provider {
+            for df in provider.deferred_fields() {
+                let mut has_reduction = false;
+                let mut is_beneficial = false;
+
+                for ancestor in ancestors.iter().rev() {
+                    if should_anchor(ancestor, std::slice::from_ref(&df)) {
+                        if has_reduction {
+                            is_beneficial = true;
+                        }
+                        break;
+                    }
+                    if is_reduction_node(ancestor) {
+                        has_reduction = true;
+                    }
+                }
+
+                // If it reached the root without being anchored by an intermediate node:
+                if !is_beneficial && has_reduction {
+                    is_beneficial = true;
+                }
+
+                if is_beneficial {
+                    beneficial.insert(df.canonical);
+                }
+            }
+        }
+        return;
+    }
+
+    ancestors.push(node);
+    for child in node.inputs() {
+        collect_beneficial_deferred_fields_inner(child, ancestors, beneficial);
+    }
+    ancestors.pop();
+}
+
+/// Collects the set of `CanonicalColumn`s for deferred fields that actually benefit from
+/// late materialization (i.e. have at least one reduction/filter/join between the scan and the consumer).
+fn collect_beneficial_deferred_fields(plan: &LogicalPlan) -> HashSet<CanonicalColumn> {
+    let mut beneficial = HashSet::new();
+    let mut ancestors = Vec::new();
+    collect_beneficial_deferred_fields_inner(plan, &mut ancestors, &mut beneficial);
+    beneficial
+}
+
 impl OptimizerRule for LateMaterializationRule {
     fn name(&self) -> &str {
         "LateMaterialization"
@@ -384,20 +463,36 @@ impl OptimizerRule for LateMaterializationRule {
         plan: LogicalPlan,
         _config: &dyn OptimizerConfig,
     ) -> Result<Transformed<LogicalPlan>> {
+        let beneficial_fields = collect_beneficial_deferred_fields(&plan);
+        if beneficial_fields.is_empty() {
+            return Ok(Transformed::no(plan));
+        }
+
         let transformed_plan = plan.transform_up(|node| {
             if let LogicalPlan::TableScan(scan) = &node {
-                let provider = if let Some(default_source) = scan.source.downcast_ref::<datafusion::catalog::default_table_source::DefaultTableSource>() {
-                    default_source.table_provider.downcast_ref::<PgSearchTableProvider>()
+                let provider = if let Some(default_source) = scan
+                    .source
+                    .downcast_ref::<datafusion::catalog::default_table_source::DefaultTableSource>()
+                {
+                    default_source
+                        .table_provider
+                        .downcast_ref::<PgSearchTableProvider>()
                 } else {
-                    (scan.source.as_ref() as &dyn std::any::Any).downcast_ref::<PgSearchTableProvider>()
+                    (scan.source.as_ref() as &dyn std::any::Any)
+                        .downcast_ref::<PgSearchTableProvider>()
                 };
 
                 if let Some(provider) = provider {
-                    let deferred_fields = provider.deferred_fields();
-                    if !deferred_fields.is_empty() {
-                        let is_already_union = scan.projected_schema.fields().iter().any(|f| {
-                            matches!(f.data_type(), arrow_schema::DataType::Union(_, _))
-                        });
+                    let has_beneficial_deferred = provider
+                        .deferred_fields()
+                        .iter()
+                        .any(|df| beneficial_fields.contains(&df.canonical));
+
+                    if has_beneficial_deferred {
+                        let is_already_union =
+                            scan.projected_schema.fields().iter().any(|f| {
+                                matches!(f.data_type(), arrow_schema::DataType::Union(_, _))
+                            });
 
                         if is_already_union {
                             return Ok(Transformed::no(node));
@@ -409,24 +504,27 @@ impl OptimizerRule for LateMaterializationRule {
                         // Now the provider natively outputs the Union schema!
                         // We must reconstruct the TableScan's projected schema to reflect this new reality.
                         let mut new_scan = scan.clone();
-                        let projected_indices: Result<Vec<usize>, _> = scan.projected_schema.fields().iter()
+                        let projected_indices: Result<Vec<usize>, _> = scan
+                            .projected_schema
+                            .fields()
+                            .iter()
                             .map(|f| scan.source.schema().index_of(f.name()))
                             .collect();
                         let projected_indices = projected_indices?;
 
-                        let projected_arrow_schema = new_scan.source.schema().project(&projected_indices)?;
+                        let projected_arrow_schema =
+                            new_scan.source.schema().project(&projected_indices)?;
                         let mut new_qualified_fields = Vec::new();
                         for (i, field) in projected_arrow_schema.fields().iter().enumerate() {
                             let (qualifier, _) = scan.projected_schema.qualified_field(i);
                             new_qualified_fields.push((qualifier.cloned(), field.clone()));
                         }
 
-                        new_scan.projected_schema = Arc::new(
-                            datafusion::common::DFSchema::new_with_metadata(
+                        new_scan.projected_schema =
+                            Arc::new(datafusion::common::DFSchema::new_with_metadata(
                                 new_qualified_fields,
-                                scan.projected_schema.metadata().clone()
-                            )?
-                        );
+                                scan.projected_schema.metadata().clone(),
+                            )?);
 
                         return Ok(Transformed::yes(LogicalPlan::TableScan(new_scan)));
                     }
@@ -466,9 +564,9 @@ impl OptimizerRule for LateMaterializationRule {
                 if has_union_child {
                     // Union bubbled into us. We MUST recompute our schema to reflect the Union.
                     // DataFusion's `transform_up` uses `map_children` which intentionally preserves the
-                    // Join's old `schema` to avoid overhead during structural recursion. 
-                    // Using `Join::try_new` is the recommended way to forcefully re-evaluate `build_join_schema` 
-                    // using the mutated child schemas, guaranteeing that the `Join` node correctly 
+                    // Join's old `schema` to avoid overhead during structural recursion.
+                    // Using `Join::try_new` is the recommended way to forcefully re-evaluate `build_join_schema`
+                    // using the mutated child schemas, guaranteeing that the `Join` node correctly
                     // reports the bubbled `Union` types to the rest of the plan.
                     if let LogicalPlan::Join(join) = &node {
                         let new_join = datafusion::logical_expr::logical_plan::Join::try_new(

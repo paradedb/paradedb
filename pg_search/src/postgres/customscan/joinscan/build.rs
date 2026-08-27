@@ -1195,8 +1195,8 @@ impl RelNode {
         }
     }
 
-    /// Returns true if any `JoinNode` in the tree has an empty `equi_keys` list.
-    /// Used to reject plans where an intermediate join (e.g., CROSS JOIN inside
+    /// Returns true if any join in the tree lacks equi-join keys. If so, building
+    /// this tree via `build_relnode_df` (which uses Hash/Merge joins suitable for
     /// a 3-table query) would cause DataFusion to error or produce empty batches.
     pub fn has_join_without_keys(&self) -> bool {
         match self {

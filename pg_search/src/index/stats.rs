@@ -55,6 +55,7 @@ use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::{PdbOwnedValue, exact_scalar_wire};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{STATS_EXT, SegmentMetaEntry};
+use crate::postgres::types::is_datetime_type;
 use crate::scan::range_partitioning::RangePartitioning;
 use crate::schema::SearchFieldType;
 
@@ -666,13 +667,17 @@ pub(crate) fn segments_for_partition(
     let Ok(field) = reader.schema().tantivy_schema().get_field(field_name) else {
         return all;
     };
-    let is_date = matches!(
-        reader
-            .schema()
-            .search_field(field_name)
-            .map(|f| f.field_type()),
-        Some(SearchFieldType::Date(_))
-    );
+    // A recent index keeps datetimes in an `I64` column, so its statistics need the same lift
+    // as its values; a legacy index stored them as `Date` already.
+    let is_date = match reader
+        .schema()
+        .search_field(field_name)
+        .map(|f| f.field_type())
+    {
+        Some(SearchFieldType::Date(_)) => true,
+        Some(SearchFieldType::I64(oid)) => is_datetime_type(oid),
+        _ => false,
+    };
     // NULLs route to partition 0, so it keeps every segment that may hold one.
     let catches_nulls = partition == 0;
 
@@ -1105,6 +1110,66 @@ mod tests {
             1,
             "the unboxed segment survives every partition"
         );
+    }
+
+    /// A recent index keeps timestamps in an `I64` column while the partition bounds arrive as
+    /// `Date`, so the empirical statistics must lift to `Date` before they can prune.
+    #[pg_test]
+    fn empirical_stats_prune_on_a_timestamp_key() {
+        Spi::run(
+            r#"
+            CREATE TABLE stats_ts (id BIGSERIAL PRIMARY KEY, created_at TIMESTAMP, name TEXT);
+            INSERT INTO stats_ts (created_at, name)
+            SELECT TIMESTAMP '2024-01-01' + (i || ' minutes')::interval,
+                   'row ' || i || ' ' || repeat('padding word here ', 50)
+            FROM generate_series(1, 20000) i;
+            ANALYZE stats_ts;
+            SET max_parallel_maintenance_workers = 0;
+            CREATE INDEX stats_ts_idx ON stats_ts USING paradedb (id, created_at, name)
+                WITH (key_field = 'id', target_segment_count = 4);
+            "#,
+        )
+        .unwrap();
+        let indexrel = open_index("stats_ts_idx");
+        let (field, stats) = segment_stats(&indexrel, "created_at");
+        assert!(stats.len() > 1, "need several segments to prune between");
+        let ranges: Vec<EmpiricalStats> = stats
+            .iter()
+            .map(|s| {
+                let raw = s.empirical(field).unwrap().unwrap();
+                assert!(
+                    matches!(raw.min, PdbOwnedValue::I64(_)),
+                    "stored as the column's raw micros"
+                );
+                raw.into_dates().unwrap()
+            })
+            .collect();
+        let mut mins: Vec<PdbOwnedValue> = ranges.iter().map(|r| r.min.clone()).collect();
+        mins.sort_by(PdbOwnedValue::total_cmp);
+
+        let reader = SearchIndexReader::open(
+            &indexrel,
+            SearchQueryInput::All,
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .unwrap();
+        let boundaries = RangePartitioning {
+            partition_by: FieldName::from("created_at"),
+            split_points: vec![mins[1].clone(), mins[mins.len() - 1].clone()],
+        };
+        let mut pruned_somewhere = false;
+        for partition in 0..3 {
+            let (lower, upper) = boundaries.partition_range(partition).unwrap();
+            let expected = ranges
+                .iter()
+                .filter(|r| r.intersects(&lower, &upper))
+                .count();
+            let chosen = segments_for_partition(&reader, &boundaries, partition);
+            assert_eq!(chosen.len(), expected, "partition {partition}");
+            pruned_somewhere |= chosen.len() < stats.len();
+        }
+        assert!(pruned_somewhere);
     }
 
     fn text_partitioned_index(table: &str, index: &str, normalizer: &str) {

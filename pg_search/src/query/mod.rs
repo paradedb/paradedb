@@ -24,7 +24,9 @@ pub mod pdb_query;
 pub(crate) mod proximity;
 mod range;
 mod score;
+pub mod tid_bitmap_stream;
 
+use crate::query::tid_bitmap_stream::BitmapCell;
 use builder::{QueryBuilder, QueryOnlyBuilder, QueryTreeBuilder};
 use estimate_tree::QueryWithEstimates;
 use heap_field_filter::HeapFieldFilter;
@@ -59,6 +61,10 @@ use tantivy::{
     Searcher, Term,
 };
 use thiserror::Error;
+
+fn is_false(value: &bool) -> bool {
+    !*value
+}
 
 #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -131,7 +137,32 @@ pub enum SearchQueryInput {
     /// Mixed query with indexed search and heap field filters
     HeapFilter {
         indexed_query: Box<SearchQueryInput>,
-        field_filters: Vec<HeapFieldFilter>,
+        /// Predicates the bitmap-set bitmap cannot prove: either no external index
+        /// covers them, or the covering index qual is lossy (e.g. `ST_DWithin` matched
+        /// only through its bounding-box qual). Evaluated against the heap for every
+        /// document that survives the bitmap probe -- and for every document when no
+        /// bitmap was planned.
+        always_filters: Vec<HeapFieldFilter>,
+        /// Predicates proven by exact bitmap membership: their clause matched an
+        /// external index exactly (`IndexClause.lossy == false`), so a document found
+        /// in the bitmap on an exact, non-recheck page already satisfies them.
+        /// Evaluated only when that proof breaks down: a lossy page, a recheck-flagged
+        /// page, or no bitmap set attached.
+        #[serde(default)]
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        recheck_filters: Vec<HeapFieldFilter>,
+        /// Set at plan time when an external index's bitmap covers this filter's
+        /// clauses; the cursor source itself is attached at execution time.
+        #[serde(default)]
+        #[serde(skip_serializing_if = "is_false")]
+        uses_tid_bitmap: bool,
+        /// Which claim-table consumer this node is, when covered. Serialized so
+        /// parallel workers claim the same streams the build owner prepared.
+        #[serde(default)]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        bitmap_consumer_id: Option<u32>,
+        #[serde(skip)]
+        bitmap_cell: Option<BitmapCell>,
     },
 
     #[serde(serialize_with = "serialize_fielded_query")]
@@ -1469,7 +1500,11 @@ impl SearchQueryInput {
             }
             SearchQueryInput::HeapFilter {
                 indexed_query,
-                field_filters,
+                always_filters,
+                recheck_filters,
+                uses_tid_bitmap: _,
+                bitmap_consumer_id,
+                bitmap_cell,
             } => {
                 // Convert indexed query first
                 let inner_output = recurse(*indexed_query)?;
@@ -1483,7 +1518,10 @@ impl SearchQueryInput {
                 // Create combined query with heap field filters
                 let query = Box::new(heap_field_filter::HeapFilterQuery::new(
                     indexed_tantivy_query,
-                    field_filters.clone(),
+                    always_filters.clone(),
+                    recheck_filters.clone(),
+                    bitmap_consumer_id,
+                    bitmap_cell.clone(),
                     relation_oid.expect("relation_oid is required for HeapFilter queries"),
                     expr_context,
                     planstate,
@@ -2127,7 +2165,11 @@ mod tests {
         // HeapFilter with All → full scan
         assert!(SearchQueryInput::HeapFilter {
             indexed_query: Box::new(SearchQueryInput::All),
-            field_filters: vec![],
+            always_filters: vec![],
+            recheck_filters: vec![],
+            uses_tid_bitmap: false,
+            bitmap_consumer_id: None,
+            bitmap_cell: None,
         }
         .is_full_scan_query());
     }
@@ -2198,7 +2240,11 @@ mod tests {
                             lenient: None,
                             conjunction_mode: None,
                         }),
-                        field_filters: vec![],
+                        always_filters: vec![],
+                        recheck_filters: vec![],
+                        uses_tid_bitmap: false,
+                        bitmap_consumer_id: None,
+                        bitmap_cell: None,
                     }),
                 }],
                 tie_breaker: None,

@@ -129,17 +129,39 @@ impl ParallelQueryCapable for BaseScan {
             state
                 .custom_state_mut()
                 .attach_parallel(pscan_state, ParallelRole::Leader);
+
+            // The leader owns the bitmap build: build in this scan's own DSA area,
+            // prepare per-(consumer, segment) iterator states, and publish the claim
+            // table before any worker launches. Workers only wait and attach.
+            leader_publish_bitmap(state, pscan_state);
         }
     }
 
     fn reinitialize_dsm_custom_scan(
-        _state: &mut CustomScanStateWrapper<Self>,
+        state: &mut CustomScanStateWrapper<Self>,
         coordinate: *mut c_void,
     ) {
         let pscan_state = coordinate.cast::<ParallelScanState>();
         assert!(!pscan_state.is_null(), "coordinate is null");
         unsafe {
+            (*pscan_state).bitmap_reset();
             (*pscan_state).reset();
+            // Republish for the relaunched workers. The scan's rescan callback ran
+            // first (freeing the previous table and build when params changed), so
+            // this rebuilds with the new params or republishes the still-valid one.
+            if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut() {
+                let handle = bitmap_exec.republish();
+                (*pscan_state).publish_bitmap_handle(handle);
+                if handle.is_some() {
+                    if let Some(cell) = state.custom_state().bitmap_cell.clone() {
+                        if let Some(source) =
+                            state.custom_state().bitmap_exec.as_ref().unwrap().source()
+                        {
+                            cell.fill(source);
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -161,6 +183,53 @@ impl ParallelQueryCapable for BaseScan {
             {
                 Some(query) => state.custom_state_mut().set_base_search_query_input(query),
                 None => panic!("no query in ParallelScanState"),
+            }
+        }
+    }
+}
+
+/// Leader-only: ensure the reader (and with it the executed query and cell) exists,
+/// build the shared bitmap over its segments, publish, and swap the leader's cell
+/// to the shared view.
+unsafe fn leader_publish_bitmap(
+    state: &mut CustomScanStateWrapper<BaseScan>,
+    pscan_state: *mut ParallelScanState,
+) {
+    unsafe {
+        if state.custom_state().bitmap_exec.is_none() {
+            return;
+        }
+        if state.custom_state().search_reader.is_none() {
+            BaseScan::init_search_reader(state);
+        }
+        let consumers = state
+            .custom_state()
+            .search_query_input()
+            .bitmap_consumer_count();
+        if consumers == 0 {
+            (*pscan_state).publish_bitmap_handle(None);
+            return;
+        }
+        let segments: Vec<tantivy::index::SegmentId> = state
+            .custom_state()
+            .search_reader
+            .as_ref()
+            .expect("search reader should be open")
+            .searcher()
+            .segment_readers()
+            .iter()
+            .map(|r| r.segment_id())
+            .collect();
+        let handle = state
+            .custom_state_mut()
+            .bitmap_exec
+            .as_mut()
+            .unwrap()
+            .shared_source(consumers, &segments);
+        (*pscan_state).publish_bitmap_handle(handle);
+        if let Some(cell) = state.custom_state().bitmap_cell.clone() {
+            if let Some(source) = state.custom_state().bitmap_exec.as_ref().unwrap().source() {
+                cell.fill(source);
             }
         }
     }

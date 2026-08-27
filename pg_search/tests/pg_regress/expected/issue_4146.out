@@ -470,8 +470,8 @@ WHERE
 ORDER BY
     d.title ASC
 LIMIT 50;
-                                                                                                                     QUERY PLAN                                                                                                                      
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                      QUERY PLAN                                                                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: d.id, d.title, d.parents
    ->  Unique
@@ -492,7 +492,7 @@ LIMIT 50;
                  :           PgSearchScan: table=p, segments=1, query={"range":{"field":"sizeInBytes","lower_bound":{"excluded":5000},"upper_bound":null}}
                  :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, documentId@1)], projection=[ctid_0@0, id@1, title@2, parents@3, ctid_2@4, id@6]
                  :           CooperativeExec
-                 :             PgSearchScan: table=d, segments=1, query={"boolean":{"must":[{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(parents ~~ 'SFR%'::text)"}]}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}
+                 :             PgSearchScan: table=d, segments=1, query={"boolean":{"must":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(parents ~~ 'SFR%'::text)"}]}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}
                  :           CooperativeExec
                  :             PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all"
 (23 rows)

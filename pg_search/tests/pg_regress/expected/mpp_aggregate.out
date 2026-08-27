@@ -106,8 +106,8 @@ WHERE f.content @@@ 'Section'
 GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
-                                                                                                       QUERY PLAN                                                                                                        
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                        QUERY PLAN                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.title, (count(*)), (sum(p.size_bytes))
    ->  Sort
@@ -122,12 +122,13 @@ LIMIT 5;
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=5), expr=[title@0 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[title@0 as title], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, size_bytes@3]
-                 :       CooperativeExec
-                 :         PgSearchScan: table=f, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
-                 :       CooperativeExec
-                 :         PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
-(19 rows)
+                 :     TantivyLookupExec: decode=[title]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, size_bytes@3]
+                 :         CooperativeExec
+                 :           PgSearchScan: table=f, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+                 :         CooperativeExec
+                 :           PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
+(20 rows)
 
 SELECT f.title, COUNT(*), SUM(p.size_bytes)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
@@ -152,8 +153,8 @@ SELECT DISTINCT f.title
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section';
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: f, p)
-                                                                                       QUERY PLAN                                                                                       
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                        QUERY PLAN                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: f.title
    Backend: DataFusion
@@ -161,12 +162,13 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: f,
    Group By: title
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[title@0 as title], aggr=[]
-     :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, file_id@0)], projection=[title@1]
-     :     CooperativeExec
-     :       PgSearchScan: table=f, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
-     :     CooperativeExec
-     :       PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
-(12 rows)
+     :   TantivyLookupExec: decode=[title]
+     :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1]
+     :       CooperativeExec
+     :         PgSearchScan: table=f, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+     :       CooperativeExec
+     :         PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
+(13 rows)
 
 SELECT COUNT(*) FROM (
     SELECT DISTINCT f.title
@@ -280,13 +282,14 @@ LIMIT 5;
                  :     ┌───── Stage 2 ── tasks=2, partitions=6
                  :     │ RepartitionExec: partitioning=Hash([title@0], 6), input_partitions=3
                  :     │   AggregateExec: mode=Partial, gby=[title@0 as title], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
-                 :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, size_bytes@3]
-                 :     │       CoalescePartitionsExec
-                 :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
-                 :     │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-                 :     │         DistributedLeafExec:
-                 :     │           t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
-                 :     │           t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
+                 :     │     TantivyLookupExec: decode=[title]
+                 :     │       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, size_bytes@3]
+                 :     │         CoalescePartitionsExec
+                 :     │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+                 :     │         RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+                 :     │           DistributedLeafExec:
+                 :     │             t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
+                 :     │             t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
                  :     └──────────────────────────────────────────────────
                  :       ┌───── Stage 1 ── tasks=2, partitions=4
                  :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
@@ -294,7 +297,7 @@ LIMIT 5;
                  :       │     t0: PgSearchScan: table=f, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
                  :       │     t1: PgSearchScan: table=f, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
                  :       └──────────────────────────────────────────────────
-(38 rows)
+(39 rows)
 
 SELECT f.title, COUNT(*), SUM(p.size_bytes)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
@@ -328,33 +331,31 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: f,
    DataFusion Physical Plan: 
      : ┌───── DistributedExec
      : │ CoalescePartitionsExec
-     : │   [Stage 4] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+     : │   [Stage 3] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 4 ── tasks=2, partitions=3
+     :   ┌───── Stage 3 ── tasks=2, partitions=3
      :   │ AggregateExec: mode=FinalPartitioned, gby=[title@0 as title], aggr=[]
-     :   │   [Stage 3] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+     :   │   [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
      :   └──────────────────────────────────────────────────
-     :     ┌───── Stage 3 ── tasks=2, partitions=6
+     :     ┌───── Stage 2 ── tasks=2, partitions=6
      :     │ RepartitionExec: partitioning=Hash([title@0], 6), input_partitions=3
      :     │   AggregateExec: mode=Partial, gby=[title@0 as title], aggr=[]
-     :     │     HashJoinExec: mode=Partitioned, join_type=LeftSemi, on=[(id@0, file_id@0)], projection=[title@1]
-     :     │       [Stage 1] => NetworkShuffleExec: output_partitions=3, input_tasks=2
-     :     │       [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+     :     │     TantivyLookupExec: decode=[title]
+     :     │       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1]
+     :     │         CoalescePartitionsExec
+     :     │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+     :     │         RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+     :     │           DistributedLeafExec:
+     :     │             t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
+     :     │             t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
      :     └──────────────────────────────────────────────────
-     :       ┌───── Stage 1 ── tasks=2, partitions=6
-     :       │ RepartitionExec: partitioning=Hash([id@0], 6), input_partitions=1
+     :       ┌───── Stage 1 ── tasks=2, partitions=4
+     :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
      :       │   DistributedLeafExec:
      :       │     t0: PgSearchScan: table=f, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :       │     t1: PgSearchScan: table=f, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :       └──────────────────────────────────────────────────
-     :       ┌───── Stage 2 ── tasks=2, partitions=6
-     :       │ RepartitionExec: partitioning=Hash([file_id@0], 6), input_partitions=3
-     :       │   RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-     :       │     DistributedLeafExec:
-     :       │       t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
-     :       │       t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
-     :       └──────────────────────────────────────────────────
-(34 rows)
+(32 rows)
 
 SELECT COUNT(*) FROM (
     SELECT DISTINCT f.title

@@ -366,11 +366,10 @@ LIMIT 10;
                  :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_2@1 as ctid_2, documentId@2 as documentId, id@3 as id]
                  :             CooperativeExec
                  :               PgSearchScan: table=files, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"index","lenient":null,"conjunction_mode":null}}}}
-                 :         TantivyLookupExec: decode=[id]
-                 :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, fileId@2 as fileId, id@3 as id]
-                 :             CooperativeExec
-                 :               PgSearchScan: table=pages, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"vector","lenient":null,"conjunction_mode":null}}}}
-(26 rows)
+                 :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, fileId@2 as fileId, id@3 as id]
+                 :           CooperativeExec
+                 :             PgSearchScan: table=pages, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"vector","lenient":null,"conjunction_mode":null}}}}
+(25 rows)
 
 SELECT documents.id AS doc_id,
        files.id AS file_id,
@@ -444,11 +443,10 @@ LIMIT 10;
                  :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_2@1 as ctid_2, documentId@2 as documentId, id@3 as id, __files_2_tag_0@4 as __files_2_tag_0]
                  :             CooperativeExec
                  :               PgSearchScan: table=files, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
-                 :         TantivyLookupExec: decode=[id]
-                 :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, fileId@2 as fileId, id@3 as id, __pages_1_tag_0@4 as __pages_1_tag_0]
-                 :             CooperativeExec
-                 :               PgSearchScan: table=pages, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
-(27 rows)
+                 :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, fileId@2 as fileId, id@3 as id, __pages_1_tag_0@4 as __pages_1_tag_0]
+                 :           CooperativeExec
+                 :             PgSearchScan: table=pages, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
+(26 rows)
 
 SELECT documents.id AS doc_id,
        files.id AS file_id,
@@ -512,11 +510,10 @@ LIMIT 10;
            :             PgSearchScan: table=documents, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
            :           CooperativeExec
            :             PgSearchScan: table=files, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
-           :         TantivyLookupExec: decode=[id]
-           :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, fileId@2 as fileId, id@3 as id, __pages_1_tag_0@4 as __pages_1_tag_0]
-           :             CooperativeExec
-           :               PgSearchScan: table=pages, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
-(23 rows)
+           :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, fileId@2 as fileId, id@3 as id, __pages_1_tag_0@4 as __pages_1_tag_0]
+           :           CooperativeExec
+           :             PgSearchScan: table=pages, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
+(22 rows)
 
 SELECT documents.id AS doc_id,
        files.id AS file_id,
@@ -572,21 +569,20 @@ LIMIT 10;
                Order By: sum(pdb.score()) desc, documents.id asc, pages.fileId asc, pages.id asc
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[id@2 as col_1, score@0 as col_2, score@0 as col_3, id@9 as col_4, score@7 as col_5, score@7 as col_6, id@6 as col_7, score@3 as col_8, score@3 as col_9, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1, ctid_2@8 as ctid_2]
-                 :   SortExec: TopK(fetch=10), expr=[score@0 + score@7 + score@3 DESC, id@2 ASC NULLS LAST, fileId@5 ASC NULLS LAST, id@6 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   SortExec: TopK(fetch=10), expr=[score@0 + score@7 + score@3 DESC, id@2 ASC NULLS LAST, id@9 ASC NULLS LAST, id@6 ASC NULLS LAST], preserve_partitioning=[false]
                  :     VisibilityFilterExec: tables=[documents, pages, files]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, documentId@6)], projection=[score@0, ctid_0@1, id@2, score@3, ctid_1@4, fileId@5, id@6, score@7, ctid_2@8, id@10]
                  :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_0@1 as ctid_0, id@2 as id]
                  :           CooperativeExec
-                 :             PgSearchScan: table=documents, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"postgres","lenient":null,"conjunction_mode":null}}}}
-                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fileId@2, id@3)], filter=__files_2_tag_0@1 OR __pages_1_tag_0@0, projection=[score@0, ctid_1@1, fileId@2, id@3, score@5, ctid_2@6, documentId@7, id@8]
-                 :           TantivyLookupExec: decode=[id]
-                 :             ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, fileId@2 as fileId, id@3 as id, __pages_1_tag_0@4 as __pages_1_tag_0]
-                 :               CooperativeExec
-                 :                 PgSearchScan: table=pages, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
+                 :             PgSearchScan: table=documents, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"postgres","lenient":null,"conjunction_mode":null}}}}
+                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@3, fileId@2)], filter=__files_2_tag_0@1 OR __pages_1_tag_0@0, projection=[score@5, ctid_1@6, fileId@7, id@8, score@0, ctid_2@1, documentId@2, id@3]
                  :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_2@1 as ctid_2, documentId@2 as documentId, id@3 as id, __files_2_tag_0@4 as __files_2_tag_0]
                  :             CooperativeExec
-                 :               PgSearchScan: table=files, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
-(26 rows)
+                 :               PgSearchScan: table=files, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
+                 :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, fileId@2 as fileId, id@3 as id, __pages_1_tag_0@4 as __pages_1_tag_0]
+                 :             CooperativeExec
+                 :               PgSearchScan: table=pages, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
+(25 rows)
 
 SELECT documents.id AS doc_id,
        files.id AS file_id,
@@ -652,11 +648,10 @@ LIMIT 10;
                  :               PgSearchScan: table=documents, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"postgres","lenient":null,"conjunction_mode":null}}}}
                  :           CooperativeExec
                  :             PgSearchScan: table=files, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"index","lenient":null,"conjunction_mode":null}}}}
-                 :         TantivyLookupExec: decode=[id]
-                 :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, fileId@2 as fileId, id@3 as id]
-                 :             CooperativeExec
-                 :               PgSearchScan: table=pages, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"vector","lenient":null,"conjunction_mode":null}}}}
-(25 rows)
+                 :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, fileId@2 as fileId, id@3 as id]
+                 :           CooperativeExec
+                 :             PgSearchScan: table=pages, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"vector","lenient":null,"conjunction_mode":null}}}}
+(24 rows)
 
 SELECT documents.id AS doc_id,
        files.id AS file_id,
@@ -726,11 +721,10 @@ LIMIT 10;
                  :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_2@1 as ctid_2, documentId@2 as documentId, id@3 as id]
                  :             CooperativeExec
                  :               PgSearchScan: table=files, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"index","lenient":null,"conjunction_mode":null}}}}
-                 :         TantivyLookupExec: decode=[id]
-                 :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, fileId@2 as fileId, id@3 as id]
-                 :             CooperativeExec
-                 :               PgSearchScan: table=pages, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"vector","lenient":null,"conjunction_mode":null}}}}
-(26 rows)
+                 :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, fileId@2 as fileId, id@3 as id]
+                 :           CooperativeExec
+                 :             PgSearchScan: table=pages, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"vector","lenient":null,"conjunction_mode":null}}}}
+(25 rows)
 
 SELECT documents.id AS doc_id,
        files.id AS file_id,

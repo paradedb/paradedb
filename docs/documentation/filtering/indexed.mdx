@@ -1,10 +1,14 @@
 ---
-title: Filtering
-description: Filter search results based on metadata from other fields
-canonical: https://www.paradedb.com/docs/documentation/filtering
+title: Indexed Columns
+description: Push filters into the ParadeDB index scan
+canonical: https://www.paradedb.com/docs/documentation/filtering/indexed
 ---
 
-Adding filters to a search query is as simple as using Postgres's built-in `WHERE` clauses and operators.
+Indexed columns are columns or expressions included in the ParadeDB index.
+For filters over built-in scalar types and literal text columns, this is the most efficient path because the filter can be pushed directly into the ParadeDB scan.
+For filters backed by another database index, see [External Indexes](/documentation/filtering/external-indexes).
+
+Adding filters to a search query is as simple as using regular SQL `WHERE` clauses.
 For instance, the following query filters out results that do not meet `rating > 2`.
 
 <CodeGroup>
@@ -79,7 +83,7 @@ In order for the ParadeDB index to be used, at least one ParadeDB operator must 
 
 | Operator | Meaning                                                                                           |
 | -------- | ------------------------------------------------------------------------------------------------- |
-| `@@@`    | [General search predicate](/documentation/full-text/overview)                                     |
+| `@@@`    | [General search condition](/documentation/full-text/overview)                                     |
 | `\|\|\|` | [Match disjunction](/documentation/full-text/match#match-disjunction) — contains any of the terms |
 | `&&&`    | [Match conjunction](/documentation/full-text/match#match-conjunction) — contains all of the terms |
 | `===`    | [Term](/documentation/full-text/term) — exact token match                                         |
@@ -92,7 +96,7 @@ index without changing the query output.
 
 ## Filter Pushdown
 
-### Non-Text Fields
+### Non-Text Columns
 
 While not required, filtering performance over non-text columns can be improved by including them in the ParadeDB index.
 When these columns are part of the index, `WHERE` clauses that reference them can be pushed down into the index scan itself.
@@ -157,7 +161,7 @@ Filter pushdown is currently supported for the following combinations of types a
 |                                            | `timestamptz`     |                    |
 |                                            | `uuid`            |                    |
 
-### Text Fields
+### Text Columns
 
 Suppose we have a text filter that looks for an exact string match like `category = 'Footwear'`:
 
@@ -236,7 +240,7 @@ USING paradedb (id, description, (category::pdb.literal))
 WITH (key_field = 'id');
 ```
 
-Pushdown of set filters over text fields also requires the literal tokenizer:
+Pushdown of set filters over text columns also requires the literal tokenizer:
 
 <CodeGroup>
 ```sql SQL

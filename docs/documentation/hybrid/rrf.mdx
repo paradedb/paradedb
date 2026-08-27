@@ -332,7 +332,7 @@ var results = text
 
 The `1.0` and `0.7` are the per-branch weights, here valuing text matches over vector ones, and `60` is `k`.
 
-The two `WHERE` clauses differ because each branch retrieves by its own method. `description ||| 'running shoes'` is the text branch's query. The vector branch's query is the query vector in its `ORDER BY`, so its `WHERE` is [`pdb.all()`](/documentation/vector/querying), meaning every row is eligible. To narrow either branch, add [filters](/documentation/filtering) to both, so that each is drawing from the same set of eligible rows.
+The two `WHERE` clauses differ because each branch retrieves by its own method. `description ||| 'running shoes'` is the text branch's query. The vector branch's query is the query vector in its `ORDER BY`, so its `WHERE` is [`pdb.all()`](/documentation/vector/querying), meaning every row is eligible. To narrow either branch, add [filters](/documentation/filtering/overview) to both, so that each is drawing from the same set of eligible rows.
 
 ## Verifying Pushdown
 

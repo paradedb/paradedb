@@ -13,20 +13,20 @@ At release time, the [**Publish GitHub Release** workflow](https://github.com/pa
 
 Releases must always be triggered **from the branch being released** (e.g., `main` for a minor or beta release, or a stable branch for patches).
 
-| Type          | Description                                                                                 |
-| ------------- | ------------------------------------------------------------------------------------------- |
-| **Minor**     | Triggered from the `main` branch.                                                           |
-| **Patch**     | A patch bump off an existing tag (e.g., `v1.4.0 → v1.4.1`) from a stable branch (`0.25.x`). |
-| **Beta (RC)** | Marked with `beta: true`. Produces a prerelease tag like `vX.Y.Z-rc.N`.                     |
+| Type          | Description                                                                                       |
+| ------------- | ------------------------------------------------------------------------------------------------- |
+| **Minor**     | Triggered from the `main` branch.                                                                 |
+| **Patch**     | A patch bump off an existing tag (e.g., `v1.4.0 → v1.4.1`) from a stable branch (e.g., `0.25.x`). |
+| **Beta (RC)** | Marked with `beta: true`. Produces a prerelease tag like `vX.Y.Z-rc.N`.                           |
 
 > **Note:** Minor and patch releases publish Docker images for all supported PostgreSQL major versions and prebuilt extension binaries for all supported platforms. Beta releases publish only the PostgreSQL 18 Docker image and the Debian 13 packages required to build it; the remaining prebuilt extension binaries are skipped.
 
 ## Workflow Inputs
 
-| Input     | Type    | Default | Description                                                                                |
-| --------- | ------- | ------- | ------------------------------------------------------------------------------------------ |
-| `version` | string  | `""`    | Target release version in semver format (e.g., `1.2.3` or `1.2.3-rc.1` for beta releases). |
-| `beta`    | boolean | `false` | If `true`, creates a beta release (`vX.Y.Z-rc.N`) and marks it as a pre-release in GitHub. |
+| Input     | Type    | Default | Description                                                                                      |
+| --------- | ------- | ------- | ------------------------------------------------------------------------------------------------ |
+| `version` | string  | `""`    | Target release version in semver format (e.g., `1.2.3` or `1.2.3-rc.1` for beta releases).       |
+| `beta`    | boolean | `false` | If `true`, creates a beta release (e.g., `vX.Y.Z-rc.N`) and marks it as a pre-release in GitHub. |
 
 ## Triggering a Release
 

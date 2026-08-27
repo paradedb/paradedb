@@ -446,7 +446,6 @@ impl PgSearchRelation {
         }
     }
 
-    /// This opens the MetaPage on every call, so use it carefully
     /// True when this ParadeDB index's segments were built in ascending ctid
     /// order. Reads the sort order stored in the tantivy settings rather than
     /// the current `sort_by` index option, which can be altered after segments
@@ -462,6 +461,7 @@ impl PgSearchRelation {
         )
     }
 
+    /// This opens the MetaPage on every call, so use it carefully
     pub fn created_by_version(&self) -> Option<Version> {
         MetaPage::open(self).created_by_version()
     }

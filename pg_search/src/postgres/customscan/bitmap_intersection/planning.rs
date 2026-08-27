@@ -15,9 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Planner half: qual collection, candidate index scoring, `BitmapHeapPath`
-//! construction, and the covered-HeapFilter query rewrite.
+//! Planner half of [`super`] (see the module docs there): qual collection,
+//! candidate index scoring, `BitmapHeapPath` construction, and the
+//! covered-HeapFilter query rewrite.
 
+use crate::gucs;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::qual_inspect::{PlannerContext, Qual};
@@ -201,6 +203,9 @@ impl BitmapPlanner {
     /// scavenging the rel's pathlists is unsound because `add_path` pfrees dominated
     /// non-IndexPath paths, so a harvested pointer could be freed before plan creation.
     pub unsafe fn harvest(&self) -> Option<HarvestedBitmap> {
+        if !gucs::enable_bitmap_intersection() {
+            return None;
+        }
         unsafe {
             let harvested = self
                 .build_bitmap_path()

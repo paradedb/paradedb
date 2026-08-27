@@ -28,6 +28,16 @@
 //! publishes a claim table in a DSA area; whichever process ends up owning a
 //! segment claims its entry and attaches. Every entry is take-once: a second claim
 //! means a collector broke the one-scorer-per-stream invariant, and errors.
+//!
+//! The claim table exists even though the bitmap itself is immutable because of
+//! an asymmetry in PostgreSQL's API: only the TIDBitmap's creating backend can
+//! mint iteration states, and every other participant can only attach to a
+//! pre-minted state by `dsa_pointer`. Segments are checked out dynamically, so
+//! the owner cannot know which process will consume which stream — it pre-mints
+//! all of them and the eventual consumer self-serves from the table. Core's
+//! shared iteration state assumes parallel work-stealing consumption (a
+//! spinlocked position in DSA); here each stream has exactly one consumer, and
+//! the take-once flag is what enforces that.
 
 use crate::query::heap_field_filter::TidProbe;
 use pgrx::pg_sys;
@@ -37,8 +47,8 @@ use serde::{Deserialize, Serialize};
 /// owner's DSA area and the claim table within it.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct SharedBitmapHandle {
-    pub area: pg_sys::dsa_handle,
-    pub table: pg_sys::dsa_pointer,
+    pub(crate) area: pg_sys::dsa_handle,
+    pub(crate) table: pg_sys::dsa_pointer,
 }
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
@@ -58,11 +68,11 @@ pub struct BitmapCell(
 );
 
 impl BitmapCell {
-    pub fn fill(&self, source: std::sync::Arc<BitmapCursorSource>) {
+    pub(crate) fn fill(&self, source: std::sync::Arc<BitmapCursorSource>) {
         *self.0.write().unwrap() = Some(source);
     }
 
-    pub fn get(&self) -> Option<std::sync::Arc<BitmapCursorSource>> {
+    pub(crate) fn get(&self) -> Option<std::sync::Arc<BitmapCursorSource>> {
         self.0.read().unwrap().clone()
     }
 }
@@ -96,7 +106,7 @@ impl std::fmt::Debug for BitmapCursorSource {
 /// hands out from a non-recyclable cluster-wide pool of ~64K ids, so a
 /// per-query allocation would exhaust it. The tranche only names the area's
 /// locks in monitoring views.
-pub unsafe fn create_area() -> *mut pg_sys::dsa_area {
+pub(crate) unsafe fn create_area() -> *mut pg_sys::dsa_area {
     unsafe {
         let tranche = pg_sys::BuiltinTrancheIds::LWTRANCHE_PARALLEL_QUERY_DSA as i32;
         #[cfg(not(any(feature = "pg17", feature = "pg18")))]
@@ -116,11 +126,11 @@ pub unsafe fn create_area() -> *mut pg_sys::dsa_area {
 /// lifetime.
 #[repr(C)]
 #[derive(Debug, Default)]
-pub struct CursorCounters {
-    pub exact_pages: AtomicU64,
-    pub lossy_pages: AtomicU64,
-    pub recheck_pages: AtomicU64,
-    pub rejected_docs: AtomicU64,
+pub(crate) struct CursorCounters {
+    pub(crate) exact_pages: AtomicU64,
+    pub(crate) lossy_pages: AtomicU64,
+    pub(crate) recheck_pages: AtomicU64,
+    pub(crate) rejected_docs: AtomicU64,
 }
 
 /// One `(consumer, segment)` slot in the shared claim table.
@@ -141,7 +151,7 @@ struct SharedHeader {
 
 /// Where cursors come from. Owned by the scan (behind an `Arc`) and outlives every
 /// cursor claimed from it.
-pub enum BitmapCursorSource {
+pub(crate) enum BitmapCursorSource {
     /// Serial: private iterators over the build owner's local TIDBitmap.
     Private {
         tbm: *mut pg_sys::TIDBitmap,
@@ -160,7 +170,7 @@ unsafe impl Send for BitmapCursorSource {}
 unsafe impl Sync for BitmapCursorSource {}
 
 impl BitmapCursorSource {
-    pub fn private(tbm: *mut pg_sys::TIDBitmap) -> Self {
+    pub(crate) fn private(tbm: *mut pg_sys::TIDBitmap) -> Self {
         Self::Private {
             tbm,
             claims: Mutex::new(Vec::new()),
@@ -169,7 +179,7 @@ impl BitmapCursorSource {
     }
 
     /// Attach a published claim table (workers; the owner uses the same view).
-    pub fn shared(area: *mut pg_sys::dsa_area, table: pg_sys::dsa_pointer) -> Self {
+    pub(crate) fn shared(area: *mut pg_sys::dsa_area, table: pg_sys::dsa_pointer) -> Self {
         Self::Shared { area, table }
     }
 
@@ -178,7 +188,7 @@ impl BitmapCursorSource {
     /// Exactly one scorer may consume each stream. A second claim — or a stream
     /// absent from the table — means a collector broke the one-scorer-per-stream
     /// invariant, and raises an execution error rather than silently degrading.
-    pub unsafe fn claim(&self, consumer_id: u32, segment: SegmentId) -> BitmapCursor {
+    pub(crate) unsafe fn claim(&self, consumer_id: u32, segment: SegmentId) -> BitmapCursor {
         unsafe {
             match self {
                 Self::Private {
@@ -232,7 +242,7 @@ impl BitmapCursorSource {
     }
 
     /// Counter totals for EXPLAIN ANALYZE.
-    pub fn counters(&self) -> (u64, u64, u64, u64) {
+    pub(crate) fn counters(&self) -> (u64, u64, u64, u64) {
         unsafe {
             let c = match self {
                 Self::Private { counters, .. } => counters.as_ref() as *const CursorCounters,
@@ -254,7 +264,7 @@ impl BitmapCursorSource {
 /// Build owner only: prepare one shared iteration state per `(consumer, segment)`
 /// stream and publish the claim table into `area`. The TIDBitmap must have been
 /// created over the same `area`.
-pub unsafe fn publish_shared_table(
+pub(crate) unsafe fn publish_shared_table(
     tbm: *mut pg_sys::TIDBitmap,
     area: *mut pg_sys::dsa_area,
     consumers: u32,
@@ -284,7 +294,7 @@ pub unsafe fn publish_shared_table(
 
 /// Build owner only, after all consumers have stopped: free every prepared
 /// iteration state and the claim table itself.
-pub unsafe fn free_shared_table(area: *mut pg_sys::dsa_area, table: pg_sys::dsa_pointer) {
+pub(crate) unsafe fn free_shared_table(area: *mut pg_sys::dsa_area, table: pg_sys::dsa_pointer) {
     unsafe {
         let header = pg_sys::dsa_get_address(area, table).cast::<SharedHeader>();
         let entries = header.add(1).cast::<SharedEntry>();
@@ -318,7 +328,7 @@ enum PageState {
 }
 
 /// A forward-only merge cursor over one bitmap iteration stream.
-pub struct BitmapCursor {
+pub(crate) struct BitmapCursor {
     iter: CursorIter,
     state: PageState,
     offsets: [pg_sys::OffsetNumber; OFFSETS_CAP],
@@ -359,7 +369,7 @@ impl BitmapCursor {
 
     /// Probe one ctid. Ctids must arrive in nondecreasing order (the ctid-sorted
     /// planner gate guarantees it per stream); duplicates are fine.
-    pub unsafe fn probe(&mut self, ctid: u64) -> TidProbe {
+    pub(crate) unsafe fn probe(&mut self, ctid: u64) -> TidProbe {
         #[cfg(debug_assertions)]
         {
             debug_assert!(

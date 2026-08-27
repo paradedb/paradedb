@@ -15,9 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Execution half: runs the planned child bitmap scan, owns the resulting
-//! TIDBitmap (and its DSA area when shared), and publishes/attaches the claim
-//! table across rescans and parallel participants.
+//! Execution half of [`super`] (see the module docs there): runs the planned
+//! child bitmap scan, owns the resulting TIDBitmap (and its DSA area when
+//! shared), and publishes/attaches the claim table across rescans and
+//! parallel participants.
 
 use crate::query::tid_bitmap_stream::{
     BitmapCursorSource, SharedBitmapHandle, create_area, free_shared_table, publish_shared_table,
@@ -175,7 +176,7 @@ impl BitmapExec {
     }
 
     /// Serial path: build privately and hand out private-iterator cursors.
-    pub unsafe fn private_source(&mut self) -> Option<Arc<BitmapCursorSource>> {
+    pub(crate) unsafe fn private_source(&mut self) -> Option<Arc<BitmapCursorSource>> {
         unsafe {
             if self.source.is_none() {
                 self.ensure_built(std::ptr::null_mut());
@@ -225,12 +226,12 @@ impl BitmapExec {
     }
 
     /// The current source, once built.
-    pub fn source(&self) -> Option<Arc<BitmapCursorSource>> {
+    pub(crate) fn source(&self) -> Option<Arc<BitmapCursorSource>> {
         self.source.clone()
     }
 
     /// Worker: attach the owner's published area and claim table.
-    pub unsafe fn worker_attach_source(
+    pub(crate) unsafe fn worker_attach_source(
         &mut self,
         handle: SharedBitmapHandle,
     ) -> Arc<BitmapCursorSource> {

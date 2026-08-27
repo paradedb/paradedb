@@ -1355,39 +1355,14 @@ impl AggregateScan {
             Ok((builder, mut aggregate_clause)) => {
                 Self::mark_contexts_successful(unsafe { rte_alias_or_unknown(heap_rte) });
 
-                let mut builder = builder.set_rows(shape.rows());
-                unsafe {
-                    let root = builder.args().root;
-                    let base_rel = if !(*root).simple_rel_array.is_null()
-                        && (heap_rti as i32) < (*root).simple_rel_array_size
-                    {
-                        *(*root).simple_rel_array.add(heap_rti as usize)
-                    } else {
-                        std::ptr::null_mut()
-                    };
-
-                    let bm25_row_estimate = (!base_rel.is_null() && (*base_rel).tuples > 0.0)
-                        .then(|| (*base_rel).tuples * PARAMETERIZED_SELECTIVITY);
-                    if let Some(harvested) = BitmapPlanner::from_search_query(
-                        root,
-                        base_rel,
+                let builder = unsafe {
+                    Self::attach_bitmap_intersection(
+                        builder.set_rows(shape.rows()),
+                        heap_rti,
                         index.oid(),
-                        aggregate_clause.query(),
-                        bm25_row_estimate,
+                        &mut aggregate_clause,
                     )
-                    .and_then(|planner| planner.harvest())
-                    {
-                        harvested.rewrite_query(aggregate_clause.query_mut());
-                        let mut children = PgList::<pg_sys::Path>::new();
-                        children.push(harvested.path);
-                        let startup_cost = builder.startup_cost() + harvested.build_cost;
-                        let total_cost = builder.total_cost() + harvested.build_cost;
-                        builder = builder
-                            .set_custom_paths(children)
-                            .set_startup_cost(startup_cost)
-                            .set_total_cost(total_cost);
-                    }
-                }
+                };
 
                 vec![builder.build(PrivateData::Tantivy {
                     heap_rti,
@@ -1411,6 +1386,49 @@ impl AggregateScan {
                 Vec::new()
             }
             Err(CustomScanBuildError::NotInteresting) => Vec::new(),
+        }
+    }
+
+    /// Attach a harvested bitmap-intersection child, rewriting the covered
+    /// HeapFilters and surfacing the bitmap build cost on the path.
+    unsafe fn attach_bitmap_intersection(
+        mut builder: CustomPathBuilder<Self>,
+        heap_rti: pg_sys::Index,
+        bm25_oid: pg_sys::Oid,
+        aggregate_clause: &mut AggregateCSClause,
+    ) -> CustomPathBuilder<Self> {
+        unsafe {
+            let root = builder.args().root;
+            let base_rel = if !(*root).simple_rel_array.is_null()
+                && (heap_rti as i32) < (*root).simple_rel_array_size
+            {
+                *(*root).simple_rel_array.add(heap_rti as usize)
+            } else {
+                std::ptr::null_mut()
+            };
+
+            let bm25_row_estimate = (!base_rel.is_null() && (*base_rel).tuples > 0.0)
+                .then(|| (*base_rel).tuples * PARAMETERIZED_SELECTIVITY);
+            if let Some(harvested) = BitmapPlanner::from_search_query(
+                root,
+                base_rel,
+                bm25_oid,
+                aggregate_clause.query(),
+                bm25_row_estimate,
+            )
+            .and_then(|planner| planner.harvest())
+            {
+                harvested.rewrite_query(aggregate_clause.query_mut());
+                let mut children = PgList::<pg_sys::Path>::new();
+                children.push(harvested.path);
+                let startup_cost = builder.startup_cost() + harvested.build_cost;
+                let total_cost = builder.total_cost() + harvested.build_cost;
+                builder = builder
+                    .set_custom_paths(children)
+                    .set_startup_cost(startup_cost)
+                    .set_total_cost(total_cost);
+            }
+            builder
         }
     }
 

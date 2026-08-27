@@ -1,12 +1,12 @@
 ---
-title: ParadeDB Fields
+title: Indexed Columns
 description: Push filters into the ParadeDB index scan
-canonical: https://www.paradedb.com/docs/documentation/filtering/paradedb-fields
+canonical: https://www.paradedb.com/docs/documentation/filtering/indexed
 ---
 
-ParadeDB fields are columns or expressions included in the ParadeDB index.
-For filters over built-in scalar types and literal text fields, this is the most efficient path because the filter can be pushed directly into the ParadeDB scan.
-For filters backed by another Postgres index, see [Non-ParadeDB Fields](/documentation/filtering/non-paradedb-fields).
+Indexed columns are columns or expressions included in the ParadeDB index.
+For filters over built-in scalar types and literal text columns, this is the most efficient path because the filter can be pushed directly into the ParadeDB scan.
+For filters backed by another database index, see [External Indexes](/documentation/filtering/external-indexes).
 
 Adding filters to a search query is as simple as using regular SQL `WHERE` clauses.
 For instance, the following query filters out results that do not meet `rating > 2`.
@@ -96,7 +96,7 @@ index without changing the query output.
 
 ## Filter Pushdown
 
-### Non-Text Fields
+### Non-Text Columns
 
 While not required, filtering performance over non-text columns can be improved by including them in the ParadeDB index.
 When these columns are part of the index, `WHERE` clauses that reference them can be pushed down into the index scan itself.
@@ -161,7 +161,7 @@ Filter pushdown is currently supported for the following combinations of types a
 |                                            | `timestamptz`     |                    |
 |                                            | `uuid`            |                    |
 
-### Text Fields
+### Text Columns
 
 Suppose we have a text filter that looks for an exact string match like `category = 'Footwear'`:
 
@@ -240,7 +240,7 @@ USING paradedb (id, description, (category::pdb.literal))
 WITH (key_field = 'id');
 ```
 
-Pushdown of set filters over text fields also requires the literal tokenizer:
+Pushdown of set filters over text columns also requires the literal tokenizer:
 
 <CodeGroup>
 ```sql SQL

@@ -148,8 +148,8 @@
                         "group": "Filtering",
                         "pages": [
                           "documentation/filtering/overview",
-                          "documentation/filtering/paradedb-fields",
-                          "documentation/filtering/non-paradedb-fields"
+                          "documentation/filtering/indexed",
+                          "documentation/filtering/external-indexes"
                         ]
                       },
                       {

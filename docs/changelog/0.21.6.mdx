@@ -7,7 +7,7 @@ noindex: true
 
 - Fixed an issue where `ORDER BY lower()` was not getting an optimized Top K scan if `lower()` was literal normalized
 - Fixed a rare `u32` overflow issue that could cause queries to fail over large segments
-- Fixed an issue where [filter pushdown](/documentation/filtering/paradedb-fields) did not happen if non-text fields appeared after text fields in the index definition
+- Fixed an issue where [filter pushdown](/documentation/filtering/indexed) did not happen if non-text columns appeared after text columns in the index definition
 - Fixed an issue where `GROUP BY` queries over datetime fields would error with `paradedb.enable_aggregate_custom_scan` enabled
 
 ## Performance Improvements 🚀

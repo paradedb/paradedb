@@ -1,7 +1,7 @@
 ---
-title: Non-ParadeDB Fields
+title: External Indexes
 description: Combine ParadeDB search with filters backed by other database indexes
-canonical: https://www.paradedb.com/docs/documentation/filtering/non-paradedb-fields
+canonical: https://www.paradedb.com/docs/documentation/filtering/external-indexes
 ---
 
 <Note>This feature is available on versions `0.25.5` and above.</Note>
@@ -13,7 +13,7 @@ Examples include `ltree` path filters or PostGIS spatial filters.
 When a useful external index is available, ParadeDB can use it to narrow the candidate rows before returning search results.
 Without that external index, ParadeDB still returns correct results, but it checks the specialized filter row by row.
 
-As an example, let's start with the built-in `mock_items` table and create a larger example table with one specialized `location` field.
+As an example, let's start with the built-in `mock_items` table and create a larger example table with one specialized `location` column.
 
 ```sql
 DROP TABLE IF EXISTS mock_items_geo;

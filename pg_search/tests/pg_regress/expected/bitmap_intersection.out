@@ -427,7 +427,7 @@ ORDER BY v.x, s.id;
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Subquery Scan on s
    ->  Limit
-         InitPlan 1 (returns $0)
+         InitPlan 1
            ->  Result
          ->  Custom Scan (ParadeDB Base Scan) on providers
                Table: providers
@@ -439,7 +439,7 @@ ORDER BY v.x, s.id;
                   TopK Limit: 3
                Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(location <@ $1)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
                ->  Bitmap Index Scan on providers_location
-                     Index Cond: (location <@ $0)
+                     Index Cond: (location <@ (InitPlan 1).col1)
 (15 rows)
 
 SELECT v.x, s.id FROM (VALUES (30), (60)) v(x)

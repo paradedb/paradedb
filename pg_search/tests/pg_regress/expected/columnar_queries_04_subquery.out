@@ -116,8 +116,8 @@ SELECT d.id, d.title, d.parents,
 FROM documents d
 WHERE d.parents @@@ 'Factures'
 ORDER BY invoice_file_count DESC, d.id;
-                                                                                                                                                 QUERY PLAN                                                                                                                                                  
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: ((SubPlan 1)) DESC, d.id
    ->  Custom Scan (ParadeDB Base Scan) on documents d
@@ -131,10 +131,13 @@ ORDER BY invoice_file_count DESC, d.id;
                  ->  Custom Scan (ParadeDB Base Scan) on files f
                        Table: files
                        Index: files_search
+                       Bitmap Intersection: files_pkey
                        Exec Method: NormalScanExecState
                        Scores: false
-                       Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(documentid = $1)"}]}}]}}
-(16 rows)
+                       Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(documentid = $1)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
+                       ->  Bitmap Index Scan on files_pkey
+                             Index Cond: (documentid = d.id)
+(19 rows)
 
 -- Test with subquery
 SELECT d.id, d.title, d.parents,

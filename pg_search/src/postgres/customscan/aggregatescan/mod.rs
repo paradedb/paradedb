@@ -244,7 +244,7 @@ enum AggregateDeclineReason {
 impl AggregateDeclineReason {
     fn detail(&self) -> std::borrow::Cow<'static, str> {
         match self {
-            Self::NotAllBm25 => "all tables in the join must have BM25 indexes".into(),
+            Self::NotAllBm25 => "all tables in the join must have ParadeDB indexes".into(),
             Self::JoinPredicate(reason) => match reason {
                 datafusion_build::PathPredicateDeclineReason::ExternParam => {
                     "generic prepared-plan parameters in join predicates are not supported".into()
@@ -1346,7 +1346,7 @@ impl AggregateScan {
 
         let Some((_table, index)) = rel_get_bm25_index(heap_relid) else {
             if has_paradedb_agg {
-                pgrx::error!("Cannot execute pdb.agg: table must have a BM25 index");
+                pgrx::error!("Cannot execute pdb.agg: table must have a ParadeDB index");
             }
             return Vec::new();
         };
@@ -1465,7 +1465,7 @@ impl AggregateScan {
         let root = builder.args().root;
         let input_rel = builder.args().input_rel();
 
-        // Silent gates: no sources, or no BM25 index at all → not a candidate.
+        // Silent gates: no sources, or no ParadeDB index at all → not a candidate.
         let sources = unsafe { collect_join_agg_sources(root, input_rel) };
         if sources.is_empty() {
             return Err(AggregatePathDecline::Quiet);
@@ -1541,7 +1541,7 @@ impl AggregateScan {
             }
         }
 
-        // All tables must have BM25 indexes (DataFusion scans all via PgSearchTableProvider).
+        // All tables must have ParadeDB indexes (DataFusion scans all via PgSearchTableProvider).
         if !all_have_bm25_index(&sources) {
             return Err(warn(AggregateDeclineReason::NotAllBm25));
         }
@@ -2635,7 +2635,7 @@ unsafe fn get_aggregate_name(aggref: *mut pg_sys::Aggref) -> String {
 ///
 /// AggregateScan currently does not support extracting `RTE_SUBQUERY` nodes and will typically
 /// emit a WARNING when it encounters one. However, if a subquery is a TopK query (has a `LIMIT`
-/// and an `ORDER BY` on a BM25 index), we want to silently decline it instead. This is because
+/// and an `ORDER BY` on a ParadeDB index), we want to silently decline it instead. This is because
 /// `BaseScan` will natively optimize the subquery, meaning we can safely step aside without
 /// bothering the user with a planner warning.
 unsafe fn query_will_use_topk(parse: *mut pgrx::pg_sys::Query) -> bool {

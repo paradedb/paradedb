@@ -222,7 +222,7 @@ pub(super) unsafe fn collect_join_sources_base_rel(
         side_info = side_info.with_alias(alias);
     }
 
-    // Subquery extraction is meaningful only when the base side has a BM25 index;
+    // Subquery extraction is meaningful only when the base side has a ParadeDB index;
     // otherwise the Semi/Anti/LeftMark wrapping has nothing useful to wrap.
     let mut classified = ClassifiedBaseRestrictInfo::empty();
 
@@ -408,7 +408,7 @@ pub unsafe fn wrap_with_semi_anti(
         let Some((inner_node, inner_keys)) = collect_join_sources(inner_root, inner_rel) else {
             pgrx::debug1!(
                 "agg-on-join: SubPlan plan_id={plan_id} declined; \
-                 inner relation cannot be pushed (no BM25 index, volatile, \
+                 inner relation cannot be pushed (no ParadeDB index, volatile, \
                  or un-pushdownable predicates)"
             );
             return Err("subquery cannot be pushed into the aggregate scan".into());
@@ -1433,7 +1433,7 @@ unsafe fn try_ensure_field(side: &mut JoinSource, attno: pg_sys::AttrNumber) -> 
 /// Ensures an expression-indexed fast field is projected from a `JoinSource`.
 ///
 /// Unlike `ensure_field` (which resolves plain columns via attno), this function
-/// looks up a search field by name in the BM25 index schema and adds the
+/// looks up a search field by name in the ParadeDB index schema and adds the
 /// corresponding `WhichFastField` directly.  Used for ORDER BY on indexed
 /// expressions like `upper(name)`, where the Tantivy field has no matching
 /// PostgreSQL column attno.
@@ -1526,7 +1526,7 @@ unsafe fn pathkey_is_outer_only(
 /// Check if all ORDER BY columns are fast fields.
 ///
 /// For JoinScan to be proposed, all columns used in ORDER BY must be fast fields
-/// in their respective BM25 indexes (or be paradedb.score() which is handled separately).
+/// in their respective ParadeDB indexes (or be paradedb.score() which is handled separately).
 /// Validate whether all ORDER BY clauses can be handled by JoinScan.
 ///
 /// Pathkeys that reference only relations outside this join subtree ("outer-only")
@@ -1774,7 +1774,7 @@ unsafe fn column_name_for_var(
     format!("rti {}, attno {}", varno, varattno)
 }
 
-/// Check if all DISTINCT columns are fast fields in their respective BM25 indexes.
+/// Check if all DISTINCT columns are fast fields in their respective ParadeDB indexes.
 ///
 /// DISTINCT requires all target columns to be available as fast fields so that
 /// deduplication can happen within DataFusion without heap access.

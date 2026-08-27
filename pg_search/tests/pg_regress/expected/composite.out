@@ -313,7 +313,7 @@ CREATE TABLE nested_test (
 -- This should fail: nested composite
 \set ON_ERROR_STOP off
 CREATE INDEX idx_nested_test ON nested_test USING paradedb (id, (ROW(field1, field2)::outer_composite)) WITH (key_field='id');
-ERROR:  Nested composite types are not supported for BM25 indexes.
+ERROR:  Nested composite types are not supported for ParadeDB indexes.
 \set ON_ERROR_STOP on
 DROP TABLE nested_test;
 DROP TYPE outer_composite;

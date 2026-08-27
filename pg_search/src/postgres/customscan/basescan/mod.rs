@@ -1116,7 +1116,7 @@ impl CustomScan for BaseScan {
                         // mechanism as TopK / score-snippet / `all()`), leaving only our serial and
                         // partial paths for PostgreSQL to choose between -- the honest scan-work cost
                         // would otherwise let PostgreSQL's own (correct, but fast-field/Block-WAND-
-                        // less) index scan over the BM25 index undercut us on cost (see module docs).
+                        // less) index scan over the ParadeDB index undercut us on cost (see module docs).
                         // Today the only multi-method emitter is Columnar: it emits unsorted first
                         // and the index-sort variant second, and the sorted variant exists only for
                         // an ORDER BY shape where it is the useful survivor. If another multi-method

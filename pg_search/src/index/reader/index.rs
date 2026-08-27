@@ -428,7 +428,7 @@ pub(crate) mod test_support {
     /// Tests use it to prove reuse paths perform zero additional opens.
     pub(crate) static INDEX_COMPONENT_OPENS: AtomicUsize = AtomicUsize::new(0);
 
-    /// Test fixture shared by the reuse/laziness tests: a table + BM25 index laid out as
+    /// Test fixture shared by the reuse/laziness tests: a table + ParadeDB index laid out as
     /// `immutable_batches` frozen segments of 10 rows (batch 0's titles contain "silver dragon",
     /// later batches "quiet river"), plus an optional 5-row mutable segment. Returns the opened
     /// index relation and the heap relation's OID.

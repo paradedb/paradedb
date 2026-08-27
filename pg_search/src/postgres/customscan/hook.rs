@@ -395,14 +395,14 @@ unsafe fn can_handle_where_clause(parse: *mut pg_sys::Query) -> bool {
 /// Shared helper function to check if quals can be extracted from a Query's WHERE clause.
 ///
 /// This function encapsulates the common logic of:
-/// 1. Finding a relation with a BM25 index in the query's range table
+/// 1. Finding a relation with a ParadeDB index in the query's range table
 /// 2. Attempting to extract quals using Query context
 ///
 /// Used by `can_handle_where_clause` in the planner hook (to decide if we should replace window functions)
 ///
 /// Returns:
-/// - `true` if a BM25 index was found AND quals were successfully extracted
-/// - `false` if no BM25 index was found OR quals couldn't be extracted
+/// - `true` if a ParadeDB index was found AND quals were successfully extracted
+/// - `false` if no ParadeDB index was found OR quals couldn't be extracted
 pub unsafe fn try_extract_quals_from_query(
     parse: *mut pg_sys::Query,
     quals_node: *mut pg_sys::Node,
@@ -418,7 +418,7 @@ pub unsafe fn try_extract_quals_from_query(
         return false;
     }
 
-    // Find the first relation RTE with a BM25 index
+    // Find the first relation RTE with a ParadeDB index
     for (idx, rte_ptr) in rtable_list.iter_ptr().enumerate() {
         let rte = rte_ptr;
         if (*rte).rtekind != pg_sys::RTEKind::RTE_RELATION {
@@ -431,12 +431,12 @@ pub unsafe fn try_extract_quals_from_query(
             continue;
         }
 
-        // Check if this relation has a BM25 index
+        // Check if this relation has a ParadeDB index
         let Some((_, bm25_index)) = rel_get_bm25_index(relid) else {
             continue;
         };
 
-        // We found a relation with a BM25 index - try to extract quals
+        // We found a relation with a ParadeDB index - try to extract quals
         // Use Query context since we don't have PlannerInfo yet
         let rti = (idx + 1) as pg_sys::Index; // RTI is 1-indexed
         let mut state = QualExtractState::default();
@@ -463,7 +463,7 @@ pub unsafe fn try_extract_quals_from_query(
         return quals.is_some();
     }
 
-    // No BM25 index found
+    // No ParadeDB index found
     false
 }
 

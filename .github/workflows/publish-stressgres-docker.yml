@@ -107,8 +107,6 @@ jobs:
             }' > provenance.json
           cosign attest --yes --type slsaprovenance --predicate provenance.json "$IMAGE_REF"
 
-      # Docker Scout's dashboard policy evaluator is deprecated. Evaluate the pushed,
-      # attested image in CI and publish the results to the workflow run summary instead.
       - name: Evaluate Docker Scout Policies
         uses: docker/scout-action@v1
         with:

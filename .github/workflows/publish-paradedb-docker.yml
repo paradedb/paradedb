@@ -297,6 +297,14 @@ jobs:
             }' > provenance.json
           cosign attest --yes --type slsaprovenance --predicate provenance.json "$IMAGE_REF"
 
+      - name: Evaluate Docker Scout Policies
+        uses: docker/scout-action@v1
+        with:
+          command: policy
+          image: index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}
+          organization: paradedb
+          platform: linux/amd64
+
   # Beta (`-rc.`) releases publish only the runnable PG 18 image, not the mountable extension image.
   publish-extension-image:
     name: Publish ParadeDB Extension Image for PostgreSQL ${{ matrix.pg_version }}
@@ -439,6 +447,14 @@ jobs:
               materials: [{ uri: $uri, digest: { sha1: $sha } }]
             }' > provenance.json
           cosign attest --yes --type slsaprovenance --predicate provenance.json "$IMAGE_REF"
+
+      - name: Evaluate Docker Scout Policies
+        uses: docker/scout-action@v1
+        with:
+          command: policy
+          image: index.docker.io/${{ env.image_name }}@${{ steps.build-push.outputs.digest }}
+          organization: paradedb
+          platform: linux/amd64
 
   # Skip for beta (`-rc.`) releases, since we don't want to open Dockerfile-update PRs for prereleases
   open-dockerfile-prs:

@@ -274,6 +274,9 @@ impl SegmentMetaEntryMutable {
     }
 }
 
+/// Every trailing `Option` is written even as `None`. The decode in `From<PgItem>` tells the
+/// on-disk generations apart by the bytes left after the known prefix, so a field skipped on
+/// write would make a new entry read as an older one.
 #[derive(Copy, Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SegmentMetaEntryImmutable {
     pub postings: Option<FileEntry>,

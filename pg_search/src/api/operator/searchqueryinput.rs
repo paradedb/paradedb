@@ -16,7 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 use super::keyset::KeySet;
 use super::{anyelement_query_input_opoid, request_simplify};
-use crate::api::operator::{ReturnedNodePointer, estimate_selectivity, find_var_relation};
+use crate::api::operator::{estimate_selectivity, find_var_relation, ReturnedNodePointer};
+use crate::api::version::Version;
 use crate::api::{HashMap, HashSet};
 use crate::gucs::per_tuple_cost;
 use crate::index::mvcc::MvccSatisfies;
@@ -25,15 +26,17 @@ use crate::postgres::planner_warnings::{warn_filter_spilled, warn_sequential_sca
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::TantivyValue;
+use crate::postgres::utils::scalar_datum_to_tantivy_value;
 use crate::query::SearchQueryInput;
-use crate::{PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY, nodecast};
+use crate::schema::SearchFieldType;
+use crate::{nodecast, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use pgrx::callconv::{Arg, ArgAbi};
 use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
 };
 use pgrx::{
-    Internal, PgList, PgOid, PgRelation, pg_extern, pg_func_extra, pg_getarg_datum_raw,
-    pg_getarg_type, pg_sys,
+    pg_extern, pg_func_extra, pg_getarg_datum_raw, pg_getarg_type, pg_sys, Internal, PgList, PgOid,
+    PgRelation,
 };
 use std::ptr::NonNull;
 
@@ -64,9 +67,29 @@ pub fn with_index(index: PgRelation, query: SearchQueryInput) -> SearchQueryInpu
 
 struct QueryCacheEntry {
     element_oid: PgOid,
+    /// Index key_field storage type, used to convert heap keys the same way as `collect_keyset()`.
+    key_field_type: Option<SearchFieldType>,
+    index_created_by_version: Option<Version>,
     matches: KeySet,
     /// Key-field values for rows where the indexed field is absent (SQL NULL semantics).
     missing_values: Option<KeySet>,
+}
+
+impl QueryCacheEntry {
+    fn heap_key(&self, datum: pg_sys::Datum) -> TantivyValue {
+        unsafe {
+            match self.key_field_type {
+                Some(field_type) => scalar_datum_to_tantivy_value(
+                    datum,
+                    field_type,
+                    self.element_oid,
+                    self.index_created_by_version,
+                ),
+                None => TantivyValue::try_from_datum(datum, self.element_oid),
+            }
+            .expect("no value present")
+        }
+    }
 }
 
 #[derive(Default)]
@@ -181,6 +204,8 @@ pub fn search_with_query_input(
         if search_query_input.is_match_all() {
             return QueryCacheEntry {
                 element_oid,
+                key_field_type: None,
+                index_created_by_version: None,
                 matches: KeySet::All,
                 missing_values: None,
             };
@@ -188,6 +213,8 @@ pub fn search_with_query_input(
         if matches!(&search_query_input, SearchQueryInput::Empty) {
             return QueryCacheEntry {
                 element_oid,
+                key_field_type: None,
+                index_created_by_version: None,
                 matches: KeySet::None,
                 missing_values: None,
             };
@@ -217,6 +244,8 @@ pub fn search_with_query_input(
         )
         .expect("search_with_query_input: should be able to open a SearchIndexReader");
         let schema = search_reader.schema();
+        let key_field_type = Some(schema.key_field_type());
+        let index_created_by_version = search_reader.index_created_by_version();
 
         // collect the matching key-field values into a memory-bounded set (spills to a temp file
         // past `work_mem`), reused for every row of the scan.
@@ -231,6 +260,8 @@ pub fn search_with_query_input(
             if !field_supports_null_preserving_guard(schema, &field) {
                 return QueryCacheEntry {
                     element_oid,
+                    key_field_type,
+                    index_created_by_version,
                     matches,
                     missing_values: None,
                 };
@@ -268,6 +299,8 @@ pub fn search_with_query_input(
 
         QueryCacheEntry {
             element_oid,
+            key_field_type,
+            index_created_by_version,
             matches,
             missing_values,
         }
@@ -285,8 +318,7 @@ pub fn search_with_query_input(
     // contained in the matches set
     let result = unsafe {
         let element = pg_getarg_datum_raw(fcinfo, 0);
-        let user_value = TantivyValue::try_from_datum(element, query_cache.element_oid)
-            .expect("no value present");
+        let user_value = query_cache.heap_key(element);
 
         if query_cache.matches.contains(&user_value) {
             Some(true)

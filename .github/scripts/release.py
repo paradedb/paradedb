@@ -500,39 +500,49 @@ def generate_approval_body(
         branch_action = "Sync release artifacts to `main`"
 
     changelog_body = get_rendered_changelog_body(repo_root, clean_ver)
+    template = dedent(
+        """\
+        Please review and approve the release of **ParadeDB `v{clean_ver}`**.
 
-    lines = [
-        f"Please review and approve the release of **ParadeDB `v{clean_ver}`**.",
-        "",
-        "### 📋 Release Details",
-        "",
-        "| Property | Value |",
-        "| --- | --- |",
-        f"| **Target Version** | `{clean_ver}` (`v{clean_ver}`) |",
-        f"| **Release Type** | {release_type} |",
-        f"| **Release Branch** | `{branch}` |",
-        f"| **Previous Version** | `{prev_ver}` |",
-        f"| **Is Latest Release** | `{'true' if is_latest else 'false'}` |",
-        f"| **SQL Upgrade Script** | `pg_search/sql/pg_search--{prev_ver}--{clean_ver}.sql` |",
-        f"| **Changelog Document** | `docs/changelog/{clean_ver}.mdx` |",
-        f"| **Post-Release Dev Version** | `{next_dev}` |",
-        f"| **Post-Release Action** | {branch_action} |",
-        "",
-        "---",
-        "",
-        "### 📝 Rendered Changelog",
-        "",
-        changelog_body,
-        "",
-        "---",
-        "",
-        "### 📣 Approval Instructions",
-        "",
-        "- To **approve** this release, comment `approved` on this issue.",
-        "- To **deny** this release, comment `denied` on this issue.",
-    ]
+        ### 📋 Release Details
 
-    return "\n".join(lines)
+        | Property | Value |
+        | --- | --- |
+        | **Target Version** | `{clean_ver}` (`v{clean_ver}`) |
+        | **Release Type** | {release_type} |
+        | **Release Branch** | `{branch}` |
+        | **Previous Version** | `{prev_ver}` |
+        | **Is Latest Release** | {is_latest} |
+        | **SQL Upgrade Script** | `pg_search/sql/pg_search--{prev_ver}--{clean_ver}.sql` |
+        | **Changelog Document** | `docs/changelog/{clean_ver}.mdx` |
+        | **Post-Release Dev Version** | `{next_dev}` |
+        | **Post-Release Action** | {branch_action} |
+
+        ---
+
+        ### 📝 Rendered Changelog
+
+        {changelog_body}
+
+        ---
+
+        ### 📣 Approval Instructions
+
+        - To **approve** this release, comment `approved` on this issue.
+        - To **deny** this release, comment `denied` on this issue.
+        """
+    )
+
+    return template.format(
+        clean_ver=clean_ver,
+        release_type=release_type,
+        branch=branch,
+        prev_ver=prev_ver,
+        is_latest="true" if is_latest else "false",
+        next_dev=next_dev,
+        branch_action=branch_action,
+        changelog_body=changelog_body,
+    ).strip()
 
 
 # ==============================================================================

@@ -135,15 +135,15 @@ def format_sql_banner(filename):
     return f"\n{sep}\n-- Fragment: {filename}\n{sep}\n"
 
 
-def assemble_sql_files(repo_root, clean_target, prev_version, preserve_fragments):
+def assemble_sql_files(repo_root, target_version, prev_version, preserve_fragments):
     """Assemble SQL fragments into pg_search--<prev>--<target>.sql."""
     sql_dir = repo_root / "pg_search" / "sql"
     unreleased_dir = sql_dir / "unreleased"
-    output_file = sql_dir / f"pg_search--{prev_version}--{clean_target}.sql"
+    output_file = sql_dir / f"pg_search--{prev_version}--{target_version}.sql"
 
     print(
         f"Assembling SQL upgrade script: {output_file} "
-        f"(from {prev_version} to {clean_target})"
+        f"(from {prev_version} to {target_version})"
     )
 
     fragments = collect_sql_fragments(unreleased_dir)
@@ -153,7 +153,7 @@ def assemble_sql_files(repo_root, clean_target, prev_version, preserve_fragments
 
     with open(output_file, "w", encoding="utf-8") as out:
         echo_header = (
-            f"\\echo Use \"ALTER EXTENSION pg_search UPDATE TO '{clean_target}'\" "
+            f"\\echo Use \"ALTER EXTENSION pg_search UPDATE TO '{target_version}'\" "
             f"to load this file. \\quit\n"
         )
         out.write(echo_header)
@@ -485,7 +485,7 @@ def handle_sql_command(args, repo_root):
     prev_version = resolve_prev_version(
         repo_root, sql_dir, clean_target, args.prev_version
     )
-    assemble_sql_files(repo_root, clean_target, prev_version, args.preserve_fragments)
+    assemble_sql_files(repo_root, target_version, prev_version, args.preserve_fragments)
 
 
 def handle_changelog_command(args, repo_root):
@@ -513,18 +513,24 @@ def handle_all_command(args, repo_root):
     """Handle all subcommand to assemble SQL and Changelog."""
     target_version = detect_target_version(repo_root, args.version)
     clean_target = clean_version(target_version)
+    is_beta = args.beta or ("-rc." in target_version)
 
     sql_dir = repo_root / "pg_search" / "sql"
     prev_version = resolve_prev_version(
         repo_root, sql_dir, clean_target, args.prev_version
     )
-    assemble_sql_files(repo_root, clean_target, prev_version, args.preserve_fragments)
-    assemble_changelog_files(
-        repo_root,
-        clean_target,
-        preserve_fragments=args.preserve_fragments,
-        is_latest=args.is_latest,
-    )
+    preserve = args.preserve_fragments or is_beta
+    assemble_sql_files(repo_root, target_version, prev_version, preserve)
+
+    if not is_beta:
+        assemble_changelog_files(
+            repo_root,
+            clean_target,
+            preserve_fragments=args.preserve_fragments,
+            is_latest=args.is_latest,
+        )
+    else:
+        print("ℹ️ Beta release: skipping changelog assembly and docs registration.")
 
 
 def handle_set_version_command(args, repo_root):
@@ -610,6 +616,11 @@ def main():
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Whether this version is the latest release",
+    )
+    all_parser.add_argument(
+        "--beta",
+        action="store_true",
+        help="Whether this is a beta release",
     )
 
     set_ver_parser = subparsers.add_parser(

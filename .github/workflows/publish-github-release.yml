@@ -65,27 +65,32 @@ jobs:
               echo "Version (${{ github.event.inputs.version }}) does not contain '-rc.X' but is marked as a beta release."
               exit 1
             fi
+            echo "Beta release: skipping branch prefix checks (can be run from any branch/commit)."
           else
             echo "Validating that the version does not contain '-rc.X'..."
             if [[ "${{ github.event.inputs.version }}" == *"-rc."* ]]; then
               echo "Version (${{ github.event.inputs.version }}) contains '-rc.X' but is not marked as a beta release."
               exit 1
             fi
-          fi
 
-          if [[ "${{ github.ref_name }}" == "main" ]]; then
-            echo "Validating that the version is a minor release on the main branch..."
-            if [[ ! "${{ github.event.inputs.version }}" =~ ^[0-9]+\.[0-9]+\.0(-rc\.[0-9]+)?$ ]]; then
-              echo "On releases of the 'main' branch, releases must be minor (patch = 0)."
-              echo "Provided version '${{ github.event.inputs.version }}' is not a minor release."
-              exit 1
-            fi
-          elif [[ "${{ github.ref_name }}" =~ ^([0-9]+\.[0-9]+)\.x$ ]]; then
-            BRANCH_PREFIX="${BASH_REMATCH[1]}"
-            echo "Validating that version matches stable branch '${BRANCH_PREFIX}.x'..."
-            if [[ ! "${{ github.event.inputs.version }}" =~ ^${BRANCH_PREFIX}\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
-              echo "❌ Error: On stable branch '${{ github.ref_name }}', version must match '${BRANCH_PREFIX}.<patch>'."
-              echo "Provided version '${{ github.event.inputs.version }}' does not match."
+            if [[ "${{ github.ref_name }}" == "main" ]]; then
+              echo "Validating that the version is a minor release on the main branch..."
+              if [[ ! "${{ github.event.inputs.version }}" =~ ^[0-9]+\.[0-9]+\.0$ ]]; then
+                echo "On releases of the 'main' branch, releases must be minor (patch = 0)."
+                echo "Provided version '${{ github.event.inputs.version }}' is not a minor release."
+                exit 1
+              fi
+            elif [[ "${{ github.ref_name }}" =~ ^([0-9]+\.[0-9]+)\.x$ ]]; then
+              BRANCH_PREFIX="${BASH_REMATCH[1]}"
+              echo "Validating that version matches stable branch '${BRANCH_PREFIX}.x'..."
+              if [[ ! "${{ github.event.inputs.version }}" =~ ^${BRANCH_PREFIX}\.[0-9]+$ ]]; then
+                echo "❌ Error: On stable branch '${{ github.ref_name }}', version must match '${BRANCH_PREFIX}.<patch>'."
+                echo "Provided version '${{ github.event.inputs.version }}' does not match."
+                exit 1
+              fi
+            else
+              echo "❌ Error: Full releases must be triggered from 'main' or a stable branch ('<major>.<minor>.x')."
+              echo "Current ref '${{ github.ref_name }}' is not a valid release branch."
               exit 1
             fi
           fi
@@ -102,36 +107,45 @@ jobs:
 
       - name: Assemble Release Artifacts
         run: |
+          FLAGS=""
           if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
-            ./scripts/release.sh all "${{ github.event.inputs.version }}" --preserve-fragments
-          else
-            ./scripts/release.sh all "${{ github.event.inputs.version }}"
+            FLAGS="--preserve-fragments --beta"
           fi
+          ./scripts/release.sh all "${{ github.event.inputs.version }}" $FLAGS
 
       - name: Update Cargo Version, Lockfile, and Nix Hash
         run: |
           ./scripts/release.sh set-version "${{ github.event.inputs.version }}"
 
-      - name: Commit and Push Release Artifacts
+      - name: Commit Release Artifacts and Create Tag
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          # Verify that the remote branch has not advanced since the workflow started.
-          # If new commits merged into main or the stable branch during assembly/nix build,
-          # abort to prevent releasing mismatched code and migration fragments.
-          # TODO: In the future, we could potentially implement a retry loop that pulls and re-assembles.
-          git fetch origin ${{ github.ref_name }}
-          REMOTE_SHA=$(git rev-parse origin/${{ github.ref_name }})
-          START_SHA="${{ steps.validate.outputs.start_sha }}"
-          if [[ "$REMOTE_SHA" != "$START_SHA" ]]; then
-            echo "❌ Error: Remote branch '${{ github.ref_name }}' has advanced ($START_SHA -> $REMOTE_SHA) since this release workflow started."
-            echo "New commits/fragments may have landed on the branch. Aborting release so all changes can be cleanly included."
-            exit 1
-          fi
-
           git config user.name "paradedb-github-app[bot]"
           git config user.email "282009505+paradedb-github-app[bot]@users.noreply.github.com"
           git add -A
           git commit -m "chore: Prepare \`${{ github.event.inputs.version }}\`."
-          git push origin HEAD:${{ github.ref_name }}
+          RELEASE_SHA=$(git rev-parse HEAD)
+
+          if [[ "${{ github.event.inputs.beta }}" != "true" ]]; then
+            # Verify remote branch has not advanced before pushing release commit
+            git fetch origin ${{ github.ref_name }}
+            REMOTE_SHA=$(git rev-parse origin/${{ github.ref_name }})
+            START_SHA="${{ steps.validate.outputs.start_sha }}"
+            if [[ "$REMOTE_SHA" != "$START_SHA" ]]; then
+              echo "❌ Error: Remote branch '${{ github.ref_name }}' has advanced ($START_SHA -> $REMOTE_SHA) since this release workflow started."
+              echo "New commits/fragments may have landed on the branch. Aborting release so all changes can be cleanly included."
+              exit 1
+            fi
+            git push origin HEAD:${{ github.ref_name }}
+          else
+            echo "Beta release: skipping push of release commit to branch '${{ github.ref_name }}'."
+          fi
+
+          echo "Creating tag v${{ github.event.inputs.version }} pointing at $RELEASE_SHA"
+          gh api -X POST "repos/${{ github.repository }}/git/refs" \
+            -f ref="refs/tags/v${{ github.event.inputs.version }}" \
+            -f sha="$RELEASE_SHA"
 
       - name: Determine if Release Should be Marked as Latest
         id: release_latest
@@ -199,16 +213,6 @@ jobs:
           # Switch back to the release branch for tagging and release creation
           git checkout "${{ github.ref_name }}"
 
-      - name: Create Tag
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          sha=$(git rev-parse HEAD)
-          echo "Creating tag v${{ github.event.inputs.version }} pointing at $sha"
-          gh api -X POST "repos/${{ github.repository }}/git/refs" \
-            -f ref="refs/tags/v${{ github.event.inputs.version }}" \
-            -f sha="$sha"
-
       - name: Create Stable Branch
         if: github.ref_name == 'main' && github.event.inputs.beta != 'true'
         env:
@@ -245,24 +249,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Post-Release Development Version Bump
+        if: github.event.inputs.beta != 'true'
         run: |
           REF_NAME="${{ github.ref_name }}"
-          FLAGS="--branch ${REF_NAME}"
-          if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
-            FLAGS="${FLAGS} --beta"
-          fi
-
           if [[ "$REF_NAME" != "main" ]]; then
             git checkout "$REF_NAME"
           fi
 
-          NEXT_DEV_VERSION=$(./scripts/release.sh next-dev-version "${{ github.event.inputs.version }}" $FLAGS)
-
-          if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
-            COMMIT_MSG="chore: Reset development version to \`${NEXT_DEV_VERSION}\`."
-          else
-            COMMIT_MSG="chore: Start development of \`${NEXT_DEV_VERSION}\`."
-          fi
+          NEXT_DEV_VERSION=$(./scripts/release.sh next-dev-version "${{ github.event.inputs.version }}" --branch "$REF_NAME")
+          COMMIT_MSG="chore: Start development of \`${NEXT_DEV_VERSION}\`."
 
           echo "Bumping ${REF_NAME} to development version ${NEXT_DEV_VERSION}..."
           ./scripts/release.sh set-version "$NEXT_DEV_VERSION"

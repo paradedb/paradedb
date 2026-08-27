@@ -11,13 +11,11 @@ At release time, the [**Publish GitHub Release** workflow](https://github.com/pa
 
 ## Release Types
 
-Releases must always be triggered **from the branch being released** (e.g., `main` for a minor or beta release, or a stable branch for patches).
-
-| Type          | Description                                                                                       |
-| ------------- | ------------------------------------------------------------------------------------------------- |
-| **Minor**     | Triggered from the `main` branch.                                                                 |
-| **Patch**     | A patch bump off an existing tag (e.g., `v1.4.0 → v1.4.1`) from a stable branch (e.g., `0.25.x`). |
-| **Beta (RC)** | Marked with `beta: true`. Produces a prerelease tag like `vX.Y.Z-rc.N`.                           |
+| Type          | Description                                                                                                                        |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| **Minor**     | Triggered from the `main` branch. Publishes `x.y.0` and creates stable branch `x.y.x`.                                             |
+| **Patch**     | Triggered from a stable branch (e.g., `0.25.x`). Publishes `x.y.z` and syncs artifacts to `main`.                                  |
+| **Beta (RC)** | Marked with `beta: true`. Can be triggered from any branch/commit. Produces a tag like `vX.Y.Z-rc.N` without modifying the branch. |
 
 > **Note:** Minor and patch releases publish Docker images for all supported PostgreSQL major versions and prebuilt extension binaries for all supported platforms. Beta releases publish only the PostgreSQL 18 Docker image and the Debian 13 packages required to build it; the remaining prebuilt extension binaries are skipped.
 
@@ -30,19 +28,32 @@ Releases must always be triggered **from the branch being released** (e.g., `mai
 
 ## Triggering a Release
 
-### Minor & Beta Releases
+### Minor Releases
 
-To publish a minor or beta release from `main`:
+To publish a minor release from `main`:
 
 1. Go to [Actions → Publish GitHub Release](https://github.com/paradedb/paradedb/actions/workflows/publish-github-release.yml)
-2. Click **Run workflow**, select `main` as the release branch, and provide the target `version` (e.g. `0.26.0` or `0.26.0-rc.1` with `beta: true`).
+2. Click **Run workflow**, select `main` as the release branch, and provide the target `version` (e.g. `0.26.0`).
 3. Click **Run workflow** to start the job.
 4. The workflow will automatically:
    - Run `scripts/release.sh all` to assemble `pg_search/sql/unreleased/*.sql` into `pg_search--<prev>--<version>.sql`, assemble `docs/changelog/unreleased/*.mdx` into `docs/changelog/<version>.mdx`, register the release in `docs/docs.json`, and remove the consumed fragments.
    - Bump `workspace.package.version` in `Cargo.toml` and synchronize `Cargo.lock`.
    - Commit and push the release commit to `main`.
    - Create the Git tag `v<version>`, triggering downstream packaging and publishing workflows.
-   - For minor releases (`x.y.0`), automatically create the stable branch `x.y.x` pointing at the release commit.
+   - Create the stable branch `x.y.x` pointing at the release commit.
+   - Bump `main` to the next development version (e.g., `0.27.0`).
+
+### Beta (RC) Releases
+
+To publish a beta release from any branch or commit:
+
+1. Go to [Actions → Publish GitHub Release](https://github.com/paradedb/paradedb/actions/workflows/publish-github-release.yml)
+2. Click **Run workflow**, select the desired branch or commit, provide the `version` (e.g. `0.26.0-rc.0` or `0.25.6-rc.1`), and check `beta: true`.
+3. Click **Run workflow** to start the job.
+4. The workflow will automatically:
+   - Assemble `pg_search/sql/unreleased/*.sql` into `pg_search--<prev>--<version>.sql` while preserving the unreleased fragments.
+   - Skip changelog and docs generation.
+   - Create and push the Git tag `v<version>` pointing directly to the release commit, without pushing commits to the release branch.
 
 ### Patch Releases
 

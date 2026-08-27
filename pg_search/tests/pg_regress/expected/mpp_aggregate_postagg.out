@@ -126,15 +126,13 @@ ORDER BY f.category;
            :     ┌───── Stage 2 ── tasks=2, partitions=6
            :     │ RepartitionExec: partitioning=Hash([category@0], 6), input_partitions=3
            :     │   AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1, min(p_1.size_bytes) as agg_2, max(p_1.size_bytes) as agg_3]
-           :     │     TantivyLookupExec: decode=[category]
-           :     │       VisibilityFilterExec: tables=[f, p]
-           :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[category@1, size_bytes@4, ctid_0@2, ctid_1@5]
-           :     │           CoalescePartitionsExec
-           :     │             [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
-           :     │           RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-           :     │             DistributedLeafExec:
-           :     │               t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
-           :     │               t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
+           :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[category@1, size_bytes@3]
+           :     │       CoalescePartitionsExec
+           :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+           :     │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+           :     │         DistributedLeafExec:
+           :     │           t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
+           :     │           t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
            :     └──────────────────────────────────────────────────
            :       ┌───── Stage 1 ── tasks=2, partitions=4
            :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
@@ -142,7 +140,7 @@ ORDER BY f.category;
            :       │     t0: PgSearchScan: table=f, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
            :       │     t1: PgSearchScan: table=f, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
            :       └──────────────────────────────────────────────────
-(37 rows)
+(35 rows)
 
 SELECT f.category,
        COUNT(*) AS row_count,
@@ -219,15 +217,13 @@ LIMIT 10;
                  :     ┌───── Stage 2 ── tasks=2, partitions=6
                  :     │ RepartitionExec: partitioning=Hash([category@0, title@1], 6), input_partitions=3
                  :     │   AggregateExec: mode=Partial, gby=[category@1 as category, title@0 as title], aggr=[count(1) as agg_0]
-                 :     │     TantivyLookupExec: decode=[title, category]
-                 :     │       VisibilityFilterExec: tables=[f, p]
-                 :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, category@2, ctid_0@3, ctid_1@5]
-                 :     │           CoalescePartitionsExec
-                 :     │             [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
-                 :     │           RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-                 :     │             DistributedLeafExec:
-                 :     │               t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
-                 :     │               t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
+                 :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, category@2]
+                 :     │       CoalescePartitionsExec
+                 :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+                 :     │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+                 :     │         DistributedLeafExec:
+                 :     │           t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
+                 :     │           t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
                  :     └──────────────────────────────────────────────────
                  :       ┌───── Stage 1 ── tasks=2, partitions=4
                  :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
@@ -235,7 +231,7 @@ LIMIT 10;
                  :       │     t0: PgSearchScan: table=f, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
                  :       │     t1: PgSearchScan: table=f, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
                  :       └──────────────────────────────────────────────────
-(39 rows)
+(37 rows)
 
 SELECT f.category, f.title, COUNT(*) AS pages_per_file
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
@@ -311,15 +307,13 @@ LIMIT 3;
                  :     ┌───── Stage 2 ── tasks=2, partitions=6
                  :     │ RepartitionExec: partitioning=Hash([category@0], 6), input_partitions=3
                  :     │   AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
-                 :     │     TantivyLookupExec: decode=[category]
-                 :     │       VisibilityFilterExec: tables=[f, p]
-                 :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[category@1, size_bytes@4, ctid_0@2, ctid_1@5]
-                 :     │           CoalescePartitionsExec
-                 :     │             [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
-                 :     │           RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-                 :     │             DistributedLeafExec:
-                 :     │               t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
-                 :     │               t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
+                 :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[category@1, size_bytes@3]
+                 :     │       CoalescePartitionsExec
+                 :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+                 :     │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+                 :     │         DistributedLeafExec:
+                 :     │           t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
+                 :     │           t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
                  :     └──────────────────────────────────────────────────
                  :       ┌───── Stage 1 ── tasks=2, partitions=4
                  :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
@@ -327,7 +321,7 @@ LIMIT 3;
                  :       │     t0: PgSearchScan: table=f, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
                  :       │     t1: PgSearchScan: table=f, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
                  :       └──────────────────────────────────────────────────
-(41 rows)
+(39 rows)
 
 SELECT f.category, COUNT(*) AS c, SUM(p.size_bytes) AS s
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
@@ -378,14 +372,13 @@ WHERE f.content @@@ 'Section';
      : └──────────────────────────────────────────────────
      :   ┌───── Stage 2 ── tasks=2, partitions=6
      :   │ AggregateExec: mode=Partial, gby=[], aggr=[count(1) as agg_0]
-     :   │   VisibilityFilterExec: tables=[f, p]
-     :   │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[ctid_0@1, ctid_1@3]
-     :   │       CoalescePartitionsExec
-     :   │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
-     :   │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-     :   │         DistributedLeafExec:
-     :   │           t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
-     :   │           t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
+     :   │   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[]
+     :   │     CoalescePartitionsExec
+     :   │       [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+     :   │     RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+     :   │       DistributedLeafExec:
+     :   │         t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
+     :   │         t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
      :   └──────────────────────────────────────────────────
      :     ┌───── Stage 1 ── tasks=2, partitions=4
      :     │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
@@ -393,7 +386,7 @@ WHERE f.content @@@ 'Section';
      :     │     t0: PgSearchScan: table=f, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :     │     t1: PgSearchScan: table=f, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :     └──────────────────────────────────────────────────
-(28 rows)
+(27 rows)
 
 SELECT COUNT(*)
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
@@ -481,17 +474,16 @@ ORDER BY c.name;
            :     ┌───── Stage 3 ── tasks=2, partitions=6
            :     │ RepartitionExec: partitioning=Hash([name@0], 6), input_partitions=3
            :     │   AggregateExec: mode=Partial, gby=[name@1 as name], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
-           :     │     VisibilityFilterExec: tables=[f, p, c]
-           :     │       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(name@0, category@0)], projection=[size_bytes@3, name@0, ctid_0@4, ctid_1@5, ctid_2@1]
+           :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(name@0, category@0)], projection=[size_bytes@2, name@0]
+           :     │       CoalescePartitionsExec
+           :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+           :     │       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[category@1, size_bytes@3]
            :     │         CoalescePartitionsExec
-           :     │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
-           :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[category@1, size_bytes@4, ctid_0@2, ctid_1@5]
-           :     │           CoalescePartitionsExec
-           :     │             [Stage 2] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
-           :     │           RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-           :     │             DistributedLeafExec:
-           :     │               t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
-           :     │               t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
+           :     │           [Stage 2] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+           :     │         RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+           :     │           DistributedLeafExec:
+           :     │             t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
+           :     │             t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
            :     └──────────────────────────────────────────────────
            :       ┌───── Stage 1 ── tasks=2, partitions=4
            :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
@@ -505,7 +497,7 @@ ORDER BY c.name;
            :       │     t0: PgSearchScan: table=f, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
            :       │     t1: PgSearchScan: table=f, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
            :       └──────────────────────────────────────────────────
-(45 rows)
+(44 rows)
 
 SELECT c.name, COUNT(*) AS row_count, SUM(p.size_bytes) AS total_bytes
 FROM mpp_postagg_files f

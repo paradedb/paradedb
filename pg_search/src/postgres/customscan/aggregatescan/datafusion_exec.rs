@@ -590,31 +590,37 @@ async fn build_source_df(
     provider.set_expr_context(source_expr_context);
     provider.set_planstate(planstate);
 
-    let mut required_early: crate::api::HashSet<String> = Default::default();
-    for jk in plan.join_keys() {
-        if source.contains_rti(jk.outer_rti)
-            && let Some(col) = source.column_name(jk.outer_attno)
-        {
-            required_early.insert(col);
+    // Deferring an aggregate source's visibility trades an in-scan check for a
+    // post-join one. On the current cost model that only pays for specific
+    // shapes, so it stays off until selective late materialization can pick
+    // them. With it off the source keeps eager, in-scan visibility.
+    if crate::gucs::enable_aggregate_late_materialization() {
+        let mut required_early: crate::api::HashSet<String> = Default::default();
+        for jk in plan.join_keys() {
+            if source.contains_rti(jk.outer_rti)
+                && let Some(col) = source.column_name(jk.outer_attno)
+            {
+                required_early.insert(col);
+            }
+            if source.contains_rti(jk.inner_rti)
+                && let Some(col) = source.column_name(jk.inner_attno)
+            {
+                required_early.insert(col);
+            }
         }
-        if source.contains_rti(jk.inner_rti)
-            && let Some(col) = source.column_name(jk.inner_attno)
-        {
-            required_early.insert(col);
+        for (rti, attno) in plan.filter_input_vars() {
+            if source.contains_rti(rti)
+                && let Some(col) = source.column_name(attno)
+            {
+                required_early.insert(col);
+            }
         }
-    }
-    for (rti, attno) in plan.filter_input_vars() {
-        if source.contains_rti(rti)
-            && let Some(col) = source.column_name(attno)
-        {
-            required_early.insert(col);
-        }
-    }
 
-    provider.configure_deferred_outputs(
-        &required_early,
-        crate::scan::VisibilityMode::Deferred { plan_position },
-    );
+        provider.configure_deferred_outputs(
+            &required_early,
+            crate::scan::VisibilityMode::Deferred { plan_position },
+        );
+    }
 
     let df = register_source_table(ctx, alias.as_str(), provider).await?;
 

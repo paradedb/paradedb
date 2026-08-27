@@ -19,7 +19,7 @@
 //!
 //! One `CompositeFile` per segment, keyed by `(Field, idx)`. `idx = 0` holds the empirical
 //! `min`/`max` of a fast field, `idx = 1` the logical box a partitioned build assigned to the
-//! segment's cell, and `idx = 2` stays reserved for sketches. The footer maps each entry to a
+//! segment's partition, and `idx = 2` stays reserved for sketches. The footer maps each entry to a
 //! byte range, so a reader touches only the entries it asks for. A missing file or entry means
 //! "unknown", and a consumer must keep the segment.
 //!
@@ -72,7 +72,7 @@ pub(crate) struct EmpiricalStats {
     pub(crate) nullable: bool,
 }
 
-/// The half-open box a partitioned build assigned to a segment's cell on one field.
+/// The half-open box a partitioned build assigned to a segment's partition on one field.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct LogicalBounds {
     pub(crate) lower: Bound<PdbOwnedValue>,
@@ -874,8 +874,8 @@ mod tests {
         );
     }
 
-    /// A partitioned build stamps each cell's box on its segment. The persisted split points
-    /// then replace sampling, and each partition of a range scan maps to exactly its cell.
+    /// A partitioned build stamps each partition's box on its segment. The persisted split
+    /// points then replace sampling, and each partition of a range scan maps to one segment.
     #[pg_test]
     fn partitioned_build_stamps_bounds_and_prunes() {
         Spi::run(
@@ -893,7 +893,7 @@ mod tests {
         .unwrap();
         let indexrel = open_index("stats_part_idx");
         let (field, stats) = segment_stats(&indexrel, "tenant_id");
-        assert_eq!(stats.len(), 8, "one segment per cell");
+        assert_eq!(stats.len(), 8, "one segment per partition");
 
         let mut open_below = 0;
         let mut open_above = 0;
@@ -901,11 +901,11 @@ mod tests {
             let bounds = segment
                 .logical(field)
                 .unwrap()
-                .expect("every cell has a box");
+                .expect("every partition has a box");
             open_below += usize::from(matches!(bounds.lower, Bound::Unbounded));
             open_above += usize::from(matches!(bounds.upper, Bound::Unbounded));
             // The rows inside the box: what the build routed there. NULLs route below every
-            // split, so only the bottom cell may hold them.
+            // split, so only the bottom partition may hold them.
             let empirical = segment.empirical(field).unwrap().unwrap();
             assert_eq!(empirical.nullable, bounds.may_hold_nulls(), "{bounds:?}");
             if let Bound::Included(lower) = &bounds.lower {
@@ -919,7 +919,7 @@ mod tests {
 
         let split_points = persisted_split_points(&indexrel, "tenant_id")
             .unwrap()
-            .expect("every cell segment carries its box");
+            .expect("every partition's segment carries its box");
         assert_eq!(split_points.len(), 7, "{split_points:?}");
         assert!(split_points.windows(2).all(|w| below(&w[0], &w[1])));
 
@@ -942,9 +942,9 @@ mod tests {
         }
         chosen.sort();
         chosen.dedup();
-        assert_eq!(chosen.len(), 8, "each partition maps to its own cell");
+        assert_eq!(chosen.len(), 8, "each partition maps to its own segment");
 
-        // A coarser layout keeps every cell its range reaches, and nothing else.
+        // A coarser layout keeps every segment its range reaches, and nothing else.
         let coarse = RangePartitioning {
             partition_by: FieldName::from("tenant_id"),
             split_points: vec![boundaries.split_points[3].clone()],
@@ -1003,27 +1003,27 @@ mod tests {
         assert!(pruned_somewhere);
     }
 
-    /// A cell that outgrows the writer budget flushes several segments, and `finish_cell`
-    /// merges them: the merged segment must keep the cell's box.
+    /// A partition that outgrows the writer budget flushes several segments, and
+    /// `finish_partition` merges them: the merged segment must keep the partition's box.
     #[pg_test]
-    fn cell_merge_keeps_logical_bounds() {
+    fn partition_merge_keeps_logical_bounds() {
         Spi::run(
             r#"
-            CREATE TABLE stats_cell_merge (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
-            INSERT INTO stats_cell_merge (tenant_id, name)
+            CREATE TABLE stats_partition_merge (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            INSERT INTO stats_partition_merge (tenant_id, name)
             SELECT (i * 7919) % 4,
                    (SELECT string_agg(md5((i * 32 + j)::text), ' ') FROM generate_series(1, 32) j)
             FROM generate_series(1, 24000) i;
             SET max_parallel_maintenance_workers = 0;
             SET maintenance_work_mem = '16MB';
-            CREATE INDEX stats_cell_merge_idx ON stats_cell_merge USING paradedb (id, tenant_id, name)
+            CREATE INDEX stats_partition_merge_idx ON stats_partition_merge USING paradedb (id, tenant_id, name)
                 WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 2);
             "#,
         )
         .unwrap();
-        let indexrel = open_index("stats_cell_merge_idx");
+        let indexrel = open_index("stats_partition_merge_idx");
         let (field, stats) = segment_stats(&indexrel, "tenant_id");
-        assert_eq!(stats.len(), 2, "each cell merges down to one segment");
+        assert_eq!(stats.len(), 2, "each partition merges down to one segment");
         let mut lowers = Vec::new();
         for segment in &stats {
             let bounds = segment
@@ -1087,7 +1087,7 @@ mod tests {
         assert_eq!(
             reader.segment_ids().len(),
             5,
-            "four cells plus the new segment"
+            "four partitions plus the new segment"
         );
         let boundaries = RangePartitioning {
             partition_by: FieldName::from("tenant_id"),
@@ -1099,7 +1099,7 @@ mod tests {
             assert_eq!(
                 chosen.len(),
                 2,
-                "its cell and the unboxed segment: {chosen:?}"
+                "its own segment and the unboxed one: {chosen:?}"
             );
             everywhere = Some(match everywhere {
                 None => chosen,

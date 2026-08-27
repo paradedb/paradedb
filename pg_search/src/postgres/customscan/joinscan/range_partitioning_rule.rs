@@ -409,7 +409,7 @@ fn sample_fast_field(
     partition_by: &FieldName,
 ) -> Result<RangePartitioningSample> {
     let index_rel = PgSearchRelation::open(provider.scan_info.indexrelid);
-    // A partitioned build fixed its cell boundaries up front and stamped them on its segments.
+    // A partitioned build fixed its partition boundaries up front and stamped them on its segments.
     // They describe the whole table, unlike a sample of one segment, and line up with the
     // segments. The sample stays as the fallback for layouts the grid is too coarse for.
     let persisted_points = persisted_split_points(&index_rel, partition_by.as_ref())

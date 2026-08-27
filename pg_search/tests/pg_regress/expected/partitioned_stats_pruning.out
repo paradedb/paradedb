@@ -1,10 +1,10 @@
 -- =====================================================================
 -- A range-partitioned join over indexes built with `partition_by` on
--- existing rows. Each segment carries its cell's bounds in `.stats`, so
+-- existing rows. Each segment carries its partition's bounds in `.stats`, so
 -- the join takes its split points from the build instead of sampling,
 -- and each partition searches only the segments its range reaches.
 -- Results must match the serial baseline. The heaps exceed the 15MB
--- floor below which a build collapses to a single cell.
+-- floor below which a build collapses to a single partition.
 -- =====================================================================
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_join_custom_scan TO on;

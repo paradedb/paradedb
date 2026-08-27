@@ -205,7 +205,7 @@ pub struct RangePartitioningSample {
     /// relatively uniform distribution boundaries.
     pub sample_points: Vec<PdbOwnedValue>,
     /// The split grid a partitioned build stamped on its segments, sorted ascending, or empty.
-    /// Partitions cut on it line up with the segments, so each one searches only its cell.
+    /// Partitions cut on it line up with the segments, so each one searches only its segment.
     pub persisted_points: Vec<PdbOwnedValue>,
 }
 
@@ -213,10 +213,10 @@ impl RangePartitioningSample {
     /// The points `build` cuts for `target_partitions`, so a caller that sizes partitions
     /// agrees with the partitioning it gets.
     ///
-    /// The grid wins whenever it can seat every partition. Its cuts fall on whole cells, so a
-    /// count that does not divide the cells leaves some partitions one cell heavier. The
-    /// sample describes one segment, which after a partitioned build is a single cell, so it
-    /// cannot place cuts across the table. Below the requested count the grid would idle
+    /// The grid wins whenever it can seat every partition. Its cuts fall on whole build
+    /// partitions, so a count that does not divide them leaves some range partitions one build
+    /// partition heavier. The sample describes one segment, which after a partitioned build is
+    /// a single build partition, so it cannot place cuts across the table. Below the requested count the grid would idle
     /// workers, and only then does the sample take over.
     pub fn points_for(&self, target_partitions: usize) -> &[PdbOwnedValue] {
         if !self.persisted_points.is_empty() && self.persisted_points.len() + 1 >= target_partitions

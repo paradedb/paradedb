@@ -129,7 +129,7 @@ runs:
       shell: bash
       run: |
         VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
-        ./scripts/assemble_release_fragments.sh sql "$VERSION" --preserve-fragments
+        ./scripts/release.sh sql "$VERSION" --preserve-fragments
 
     - name: Compile & install pg_search
       working-directory: pg_search/

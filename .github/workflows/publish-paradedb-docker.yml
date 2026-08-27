@@ -297,13 +297,21 @@ jobs:
             }' > provenance.json
           cosign attest --yes --type slsaprovenance --predicate provenance.json "$IMAGE_REF"
 
-      - name: Evaluate Docker Scout Policies
+      - name: Evaluate Docker Scout Policies (amd64)
         uses: docker/scout-action@v1
         with:
           command: policy
           image: index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}
           organization: paradedb
           platform: linux/amd64
+
+      - name: Evaluate Docker Scout Policies (arm64)
+        uses: docker/scout-action@v1
+        with:
+          command: policy
+          image: index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}
+          organization: paradedb
+          platform: linux/arm64
 
   # Beta (`-rc.`) releases publish only the runnable PG 18 image, not the mountable extension image.
   publish-extension-image:
@@ -448,13 +456,21 @@ jobs:
             }' > provenance.json
           cosign attest --yes --type slsaprovenance --predicate provenance.json "$IMAGE_REF"
 
-      - name: Evaluate Docker Scout Policies
+      - name: Evaluate Docker Scout Policies (amd64)
         uses: docker/scout-action@v1
         with:
           command: policy
           image: index.docker.io/${{ env.image_name }}@${{ steps.build-push.outputs.digest }}
           organization: paradedb
           platform: linux/amd64
+
+      - name: Evaluate Docker Scout Policies (arm64)
+        uses: docker/scout-action@v1
+        with:
+          command: policy
+          image: index.docker.io/${{ env.image_name }}@${{ steps.build-push.outputs.digest }}
+          organization: paradedb
+          platform: linux/arm64
 
   # Skip for beta (`-rc.`) releases, since we don't want to open Dockerfile-update PRs for prereleases
   open-dockerfile-prs:

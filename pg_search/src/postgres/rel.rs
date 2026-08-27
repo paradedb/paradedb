@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 //! Provides a reference-counted wrapper around an open Postgres [`pg_sys::Relation`].
 use crate::api::version::Version;
+use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::build::is_bm25_index;
 use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::storage::metadata::MetaPage;
@@ -29,6 +30,7 @@ use std::ops::Deref;
 use std::ptr::NonNull;
 use std::rc::Rc;
 use tantivy::TantivyError;
+use tantivy::index::{Index, Order};
 
 type NeedClose = bool;
 
@@ -442,6 +444,21 @@ impl PgSearchRelation {
             Ok(schema) => Ok(schema.clone()),
             Err(e) => Err(e.clone()),
         }
+    }
+
+    /// True when this ParadeDB index's segments were built in ascending ctid
+    /// order. Reads the sort order stored in the tantivy settings rather than
+    /// the current `sort_by` index option, which can be altered after segments
+    /// exist.
+    pub fn is_ctid_sorted_asc(&self) -> bool {
+        let directory = MvccSatisfies::Snapshot.directory(self);
+        let Ok(underlying) = Index::open(directory) else {
+            return false;
+        };
+        matches!(
+            underlying.settings().sort_by_field.as_ref(),
+            Some(sort) if sort.field == "ctid" && sort.order == Order::Asc
+        )
     }
 
     /// This opens the MetaPage on every call, so use it carefully

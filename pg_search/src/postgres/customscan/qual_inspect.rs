@@ -641,12 +641,16 @@ impl From<&Qual> for SearchQueryInput {
                 search_query_input,
             } => {
                 // Create HeapFieldFilter from the PostgreSQL expression
-                let field_filters =
+                let always_filters =
                     vec![unsafe { HeapFieldFilter::new(*expr_node, expr_desc.clone()) }];
 
                 SearchQueryInput::HeapFilter {
                     indexed_query: search_query_input.clone(),
-                    field_filters,
+                    always_filters,
+                    recheck_filters: vec![],
+                    uses_tid_bitmap: false,
+                    bitmap_consumer_id: None,
+                    bitmap_cell: None,
                 }
             }
             Qual::And(quals) => {

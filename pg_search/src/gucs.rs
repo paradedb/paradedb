@@ -38,6 +38,9 @@ pub enum PlannerWarnings {
 /// Allows the user to toggle the use of our "ParadeDB Base Scan".
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Allows the user to toggle bitmap intersection with non-ParadeDB indexes.
+static ENABLE_BITMAP_INTERSECTION: GucSetting<bool> = GucSetting::<bool>::new(true);
+
 /// Allows the user to toggle the use of our "ParadeDB Aggregate Scan".
 static ENABLE_AGGREGATE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
@@ -299,6 +302,15 @@ pub fn init() {
         c"Enable ParadeDB's custom aggregate scan",
         c"Enable ParadeDB's custom aggregate scan, which replaces row-based aggregates with column-based aggregates where beneficial",
         &ENABLE_AGGREGATE_CUSTOM_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_bitmap_intersection",
+        c"Enable intersecting ParadeDB scans with bitmaps from other indexes",
+        c"When enabled (default), a ParadeDB scan whose query carries heap-filter predicates covered by another index (btree, GiST, GIN) builds that index's bitmap and prunes documents against it before touching the heap.",
+        &ENABLE_BITMAP_INTERSECTION,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -730,6 +742,10 @@ pub fn enable_custom_scan() -> bool {
 
 pub fn enable_aggregate_custom_scan() -> bool {
     ENABLE_AGGREGATE_CUSTOM_SCAN.get()
+}
+
+pub fn enable_bitmap_intersection() -> bool {
+    ENABLE_BITMAP_INTERSECTION.get()
 }
 
 pub fn planner_warnings() -> PlannerWarnings {

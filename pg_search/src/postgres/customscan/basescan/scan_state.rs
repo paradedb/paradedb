@@ -28,6 +28,7 @@ use crate::postgres::customscan::basescan::projections::snippet::SnippetType;
 use crate::postgres::customscan::basescan::projections::snippet::pdb::IntArray2D;
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::basescan::telemetry::ScanTelemetry;
+use crate::postgres::customscan::bitmap_intersection::BitmapExec;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::qual_inspect::Qual;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
@@ -36,6 +37,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::u64_to_item_pointer;
 use crate::postgres::{ParallelScanArgs, ParallelScanState};
 use crate::query::SearchQueryInput;
+use crate::query::tid_bitmap_stream::BitmapCell;
 
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{PgTupleDesc, pg_sys};
@@ -106,6 +108,11 @@ pub struct BaseScanState {
     pub exec_method_type: ExecMethodType,
     pub ambulkdelete_epoch: u32,
 
+    /// Execution state for the child bitmap scan, if a bitmap intersection source was
+    /// harvested at plan time.
+    pub bitmap_exec: Option<BitmapExec>,
+    pub bitmap_cell: Option<BitmapCell>,
+
     pub doc_from_heap_state: Option<HeapFetchState>,
 
     // Window aggregate support
@@ -160,6 +167,21 @@ impl BaseScanState {
     /// Get the original base search query input before any modifications
     pub fn base_search_query_input(&self) -> &SearchQueryInput {
         &self.base_search_query_input
+    }
+
+    /// Drop the active search results (whose scorers hold bitmap cursors),
+    /// keeping the selected exec method: `reset()` re-binds it to the rebuilt
+    /// reader after a rescan. Replacing the method here would leave the
+    /// default `UnknownScanStyle`, which panics on its next use.
+    pub fn reset_exec_results(&mut self) {
+        self.exec_method_mut().reset(self);
+    }
+
+    /// Drop the current exec method (and with it any search results whose
+    /// scorers hold bitmap cursors) before the bitmap machinery is torn down.
+    pub fn drop_exec_method(&mut self) {
+        self.exec_method = UnsafeCell::new(Default::default());
+        self.exec_method_name = String::new();
     }
 
     #[inline(always)]
@@ -543,6 +565,32 @@ impl SolvePostgresExpressions for BaseScanState {
     fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
         self.search_query_input
             .solve_postgres_expressions(expr_context);
+    }
+
+    /// Install the late-bound source cell. Workers attach the published claim
+    /// table immediately; the leader's (or a serial scan's) cell is filled after
+    /// its reader opens (serial: privately in `init_search_reader`; parallel:
+    /// with the shared view at DSM initialization).
+    fn bitmap_source_cell(&mut self, _planstate: *mut pg_sys::PlanState) -> Option<BitmapCell> {
+        self.bitmap_exec.as_ref()?;
+        let cell = self
+            .bitmap_cell
+            .get_or_insert_with(BitmapCell::default)
+            .clone();
+        let is_worker = self.parallel.map(|p| !p.is_leader()).unwrap_or(false);
+        if is_worker
+            && cell.get().is_none()
+            && let Some(pstate) = self.parallel_state()
+            && let Some(handle) = unsafe { (*pstate).bitmap_wait_done() }
+            && let Some(bitmap_exec) = self.bitmap_exec.as_mut()
+        {
+            cell.fill(unsafe { bitmap_exec.worker_attach_source(handle) });
+        }
+        Some(cell)
+    }
+
+    fn attach_bitmap_cell(&mut self, cell: &BitmapCell) {
+        self.search_query_input.attach_bitmap_cell(cell);
     }
 }
 

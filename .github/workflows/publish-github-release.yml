@@ -26,6 +26,7 @@ concurrency:
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   publish-github-release:
@@ -117,6 +118,41 @@ jobs:
         run: |
           ./scripts/release.sh set-version "${{ github.event.inputs.version }}"
 
+      - name: Determine if Release Should be Marked as Latest
+        id: release_latest
+        run: |
+          FLAGS=""
+          if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
+            FLAGS="--beta"
+          fi
+          IS_LATEST=$(./scripts/release.sh is-latest "${{ github.event.inputs.version }}" $FLAGS)
+          echo "is_latest=${IS_LATEST}"
+          echo "is_latest=${IS_LATEST}" >> $GITHUB_OUTPUT
+
+      - name: Prepare Approval Details
+        if: github.event.inputs.beta != 'true'
+        id: approval_details
+        run: |
+          ./scripts/release.sh approval-body "${{ github.event.inputs.version }}" \
+            --branch "${{ github.ref_name }}" \
+            --output-file /tmp/approval-body.md
+          {
+            echo "issue_body<<EOF"
+            cat /tmp/approval-body.md
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          cat /tmp/approval-body.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Manual Approval Before Release
+        if: github.event.inputs.beta != 'true'
+        uses: trstringer/manual-approval@v1
+        with:
+          secret: ${{ steps.app-token.outputs.token }}
+          approvers: pg_search-maintainers
+          minimum-approvals: 1
+          issue-title: "Release v${{ github.event.inputs.version }}?"
+          issue-body: ${{ steps.approval_details.outputs.issue_body }}
+
       - name: Commit Release Artifacts and Create Tag
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -146,17 +182,6 @@ jobs:
           echo "Creating and pushing tag ${TAG} pointing at ${RELEASE_SHA}..."
           git tag "$TAG"
           git push origin "$TAG"
-
-      - name: Determine if Release Should be Marked as Latest
-        id: release_latest
-        run: |
-          FLAGS=""
-          if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
-            FLAGS="--beta"
-          fi
-          IS_LATEST=$(./scripts/release.sh is-latest "${{ github.event.inputs.version }}" $FLAGS)
-          echo "is_latest=${IS_LATEST}"
-          echo "is_latest=${IS_LATEST}" >> $GITHUB_OUTPUT
 
       - name: Sync Release Artifacts to Main
         if: github.ref_name != 'main' && github.event.inputs.beta != 'true'

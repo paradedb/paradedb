@@ -142,10 +142,10 @@ jobs:
             echo "Beta release: skipping push of release commit to branch '${{ github.ref_name }}'."
           fi
 
-          echo "Creating tag v${{ github.event.inputs.version }} pointing at $RELEASE_SHA"
-          gh api -X POST "repos/${{ github.repository }}/git/refs" \
-            -f ref="refs/tags/v${{ github.event.inputs.version }}" \
-            -f sha="$RELEASE_SHA"
+          TAG="v${{ github.event.inputs.version }}"
+          echo "Creating and pushing tag ${TAG} pointing at ${RELEASE_SHA}..."
+          git tag "$TAG"
+          git push origin "$TAG"
 
       - name: Determine if Release Should be Marked as Latest
         id: release_latest

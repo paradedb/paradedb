@@ -484,12 +484,12 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_range_partitioning_grid_build() {
+    fn test_range_partitioning_points_build() {
         use crate::api::FieldName;
         use crate::postgres::pdb_owned_value::PdbOwnedValue;
-        use crate::scan::range_partitioning::RangePartitioningGrid;
+        use crate::scan::range_partitioning::RangeSplitPoints;
 
-        let grid = RangePartitioningGrid {
+        let split_points = RangeSplitPoints {
             partition_by: FieldName::from("id"),
             points: vec![
                 PdbOwnedValue::I64(10),
@@ -498,41 +498,41 @@ mod tests {
             ],
         };
 
-        // Down-sample: target partitions (2) < grid size (4)
+        // Down-sample: target partitions (2) < points (4)
         // 2 partitions requires 1 split point.
         // i=1: (1 * 3) / 2 = 1. points[1] is 20.
-        let build_2 = grid.build(2);
+        let build_2 = split_points.build(2);
         assert_eq!(build_2.split_points.len(), 1);
         assert_eq!(build_2.split_points[0], PdbOwnedValue::I64(20));
 
-        // Exact match: target partitions (4) == grid size (4)
+        // Exact match: target partitions (4) == points (4)
         // 4 partitions requires 3 split points.
-        let build_4 = grid.build(4);
+        let build_4 = split_points.build(4);
         assert_eq!(build_4.split_points.len(), 3);
-        assert_eq!(build_4.split_points, grid.points);
+        assert_eq!(build_4.split_points, split_points.points);
 
-        // Pad: target partitions (6) > grid size (4)
+        // Capped: target partitions (6) > points (4)
         // Since we cap at points.len() + 1, it will generate 3 split points (4 partitions).
         // The remaining 2 partitions will yield empty streams at execution time.
-        let build_6 = grid.build(6);
+        let build_6 = split_points.build(6);
         assert_eq!(build_6.split_points.len(), 3);
         assert_eq!(build_6.split_points[0], PdbOwnedValue::I64(10));
         assert_eq!(build_6.split_points[1], PdbOwnedValue::I64(20));
         assert_eq!(build_6.split_points[2], PdbOwnedValue::I64(30));
 
         // Single partition (no splits)
-        let build_1 = grid.build(1);
+        let build_1 = split_points.build(1);
         assert_eq!(build_1.split_points.len(), 0);
     }
 
     #[pg_test]
-    fn test_range_partitioning_grid_nulls() {
+    fn test_range_partitioning_points_nulls() {
         use crate::api::FieldName;
         use crate::postgres::pdb_owned_value::PdbOwnedValue;
         use crate::query::SearchQueryInput;
-        use crate::scan::range_partitioning::RangePartitioningGrid;
+        use crate::scan::range_partitioning::RangeSplitPoints;
 
-        let grid = RangePartitioningGrid {
+        let split_points = RangeSplitPoints {
             partition_by: FieldName::from("id"),
             points: vec![
                 PdbOwnedValue::Null,
@@ -542,7 +542,7 @@ mod tests {
         };
 
         // Down-sample to 4 partitions: 3 split points
-        let build = grid.build(4);
+        let build = split_points.build(4);
         assert_eq!(build.split_points.len(), 3);
         assert_eq!(build.split_points[0], PdbOwnedValue::Null);
         assert_eq!(build.split_points[1], PdbOwnedValue::Null);
@@ -566,18 +566,18 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_range_partitioning_grid_all_nulls() {
+    fn test_range_partitioning_points_all_nulls() {
         use crate::api::FieldName;
         use crate::postgres::pdb_owned_value::PdbOwnedValue;
         use crate::query::SearchQueryInput;
-        use crate::scan::range_partitioning::RangePartitioningGrid;
+        use crate::scan::range_partitioning::RangeSplitPoints;
 
-        let grid = RangePartitioningGrid {
+        let split_points = RangeSplitPoints {
             partition_by: FieldName::from("id"),
             points: vec![PdbOwnedValue::Null, PdbOwnedValue::Null],
         };
 
-        let build = grid.build(3);
+        let build = split_points.build(3);
         assert_eq!(build.split_points.len(), 2);
         assert_eq!(build.split_points[0], PdbOwnedValue::Null);
         assert_eq!(build.split_points[1], PdbOwnedValue::Null);
@@ -596,13 +596,13 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_range_partitioning_grid_identical_values() {
+    fn test_range_partitioning_points_identical_values() {
         use crate::api::FieldName;
         use crate::postgres::pdb_owned_value::PdbOwnedValue;
         use crate::query::SearchQueryInput;
-        use crate::scan::range_partitioning::RangePartitioningGrid;
+        use crate::scan::range_partitioning::RangeSplitPoints;
 
-        let grid = RangePartitioningGrid {
+        let split_points = RangeSplitPoints {
             partition_by: FieldName::from("id"),
             points: vec![
                 PdbOwnedValue::I64(10),
@@ -611,7 +611,7 @@ mod tests {
             ],
         };
 
-        let build = grid.build(4);
+        let build = split_points.build(4);
         assert_eq!(build.split_points.len(), 3);
         assert_eq!(build.split_points[0], PdbOwnedValue::I64(10));
         assert_eq!(build.split_points[1], PdbOwnedValue::I64(10));
@@ -678,7 +678,7 @@ mod tests {
             reader: reader.clone(),
         };
 
-        let grid = crate::scan::range_partitioning::RangePartitioningGrid {
+        let split_points = crate::scan::range_partitioning::RangeSplitPoints {
             partition_by: crate::api::FieldName::from("id"),
             points: vec![
                 crate::postgres::pdb_owned_value::PdbOwnedValue::I64(10),
@@ -699,7 +699,7 @@ mod tests {
             None,
             5,
             None,
-            Some(grid),
+            Some(split_points),
         );
 
         use datafusion::physical_plan::Partitioning;
@@ -722,41 +722,24 @@ mod tests {
             Partitioning::Range(_)
         ));
 
-        // 10 partitions exceed what the 4-point grid can bound: the plan keeps
-        // the requested count as UnknownPartitioning and the extra partitions
-        // execute as empty streams.
+        // 10 partitions exceed what 4 split points seat: the plan caps itself at 5 and still
+        // declares `Partitioning::Range`, so no task is empty.
         let plan_10 = plan.repartition(10).unwrap();
         assert_eq!(
             plan_10.properties().output_partitioning().partition_count(),
-            10
+            5
         );
         assert!(matches!(
             plan_10.properties().output_partitioning(),
-            Partitioning::UnknownPartitioning(_)
+            Partitioning::Range(_)
         ));
         assert_eq!(
             plan_10.partition_statistics(Some(0)).unwrap().num_rows,
             Precision::Inexact(20)
         );
         assert_eq!(
-            plan_10.partition_statistics(Some(9)).unwrap().num_rows,
-            Precision::Inexact(0)
-        );
-
-        let empty_variant = plan_10
-            .downcast_ref::<PgSearchScanPlan>()
-            .unwrap()
-            .with_assigned_partition(9);
-        assert_eq!(
-            empty_variant.partition_statistics(None).unwrap().num_rows,
-            Precision::Inexact(0)
-        );
-        assert_eq!(
-            empty_variant
-                .partition_statistics(Some(0))
-                .unwrap()
-                .num_rows,
-            Precision::Inexact(0)
+            plan_10.partition_statistics(Some(4)).unwrap().num_rows,
+            Precision::Inexact(20)
         );
     }
 
@@ -806,7 +789,7 @@ mod tests {
         };
         assert!(with_null.to_datafusion(&schema).is_none());
 
-        // A grid point can arrive as U64 for an Int64 column; the lossless
+        // A split point can arrive as U64 for an Int64 column; the lossless
         // cross-representation is accepted.
         let cross_int = RangePartitioning {
             partition_by: FieldName::from("id"),
@@ -886,7 +869,7 @@ mod tests {
 
         // Table t has ids 1..=100; split points [25, 50, 75] give partitions
         // (-inf, 25), [25, 50), [50, 75), [75, inf).
-        let grid = crate::scan::range_partitioning::RangePartitioningGrid {
+        let split_points = crate::scan::range_partitioning::RangeSplitPoints {
             partition_by: crate::api::FieldName::from("id"),
             points: vec![
                 crate::postgres::pdb_owned_value::PdbOwnedValue::I64(25),
@@ -906,7 +889,7 @@ mod tests {
             None,
             4,
             None,
-            Some(grid),
+            Some(split_points),
         );
 
         // The planner-facing original retains all four global ranges. Only the variant sent to

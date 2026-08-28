@@ -41,7 +41,7 @@ use crate::scan::execution_plan::{PgSearchScanPlan, ScanState};
 use crate::scan::filter_pushdown::{FilterAnalyzer, combine_with_and};
 use crate::scan::info::{RowEstimate, ScanInfo};
 use crate::scan::late_materialization::DeferredField;
-use crate::scan::range_partitioning::RangePartitioningGrid;
+use crate::scan::range_partitioning::RangeSplitPoints;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct VisibilitySourceMetadata {
@@ -122,7 +122,7 @@ pub struct PgSearchTableProvider {
 
     /// Explicit range partitioning configuration. When present, the provider
     /// ignores parallel state segments and yields statically partitioned streams.
-    range_grid: Option<RangePartitioningGrid>,
+    range_split_points: Option<RangeSplitPoints>,
 
     /// The manifest this source was captured with, for an MPP source: `scan()` builds its
     /// reader from it, replaying exactly the view the DSM was populated from. Backend-local
@@ -168,7 +168,7 @@ impl Clone for PgSearchTableProvider {
                     .load(std::sync::atomic::Ordering::Relaxed),
             ),
             source_idx: self.source_idx,
-            range_grid: self.range_grid.clone(),
+            range_split_points: self.range_split_points.clone(),
             manifest: self.manifest.clone(),
         }
     }
@@ -196,22 +196,22 @@ impl PgSearchTableProvider {
             visibility_mode: VisibilityMode::Eager,
             late_materialization_active: AtomicBool::new(false),
             source_idx,
-            range_grid: None,
+            range_split_points: None,
             manifest: None,
         }
     }
 
-    /// Enables Range partitioning mode by supplying the grid to cut on.
+    /// Enables Range partitioning mode by supplying the split points to cut on.
     ///
-    /// When a grid is provided, the table provider will produce a plan that is
+    /// When split points are provided, the table provider will produce a plan that is
     /// statically partitioned by range bounds, overriding the default `Shared`
     /// (dynamic segment checkout) partitioning mode.
-    pub fn with_range_partitioning(&mut self, range_grid: Option<RangePartitioningGrid>) {
-        self.range_grid = range_grid;
+    pub fn with_range_partitioning(&mut self, range_split_points: Option<RangeSplitPoints>) {
+        self.range_split_points = range_split_points;
     }
 
-    pub fn range_grid(&self) -> Option<&RangePartitioningGrid> {
-        self.range_grid.as_ref()
+    pub fn range_split_points(&self) -> Option<&RangeSplitPoints> {
+        self.range_split_points.as_ref()
     }
 
     /// Transitions the provider from Phase 1 (`Utf8View`) into Phase 2 (`Union`)
@@ -503,7 +503,7 @@ impl PgSearchTableProvider {
                 deferred_ctid_plan_position,
                 partition_count,
                 parallel_state,
-                self.range_grid.clone(),
+                self.range_split_points.clone(),
             )
             .with_table_alias(table_alias),
         ))
@@ -713,17 +713,13 @@ impl PgSearchTableProvider {
 
         let segment_count = reader.segment_readers().len();
         let target_partitions = state.config().target_partitions();
-        // The output partitions of the scan default to min(segments, target_partitions),
-        // or exactly `target_partitions` when range partitioning is enabled.
+        // The output partitions of the scan default to min(segments, target_partitions).
         // During distributed planning, the `pg_search_scan_desired_task_count` handler reads this partition
         // count to determine how many tasks (e.g. parallel workers) this leaf should scale out into.
-        let partition_count = if self.range_grid.is_some() {
-            // When using range partitioning, we target the session's target partitions.
-            // The actual number of bounds will be dynamically limited by the grid size
-            // when we create the plan.
-            target_partitions
-        } else {
-            std::cmp::min(segment_count, target_partitions).max(1)
+        let partition_count = match &self.range_split_points {
+            // The split points seat only so many partitions; a task past them would be empty.
+            Some(points) => points.partitions_for(target_partitions),
+            None => std::cmp::min(segment_count, target_partitions).max(1),
         };
 
         self.create_lazy_scan(

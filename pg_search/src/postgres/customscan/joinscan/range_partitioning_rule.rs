@@ -26,6 +26,7 @@ use datafusion::optimizer::{OptimizerConfig, OptimizerRule, optimizer::ApplyOrde
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::joins::{HashJoinExec, PartitionMode};
+use datafusion::physical_plan::repartition::RepartitionExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties, Partitioning};
 
 use crate::api::FieldName;
@@ -33,13 +34,13 @@ use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::stats::persisted_split_points;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
-use crate::scan::range_partitioning::RangePartitioningGrid;
+use crate::scan::range_partitioning::RangeSplitPoints;
 use crate::scan::table_provider::PgSearchTableProvider;
 
 /// Optimizer rule that coordinates range partitioning across a join.
 ///
 /// It detects when both sides of an equi-join are partitioned on matching column types,
-/// takes the grid a partitioned build stamped on either side, and injects that shared grid
+/// takes the split points a partitioned build stamped on either side, and injects them
 /// into the `PgSearchTableProvider`s of both sides. This guarantees that both sides of
 /// the join produce identical partition boundaries during MPP execution.
 #[derive(Debug, Default)]
@@ -243,20 +244,20 @@ where
     }
 }
 
-fn apply_grid_to_scan(
+fn apply_split_points_to_scan(
     mut scan: TableScan,
-    grid: &RangePartitioningGrid,
+    points: &RangeSplitPoints,
 ) -> Result<Transformed<LogicalPlan>> {
     let Some(provider) = pg_search_provider_from_scan(&scan) else {
         return Ok(Transformed::no(LogicalPlan::TableScan(scan)));
     };
 
-    if provider.range_grid() == Some(grid) {
+    if provider.range_split_points() == Some(points) {
         return Ok(Transformed::no(LogicalPlan::TableScan(scan)));
     }
 
     let mut new_provider = provider.clone();
-    new_provider.with_range_partitioning(Some(grid.clone()));
+    new_provider.with_range_partitioning(Some(points.clone()));
 
     let new_source = Arc::new(DefaultTableSource::new(Arc::new(new_provider)))
         as Arc<dyn datafusion::logical_expr::TableSource>;
@@ -297,25 +298,29 @@ impl OptimizerRule for RangePartitioningRule {
                             Some((r_provider, r_field_name)),
                         ) = (l_res, r_res)
                         {
-                            let grid =
-                                merged_grid(l_provider, &l_field_name, r_provider, &r_field_name)?;
+                            let points = merged_split_points(
+                                l_provider,
+                                &l_field_name,
+                                r_provider,
+                                &r_field_name,
+                            )?;
 
-                            if let Some(mut shared_grid) = grid {
-                                shared_grid.partition_by = l_field_name;
+                            if let Some(mut shared_points) = points {
+                                shared_points.partition_by = l_field_name;
                                 let left_res = map_scan_for_column(
                                     Arc::unwrap_or_clone(join.left.clone()),
                                     l_col,
-                                    &mut |scan| apply_grid_to_scan(scan, &shared_grid),
+                                    &mut |scan| apply_split_points_to_scan(scan, &shared_points),
                                 )?;
                                 if left_res.transformed {
                                     join.left = Arc::new(left_res.data);
                                 }
 
-                                shared_grid.partition_by = r_field_name;
+                                shared_points.partition_by = r_field_name;
                                 let right_res = map_scan_for_column(
                                     Arc::unwrap_or_clone(join.right.clone()),
                                     r_col,
-                                    &mut |scan| apply_grid_to_scan(scan, &shared_grid),
+                                    &mut |scan| apply_split_points_to_scan(scan, &shared_points),
                                 )?;
                                 if right_res.transformed {
                                     join.right = Arc::new(right_res.data);
@@ -348,20 +353,20 @@ fn named_field_arrow_type(
     })
 }
 
-/// The grid both sides of the join cut on.
+/// The split points both sides of the join cut on.
 ///
-/// Returns `None` when neither side has a grid, or when the two key columns expose
-/// different arrow types and one grid could not describe both sides faithfully. Any split
-/// points partition a side correctly, and its segments are placed by their own statistics,
-/// so one side's grid serves both: the larger side's, since that is the scan alignment saves
-/// the most on. A union of two grids would turn every nearly shared edge into a sliver
+/// Returns `None` when neither side has any, or when the two key columns expose different
+/// arrow types and one set could not describe both sides faithfully. Any split points
+/// partition a side correctly, and its segments are placed by their own statistics, so one
+/// side's points serve both: the larger side's, since that is the scan alignment saves the
+/// most on. A union of both sides' points would turn every nearly shared edge into a sliver
 /// partition.
-fn merged_grid(
+fn merged_split_points(
     l_provider: &PgSearchTableProvider,
     l_field: &FieldName,
     r_provider: &PgSearchTableProvider,
     r_field: &FieldName,
-) -> Result<Option<RangePartitioningGrid>> {
+) -> Result<Option<RangeSplitPoints>> {
     let (Some(l_type), Some(r_type)) = (
         named_field_arrow_type(l_provider, l_field),
         named_field_arrow_type(r_provider, r_field),
@@ -373,8 +378,8 @@ fn merged_grid(
     }
 
     let points = match (
-        grid_points(l_provider, l_field)?,
-        grid_points(r_provider, r_field)?,
+        side_split_points(l_provider, l_field)?,
+        side_split_points(r_provider, r_field)?,
     ) {
         (Some(l_points), Some(r_points)) => {
             let l_rows = l_provider.scan_info.estimate.as_planner_estimate();
@@ -384,21 +389,39 @@ fn merged_grid(
         (Some(points), None) | (None, Some(points)) => points,
         (None, None) => return Ok(None),
     };
-    Ok(Some(RangePartitioningGrid {
+    Ok(Some(RangeSplitPoints {
         partition_by: l_field.clone(),
         points,
     }))
 }
 
-/// The grid a partitioned build stamped on the side's segments, sorted ascending, or `None`
-/// for an index without one.
-fn grid_points(
+/// The split points a partitioned build stamped on the side's segments, sorted ascending, or
+/// `None` for an index without any.
+fn side_split_points(
     provider: &PgSearchTableProvider,
     partition_by: &FieldName,
 ) -> Result<Option<Vec<PdbOwnedValue>>> {
     let index_rel = PgSearchRelation::open(provider.scan_info.indexrelid);
     persisted_split_points(&index_rel, partition_by.as_ref())
         .map_err(|e| DataFusionError::Internal(format!("Failed to read segment statistics: {e}")))
+}
+
+/// The input of a round-robin `RepartitionExec` over a range-partitioned plan, or `plan`
+/// itself.
+fn peel_round_robin(plan: Arc<dyn ExecutionPlan>) -> Arc<dyn ExecutionPlan> {
+    let Some(repartition) = plan.downcast_ref::<RepartitionExec>() else {
+        return plan;
+    };
+    let lifts_range = matches!(repartition.partitioning(), Partitioning::RoundRobinBatch(_))
+        && matches!(
+            repartition.input().output_partitioning(),
+            Partitioning::Range(_)
+        );
+    if lifts_range {
+        Arc::clone(repartition.input())
+    } else {
+        plan
+    }
 }
 
 /// Physical optimizer rule that converts a `CollectLeft` inner hash join to
@@ -459,7 +482,12 @@ impl PhysicalOptimizerRule for RangeCoPartitionedJoinRule {
                 Some(coalesce) if coalesce.fetch().is_none() => Arc::clone(coalesce.input()),
                 _ => Arc::clone(join.left()),
             };
-            let right = Arc::clone(join.right());
+            // A range-partitioned scan seats only as many partitions as it has split points.
+            // When the session asks for more, EnforceDistribution lifts the scan with a
+            // round-robin repartition, which throws the range layout away. Peel it too: a
+            // co-partitioned join on fewer tasks beats a broadcast on more.
+            let left = peel_round_robin(left);
+            let right = peel_round_robin(Arc::clone(join.right()));
 
             let range_partitioned = |input: &Arc<dyn ExecutionPlan>| {
                 matches!(input.output_partitioning(), Partitioning::Range(_))

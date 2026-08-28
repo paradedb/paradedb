@@ -195,7 +195,7 @@ impl RangePartitioning {
 
         // `new` rather than `try_new`: a repeated split point produces an empty partition in
         // both our execution model and DataFusion's, but fails `try_new`'s strict-ordering
-        // validation. A grid never repeats a point; the tolerance costs nothing.
+        // validation. The build never repeats a split point; the tolerance costs nothing.
         Some(Partitioning::Range(DataFusionRangePartitioning::new(
             ordering,
             split_points,
@@ -203,14 +203,14 @@ impl RangePartitioning {
     }
 }
 
-/// The grid a partitioned build stamped on an index's segments, kept as raw points rather
-/// than a static `RangePartitioning`, so that `TaskEstimator`s and distributed execution
-/// engines can ask for exactly their preferred number of partitions at runtime.
+/// The split points a partitioned build stamped on an index's segments, kept as raw points
+/// rather than a static `RangePartitioning`, so that `TaskEstimator`s and distributed
+/// execution engines can ask for their preferred number of partitions at runtime.
 ///
 /// **Precondition**: `points` must be sorted ascending, otherwise the generated
 /// boundaries will produce overlapping or gapped ranges that silently drop or duplicate rows.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct RangePartitioningGrid {
+pub struct RangeSplitPoints {
     /// The index field used to define the boundaries.
     pub partition_by: FieldName,
     /// The points to cut on, sorted ascending: the edges of every box the build stamped, so a
@@ -219,30 +219,29 @@ pub struct RangePartitioningGrid {
     pub points: Vec<PdbOwnedValue>,
 }
 
-impl RangePartitioningGrid {
-    /// Generates a concrete `RangePartitioning` bounding exactly `target_partitions`.
+impl RangeSplitPoints {
+    /// The partitions these points cut for a request of `target_partitions`: never more than
+    /// the points seat, so no partition is empty.
+    pub fn partitions_for(&self, target_partitions: usize) -> usize {
+        target_partitions.min(self.points.len() + 1).max(1)
+    }
+
+    /// Generates a concrete `RangePartitioning` bounding exactly
+    /// `self.partitions_for(target_partitions)` partitions.
     ///
-    /// If `target_partitions` is smaller than the grid's inherent size, the
-    /// points are evenly down-sampled (effectively merging contiguous partitions).
-    /// To avoid scheduling unnecessary tasks scanning empty ranges, `target_partitions`
-    /// is capped at `points.len() + 1`.
+    /// If `target_partitions` is smaller than the points seat, the points are evenly
+    /// down-sampled (effectively merging contiguous partitions).
     pub fn build(&self, target_partitions: usize) -> RangePartitioning {
         let points = &self.points;
         debug_assert!(
             points
                 .windows(2)
                 .all(|w| w[0].total_cmp(&w[1]) != std::cmp::Ordering::Greater),
-            "RangePartitioningGrid requires its points to be sorted ascending"
+            "RangeSplitPoints requires its points to be sorted ascending"
         );
 
         let num_points = points.len();
-
-        // Cap target_partitions to avoid scheduling unnecessary empty ranges
-        let actual_partitions = if target_partitions > num_points + 1 {
-            num_points + 1
-        } else {
-            target_partitions
-        };
+        let actual_partitions = self.partitions_for(target_partitions);
 
         if actual_partitions <= 1 {
             return RangePartitioning {

@@ -216,9 +216,9 @@ WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
 (1 row)
 
 -- =====================================================================
--- One grid is enough. `sp_votes` is indexed empty and filled afterwards,
--- so its segments carry no box: the join cuts on the users grid, and each
--- votes partition is placed by its own range.
+-- One side's split points are enough. `sp_votes` is indexed empty and
+-- filled afterwards, so its segments carry no box: the join cuts on the
+-- users split points, and each votes partition is placed by its own range.
 -- =====================================================================
 CREATE TABLE sp_votes (id bigserial PRIMARY KEY, post_id bigint, kind text);
 CREATE INDEX sp_votes_idx ON sp_votes USING paradedb (id, post_id, kind)
@@ -279,7 +279,7 @@ WHERE u.id @@@ pdb.all() AND v.kind @@@ 'up';
 (1 row)
 
 -- =====================================================================
--- No grid on either side: the join is not range partitioned.
+-- No split points on either side: the join is not range partitioned.
 -- =====================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT count(*)
@@ -325,7 +325,8 @@ WHERE a.kind @@@ 'up' AND b.kind @@@ 'down';
 (1 row)
 
 -- =====================================================================
--- More tasks than the grid can seat: the surplus ones stay empty.
+-- More workers than the split points seat: the plan caps its tasks, so
+-- no task is empty and the join stays co-partitioned.
 -- =====================================================================
 SET max_parallel_workers_per_gather TO 6;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -343,32 +344,23 @@ WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
      : ┌───── DistributedExec
      : │ AggregateExec: mode=Final, gby=[], aggr=[count(1) as agg_0]
      : │   CoalescePartitionsExec
-     : │     [Stage 2] => NetworkCoalesceExec: output_partitions=6, input_tasks=6
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=4, input_tasks=4
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 2 ── tasks=6, partitions=6
+     :   ┌───── Stage 1 ── tasks=4, partitions=4
      :   │ AggregateExec: mode=Partial, gby=[], aggr=[count(1) as agg_0]
-     :   │   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(owner_user_id@0, id@0)], projection=[]
-     :   │     CoalescePartitionsExec
-     :   │       [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=6, input_tasks=6
+     :   │   HashJoinExec: mode=Partitioned, join_type=Inner, on=[(owner_user_id@0, id@0)], projection=[]
+     :   │     DistributedLeafExec:
+     :   │       t0: PgSearchScan: table=p, segments=4, partition=owner_user_id[-∞..5001), query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     :   │       t1: PgSearchScan: table=p, segments=4, partition=owner_user_id[5001..10001), query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     :   │       t2: PgSearchScan: table=p, segments=4, partition=owner_user_id[10001..15001), query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     :   │       t3: PgSearchScan: table=p, segments=4, partition=owner_user_id[15001..∞), query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      :   │     DistributedLeafExec:
      :   │       t0: PgSearchScan: table=u, segments=4, partition=id[-∞..5001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :   │       t1: PgSearchScan: table=u, segments=4, partition=id[5001..10001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :   │       t2: PgSearchScan: table=u, segments=4, partition=id[10001..15001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :   │       t3: PgSearchScan: table=u, segments=4, partition=id[15001..∞), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :   │       t4: PgSearchScan: table=u, segments=4, partition=id[empty], dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :   │       t5: PgSearchScan: table=u, segments=4, partition=id[empty], dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :   └──────────────────────────────────────────────────
-     :     ┌───── Stage 1 ── tasks=6, partitions=36
-     :     │ BroadcastExec: input_partitions=1, consumer_tasks=6, output_partitions=6
-     :     │   DistributedLeafExec:
-     :     │     t0: PgSearchScan: table=p, segments=4, partition=owner_user_id[-∞..5001), query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-     :     │     t1: PgSearchScan: table=p, segments=4, partition=owner_user_id[5001..10001), query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-     :     │     t2: PgSearchScan: table=p, segments=4, partition=owner_user_id[10001..15001), query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-     :     │     t3: PgSearchScan: table=p, segments=4, partition=owner_user_id[15001..∞), query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-     :     │     t4: PgSearchScan: table=p, segments=4, partition=owner_user_id[empty], query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-     :     │     t5: PgSearchScan: table=p, segments=4, partition=owner_user_id[empty], query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-     :     └──────────────────────────────────────────────────
-(34 rows)
+(25 rows)
 
 SELECT count(*)
 FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id

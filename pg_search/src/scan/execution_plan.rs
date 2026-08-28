@@ -74,7 +74,7 @@ use crate::scan::Scanner;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
 use crate::scan::late_materialization::DeferredField;
 use crate::scan::pre_filter::{PreFilter, collect_filters, try_dynamic_filter_pushdown};
-use crate::scan::range_partitioning::{RangePartitioning, RangePartitioningGrid};
+use crate::scan::range_partitioning::{RangePartitioning, RangeSplitPoints};
 
 /// A wrapper that implements Send + Sync unconditionally.
 /// UNSAFE: Only use this when you guarantee single-threaded access or manual synchronization.
@@ -191,7 +191,7 @@ pub struct PgSearchScanPlan {
     /// Sort order preserved across `with_filter_pushdown` rebuilds so the
     /// rebuilt plan keeps its equivalence properties.
     sort_order: Option<SortByField>,
-    range_grid: Option<RangePartitioningGrid>,
+    range_split_points: Option<RangeSplitPoints>,
     /// Global partition selected for a task-specialized variant. When present, this plan
     /// exposes one local partition and maps `execute(0)` back to this global partition.
     pub(crate) assigned_partition: Option<usize>,
@@ -217,7 +217,7 @@ impl Clone for PgSearchScanPlan {
             table_alias: self.table_alias.clone(),
             deferred_ctid_plan_position: self.deferred_ctid_plan_position,
             sort_order: self.sort_order.clone(),
-            range_grid: self.range_grid.clone(),
+            range_split_points: self.range_split_points.clone(),
             assigned_partition: self.assigned_partition,
             scan_mode: self.scan_mode.clone(),
         }
@@ -256,15 +256,23 @@ impl PgSearchScanPlan {
         deferred_ctid_plan_position: Option<usize>,
         partition_count: usize,
         parallel_state: Option<*mut crate::postgres::ParallelScanState>,
-        range_grid: Option<RangePartitioningGrid>,
+        range_split_points: Option<RangeSplitPoints>,
     ) -> Self {
         let needs_ffhelper = !deferred_fields.is_empty() || deferred_ctid_plan_position.is_some();
         if needs_ffhelper && ffhelper.is_none() {
             panic!("deferred lookup/visibility requires an FFHelper, but ffhelper is None");
         }
+        // The split points seat only so many partitions; a task past them would be empty.
+        let partition_count = range_split_points
+            .as_ref()
+            .map_or(partition_count, |points| {
+                points.partitions_for(partition_count)
+            });
         // Output partitioning tells datafusion-distributed how many tasks this leaf can naturally split into.
         // If state is None, execute() will return an EmptyStream for this single partition.
-        let range_boundaries = range_grid.as_ref().map(|s| s.build(partition_count));
+        let range_boundaries = range_split_points
+            .as_ref()
+            .map(|s| s.build(partition_count));
         let partitioning =
             declared_partitioning(&schema, partition_count, range_boundaries.as_ref());
         let eq_properties = build_equivalence_properties(schema, sort_order);
@@ -288,7 +296,7 @@ impl PgSearchScanPlan {
             })
             .unwrap_or(0);
 
-        if range_grid.is_none() {
+        if range_split_points.is_none() {
             // A partition count exceeding the segment count indicates a bug in
             // pg_search_scan_desired_task_count, which should cap the tasks
             // to the segment count when range partitioning is off.
@@ -337,7 +345,7 @@ impl PgSearchScanPlan {
             table_alias: String::new(),
             deferred_ctid_plan_position,
             sort_order: sort_order.cloned(),
-            range_grid,
+            range_split_points,
             assigned_partition: None,
             scan_mode,
         }
@@ -354,15 +362,21 @@ impl PgSearchScanPlan {
     /// the original quantity.
     ///
     /// - For `Shared` mode, simply modifies the exposed metadata.
-    /// - For `RangePartitioned` mode, it asks the internal `range_grid` to safely
-    ///   down-sample (or up-sample) the partitioning bounds so the new partition count
-    ///   has roughly uniformly distributed boundaries.
+    /// - For `RangePartitioned` mode, it asks the internal `range_split_points` to
+    ///   down-sample the partitioning bounds so the new partition count has roughly
+    ///   uniformly distributed boundaries. The count never exceeds what the points seat.
     pub(crate) fn repartition(&self, target_partitions: usize) -> Result<Arc<dyn ExecutionPlan>> {
         if self.assigned_partition.is_some() {
             return Err(DataFusionError::Internal(
                 "Cannot repartition a task-specialized PgSearchScanPlan".into(),
             ));
         }
+        let target_partitions = self
+            .range_split_points
+            .as_ref()
+            .map_or(target_partitions, |points| {
+                points.partitions_for(target_partitions)
+            });
 
         let state_guard = self
             .state
@@ -379,7 +393,11 @@ impl PgSearchScanPlan {
             },
             ExecutionState::RangePartitioned { scan_state, .. } => {
                 ExecutionState::RangePartitioned {
-                    range_boundaries: self.range_grid.as_ref().unwrap().build(target_partitions),
+                    range_boundaries: self
+                        .range_split_points
+                        .as_ref()
+                        .unwrap()
+                        .build(target_partitions),
                     scan_state: Box::new(UnsafeSendSync(scan_state.0.clone())),
                 }
             }
@@ -435,7 +453,7 @@ impl PgSearchScanPlan {
             table_alias: self.table_alias.clone(),
             deferred_ctid_plan_position: self.deferred_ctid_plan_position,
             sort_order: self.sort_order.clone(),
-            range_grid: self.range_grid.clone(),
+            range_split_points: self.range_split_points.clone(),
             assigned_partition: self.assigned_partition,
             scan_mode: self.scan_mode.clone(),
         })
@@ -562,7 +580,7 @@ impl PgSearchScanPlan {
             source_idx,
             planner_estimated_rows,
             global_partition_count: self.global_partition_count,
-            range_grid: self.range_grid.clone(),
+            range_split_points: self.range_split_points.clone(),
             assigned_partition: self.assigned_partition,
             scan_mode: scanner_config.scan_mode,
         };
@@ -692,7 +710,7 @@ impl PgSearchScanPlan {
             descriptor.deferred_ctid_plan_position,
             descriptor.global_partition_count,
             parallel_state,
-            descriptor.range_grid,
+            descriptor.range_split_points,
         )
         .with_table_alias(descriptor.table_alias);
         plan.dynamic_filters = dynamic_filters;
@@ -733,7 +751,7 @@ struct ScanDispatchDescriptor {
     /// Number of partitions before task specialization. This remains global even when an
     /// assigned variant advertises one local output partition to DataFusion.
     global_partition_count: usize,
-    range_grid: Option<RangePartitioningGrid>,
+    range_split_points: Option<RangeSplitPoints>,
     assigned_partition: Option<usize>,
     scan_mode: crate::scan::ScanMode,
 }
@@ -742,9 +760,7 @@ struct ScanDispatchDescriptor {
 ///
 /// `Partitioning::Range` is declared only when the boundaries cover exactly
 /// `partition_count` partitions and translate faithfully to DataFusion's model.
-/// Otherwise `UnknownPartitioning` preserves the requested count, where any
-/// partitions beyond the boundaries execute as empty streams (e.g. when the
-/// grid is smaller than the requested count).
+/// Otherwise `UnknownPartitioning` preserves the requested count.
 fn declared_partitioning(
     schema: &SchemaRef,
     partition_count: usize,
@@ -817,9 +833,9 @@ impl DisplayAs for PgSearchScanPlan {
             "PgSearchScan: table={}, segments={}",
             self.table_alias, self.segment_count
         )?;
-        if let Some(range_grid) = &self.range_grid {
+        if let Some(range_split_points) = &self.range_split_points {
             if let Some(assigned) = self.assigned_partition {
-                let partitioning = range_grid.build(self.global_partition_count);
+                let partitioning = range_split_points.build(self.global_partition_count);
 
                 let lower = if assigned > 0 && assigned - 1 < partitioning.split_points.len() {
                     partitioning.split_points[assigned - 1]
@@ -837,21 +853,19 @@ impl DisplayAs for PgSearchScanPlan {
                     "∞".to_string()
                 };
 
-                // A partition past the grid's last split point is a surplus task that
-                // `execute` answers with an empty stream, not an unbounded scan.
-                if assigned > partitioning.split_points.len() {
-                    write!(f, ", partition={}[empty]", range_grid.partition_by.as_ref())?;
-                } else {
-                    write!(
-                        f,
-                        ", partition={}[{}..{})",
-                        range_grid.partition_by.as_ref(),
-                        lower,
-                        upper
-                    )?;
-                }
+                write!(
+                    f,
+                    ", partition={}[{}..{})",
+                    range_split_points.partition_by.as_ref(),
+                    lower,
+                    upper
+                )?;
             } else {
-                write!(f, ", partition_by={}", range_grid.partition_by.as_ref())?;
+                write!(
+                    f,
+                    ", partition_by={}",
+                    range_split_points.partition_by.as_ref()
+                )?;
             }
         }
         if !self.dynamic_filters.is_empty() {
@@ -905,23 +919,9 @@ impl ExecutionPlan for PgSearchScanPlan {
         let global_partition = self.assigned_partition.or(partition);
         let num_rows = match global_partition {
             None => Precision::Inexact(self.planner_estimated_rows as usize),
-            Some(global_partition) => {
-                // A short grid leaves surplus global partitions intentionally empty.
-                let populated_partition_count = self
-                    .range_grid
-                    .as_ref()
-                    .map(|grid| {
-                        self.global_partition_count
-                            .min(grid.points.len().saturating_add(1))
-                    })
-                    .unwrap_or(self.global_partition_count);
-                let rows = if global_partition < populated_partition_count {
-                    self.planner_estimated_rows as usize / populated_partition_count.max(1)
-                } else {
-                    0
-                };
-                Precision::Inexact(rows)
-            }
+            Some(_) => Precision::Inexact(
+                self.planner_estimated_rows as usize / self.global_partition_count.max(1),
+            ),
         };
 
         let column_statistics = self
@@ -995,13 +995,12 @@ impl ExecutionPlan for PgSearchScanPlan {
                 range_boundaries,
                 scan_state,
             } => {
-                // If target_partitions scaled past the available grid points, we
-                // just return empty streams for the extra partitions.
+                // The plan never declares more partitions than its split points seat.
                 if target_partition > range_boundaries.split_points.len() {
-                    let schema = self.properties.eq_properties.schema().clone();
-                    return Ok(Box::pin(unsafe {
-                        UnsafeSendStream::new(futures::stream::empty(), schema)
-                    }));
+                    return Err(DataFusionError::Internal(format!(
+                        "partition {target_partition} lies past the {} split points",
+                        range_boundaries.split_points.len()
+                    )));
                 }
 
                 (scan_state.0, None, Some(range_boundaries))
@@ -1378,8 +1377,7 @@ pub(crate) fn pg_search_scan_desired_task_count(
 /// Replaces a `PgSearchScanPlan` leaf with per-task variants once its stage's task
 /// count is final. One partition per task is the distributed contract: the plan is
 /// repartitioned so the counts match, and each variant consumes exactly its own
-/// partition; partitions past a short grid bound empty ranges rather than
-/// re-chunking tasks.
+/// partition. The split points cap the count, so no task is empty.
 pub(crate) fn pg_search_scan_scale_up_leaf_node(
     ev: ScaleUpLeafNodeEvent,
 ) -> Option<datafusion::error::Result<ScaleUpLeafNodeEventResponse>> {

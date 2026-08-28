@@ -94,9 +94,9 @@ FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
 WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
 
 -- =====================================================================
--- One grid is enough. `sp_votes` is indexed empty and filled afterwards,
--- so its segments carry no box: the join cuts on the users grid, and each
--- votes partition is placed by its own range.
+-- One side's split points are enough. `sp_votes` is indexed empty and
+-- filled afterwards, so its segments carry no box: the join cuts on the
+-- users split points, and each votes partition is placed by its own range.
 -- =====================================================================
 
 CREATE TABLE sp_votes (id bigserial PRIMARY KEY, post_id bigint, kind text);
@@ -127,7 +127,7 @@ FROM sp_users u JOIN sp_votes v ON u.id = v.post_id
 WHERE u.id @@@ pdb.all() AND v.kind @@@ 'up';
 
 -- =====================================================================
--- No grid on either side: the join is not range partitioned.
+-- No split points on either side: the join is not range partitioned.
 -- =====================================================================
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -140,7 +140,8 @@ FROM sp_votes a JOIN sp_votes b ON a.post_id = b.post_id
 WHERE a.kind @@@ 'up' AND b.kind @@@ 'down';
 
 -- =====================================================================
--- More tasks than the grid can seat: the surplus ones stay empty.
+-- More workers than the split points seat: the plan caps its tasks, so
+-- no task is empty and the join stays co-partitioned.
 -- =====================================================================
 
 SET max_parallel_workers_per_gather TO 6;

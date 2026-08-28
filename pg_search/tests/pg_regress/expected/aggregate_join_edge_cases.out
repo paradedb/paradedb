@@ -265,14 +265,14 @@ ORDER BY p.category;
          Aggregates: COUNT(*), SUM(rating)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_1.rating) as agg_1]
-           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0), (category@0, category@1)], projection=[category@1, rating@3]
-           :     CooperativeExec
-           :       PgSearchScan: table=s, segments=1, query="all"
+           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0), (category@1, category@0)], projection=[category@0, rating@2]
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)]
            :       CooperativeExec
            :         PgSearchScan: table=p, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket","lenient":null,"conjunction_mode":null}}}}
            :       CooperativeExec
            :         PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+           :     CooperativeExec
+           :       PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
 (17 rows)
 
 SELECT p.category, COUNT(*), SUM(r.rating)
@@ -329,14 +329,14 @@ ORDER BY p.category;
          Aggregates: COUNT(*), COUNT(rating), COUNT(supplier_name)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, count(r_1.rating) as agg_1, count(s_2.supplier_name) as agg_2]
-           :   HashJoinExec: mode=CollectLeft, join_type=Right, on=[(category@0, category@0)], projection=[category@2, rating@3, supplier_name@1]
-           :     CooperativeExec
-           :       PgSearchScan: table=s, segments=1, query="all"
+           :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@0, category@0)], projection=[category@0, rating@1, supplier_name@3]
            :     HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@0, category@0)], projection=[category@0, rating@2]
            :       CooperativeExec
            :         PgSearchScan: table=p, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket OR novel","lenient":null,"conjunction_mode":null}}}}
            :       CooperativeExec
            :         PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+           :     CooperativeExec
+           :       PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
 (17 rows)
 
 SELECT p.category, COUNT(*), COUNT(r.rating), COUNT(s.supplier_name)

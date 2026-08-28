@@ -175,25 +175,32 @@ WARNING:  JoinScan not used: join keys must be fast fields (tables: table_a, tab
    ->  Sort
          Output: table_a.id, table_a.category
          Sort Key: table_a.id
-         ->  Nested Loop Semi Join
+         ->  Hash Semi Join
                Output: table_a.id, table_a.category
+               Hash Cond: (table_a.id = table_b.a_id)
                ->  Custom Scan (ParadeDB Base Scan) on public.table_a
                      Output: table_a.id, table_a.category
                      Filter: (NOT (ANY (table_a.id = (hashed SubPlan 1).col1)))
                      Table: table_a
                      Index: table_a_idx
-                     Worker Selection: Row-capped
+                     Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
                      SubPlan 1
-                       ->  Seq Scan on public.table_b table_b_1
+                       ->  Bitmap Heap Scan on public.table_b table_b_1
                              Output: table_b_1.a_id
-                             Filter: ((table_b_1.group_id)::text = ANY ('{group_3,group_4}'::text[]))
-               ->  Index Only Scan using table_b_group_id_a_id_idx on public.table_b
-                     Output: table_b.group_id, table_b.a_id
-                     Index Cond: ((table_b.group_id = 'group_1'::text) AND (table_b.a_id = table_a.id))
-(23 rows)
+                             Recheck Cond: ((table_b_1.group_id)::text = ANY ('{group_3,group_4}'::text[]))
+                             ->  Bitmap Index Scan on table_b_group_id_a_id_idx
+                                   Index Cond: ((table_b_1.group_id)::text = ANY ('{group_3,group_4}'::text[]))
+               ->  Hash
+                     Output: table_b.a_id
+                     ->  Bitmap Heap Scan on public.table_b
+                           Output: table_b.a_id
+                           Recheck Cond: ((table_b.group_id)::text = 'group_1'::text)
+                           ->  Bitmap Index Scan on table_b_group_id_a_id_idx
+                                 Index Cond: ((table_b.group_id)::text = 'group_1'::text)
+(30 rows)
 
 SELECT id, category
 FROM table_a

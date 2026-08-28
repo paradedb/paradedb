@@ -817,7 +817,12 @@ impl ExtensionPlanner for LateMaterializePlanner {
                 );
             }
 
-            let exec = TantivyLookupExec::new(input_exec, physical_deferred_fields, ff_helpers)?;
+            let exec = TantivyLookupExec::new(
+                input_exec,
+                physical_deferred_fields,
+                ff_helpers,
+                Vec::new(),
+            )?;
 
             Ok(Some(Arc::new(exec)))
         } else {

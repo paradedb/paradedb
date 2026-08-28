@@ -118,10 +118,12 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
             TAG_TANTIVY_LOOKUP => {
                 let input = single_input(inputs)?;
                 let ffhelpers = collect_ffhelpers_by_indexrelid(&input);
+                let resolvers = collect_ctid_resolvers(&input);
                 TantivyLookupExec::decode_for_dispatch(
                     payload,
                     input,
                     ffhelpers,
+                    resolvers,
                     self.parallel_state,
                 )
             }

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
@@ -8,6 +8,9 @@ use crate::query::SearchQueryInput;
 
 use crate::index::fast_fields_helper::{
     CanonicalColumn, FFHelper, FFType, for_each_segment, ords_to_bytes_array, ords_to_string_array,
+};
+use crate::postgres::customscan::joinscan::visibility_filter::{
+    DeferredCtidMaterializationState, materialize_deferred_ctid,
 };
 use crate::scan::execution_plan::UnsafeSendStream;
 
@@ -65,6 +68,25 @@ impl PhysicalDeferredField {
 
 use crate::api::HashMap;
 
+/// A `ctid_<plan_position>` column (packed doc-addresses) that a `TantivyLookupExec` resolves
+/// to real ctids, so a `VisibilityFilterExec` above it consumes real ctids directly.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct CtidColumnLookup {
+    /// Column index of the ctid column in the physical batch.
+    pub col_idx: usize,
+    /// The source's plan position, keying the resolver for its index.
+    pub plan_position: usize,
+}
+
+/// Serialized shape for MPP dispatch. `ctid_columns` defaults empty so a payload written before
+/// ctid resolution existed still decodes.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct LookupDispatchPayload {
+    deferred_fields: Vec<PhysicalDeferredField>,
+    #[serde(default)]
+    ctid_columns: Vec<CtidColumnLookup>,
+}
+
 pub struct TantivyLookupExec {
     input: Arc<dyn ExecutionPlan>,
     deferred_fields: Vec<PhysicalDeferredField>,
@@ -74,6 +96,11 @@ pub struct TantivyLookupExec {
     /// only while both sources share a segment view. Keying by `(plan_position, indexrelid)`
     /// would remove the aliasing.
     ffhelpers: HashMap<u32, Arc<FFHelper>>,
+    /// `ctid_<plan_position>` columns this exec resolves from packed doc-addresses to real ctids.
+    ctid_columns: Vec<CtidColumnLookup>,
+    /// Per-plan_position `(indexrelid, FFHelper)` for resolving the ctid columns, wired by
+    /// `VisibilityCtidResolverRule` after plan construction. Indexed by plan_position.
+    ctid_resolvers: Mutex<Vec<Option<(u32, Arc<FFHelper>)>>>,
     properties: Arc<PlanProperties>,
     metrics: ExecutionPlanMetricsSet,
 }
@@ -92,6 +119,7 @@ impl TantivyLookupExec {
         input: Arc<dyn ExecutionPlan>,
         deferred_fields: Vec<PhysicalDeferredField>,
         ffhelpers: HashMap<u32, Arc<FFHelper>>,
+        ctid_columns: Vec<CtidColumnLookup>,
     ) -> Result<Self> {
         let (output_schema, decoders) =
             build_schema_and_decoders(input.schema(), &deferred_fields)?;
@@ -132,11 +160,18 @@ impl TantivyLookupExec {
             EmissionType::Incremental,
             Boundedness::Bounded,
         ));
+        let resolver_len = ctid_columns
+            .iter()
+            .map(|c| c.plan_position)
+            .max()
+            .map_or(0, |m| m + 1);
         Ok(Self {
             input,
             deferred_fields,
             decoders,
             ffhelpers,
+            ctid_columns,
+            ctid_resolvers: Mutex::new(vec![None; resolver_len]),
             properties,
             metrics: ExecutionPlanMetricsSet::new(),
         })
@@ -144,6 +179,23 @@ impl TantivyLookupExec {
 
     pub fn deferred_fields(&self) -> &[PhysicalDeferredField] {
         &self.deferred_fields
+    }
+
+    pub fn ctid_columns(&self) -> &[CtidColumnLookup] {
+        &self.ctid_columns
+    }
+
+    /// Wire the FFHelper that resolves the given source's ctid column. Mirrors
+    /// `VisibilityFilterExec::set_ctid_resolver`.
+    pub fn set_ctid_resolver(&self, plan_pos: usize, indexrelid: u32, ffhelper: Arc<FFHelper>) {
+        let mut resolvers = self
+            .ctid_resolvers
+            .lock()
+            .expect("ctid_resolvers lock poisoned");
+        if plan_pos >= resolvers.len() {
+            resolvers.resize(plan_pos + 1, None);
+        }
+        resolvers[plan_pos] = Some((indexrelid, ffhelper));
     }
 
     pub fn ffhelper(&self, indexrelid: u32) -> Option<&Arc<FFHelper>> {
@@ -154,7 +206,11 @@ impl TantivyLookupExec {
     /// pulls them from the scans in its decoded subtree, keyed by index relid. `decoders` is
     /// derived from `deferred_fields`, so it's recomputed on decode.
     pub(crate) fn encode_for_dispatch(&self) -> datafusion::common::Result<Vec<u8>> {
-        serde_json::to_vec(&self.deferred_fields).map_err(|e| {
+        serde_json::to_vec(&LookupDispatchPayload {
+            deferred_fields: self.deferred_fields.clone(),
+            ctid_columns: self.ctid_columns.clone(),
+        })
+        .map_err(|e| {
             datafusion::common::DataFusionError::Internal(format!(
                 "TantivyLookupExec dispatch: serialize: {e}"
             ))
@@ -165,24 +221,29 @@ impl TantivyLookupExec {
         buf: &[u8],
         input: Arc<dyn ExecutionPlan>,
         mut ffhelpers: HashMap<u32, Arc<FFHelper>>,
+        ctid_resolvers: Vec<(usize, u32, Arc<FFHelper>)>,
         parallel_state: Option<*mut crate::postgres::ParallelScanState>,
     ) -> datafusion::common::Result<Arc<dyn ExecutionPlan>> {
-        let deferred_fields: Vec<PhysicalDeferredField> =
-            serde_json::from_slice(buf).map_err(|e| {
-                datafusion::common::DataFusionError::Internal(format!(
-                    "TantivyLookupExec dispatch: deserialize: {e}"
-                ))
-            })?;
+        let payload: LookupDispatchPayload = serde_json::from_slice(buf).map_err(|e| {
+            datafusion::common::DataFusionError::Internal(format!(
+                "TantivyLookupExec dispatch: deserialize: {e}"
+            ))
+        })?;
         rebuild_missing_ffhelpers(
-            &deferred_fields,
+            &payload.deferred_fields,
             &mut ffhelpers,
             LookupRebuildContext { parallel_state },
         )?;
-        Ok(Arc::new(TantivyLookupExec::new(
+        let exec = TantivyLookupExec::new(
             input,
-            deferred_fields,
+            payload.deferred_fields,
             ffhelpers,
-        )?))
+            payload.ctid_columns,
+        )?;
+        for (plan_pos, indexrelid, ffhelper) in ctid_resolvers {
+            exec.set_ctid_resolver(plan_pos, indexrelid, ffhelper);
+        }
+        Ok(Arc::new(exec))
     }
 }
 
@@ -343,7 +404,19 @@ impl DisplayAs for TantivyLookupExec {
                 .map(|d| d.display_name.as_str())
                 .collect::<Vec<_>>()
                 .join(", ")
-        )
+        )?;
+        if !self.ctid_columns.is_empty() {
+            write!(
+                f,
+                ", resolve_ctid=[{}]",
+                self.ctid_columns
+                    .iter()
+                    .map(|c| format!("ctid_{}", c.plan_position))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )?;
+        }
+        Ok(())
     }
 }
 
@@ -377,11 +450,24 @@ impl ExecutionPlan for TantivyLookupExec {
         self: Arc<Self>,
         mut children: Vec<Arc<dyn ExecutionPlan>>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        Ok(Arc::new(TantivyLookupExec::new(
+        let exec = TantivyLookupExec::new(
             children.remove(0),
             self.deferred_fields.clone(),
             self.ffhelpers.clone(),
-        )?))
+            self.ctid_columns.clone(),
+        )?;
+        for (plan_pos, resolver) in self
+            .ctid_resolvers
+            .lock()
+            .expect("ctid_resolvers lock poisoned")
+            .iter()
+            .enumerate()
+        {
+            if let Some((indexrelid, ffhelper)) = resolver {
+                exec.set_ctid_resolver(plan_pos, *indexrelid, ffhelper.clone());
+            }
+        }
+        Ok(Arc::new(exec))
     }
 
     fn execute(
@@ -393,14 +479,24 @@ impl ExecutionPlan for TantivyLookupExec {
         let baseline_metrics = BaselineMetrics::new(&self.metrics, partition);
         let decoders = self.decoders.clone();
         let ffhelpers = self.ffhelpers.clone();
+        let ctid_columns = self.ctid_columns.clone();
+        let ctid_resolvers = self
+            .ctid_resolvers
+            .lock()
+            .expect("ctid_resolvers lock poisoned")
+            .clone();
         let schema = self.properties.eq_properties.schema().clone();
 
         let stream_gen = async_stream::try_stream! {
             use futures::StreamExt;
+            let mut ctid_state = DeferredCtidMaterializationState::default();
             while let Some(batch_res) = input_stream.next().await {
                 let timer = baseline_metrics.elapsed_compute().timer();
                 let result = match batch_res {
-                    Ok(batch) => enrich_batch(batch, &decoders, &ffhelpers, &schema),
+                    Ok(batch) => enrich_batch(batch, &decoders, &ffhelpers, &schema)
+                        .and_then(|b| {
+                            resolve_ctid_columns(b, &ctid_columns, &ctid_resolvers, &mut ctid_state)
+                        }),
                     Err(e) => Err(e),
                 };
                 timer.done();
@@ -493,6 +589,44 @@ fn enrich_batch(
     }
 
     RecordBatch::try_new(schema.clone(), output_columns)
+        .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
+}
+
+/// Replaces each configured ctid column's packed doc-addresses with real ctids, using the
+/// resolver wired for that column's plan position. A no-op when no ctid columns are configured.
+fn resolve_ctid_columns(
+    batch: RecordBatch,
+    ctid_columns: &[CtidColumnLookup],
+    resolvers: &[Option<(u32, Arc<FFHelper>)>],
+    state: &mut DeferredCtidMaterializationState,
+) -> Result<RecordBatch> {
+    if ctid_columns.is_empty() {
+        return Ok(batch);
+    }
+    let schema = batch.schema();
+    let mut columns = batch.columns().to_vec();
+    for ctid_column in ctid_columns {
+        let (_, ffhelper) = resolvers
+            .get(ctid_column.plan_position)
+            .and_then(|r| r.as_ref())
+            .ok_or_else(|| {
+                DataFusionError::Execution(format!(
+                    "TantivyLookupExec: no ctid resolver wired for plan_position {}.                      VisibilityCtidResolverRule must run before execute.",
+                    ctid_column.plan_position
+                ))
+            })?;
+        let packed = columns[ctid_column.col_idx]
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .ok_or_else(|| {
+                DataFusionError::Execution(format!(
+                    "TantivyLookupExec: ctid column (idx {}) is not UInt64",
+                    ctid_column.col_idx
+                ))
+            })?;
+        columns[ctid_column.col_idx] = materialize_deferred_ctid(ffhelper, packed, state)?;
+    }
+    RecordBatch::try_new(schema, columns)
         .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
 }
 

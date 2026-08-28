@@ -45,7 +45,7 @@ ANALYZE rb_users;
 ANALYZE rb_posts;
 ANALYZE rb_comments;
 
--- A serial build keeps the output free of worker-count warnings.
+-- A serial build keeps the worker-count warning deterministic.
 SET max_parallel_maintenance_workers TO 0;
 
 CREATE INDEX rb_users_idx ON rb_users USING paradedb (id, display_name, reputation)

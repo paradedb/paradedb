@@ -109,27 +109,38 @@ pub(crate) fn segments_for_partition(
             let Ok(Some(stats)) = SegmentStats::of_reader(segment_reader) else {
                 return true;
             };
-            match stats.logical(field) {
-                Ok(Some(bounds)) => {
-                    return (range.includes_nulls && bounds.may_hold_nulls())
-                        || bounds.intersects(&range.lower, &range.upper);
-                }
-                Ok(None) => {}
-                Err(_) => return true,
-            }
-            let Ok(Some(empirical)) = stats.empirical(field) else {
+            let Ok(logical) = stats.logical(field) else {
                 return true;
             };
-            let empirical = if is_date {
-                match empirical.into_dates() {
-                    Some(empirical) => empirical,
-                    None => return true,
-                }
-            } else {
-                empirical
+            let Ok(empirical) = stats.empirical(field) else {
+                return true;
             };
-            (range.includes_nulls && empirical.nullable)
-                || empirical.intersects(&range.lower, &range.upper)
+            let empirical = match empirical {
+                Some(empirical) if is_date => match empirical.into_dates() {
+                    Some(empirical) => Some(empirical),
+                    None => return true,
+                },
+                other => other,
+            };
+            let (lower, upper) = (&range.lower, &range.upper);
+            match (logical, empirical) {
+                (None, None) => true,
+                (Some(bounds), None) => {
+                    (range.includes_nulls && bounds.may_hold_nulls())
+                        || bounds.intersects(lower, upper)
+                }
+                (None, Some(empirical)) => {
+                    (range.includes_nulls && empirical.nullable)
+                        || empirical.intersects(lower, upper)
+                }
+                // The box holds what the build routed here and the empirical range what the
+                // segment holds now, so a partition has to reach both. The empirical range is
+                // the tighter of the two once a partition cuts inside a box.
+                (Some(bounds), Some(empirical)) => {
+                    (range.includes_nulls && empirical.nullable)
+                        || (bounds.intersects(lower, upper) && empirical.intersects(lower, upper))
+                }
+            }
         })
         .map(SegmentReader::segment_id)
         .collect()

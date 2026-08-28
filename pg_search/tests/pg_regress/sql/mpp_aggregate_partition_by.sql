@@ -69,7 +69,7 @@ RESET paradedb.global_mutable_segment_rows;
 ANALYZE mpp_agg_pb_files;
 ANALYZE mpp_agg_pb_pages;
 
--- A serial build keeps the output free of worker-count warnings.
+-- A serial build keeps the worker-count warning deterministic.
 SET max_parallel_maintenance_workers TO 0;
 
 CREATE INDEX mpp_agg_pb_files_idx ON mpp_agg_pb_files

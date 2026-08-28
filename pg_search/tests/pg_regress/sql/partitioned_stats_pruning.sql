@@ -3,8 +3,7 @@
 -- existing rows. Each segment carries its partition's bounds in `.stats`, so
 -- the join takes its split points from the build instead of sampling,
 -- and each partition searches only the segments its range reaches.
--- Results must match the serial baseline. The heaps exceed the 15MB
--- floor below which a build collapses to a single partition.
+-- Results must match the serial baseline.
 -- =====================================================================
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
@@ -94,5 +93,67 @@ SELECT count(*)
 FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
 WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
 
+-- =====================================================================
+-- One grid is enough. `sp_votes` is indexed empty and filled afterwards,
+-- so its segments carry no box: the join cuts on the users grid, and each
+-- votes partition is placed by its own range.
+-- =====================================================================
+
+CREATE TABLE sp_votes (id bigserial PRIMARY KEY, post_id bigint, kind text);
+CREATE INDEX sp_votes_idx ON sp_votes USING paradedb (id, post_id, kind)
+WITH (key_field = 'id', partition_by = 'post_id', target_segment_count = 4,
+      numeric_fields = '{"post_id": {"fast": true}}',
+      text_fields = '{"kind": {"tokenizer": {"type": "keyword"}, "fast": true}}');
+INSERT INTO sp_votes (post_id, kind)
+SELECT 1 + ((g * 31) % 10000), CASE WHEN g <= 10000 THEN 'up' ELSE 'down' END
+FROM generate_series(1, 20000) g;
+ANALYZE sp_votes;
+
+SET max_parallel_workers_per_gather TO 0;
+
+SELECT count(*)
+FROM sp_users u JOIN sp_votes v ON u.id = v.post_id
+WHERE u.id @@@ pdb.all() AND v.kind @@@ 'up';
+
+SET max_parallel_workers_per_gather TO 3;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT count(*)
+FROM sp_users u JOIN sp_votes v ON u.id = v.post_id
+WHERE u.id @@@ pdb.all() AND v.kind @@@ 'up';
+
+SELECT count(*)
+FROM sp_users u JOIN sp_votes v ON u.id = v.post_id
+WHERE u.id @@@ pdb.all() AND v.kind @@@ 'up';
+
+-- =====================================================================
+-- No grid on either side: the join is not range partitioned.
+-- =====================================================================
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT count(*)
+FROM sp_votes a JOIN sp_votes b ON a.post_id = b.post_id
+WHERE a.kind @@@ 'up' AND b.kind @@@ 'down';
+
+SELECT count(*)
+FROM sp_votes a JOIN sp_votes b ON a.post_id = b.post_id
+WHERE a.kind @@@ 'up' AND b.kind @@@ 'down';
+
+-- =====================================================================
+-- More tasks than the grid can seat: the surplus ones stay empty.
+-- =====================================================================
+
+SET max_parallel_workers_per_gather TO 6;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT count(*)
+FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
+WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
+
+SELECT count(*)
+FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
+WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
+
+DROP TABLE sp_votes;
 DROP TABLE sp_posts;
 DROP TABLE sp_users;

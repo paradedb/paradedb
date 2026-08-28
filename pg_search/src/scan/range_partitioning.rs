@@ -193,9 +193,9 @@ impl RangePartitioning {
         };
         let ordering = LexOrdering::new([sort_expr])?;
 
-        // `new` rather than `try_new`: a down-sampled distribution can legally repeat a
-        // split point, which produces an empty partition in both our execution model and
-        // DataFusion's, but fails `try_new`'s strict-ordering validation.
+        // `new` rather than `try_new`: a repeated split point produces an empty partition in
+        // both our execution model and DataFusion's, but fails `try_new`'s strict-ordering
+        // validation. A grid never repeats a point; the tolerance costs nothing.
         Some(Partitioning::Range(DataFusionRangePartitioning::new(
             ordering,
             split_points,

@@ -822,15 +822,17 @@ impl DisplayAs for PgSearchScanPlan {
                 let partitioning = range_grid.build(self.global_partition_count);
 
                 let lower = if assigned > 0 && assigned - 1 < partitioning.split_points.len() {
-                    let val = &partitioning.split_points[assigned - 1];
-                    serde_json::to_string(val).unwrap_or_else(|_| format!("{:?}", val))
+                    partitioning.split_points[assigned - 1]
+                        .plain_display()
+                        .to_string()
                 } else {
                     "-∞".to_string()
                 };
 
                 let upper = if assigned < partitioning.split_points.len() {
-                    let val = &partitioning.split_points[assigned];
-                    serde_json::to_string(val).unwrap_or_else(|_| format!("{:?}", val))
+                    partitioning.split_points[assigned]
+                        .plain_display()
+                        .to_string()
                 } else {
                     "∞".to_string()
                 };

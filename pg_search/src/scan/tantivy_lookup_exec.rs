@@ -78,8 +78,8 @@ pub struct CtidColumnLookup {
     pub plan_position: usize,
 }
 
-/// Serialized shape for MPP dispatch. `ctid_columns` defaults empty so a payload written before
-/// ctid resolution existed still decodes.
+/// Serialized shape for MPP dispatch: the deferred string/bytes fields, the ctid columns this
+/// lookup resolves, and their resolver indexes for the network-boundary rebuild.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct LookupDispatchPayload {
     deferred_fields: Vec<PhysicalDeferredField>,
@@ -644,7 +644,7 @@ fn resolve_ctid_columns(
             .and_then(|r| r.as_ref())
             .ok_or_else(|| {
                 DataFusionError::Execution(format!(
-                    "TantivyLookupExec: no ctid resolver wired for plan_position {}.                      VisibilityCtidResolverRule must run before execute.",
+                    "TantivyLookupExec: no ctid resolver wired for plan_position {}. VisibilityCtidResolverRule must run before execute.",
                     ctid_column.plan_position
                 ))
             })?;

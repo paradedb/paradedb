@@ -74,6 +74,9 @@ use crate::api::HashMap;
 use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, FFType, NULL_TERM_ORDINAL};
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::postgres::customscan::joinscan::build::CtidColumn;
+use crate::postgres::customscan::joinscan::visibility_filter::{
+    DeferredCtidMaterializationState, materialize_deferred_ctid,
+};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::deferred_encode::unpack_doc_address;
@@ -661,6 +664,11 @@ impl ExecutionPlan for SegmentedTopKExec {
         // so that `execute()` can return a clean `Err` on misconfiguration rather
         // than failing mid-stream.
         let visibility_entries: Vec<StkVisibilityEntry> = if let Some(vd) = &self.visibility_data {
+            let resolvers = vd
+                .ctid_resolvers
+                .lock()
+                .expect("ctid_resolvers lock poisoned")
+                .clone();
             // SAFETY: GetActiveSnapshot is safe during query execution.
             let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
             if snapshot.is_null() {
@@ -683,7 +691,22 @@ impl ExecutionPlan for SegmentedTopKExec {
                 })?;
                 let heaprel = PgSearchRelation::open(heap_oid);
                 let checker = VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
-                entries.push(StkVisibilityEntry { col_idx, checker });
+                let resolver = resolvers
+                    .get(plan_pos)
+                    .and_then(|r| r.as_ref().map(|(_, ff)| Arc::clone(ff)))
+                    .ok_or_else(|| {
+                        DataFusionError::Execution(format!(
+                            "SegmentedTopKExec: no ctid resolver wired for \
+                                 plan_position {plan_pos}. \
+                                 VisibilityCtidResolverRule must run before execute."
+                        ))
+                    })?;
+                entries.push(StkVisibilityEntry {
+                    col_idx,
+                    checker,
+                    resolver,
+                    deferred_ctid_state: DeferredCtidMaterializationState::default(),
+                });
             }
             entries
         } else {
@@ -791,11 +814,14 @@ impl ExecutionPlan for SegmentedTopKExec {
 /// A plan will hold one of these entries for every `(plan_pos, heap_oid)` pair it absorbed
 /// from a `VisibilityFilterExec`.
 struct StkVisibilityEntry {
-    /// Index of the `ctid_{plan_position}` column in the input batch schema. The column already
-    /// holds real ctids, resolved by the `TantivyLookupExec` below this node.
+    /// Index of the `ctid_{plan_position}` column in the input batch schema.
     col_idx: usize,
     /// MVCC visibility checker for this relation.
     checker: VisibilityChecker,
+    /// Resolves packed DocAddresses to real ctids before visibility checking.
+    resolver: Arc<FFHelper>,
+    /// Reusable scratch buffers for packed DocAddress materialization.
+    deferred_ctid_state: DeferredCtidMaterializationState,
 }
 
 /// One segment's rolling buffer of top-K candidates.
@@ -1626,9 +1652,21 @@ impl SegmentedTopKState {
                 }
             }
 
-            // The TantivyLookupExec below this node already resolved these to real ctids
-            // (null for unresolvable rows, captured in `input_null`).
-            let resolved = UInt64Array::from(packed_values);
+            // Resolve packed DocAddresses → real ctids via FFHelper.
+            let packed_array = UInt64Array::from(packed_values);
+            let resolved_array = materialize_deferred_ctid(
+                &entry.resolver,
+                &packed_array,
+                &mut entry.deferred_ctid_state,
+            )?;
+            let resolved = resolved_array
+                .as_any()
+                .downcast_ref::<UInt64Array>()
+                .ok_or_else(|| {
+                    DataFusionError::Internal(
+                        "SegmentedTopKExec: resolved ctid array is not UInt64".into(),
+                    )
+                })?;
 
             // Collect valid (non-null, non-null-input) ctids with their original indices.
             // check_batch panics on None inputs, so we filter to resolvable rows only.

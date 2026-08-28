@@ -36,8 +36,8 @@ WHERE
 ORDER BY
     relevance DESC
 LIMIT 10;
-                                                                                                                                  QUERY PLAN                                                                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                   QUERY PLAN                                                                                                                                    
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: u INNER p
@@ -48,13 +48,14 @@ LIMIT 10;
            : ProjectionExec: expr=[NULL as col_1, NULL as col_2, score@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[score@1 DESC], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[u, p]
-           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, owner_user_id@2)], projection=[ctid_0@0, score@2, ctid_1@3]
-           :         CooperativeExec
-           :           PgSearchScan: table=u, segments=2, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"range":{"field":"reputation","lower_bound":{"excluded":100},"upper_bound":null}}]}}
-           :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, owner_user_id@2 as owner_user_id]
+           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0, ctid_1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, owner_user_id@2)], projection=[ctid_0@0, score@2, ctid_1@3]
            :           CooperativeExec
-           :             PgSearchScan: table=p, segments=2, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"title","value":"how using get create","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(16 rows)
+           :             PgSearchScan: table=u, segments=2, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"range":{"field":"reputation","lower_bound":{"excluded":100},"upper_bound":null}}]}}
+           :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, owner_user_id@2 as owner_user_id]
+           :             CooperativeExec
+           :               PgSearchScan: table=p, segments=2, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"title","value":"how using get create","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(17 rows)
 
 -- Reproduce the bug
 SELECT

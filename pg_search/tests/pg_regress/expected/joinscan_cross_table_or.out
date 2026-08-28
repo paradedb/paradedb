@@ -93,7 +93,7 @@ ORDER BY users.id, products.id, orders.id LIMIT 20;
                Order By: users.id asc, orders.id asc
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[id@5 as col_1, id@3 as col_2, NULL as col_3, id@1 as col_4, NULL as col_5, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@4 as ctid_2]
-                 :   SortExec: TopK(fetch=20), expr=[id@1 ASC NULLS LAST, id@5 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   SortExec: TopK(fetch=20), expr=[id@3 ASC NULLS LAST, id@5 ASC NULLS LAST], preserve_partitioning=[false]
                  :     VisibilityFilterExec: tables=[users, products, orders]
                  :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0, ctid_1, ctid_2]
                  :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@3, age@1)], projection=[ctid_0@0, id@1, ctid_1@2, id@4, ctid_2@5, id@7]

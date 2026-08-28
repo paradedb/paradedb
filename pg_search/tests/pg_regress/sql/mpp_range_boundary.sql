@@ -25,14 +25,7 @@ CREATE TABLE rb_users    (id bigserial PRIMARY KEY, display_name text, reputatio
 CREATE TABLE rb_posts    (id bigserial PRIMARY KEY, owner_user_id bigint, title text, body text);
 CREATE TABLE rb_comments (id bigserial PRIMARY KEY, post_id bigint, text text, score int);
 
-CREATE INDEX rb_users_idx ON rb_users USING paradedb (id, display_name, reputation)
-WITH (key_field='id', partition_by='id', text_fields='{"display_name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"reputation":{"fast":true}}');
-CREATE INDEX rb_posts_idx ON rb_posts USING paradedb (id, owner_user_id, title)
-WITH (key_field='id', partition_by='id,owner_user_id', text_fields='{"title":{"fast":true}}', numeric_fields='{"owner_user_id":{"fast":true}}');
-CREATE INDEX rb_comments_idx ON rb_comments USING paradedb (id, post_id, text, score)
-WITH (key_field='id', partition_by='post_id', text_fields='{"text":{"fast":true}}', numeric_fields='{"post_id":{"fast":true},"score":{"fast":true}}');
-
--- Eight segments per index, kilobyte-scale payloads so batches dwarf the ring.
+-- Kilobyte-scale payloads so batches dwarf the ring.
 SET paradedb.global_mutable_segment_rows = 0;
 DO $$
 DECLARE
@@ -52,11 +45,21 @@ ANALYZE rb_users;
 ANALYZE rb_posts;
 ANALYZE rb_comments;
 
+-- A serial build keeps the worker-count warning deterministic.
+SET max_parallel_maintenance_workers TO 0;
+
+CREATE INDEX rb_users_idx ON rb_users USING paradedb (id, display_name, reputation)
+WITH (key_field='id', target_segment_count=8, partition_by='id', text_fields='{"display_name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"reputation":{"fast":true}}');
+CREATE INDEX rb_posts_idx ON rb_posts USING paradedb (id, owner_user_id, title)
+WITH (key_field='id', target_segment_count=8, partition_by='id,owner_user_id', text_fields='{"title":{"fast":true}}', numeric_fields='{"owner_user_id":{"fast":true}}');
+CREATE INDEX rb_comments_idx ON rb_comments USING paradedb (id, post_id, text, score)
+WITH (key_field='id', target_segment_count=8, partition_by='post_id', text_fields='{"text":{"fast":true}}', numeric_fields='{"post_id":{"fast":true},"score":{"fast":true}}');
+
 CREATE TABLE rb_outcome (line text);
 SET statement_timeout = '120s';
 
 -- Whether the co-partitioned join reports its range layout or a range-satisfied
--- hash up to the gather depends on the sampled split points, so only the
+-- hash up to the gather depends on the split points, so only the
 -- outcome is asserted: the query must neither error nor hang. On the range
 -- outcome, the run fails without the repartition under the gather.
 DO $$

@@ -452,15 +452,19 @@ impl BM25IndexOptions {
     }
 
     pub fn target_segment_count(&self) -> usize {
+        self.explicit_target_segment_count()
+            .unwrap_or(crate::available_parallelism().max(MIN_TARGET_SEGMENT_COUNT))
+    }
+
+    /// The target the user asked for, by GUC or reloption, or `None` when the default applies.
+    pub fn explicit_target_segment_count(&self) -> Option<usize> {
         let global_tsc = global_target_segment_count();
         if global_tsc != 0 {
-            return global_tsc as usize;
+            return Some(global_tsc as usize);
         }
-
         self.options_data()
             .target_segment_count()
             .map(|count| count as usize)
-            .unwrap_or(crate::available_parallelism().max(MIN_TARGET_SEGMENT_COUNT))
     }
 
     pub fn mutable_segment_rows(&self) -> Option<NonZeroUsize> {

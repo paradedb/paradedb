@@ -355,9 +355,9 @@ mod tests {
     }
 
     /// An insert after the build lands in a mutable segment, which carries no statistics at all.
-    /// The grid stays, and every partition keeps the new segment.
+    /// The split points stay, and every partition keeps the new segment.
     #[pg_test]
-    fn insert_after_build_keeps_the_persisted_grid() {
+    fn insert_after_build_keeps_the_split_points() {
         Spi::run(
             r#"
             CREATE TABLE stats_grow (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
@@ -419,9 +419,9 @@ mod tests {
     }
 
     /// Without a mutable segment, a late insert lands in an immutable segment that carries
-    /// empirical statistics but no box. The grid stays and the segment prunes on its own range.
+    /// empirical statistics but no box. The split points stay and the segment prunes on its own range.
     /// A merge that takes it in keeps the statistics and drops the box, and once no segment has a
-    /// box the grid is gone.
+    /// box the split points are gone.
     #[pg_test]
     fn unboxed_segment_prunes_on_empirical_stats_and_merges_without_a_box() {
         Spi::run(

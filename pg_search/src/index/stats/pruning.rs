@@ -14,8 +14,9 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-//! What the planner and the executor take from the component: the split points a partitioned
-//! build stamped, and the segments a range partition has to search.
+
+//! What range partitioning takes from the component: the split points a partitioned build
+//! recorded, and the segments a partition has to search.
 
 use std::cmp::Ordering;
 use std::ops::Bound;
@@ -32,9 +33,9 @@ use crate::postgres::types::is_datetime_type;
 use crate::scan::range_partitioning::RangePartitioning;
 use crate::schema::SearchFieldType;
 
-/// The split points a partitioned build stamped on the index: the edges of every box a visible
-/// segment carries for `partition_by`. `None` when no segment carries one. A segment without a
-/// box does not veto the grid, since its own statistics place it at execution.
+/// Split points for `partition_by`, collected from the boxes of the visible segments: every
+/// box edge is a split point. `None` if no segment has a box. A segment without a box is not
+/// a problem: at execution, it is kept or skipped on its own statistics.
 pub(crate) fn persisted_split_points(
     indexrel: &PgSearchRelation,
     partition_by: &str,

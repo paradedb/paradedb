@@ -14,7 +14,18 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
+
 //! The tantivy side of the component: what a segment write and a merge put in the file.
+//!
+//! One `CompositeFile` per segment, keyed by `(Field, idx)`. `idx = 0` holds the empirical
+//! `min`/`max` of a fast field, `idx = 1` the box a partitioned build assigned to the segment's
+//! partition, and `idx = 2` stays reserved for sketches. The footer maps each entry to a byte
+//! range, so a reader touches only the entries it asks for.
+//!
+//! The two entries have different lifecycles. Empirical stats come from the segment's own
+//! `.fast` file, so every immutable segment gets them, at write and at merge. Boxes come from
+//! the build that routed the rows; a merge keeps them only when every source has one, widened
+//! to the union box, which still holds every row.
 
 use std::any::Any;
 use std::io::Write;
@@ -33,7 +44,7 @@ use tantivy::{
 
 use super::{
     EMPIRICAL_IDX, EmpiricalStats, EmpiricalWire, LOGICAL_IDX, LogicalBounds, LogicalBoundsByField,
-    LogicalWire, STATS_EXT, SegmentStats, stats_component,
+    LogicalWire, STATS_EXT, SegmentStats,
 };
 use crate::api::HashMap;
 use crate::postgres::datetime::PostgresDateTime;
@@ -96,6 +107,10 @@ impl PluginWriter for StatsWriter {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
+}
+
+pub(super) fn stats_component() -> SegmentComponent {
+    SegmentComponent::Custom(STATS_EXT.to_string())
 }
 
 fn encode<T: Serialize>(value: &T) -> tantivy::Result<Vec<u8>> {

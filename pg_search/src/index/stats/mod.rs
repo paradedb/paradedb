@@ -14,18 +14,15 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
+
 //! Per-segment statistics: the `.stats` component.
 //!
-//! One `CompositeFile` per segment, keyed by `(Field, idx)`. `idx = 0` holds the empirical
-//! `min`/`max` of a fast field, `idx = 1` the logical box a partitioned build assigned to the
-//! segment's partition, and `idx = 2` stays reserved for sketches. The footer maps each entry to a
-//! byte range, so a reader touches only the entries it asks for. A missing file or entry means
-//! "unknown", and a consumer must keep the segment.
+//! Every immutable segment carries two facts about each fast field: the empirical `min` and
+//! `max` of the values it holds, and, after a partitioned build, the box the build assigned it.
+//! A missing file or entry means "unknown", and a consumer must keep the segment.
 //!
-//! The two entries have different lifecycles. Empirical stats come from the segment's own
-//! `.fast` file, so every immutable segment gets them, at write and at merge. Logical bounds come
-//! from the build that routed the rows; a merge keeps them only when every source has them,
-//! widened to the union box, which still holds every row.
+//! `plugin` writes and merges the file, `pruning` reads it for range partitioning. The types
+//! and the reader here are shared by both.
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
@@ -36,7 +33,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tantivy::directory::error::OpenReadError;
 use tantivy::directory::{CompositeFile, FileSlice};
-use tantivy::index::{Segment, SegmentComponent, SegmentReader};
+use tantivy::index::{Segment, SegmentReader};
 use tantivy::schema::Field;
 
 use crate::postgres::datetime::PostgresDateTime;
@@ -48,6 +45,7 @@ mod pruning;
 #[cfg(any(test, feature = "pg_test"))]
 mod tests;
 
+use plugin::stats_component;
 pub(crate) use plugin::{StatsWriter, register};
 pub(crate) use pruning::{persisted_split_points, segments_for_partition};
 
@@ -299,10 +297,6 @@ impl EmpiricalStats {
             nullable: self.nullable,
         })
     }
-}
-
-fn stats_component() -> SegmentComponent {
-    SegmentComponent::Custom(STATS_EXT.to_string())
 }
 
 /// A segment's `.stats` file, opened on its footer. Entries are decoded on request.

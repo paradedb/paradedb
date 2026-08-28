@@ -1589,9 +1589,13 @@ mod plan {
             return 1;
         }
 
-        // If the entire heap fits inside the smallest allowed Tantivy segment memory budget of 15MB, use 1 worker
+        // If the entire heap fits inside the smallest allowed Tantivy segment memory budget of 15MB, use 1 worker.
+        // That floor sizes the default. A target the user set is honored past it: a small table
+        // gets the partitions it was asked for, which is also how a test gets a partitioned index.
         let byte_size = plan::estimate_heap_byte_size(heaprel);
-        if byte_size <= 15 * 1024 * 1024 {
+        if byte_size <= 15 * 1024 * 1024
+            && indexrel.options().explicit_target_segment_count().is_none()
+        {
             pgrx::debug1!(
                 "heap byte size ({byte_size}) is less than 15MB, creating a single segment"
             );

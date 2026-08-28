@@ -533,6 +533,77 @@ EXECUTE radius_search(0);
 
 DEALLOCATE radius_search;
 RESET plan_cache_mode;
+-- BitmapAnd: both predicates are indexable, so both bitmaps are intersected and
+-- both filters move to recheck. Wide rows make the heap fetch expensive enough
+-- that the second bitmap pays for itself.
+CREATE TABLE wide_providers (
+    id BIGINT, description TEXT, cat_a TEXT, cat_b TEXT, filler TEXT
+);
+ALTER TABLE wide_providers ALTER COLUMN filler SET STORAGE PLAIN;
+INSERT INTO wide_providers
+SELECT i, 'cardiology notes ' || i, 'a' || (i % 10), 'b' || (i % 10), repeat('x', 1400)
+FROM generate_series(0, 4999) i;
+CREATE INDEX wide_paradedb ON wide_providers
+    USING bm25 (id, description) WITH (key_field = 'id');
+CREATE INDEX wide_cat_a ON wide_providers (cat_a);
+CREATE INDEX wide_cat_b ON wide_providers (cat_b);
+VACUUM ANALYZE wide_providers;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM wide_providers
+WHERE description === 'cardiology' AND cat_a = 'a3' AND cat_b = 'b3'
+ORDER BY id LIMIT 5;
+                                                                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on wide_providers
+         Table: wide_providers
+         Index: wide_paradedb
+         Bitmap Intersection: wide_cat_b, wide_cat_a
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: id asc
+            TopK Limit: 5
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(cat_a = 'a3'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(cat_b = 'b3'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":1}}]}}
+         ->  BitmapAnd
+               ->  Bitmap Index Scan on wide_cat_b
+                     Index Cond: (cat_b = 'b3'::text)
+               ->  Bitmap Index Scan on wide_cat_a
+                     Index Cond: (cat_a = 'a3'::text)
+(15 rows)
+
+SELECT count(*) AS bitmap_and_count FROM (
+    SELECT id FROM wide_providers
+    WHERE description === 'cardiology' AND cat_a = 'a3' AND cat_b = 'b3') q;
+ bitmap_and_count 
+------------------
+              500
+(1 row)
+
+-- Rescan with a BitmapAnd child: freed and rebuilt per outer row, re-seeding
+-- through the BitmapAnd into its first leaf.
+SELECT v.k, s.n FROM (VALUES ('a3'), ('a7')) v(k)
+CROSS JOIN LATERAL (
+    SELECT count(*) AS n FROM wide_providers
+    WHERE description === 'cardiology' AND cat_a = v.k AND cat_b = 'b3') s
+ORDER BY v.k;
+ k  |  n  
+----+-----
+ a3 | 500
+ a7 |   0
+(2 rows)
+
+-- Parity with the same predicates and no bitmap source available.
+DROP INDEX wide_cat_a;
+DROP INDEX wide_cat_b;
+SELECT count(*) AS bitmap_and_count_no_bitmap FROM (
+    SELECT id FROM wide_providers
+    WHERE description === 'cardiology' AND cat_a = 'a3' AND cat_b = 'b3') q;
+ bitmap_and_count_no_bitmap 
+----------------------------
+                        500
+(1 row)
+
+DROP TABLE wide_providers CASCADE;
 -- ============================================================================
 -- REJECTED SHAPES
 -- Correct refusals: no Bitmap Intersection, results identical to heap filtering.
@@ -612,6 +683,31 @@ SELECT count(*) AS saop_all_count FROM (
 ----------------
             200
 (1 row)
+
+-- Cost gate: both indexes qualify, but the second bitmap only sees what the first
+-- one kept, and on this narrow table those rows are worth less than the index scan
+-- they cost. Only the best net bitmap is used.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM providers
+WHERE description === 'cardiology'
+  AND specialty LIKE 'specialty13%'
+  AND service_area && circle(point(50, 50), 1)
+ORDER BY id LIMIT 5;
+                                                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on providers
+         Table: providers
+         Index: providers_paradedb
+         Bitmap Intersection: providers_service_area
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: id asc
+            TopK Limit: 5
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[{"heap_filter":"(specialty ~~ 'specialty13%'::text)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(service_area && '<(50,50),1>'::circle)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
+         ->  Bitmap Index Scan on providers_service_area
+               Index Cond: (service_area && '<(50,50),1>'::circle)
+(12 rows)
 
 -- Cost gate: an unselective bitmap is not worth building.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -790,29 +886,6 @@ ROLLBACK;
 -- UNSUPPORTED / TODO SHAPES
 -- Should harvest someday; these goldens flip when the feature lands.
 -- ============================================================================
--- TODO BitmapAnd: both indexes qualify; today only the best-net bitmap is used.
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id FROM providers
-WHERE description === 'cardiology'
-  AND specialty LIKE 'specialty13%'
-  AND service_area && circle(point(50, 50), 1)
-ORDER BY id LIMIT 5;
-                                                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Custom Scan (ParadeDB Base Scan) on providers
-         Table: providers
-         Index: providers_paradedb
-         Bitmap Intersection: providers_service_area
-         Exec Method: TopKScanExecState
-         Scores: false
-            TopK Order By: id asc
-            TopK Limit: 5
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[{"heap_filter":"(specialty ~~ 'specialty13%'::text)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(service_area && '<(50,50),1>'::circle)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
-         ->  Bitmap Index Scan on providers_service_area
-               Index Cond: (service_area && '<(50,50),1>'::circle)
-(12 rows)
-
 -- TODO BitmapOr: a fully indexable disjunction; today it stays a heap filter.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM providers

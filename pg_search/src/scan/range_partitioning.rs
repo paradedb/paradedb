@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::ops::Bound;
 use std::sync::Arc;
 
 use arrow_schema::{SchemaRef, SortOptions};
@@ -43,11 +44,26 @@ pub struct RangePartitioning {
     pub split_points: Vec<PdbOwnedValue>,
 }
 
+/// The rows one partition holds: a half-open value range, and whether the NULLs are among them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PartitionRange {
+    pub lower: Bound<PdbOwnedValue>,
+    pub upper: Bound<PdbOwnedValue>,
+    pub includes_nulls: bool,
+}
+
 impl RangePartitioning {
+    /// The partition a row with a NULL partition field lands in. The kd-tree of a partitioned
+    /// build sends NULLs below every split, so its lowest partition is this one, and so is the
+    /// first partition of DataFusion's `NULLS FIRST` range ordering. Every consumer of the NULL
+    /// rule reads it from here.
+    pub const NULL_PARTITION: usize = 0;
+
     /// Returns the static boundary constraint for the given partition as a single RangeQuery.
     ///
     /// **Consumer Caveats**:
-    /// - A row whose partition field is NULL will be deterministically routed to partition 0.
+    /// - A row whose partition field is NULL will be deterministically routed to
+    ///   [`Self::NULL_PARTITION`].
     /// - A multi-valued field can fall into multiple partition ranges and duplicate the row. This is statically prevented during index configuration for `partition_by` columns.
     pub fn partition_bounds(&self, partition: usize) -> SearchQueryInput {
         if self.split_points.is_empty() {
@@ -90,8 +106,7 @@ impl RangePartitioning {
             }
         };
 
-        // NULLs fall into partition 0
-        if partition == 0 {
+        if partition == Self::NULL_PARTITION {
             let null_query = SearchQueryInput::Boolean {
                 must: vec![],
                 should: vec![],
@@ -117,15 +132,10 @@ impl RangePartitioning {
         }
     }
 
-    /// The value range of `partition` as bounds, or `None` when the partition is not a range:
-    /// no split points at all (every row), or a NULL upper split (no row).
-    pub fn partition_range(
-        &self,
-        partition: usize,
-    ) -> Option<(
-        std::ops::Bound<PdbOwnedValue>,
-        std::ops::Bound<PdbOwnedValue>,
-    )> {
+    /// The rows of `partition`, or `None` when the partition is not a range: no split points
+    /// at all (every row), or a NULL upper split (no row). The same rows
+    /// [`Self::partition_bounds`] selects.
+    pub fn partition_range(&self, partition: usize) -> Option<PartitionRange> {
         if self.split_points.is_empty() {
             return None;
         }
@@ -133,15 +143,19 @@ impl RangePartitioning {
             .checked_sub(1)
             .and_then(|i| self.split_points.get(i))
         {
-            None | Some(PdbOwnedValue::Null) => std::ops::Bound::Unbounded,
-            Some(val) => std::ops::Bound::Included(val.clone()),
+            None | Some(PdbOwnedValue::Null) => Bound::Unbounded,
+            Some(val) => Bound::Included(val.clone()),
         };
         let upper = match self.split_points.get(partition) {
             Some(PdbOwnedValue::Null) => return None,
-            Some(val) => std::ops::Bound::Excluded(val.clone()),
-            None => std::ops::Bound::Unbounded,
+            Some(val) => Bound::Excluded(val.clone()),
+            None => Bound::Unbounded,
         };
-        Some((lower, upper))
+        Some(PartitionRange {
+            lower,
+            upper,
+            includes_nulls: partition == Self::NULL_PARTITION,
+        })
     }
 
     /// Translates these boundaries into a DataFusion [`Partitioning::Range`] declaration
@@ -167,9 +181,9 @@ impl RangePartitioning {
             })
             .collect::<Option<Vec<_>>>()?;
 
-        // `partition_bounds` routes NULLs to partition 0 and uses lower-inclusive,
-        // upper-exclusive interior ranges, which is exactly DataFusion's split-point
-        // convention under an ascending NULLS FIRST ordering.
+        // `partition_bounds` routes NULLs to `NULL_PARTITION`, the first one, and uses
+        // lower-inclusive, upper-exclusive interior ranges, which is exactly DataFusion's
+        // split-point convention under an ascending NULLS FIRST ordering.
         let sort_expr = PhysicalSortExpr {
             expr: Arc::new(Column::new(self.partition_by.as_ref(), col_idx)),
             options: SortOptions {

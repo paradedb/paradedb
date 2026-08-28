@@ -83,7 +83,7 @@ pub(crate) fn segments_for_partition(
     partition: usize,
 ) -> Vec<SegmentId> {
     let all = reader.segment_ids();
-    let Some((lower, upper)) = boundaries.partition_range(partition) else {
+    let Some(range) = boundaries.partition_range(partition) else {
         return all;
     };
     let field_name = boundaries.partition_by.as_ref();
@@ -101,8 +101,6 @@ pub(crate) fn segments_for_partition(
         Some(SearchFieldType::I64(oid)) => is_datetime_type(oid),
         _ => false,
     };
-    // NULLs route to partition 0, so it keeps every segment that may hold one.
-    let catches_nulls = partition == 0;
 
     reader
         .segment_readers()
@@ -113,8 +111,8 @@ pub(crate) fn segments_for_partition(
             };
             match stats.logical(field) {
                 Ok(Some(bounds)) => {
-                    return (catches_nulls && bounds.may_hold_nulls())
-                        || bounds.intersects(&lower, &upper);
+                    return (range.includes_nulls && bounds.may_hold_nulls())
+                        || bounds.intersects(&range.lower, &range.upper);
                 }
                 Ok(None) => {}
                 Err(_) => return true,
@@ -130,7 +128,8 @@ pub(crate) fn segments_for_partition(
             } else {
                 empirical
             };
-            (catches_nulls && empirical.nullable) || empirical.intersects(&lower, &upper)
+            (range.includes_nulls && empirical.nullable)
+                || empirical.intersects(&range.lower, &range.upper)
         })
         .map(SegmentReader::segment_id)
         .collect()

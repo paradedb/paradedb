@@ -392,7 +392,7 @@ impl BitmapPlanner {
                     continue;
                 }
                 let Some(bm25_row_estimate) = self.bm25_row_estimate else {
-                    return Some((self.heap_path(ipath), self.bitmap_build_cost(ipath)));
+                    return Some((self.heap_path(ipath.cast()), self.bitmap_build_cost(ipath)));
                 };
                 let net = self.ledger(ipath, bm25_row_estimate);
                 pgrx::debug1!(
@@ -404,33 +404,31 @@ impl BitmapPlanner {
                     best = Some((ipath, net));
                 }
             }
-            best.map(|(ipath, _)| (self.heap_path(ipath), self.bitmap_build_cost(ipath)))
+            best.map(|(ipath, _)| (self.heap_path(ipath.cast()), self.bitmap_build_cost(ipath)))
         }
+    }
+
+    /// Estimated number of TIDs this index's bitmap holds.
+    unsafe fn bitmap_rows(&self, ipath: *mut pg_sys::IndexPath) -> f64 {
+        unsafe { selectivity(ipath) * (*self.rel).tuples.max(1.0) }
     }
 
     /// Cost of producing the probe-able set: the index scan that builds the
     /// TIDBitmap plus converting its entries.
     unsafe fn bitmap_build_cost(&self, ipath: *mut pg_sys::IndexPath) -> f64 {
         unsafe {
-            let bitmap_rows =
-                (*ipath).indexselectivity.clamp(0.0, 1.0) * (*self.rel).tuples.max(1.0);
             let cpu_operator_cost = *std::ptr::addr_of!(pg_sys::cpu_operator_cost);
-            (*ipath).indextotalcost + bitmap_rows * 0.1 * cpu_operator_cost
+            (*ipath).indextotalcost + self.bitmap_rows(ipath) * 0.1 * cpu_operator_cost
         }
     }
 
-    /// Net benefit of probing this index's bitmap ahead of the heap filters.
-    ///
-    /// Benefit: each ParadeDB-index row the bitmap rejects (the non-selected fraction)
-    /// skips its heap fetch and all heap filter evaluation.
-    ///
-    //  Cost: building the bitmap (`indextotalcost`) plus converting its entries into
-    // the probe-able set.
-    unsafe fn ledger(&self, ipath: *mut pg_sys::IndexPath, bm25_row_estimate: f64) -> f64 {
+    /// Cost avoided for every row a bitmap rejects: the heap fetch it skips plus each
+    /// heap filter it no longer evaluates. Independent of which index produced the
+    /// bitmap, so callers scoring several indexes hoist it out of their loop.
+    unsafe fn per_row_saved(&self) -> f64 {
         unsafe {
             let tuples = (*self.rel).tuples.max(1.0);
             let pages = (*self.rel).pages as f64;
-            let sel = (*ipath).indexselectivity.clamp(0.0, 1.0);
 
             let cpu_tuple_cost = *std::ptr::addr_of!(pg_sys::cpu_tuple_cost);
             let random_page_cost = *std::ptr::addr_of!(pg_sys::random_page_cost);
@@ -442,9 +440,20 @@ impl BitmapPlanner {
             }
             pg_sys::cost_qual_eval(&mut qual_cost, exprs.into_pg(), self.root);
 
-            let per_row_saved =
-                cpu_tuple_cost + qual_cost.per_tuple + (pages / tuples) * random_page_cost;
-            let benefit = bm25_row_estimate * (1.0 - sel) * per_row_saved;
+            cpu_tuple_cost + qual_cost.per_tuple + (pages / tuples) * random_page_cost
+        }
+    }
+
+    /// Net benefit of probing this index's bitmap ahead of the heap filters.
+    ///
+    /// Benefit: each ParadeDB-index row the bitmap rejects (the non-selected fraction)
+    /// skips its heap fetch and all heap filter evaluation.
+    ///
+    /// Cost: building the bitmap (`indextotalcost`) plus converting its entries into
+    /// the probe-able set.
+    unsafe fn ledger(&self, ipath: *mut pg_sys::IndexPath, bm25_row_estimate: f64) -> f64 {
+        unsafe {
+            let benefit = bm25_row_estimate * (1.0 - selectivity(ipath)) * self.per_row_saved();
             benefit - self.bitmap_build_cost(ipath)
         }
     }
@@ -453,19 +462,17 @@ impl BitmapPlanner {
     /// pages, which cannot reject anything.
     unsafe fn overflows_work_mem(&self, ipath: *mut pg_sys::IndexPath) -> bool {
         unsafe {
-            let bitmap_rows =
-                (*ipath).indexselectivity.clamp(0.0, 1.0) * (*self.rel).tuples.max(1.0);
             let work_mem_kb = *std::ptr::addr_of!(pg_sys::work_mem) as f64;
-            bitmap_rows * 8.0 > work_mem_kb * 1024.0
+            self.bitmap_rows(ipath) * 8.0 > work_mem_kb * 1024.0
         }
     }
 
-    unsafe fn heap_path(&self, ipath: *mut pg_sys::IndexPath) -> *mut pg_sys::BitmapHeapPath {
+    unsafe fn heap_path(&self, bitmapqual: *mut pg_sys::Path) -> *mut pg_sys::BitmapHeapPath {
         unsafe {
             pg_sys::create_bitmap_heap_path(
                 self.root,
                 self.rel,
-                ipath.cast(),
+                bitmapqual,
                 (*self.rel).lateral_relids,
                 1.0,
                 0,
@@ -747,6 +754,11 @@ impl IndexClause {
     fn into_pg(self) -> *mut pg_sys::IndexClause {
         self.0
     }
+}
+
+/// An index path's estimated selectivity, clamped to a usable fraction.
+unsafe fn selectivity(ipath: *mut pg_sys::IndexPath) -> f64 {
+    unsafe { (*ipath).indexselectivity.clamp(0.0, 1.0) }
 }
 
 unsafe fn strip_relabel(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {

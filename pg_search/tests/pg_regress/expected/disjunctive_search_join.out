@@ -462,8 +462,8 @@ FROM work_items w
 JOIN researchers r ON w.researcher_id = r.id
 JOIN organisations o ON r.org_id = o.id
 WHERE (w.abstract @@@ 'compaction' OR r.bio @@@ 'compiler' OR o.location @@@ 'Munich');
-                                                                                                    QUERY PLAN                                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: pdb.agg_fn('COUNT(*)'::text)
    Backend: DataFusion
@@ -471,16 +471,15 @@ WHERE (w.abstract @@@ 'compaction' OR r.bio @@@ 'compiler' OR o.location @@@ 'Mu
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0]
-     :   VisibilityFilterExec: tables=[w, r, o]
-     :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, org_id@1)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[ctid_0@6, ctid_1@7, ctid_2@2]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, org_id@1)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[]
+     :     CooperativeExec
+     :       PgSearchScan: table=o, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"location","query_string":"Munich","lenient":null,"conjunction_mode":null}}}}
+     :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, researcher_id@0)], projection=[__w_0_tag_0@4, org_id@1, __r_1_tag_0@2]
      :       CooperativeExec
-     :         PgSearchScan: table=o, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"location","query_string":"Munich","lenient":null,"conjunction_mode":null}}}}
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, researcher_id@0)], projection=[__w_0_tag_0@5, org_id@1, __r_1_tag_0@2, ctid_0@6, ctid_1@3]
-     :         CooperativeExec
-     :           PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"compiler","lenient":null,"conjunction_mode":null}}}}
-     :         CooperativeExec
-     :           PgSearchScan: table=w, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract","query_string":"compaction","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+     :         PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"compiler","lenient":null,"conjunction_mode":null}}}}
+     :       CooperativeExec
+     :         PgSearchScan: table=w, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract","query_string":"compaction","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
 
 SELECT count(*)
 FROM work_items w

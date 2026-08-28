@@ -330,7 +330,7 @@ LIMIT 10;
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: p SEMI ((r INNER c) SEMI d)
+         Relation Tree: p SEMI ((c INNER r) SEMI d)
          Join Cond: p.company_id = c.id, c.id = d.company_id, c.region_id = r.id
          Limit: 10
          Order By: p.id asc
@@ -340,9 +340,9 @@ LIMIT 10;
            :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[ctid_0@0, id@2]
            :       CooperativeExec
            :         PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
-           :       VisibilityFilterExec: tables=[r, c]
+           :       VisibilityFilterExec: tables=[c, r]
            :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
-           :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, region_id@1)], projection=[id@2, ctid_1@1, ctid_2@4]
+           :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, region_id@1)], projection=[id@2, ctid_1@4, ctid_2@1]
            :             CooperativeExec
            :               PgSearchScan: table=r, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"America","lenient":null,"conjunction_mode":null}}}}
            :             CooperativeExec

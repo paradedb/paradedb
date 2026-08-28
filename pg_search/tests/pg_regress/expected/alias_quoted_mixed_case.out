@@ -62,21 +62,20 @@ FROM repro_5525_parent AS "Parent"
 JOIN repro_5525_child  AS "Child"
   ON "Parent"."child_id" = "Child"."id" AND "Child"."state" = 'active'
 WHERE "Parent"."owner" = 'user-1';
-                                                         QUERY PLAN                                                         
-----------------------------------------------------------------------------------------------------------------------------
+                                                        QUERY PLAN                                                        
+--------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: repro_5525_parent_idx (Parent), repro_5525_child_idx (Child)
    Aggregates: COUNT(id)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[count(parent_0.id) as agg_0]
-     :   VisibilityFilterExec: tables=[Parent, Child]
-     :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, child_id@1)], projection=[id@2, ctid_0@4, ctid_1@1]
-     :       CooperativeExec
-     :         PgSearchScan: table=Child, segments=1, query={"term":{"field":"state","value":"active"}}
-     :       CooperativeExec
-     :         PgSearchScan: table=Parent, segments=1, dynamic_filters=1, query={"term":{"field":"owner","value":"user-1"}}
-(12 rows)
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, child_id@1)], projection=[id@1]
+     :     CooperativeExec
+     :       PgSearchScan: table=Child, segments=1, query={"term":{"field":"state","value":"active"}}
+     :     CooperativeExec
+     :       PgSearchScan: table=Parent, segments=1, dynamic_filters=1, query={"term":{"field":"owner","value":"user-1"}}
+(11 rows)
 
 SELECT count("Parent"."id")
 FROM repro_5525_parent AS "Parent"
@@ -256,8 +255,8 @@ JOIN repro_5525_child  AS "456"
 GROUP BY "123"."owner"
 ORDER BY "123"."owner"
 LIMIT 5;
-                                                                     QUERY PLAN                                                                     
-----------------------------------------------------------------------------------------------------------------------------------------------------
+                                                         QUERY PLAN                                                         
+----------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: "123".owner
@@ -269,14 +268,12 @@ LIMIT 5;
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=5), expr=[owner@0 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[owner@1 as owner], aggr=[count(_123_0.id) as agg_0]
-                 :     TantivyLookupExec: decode=[owner]
-                 :       VisibilityFilterExec: tables=[123, 456]
-                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, child_id@1)], projection=[id@2, owner@4, ctid_0@5, ctid_1@1]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=456, segments=1, query={"term":{"field":"state","value":"active"}}
-                 :           CooperativeExec
-                 :             PgSearchScan: table=123, segments=1, dynamic_filters=2, query="all"
-(18 rows)
+                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, child_id@1)], projection=[id@1, owner@3]
+                 :       CooperativeExec
+                 :         PgSearchScan: table=456, segments=1, query={"term":{"field":"state","value":"active"}}
+                 :       CooperativeExec
+                 :         PgSearchScan: table=123, segments=1, dynamic_filters=2, query="all"
+(16 rows)
 
 SELECT "123"."owner", count("123"."id")
 FROM repro_5525_parent AS "123"

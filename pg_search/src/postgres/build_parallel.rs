@@ -1590,12 +1590,15 @@ mod plan {
         }
 
         // If the entire heap fits inside the smallest allowed Tantivy segment memory budget of 15MB, use 1 worker.
-        // That floor sizes the default. A target the user set is honored past it: a small table
-        // gets the partitions it was asked for, which is also how a test gets a partitioned index.
+        // A partitioned build with a target the user set is honored past that floor: its
+        // partition count comes from the kd-tree, not from the workers, so a small table gets
+        // the partitions it asked for. A plain build cuts on the worker layout instead, and
+        // its count under the floor would depend on the machine.
         let byte_size = plan::estimate_heap_byte_size(heaprel);
-        if byte_size <= 15 * 1024 * 1024
-            && indexrel.options().explicit_target_segment_count().is_none()
-        {
+        let options = indexrel.options();
+        let explicit_partitioned =
+            options.explicit_target_segment_count().is_some() && !options.partition_by().is_empty();
+        if byte_size <= 15 * 1024 * 1024 && !explicit_partitioned {
             pgrx::debug1!(
                 "heap byte size ({byte_size}) is less than 15MB, creating a single segment"
             );
@@ -1808,9 +1811,8 @@ mod tests {
     /// them.
     #[pg_test]
     fn test_partitioned_build_segments_and_docs() {
-        // The heap must exceed the 15MB floor in `adjusted_target_segment_count`, or the target
-        // collapses to a single partition. A ~900-byte name over 20k rows clears it while staying
-        // under the TOAST threshold. `tenant_id` is scattered across the heap.
+        // A ~900-byte name over 20k rows gives every partition a real share of the heap while
+        // staying under the TOAST threshold. `tenant_id` is scattered across the heap.
         Spi::run(
             r#"
             CREATE TABLE partitioned_build (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
@@ -2171,8 +2173,8 @@ mod tests {
     /// [`test_partitioned_build_partition_seen_by_one_participant`] covers the other extreme.
     #[pg_test]
     fn test_partitioned_build_result_parity() {
-        // ~950-byte rows over 20k rows clear the 15MB floor in `adjusted_target_segment_count`
-        // so the target of 8 yields real partitions, while staying under the TOAST threshold.
+        // ~950-byte rows over 20k rows give each of the 8 partitions a real share of the heap
+        // while staying under the TOAST threshold.
         Spi::run(
             r#"
             CREATE TABLE partitioned_parity (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, message TEXT);

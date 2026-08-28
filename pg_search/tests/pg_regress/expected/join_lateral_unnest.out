@@ -1,0 +1,634 @@
+-- =====================================================================
+-- Tests for JoinScan and AggregateScan pushdown with LATERAL unnest
+-- over multi-table joins.
+--
+-- Focuses on non-aggregate JoinScan queries with LATERAL unnest, with
+-- one representative facet aggregate test.
+--
+-- Exercises:
+-- 1. 2-table INNER JOIN + CROSS JOIN LATERAL unnest + LIMIT (JoinScan)
+-- 2. 3-table JOIN + CROSS JOIN LATERAL unnest (Scileads join shape) + LIMIT (JoinScan)
+-- 3. LEFT JOIN LATERAL unnest (preserving NULL and empty array rows) (JoinScan)
+-- 4. Multiple CROSS JOIN LATERAL unnests across different joined tables (JoinScan)
+-- 5. Filtering on the unnested column in WHERE (JoinScan)
+-- 6. Facet aggregation (COUNT DISTINCT) over unnested array on 3-table join (AggregateScan)
+-- =====================================================================
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET max_parallel_workers_per_gather = 0;
+SET paradedb.enable_aggregate_custom_scan TO on;
+SET paradedb.enable_range_partitioned_join TO off;
+-- =====================================================================
+-- Test Data Setup
+-- =====================================================================
+CREATE TABLE jlu_products (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    categories TEXT[],
+    price FLOAT
+);
+CREATE TABLE jlu_brands (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER,
+    brand_name TEXT,
+    tags TEXT[]
+);
+CREATE TABLE jlu_stores (
+    id SERIAL PRIMARY KEY,
+    brand_id INTEGER,
+    store_name TEXT,
+    regions TEXT[]
+);
+INSERT INTO jlu_products (title, categories, price) VALUES
+    ('Flagship Smartphone Pro', ARRAY['electronics', 'mobile'], 999.00),
+    ('Noise Canceling Headphones', ARRAY['electronics', 'audio'], 299.00),
+    ('Smart TV 4K OLED', ARRAY['electronics', 'video', 'home'], 1499.00),
+    ('Ergonomic Office Chair', ARRAY['furniture', 'office'], 350.00),
+    ('Mechanical Keyboard RGB', ARRAY['electronics', 'accessories'], 120.00),
+    ('Mystery Item No Category', NULL, 50.00),
+    ('Sample Item Empty Category', ARRAY[]::TEXT[], 25.00);
+INSERT INTO jlu_brands (product_id, brand_name, tags) VALUES
+    (1, 'TechCorp Global', ARRAY['premium', 'bestseller']),
+    (2, 'SoundMaster Audio', ARRAY['audio_gear', 'wireless']),
+    (3, 'VisionPlus Electronics', ARRAY['home_theater', 'bestseller']),
+    (4, 'ErgoWorks Design', ARRAY['ergonomic']),
+    (5, 'KeyPro Gaming', ARRAY['gaming', 'peripherals']),
+    (6, 'GenericBrand', NULL),
+    (7, 'ClearanceBrand', ARRAY[]::TEXT[]);
+INSERT INTO jlu_stores (brand_id, store_name, regions) VALUES
+    (1, 'TechCorp Flagship NYC', ARRAY['north_america', 'east_coast']),
+    (2, 'SoundMaster London', ARRAY['europe', 'uk']),
+    (3, 'VisionPlus Tokyo', ARRAY['asia', 'japan']),
+    (4, 'ErgoWorks Berlin', ARRAY['europe', 'germany']),
+    (5, 'KeyPro Online', ARRAY['global']);
+-- =====================================================================
+-- BM25 Index Creation with Array Fast Fields
+-- =====================================================================
+CREATE INDEX jlu_products_idx ON jlu_products
+USING paradedb (id, title, categories, price)
+WITH (
+    key_field='id',
+    text_fields='{"title": {}, "categories": {"fast": true, "tokenizer": {"type": "keyword"}}}',
+    numeric_fields='{"price": {"fast": true}}'
+);
+CREATE INDEX jlu_brands_idx ON jlu_brands
+USING paradedb (id, product_id, brand_name, tags)
+WITH (
+    key_field='id',
+    numeric_fields='{"product_id": {"fast": true}}',
+    text_fields='{"brand_name": {}, "tags": {"fast": true, "tokenizer": {"type": "keyword"}}}'
+);
+CREATE INDEX jlu_stores_idx ON jlu_stores
+USING paradedb (id, brand_id, store_name, regions)
+WITH (
+    key_field='id',
+    numeric_fields='{"brand_id": {"fast": true}}',
+    text_fields='{"store_name": {}, "regions": {"fast": true, "tokenizer": {"type": "keyword"}}}'
+);
+-- =====================================================================
+-- TEST 1: Basic 2-table INNER JOIN with CROSS JOIN LATERAL unnest + LIMIT
+-- =====================================================================
+EXPLAIN (COSTS OFF)
+SELECT
+    p.id,
+    p.title,
+    b.brand_name,
+    c AS category
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+CROSS JOIN LATERAL unnest(p.categories) AS c
+WHERE p.title @@@ 'Smart' OR b.brand_name @@@ 'Electronics'
+ORDER BY p.id, c
+LIMIT 5;
+WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: b, p)
+                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: p.id, c.c
+         ->  Nested Loop
+               ->  Hash Join
+                     Hash Cond: (b.product_id = p.id)
+                     Join Filter: ((p.id @@@ '{"with_index":{"oid":14735076,"query":{"parse_with_field":{"field":"title","query_string":"Smart","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (b.id @@@ '{"with_index":{"oid":14735077,"query":{"parse_with_field":{"field":"brand_name","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
+                     ->  Seq Scan on jlu_brands b
+                     ->  Hash
+                           ->  Seq Scan on jlu_products p
+               ->  Function Scan on unnest c
+(11 rows)
+
+SELECT
+    p.id,
+    p.title,
+    b.brand_name,
+    c AS category
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+CROSS JOIN LATERAL unnest(p.categories) AS c
+WHERE p.title @@@ 'Smart' OR b.brand_name @@@ 'Electronics'
+ORDER BY p.id, c
+LIMIT 5;
+WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: b, p)
+ id |      title       |       brand_name       |  category   
+----+------------------+------------------------+-------------
+  3 | Smart TV 4K OLED | VisionPlus Electronics | electronics
+  3 | Smart TV 4K OLED | VisionPlus Electronics | home
+  3 | Smart TV 4K OLED | VisionPlus Electronics | video
+(3 rows)
+
+-- =====================================================================
+-- TEST 2: 3-table JOIN with CROSS JOIN LATERAL unnest on 2nd table + LIMIT
+-- =====================================================================
+EXPLAIN (COSTS OFF)
+SELECT
+    p.id,
+    p.title,
+    b.brand_name,
+    s.store_name,
+    t AS tag
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+LEFT JOIN jlu_stores s ON b.id = s.brand_id
+CROSS JOIN LATERAL unnest(b.tags) AS t
+WHERE (
+    p.title @@@ 'Smart'
+    OR b.brand_name @@@ 'Electronics'
+    OR s.store_name @@@ 'Electronics'
+)
+ORDER BY p.id, t
+LIMIT 10;
+WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: b, p, s)
+                                                                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: p.id, t.t
+         ->  Nested Loop
+               ->  Hash Join
+                     Hash Cond: (b.product_id = p.id)
+                     Join Filter: ((p.id @@@ '{"with_index":{"oid":14735076,"query":{"parse_with_field":{"field":"title","query_string":"Smart","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (b.id @@@ '{"with_index":{"oid":14735077,"query":{"parse_with_field":{"field":"brand_name","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (s.id @@@ '{"with_index":{"oid":14735078,"query":{"parse_with_field":{"field":"store_name","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
+                     ->  Nested Loop Left Join
+                           Join Filter: (b.id = s.brand_id)
+                           ->  Seq Scan on jlu_brands b
+                           ->  Materialize
+                                 ->  Seq Scan on jlu_stores s
+                     ->  Hash
+                           ->  Seq Scan on jlu_products p
+               ->  Function Scan on unnest t
+(15 rows)
+
+SELECT
+    p.id,
+    p.title,
+    b.brand_name,
+    s.store_name,
+    t AS tag
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+LEFT JOIN jlu_stores s ON b.id = s.brand_id
+CROSS JOIN LATERAL unnest(b.tags) AS t
+WHERE (
+    p.title @@@ 'Smart'
+    OR b.brand_name @@@ 'Electronics'
+    OR s.store_name @@@ 'Electronics'
+)
+ORDER BY p.id, t
+LIMIT 10;
+WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: b, p, s)
+ id |      title       |       brand_name       |    store_name    |     tag      
+----+------------------+------------------------+------------------+--------------
+  3 | Smart TV 4K OLED | VisionPlus Electronics | VisionPlus Tokyo | bestseller
+  3 | Smart TV 4K OLED | VisionPlus Electronics | VisionPlus Tokyo | home_theater
+(2 rows)
+
+-- =====================================================================
+-- TEST 3: LEFT JOIN LATERAL unnest (preserves NULL and empty array rows)
+-- =====================================================================
+EXPLAIN (COSTS OFF)
+SELECT
+    p.id,
+    p.title,
+    b.brand_name,
+    t AS tag
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+LEFT JOIN LATERAL unnest(b.tags) AS t ON true
+WHERE p.title @@@ 'Smart OR Mystery OR Empty' OR b.brand_name @@@ 'Electronics'
+ORDER BY p.id, t NULLS LAST
+LIMIT 10;
+WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: b, p)
+                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: p.id, t.t
+         ->  Nested Loop Left Join
+               ->  Hash Join
+                     Hash Cond: (b.product_id = p.id)
+                     Join Filter: ((p.id @@@ '{"with_index":{"oid":14735076,"query":{"parse_with_field":{"field":"title","query_string":"Smart OR Mystery OR Empty","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (b.id @@@ '{"with_index":{"oid":14735077,"query":{"parse_with_field":{"field":"brand_name","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
+                     ->  Seq Scan on jlu_brands b
+                     ->  Hash
+                           ->  Seq Scan on jlu_products p
+               ->  Function Scan on unnest t
+(11 rows)
+
+SELECT
+    p.id,
+    p.title,
+    b.brand_name,
+    t AS tag
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+LEFT JOIN LATERAL unnest(b.tags) AS t ON true
+WHERE p.title @@@ 'Smart OR Mystery OR Empty' OR b.brand_name @@@ 'Electronics'
+ORDER BY p.id, t NULLS LAST
+LIMIT 10;
+WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: b, p)
+ id |           title            |       brand_name       |     tag      
+----+----------------------------+------------------------+--------------
+  3 | Smart TV 4K OLED           | VisionPlus Electronics | bestseller
+  3 | Smart TV 4K OLED           | VisionPlus Electronics | home_theater
+  6 | Mystery Item No Category   | GenericBrand           | 
+  7 | Sample Item Empty Category | ClearanceBrand         | 
+(4 rows)
+
+-- =====================================================================
+-- TEST 4: Multiple CROSS JOIN LATERAL unnests across different tables
+-- =====================================================================
+EXPLAIN (COSTS OFF)
+SELECT
+    p.id,
+    p.title,
+    c AS category,
+    r AS region
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+JOIN jlu_stores s ON b.id = s.brand_id
+CROSS JOIN LATERAL unnest(p.categories) AS c
+CROSS JOIN LATERAL unnest(s.regions) AS r
+WHERE p.title @@@ 'Smart' OR b.brand_name @@@ 'Electronics'
+ORDER BY p.id, c, r
+LIMIT 10;
+WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: b, p, s)
+                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: p.id, c.c, r.r
+         ->  Nested Loop
+               ->  Nested Loop
+                     ->  Hash Join
+                           Hash Cond: (s.brand_id = b.id)
+                           ->  Seq Scan on jlu_stores s
+                           ->  Hash
+                                 ->  Hash Join
+                                       Hash Cond: (b.product_id = p.id)
+                                       Join Filter: ((p.id @@@ '{"with_index":{"oid":14735076,"query":{"parse_with_field":{"field":"title","query_string":"Smart","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (b.id @@@ '{"with_index":{"oid":14735077,"query":{"parse_with_field":{"field":"brand_name","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
+                                       ->  Seq Scan on jlu_brands b
+                                       ->  Hash
+                                             ->  Seq Scan on jlu_products p
+                     ->  Function Scan on unnest c
+               ->  Memoize
+                     Cache Key: s.regions
+                     Cache Mode: binary
+                     ->  Function Scan on unnest r
+(20 rows)
+
+SELECT
+    p.id,
+    p.title,
+    c AS category,
+    r AS region
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+JOIN jlu_stores s ON b.id = s.brand_id
+CROSS JOIN LATERAL unnest(p.categories) AS c
+CROSS JOIN LATERAL unnest(s.regions) AS r
+WHERE p.title @@@ 'Smart' OR b.brand_name @@@ 'Electronics'
+ORDER BY p.id, c, r
+LIMIT 10;
+WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: b, p, s)
+ id |      title       |  category   | region 
+----+------------------+-------------+--------
+  3 | Smart TV 4K OLED | electronics | asia
+  3 | Smart TV 4K OLED | electronics | japan
+  3 | Smart TV 4K OLED | home        | asia
+  3 | Smart TV 4K OLED | home        | japan
+  3 | Smart TV 4K OLED | video       | asia
+  3 | Smart TV 4K OLED | video       | japan
+(6 rows)
+
+-- =====================================================================
+-- TEST 5: Filtering on the unnested column in WHERE
+-- =====================================================================
+EXPLAIN (COSTS OFF)
+SELECT
+    p.id,
+    p.title,
+    b.brand_name,
+    t AS tag
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+CROSS JOIN LATERAL unnest(b.tags) AS t
+WHERE (p.title @@@ 'Smart' OR b.brand_name @@@ 'Electronics')
+  AND t = 'bestseller'
+ORDER BY p.id, t
+LIMIT 10;
+WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: b, p)
+                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: p.id
+         ->  Nested Loop
+               ->  Hash Join
+                     Hash Cond: (b.product_id = p.id)
+                     Join Filter: ((p.id @@@ '{"with_index":{"oid":14735076,"query":{"parse_with_field":{"field":"title","query_string":"Smart","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (b.id @@@ '{"with_index":{"oid":14735077,"query":{"parse_with_field":{"field":"brand_name","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
+                     ->  Seq Scan on jlu_brands b
+                     ->  Hash
+                           ->  Seq Scan on jlu_products p
+               ->  Function Scan on unnest t
+                     Filter: (t = 'bestseller'::text)
+(12 rows)
+
+SELECT
+    p.id,
+    p.title,
+    b.brand_name,
+    t AS tag
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+CROSS JOIN LATERAL unnest(b.tags) AS t
+WHERE (p.title @@@ 'Smart' OR b.brand_name @@@ 'Electronics')
+  AND t = 'bestseller'
+ORDER BY p.id, t
+LIMIT 10;
+WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: b, p)
+ id |      title       |       brand_name       |    tag     
+----+------------------+------------------------+------------
+  3 | Smart TV 4K OLED | VisionPlus Electronics | bestseller
+(1 row)
+
+-- =====================================================================
+-- TEST 5b: Filtering on unnested column when column is omitted from SELECT
+-- =====================================================================
+EXPLAIN (COSTS OFF)
+SELECT
+    p.id,
+    p.title,
+    b.brand_name
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+CROSS JOIN LATERAL unnest(b.tags) AS t
+WHERE (p.title @@@ 'Smart' OR b.brand_name @@@ 'Electronics')
+  AND t = 'bestseller'
+ORDER BY p.id
+LIMIT 10;
+WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: b, p)
+                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: p.id
+         ->  Nested Loop
+               ->  Hash Join
+                     Hash Cond: (b.product_id = p.id)
+                     Join Filter: ((p.id @@@ '{"with_index":{"oid":14735076,"query":{"parse_with_field":{"field":"title","query_string":"Smart","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (b.id @@@ '{"with_index":{"oid":14735077,"query":{"parse_with_field":{"field":"brand_name","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
+                     ->  Seq Scan on jlu_brands b
+                     ->  Hash
+                           ->  Seq Scan on jlu_products p
+               ->  Function Scan on unnest t
+                     Filter: (t = 'bestseller'::text)
+(12 rows)
+
+SELECT
+    p.id,
+    p.title,
+    b.brand_name
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+CROSS JOIN LATERAL unnest(b.tags) AS t
+WHERE (p.title @@@ 'Smart' OR b.brand_name @@@ 'Electronics')
+  AND t = 'bestseller'
+ORDER BY p.id
+LIMIT 10;
+WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: b, p)
+ id |      title       |       brand_name       
+----+------------------+------------------------
+  3 | Smart TV 4K OLED | VisionPlus Electronics
+(1 row)
+
+-- =====================================================================
+-- TEST 6: Facet aggregation (COUNT DISTINCT) over unnest on 3-table join
+-- =====================================================================
+EXPLAIN (COSTS OFF)
+SELECT
+    t AS tag,
+    count(DISTINCT p.id) AS product_count
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+LEFT JOIN jlu_stores s ON b.id = s.brand_id
+CROSS JOIN LATERAL unnest(b.tags) AS t
+WHERE (
+    p.title @@@ 'Smart'
+    OR b.brand_name @@@ 'Electronics'
+    OR s.store_name @@@ 'Electronics'
+)
+GROUP BY t
+ORDER BY product_count DESC, t
+LIMIT 10;
+WARNING:  Aggregate Scan (DataFusion) not used: RTI 6 is not a plain relation (rtekind: 3), which is not supported (table: join)
+                                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: (count(DISTINCT p.id)) DESC, t.t
+         ->  GroupAggregate
+               Group Key: t.t
+               ->  Sort
+                     Sort Key: t.t, p.id
+                     ->  Nested Loop
+                           ->  Hash Join
+                                 Hash Cond: (b.product_id = p.id)
+                                 Join Filter: ((p.id @@@ '{"with_index":{"oid":14735076,"query":{"parse_with_field":{"field":"title","query_string":"Smart","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (b.id @@@ '{"with_index":{"oid":14735077,"query":{"parse_with_field":{"field":"brand_name","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (s.id @@@ '{"with_index":{"oid":14735078,"query":{"parse_with_field":{"field":"store_name","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
+                                 ->  Nested Loop Left Join
+                                       Join Filter: (b.id = s.brand_id)
+                                       ->  Seq Scan on jlu_brands b
+                                       ->  Materialize
+                                             ->  Seq Scan on jlu_stores s
+                                 ->  Hash
+                                       ->  Seq Scan on jlu_products p
+                           ->  Function Scan on unnest t
+(19 rows)
+
+SELECT
+    t AS tag,
+    count(DISTINCT p.id) AS product_count
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+LEFT JOIN jlu_stores s ON b.id = s.brand_id
+CROSS JOIN LATERAL unnest(b.tags) AS t
+WHERE (
+    p.title @@@ 'Smart'
+    OR b.brand_name @@@ 'Electronics'
+    OR s.store_name @@@ 'Electronics'
+)
+GROUP BY t
+ORDER BY product_count DESC, t
+LIMIT 10;
+WARNING:  Aggregate Scan (DataFusion) not used: RTI 6 is not a plain relation (rtekind: 3), which is not supported (table: join)
+     tag      | product_count 
+--------------+---------------
+ bestseller   |             1
+ home_theater |             1
+(2 rows)
+
+-- =====================================================================
+-- TEST 7: Truncated TopK pushdown strictly respecting unnested sort order
+-- =====================================================================
+EXPLAIN (COSTS OFF)
+SELECT
+    p.id,
+    c AS category
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+CROSS JOIN LATERAL unnest(p.categories) AS c
+WHERE p.title @@@ 'Smart'
+ORDER BY p.id, c ASC
+LIMIT 2;
+WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: b, p)
+                                                                               QUERY PLAN                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: p.id, c.c
+         ->  Nested Loop
+               ->  Nested Loop
+                     Join Filter: (p.id = b.product_id)
+                     ->  Custom Scan (ParadeDB Base Scan) on jlu_products p
+                           Table: jlu_products
+                           Index: jlu_products_idx
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Smart","lenient":null,"conjunction_mode":null}}}}
+                     ->  Seq Scan on jlu_brands b
+               ->  Function Scan on unnest c
+(14 rows)
+
+SELECT
+    p.id,
+    c AS category
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+CROSS JOIN LATERAL unnest(p.categories) AS c
+WHERE p.title @@@ 'Smart'
+ORDER BY p.id, c ASC
+LIMIT 2;
+WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: b, p)
+ id |  category   
+----+-------------
+  3 | electronics
+  3 | home
+(2 rows)
+
+-- =====================================================================
+-- TEST 8: ORDER BY on unnested column alone (DESC)
+-- =====================================================================
+EXPLAIN (COSTS OFF)
+SELECT
+    p.id,
+    c AS category
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+CROSS JOIN LATERAL unnest(p.categories) AS c
+WHERE p.title @@@ 'Smart'
+ORDER BY c DESC
+LIMIT 3;
+WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: b, p)
+                                                                               QUERY PLAN                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: c.c DESC
+         ->  Nested Loop
+               ->  Nested Loop
+                     Join Filter: (p.id = b.product_id)
+                     ->  Custom Scan (ParadeDB Base Scan) on jlu_products p
+                           Table: jlu_products
+                           Index: jlu_products_idx
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Smart","lenient":null,"conjunction_mode":null}}}}
+                     ->  Seq Scan on jlu_brands b
+               ->  Function Scan on unnest c
+(14 rows)
+
+SELECT
+    p.id,
+    c AS category
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+CROSS JOIN LATERAL unnest(p.categories) AS c
+WHERE p.title @@@ 'Smart'
+ORDER BY c DESC
+LIMIT 3;
+WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: b, p)
+ id |  category   
+----+-------------
+  3 | video
+  3 | home
+  3 | electronics
+(3 rows)
+
+-- =====================================================================
+-- TEST 9: CROSS JOIN LATERAL unnest drops empty arrays and NULLs
+-- =====================================================================
+EXPLAIN (COSTS OFF)
+SELECT
+    p.id,
+    p.title,
+    t AS tag
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+CROSS JOIN LATERAL unnest(b.tags) AS t
+WHERE (p.title @@@ 'Category' OR b.brand_name @@@ 'Brand')
+ORDER BY p.id, t
+LIMIT 10;
+WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: b, p)
+                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: p.id, t.t
+         ->  Nested Loop
+               ->  Hash Join
+                     Hash Cond: (b.product_id = p.id)
+                     Join Filter: ((p.id @@@ '{"with_index":{"oid":14735076,"query":{"parse_with_field":{"field":"title","query_string":"Category","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (b.id @@@ '{"with_index":{"oid":14735077,"query":{"parse_with_field":{"field":"brand_name","query_string":"Brand","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
+                     ->  Seq Scan on jlu_brands b
+                     ->  Hash
+                           ->  Seq Scan on jlu_products p
+               ->  Function Scan on unnest t
+(11 rows)
+
+SELECT
+    p.id,
+    p.title,
+    t AS tag
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+CROSS JOIN LATERAL unnest(b.tags) AS t
+WHERE (p.title @@@ 'Category' OR b.brand_name @@@ 'Brand')
+ORDER BY p.id, t
+LIMIT 10;
+WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: b, p)
+ id | title | tag 
+----+-------+-----
+(0 rows)
+
+-- =====================================================================
+-- Cleanup
+-- =====================================================================
+DROP TABLE jlu_stores CASCADE;
+DROP TABLE jlu_brands CASCADE;
+DROP TABLE jlu_products CASCADE;
+RESET max_parallel_workers_per_gather;
+RESET paradedb.enable_aggregate_custom_scan;
+RESET paradedb.enable_range_partitioned_join;

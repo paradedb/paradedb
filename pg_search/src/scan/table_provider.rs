@@ -191,6 +191,23 @@ impl Clone for PgSearchTableProvider {
 unsafe impl Send for PgSearchTableProvider {}
 unsafe impl Sync for PgSearchTableProvider {}
 
+/// Downcast a `TableScan`'s source to a `PgSearchTableProvider`, whether the
+/// provider sits behind a `DefaultTableSource` wrapper or is used directly.
+pub(crate) fn pg_search_provider_from_scan(
+    scan: &datafusion::logical_expr::TableScan,
+) -> Option<&PgSearchTableProvider> {
+    let source = scan.source.as_ref();
+    if let Some(default_source) =
+        source.downcast_ref::<datafusion::catalog::default_table_source::DefaultTableSource>()
+    {
+        default_source
+            .table_provider
+            .downcast_ref::<PgSearchTableProvider>()
+    } else {
+        (source as &dyn std::any::Any).downcast_ref::<PgSearchTableProvider>()
+    }
+}
+
 impl PgSearchTableProvider {
     pub fn new(
         scan_info: ScanInfo,

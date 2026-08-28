@@ -41,7 +41,7 @@ use crate::scan::execution_plan::{PgSearchScanPlan, ScanState};
 use crate::scan::filter_pushdown::{FilterAnalyzer, combine_with_and};
 use crate::scan::info::{RowEstimate, ScanInfo};
 use crate::scan::late_materialization::DeferredField;
-use crate::scan::range_partitioning::RangePartitioningSample;
+use crate::scan::range_partitioning::RangePartitioningGrid;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct VisibilitySourceMetadata {
@@ -122,7 +122,7 @@ pub struct PgSearchTableProvider {
 
     /// Explicit range partitioning configuration. When present, the provider
     /// ignores parallel state segments and yields statically partitioned streams.
-    range_sample: Option<RangePartitioningSample>,
+    range_grid: Option<RangePartitioningGrid>,
 
     /// The manifest this source was captured with, for an MPP source: `scan()` builds its
     /// reader from it, replaying exactly the view the DSM was populated from. Backend-local
@@ -168,7 +168,7 @@ impl Clone for PgSearchTableProvider {
                     .load(std::sync::atomic::Ordering::Relaxed),
             ),
             source_idx: self.source_idx,
-            range_sample: self.range_sample.clone(),
+            range_grid: self.range_grid.clone(),
             manifest: self.manifest.clone(),
         }
     }
@@ -196,22 +196,22 @@ impl PgSearchTableProvider {
             visibility_mode: VisibilityMode::Eager,
             late_materialization_active: AtomicBool::new(false),
             source_idx,
-            range_sample: None,
+            range_grid: None,
             manifest: None,
         }
     }
 
-    /// Enables Range partitioning mode by supplying a distribution sample.
+    /// Enables Range partitioning mode by supplying the grid to cut on.
     ///
-    /// When a sample is provided, the table provider will produce a plan that is
+    /// When a grid is provided, the table provider will produce a plan that is
     /// statically partitioned by range bounds, overriding the default `Shared`
     /// (dynamic segment checkout) partitioning mode.
-    pub fn with_range_partitioning(&mut self, range_sample: Option<RangePartitioningSample>) {
-        self.range_sample = range_sample;
+    pub fn with_range_partitioning(&mut self, range_grid: Option<RangePartitioningGrid>) {
+        self.range_grid = range_grid;
     }
 
-    pub fn range_sample(&self) -> Option<&RangePartitioningSample> {
-        self.range_sample.as_ref()
+    pub fn range_grid(&self) -> Option<&RangePartitioningGrid> {
+        self.range_grid.as_ref()
     }
 
     /// Transitions the provider from Phase 1 (`Utf8View`) into Phase 2 (`Union`)
@@ -503,7 +503,7 @@ impl PgSearchTableProvider {
                 deferred_ctid_plan_position,
                 partition_count,
                 parallel_state,
-                self.range_sample.clone(),
+                self.range_grid.clone(),
             )
             .with_table_alias(table_alias),
         ))
@@ -717,9 +717,9 @@ impl PgSearchTableProvider {
         // or exactly `target_partitions` when range partitioning is enabled.
         // During distributed planning, the `pg_search_scan_desired_task_count` handler reads this partition
         // count to determine how many tasks (e.g. parallel workers) this leaf should scale out into.
-        let partition_count = if self.range_sample.is_some() {
+        let partition_count = if self.range_grid.is_some() {
             // When using range partitioning, we target the session's target partitions.
-            // The actual number of bounds will be dynamically limited by the sample size
+            // The actual number of bounds will be dynamically limited by the grid size
             // when we create the plan.
             target_partitions
         } else {

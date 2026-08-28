@@ -203,45 +203,43 @@ impl RangePartitioning {
     }
 }
 
-/// A representation of the raw partition split points for range partitioning.
-/// Rather than directly instantiating a static `RangePartitioning` with these
-/// points, this sample is kept so that `TaskEstimator`s and distributed execution
+/// The grid a partitioned build stamped on an index's segments, kept as raw points rather
+/// than a static `RangePartitioning`, so that `TaskEstimator`s and distributed execution
 /// engines can ask for exactly their preferred number of partitions at runtime.
 ///
-/// **Precondition**: `sample_points` must be sorted ascending, otherwise the generated
+/// **Precondition**: `points` must be sorted ascending, otherwise the generated
 /// boundaries will produce overlapping or gapped ranges that silently drop or duplicate rows.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct RangePartitioningSample {
+pub struct RangePartitioningGrid {
     /// The index field used to define the boundaries.
     pub partition_by: FieldName,
-    /// The points to cut on, sorted ascending. An index built with `partition_by` supplies the
-    /// grid its build stamped on the segments, so a partition cut on it lines up with its
-    /// segments; any other index supplies a sample of one segment. Either is typically larger
-    /// than the target number of partitions, so `build` can down-sample it evenly.
-    pub sample_points: Vec<PdbOwnedValue>,
+    /// The points to cut on, sorted ascending: the edges of every box the build stamped, so a
+    /// partition cut on them lines up with the segments. Typically there are more than the
+    /// target number of partitions, so `build` can down-sample them evenly.
+    pub points: Vec<PdbOwnedValue>,
 }
 
-impl RangePartitioningSample {
+impl RangePartitioningGrid {
     /// Generates a concrete `RangePartitioning` bounding exactly `target_partitions`.
     ///
-    /// If `target_partitions` is smaller than the sample's inherent size, the
-    /// sample points are evenly down-sampled (effectively merging contiguous partitions).
+    /// If `target_partitions` is smaller than the grid's inherent size, the
+    /// points are evenly down-sampled (effectively merging contiguous partitions).
     /// To avoid scheduling unnecessary tasks scanning empty ranges, `target_partitions`
-    /// is capped at `sample_points.len() + 1`.
+    /// is capped at `points.len() + 1`.
     pub fn build(&self, target_partitions: usize) -> RangePartitioning {
-        let points = &self.sample_points;
+        let points = &self.points;
         debug_assert!(
             points
                 .windows(2)
                 .all(|w| w[0].total_cmp(&w[1]) != std::cmp::Ordering::Greater),
-            "RangePartitioningSample requires its points to be sorted ascending"
+            "RangePartitioningGrid requires its points to be sorted ascending"
         );
 
-        let num_samples = points.len();
+        let num_points = points.len();
 
         // Cap target_partitions to avoid scheduling unnecessary empty ranges
-        let actual_partitions = if target_partitions > num_samples + 1 {
-            num_samples + 1
+        let actual_partitions = if target_partitions > num_points + 1 {
+            num_points + 1
         } else {
             target_partitions
         };
@@ -257,7 +255,7 @@ impl RangePartitioningSample {
 
         // Down-sample evenly. We want `actual_partitions - 1` split points.
         for i in 1..actual_partitions {
-            let split_idx = (i * num_samples) / actual_partitions;
+            let split_idx = (i * num_points) / actual_partitions;
             new_split_points.push(points[split_idx].clone());
         }
 

@@ -283,31 +283,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Post-Release Development Version Bump
-        if: github.repository == 'paradedb/paradedb' && github.event.inputs.beta != 'true'
-        run: |
-          REF_NAME="${{ github.ref_name }}"
-          if [[ "$REF_NAME" != "main" ]]; then
-            git checkout "$REF_NAME"
-          fi
-
-          NEXT_DEV_VERSION=$(./scripts/release.sh next-dev-version "${{ github.event.inputs.version }}" --branch "$REF_NAME")
-          COMMIT_MSG="chore: Start development of \`${NEXT_DEV_VERSION}\`."
-
-          echo "Bumping ${REF_NAME} to development version ${NEXT_DEV_VERSION}..."
-          ./scripts/release.sh set-version "$NEXT_DEV_VERSION"
-
-          git config user.name "paradedb-github-app[bot]"
-          git config user.email "282009505+paradedb-github-app[bot]@users.noreply.github.com"
-          git add Cargo.toml Cargo.lock nix/pg_search.nix
-          if ! git diff --staged --quiet; then
-            git commit -m "$COMMIT_MSG"
-            git push origin HEAD:"$REF_NAME"
-            echo "✅ Successfully bumped ${REF_NAME} to ${NEXT_DEV_VERSION}."
-          else
-            echo "No development bump needed."
-          fi
-
       - name: Notify Slack on Failure
         if: failure()
         uses: paradedb/actions/slack-alert@v10

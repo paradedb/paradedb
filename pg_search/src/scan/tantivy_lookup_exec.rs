@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::index::mvcc::MvccSatisfies;
+use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::SearchQueryInput;
@@ -85,7 +85,14 @@ struct LookupDispatchPayload {
     deferred_fields: Vec<PhysicalDeferredField>,
     #[serde(default)]
     ctid_columns: Vec<CtidColumnLookup>,
+    /// `(plan_position, indexrelid)` for each wired ctid resolver, so a worker whose scan sits
+    /// behind a network boundary can rebuild the resolver from its index segment view.
+    #[serde(default)]
+    ctid_resolver_indexes: Vec<(usize, u32)>,
 }
+
+/// One wired ctid resolver: the index it reads and the fast-field helper over its segments.
+type CtidResolver = (u32, Arc<FFHelper>);
 
 pub struct TantivyLookupExec {
     input: Arc<dyn ExecutionPlan>,
@@ -100,7 +107,7 @@ pub struct TantivyLookupExec {
     ctid_columns: Vec<CtidColumnLookup>,
     /// Per-plan_position `(indexrelid, FFHelper)` for resolving the ctid columns, wired by
     /// `VisibilityCtidResolverRule` after plan construction. Indexed by plan_position.
-    ctid_resolvers: Mutex<Vec<Option<(u32, Arc<FFHelper>)>>>,
+    ctid_resolvers: Mutex<Vec<Option<CtidResolver>>>,
     properties: Arc<PlanProperties>,
     metrics: ExecutionPlanMetricsSet,
 }
@@ -206,9 +213,18 @@ impl TantivyLookupExec {
     /// pulls them from the scans in its decoded subtree, keyed by index relid. `decoders` is
     /// derived from `deferred_fields`, so it's recomputed on decode.
     pub(crate) fn encode_for_dispatch(&self) -> datafusion::common::Result<Vec<u8>> {
+        let ctid_resolver_indexes: Vec<(usize, u32)> = self
+            .ctid_resolvers
+            .lock()
+            .expect("ctid_resolvers lock poisoned")
+            .iter()
+            .enumerate()
+            .filter_map(|(pos, r)| r.as_ref().map(|(relid, _)| (pos, *relid)))
+            .collect();
         serde_json::to_vec(&LookupDispatchPayload {
             deferred_fields: self.deferred_fields.clone(),
             ctid_columns: self.ctid_columns.clone(),
+            ctid_resolver_indexes,
         })
         .map_err(|e| {
             datafusion::common::DataFusionError::Internal(format!(
@@ -222,6 +238,7 @@ impl TantivyLookupExec {
         input: Arc<dyn ExecutionPlan>,
         mut ffhelpers: HashMap<u32, Arc<FFHelper>>,
         ctid_resolvers: Vec<(usize, u32, Arc<FFHelper>)>,
+        index_segment_views: &[SegmentView],
         parallel_state: Option<*mut crate::postgres::ParallelScanState>,
     ) -> datafusion::common::Result<Arc<dyn ExecutionPlan>> {
         let payload: LookupDispatchPayload = serde_json::from_slice(buf).map_err(|e| {
@@ -240,7 +257,23 @@ impl TantivyLookupExec {
             ffhelpers,
             payload.ctid_columns,
         )?;
-        for (plan_pos, indexrelid, ffhelper) in ctid_resolvers {
+        // Wire the ctid resolvers found in the decoded subtree.
+        for (plan_pos, indexrelid, ffhelper) in &ctid_resolvers {
+            exec.set_ctid_resolver(*plan_pos, *indexrelid, Arc::clone(ffhelper));
+        }
+        // A ctid column whose scan sits behind a network boundary is not in the subtree; rebuild
+        // its resolver from the index segment view (ctid access needs no field layout).
+        for (plan_pos, indexrelid) in payload.ctid_resolver_indexes {
+            if ctid_resolvers.iter().any(|(pos, _, _)| *pos == plan_pos) {
+                continue;
+            }
+            let view = index_segment_views.get(plan_pos).cloned().ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "TantivyLookupExec dispatch: missing segment view for plan_position {plan_pos}"
+                ))
+            })?;
+            let ffhelper =
+                open_rebuilt_ffhelper(indexrelid, &[], MvccSatisfies::ParallelWorker(view))?;
             exec.set_ctid_resolver(plan_pos, indexrelid, ffhelper);
         }
         Ok(Arc::new(exec))

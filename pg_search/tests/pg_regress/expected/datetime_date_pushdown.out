@@ -151,7 +151,7 @@ ORDER BY day NULLS LAST;
 (3 rows)
 
 -- =====================================================================
--- Test 4: key-ordered TopK retains the NULL date group
+-- Test 4: descending sort with LIMIT retains the NULL date group
 -- =====================================================================
 -- DESC uses NULLS FIRST by default, so the NULL group must be the first
 -- result rather than disappearing before the LIMIT is applied.
@@ -271,10 +271,8 @@ DROP TABLE events_nullable CASCADE;
 -- =====================================================================
 -- Test 7: timestamp boundaries use exact date conversion
 -- =====================================================================
--- This is the boundary matrix from the PR review. Tantivy's old f64
--- histogram path rounded the finite values into the next day, errored for
--- the maximum timestamp and positive infinity, and returned garbage for
--- negative infinity. DataFusion must match PostgreSQL for every row.
+-- Values next to midnight at far dates, the finite maximum, and both
+-- infinities must match PostgreSQL.
 DROP TABLE IF EXISTS events_boundaries CASCADE;
 CREATE TABLE events_boundaries (
     id SERIAL PRIMARY KEY,

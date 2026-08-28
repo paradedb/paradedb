@@ -478,14 +478,11 @@ impl CreateUpperPathsHookArgs {
         false
     }
 
-    /// Returns true when GROUP BY expressions uses Postgres's
-    /// `date(timestamp)` or `date(timestamptz)`
+    /// Returns true when a `GROUP BY` expression is `date(timestamp)` or
+    /// `date(timestamptz)`.
     ///
-    /// These expressions route to DataFusion because Tantivy histogram aggregation
-    /// converts timestamp bucket keys to f64, which cannot represent Postgres full timestamp range.
-    ///
-    /// This only detects candidates for DataFusion Routing, Validation is handled later
-    /// as to what shapes are accepted and rejection reasons for unsupported ones such as `date(timestampz)`
+    /// This only picks the backend; the extractor decides which shapes it accepts
+    /// and names the reason for the rest.
     pub unsafe fn has_date_group(&self) -> bool {
         let parse = self.root().parse;
 

@@ -393,11 +393,17 @@ pub unsafe fn extract_aggregate_targetlist(
     let mut aggregates = Vec::new();
 
     for (idx, expr) in target_exprs.iter_ptr().enumerate() {
-        let tag = (*(expr as *mut pg_sys::Node)).type_;
+        let mut node = expr.cast::<pg_sys::Node>();
+        let mut transform = GroupingTransform::Identity;
 
-        if tag == pg_sys::NodeTag::T_Var {
+        if !plain_columns_only && let Some(var) = extract_timestamp_to_date_var(node)? {
+            node = var.cast();
+            transform = GroupingTransform::TimestampToDate;
+        }
+
+        if (*node).type_ == pg_sys::NodeTag::T_Var {
             // GROUP BY column
-            let var = expr as *mut pg_sys::Var;
+            let var = node.cast::<pg_sys::Var>();
             let rti = (*var).varno as pg_sys::Index;
             let attno = (*var).varattno;
 
@@ -446,41 +452,7 @@ pub unsafe fn extract_aggregate_targetlist(
                 field_name,
                 output_index: idx,
                 numeric_scale,
-                transform: GroupingTransform::Identity,
-            });
-        } else if !plain_columns_only
-            && let Some(var) = extract_timestamp_to_date_var(expr as *mut pg_sys::Node)?
-        {
-            let rti = (*var).varno as pg_sys::Index;
-            let attno = (*var).varattno;
-
-            let source = find_source_by_rti(sources, rti, "GROUP BY DATE(timestamp)")?;
-
-            let field_name = source.column_name(attno).ok_or_else(|| {
-                let alias =
-                    RelationAlias::new(source.alias.as_deref()).display(source.rti as usize);
-                format!(
-                    "GROUP BY DATE(timestamp) column {} is not columnar indexed",
-                    get_attname_safe(Some(source.relid), attno, &alias)
-                )
-            })?;
-
-            let plan_position = plan
-                .plan_position(outer_root_id, rti, attno)
-                .ok_or_else(|| {
-                    format!(
-                        "GROUP BY DATE(timestamp) column (RTI={rti}, attno={attno}) does not resolve to a unique \
-                         output-visible source in the plan tree"
-                    )
-                })?;
-
-            group_columns.push(JoinGroupColumn {
-                plan_position,
-                attno,
-                field_name,
-                output_index: idx,
-                numeric_scale: None,
-                transform: GroupingTransform::TimestampToDate,
+                transform,
             });
         } else if let Some((var, field_name)) = (!plain_columns_only)
             .then(|| {

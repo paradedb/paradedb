@@ -250,9 +250,9 @@ fn test_group_by_date_function(mut conn: PgConnection) {
     // DATE(timestamp) grouping must be executed by the DataFusion backend.
     assert_uses_datafusion_aggregate_scan(&mut conn, query);
 
-    // ORDER BY an aggregate with LIMIT is the common dashboard TopK shape
-    // called out in the review. The counts are deliberately distinct at the
-    // cutoff: 2024-01-01 has 3 rows and the NULL group has 2.
+    // ORDER BY an aggregate with LIMIT is the common dashboard TopK shape.
+    // The counts are deliberately distinct at the cutoff: 2024-01-01 has
+    // 3 rows and the NULL group has 2.
     let topk_query = "SELECT DATE(created_at) AS day, COUNT(*) AS cnt \
                       FROM date_pushdown_events \
                       WHERE id @@@ pdb.all() \
@@ -273,10 +273,7 @@ fn test_group_by_date_function(mut conn: PgConnection) {
     "SET paradedb.enable_aggregate_custom_scan TO off;".execute(&mut conn);
     assert_uses_custom_scan(&mut conn, false, query);
 
-    // The trailing comment makes this a distinct prepared statement. Re-executing
-    // a cached plan that contains a pushed-down GROUP BY currently errors with
-    // "PgList does not contain pointers" (privdat.rs) — a pre-existing bug
-    // unrelated to DATE() pushdown, which sqlx's statement cache would otherwise hit.
+    // Use distinct prepared statements for the fallback queries; see #6136.
     let fallback = format!("{query} ORDER BY day NULLS LAST -- fallback")
         .fetch::<(Option<Date>, i64)>(&mut conn);
 

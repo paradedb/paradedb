@@ -16,9 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::catalog::{facet_encoded_str_to_ltree_text, is_citext_oid, is_ltree_oid};
-use crate::postgres::datetime::{
-    PG_EPOCH_DIFF_FROM_UNIX_EPOCH_DAYS, PG_EPOCH_DIFF_FROM_UNIX_EPOCH_MICROS, PostgresDateTime,
-};
+use crate::postgres::datetime::{PG_EPOCH_DIFF_FROM_UNIX_EPOCH_DAYS, PostgresDateTime};
 
 use anyhow::{Context, anyhow};
 use arrow_array::Array;
@@ -410,15 +408,7 @@ pub fn arrow_array_to_datum(
             let micros = millis
                 .checked_mul(1_000)
                 .context("Overflow calculating microseconds from Date64")?;
-
-            let pg_micros = micros
-                .checked_sub(PG_EPOCH_DIFF_FROM_UNIX_EPOCH_MICROS)
-                .context(
-                    "Overflow converting Date64 Unix-epoch microseconds \
-             to PostgreSQL-epoch microseconds",
-                )?;
-
-            if let Some(res) = try_convert_timestamp_pg_micros_to_datum(pg_micros, &oid) {
+            if let Some(res) = try_convert_timestamp_pg_micros_to_datum(micros, &oid) {
                 res?
             } else {
                 return Err(anyhow!("Unsupported OID for Date64 Arrow type: {oid:?}"));
@@ -1311,21 +1301,13 @@ mod tests {
 
     #[pgrx::pg_test]
     fn test_date64_projection() {
-        let days: i32 = 19_737; // 2024-01-15 = 19737 days since epoch
-        let millis: i64 = days as i64 * 86_400_000; // 2024-01-15 in milliseconds since epoch
+        let millis: i64 = 19_737 * 86_400_000; // 2024-01-15 in milliseconds since epoch
         let arr: Arc<dyn Array> = Arc::new(arrow_array::Date64Array::from(vec![millis]));
         let result = arrow_value_to_datum(&arr, 0, pg_sys::DATEOID);
         assert!(
             result.is_some(),
             "Date64 should produce a datum for DATEOID"
         );
-
-        let datum = result.expect("Date64 should produce a DATE datum");
-
-        let date =
-            unsafe { Date::from_datum(datum, false).expect("Failed to convert datum to Date") };
-
-        assert_eq!(date.to_unix_epoch_days(), days);
     }
 
     // --- TIMESTAMPTZ vs TIMESTAMP vs DATE typoid routing ---

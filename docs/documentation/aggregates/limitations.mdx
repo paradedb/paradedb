@@ -97,7 +97,7 @@ If your query does not contain a ParadeDB operator, a way to "force" aggregate p
 
 `GROUP BY DATE(created_at)` and `GROUP BY created_at::date` support aggregate pushdown when `created_at` is a bare `timestamp without time zone` column indexed as a fast field. The usual aggregate pushdown requirements still apply, including a ParadeDB operator in the query.
 
-ParadeDB uses its DataFusion backend for this conversion, preserving PostgreSQL's date boundaries across the full finite timestamp range, as well as `infinity`, `-infinity`, and the `NULL` group. Date grouping can be combined with other grouping columns and per-aggregate `FILTER` clauses.
+The result matches Postgres for the full timestamp range, including `infinity`, `-infinity` and `NULL`. Date grouping can be combined with other grouping columns and per-aggregate `FILTER` clauses.
 
 The following forms still fall back to native Postgres execution:
 

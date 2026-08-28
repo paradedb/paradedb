@@ -22,7 +22,7 @@ use std::sync::Arc;
 use crate::index::fast_fields_helper::CanonicalColumn;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::scan::execution_plan::PgSearchScanPlan;
-use crate::scan::table_provider::PgSearchTableProvider;
+use crate::scan::table_provider::pg_search_provider_from_scan;
 use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
 
 use async_trait::async_trait;
@@ -60,23 +60,10 @@ pub struct LateMaterializationRule;
 fn get_deferred_fields(plan: &LogicalPlan) -> Vec<DeferredField> {
     let mut fields = Vec::new();
     let _ = plan.apply(|node| {
-        if let LogicalPlan::TableScan(scan) = node {
-            let source = scan.source.as_ref();
-
-            let provider = if let Some(default_source) =
-                source
-                    .downcast_ref::<datafusion::catalog::default_table_source::DefaultTableSource>()
-            {
-                default_source
-                    .table_provider
-                    .downcast_ref::<PgSearchTableProvider>()
-            } else {
-                (source as &dyn std::any::Any).downcast_ref::<PgSearchTableProvider>()
-            };
-
-            if let Some(p) = provider {
-                fields.extend(p.deferred_fields());
-            }
+        if let LogicalPlan::TableScan(scan) = node
+            && let Some(p) = pg_search_provider_from_scan(scan)
+        {
+            fields.extend(p.deferred_fields());
         }
         Ok(TreeNodeRecursion::Continue)
     });
@@ -374,8 +361,9 @@ fn should_anchor(node: &LogicalPlan, deferred_fields: &[DeferredField]) -> bool 
     }
 }
 
-/// Returns true if `node` reduces, filters, or limits rows.
-fn is_reduction_node(node: &LogicalPlan) -> bool {
+/// True if `node` can drop rows (filter, join, distinct, limit, or top-N sort),
+/// so materializing a scan's output above it may touch fewer rows than below.
+pub(crate) fn is_reduction_node(node: &LogicalPlan) -> bool {
     match node {
         LogicalPlan::Filter(_)
         | LogicalPlan::Join(_)
@@ -384,6 +372,27 @@ fn is_reduction_node(node: &LogicalPlan) -> bool {
         LogicalPlan::Sort(sort) => sort.fetch.is_some(),
         _ => false,
     }
+}
+
+/// Walks the ancestor chain from nearest to farthest and reports whether a
+/// reduction node appears before the first ancestor that `is_stop` (a barrier
+/// for deferred visibility, an anchor for a deferred field), or before the root
+/// when nothing stops it. That intervening reduction is what makes deferring the
+/// scan's output past it worthwhile.
+pub(crate) fn has_reduction_before_stop(
+    ancestors: &[&LogicalPlan],
+    is_stop: impl Fn(&LogicalPlan) -> bool,
+) -> bool {
+    let mut has_reduction = false;
+    for ancestor in ancestors.iter().rev() {
+        if is_stop(ancestor) {
+            break;
+        }
+        if is_reduction_node(ancestor) {
+            has_reduction = true;
+        }
+    }
+    has_reduction
 }
 
 /// Recursively traverses `plan` tracking the ancestor chain down to each `TableScan`.
@@ -396,40 +405,11 @@ fn collect_beneficial_deferred_fields_inner<'a>(
     beneficial: &mut HashSet<CanonicalColumn>,
 ) {
     if let LogicalPlan::TableScan(scan) = node {
-        let provider = if let Some(default_source) =
-            scan.source
-                .downcast_ref::<datafusion::catalog::default_table_source::DefaultTableSource>()
-        {
-            default_source
-                .table_provider
-                .downcast_ref::<PgSearchTableProvider>()
-        } else {
-            (scan.source.as_ref() as &dyn std::any::Any).downcast_ref::<PgSearchTableProvider>()
-        };
-
-        if let Some(provider) = provider {
+        if let Some(provider) = pg_search_provider_from_scan(scan) {
             for df in provider.deferred_fields() {
-                let mut has_reduction = false;
-                let mut is_beneficial = false;
-
-                for ancestor in ancestors.iter().rev() {
-                    if should_anchor(ancestor, std::slice::from_ref(&df)) {
-                        if has_reduction {
-                            is_beneficial = true;
-                        }
-                        break;
-                    }
-                    if is_reduction_node(ancestor) {
-                        has_reduction = true;
-                    }
-                }
-
-                // If it reached the root without being anchored by an intermediate node:
-                if !is_beneficial && has_reduction {
-                    is_beneficial = true;
-                }
-
-                if is_beneficial {
+                if has_reduction_before_stop(ancestors, |ancestor| {
+                    should_anchor(ancestor, std::slice::from_ref(&df))
+                }) {
                     beneficial.insert(df.canonical);
                 }
             }
@@ -470,19 +450,7 @@ impl OptimizerRule for LateMaterializationRule {
 
         let transformed_plan = plan.transform_up(|node| {
             if let LogicalPlan::TableScan(scan) = &node {
-                let provider = if let Some(default_source) = scan
-                    .source
-                    .downcast_ref::<datafusion::catalog::default_table_source::DefaultTableSource>()
-                {
-                    default_source
-                        .table_provider
-                        .downcast_ref::<PgSearchTableProvider>()
-                } else {
-                    (scan.source.as_ref() as &dyn std::any::Any)
-                        .downcast_ref::<PgSearchTableProvider>()
-                };
-
-                if let Some(provider) = provider {
+                if let Some(provider) = pg_search_provider_from_scan(scan) {
                     let has_beneficial_deferred = provider
                         .deferred_fields()
                         .iter()

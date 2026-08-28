@@ -53,7 +53,6 @@ use arrow_schema::SchemaRef;
 use async_trait::async_trait;
 use datafusion::arrow::compute::kernels::boolean::{and, is_not_null};
 use datafusion::catalog::Session;
-use datafusion::catalog::default_table_source::DefaultTableSource;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use datafusion::common::{DFSchemaRef, DataFusionError, Result};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
@@ -81,7 +80,8 @@ use crate::postgres::customscan::joinscan::CtidColumn;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::execution_plan::UnsafeSendStream;
-use crate::scan::table_provider::{PgSearchTableProvider, VisibilitySourceMetadata};
+use crate::scan::late_materialization::has_reduction_before_stop;
+use crate::scan::table_provider::{VisibilitySourceMetadata, pg_search_provider_from_scan};
 use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
 use arrow_select::filter::filter_record_batch;
 use tantivy::DocId;
@@ -209,19 +209,6 @@ impl VisibilityFilterOptimizerRule {
     }
 }
 
-fn pg_search_provider_from_scan(
-    scan: &datafusion::logical_expr::TableScan,
-) -> Option<&PgSearchTableProvider> {
-    let source = scan.source.as_ref();
-    if let Some(default_source) = source.downcast_ref::<DefaultTableSource>() {
-        default_source
-            .table_provider
-            .downcast_ref::<PgSearchTableProvider>()
-    } else {
-        (source as &dyn std::any::Any).downcast_ref::<PgSearchTableProvider>()
-    }
-}
-
 fn collect_visibility_source_metadata(
     plan: &LogicalPlan,
 ) -> Result<BTreeMap<usize, VisibilitySourceMetadata>> {
@@ -247,18 +234,6 @@ fn collect_visibility_source_metadata(
     Ok(metadata)
 }
 
-/// Returns true if `node` reduces, filters, or limits rows.
-fn is_reduction_node(node: &LogicalPlan) -> bool {
-    match node {
-        LogicalPlan::Filter(_)
-        | LogicalPlan::Join(_)
-        | LogicalPlan::Limit(_)
-        | LogicalPlan::Distinct(_) => true,
-        LogicalPlan::Sort(sort) => sort.fetch.is_some(),
-        _ => false,
-    }
-}
-
 /// Recursively traverses `plan` tracking the ancestor chain down to each `TableScan`.
 /// For each `TableScan` with configured deferred ctid plan position, checks if there is
 /// any intermediate reduction node on the path between the scan and the first ancestor
@@ -269,32 +244,13 @@ fn collect_beneficial_deferred_visibility_inner<'a>(
     beneficial: &mut BTreeSet<usize>,
 ) {
     if let LogicalPlan::TableScan(scan) = node {
-        let provider = pg_search_provider_from_scan(scan);
-        if let Some(provider) = provider
+        if let Some(provider) = pg_search_provider_from_scan(scan)
             && let Some(plan_pos) = provider.configured_deferred_ctid_plan_position()
+            && has_reduction_before_stop(ancestors, |ancestor| {
+                !matches!(barrier_status(ancestor), BarrierStatus::None)
+            })
         {
-            let mut has_reduction = false;
-            let mut is_beneficial = false;
-
-            for ancestor in ancestors.iter().rev() {
-                if !matches!(barrier_status(ancestor), BarrierStatus::None) {
-                    if has_reduction {
-                        is_beneficial = true;
-                    }
-                    break;
-                }
-                if is_reduction_node(ancestor) {
-                    has_reduction = true;
-                }
-            }
-
-            if !is_beneficial && has_reduction {
-                is_beneficial = true;
-            }
-
-            if is_beneficial {
-                beneficial.insert(plan_pos);
-            }
+            beneficial.insert(plan_pos);
         }
         return;
     }
@@ -365,6 +321,84 @@ fn ensure_scan_projects_ctid(
     Ok(new_scan)
 }
 
+/// Returns a copy of `proj` extended with any `ctid_<n>` column that its input
+/// produces for a beneficial plan position but the projection does not yet
+/// output, or `None` when it already forwards them all. A projection only emits
+/// the columns it lists, so a ctid bubbling up from below has to be added here
+/// explicitly to reach the barrier above.
+fn projection_with_ctids_added(
+    proj: &datafusion::logical_expr::Projection,
+    beneficial: &BTreeSet<usize>,
+) -> Result<Option<datafusion::logical_expr::Projection>> {
+    let mut new_exprs = proj.expr.clone();
+    let mut added = false;
+    for (i, field) in proj.input.schema().fields().iter().enumerate() {
+        let Ok(ctid_col) = CtidColumn::try_from(field.name().as_str()) else {
+            continue;
+        };
+        if beneficial.contains(&ctid_col.plan_position())
+            && proj
+                .schema
+                .index_of_column_by_name(None, field.name())
+                .is_none()
+        {
+            let (qualifier, _) = proj.input.schema().qualified_field(i);
+            new_exprs.push(datafusion::logical_expr::col(
+                datafusion::common::Column::new(qualifier.cloned(), field.name().clone()),
+            ));
+            added = true;
+        }
+    }
+    if added {
+        Ok(Some(datafusion::logical_expr::Projection::try_new(
+            new_exprs,
+            proj.input.clone(),
+        )?))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Threads a ctid column produced below `node` up through it, so a deferred
+/// scan's ctid survives every row-preserving node between the scan and the
+/// barrier where `VisibilityFilterExec` reads it. The caller only invokes this
+/// for non-barrier nodes.
+///
+/// A projection gets the ctid added to its output. A join is rebuilt with
+/// `Join::try_new` because `with_new_exprs` keeps the join's cached schema; only
+/// `try_new` re-runs `build_join_schema` so the bubbled ctid shows up. Every
+/// other node just recomputes its schema over the rewritten children.
+fn carry_ctid_columns_upward(
+    node: LogicalPlan,
+    beneficial: &BTreeSet<usize>,
+) -> Result<Transformed<LogicalPlan>> {
+    if let LogicalPlan::Projection(proj) = &node
+        && let Some(new_proj) = projection_with_ctids_added(proj, beneficial)?
+    {
+        return Ok(Transformed::yes(LogicalPlan::Projection(new_proj)));
+    }
+
+    if let LogicalPlan::Join(join) = &node {
+        let new_join = datafusion::logical_expr::logical_plan::Join::try_new(
+            join.left.clone(),
+            join.right.clone(),
+            join.on.clone(),
+            join.filter.clone(),
+            join.join_type,
+            join.join_constraint,
+            join.null_equality,
+            join.null_aware,
+        )?;
+        return Ok(Transformed::yes(LogicalPlan::Join(new_join)));
+    }
+
+    let new_node = node.with_new_exprs(
+        node.expressions(),
+        node.inputs().into_iter().cloned().collect(),
+    )?;
+    Ok(Transformed::yes(new_node.recompute_schema()?))
+}
+
 impl OptimizerRule for VisibilityFilterOptimizerRule {
     fn name(&self) -> &str {
         "VisibilityFilterInjection"
@@ -404,58 +438,7 @@ impl OptimizerRule for VisibilityFilterOptimizerRule {
             }
 
             if matches!(barrier_status(&node), BarrierStatus::None) {
-                if let LogicalPlan::Projection(proj) = &node {
-                    let mut new_exprs = proj.expr.clone();
-                    let mut added = false;
-                    for (i, field) in proj.input.schema().fields().iter().enumerate() {
-                        if let Ok(ctid_col) = CtidColumn::try_from(field.name().as_str()) {
-                            let plan_pos = ctid_col.plan_position();
-                            if beneficial.contains(&plan_pos)
-                                && proj
-                                    .schema
-                                    .index_of_column_by_name(None, field.name())
-                                    .is_none()
-                            {
-                                let (qualifier, _) = proj.input.schema().qualified_field(i);
-                                let col_expr =
-                                    datafusion::logical_expr::col(datafusion::common::Column::new(
-                                        qualifier.cloned(),
-                                        field.name().clone(),
-                                    ));
-                                new_exprs.push(col_expr);
-                                added = true;
-                            }
-                        }
-                    }
-                    if added {
-                        let new_proj = datafusion::logical_expr::Projection::try_new(
-                            new_exprs,
-                            proj.input.clone(),
-                        )?;
-                        return Ok(Transformed::yes(LogicalPlan::Projection(new_proj)));
-                    }
-                }
-
-                if let LogicalPlan::Join(join) = &node {
-                    let new_join = datafusion::logical_expr::logical_plan::Join::try_new(
-                        join.left.clone(),
-                        join.right.clone(),
-                        join.on.clone(),
-                        join.filter.clone(),
-                        join.join_type,
-                        join.join_constraint,
-                        join.null_equality,
-                        join.null_aware,
-                    )?;
-                    return Ok(Transformed::yes(LogicalPlan::Join(new_join)));
-                }
-
-                let new_node = node.with_new_exprs(
-                    node.expressions(),
-                    node.inputs().into_iter().cloned().collect(),
-                )?;
-                let recomputed = new_node.recompute_schema()?;
-                return Ok(Transformed::yes(recomputed));
+                return carry_ctid_columns_upward(node, &beneficial);
             }
 
             Ok(Transformed::no(node))

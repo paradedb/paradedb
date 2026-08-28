@@ -41,8 +41,8 @@ FROM alm_products p JOIN alm_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 ORDER BY p.category;
-                                                                                                                 QUERY PLAN                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: p.category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -54,12 +54,13 @@ ORDER BY p.category;
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
            :   TantivyLookupExec: decode=[category]
            :     VisibilityFilterExec: tables=[p, t]
-           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, ctid_0@2, ctid_1@4]
-           :         CooperativeExec
-           :           PgSearchScan: table=p, segments=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
-           :         CooperativeExec
-           :           PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=deferred, query="all"
-(16 rows)
+           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0, ctid_1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, ctid_0@2, ctid_1@4]
+           :           CooperativeExec
+           :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: table=t, segments=1, dynamic_filters=1, query="all"
+(17 rows)
 
 SELECT p.category, COUNT(*)
 FROM alm_products p JOIN alm_tags t ON p.id = t.product_id

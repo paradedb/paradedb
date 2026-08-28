@@ -3,6 +3,9 @@
 # Publish GitHub Release
 # Orchestrates fragment assembly, version syncing, and publishes a ParadeDB GitHub Release.
 # This workflow is triggered manually via the GitHub Actions UI and deploys the branch that it is being run from.
+#
+# Conditionals checking for `paradedb/paradedb` ensure that mutable steps (e.g., artifact assembly,
+# version bumps, and commits) only run on the community repository. See RELEASE.md for details.
 
 name: Publish GitHub Release
 
@@ -98,15 +101,18 @@ jobs:
           echo "Input validation passed!"
 
       - name: Install Rust
+        if: github.repository == 'paradedb/paradedb'
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache: false
           rustflags: ""
 
       - name: Install Determinate Nix
+        if: github.repository == 'paradedb/paradedb'
         uses: DeterminateSystems/determinate-nix-action@main
 
       - name: Assemble Release Artifacts
+        if: github.repository == 'paradedb/paradedb'
         run: |
           FLAGS=""
           if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
@@ -115,6 +121,7 @@ jobs:
           ./scripts/release.sh all "${{ github.event.inputs.version }}" $FLAGS
 
       - name: Update Cargo Version, Lockfile, and Nix Hash
+        if: github.repository == 'paradedb/paradedb'
         run: |
           ./scripts/release.sh set-version "${{ github.event.inputs.version }}"
 
@@ -153,7 +160,8 @@ jobs:
           issue-title: "Release v${{ github.event.inputs.version }}?"
           issue-body: ${{ steps.approval_details.outputs.issue_body }}
 
-      - name: Commit Release Artifacts and Create Tag
+      - name: Commit Release Artifacts
+        if: github.repository == 'paradedb/paradedb'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
@@ -178,13 +186,15 @@ jobs:
             echo "Beta release: skipping push of release commit to branch '${{ github.ref_name }}'."
           fi
 
+      - name: Create Tag
+        run: |
           TAG="v${{ github.event.inputs.version }}"
-          echo "Creating and pushing tag ${TAG} pointing at ${RELEASE_SHA}..."
+          echo "Creating and pushing tag ${TAG}..."
           git tag "$TAG"
           git push origin "$TAG"
 
       - name: Sync Release Artifacts to Main
-        if: github.ref_name != 'main' && github.event.inputs.beta != 'true'
+        if: github.repository == 'paradedb/paradedb' && github.ref_name != 'main' && github.event.inputs.beta != 'true'
         run: |
           RELEASE_VERSION="${{ github.event.inputs.version }}"
           CLEAN_VERSION="${RELEASE_VERSION%%-*}"
@@ -274,7 +284,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Post-Release Development Version Bump
-        if: github.event.inputs.beta != 'true'
+        if: github.repository == 'paradedb/paradedb' && github.event.inputs.beta != 'true'
         run: |
           REF_NAME="${{ github.ref_name }}"
           if [[ "$REF_NAME" != "main" ]]; then

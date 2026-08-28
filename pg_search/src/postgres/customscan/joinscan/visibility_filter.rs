@@ -157,8 +157,8 @@ impl datafusion::logical_expr::UserDefinedLogicalNodeCore for VisibilityFilterNo
 
     fn prevent_predicate_push_down_columns(&self) -> std::collections::HashSet<String> {
         // Prevent predicates on ctid columns from being pushed below this node.
-        // Before visibility resolution, ctid columns hold packed DocAddresses
-        // (not real ctids), so any predicate referencing them would be incorrect.
+        // This node filters invisible rows and HOT-corrects the ctids, so a predicate
+        // on a ctid column must run above it, not against the pre-visibility values.
         self.plan_pos_oids
             .iter()
             .map(|(plan_pos, _)| CtidColumn::new(*plan_pos).to_string())
@@ -775,7 +775,7 @@ fn ctid_resolving_lookup(
         let name = CtidColumn::new(*plan_pos).to_string();
         let (col_idx, _) = schema.column_with_name(&name).ok_or_else(|| {
             DataFusionError::Internal(format!(
-                "VisibilityFilterExec: ctid column '{name}' missing from input schema"
+                "ctid-resolving lookup: ctid column '{name}' missing from input schema"
             ))
         })?;
         ctid_columns.push(crate::scan::tantivy_lookup_exec::CtidColumnLookup {
@@ -859,19 +859,17 @@ impl ExtensionPlanner for VisibilityExtensionPlanner {
 // Physical Execution Plan
 // ---------------------------------------------------------------------------
 
-/// The dispatch wire shape: `(plan_pos, heap_oid)` pairs, display names, and each wired
-/// resolver's `(plan_pos, indexrelid)`.
+/// The dispatch wire shape: `(plan_pos, heap_oid)` pairs and display names.
 type VisibilityDispatchPayload = (Vec<(usize, pg_sys::Oid)>, Vec<String>);
 
-/// Physical plan node that resolves packed DocAddresses and performs batch
-/// visibility checking on ctid columns.
+/// Physical plan node that visibility-checks ctid columns and HOT-corrects them.
 ///
-/// For each `(plan_position, heap_oid)` in `plan_pos_oids`, it:
-/// 1. Resolves packed DocAddresses to real ctids via FFHelper
-/// 2. Reads the resolved `ctid_{plan_position}` column from the batch
-/// 3. Runs `VisibilityChecker::check_batch()` to determine visible rows
-/// 4. Filters the batch to only visible rows
-/// 5. Replaces ctid values with HOT-resolved ctids
+/// The ctid columns arrive already resolved to real ctids from the `TantivyLookupExec`
+/// below this node. For each `(plan_position, heap_oid)` in `plan_pos_oids`, it:
+/// 1. Reads the `ctid_{plan_position}` column from the batch
+/// 2. Runs `VisibilityChecker::check_batch()` to determine visible rows
+/// 3. Filters the batch to only visible rows
+/// 4. Replaces ctid values with HOT-resolved ctids
 pub struct VisibilityFilterExec {
     input: Arc<dyn ExecutionPlan>,
     /// (plan_position, heap_oid) pairs for visibility checking.
@@ -925,10 +923,8 @@ impl VisibilityFilterExec {
         &self.plan_pos_oids
     }
 
-    /// Serialize for leader dispatch. The `ctid_resolvers` are live `FFHelper`s wired by an
-    /// optimizer rule, so they don't travel; the worker re-wires them from the scans in its
-    /// decoded subtree, or rebuilds one from the shipped `(plan_position, indexrelid)` pairs
-    /// when a position's scan sits behind a network boundary.
+    /// Serialize for leader dispatch. Visibility checking needs no live state, so only the
+    /// `(plan_pos, heap_oid)` pairs and table names travel.
     pub(crate) fn encode_for_dispatch(&self) -> Result<Vec<u8>> {
         let payload = (&self.plan_pos_oids, &self.table_names);
         serde_json::to_vec(&payload).map_err(|e| {
@@ -936,10 +932,8 @@ impl VisibilityFilterExec {
         })
     }
 
-    /// Rebuild from a dispatch descriptor, re-wiring the per-plan_position ctid resolvers from
-    /// the scans the worker decoded below this node. A position whose scan sits behind a network
-    /// boundary rebuilds its resolver instead: a helper replaying that source's segment view
-    /// resolves any address a producer packed (ctid access needs no field layout).
+    /// Rebuild from a dispatch descriptor. The ctid columns are already resolved by the
+    /// `TantivyLookupExec` below, so there is nothing to re-wire here.
     pub(crate) fn decode_for_dispatch(
         buf: &[u8],
         input: Arc<dyn ExecutionPlan>,
@@ -1026,8 +1020,8 @@ impl ExecutionPlan for VisibilityFilterExec {
             ));
         }
         // VisibilityFilterExec is unary and preserves its child's schema.
-        // We block ctid_* columns (packed DocAddresses below this node) and
-        // allow all other columns through for filter pushdown.
+        // We block ctid_* columns (this node still filters dead rows and HOT-corrects
+        // them) and allow all other columns through for filter pushdown.
         let schema = self.input.schema();
         let blocked_ctid_names: std::collections::HashSet<String> = self
             .plan_pos_oids
@@ -1187,7 +1181,7 @@ struct CtidCheckerEntry {
 fn check_column_visibility(entry: &mut CtidCheckerEntry, ctid_array: &UInt64Array) -> ArrayRef {
     if ctid_array.null_count() != 0 {
         panic!(
-            "ctid column contains {} nulls — null ctids indicate a planning or storage bug",
+            "ctid column contains {} nulls, which indicate a planning or storage bug",
             ctid_array.null_count()
         );
     }

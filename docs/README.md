@@ -23,11 +23,6 @@ Production documentation updates are deployed manually through the
 `Publish ParadeDB (Docs)` GitHub Actions workflow. The workflow asks Mintlify to
 rebuild the configured production branch.
 
-Same-repository pull requests that change `docs/**` create or update a Mintlify
-preview deployment through the `Preview ParadeDB (Docs)` GitHub Actions
-workflow. Fork pull requests do not receive previews because Mintlify cannot
-preview fork-only branches from the ParadeDB repository.
-
 ## Troubleshooting
 
 - Local preview is out of sync with the deployed documentation - Run `mint update`.

@@ -1,0 +1,331 @@
+---
+title: Top K
+description: ParadeDB is optimized for quickly finding the Top K results in a table
+canonical: https://www.paradedb.com/docs/reference/full-text/top-k
+---
+
+<Note>
+  This section covers sorting by a field. To sort by BM25 relevance score, see
+  [BM25 Scoring](/reference/full-text/score).
+</Note>
+
+ParadeDB is highly optimized for quickly returning the Top K results out of the index. In SQL, this means queries that contain an `ORDER BY...LIMIT`:
+
+<CodeGroup>
+```sql SQL
+SELECT description, rating, category
+FROM mock_items
+WHERE description ||| 'running shoes'
+ORDER BY rating
+LIMIT 5;
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "running shoes"))
+  .orderBy(mockItems.rating)
+  .limit(5);
+```
+
+```python Django
+from paradedb import MatchAny, ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB(MatchAny('running shoes'))
+).order_by('rating').values('description', 'rating', 'category')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_any(MockItem.description, "running shoes"))
+    .order_by(MockItem.rating)
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .match_any("running shoes")
+        .order(:rating)
+        .select(:description, :rating, :category)
+        .limit(5)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "running shoes"))
+    .OrderBy(item => item.Rating)
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .Take(5)
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+In order for a Top K query to be executed by ParadeDB vs. vanilla Postgres, all of the following conditions must be met:
+
+1. All `ORDER BY` fields must be indexed. If they are text fields, they [must use the literal tokenizer](#sorting-by-text).
+2. At least one ParadeDB text search operator must be present at the same level as the `ORDER BY...LIMIT`.
+3. The query must have a `LIMIT`.
+4. With the exception of `lower`, ordering by expressions is not supported -- only the raw fields themselves.
+
+To verify that ParadeDB is executing the Top K, look for a `Custom Scan` with a `TopKScanExecState` in the `EXPLAIN` output:
+
+```sql
+EXPLAIN SELECT description, rating, category
+FROM mock_items
+WHERE description ||| 'running shoes'
+ORDER BY rating
+LIMIT 5;
+```
+
+<Accordion title = "Expected Response">
+```csv
+                                                                                                   QUERY PLAN
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=10.00..10.02 rows=3 width=552)
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items  (cost=10.00..10.02 rows=3 width=552)
+         Table: mock_items
+         Index: search_idx
+         Segment Count: 1
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: rating asc
+            TopK Limit: 5
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(10 rows)
+```
+</Accordion>
+
+If any of the above conditions are not met, the query cannot be fully optimized and you will not see a `TopKScanExecState` in the `EXPLAIN` output.
+
+## Tiebreaker Sorting
+
+To guarantee stable sorting in the event of a tie, additional columns can be provided to `ORDER BY`.
+
+This is particularly important when sorting by `pdb.score(...)`, as equal scores can result in non-deterministic orderings. As noted above, all tiebreaker columns must be indexed to receive the Top K optimization.
+
+<CodeGroup>
+```sql SQL
+SELECT description, rating, category
+FROM mock_items
+WHERE description ||| 'running shoes'
+ORDER BY rating, id
+LIMIT 5;
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "running shoes"))
+  .orderBy(mockItems.rating, mockItems.id)
+  .limit(5);
+```
+
+```python Django
+from paradedb import MatchAny, ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB(MatchAny('running shoes'))
+).order_by('rating', 'id').values('description', 'rating', 'category')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_any(MockItem.description, "running shoes"))
+    .order_by(MockItem.rating, MockItem.id)
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .match_any("running shoes")
+        .order(:rating, :id)
+        .select(:description, :rating, :category)
+        .limit(5)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "running shoes"))
+    .OrderBy(item => item.Rating)
+    .ThenBy(item => item.Id)
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .Take(5)
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+<Note>
+  ParadeDB is currently able to handle 3 `ORDER BY` columns. If there are more
+  than 3 columns, the `ORDER BY` will not be efficiently executed by ParadeDB.
+</Note>
+
+## Sorting by Text
+
+If a text field is present in the `ORDER BY` clause, it must be indexed with the [literal](/reference/tokenizers/available-tokenizers/literal) or
+[literal normalized](/reference/tokenizers/available-tokenizers/literal-normalized) tokenizer.
+
+Sorting by lowercase text using `lower(<text_field>)` is also supported. To enable this, the expression `lower(<text_field>)` must be indexed
+with either the literal or literal normalized tokenizer. See [indexing expressions](/reference/indexing/indexing-expressions) for more information.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING paradedb (id, (lower(description)::pdb.literal))
+WITH (key_field='id');
+```
+
+This allows sorting by lowercase to be optimized.
+
+<CodeGroup>
+```sql SQL
+SELECT description, rating, category
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY lower(description)
+LIMIT 5;
+```
+
+```ts Drizzle
+import { sql } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "sleek running shoes"))
+  .orderBy(sql`lower(${mockItems.description})`)
+  .limit(5);
+```
+
+```python Django
+from django.db.models.functions import Lower
+from paradedb import MatchAny, ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB(MatchAny('sleek running shoes'))
+).order_by(Lower('description')).values('description', 'rating', 'category')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_any(MockItem.description, "sleek running shoes"))
+    .order_by(func.lower(MockItem.description))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+description = MockItem.arel_table[:description]
+lower_description = Arel::Nodes::NamedFunction.new("LOWER", [description])
+
+MockItem.search(:description)
+        .match_any("sleek running shoes")
+        .order(Arel::Nodes::Ascending.new(lower_description))
+        .select(:description, :rating, :category)
+        .limit(5)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchAny(item.Description, "sleek running shoes")
+    )
+    .OrderBy(item => item.Description.ToLower())
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .Take(5)
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+## Sorting by Range
+
+Postgres range columns (`int4range`, `int8range`, `numrange`, `daterange`, `tsrange`, `tstzrange`) can receive the Top K optimization when they appear as the **leading** `ORDER BY` key. ParadeDB compares range values using the same rules as Postgres `range_cmp` (empty ranges, unbounded bounds, and inclusive/exclusive endpoints).
+
+Range columns are always indexed as fast fields, so no extra configuration is needed. If a range column appears in a later `ORDER BY` position, the whole `ORDER BY` falls back to a regular Postgres sort. Tiebreaker columns after a leading range key are fine.
+
+```sql
+SELECT description, rating, weight_range
+FROM mock_items
+WHERE description @@@ 'shoes'
+ORDER BY weight_range
+LIMIT 10;
+```
+
+## Sorting by JSON
+
+Ordering by a JSON subfield directly is not yet supported. For example, this query will not receive an optimized Top K scan:
+
+```sql
+SELECT id, description, metadata
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY metadata->'weight'
+LIMIT 5;
+```
+
+However, you can achieve an optimized Top K scan by projecting the JSON field, casting it to the desired type, and indexing it with `pdb.alias`.
+
+For example, to order by a numeric `weight` field within a JSON column:
+
+```sql
+CREATE INDEX json_topk_idx ON mock_items
+USING paradedb (id, description, (((metadata->>'weight')::int)::pdb.alias('weight')))
+WITH (key_field='id', sort_by='weight');
+```
+
+You can then query and order by the exact underlying expression, which will now use the Top K optimization:
+
+```sql
+SELECT id, description, (metadata->>'weight')::int AS weight
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY (metadata->>'weight')::int
+LIMIT 5;
+```

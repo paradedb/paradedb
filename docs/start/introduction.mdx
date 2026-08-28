@@ -1,0 +1,76 @@
+---
+title: Introduction to ParadeDB
+sidebarTitle: Introduction to ParadeDB
+description: One Postgres for your application data, full-text search, vector retrieval, and aggregations.
+canonical: https://www.paradedb.com/docs/start/introduction
+---
+
+ParadeDB is Postgres-native search, packaged as the **pg_search** extension. It is not a Postgres fork: it runs as an extension inside standard Postgres. ParadeDB combines Tantivy, DataFusion, and our own vector search layer into a single Postgres index for efficient vector/text search, BM25 scoring, filtering, and aggregates. Everything runs against your source of truth data with Postgres' transactional guarantees, not in
+an additional system you have to keep in sync.
+
+ParadeDB Cloud is coming soon: a fully managed platform for running ParadeDB with better developer experience, higher performance, and more scalability than self-managing the extension. The [waitlist is open now](https://www.paradedb.com/cloud) for early access.
+
+## Who is ParadeDB for?
+
+You're likely a good fit for ParadeDB if any of the following sound like you:
+
+1. You're **combining transactional workloads with search**: semantic search, full-text search, vector retrieval, lexical ranking, or hybrid search need to run against your source of truth data.
+2. You've **outgrown Postgres full-text search or pgvector** and are frustrated with performance bottlenecks, missing features, or a clunky developer experience.
+3. You're **evaluating a search engine like Elasticsearch or a vector store like Pinecone**, but don't want to run and continuously sync additional systems with your database.
+
+## Why ParadeDB?
+
+For teams that already use Postgres, ParadeDB is the shortest path from transactional data to production-grade search.
+
+### No Second System
+
+External search engines and vector stores make you own sync jobs, duplicated schemas, freshness checks, and cross-system failures. ParadeDB keeps search in Postgres, so index updates happen with your writes and queries run against your source of truth data.
+
+### Postgres-Native Developer Experience
+
+Create indexes and query them with SQL. Full-text search, vector retrieval, hybrid search, filters, joins, facets, and aggregations compose with the schema and tools you already use.
+
+### Built For Real Search Workloads
+
+A ParadeDB index serves lexical search, vector retrieval, ranking, filtering, and aggregations from one place. ParadeDB can be fast because these workloads push down into a single wide index, instead of being stitched together across scans, indexes, or systems. You get dedicated-search-engine capabilities without giving up Postgres transactions and ACID guarantees.
+
+For deeper evaluation, compare ParadeDB with [Postgres full-text search, pgvector, search engines, and vector stores](/start/alternatives).
+
+## Who Uses ParadeDB?
+
+ParadeDB powers core search and analytics workloads at organizations ranging from Fortune 500 companies to fast-growing startups.
+
+- **Alibaba Cloud**, the cloud computing arm of Alibaba Group and the largest Asia-Pacific cloud provider. [Case study](https://www.paradedb.com/customers/case-study-alibaba).
+- **Bilt Rewards**, a rent payments technology company that processed over $36B in payments in 2024. [Case study](https://www.paradedb.com/customers/case-study-bilt).
+- **Modern Treasury**, a financial technology company that automates the full cycle of money movement. [Case study](https://www.paradedb.com/customers/case-study-modern-treasury).
+- **Cofactr**, a full-service electronics purchasing platform for hardware teams. [Case study](https://www.paradedb.com/customers/case-study-cofactr).
+- **TCDI**<sup>1</sup>, a giant in the legal software and litigation management space.
+
+_1. Case study coming soon._
+
+## Next Steps
+
+You're now ready to jump into our guides.
+
+<CardGroup cols={2}>
+  <Card title="Getting Started" icon="forward-fast" href="/start/install">
+    Install ParadeDB and run your first queries.
+  </Card>
+  <Card
+    title="Architecture"
+    icon="diagram-project"
+    href="/concepts/architecture"
+  >
+    Learn how ParadeDB is built.
+  </Card>
+  <Card
+    title="Reference"
+    icon="magnifying-glass"
+    href="/reference/indexing/create-index"
+  >
+    Indexing, query types, tokenizers, vectors, and aggregates.
+  </Card>
+  <Card title="Deploy" icon="server" href="/operate/deploy/overview">
+    Deploy ParadeDB as a Postgres extension or standalone database.
+  </Card>
+</CardGroup>

@@ -1,0 +1,411 @@
+---
+title: Aggregate Syntax
+description: Accelerate aggregates with the ParadeDB index
+canonical: https://www.paradedb.com/docs/reference/aggregates/overview
+---
+
+The `pdb.agg` function accepts an Elasticsearch-compatible JSON aggregate query string. It executes the aggregate using the
+[columnar](/concepts/architecture#columnar-index) portion of the ParadeDB index, which can significantly accelerate performance compared to vanilla Postgres.
+
+For example, the following query counts the total number of results for a search query.
+
+<CodeGroup>
+```sql SQL
+SELECT pdb.agg('{"value_count": {"field": "id"}}')
+FROM mock_items
+WHERE category === 'electronics';
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    agg: search.agg({ value_count: { field: "id" } }),
+  })
+  .from(mockItems)
+  .where(search.term(mockItems.category, "electronics"));
+```
+
+```python Django
+from paradedb import Agg, ParadeDB, Term
+
+MockItem.objects.filter(
+    category=ParadeDB(Term('electronics'))
+).aggregate(agg=Agg('{"value_count": {"field": "id"}}'))
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(pdb.agg(facets.value_count(field="id")))
+    .select_from(MockItem)
+    .where(search.term(MockItem.category, "electronics"))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:category)
+        .term("electronics")
+        .facets_agg(agg: ParadeDB::Aggregations.value_count(:id))
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.Term(item.Category, "electronics"))
+    .Select(item => EF.Functions.Agg(new { value_count = new { field = "id" } }))
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+```ini Expected Response
+      agg
+----------------
+ {"value": 5.0}
+(1 row)
+```
+
+This query counts the number of results for every distinct group:
+
+<CodeGroup>
+```sql SQL
+SELECT rating, pdb.agg('{"value_count": {"field": "id"}}')
+FROM mock_items
+WHERE category === 'electronics'
+GROUP BY rating
+ORDER BY rating
+LIMIT 5;
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    rating: mockItems.rating,
+    agg: search.agg({ value_count: { field: "id" } }),
+  })
+  .from(mockItems)
+  .where(search.term(mockItems.category, "electronics"))
+  .groupBy(mockItems.rating)
+  .orderBy(mockItems.rating)
+  .limit(5);
+```
+
+```python Django
+from paradedb import Agg, ParadeDB, Term
+
+MockItem.objects.filter(
+    category=ParadeDB(Term('electronics'))
+).values('rating').annotate(
+    agg=Agg('{"value_count": {"field": "id"}}')
+).order_by('rating')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(MockItem.rating, pdb.agg(facets.value_count(field="id")).label("agg"))
+    .where(search.term(MockItem.category, "electronics"))
+    .group_by(MockItem.rating)
+    .order_by(MockItem.rating)
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:category)
+        .term("electronics")
+        .aggregate_by(
+          :rating,
+          agg: ParadeDB::Aggregations.value_count(:id)
+        )
+        .order(:rating)
+        .limit(5)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.Term(item.Category, "electronics"))
+    .GroupBy(item => item.Rating)
+    .Select(group => new
+    {
+        Rating = group.Key,
+        Agg = EF.Functions.Agg(new { value_count = new { field = "id" } })
+    })
+    .OrderBy(result => result.Rating)
+    .Take(5)
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+```ini Expected Response
+ rating |      agg
+--------+----------------
+      3 | {"value": 1.0}
+      4 | {"value": 3.0}
+      5 | {"value": 1.0}
+(3 rows)
+```
+
+## Multiple Aggregations
+
+To compute multiple aggregations at once, simply include multiple `pdb.agg` functions in the target list:
+
+<CodeGroup>
+```sql SQL
+SELECT
+  pdb.agg('{"avg": {"field": "rating"}}') AS avg_rating,
+  pdb.agg('{"value_count": {"field": "id"}}') AS count
+FROM mock_items
+WHERE category === 'electronics';
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    avgRating: search.agg({ avg: { field: "rating" } }),
+    count: search.agg({ value_count: { field: "id" } }),
+  })
+  .from(mockItems)
+  .where(search.term(mockItems.category, "electronics"));
+```
+
+```python Django
+from paradedb import Agg, ParadeDB, Term
+
+MockItem.objects.filter(
+    category=ParadeDB(Term('electronics'))
+).aggregate(
+    avg_rating=Agg('{"avg": {"field": "rating"}}'),
+    count=Agg('{"value_count": {"field": "id"}}'),
+)
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(
+        pdb.agg(facets.avg(field="rating")).label("avg_rating"),
+        pdb.agg(facets.value_count(field="id")).label("count"),
+    )
+    .select_from(MockItem)
+    .where(search.term(MockItem.category, "electronics"))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:category)
+        .term("electronics")
+        .facets_agg(
+          avg_rating: ParadeDB::Aggregations.avg(:rating),
+          count: ParadeDB::Aggregations.value_count(:id)
+        )
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.Term(item.Category, "electronics"))
+    .Select(item => new
+    {
+        AvgRating = EF.Functions.Agg(new { avg = new { field = "rating" } }),
+        Count = EF.Functions.Agg(new { value_count = new { field = "id" } })
+    })
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+```ini Expected Response
+   avg_rating   |     count
+----------------+----------------
+ {"value": 4.0} | {"value": 5.0}
+(1 row)
+```
+
+## Performance Optimization
+
+By default, `pdb.agg` runs transaction visibility checks so that deleted or updated-away rows are not factored into the result set. This behavior is controlled by the `visibility` argument, which takes one of three modes.
+
+| Mode | Behavior |
+| --- | --- |
+| `'transaction'` | Check transaction visibility. Aggregate results match vanilla Postgres. This is the default. |
+| `'raw'` | Skip the checks and aggregate raw index data. Faster, and approximate whenever the index still holds entries for rows your transaction cannot see. |
+| `'threshold'` | Check transaction visibility only when the query's estimated matching row count is below `paradedb.visibility_threshold`. |
+
+If your table is not frequently updated or you can tolerate an approximate result, the performance of aggregate queries can be improved by skipping these visibility checks.
+To do so, set `visibility` to `'raw'`.
+
+<CodeGroup>
+```sql SQL
+SELECT pdb.agg('{"value_count": {"field": "id"}}', 'raw')
+FROM mock_items
+WHERE description ||| 'running shoes';
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    agg: search.agg({ value_count: { field: "id" } }, false),
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "running shoes"));
+```
+
+```python Django
+from paradedb import Agg, MatchAny, ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB(MatchAny('running shoes'))
+).aggregate(
+    agg=Agg('{"value_count": {"field": "id"}}', exact=False)
+)
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(pdb.agg(facets.value_count(field="id"), approximate=True).label("agg"))
+    .where(search.match_any(MockItem.description, "running shoes"))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .match_any("running shoes")
+        .facets_agg(exact: false, agg: ParadeDB::Aggregations.value_count(:id))
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "running shoes"))
+    .Select(item => EF.Functions.Agg(new { value_count = new { field = "id" } }, false))
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+Skipping this check can improve query times by 2-4x in some cases, at the expense of correctness.
+
+### Thresholded Visibility
+
+An unvacuumed dead tuple skews a small result visibly and a large one barely at all, so the tradeoff above is really a function of how many rows the query matches. `visibility => 'threshold'` makes that decision per query instead of hardcoding it in your application: visibility checks run when the estimated matching row count is below `paradedb.visibility_threshold`, and the aggregate reads raw index data otherwise.
+
+```sql
+SELECT pdb.agg('{"value_count": {"field": "id"}}', 'threshold')
+FROM mock_items
+WHERE description ||| 'running shoes';
+```
+
+`paradedb.visibility_threshold` defaults to `10000` and can be set at the system, database, session, or transaction level.
+
+```sql
+SET paradedb.visibility_threshold = 50000;
+```
+
+The estimate is made for the query as a whole, so a bucketed aggregation such as `GROUP BY` or `terms` resolves to one decision for every bucket. A query matching a million rows across fifty thousand buckets aggregates every bucket from raw index data, including the low-cardinality ones.
+
+<Note>
+If a single query contains multiple `pdb.agg` calls, all of them must use the same `visibility` setting. Omitting the argument selects `'transaction'`, so an omitted argument alongside an explicit `'raw'` is a conflict, not a default.
+</Note>
+
+<Note>
+The `solve_mvcc` argument is deprecated in favor of `visibility`. Passing a boolean is still accepted, where `true` means `'transaction'` and `false` means `'raw'`.
+</Note>
+
+## JSON Fields
+
+If `metadata` is a JSON field with key `color`, use `metadata.color` as the field name:
+
+<CodeGroup>
+```sql SQL
+SELECT pdb.agg('{"terms": {"field": "metadata.color"}}')
+FROM mock_items
+WHERE id @@@ pdb.all();
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    agg: search.agg({ terms: { field: "metadata.color" } }),
+  })
+  .from(mockItems)
+  .where(search.all(mockItems.id));
+```
+
+```python Django
+from paradedb import Agg, All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(agg=Agg('{"terms": {"field": "metadata.color"}}'))
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(pdb.agg(facets.terms(field="metadata.color")))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .facets_agg(agg: ParadeDB::Aggregations.terms("metadata.color"))
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.All(item.Id))
+    .Select(item => EF.Functions.Agg(new { terms = new { field = "metadata.color" } }))
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+<Note>
+  If a text or JSON field is used inside `pdb.agg`, it must use the
+  [literal](/reference/tokenizers/available-tokenizers/literal) or [literal
+  normalized](/reference/tokenizers/available-tokenizers/literal-normalized)
+  tokenizer.
+</Note>

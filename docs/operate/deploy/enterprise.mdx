@@ -1,0 +1,71 @@
+---
+title: ParadeDB Enterprise
+description: Feature comparison between ParadeDB Community and Enterprise
+canonical: https://www.paradedb.com/docs/operate/deploy/enterprise
+---
+
+<Note>
+  If you're a non-profit or a non-commercial open source project and are
+  interested in ParadeDB Enterprise, please [contact
+  sales](mailto:sales@paradedb.com). We provide complimentary access on a
+  case-by-case basis.
+</Note>
+
+ParadeDB ships in two versions: ParadeDB Community and ParadeDB Enterprise.
+
+[ParadeDB Community](https://github.com/paradedb/paradedb) is our open source product, licensed under [AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0.en.html).
+This license permits free use, modification, and distribution of the software, provided that distributed, derivative works of the software are released under the same license
+(copyleft provision).
+
+In addition to all of the features of ParadeDB Community, ParadeDB Enterprise:
+
+1. Waives the copyleft provision of AGPL-3.0
+2. Contains several closed-source features that are recommended for ParadeDB to service enterprise, production workloads
+
+For access to ParadeDB Enterprise, please [contact sales](mailto:sales@paradedb.com).
+
+## Feature Comparison
+
+|                                      | ParadeDB Community | ParadeDB Enterprise |
+| ------------------------------------ | ------------------ | ------------------- |
+| **Index Configuration**              |                    |
+| Support for most Postgres types      | ✅                 | ✅                  |
+| Custom tokenizers and filters        | ✅                 | ✅                  |
+| Multiple tokenizers per field        | ✅                 | ✅                  |
+| **Search**                           |                    |
+| Full text search with BM25           | ✅                 | ✅                  |
+| Vector search                        | ✅                 | ✅                  |
+| Hybrid search                        | ✅                 | ✅                  |
+| Top K                                | ✅                 | ✅                  |
+| Filtering                            | ✅                 | ✅                  |
+| Aggregates and facets                | ✅                 | ✅                  |
+| **Concurrency and Consistency**      |                    |
+| Postgres MVCC-safe<sup>1</sup>       | ✅                 | ✅                  |
+| Concurrent, non-blocking writes      | ✅                 | ✅                  |
+| Block storage integration            | ✅                 | ✅                  |
+| Buffer cache integration<sup>2</sup> | ✅                 | ✅                  |
+| **Deployment** <sup>3</sup>          |                    |
+| Maximum cluster size <sup>4</sup>    | 1                  | Unlimited           |
+| Crash Recovery                       | ✅                 | ✅                  |
+| Point in Time Recovery               | ✅                 | ✅                  |
+| Logical Replication                  | ✅                 | ✅                  |
+| High Availability Support            | ❌                 | ✅                  |
+| Read Replica Support                 | ❌                 | ✅                  |
+
+<Info>
+**Footnotes**
+
+<p className="text-sm">
+  1. The ParadeDB index supports Postgres' multi-version concurrency control (MVCC)
+  rules. The index reflects the current state of the underlying table at all
+  times, changes to the index are atomic, and queries are transactionally
+  consistent with the table.
+  2. The ParadeDB index is built on block storage, Postgres' native storage API.
+  This means that it leverages the Postgres buffer cache, which minimizes disk
+  I/O.
+  3. All listed deployment features and limitations are specific to the ParadeDB index. For instance,
+  ParadeDB Community supports physical/logical replication, crash recovery, etc. for heap tables and other Postgres indexes like B-Tree.
+  4. In a primary-replica topology, ParadeDB indexes in ParadeDB Community are only available on the primary, as
+  the Community edition does not support physical replication.
+</p>
+</Info>

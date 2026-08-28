@@ -1,0 +1,382 @@
+---
+title: Relevance Tuning
+description: Tune the BM25 score by adjusting the weights of individual queries
+canonical: https://www.paradedb.com/docs/reference/full-text/boost
+---
+
+## Boosting
+
+ParadeDB offers several ways to tune a document's [BM25 score](/reference/full-text/score).
+The first is boosting, which increases or decreases the impact of a specific query by multiplying its contribution to the overall BM25 score.
+
+To boost a query, cast the query to the `boost` type. In this example, the `shoes` query is weighted twice as heavily as the `footwear` query.
+
+<CodeGroup>
+```sql SQL
+SELECT id, pdb.score(id), description, category
+FROM mock_items
+WHERE description ||| 'shoes'::pdb.boost(2) OR category ||| 'footwear'
+ORDER BY score DESC
+LIMIT 5;
+```
+
+```ts Drizzle
+import { desc, or } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    score: search.score(mockItems.id),
+    description: mockItems.description,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    or(
+      search.matchAny(mockItems.description, search.boost("shoes", 2)),
+      search.matchAny(mockItems.category, "footwear"),
+    ),
+  )
+  .orderBy(desc(search.score(mockItems.id)))
+  .limit(5);
+```
+
+```python Django
+from django.db.models import Q
+from paradedb import Boost, MatchAny, ParadeDB, Score
+
+MockItem.objects.filter(
+    Q(description=ParadeDB(MatchAny(Boost('shoes', 2)))) |
+    Q(category=ParadeDB(MatchAny('footwear')))
+).annotate(
+    score=Score()
+).values('id', 'score', 'description', 'category').order_by('-score')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import desc, or_, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(
+        MockItem.id,
+        pdb.score(MockItem.id).label("score"),
+        MockItem.description,
+        MockItem.category,
+    )
+    .where(
+        or_(
+            search.match_any(MockItem.description, search.boost("shoes", 2.0)),
+            search.match_any(MockItem.category, "footwear"),
+        )
+    )
+    .order_by(desc("score"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .match_any(ParadeDB.boost("shoes", 2))
+        .or(MockItem.search(:category).match_any("footwear"))
+        .with_score
+        .select(:id, :description, :category)
+        .order(search_score: :desc)
+        .limit(5)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchAny(item.Description, Pdb.Boost("shoes", 2))
+        || EF.Functions.MatchAny(item.Category, "footwear")
+    )
+    .Select(item => new
+    {
+        item.Id,
+        Score = EF.Functions.Score(item.Id),
+        item.Description,
+        item.Category
+    })
+    .OrderByDescending(item => item.Score)
+    .Take(5)
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+`boost` takes a numeric value, which is the multiplicative boost factor. It can be any floating point number between `-2048` and `2048`.
+
+[Query builder functions](/reference/full-text/query-builder) can also be boosted:
+
+<CodeGroup>
+```sql SQL
+SELECT id, description, category, pdb.score(id)
+FROM mock_items
+WHERE description @@@ pdb.regex('key.*')::pdb.boost(2)
+ORDER BY score DESC
+LIMIT 5;
+```
+
+```ts Drizzle
+import { desc } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    category: mockItems.category,
+    score: search.score(mockItems.id),
+  })
+  .from(mockItems)
+  .where(search.boost(search.regex(mockItems.description, "key.*"), 2))
+  .orderBy(desc(search.score(mockItems.id)))
+  .limit(5);
+```
+
+```python Django
+from paradedb import Boost, ParadeDB, Regex, Score
+
+MockItem.objects.filter(
+    description=ParadeDB(Boost(Regex('key.*'), 2))
+).annotate(
+    score=Score()
+).values('id', 'description', 'category', 'score').order_by('-score')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import desc, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(
+        MockItem.id,
+        MockItem.description,
+        MockItem.category,
+        pdb.score(MockItem.id).label("score"),
+    )
+    .where(search.boost(search.regex(MockItem.description, "key.*"), 2.0))
+    .order_by(desc("score"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .regex(ParadeDB.boost("key.*", 2))
+        .with_score
+        .select(:id, :description, :category)
+        .order(search_score: :desc)
+        .limit(5)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        Pdb.Boost(EF.Functions.Regex(item.Description, "key.*"), 2)
+    )
+    .Select(item => new
+    {
+        item.Id,
+        item.Description,
+        item.Category,
+        Score = EF.Functions.Score(item.Id)
+    })
+    .OrderByDescending(item => item.Score)
+    .Take(5)
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+Boost can be used in conjunction with other type casts, like [fuzzy](/reference/full-text/fuzzy):
+
+<CodeGroup>
+```sql SQL
+SELECT id, description, category, pdb.score(id)
+FROM mock_items
+WHERE description ||| 'shose'::pdb.fuzzy(2)::pdb.boost(2)
+ORDER BY score DESC
+LIMIT 5;
+```
+
+```ts Drizzle
+import { desc } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    category: mockItems.category,
+    score: search.score(mockItems.id),
+  })
+  .from(mockItems)
+  .where(
+    search.matchAny(
+      mockItems.description,
+      search.boost(search.fuzzy("shose", 2), 2),
+    ),
+  )
+  .orderBy(desc(search.score(mockItems.id)))
+  .limit(5);
+```
+
+```python Django
+from paradedb import Boost, Fuzzy, MatchAny, ParadeDB, Score
+
+MockItem.objects.filter(
+    description=ParadeDB(MatchAny(Boost(Fuzzy('shose', 2), 2)))
+).annotate(
+    score=Score()
+).values('id', 'description', 'category', 'score').order_by('-score')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import desc, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(
+        MockItem.id,
+        MockItem.description,
+        MockItem.category,
+        pdb.score(MockItem.id).label("score"),
+    )
+    .where(search.match_any(MockItem.description, search.boost(search.fuzzy("shose", 2), 2.0)))
+    .order_by(desc("score"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .match_any(ParadeDB.boost(ParadeDB.fuzzy("shose", 2), 2))
+        .with_score
+        .select(:id, :description, :category)
+        .order(search_score: :desc)
+        .limit(5)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchAny(item.Description, Pdb.Boost(Pdb.Fuzzy("shose", 2), 2))
+    )
+    .Select(item => new
+    {
+        item.Id,
+        item.Description,
+        item.Category,
+        Score = EF.Functions.Score(item.Id)
+    })
+    .OrderByDescending(item => item.Score)
+    .Take(5)
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+## Constant Scoring
+
+Constant scoring assigns the same score to all documents that match a query. To apply a constant score, cast the query to the `const` type with a
+numeric value.
+
+For instance, the following query assigns a score of `1` to all documents matching the query `shoes`.
+
+<CodeGroup>
+```sql SQL
+SELECT id, pdb.score(id), description, category
+FROM mock_items
+WHERE description ||| 'shoes'::pdb.const(1)
+ORDER BY score DESC
+LIMIT 5;
+```
+
+```ts Drizzle
+import { desc } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    score: search.score(mockItems.id),
+    description: mockItems.description,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, search.constant("shoes", 1)))
+  .orderBy(desc(search.score(mockItems.id)))
+  .limit(5);
+```
+
+```python Django
+from paradedb import Const, MatchAny, ParadeDB, Score
+
+MockItem.objects.filter(
+    description=ParadeDB(MatchAny(Const('shoes', 1)))
+).annotate(
+    score=Score()
+).values('id', 'score', 'description', 'category').order_by('-score')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import desc, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(
+        MockItem.id,
+        pdb.score(MockItem.id).label("score"),
+        MockItem.description,
+        MockItem.category,
+    )
+    .where(search.match_any(MockItem.description, search.constant("shoes", 1.0)))
+    .order_by(desc("score"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .match_any(ParadeDB.constant("shoes", 1))
+        .with_score
+        .select(:id, :description, :category)
+        .order(search_score: :desc)
+        .limit(5)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.MatchAny(item.Description, Pdb.Const("shoes", 1)))
+    .Select(item => new
+    {
+        item.Id,
+        Score = EF.Functions.Score(item.Id),
+        item.Description,
+        item.Category
+    })
+    .OrderByDescending(item => item.Score)
+    .Take(5)
+    .ToListAsync();
+```
+
+</CodeGroup>

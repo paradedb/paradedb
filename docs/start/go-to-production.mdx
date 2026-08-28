@@ -4,8 +4,112 @@ description: Move from the sandbox to a production deployment
 canonical: https://www.paradedb.com/docs/start/go-to-production
 ---
 
-<Note>
-  Placeholder page from the docs restructure proposal. Content to be written.
-</Note>
+The quickstart proves that ParadeDB can search, rank, filter, and aggregate from
+inside Postgres. A production rollout is mostly about choosing the right
+topology, indexing the right fields, and giving Postgres enough room to do the
+work.
 
-Router page threading the tutorial into Operate: choose a topology, size the instance, and configure the index for production workloads.
+## Production Checklist
+
+1. Choose the deployment model that matches your primary database.
+2. Load representative data, not only the small `mock_items` table.
+3. Design indexes around real query patterns.
+4. Tune index creation, reads, and writes with production-sized data.
+5. Confirm query plans with `EXPLAIN`.
+6. Decide how upgrades, backups, and high availability will work.
+
+## Production Readiness
+
+[ParadeDB Community](https://github.com/paradedb/paradedb), our open-source
+edition, has been downloaded more than 2.5 million times. It is durable and
+crash-safe: changes to ParadeDB indexes are write-ahead logged and support crash
+recovery and point-in-time recovery. See [Guarantees](/concepts/guarantees) for
+the full details.
+
+[ParadeDB Enterprise](/operate/deploy/enterprise) adds capabilities for multi-node
+production environments, including physical replication, high availability, read
+replicas, commercial licensing, and support.
+
+## Deployment
+
+<CardGroup cols={2}>
+  <Card
+    title="Deployment Overview"
+    icon="server"
+    href="/operate/deploy/overview"
+  >
+    Compare extension, self-hosted, logical replication, cloud platform, BYOC,
+    and Enterprise options.
+  </Card>
+  <Card
+    title="Install as an Extension"
+    icon="database"
+    href="/operate/deploy/self-hosted/extension"
+  >
+    Add ParadeDB to a Postgres instance you already control.
+  </Card>
+  <Card
+    title="Logical Replication"
+    icon="arrows-rotate"
+    href="/operate/deploy/logical-replication/getting-started"
+  >
+    Replicate from managed Postgres when the primary cannot run ParadeDB.
+  </Card>
+  <Card
+    title="High Availability"
+    icon="shield-check"
+    href="/operate/deploy/self-hosted/high-availability"
+  >
+    Plan read replicas, failover behavior, and production availability.
+  </Card>
+</CardGroup>
+
+## Index Design
+
+Start from the queries your application actually runs. Add fields to the
+ParadeDB index when they need to participate in search, filtering, `ORDER BY`,
+`GROUP BY`, or aggregations.
+
+<CardGroup cols={2}>
+  <Card
+    title="Create an Index"
+    icon="list-tree"
+    href="/reference/indexing/create-index"
+  >
+    Index table columns, tokenizer casts, and framework-native schema examples.
+  </Card>
+  <Card
+    title="Choosing a Key Field"
+    icon="key"
+    href="/guides/choosing-a-key-field"
+  >
+    Pick the unique row identifier that ParadeDB stores in the index.
+  </Card>
+  <Card
+    title="Columnar Fields"
+    icon="columns-3"
+    href="/reference/indexing/columnar"
+  >
+    Make fields available for fast filters, sorting, and aggregations.
+  </Card>
+  <Card
+    title="Performance Tuning"
+    icon="gauge"
+    href="/operate/performance-tuning/overview"
+  >
+    Tune index creation, read queries, and write-heavy workloads.
+  </Card>
+</CardGroup>
+
+## Operational Readiness
+
+Before cutting over traffic, verify the important paths:
+
+- Run representative queries with `EXPLAIN` and confirm ParadeDB is used.
+- Test writes and updates against indexed tables.
+- Check backup, restore, and upgrade procedures.
+- Set monitoring around slow queries, index size, and segment growth.
+
+When something does not look right, start with [My Query Is Not Using the
+Index](/operate/troubleshooting/my-query-is-not-using-the-index) or [Reading
+EXPLAIN Output](/operate/troubleshooting/reading-explain).

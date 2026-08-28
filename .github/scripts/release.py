@@ -364,8 +364,7 @@ def update_version_snippet(repo_root, clean_ver):
     content = dedent(
         f"""\
         // This snippet exports the latest released version of ParadeDB for the documentation site.
-        // Do not edit manually during development: Cargo.toml tracks the unreleased development version,
-        // while this file is updated automatically by release.py upon release.
+        // Do not edit manually: this file is updated automatically by release.py upon release.
         export const version = "{clean_ver}";
         """
     )
@@ -440,17 +439,6 @@ def set_cargo_version(repo_root, version, skip_nix=False):
             subprocess.run(["bash", str(nix_script), "18"], cwd=repo_root, check=True)
 
 
-def compute_next_dev_version(version, branch, is_beta=False):
-    """Compute the next development version string."""
-    clean = clean_version(version)
-    if is_beta:
-        return clean
-    major, minor, patch = parse_semver(clean)
-    if branch == "main":
-        return f"{major}.{minor + 1}.0"
-    return f"{major}.{minor}.{patch + 1}"
-
-
 def check_is_latest(version, is_beta=False):
     """Determine whether a version should be marked as latest release."""
     if is_beta:
@@ -489,7 +477,6 @@ def generate_approval_body(
     sql_dir = repo_root / "pg_search" / "sql"
     prev_ver = resolve_prev_version(repo_root, sql_dir, clean_ver, prev_version)
     is_latest = check_is_latest(target_version, is_beta=False)
-    next_dev = compute_next_dev_version(target_version, branch, is_beta=False)
 
     if branch == "main":
         release_type = "Minor release"
@@ -515,7 +502,6 @@ def generate_approval_body(
         | **Is Latest Release** | {is_latest} |
         | **SQL Upgrade Script** | `pg_search/sql/pg_search--{prev_ver}--{clean_ver}.sql` |
         | **Changelog Document** | `docs/changelog/{clean_ver}.mdx` |
-        | **Post-Release Dev Version** | `{next_dev}` |
         | **Post-Release Action** | {branch_action} |
 
         ---
@@ -539,7 +525,6 @@ def generate_approval_body(
         branch=branch,
         prev_ver=prev_ver,
         is_latest="true" if is_latest else "false",
-        next_dev=next_dev,
         branch_action=branch_action,
         changelog_body=changelog_body,
     ).strip()
@@ -620,13 +605,6 @@ def handle_set_version_command(args, repo_root):
     """Handle set-version subcommand."""
     target_version = detect_target_version(repo_root, args.version)
     set_cargo_version(repo_root, target_version, skip_nix=args.skip_nix)
-
-
-def handle_next_dev_version_command(args, repo_root):
-    """Handle next-dev-version subcommand."""
-    target_version = detect_target_version(repo_root, args.version)
-    next_ver = compute_next_dev_version(target_version, args.branch, is_beta=args.beta)
-    print(next_ver)
 
 
 def handle_is_latest_command(args, repo_root):
@@ -737,22 +715,6 @@ def build_parser():
         help="Skip updating Nix cargo hash",
     )
 
-    next_dev_parser = subparsers.add_parser(
-        "next-dev-version",
-        help="Compute post-release development version",
-    )
-    add_common_args(next_dev_parser)
-    next_dev_parser.add_argument(
-        "--branch",
-        required=True,
-        help="Release branch name (e.g. main or 0.25.x)",
-    )
-    next_dev_parser.add_argument(
-        "--beta",
-        action="store_true",
-        help="Whether this was a beta release",
-    )
-
     is_latest_parser = subparsers.add_parser(
         "is-latest",
         help="Determine if version is latest release",
@@ -800,7 +762,6 @@ def main():
         "changelog": handle_changelog_command,
         "all": handle_all_command,
         "set-version": handle_set_version_command,
-        "next-dev-version": handle_next_dev_version_command,
         "is-latest": handle_is_latest_command,
         "approval-body": handle_approval_body_command,
     }

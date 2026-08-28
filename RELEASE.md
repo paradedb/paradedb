@@ -55,7 +55,6 @@ To publish a minor release from `main`:
    - Upon approval (by commenting `approved` on the issue), commit and push the release commit to `main`.
    - Create the Git tag `v<version>`, triggering downstream packaging and publishing workflows.
    - Create the stable branch `x.y.x` pointing at the release commit.
-   - Bump `main` to the next development version (e.g., `0.27.0`).
 
 ### Beta (RC) Releases
 
@@ -94,7 +93,7 @@ After executing the community release, executing an enterprise release involves:
 
 For a minor release (e.g. `0.22.0`):
 
-1. Manually trigger a rebase such that the community release commit (e.g. `chore: Prepare 0.22.0.`) has been synced to `origin/main`, but the post-release version bump commit has **not** been synced.
+1. Manually trigger a rebase or community sync such that the community release commit (e.g. `chore: Prepare 0.22.0.`) has been synced to `origin/main`.
 2. Trigger a release on `main` using the [**Publish GitHub Release** workflow](https://github.com/paradedb/paradedb/actions/workflows/publish-github-release.yml).
 3. The workflow will automatically:
    - Open a manual approval issue for `@pg_search-maintainers`.
@@ -110,12 +109,12 @@ Trigger the [**Publish GitHub Release** workflow](https://github.com/paradedb/pa
 
 For a patch release (e.g. `0.22.2`), stable branches should already exist in both `paradedb/paradedb` and `paradedb/paradedb-enterprise` with the same name (e.g. `0.22.x`).
 
-After executing the community release, you should "sync" all new commits on the community stable branch to the enterprise stable branch:
+After executing the community release, you should sync all new commits on the community stable branch to the enterprise stable branch:
 
 1. Create a sync branch from the enterprise stable branch:
    - Something like: `git checkout -b sync-0.22.2 origin/0.22.x` (where `origin` is your enterprise remote)
 2. Cherry-pick all new commits from the community stable branch into your sync branch:
-   - Something like `git cherry-pick abc0123...upstream/0.22.x` (where `upstream` is your community remote)
+   - Something like `git cherry-pick <prev_commit>...upstream/0.22.x` (where `upstream` is your community remote)
 3. Open a PR for your sync branch on enterprise, targeted at the stable branch, and get it reviewed.
 4. Land the PR with `Rebase and Merge`, then trigger a release on the stable branch using the [**Publish GitHub Release** workflow](https://github.com/paradedb/paradedb/actions/workflows/publish-github-release.yml).
 

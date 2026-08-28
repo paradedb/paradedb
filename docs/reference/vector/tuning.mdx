@@ -1,0 +1,29 @@
+---
+title: Tuning Recall and Latency
+description: Trade recall against latency for vector search
+canonical: https://www.paradedb.com/docs/reference/vector/tuning
+---
+
+Vector search is approximate: it probes a subset of the index's vector clusters rather than scanning every vector. Probing more clusters improves recall (i.e. how often the true nearest neighbors are returned) at the cost of higher latency. One session-level setting controls this tradeoff:
+
+```sql
+SET paradedb.vector_cluster_max_probe = 0.02;
+```
+
+<ParamField body="paradedb.vector_cluster_max_probe" default={0.02}>
+  The recall/latency driver: a ceiling on how much probe work a query may
+  spend, expressed as a fraction of each segment's clusters. For instance, at
+  the default value of `0.02`, at most 2% of a segment's cluster-scan work is
+  spent. Must be between `0.000001` and `1.0`, where `1.0` allows an
+  exhaustive scan.
+
+Within the ceiling, clusters that provably cannot improve the current top-K
+are skipped automatically using per-cluster bounds stored in the index; this
+skipping never reduces recall, so raising the ceiling only ever improves it.
+
+</ParamField>
+
+<Note>
+  Recall also depends on the index's `centroid_ratio`, set at build time. See
+  [Index Options](/reference/indexing/indexing-vectors#index-options).
+</Note>

@@ -1,0 +1,275 @@
+---
+title: BM25 Scoring
+description: BM25 scores sort the result set by relevance
+canonical: https://www.paradedb.com/docs/reference/full-text/score
+---
+
+BM25 scores measure how relevant a document is for a given query. Higher scores indicate higher relevance.
+
+## Basic Usage
+
+The `pdb.score(<key_field>)` function produces a BM25 score and can be added to any query where any of the ParadeDB operators are present.
+
+<CodeGroup>
+```sql SQL
+SELECT id, pdb.score(id)
+FROM mock_items
+WHERE description ||| 'shoes'
+ORDER BY pdb.score(id) DESC
+LIMIT 5;
+```
+
+```ts Drizzle
+import { desc } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    score: search.score(mockItems.id),
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "shoes"))
+  .orderBy(desc(search.score(mockItems.id)))
+  .limit(5);
+```
+
+```python Django
+from paradedb import MatchAny, ParadeDB, Score
+
+MockItem.objects.filter(
+    description=ParadeDB(MatchAny('shoes'))
+).annotate(
+    score=Score()
+).values('id', 'score').order_by('-score')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import desc, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(MockItem.id, pdb.score(MockItem.id).label("score"))
+    .where(search.match_any(MockItem.description, "shoes"))
+    .order_by(desc("score"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .match_any("shoes")
+        .with_score
+        .select(:id)
+        .order(search_score: :desc)
+        .limit(5)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "shoes"))
+    .Select(item => new { item.Id, Score = EF.Functions.Score(item.Id) })
+    .OrderByDescending(item => item.Score)
+    .Take(5)
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+In order for a field to be factored into the BM25 score, it must be present in the ParadeDB index. For instance,
+consider this query:
+
+<CodeGroup>
+```sql SQL
+SELECT id, pdb.score(id)
+FROM mock_items
+WHERE description ||| 'keyboard' OR rating < 2
+ORDER BY pdb.score(id) DESC
+LIMIT 5;
+```
+
+```ts Drizzle
+import { desc, lt, or } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    score: search.score(mockItems.id),
+  })
+  .from(mockItems)
+  .where(
+    or(
+      search.matchAny(mockItems.description, "keyboard"),
+      lt(mockItems.rating, 2),
+    ),
+  )
+  .orderBy(desc(search.score(mockItems.id)))
+  .limit(5);
+```
+
+```python Django
+from django.db.models import Q
+from paradedb import MatchAny, ParadeDB, Score
+
+MockItem.objects.filter(
+    Q(description=ParadeDB(MatchAny('keyboard'))) | Q(rating__lt=2)
+).annotate(
+    score=Score()
+).values('id', 'score').order_by('-score')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import desc, or_, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(MockItem.id, pdb.score(MockItem.id).label("score"))
+    .where(or_(search.match_any(MockItem.description, "keyboard"), MockItem.rating < 2))
+    .order_by(desc("score"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .match_any("keyboard")
+        .or(MockItem.where(rating: ...2))
+        .with_score
+        .select(:id)
+        .order(search_score: :desc)
+        .limit(5)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchAny(item.Description, "keyboard") || item.Rating < 2
+    )
+    .Select(item => new { item.Id, Score = EF.Functions.Score(item.Id) })
+    .OrderByDescending(item => item.Score)
+    .Take(5)
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+While BM25 scores will be returned as long as `description` is indexed, including `rating` in the ParadeDB index definition will allow results matching
+`rating < 2` to rank higher than those that do not match.
+
+## Joined Scores
+
+First, let's create a second table called `orders` that can be joined with `mock_items`:
+
+```sql
+CALL paradedb.create_bm25_test_table(
+  schema_name => 'public',
+  table_name => 'orders',
+  table_type => 'Orders'
+);
+
+ALTER TABLE orders
+ADD CONSTRAINT foreign_key_product_id
+FOREIGN KEY (product_id)
+REFERENCES mock_items(id);
+
+CREATE INDEX orders_idx ON orders
+USING paradedb (order_id, product_id, order_quantity, order_total, customer_name)
+WITH (key_field = 'order_id');
+```
+
+Next, let's compute a "combined BM25 score" over a join across both tables.
+
+<Note>
+  Directly computing and ordering by the sum of scores across a join (e.g.
+  `ORDER BY pdb.score(t1) + pdb.score(t2)`) is currently not efficient. For more
+  details on implementing efficient support for this operation, please refer to
+  [Issue #5301](https://github.com/paradedb/paradedb/issues/5301).
+</Note>
+
+The recommended approach for combining scores from multiple tables is to use [Reciprocal Rank Fusion (RRF)](https://www.paradedb.com/learn/search-concepts/reciprocal-rank-fusion). RRF combines the ranked results from separate queries into a single unified ranking.
+
+<Note>
+  To combine full text and vector search over a single table, see [Reciprocal
+  Rank Fusion](/reference/hybrid/rrf).
+</Note>
+
+<CodeGroup>
+```sql SQL
+WITH order_search AS (
+  SELECT order_id, RANK() OVER (ORDER BY score DESC) AS rank
+  FROM (
+    SELECT order_id, pdb.score(order_id) AS score
+    FROM orders
+    WHERE customer_name ||| 'Johnson'
+    ORDER BY pdb.score(order_id) DESC
+    LIMIT 20
+  )
+),
+product_search AS (
+  SELECT o.order_id, RANK() OVER (ORDER BY score DESC) AS rank
+  FROM (
+    SELECT id, pdb.score(id) AS score
+    FROM mock_items
+    WHERE description ||| 'running shoes'
+    ORDER BY pdb.score(id) DESC
+    LIMIT 20
+  ) m
+  JOIN orders o ON o.product_id = m.id
+),
+rrf AS (
+  SELECT order_id, 1.0 / (60 + rank) AS s FROM order_search
+  UNION ALL
+  SELECT order_id, 1.0 / (60 + rank) AS s FROM product_search
+)
+SELECT
+  o.order_id,
+  o.customer_name,
+  m.description,
+  sum(rrf.s) AS score
+FROM rrf
+JOIN orders o USING (order_id)
+JOIN mock_items m ON o.product_id = m.id
+GROUP BY o.order_id, o.customer_name, m.description
+ORDER BY score DESC, o.order_id
+LIMIT 5;
+```
+
+</CodeGroup>
+
+## Deterministic Sorting
+
+Ordering by `pdb.score` alone is not sufficient to guarantee deterministic query results when there are multiple documents with the same score.
+
+To ensure stable output, we recommend adding a tiebreaker column (such as the primary key) after the score:
+
+```sql
+SELECT id, pdb.score(id)
+FROM mock_items
+WHERE description ||| 'shoes'
+ORDER BY pdb.score(id) DESC, id ASC
+LIMIT 5;
+```
+
+Note that to receive this [Top K optimization](/reference/full-text/top-k), all tiebreaker columns must be indexed.
+
+## Score Refresh
+
+The scores generated by the ParadeDB index may be influenced by dead rows that have not been cleaned up by the `VACUUM` process.
+
+Running `VACUUM` on the underlying table will remove all dead rows from the index and ensures that only rows visible to the current
+transaction are factored into the BM25 score.
+
+```sql
+VACUUM mock_items;
+```
+
+This can be automated with [autovacuum](/operate/performance-tuning/overview).

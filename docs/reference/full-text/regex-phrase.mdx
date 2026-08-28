@@ -1,0 +1,87 @@
+---
+title: Regex Phrase
+description: Matches a specific sequence of regex queries
+canonical: https://www.paradedb.com/docs/reference/full-text/regex-phrase
+---
+
+Regex phrase matches a specific sequence of regex queries. Think of it like a conjunction of [regex](/reference/full-text/regex)
+queries, with positions and ordering of tokens enforced.
+
+For example, the regex phrase query for `ru.* shoes` will match `running shoes`, but will not match `shoes running`.
+
+<CodeGroup>
+```sql SQL
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ pdb.regex_phrase(ARRAY['ru.*', 'shoes']);
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.regexPhrase(mockItems.description, ["ru.*", "shoes"]));
+```
+
+```python Django
+from paradedb import ParadeDB, RegexPhrase
+
+MockItem.objects.filter(
+    description=ParadeDB(RegexPhrase('ru.*', 'shoes'))
+).values('description', 'rating', 'category')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.regex_phrase(MockItem.description, ["ru.*", "shoes"]))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .regex_phrase("ru.*", "shoes")
+        .select(:description, :rating, :category)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.RegexPhrase(item.Description, new[] { "ru.*", "shoes" })
+    )
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+<div className="mt-8" />
+
+<ParamField body="phrases" required>
+  An `ARRAY` of expressions that form the search phrase. These expressions must
+  appear in the specified order within the document for a match to occur,
+  although some flexibility is allowed based on the `slop` parameter. Please see
+  [regex](/reference/full-text/regex) for allowed regex constructs.
+</ParamField>
+<ParamField body="slop" default={0}>
+  A slop of `0` requires the terms to appear exactly as they are in the phrase
+  and adjacent to each other. Higher slop values allow for transpositions and
+  distance between terms.
+</ParamField>
+<ParamField body="max_expansions" default={16384}>
+  Limits total number of terms that the regex phrase query can expand to. If
+  this number is exceeded, an error will be returned.
+</ParamField>

@@ -1,0 +1,67 @@
+---
+title: Choosing a Key Field
+description: How to pick the key_field for a ParadeDB index
+canonical: https://www.paradedb.com/docs/guides/choosing-a-key-field
+---
+
+Every ParadeDB index needs a `key_field`. The key field is the column ParadeDB
+stores as the row's stable identifier inside the index.
+
+In most schemas, the right key field is the table's primary key.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING paradedb (id, description, category)
+WITH (key_field='id');
+```
+
+## Requirements
+
+The `key_field` must:
+
+1. Have a `UNIQUE` constraint. Usually this means the table's `PRIMARY KEY`.
+2. Be the first column in the ParadeDB index column list.
+3. Be untokenized if it is a text field.
+
+## Good Key Fields
+
+Use a key field that is unique, stable, and already part of how your
+application identifies rows.
+
+| Column type         | Recommendation                                                 |
+| ------------------- | -------------------------------------------------------------- |
+| Integer primary key | Best default for most tables                                   |
+| UUID primary key    | Good when your application already uses UUIDs                  |
+| Text identifier     | Acceptable if it is unique and indexed as an untokenized value |
+
+## What to Avoid
+
+Avoid columns whose values can repeat, change often, or require analysis before
+they can be compared.
+
+| Avoid                                             | Why                                                               |
+| ------------------------------------------------- | ----------------------------------------------------------------- |
+| `description`, `body`, or other full-text columns | Tokenized text is not a stable row identifier                     |
+| Timestamps                                        | Multiple rows can share the same value, and updates can change it |
+| JSON fields                                       | They are not a simple unique row identifier                       |
+| Floating point values                             | Equality and uniqueness are poor fits for identity                |
+
+## Text Key Fields
+
+If the key field is text, make sure the column is unique and use the column
+itself as the first ParadeDB index field. ParadeDB does not tokenize the key
+field.
+
+```sql
+CREATE UNIQUE INDEX documents_external_id_key ON documents (external_id);
+
+CREATE INDEX search_idx ON documents
+USING paradedb (external_id, title, body)
+WITH (key_field='external_id');
+```
+
+Most applications should still prefer an integer or UUID primary key where one
+exists.
+
+See [Create an Index](/reference/indexing/create-index) for full index
+syntax and framework examples.

@@ -1,0 +1,71 @@
+---
+title: Stats
+description: Compute several metrics at once
+canonical: https://www.paradedb.com/docs/reference/aggregates/metrics/stats
+---
+
+The stats aggregation returns the count, sum, min, max, and average all at once.
+
+<CodeGroup>
+```sql SQL
+SELECT pdb.agg('{"stats": {"field": "rating"}}') FROM mock_items
+WHERE id @@@ pdb.all();
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    agg: search.agg({ stats: { field: "rating" } }),
+  })
+  .from(mockItems)
+  .where(search.all(mockItems.id));
+```
+
+```python Django
+from paradedb import Agg, All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(agg=Agg('{"stats": {"field": "rating"}}'))
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(pdb.agg(facets.stats(field="rating")))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .facets_agg(agg: ParadeDB::Aggregations.stats(:rating))
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.All(item.Id))
+    .Select(item => EF.Functions.Agg(new { stats = new { field = "rating" } }))
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+```ini Expected Response
+                                      agg
+--------------------------------------------------------------------------------
+ {"avg": 3.8536585365853657, "max": 5.0, "min": 1.0, "sum": 158.0, "count": 41}
+(1 row)
+```
+
+See the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.StatsAggregation.html) for all available options.

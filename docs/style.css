@@ -2,9 +2,156 @@
   visibility: visible;
 }
 
+#banner {
+  background-color: #4f46e5 !important;
+  background-image: none !important;
+  border-bottom: 0 !important;
+  display: flex;
+  height: 2.75rem !important;
+  max-height: none !important;
+  min-height: 2.75rem;
+  padding: 0 !important;
+}
+
+@media (min-width: 640px) {
+  #banner {
+    height: 3rem !important;
+    min-height: 3rem;
+  }
+}
+
+#banner > div {
+  align-items: center;
+  backdrop-filter: blur(12px);
+  background-color: rgb(255 255 255 / 10%);
+  border-bottom: 1px solid rgb(255 255 255 / 20%) !important;
+  box-shadow: inset 0 -1px rgb(255 255 255 / 20%);
+  display: flex;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 100%;
+  margin: 0 !important;
+  padding: 0.75rem 1rem;
+  width: 100%;
+}
+
+#banner p {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 100%;
+  margin: 0 !important;
+  max-width: 100%;
+  min-width: 0;
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+#banner a {
+  color: #ffffff !important;
+  display: inline-flex;
+  align-items: center;
+  font-size: inherit;
+  font-weight: 500;
+  gap: 0.5rem;
+  line-height: inherit;
+  text-decoration: none;
+}
+
+#banner a:hover {
+  color: #ffffff !important;
+}
+
+#banner a::after {
+  content: "->";
+  display: inline-block;
+  flex: none;
+  transition: transform 160ms ease;
+}
+
+#banner a:hover::after {
+  transform: translateX(2px);
+}
+
+#banner .banner-badge {
+  display: none;
+  flex: none;
+  background-color: rgb(255 255 255 / 10%);
+  padding: 0.25rem 0.625rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+@media (min-width: 640px) {
+  #banner p {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+
+  #banner .banner-badge {
+    display: inline-flex;
+    font-size: 0.75rem;
+  }
+}
+
+#banner [data-streamdown="image-wrapper"] {
+  display: inline-flex !important;
+  align-items: center;
+  flex: none;
+  margin: 0 !important;
+  vertical-align: middle;
+}
+
+#banner [data-streamdown="image-wrapper"] > div,
+#banner [data-streamdown="image-wrapper"] > button {
+  display: none !important;
+}
+
+#banner img.banner-cloud {
+  display: inline-block;
+  flex: none;
+  height: 1.45rem;
+  width: auto;
+  margin: 0;
+  max-width: none;
+  border-radius: 0;
+  vertical-align: middle;
+}
+
+.topbar-right-container nav ul {
+  gap: 1.25rem !important;
+}
+
+.navbar-link > a {
+  background: transparent !important;
+  border-radius: 0 !important;
+  color: rgb(30 41 59 / 85%) !important;
+  font-size: 0.875rem !important;
+  line-height: 1.25rem !important;
+  padding: 0.25rem 0.125rem !important;
+  transition: color 160ms ease;
+}
+
+.navbar-link > a:hover {
+  background: transparent !important;
+  color: #4f46e5 !important;
+}
+
+.dark .navbar-link > a {
+  color: rgb(255 255 255 / 86%) !important;
+}
+
+.dark .navbar-link > a:hover {
+  color: #ffffff !important;
+}
+
 /* Enlarge the navbar logo; Mintlify's default is 1.5rem (h-6) */
 img.nav-logo {
   height: 3rem !important;
+  max-height: none !important;
 }
 
 /* Larger tab bar; Mintlify's default is 0.875rem text with 1rem icons */

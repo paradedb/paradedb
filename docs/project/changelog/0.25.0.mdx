@@ -1,0 +1,109 @@
+---
+title: 0.25.0
+noindex: true
+---
+
+<Warning>
+  **Breaking change:** As of `0.25.0`, [`pgvector`](https://github.com/pgvector/pgvector) is a required extension
+  of `pg_search`. Before upgrading or installing the extension, please ensure that `pgvector` is installed
+  on the same database.
+
+The reason is because `0.25.0` brings native vector search support to the ParadeDB index and relies on
+`pgvector`'s `vector` type and distance operators.
+
+</Warning>
+
+## New Features 🎉
+
+### Index Renamed to `paradedb`
+
+`paradedb` is now the primary index access method name. Creating an index now looks like:
+
+<CodeGroup>
+```sql New
+CREATE INDEX search_idx ON mock_items
+USING paradedb (id, description, category)
+WITH (key_field = id);
+```
+
+```sql Deprecated
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description, category)
+WITH (key_field = id);
+```
+
+</CodeGroup>
+
+This rename reflects the fact that the index drives much more than BM25 scoring — vector search, Top K, composable filtering, aggregates, etc.
+`USING bm25` has been deprecated but continues to work as a backwards-compatible alias.
+
+<Note>
+  At the time of this release, the ParadeDB ORMs have not yet been updated and
+  still use the `bm25` naming. They will be updated shortly.
+</Note>
+
+### Native Vector Search (Beta)
+
+The ParadeDB index can now index the `vector` type. This index is completely separate from `pgvector`'s HNSW/IVF indexes:
+
+- Vectors are backed by a SPANN-style index, the state-of-the-art in vector search designed for datasets that are far larger than available memory.
+- Vectors sit alongside text and numeric fields, so filters, full text search, and ordering by vector similarity are pushed down into a single index scan.
+
+To [index a vector field](/reference/indexing/indexing-vectors), simply add it to the index definition:
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING paradedb (id, description, category, embedding vector_cosine_ops)
+WITH (key_field = id);
+```
+
+Please note that we will be shipping performance improvements in the coming minor releases. While vector search is marked as beta, future releases may change the vector storage format
+and require a reindex.
+
+### MPP Partitioning
+
+When run with parallel workers, the join and aggregate scans (enabled by default in the `0.24.x` series) now use a massively parallel processing (MPP) partitioning strategy to assign work.
+
+The previous partitioning strategy for these scans meant that only a limited number of join shapes could be supported, and entirely prevented parallelism in aggregates atop joins.
+
+Via the MPP strategy, join and aggregate scans will now cut their execution plans into multiple shared-nothing stages, allowing for both increased scalability and support for additional join shapes (with more to follow.)
+
+This is an active area of work, so please expect further performance and generality improvements to joins, and continue to report bugs as soon as you see them!
+
+### Ltree Support
+
+`ltree` hierarchy queries using the `<@` operator now use the index instead of falling back to a heap-side filter.
+
+### Index Build Progress
+
+`CREATE INDEX` now reports `tuples_done` in `pg_stat_progress_create_index`, making it possible to monitor index build progress with standard Postgres tooling.
+
+## Performance Improvements 🚀
+
+- Block-WAND is now used for score-ordered joins.
+- Top-K queries atop joins now perform MVCC visibility checking inline rather than as a separate filter step.
+- Improved top-K selection and candidate materialization atop joins.
+- Improved multi-buffer read caching.
+
+## Stability Improvements 💪
+
+- `@@@` now preserves null semantics.
+- `ORDER BY` pushdown now accounts for collation.
+- Fixed several MVCC and `VACUUM` issues involving mutable segments.
+
+## New Contributors 👋
+
+- [**aadi-joshi**](https://github.com/aadi-joshi)
+- [**agrawalx**](https://github.com/agrawalx)
+- [**anatolykoptev**](https://github.com/anatolykoptev)
+- [**carlsverre**](https://github.com/carlsverre)
+- [**cjerian**](https://github.com/cjerian)
+- [**devdattatalele**](https://github.com/devdattatalele)
+- [**iamnamananand996**](https://github.com/iamnamananand996)
+- [**likern**](https://github.com/likern)
+- [**mvanhorn**](https://github.com/mvanhorn)
+- [**Rohan-Singla**](https://github.com/Rohan-Singla)
+- [**theanuragg**](https://github.com/theanuragg)
+- [**walter-woodall**](https://github.com/walter-woodall)
+
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.25.0).

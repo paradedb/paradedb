@@ -1,0 +1,452 @@
+---
+title: Create an Index
+description: Index a Postgres table for full text search
+canonical: https://www.paradedb.com/docs/reference/indexing/create-index
+---
+
+Before a table can be searched, it must be indexed. ParadeDB uses a custom index type called the ParadeDB index.
+The following code block creates a ParadeDB index over several columns in the `mock_items` table.
+
+<CodeGroup>
+```sql SQL
+CREATE INDEX search_idx ON mock_items
+USING paradedb (id, description, category)
+WITH (key_field='id');
+```
+
+```ts Drizzle
+import { indexing } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .paradedbIndex("search_idx")
+  .on(mockItems.id, mockItems.description, mockItems.category);
+```
+
+```python Django
+from django.db import connection
+from paradedb.indexes import ParadeDBIndex
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        MockItem,
+        ParadeDBIndex(
+            fields={
+                "id": {},
+                "description": {},
+                "category": {},
+            },
+            key_field="id",
+            name="search_idx",
+        ),
+    )
+```
+
+```python SQLAlchemy
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing
+
+idx = Index(
+    "search_idx",
+    indexing.ParadeDBField(MockItem.id),
+    indexing.ParadeDBField(MockItem.description),
+    indexing.ParadeDBField(MockItem.category),
+    postgresql_using="paradedb",
+    postgresql_with={"key_field": "id"},
+)
+
+with engine.begin() as conn:
+    idx.create(conn)
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.add_paradedb_index(
+  :mock_items,
+  fields: {
+    id: {},
+    description: {},
+    category: {}
+  },
+  key_field: :id,
+  name: :search_idx
+)
+```
+
+```cs EF Core
+modelBuilder.Entity<MockItem>()
+    .HasParadeDbIndex("search_idx", e => e.Id)
+    .HasField(e => e.Description)
+    .HasField(e => e.Category);
+```
+
+</CodeGroup>
+
+<Note>
+  In version `0.25.0`, the BM25 index was renamed to the ParadeDB index, and
+  `paradedb` was added as the index access method name. The rename reflects the
+  fact that the index is now much more than BM25 scoring — it also powers
+  [vector search](/reference/vector/overview),
+  [aggregates](/reference/aggregates/overview), [top
+  K](/reference/full-text/top-k), and [filtering](/reference/filtering/overview). `USING
+  bm25` remains supported as a backwards-compatible alias for `USING paradedb`.
+</Note>
+
+<Note>
+  See the [getting started guide](/start/connect-your-app) for more detail on
+  how to set up your ORM to run index creation commands.
+</Note>
+
+<Note>
+You'll need to drop the existing `search_idx` before you can create a new one:
+
+<CodeGroup>
+
+```sql SQL
+DROP INDEX search_idx;
+```
+
+```ts Drizzle
+import { sql } from "drizzle-orm";
+
+await db.execute(sql`DROP INDEX search_idx`);
+```
+
+```python Django
+from django.db import connection
+
+with connection.cursor() as cursor:
+    cursor.execute("DROP INDEX search_idx")
+```
+
+```python SQLAlchemy
+from sqlalchemy import text
+
+with engine.begin() as conn:
+    conn.execute(text("DROP INDEX search_idx"))
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.remove_paradedb_index(:mock_items, name: :search_idx)
+```
+
+```cs EF Core
+await dbContext.Database.ExecuteSqlRawAsync("DROP INDEX search_idx");
+```
+
+</CodeGroup>
+
+</Note>
+
+By default, text columns are tokenized using the [unicode](/reference/tokenizers/available-tokenizers/unicode) tokenizer, which splits text according to the
+Unicode segmentation standard. Because index creation is a time-consuming operation, we recommend experimenting with the [available tokenizers](/reference/tokenizers/overview)
+to find the most suitable one before running `CREATE INDEX`.
+
+For instance, if a column contains multiple languages, the ICU tokenizer may be more appropriate.
+
+<CodeGroup>
+```sql SQL
+CREATE INDEX search_idx ON mock_items
+USING paradedb (id, (description::pdb.icu), category)
+WITH (key_field='id');
+```
+
+```ts Drizzle
+import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .paradedbIndex("search_idx")
+  .on(
+    mockItems.id,
+    indexing.paradedbField(mockItems.description, tokenizer.icu()),
+    mockItems.category,
+  );
+```
+
+```python Django
+from django.db import connection
+from paradedb.indexes import ParadeDBIndex
+from paradedb.search import Tokenizer
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        MockItem,
+        ParadeDBIndex(
+            fields={
+                "id": {},
+                "description": {"tokenizer": Tokenizer.icu()},
+                "category": {},
+            },
+            key_field="id",
+            name="search_idx",
+        ),
+    )
+```
+
+```python SQLAlchemy
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing, tokenizer
+
+idx = Index(
+    "search_idx",
+    indexing.ParadeDBField(MockItem.id),
+    indexing.ParadeDBField(
+        MockItem.description,
+        tokenizer=tokenizer.icu(),
+    ),
+    indexing.ParadeDBField(MockItem.category),
+    postgresql_using="paradedb",
+    postgresql_with={"key_field": "id"},
+)
+
+with engine.begin() as conn:
+    idx.create(conn)
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.add_paradedb_index(
+  :mock_items,
+  fields: {
+    id: {},
+    description: { tokenizer: ParadeDB::Tokenizer.icu() },
+    category: {}
+  },
+  key_field: :id,
+  name: :search_idx
+)
+```
+
+```cs EF Core
+modelBuilder.Entity<MockItem>()
+    .HasParadeDbIndex("search_idx", e => e.Id)
+    .HasField(e => e.Description, Tokenizer.Icu())
+    .HasField(e => e.Category);
+```
+
+</CodeGroup>
+
+Only one ParadeDB index can exist per table. We recommend indexing all columns in a table that may be present in a search query,
+including columns used for sorting, grouping, filtering, and aggregations.
+
+<CodeGroup>
+```sql SQL
+CREATE INDEX search_idx ON mock_items
+USING paradedb (id, description, category, rating, in_stock, created_at, metadata, weight_range)
+WITH (key_field='id');
+```
+
+```ts Drizzle
+import { indexing } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .paradedbIndex("search_idx")
+  .on(
+    mockItems.id,
+    mockItems.description,
+    mockItems.category,
+    mockItems.rating,
+    mockItems.inStock,
+    mockItems.createdAt,
+    mockItems.metadata,
+    mockItems.weightRange,
+  );
+```
+
+```python Django
+from django.db import connection
+from paradedb.indexes import ParadeDBIndex
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        MockItem,
+        ParadeDBIndex(
+            fields={
+                "id": {},
+                "description": {},
+                "category": {},
+                "rating": {},
+                "in_stock": {},
+                "created_at": {},
+                "metadata": {},
+                "weight_range": {},
+            },
+            key_field="id",
+            name="search_idx",
+        ),
+    )
+```
+
+```python SQLAlchemy
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing
+
+idx = Index(
+    "search_idx",
+    indexing.ParadeDBField(MockItem.id),
+    indexing.ParadeDBField(MockItem.description),
+    indexing.ParadeDBField(MockItem.category),
+    indexing.ParadeDBField(MockItem.rating),
+    indexing.ParadeDBField(MockItem.in_stock),
+    indexing.ParadeDBField(MockItem.created_at),
+    indexing.ParadeDBField(MockItem.metadata_),
+    indexing.ParadeDBField(MockItem.weight_range),
+    postgresql_using="paradedb",
+    postgresql_with={"key_field": "id"},
+)
+
+with engine.begin() as conn:
+    idx.create(conn)
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.add_paradedb_index(
+  :mock_items,
+  fields: {
+    id: {},
+    description: {},
+    category: {},
+    rating: {},
+    in_stock: {},
+    created_at: {},
+    metadata: {},
+    weight_range: {}
+  },
+  key_field: :id,
+  name: :search_idx
+)
+```
+
+```cs EF Core
+modelBuilder.Entity<MockItem>()
+    .HasParadeDbIndex("search_idx", e => e.Id)
+    .HasField(e => e.Description)
+    .HasField(e => e.Category)
+    .HasField(e => e.Rating)
+    .HasField(e => e.InStock)
+    .HasField(e => e.CreatedAt)
+    .HasField(e => e.Metadata)
+    .HasField(e => e.WeightRange);
+```
+
+</CodeGroup>
+
+Most Postgres types, including text, JSON, numeric, timestamp, range, boolean, and arrays, can be indexed.
+
+## Track Create Index Progress
+
+To monitor the progress of a long-running `CREATE INDEX`, open a separate Postgres connection and query `pg_stat_progress_create_index`:
+
+```sql
+SELECT pid, phase, blocks_done, blocks_total
+FROM pg_stat_progress_create_index;
+```
+
+Comparing `blocks_done` to `blocks_total` will provide a good approximation of the progress so far. If `blocks_done` equals
+`blocks_total`, that means that all rows have been indexed and the index is being flushed to disk.
+
+## Choosing a Key Field
+
+In the `CREATE INDEX` statement above, note the mandatory `key_field` option.
+Every ParadeDB index needs a `key_field`, which is the name of a column that will function as a row’s unique identifier within the index.
+
+The `key_field` must:
+
+1. Have a `UNIQUE` constraint. Usually this means the table's `PRIMARY KEY`.
+2. Be the first column in the column list.
+3. Be untokenized, if it is a text field.
+
+See [Choosing a Key Field](/guides/choosing-a-key-field) for more detailed
+guidance.
+
+## Token Filters
+
+After tokens are created, [token filters](/reference/token-filters/overview) can be configured to apply further processing like lowercasing, stemming, or unaccenting.
+For example, the following code block adds English stemming to `description`:
+
+<CodeGroup>
+```sql SQL
+CREATE INDEX search_idx ON mock_items
+USING paradedb (id, (description::pdb.simple('stemmer=english')), category)
+WITH (key_field='id');
+```
+
+```ts Drizzle
+import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .paradedbIndex("search_idx")
+  .on(
+    mockItems.id,
+    indexing.paradedbField(
+      mockItems.description,
+      tokenizer.simple({ stemmer: "english" }),
+    ),
+    mockItems.category,
+  );
+```
+
+```python Django
+from django.db import connection
+from paradedb.indexes import ParadeDBIndex
+from paradedb.search import Tokenizer
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        MockItem,
+        ParadeDBIndex(
+            fields={
+                "id": {},
+                "description": {
+                    "tokenizer": Tokenizer.simple(
+                        options={"stemmer": "english"}
+                    ),
+                },
+                "category": {},
+            },
+            key_field="id",
+            name="search_idx",
+        ),
+    )
+```
+
+```python SQLAlchemy
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing, tokenizer
+
+idx = Index(
+    "search_idx",
+    indexing.ParadeDBField(MockItem.id),
+    indexing.ParadeDBField(
+        MockItem.description,
+        tokenizer=tokenizer.simple(options={"stemmer": "english"}),
+    ),
+    indexing.ParadeDBField(MockItem.category),
+    postgresql_using="paradedb",
+    postgresql_with={"key_field": "id"},
+)
+
+with engine.begin() as conn:
+    idx.create(conn)
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.add_paradedb_index(
+  :mock_items,
+  fields: {
+    id: {},
+    description: {
+      tokenizer: ParadeDB::Tokenizer.simple(options: { stemmer: "english" })
+    },
+    category: {}
+  },
+  key_field: :id,
+  name: :search_idx
+)
+```
+
+```cs EF Core
+modelBuilder.Entity<MockItem>()
+    .HasParadeDbIndex("search_idx", e => e.Id)
+    .HasField(e => e.Description, Tokenizer.Simple(new() { ["stemmer"] = "english" }))
+    .HasField(e => e.Category);
+```
+
+</CodeGroup>

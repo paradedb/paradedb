@@ -9,7 +9,7 @@
   },
   "favicon": "/favicon.png",
   "banner": {
-    "content": "ParadeDB Cloud is coming soon. [Request access here](https://www.paradedb.com/cloud).",
+    "content": "<span class=\"banner-badge\">Coming Soon</span> [ParadeDB Cloud: join the waitlist for early access](https://www.paradedb.com/cloud) <img src=\"/images/cloud.png\" alt=\"\" aria-hidden=\"true\" class=\"banner-cloud\" />",
     "dismissible": false
   },
   "navigation": {
@@ -21,17 +21,22 @@
             "tab": "Start",
             "icon": "rocket",
             "pages": [
-              "welcome/introduction",
-              "start/choose-your-deployment",
+              "start/introduction",
+              "start/alternatives",
               {
-                "group": "Getting Started",
+                "group": "Quickstart",
                 "pages": [
-                  "documentation/getting-started/install",
-                  "documentation/getting-started/environment",
+                  "start/install",
+                  "start/connect-your-app",
                   "start/create-your-first-index",
-                  "documentation/getting-started/queries",
-                  "documentation/getting-started/load",
-                  "documentation/getting-started/ai-agents",
+                  "start/run-queries"
+                ]
+              },
+              {
+                "group": "Next Steps",
+                "pages": [
+                  "start/load-data",
+                  "start/ai-agents",
                   "start/go-to-production"
                 ]
               }
@@ -46,7 +51,7 @@
               "guides/hybrid-search",
               "guides/multi-language-search",
               "guides/search-json",
-              "documentation/migration/elasticsearch-feature-comparison",
+              "guides/choosing-a-key-field",
               "guides/rag-and-agents"
             ]
           },
@@ -60,27 +65,19 @@
                   {
                     "group": "Creating an Index",
                     "pages": [
-                      "documentation/indexing/create-index",
-                      "reference/choosing-a-key-field",
-                      "documentation/indexing/indexing-partial",
-                      "documentation/indexing/columnar"
+                      "reference/indexing/create-index",
+                      "reference/indexing/indexing-partial",
+                      "reference/indexing/columnar"
                     ]
                   },
                   {
                     "group": "What You Can Index",
                     "pages": [
-                      "documentation/indexing/indexing-expressions",
-                      "documentation/indexing/indexing-json",
-                      "documentation/indexing/indexing-arrays",
-                      "documentation/indexing/indexing-composite",
-                      "documentation/indexing/indexing-vectors"
-                    ]
-                  },
-                  {
-                    "group": "Maintenance",
-                    "pages": [
-                      "documentation/indexing/reindexing",
-                      "documentation/indexing/verify-index"
+                      "reference/indexing/indexing-expressions",
+                      "reference/indexing/indexing-json",
+                      "reference/indexing/indexing-arrays",
+                      "reference/indexing/indexing-composite",
+                      "reference/indexing/indexing-vectors"
                     ]
                   }
                 ]
@@ -91,77 +88,85 @@
                   {
                     "group": "Text Analysis",
                     "pages": [
-                      "documentation/tokenizers/overview",
+                      "reference/tokenizers/overview",
                       {
                         "group": "Tokenizers",
                         "pages": [
-                          "documentation/tokenizers/available-tokenizers/unicode",
-                          "documentation/tokenizers/available-tokenizers/literal",
-                          "documentation/tokenizers/available-tokenizers/literal-normalized",
-                          "documentation/tokenizers/available-tokenizers/whitespace",
-                          "documentation/tokenizers/available-tokenizers/ngrams",
-                          "documentation/tokenizers/available-tokenizers/edge-ngrams",
-                          "documentation/tokenizers/available-tokenizers/simple",
-                          "documentation/tokenizers/available-tokenizers/regex",
-                          "documentation/tokenizers/available-tokenizers/chinese-compatible",
-                          "documentation/tokenizers/available-tokenizers/lindera",
-                          "documentation/tokenizers/available-tokenizers/icu",
-                          "documentation/tokenizers/available-tokenizers/jieba",
-                          "documentation/tokenizers/available-tokenizers/source-code"
+                          "reference/tokenizers/available-tokenizers/unicode",
+                          "reference/tokenizers/available-tokenizers/literal",
+                          "reference/tokenizers/available-tokenizers/literal-normalized",
+                          "reference/tokenizers/available-tokenizers/whitespace",
+                          "reference/tokenizers/available-tokenizers/ngrams",
+                          "reference/tokenizers/available-tokenizers/edge-ngrams",
+                          "reference/tokenizers/available-tokenizers/simple",
+                          "reference/tokenizers/available-tokenizers/regex",
+                          "reference/tokenizers/available-tokenizers/chinese-compatible",
+                          "reference/tokenizers/available-tokenizers/lindera",
+                          "reference/tokenizers/available-tokenizers/icu",
+                          "reference/tokenizers/available-tokenizers/jieba",
+                          "reference/tokenizers/available-tokenizers/source-code"
                         ]
                       },
                       {
                         "group": "Token Filters",
                         "pages": [
-                          "documentation/token-filters/overview",
-                          "documentation/token-filters/alphanumeric",
-                          "documentation/token-filters/ascii-folding",
-                          "documentation/token-filters/lowercase",
-                          "documentation/token-filters/stopwords",
-                          "documentation/token-filters/stemming",
-                          "documentation/token-filters/token-length",
-                          "documentation/token-filters/trim"
+                          "reference/token-filters/overview",
+                          "reference/token-filters/alphanumeric",
+                          "reference/token-filters/ascii-folding",
+                          "reference/token-filters/lowercase",
+                          "reference/token-filters/stopwords",
+                          "reference/token-filters/stemming",
+                          "reference/token-filters/token-length",
+                          "reference/token-filters/trim"
                         ]
                       },
-                      "documentation/tokenizers/multiple-per-field",
-                      "documentation/tokenizers/search-tokenizer"
+                      "reference/tokenizers/multiple-per-field",
+                      "reference/tokenizers/search-tokenizer"
                     ]
                   },
                   {
                     "group": "Query Types",
                     "pages": [
-                      "documentation/full-text/match",
-                      "documentation/full-text/term",
+                      "reference/full-text/query-builder",
+                      "reference/full-text/match",
+                      "reference/full-text/term",
                       {
                         "group": "Phrase and Proximity",
                         "pages": [
-                          "documentation/full-text/phrase",
-                          "documentation/full-text/proximity",
-                          "documentation/query-builder/phrase/phrase-prefix",
-                          "documentation/query-builder/phrase/regex-phrase"
+                          "reference/full-text/phrase",
+                          "reference/full-text/proximity",
+                          "reference/full-text/phrase-prefix",
+                          "reference/full-text/regex-phrase"
                         ]
                       },
-                      "documentation/full-text/fuzzy",
-                      "documentation/query-builder/term/regex",
-                      "documentation/query-builder/term/range-term",
-                      "documentation/query-builder/specialized/more-like-this",
-                      "documentation/query-builder/compound/query-parser",
-                      "documentation/query-builder/compound/all"
+                      "reference/full-text/fuzzy",
+                      "reference/full-text/regex",
+                      "reference/full-text/range-term",
+                      "reference/full-text/more-like-this",
+                      "reference/full-text/query-parser",
+                      "reference/full-text/all"
                     ]
                   },
                   {
                     "group": "Filtering and Sorting",
                     "pages": [
-                      "documentation/filtering",
-                      "documentation/sorting/topk"
+                      {
+                        "group": "Filtering",
+                        "pages": [
+                          "reference/filtering/overview",
+                          "reference/filtering/indexed",
+                          "reference/filtering/external-indexes"
+                        ]
+                      },
+                      "reference/full-text/top-k"
                     ]
                   },
                   {
                     "group": "Relevance Tuning",
                     "pages": [
-                      "documentation/sorting/score",
-                      "documentation/sorting/boost",
-                      "documentation/full-text/highlight"
+                      "reference/full-text/score",
+                      "reference/full-text/boost",
+                      "reference/full-text/highlight"
                     ]
                   }
                 ]
@@ -169,54 +174,53 @@
               {
                 "group": "Vector / Semantic Search",
                 "pages": [
-                  "documentation/vector/overview",
-                  "documentation/vector/querying",
-                  "documentation/vector/tuning"
+                  "reference/vector/overview",
+                  "reference/vector/querying",
+                  "reference/vector/tuning"
                 ]
               },
               {
                 "group": "Hybrid Search",
                 "pages": [
-                  "documentation/hybrid/overview",
-                  "documentation/hybrid/rrf"
+                  "reference/hybrid/overview",
+                  "reference/hybrid/rrf"
                 ]
               },
               {
                 "group": "Aggregations",
                 "pages": [
-                  "documentation/aggregates/overview",
+                  "reference/aggregates/overview",
                   {
                     "group": "Bucket",
                     "pages": [
-                      "documentation/aggregates/bucket/terms",
-                      "documentation/aggregates/bucket/filters",
-                      "documentation/aggregates/bucket/histogram",
-                      "documentation/aggregates/bucket/datehistogram",
-                      "documentation/aggregates/bucket/range"
+                      "reference/aggregates/bucket/terms",
+                      "reference/aggregates/bucket/filters",
+                      "reference/aggregates/bucket/histogram",
+                      "reference/aggregates/bucket/datehistogram",
+                      "reference/aggregates/bucket/range"
                     ]
                   },
                   {
                     "group": "Metrics",
                     "pages": [
-                      "documentation/aggregates/metrics/average",
-                      "documentation/aggregates/metrics/cardinality",
-                      "documentation/aggregates/metrics/count",
-                      "documentation/aggregates/metrics/minmax",
-                      "documentation/aggregates/metrics/percentiles",
-                      "documentation/aggregates/metrics/stats",
-                      "documentation/aggregates/metrics/sum",
-                      "documentation/aggregates/metrics/tophits"
+                      "reference/aggregates/metrics/average",
+                      "reference/aggregates/metrics/cardinality",
+                      "reference/aggregates/metrics/count",
+                      "reference/aggregates/metrics/minmax",
+                      "reference/aggregates/metrics/percentiles",
+                      "reference/aggregates/metrics/stats",
+                      "reference/aggregates/metrics/sum",
+                      "reference/aggregates/metrics/tophits"
                     ]
                   },
-                  "documentation/aggregates/facets",
-                  "documentation/aggregates/tuning",
-                  "documentation/aggregates/limitations"
+                  "reference/aggregates/facets",
+                  "reference/aggregates/limitations"
                 ]
               },
               {
                 "group": "JOINs",
                 "pages": [
-                  "documentation/joins/overview"
+                  "reference/joins/overview"
                 ]
               },
               {
@@ -235,14 +239,14 @@
             "icon": "lightbulb",
             "pages": [
               "concepts/why-search-inside-postgres",
-              "welcome/architecture",
+              "concepts/architecture",
               "concepts/how-the-paradedb-index-works",
-              "documentation/full-text/overview",
+              "concepts/full-text/overview",
               "concepts/how-tantivy-works",
               "concepts/how-block-wand-works",
               "concepts/what-is-pgrx",
-              "welcome/guarantees",
-              "welcome/limitations"
+              "concepts/guarantees",
+              "concepts/limitations"
             ]
           },
           {
@@ -252,40 +256,48 @@
               {
                 "group": "Deployment",
                 "pages": [
-                  "deploy/overview",
-                  "deploy/self-hosted/extension",
-                  "deploy/self-hosted/kubernetes",
+                  "operate/deploy/overview",
+                  "operate/deploy/self-hosted/extension",
+                  "operate/deploy/self-hosted/kubernetes",
                   {
                     "group": "Cloud Platforms",
                     "pages": [
-                      "deploy/cloud-platforms/railway",
-                      "deploy/cloud-platforms/render",
-                      "deploy/cloud-platforms/digitalocean",
-                      "deploy/cloud-platforms/fly",
-                      "deploy/cloud-platforms/dokku"
+                      "operate/deploy/cloud-platforms/railway",
+                      "operate/deploy/cloud-platforms/render",
+                      "operate/deploy/cloud-platforms/fly",
+                      "operate/deploy/cloud-platforms/digitalocean",
+                      "operate/deploy/cloud-platforms/dokku"
                     ]
                   },
                   {
                     "group": "Logical Replication",
                     "pages": [
-                      "deploy/logical-replication/getting-started",
-                      "deploy/logical-replication/operational-guide",
-                      "deploy/logical-replication/configuration",
-                      "deploy/logical-replication/multi-database"
+                      "operate/deploy/logical-replication/getting-started",
+                      "operate/deploy/logical-replication/operational-guide",
+                      "operate/deploy/logical-replication/configuration",
+                      "operate/deploy/logical-replication/multi-database"
                     ]
                   },
-                  "deploy/self-hosted/high-availability",
-                  "deploy/byoc",
-                  "deploy/enterprise"
+                  "operate/deploy/self-hosted/high-availability",
+                  "operate/deploy/byoc",
+                  "operate/deploy/enterprise"
+                ]
+              },
+              {
+                "group": "Index Maintenance",
+                "pages": [
+                  "operate/index-maintenance/reindexing",
+                  "operate/index-maintenance/verify-index"
                 ]
               },
               {
                 "group": "Performance",
                 "pages": [
-                  "documentation/performance-tuning/overview",
-                  "documentation/performance-tuning/create-index",
-                  "documentation/performance-tuning/reads",
-                  "documentation/performance-tuning/writes"
+                  "operate/performance-tuning/overview",
+                  "operate/performance-tuning/create-index",
+                  "operate/performance-tuning/reads",
+                  "operate/performance-tuning/writes",
+                  "operate/performance-tuning/aggregates"
                 ]
               },
               {
@@ -299,14 +311,14 @@
                   "operate/troubleshooting/index-size-and-segments"
                 ]
               },
-              "deploy/upgrading",
-              "deploy/third-party-extensions",
-              "deploy/citus",
+              "operate/deploy/upgrading",
+              "operate/deploy/third-party-extensions",
+              "operate/deploy/citus",
               {
                 "group": "Continuous Integration",
                 "pages": [
-                  "deploy/ci/github-actions",
-                  "deploy/ci/gitlab-ci"
+                  "operate/deploy/ci/github-actions",
+                  "operate/deploy/ci/gitlab-ci"
                 ]
               }
             ]
@@ -315,20 +327,20 @@
             "tab": "Project",
             "icon": "flag",
             "pages": [
-              "welcome/roadmap",
+              "project/roadmap",
               {
                 "group": "Changelog",
                 "pages": [
                   {
                     "group": "v0.25",
                     "pages": [
-                      "changelog/0.25.6",
-                      "changelog/0.25.5",
-                      "changelog/0.25.4",
-                      "changelog/0.25.3",
-                      "changelog/0.25.2",
-                      "changelog/0.25.1",
-                      "changelog/0.25.0"
+                      "project/changelog/0.25.6",
+                      "project/changelog/0.25.5",
+                      "project/changelog/0.25.4",
+                      "project/changelog/0.25.3",
+                      "project/changelog/0.25.2",
+                      "project/changelog/0.25.1",
+                      "project/changelog/0.25.0"
                     ],
                     "expanded": false
                   },
@@ -338,296 +350,197 @@
                       {
                         "group": "v0.24",
                         "pages": [
-                          "changelog/0.24.3",
-                          "changelog/0.24.2",
-                          "changelog/0.24.1",
-                          "changelog/0.24.0"
+                          "project/changelog/0.24.3",
+                          "project/changelog/0.24.2",
+                          "project/changelog/0.24.1",
+                          "project/changelog/0.24.0"
                         ],
                         "expanded": false
                       },
                       {
                         "group": "v0.23",
                         "pages": [
-                          "changelog/0.23.5",
-                          "changelog/0.23.4",
-                          "changelog/0.23.3",
-                          "changelog/0.23.2",
-                          "changelog/0.23.1",
-                          "changelog/0.23.0"
+                          "project/changelog/0.23.5",
+                          "project/changelog/0.23.4",
+                          "project/changelog/0.23.3",
+                          "project/changelog/0.23.2",
+                          "project/changelog/0.23.1",
+                          "project/changelog/0.23.0"
                         ],
                         "expanded": false
                       },
                       {
                         "group": "v0.22",
                         "pages": [
-                          "changelog/0.22.6",
-                          "changelog/0.22.5",
-                          "changelog/0.22.4",
-                          "changelog/0.22.3",
-                          "changelog/0.22.2",
-                          "changelog/0.22.1",
-                          "changelog/0.22.0"
+                          "project/changelog/0.22.6",
+                          "project/changelog/0.22.5",
+                          "project/changelog/0.22.4",
+                          "project/changelog/0.22.3",
+                          "project/changelog/0.22.2",
+                          "project/changelog/0.22.1",
+                          "project/changelog/0.22.0"
                         ],
                         "expanded": false
                       },
                       {
                         "group": "v0.21",
                         "pages": [
-                          "changelog/0.21.16",
-                          "changelog/0.21.15",
-                          "changelog/0.21.14",
-                          "changelog/0.21.13",
-                          "changelog/0.21.12",
-                          "changelog/0.21.11",
-                          "changelog/0.21.10",
-                          "changelog/0.21.9",
-                          "changelog/0.21.8",
-                          "changelog/0.21.7",
-                          "changelog/0.21.6",
-                          "changelog/0.21.5",
-                          "changelog/0.21.4",
-                          "changelog/0.21.3",
-                          "changelog/0.21.2",
-                          "changelog/0.21.1",
-                          "changelog/0.21.0"
+                          "project/changelog/0.21.16",
+                          "project/changelog/0.21.15",
+                          "project/changelog/0.21.14",
+                          "project/changelog/0.21.13",
+                          "project/changelog/0.21.12",
+                          "project/changelog/0.21.11",
+                          "project/changelog/0.21.10",
+                          "project/changelog/0.21.9",
+                          "project/changelog/0.21.8",
+                          "project/changelog/0.21.7",
+                          "project/changelog/0.21.6",
+                          "project/changelog/0.21.5",
+                          "project/changelog/0.21.4",
+                          "project/changelog/0.21.3",
+                          "project/changelog/0.21.2",
+                          "project/changelog/0.21.1",
+                          "project/changelog/0.21.0"
                         ],
                         "expanded": false
                       },
                       {
                         "group": "v0.20",
                         "pages": [
-                          "changelog/0.20.11",
-                          "changelog/0.20.10",
-                          "changelog/0.20.9",
-                          "changelog/0.20.8",
-                          "changelog/0.20.7",
-                          "changelog/0.20.6",
-                          "changelog/0.20.5",
-                          "changelog/0.20.4",
-                          "changelog/0.20.3",
-                          "changelog/0.20.2",
-                          "changelog/0.20.1",
-                          "changelog/0.20.0"
+                          "project/changelog/0.20.11",
+                          "project/changelog/0.20.10",
+                          "project/changelog/0.20.9",
+                          "project/changelog/0.20.8",
+                          "project/changelog/0.20.7",
+                          "project/changelog/0.20.6",
+                          "project/changelog/0.20.5",
+                          "project/changelog/0.20.4",
+                          "project/changelog/0.20.3",
+                          "project/changelog/0.20.2",
+                          "project/changelog/0.20.1",
+                          "project/changelog/0.20.0"
                         ],
                         "expanded": false
                       },
                       {
                         "group": "v0.19",
                         "pages": [
-                          "changelog/0.19.11",
-                          "changelog/0.19.10",
-                          "changelog/0.19.9",
-                          "changelog/0.19.8",
-                          "changelog/0.19.7",
-                          "changelog/0.19.6",
-                          "changelog/0.19.5",
-                          "changelog/0.19.4",
-                          "changelog/0.19.3",
-                          "changelog/0.19.2",
-                          "changelog/0.19.1",
-                          "changelog/0.19.0"
+                          "project/changelog/0.19.11",
+                          "project/changelog/0.19.10",
+                          "project/changelog/0.19.9",
+                          "project/changelog/0.19.8",
+                          "project/changelog/0.19.7",
+                          "project/changelog/0.19.6",
+                          "project/changelog/0.19.5",
+                          "project/changelog/0.19.4",
+                          "project/changelog/0.19.3",
+                          "project/changelog/0.19.2",
+                          "project/changelog/0.19.1",
+                          "project/changelog/0.19.0"
                         ],
                         "expanded": false
                       },
                       {
                         "group": "v0.18",
                         "pages": [
-                          "changelog/0.18.15",
-                          "changelog/0.18.14",
-                          "changelog/0.18.13",
-                          "changelog/0.18.12",
-                          "changelog/0.18.11",
-                          "changelog/0.18.10",
-                          "changelog/0.18.9",
-                          "changelog/0.18.8",
-                          "changelog/0.18.7",
-                          "changelog/0.18.6",
-                          "changelog/0.18.5",
-                          "changelog/0.18.4",
-                          "changelog/0.18.3",
-                          "changelog/0.18.2",
-                          "changelog/0.18.1",
-                          "changelog/0.18.0"
+                          "project/changelog/0.18.15",
+                          "project/changelog/0.18.14",
+                          "project/changelog/0.18.13",
+                          "project/changelog/0.18.12",
+                          "project/changelog/0.18.11",
+                          "project/changelog/0.18.10",
+                          "project/changelog/0.18.9",
+                          "project/changelog/0.18.8",
+                          "project/changelog/0.18.7",
+                          "project/changelog/0.18.6",
+                          "project/changelog/0.18.5",
+                          "project/changelog/0.18.4",
+                          "project/changelog/0.18.3",
+                          "project/changelog/0.18.2",
+                          "project/changelog/0.18.1",
+                          "project/changelog/0.18.0"
                         ],
                         "expanded": false
                       },
                       {
                         "group": "v0.17",
                         "pages": [
-                          "changelog/0.17.12",
-                          "changelog/0.17.10",
-                          "changelog/0.17.9",
-                          "changelog/0.17.8",
-                          "changelog/0.17.7",
-                          "changelog/0.17.6",
-                          "changelog/0.17.5",
-                          "changelog/0.17.4",
-                          "changelog/0.17.3",
-                          "changelog/0.17.2",
-                          "changelog/0.17.1",
-                          "changelog/0.17.0"
+                          "project/changelog/0.17.12",
+                          "project/changelog/0.17.10",
+                          "project/changelog/0.17.9",
+                          "project/changelog/0.17.8",
+                          "project/changelog/0.17.7",
+                          "project/changelog/0.17.6",
+                          "project/changelog/0.17.5",
+                          "project/changelog/0.17.4",
+                          "project/changelog/0.17.3",
+                          "project/changelog/0.17.2",
+                          "project/changelog/0.17.1",
+                          "project/changelog/0.17.0"
                         ],
                         "expanded": false
                       },
                       {
                         "group": "v0.16",
                         "pages": [
-                          "changelog/0.16.5",
-                          "changelog/0.16.4",
-                          "changelog/0.16.3",
-                          "changelog/0.16.2",
-                          "changelog/0.16.1",
-                          "changelog/0.16.0"
+                          "project/changelog/0.16.5",
+                          "project/changelog/0.16.4",
+                          "project/changelog/0.16.3",
+                          "project/changelog/0.16.2",
+                          "project/changelog/0.16.1",
+                          "project/changelog/0.16.0"
                         ],
                         "expanded": false
                       },
                       {
                         "group": "v0.15",
                         "pages": [
-                          "changelog/0.15.26",
-                          "changelog/0.15.25",
-                          "changelog/0.15.24",
-                          "changelog/0.15.23",
-                          "changelog/0.15.22",
-                          "changelog/0.15.21",
-                          "changelog/0.15.20",
-                          "changelog/0.15.19",
-                          "changelog/0.15.18",
-                          "changelog/0.15.17",
-                          "changelog/0.15.16",
-                          "changelog/0.15.15",
-                          "changelog/0.15.14",
-                          "changelog/0.15.13",
-                          "changelog/0.15.12",
-                          "changelog/0.15.11",
-                          "changelog/0.15.10",
-                          "changelog/0.15.9",
-                          "changelog/0.15.8",
-                          "changelog/0.15.7",
-                          "changelog/0.15.6",
-                          "changelog/0.15.5",
-                          "changelog/0.15.4",
-                          "changelog/0.15.3",
-                          "changelog/0.15.2",
-                          "changelog/0.15.1",
-                          "changelog/0.15.0"
+                          "project/changelog/0.15.26",
+                          "project/changelog/0.15.25",
+                          "project/changelog/0.15.24",
+                          "project/changelog/0.15.23",
+                          "project/changelog/0.15.22",
+                          "project/changelog/0.15.21",
+                          "project/changelog/0.15.20",
+                          "project/changelog/0.15.19",
+                          "project/changelog/0.15.18",
+                          "project/changelog/0.15.17",
+                          "project/changelog/0.15.16",
+                          "project/changelog/0.15.15",
+                          "project/changelog/0.15.14",
+                          "project/changelog/0.15.13",
+                          "project/changelog/0.15.12",
+                          "project/changelog/0.15.11",
+                          "project/changelog/0.15.10",
+                          "project/changelog/0.15.9",
+                          "project/changelog/0.15.8",
+                          "project/changelog/0.15.7",
+                          "project/changelog/0.15.6",
+                          "project/changelog/0.15.5",
+                          "project/changelog/0.15.4",
+                          "project/changelog/0.15.3",
+                          "project/changelog/0.15.2",
+                          "project/changelog/0.15.1",
+                          "project/changelog/0.15.0"
                         ],
                         "expanded": false
                       },
                       {
                         "group": "v0.14",
                         "pages": [
-                          "changelog/0.14.1",
-                          "changelog/0.14.0"
+                          "project/changelog/0.14.1",
+                          "project/changelog/0.14.0"
                         ],
                         "expanded": false
                       },
-                      "changelog/deprecated"
+                      "project/changelog/deprecated"
                     ],
                     "expanded": false
                   }
                 ]
               },
-              "welcome/support"
-            ]
-          }
-        ]
-      },
-      {
-        "version": "Legacy (pre-0.20)",
-        "groups": [
-          {
-            "group": "Legacy Docs",
-            "pages": [
-              {
-                "group": "Indexing",
-                "pages": [
-                  "legacy/indexing/create-index",
-                  "legacy/indexing/inspect-index"
-                ]
-              },
-              {
-                "group": "Field Configuration",
-                "pages": [
-                  "legacy/indexing/field-options",
-                  "legacy/indexing/tokenizers",
-                  "legacy/indexing/token-filters",
-                  "legacy/indexing/fast-fields",
-                  "legacy/indexing/record"
-                ]
-              },
-              {
-                "group": "Full Text Search",
-                "pages": [
-                  "legacy/full-text/overview",
-                  "legacy/full-text/boolean",
-                  "legacy/full-text/phrase",
-                  "legacy/full-text/filtering",
-                  "legacy/full-text/pagination",
-                  "legacy/full-text/scoring",
-                  "legacy/full-text/highlighting",
-                  "legacy/full-text/sorting",
-                  "legacy/full-text/boosting"
-                ]
-              },
-              {
-                "group": "Query Builder",
-                "pages": [
-                  "legacy/advanced/overview",
-                  {
-                    "group": "Full Text Queries",
-                    "pages": [
-                      "legacy/advanced/full-text/match"
-                    ]
-                  },
-                  {
-                    "group": "Term-Level Queries",
-                    "pages": [
-                      "legacy/advanced/term/exists",
-                      "legacy/advanced/term/fuzzy-term",
-                      "legacy/advanced/term/range",
-                      "legacy/advanced/term/range-term",
-                      "legacy/advanced/term/regex",
-                      "legacy/advanced/term/term",
-                      "legacy/advanced/term/term-set"
-                    ]
-                  },
-                  {
-                    "group": "Phrase-Level Queries",
-                    "pages": [
-                      "legacy/advanced/phrase/phrase",
-                      "legacy/advanced/phrase/phrase-prefix"
-                    ]
-                  },
-                  {
-                    "group": "JSON Queries",
-                    "pages": [
-                      "legacy/advanced/json/overview",
-                      "legacy/advanced/json/arrays",
-                      "legacy/advanced/json/range"
-                    ]
-                  },
-                  {
-                    "group": "Compound Queries",
-                    "pages": [
-                      "legacy/advanced/compound/overview",
-                      "legacy/advanced/compound/all",
-                      "legacy/advanced/compound/boolean",
-                      "legacy/advanced/compound/boost",
-                      "legacy/advanced/compound/const",
-                      "legacy/advanced/compound/disjunction-max",
-                      "legacy/advanced/compound/empty",
-                      "legacy/advanced/compound/parse"
-                    ]
-                  },
-                  {
-                    "group": "Specialized Queries",
-                    "pages": [
-                      "legacy/advanced/specialized/more-like-this"
-                    ]
-                  }
-                ]
-              }
+              "project/support"
             ]
           }
         ]
@@ -746,5 +659,8 @@
       "twitter:image:alt": "ParadeDB: Search without a second system."
     },
     "indexing": "navigable"
+  },
+  "redirects": {
+    "$ref": "./redirects.json"
   }
 }

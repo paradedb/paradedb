@@ -1,0 +1,966 @@
+[
+  {
+    "source": "/welcome/introduction",
+    "destination": "/start/introduction"
+  },
+  {
+    "source": "/welcome/architecture",
+    "destination": "/concepts/architecture"
+  },
+  {
+    "source": "/welcome/guarantees",
+    "destination": "/concepts/guarantees"
+  },
+  {
+    "source": "/welcome/limitations",
+    "destination": "/concepts/limitations"
+  },
+  {
+    "source": "/welcome/roadmap",
+    "destination": "/project/roadmap"
+  },
+  {
+    "source": "/documentation/getting-started/ai-agents",
+    "destination": "/start/ai-agents"
+  },
+  {
+    "source": "/documentation/getting-started/install",
+    "destination": "/start/install"
+  },
+  {
+    "source": "/documentation/getting-started/environment",
+    "destination": "/start/connect-your-app"
+  },
+  {
+    "source": "/documentation/getting-started/queries",
+    "destination": "/start/run-queries"
+  },
+  {
+    "source": "/documentation/getting-started/load",
+    "destination": "/start/load-data"
+  },
+  {
+    "source": "/documentation/indexing/create-index",
+    "destination": "/reference/indexing/create-index"
+  },
+  {
+    "source": "/documentation/indexing/indexing-vectors",
+    "destination": "/reference/indexing/indexing-vectors"
+  },
+  {
+    "source": "/documentation/indexing/indexing-expressions",
+    "destination": "/reference/indexing/indexing-expressions"
+  },
+  {
+    "source": "/documentation/indexing/indexing-json",
+    "destination": "/reference/indexing/indexing-json"
+  },
+  {
+    "source": "/documentation/indexing/indexing-arrays",
+    "destination": "/reference/indexing/indexing-arrays"
+  },
+  {
+    "source": "/documentation/indexing/indexing-composite",
+    "destination": "/reference/indexing/indexing-composite"
+  },
+  {
+    "source": "/documentation/indexing/indexing-partial",
+    "destination": "/reference/indexing/indexing-partial"
+  },
+  {
+    "source": "/documentation/indexing/columnar",
+    "destination": "/reference/indexing/columnar"
+  },
+  {
+    "source": "/documentation/indexing/reindexing",
+    "destination": "/operate/index-maintenance/reindexing"
+  },
+  {
+    "source": "/documentation/indexing/verify-index",
+    "destination": "/operate/index-maintenance/verify-index"
+  },
+  {
+    "source": "/documentation/tokenizers/overview",
+    "destination": "/reference/tokenizers/overview"
+  },
+  {
+    "source": "/documentation/tokenizers/available-tokenizers/unicode",
+    "destination": "/reference/tokenizers/available-tokenizers/unicode"
+  },
+  {
+    "source": "/documentation/tokenizers/available-tokenizers/literal",
+    "destination": "/reference/tokenizers/available-tokenizers/literal"
+  },
+  {
+    "source": "/documentation/tokenizers/available-tokenizers/literal-normalized",
+    "destination": "/reference/tokenizers/available-tokenizers/literal-normalized"
+  },
+  {
+    "source": "/documentation/tokenizers/available-tokenizers/whitespace",
+    "destination": "/reference/tokenizers/available-tokenizers/whitespace"
+  },
+  {
+    "source": "/documentation/tokenizers/available-tokenizers/ngrams",
+    "destination": "/reference/tokenizers/available-tokenizers/ngrams"
+  },
+  {
+    "source": "/documentation/tokenizers/available-tokenizers/edge-ngrams",
+    "destination": "/reference/tokenizers/available-tokenizers/edge-ngrams"
+  },
+  {
+    "source": "/documentation/tokenizers/available-tokenizers/simple",
+    "destination": "/reference/tokenizers/available-tokenizers/simple"
+  },
+  {
+    "source": "/documentation/tokenizers/available-tokenizers/regex",
+    "destination": "/reference/tokenizers/available-tokenizers/regex"
+  },
+  {
+    "source": "/documentation/tokenizers/available-tokenizers/chinese-compatible",
+    "destination": "/reference/tokenizers/available-tokenizers/chinese-compatible"
+  },
+  {
+    "source": "/documentation/tokenizers/available-tokenizers/lindera",
+    "destination": "/reference/tokenizers/available-tokenizers/lindera"
+  },
+  {
+    "source": "/documentation/tokenizers/available-tokenizers/icu",
+    "destination": "/reference/tokenizers/available-tokenizers/icu"
+  },
+  {
+    "source": "/documentation/tokenizers/available-tokenizers/jieba",
+    "destination": "/reference/tokenizers/available-tokenizers/jieba"
+  },
+  {
+    "source": "/documentation/tokenizers/available-tokenizers/source-code",
+    "destination": "/reference/tokenizers/available-tokenizers/source-code"
+  },
+  {
+    "source": "/documentation/tokenizers/multiple-per-field",
+    "destination": "/reference/tokenizers/multiple-per-field"
+  },
+  {
+    "source": "/documentation/tokenizers/search-tokenizer",
+    "destination": "/reference/tokenizers/search-tokenizer"
+  },
+  {
+    "source": "/documentation/token-filters/overview",
+    "destination": "/reference/token-filters/overview"
+  },
+  {
+    "source": "/documentation/token-filters/alphanumeric",
+    "destination": "/reference/token-filters/alphanumeric"
+  },
+  {
+    "source": "/documentation/token-filters/ascii-folding",
+    "destination": "/reference/token-filters/ascii-folding"
+  },
+  {
+    "source": "/documentation/token-filters/lowercase",
+    "destination": "/reference/token-filters/lowercase"
+  },
+  {
+    "source": "/documentation/token-filters/stopwords",
+    "destination": "/reference/token-filters/stopwords"
+  },
+  {
+    "source": "/documentation/token-filters/stemming",
+    "destination": "/reference/token-filters/stemming"
+  },
+  {
+    "source": "/documentation/token-filters/token-length",
+    "destination": "/reference/token-filters/token-length"
+  },
+  {
+    "source": "/documentation/token-filters/trim",
+    "destination": "/reference/token-filters/trim"
+  },
+  {
+    "source": "/documentation/full-text/overview",
+    "destination": "/concepts/full-text/overview"
+  },
+  {
+    "source": "/documentation/full-text/match",
+    "destination": "/reference/full-text/match"
+  },
+  {
+    "source": "/documentation/full-text/phrase",
+    "destination": "/reference/full-text/phrase"
+  },
+  {
+    "source": "/documentation/full-text/term",
+    "destination": "/reference/full-text/term"
+  },
+  {
+    "source": "/documentation/full-text/fuzzy",
+    "destination": "/reference/full-text/fuzzy"
+  },
+  {
+    "source": "/documentation/sorting/score",
+    "destination": "/reference/full-text/score"
+  },
+  {
+    "source": "/documentation/sorting/boost",
+    "destination": "/reference/full-text/boost"
+  },
+  {
+    "source": "/documentation/full-text/highlight",
+    "destination": "/reference/full-text/highlight"
+  },
+  {
+    "source": "/documentation/full-text/proximity",
+    "destination": "/reference/full-text/proximity"
+  },
+  {
+    "source": "/documentation/query-builder/overview",
+    "destination": "/reference/full-text/query-builder"
+  },
+  {
+    "source": "/documentation/query-builder/compound/all",
+    "destination": "/reference/full-text/all"
+  },
+  {
+    "source": "/documentation/query-builder/specialized/more-like-this",
+    "destination": "/reference/full-text/more-like-this"
+  },
+  {
+    "source": "/documentation/query-builder/phrase/phrase-prefix",
+    "destination": "/reference/full-text/phrase-prefix"
+  },
+  {
+    "source": "/documentation/query-builder/compound/query-parser",
+    "destination": "/reference/full-text/query-parser"
+  },
+  {
+    "source": "/documentation/query-builder/term/range-term",
+    "destination": "/reference/full-text/range-term"
+  },
+  {
+    "source": "/documentation/query-builder/term/regex",
+    "destination": "/reference/full-text/regex"
+  },
+  {
+    "source": "/documentation/query-builder/phrase/regex-phrase",
+    "destination": "/reference/full-text/regex-phrase"
+  },
+  {
+    "source": "/documentation/vector/overview",
+    "destination": "/reference/vector/overview"
+  },
+  {
+    "source": "/documentation/vector/querying",
+    "destination": "/reference/vector/querying"
+  },
+  {
+    "source": "/documentation/vector/tuning",
+    "destination": "/reference/vector/tuning"
+  },
+  {
+    "source": "/documentation/hybrid/overview",
+    "destination": "/reference/hybrid/overview"
+  },
+  {
+    "source": "/documentation/hybrid/rrf",
+    "destination": "/reference/hybrid/rrf"
+  },
+  {
+    "source": "/documentation/sorting/topk",
+    "destination": "/reference/full-text/top-k"
+  },
+  {
+    "source": "/documentation/filtering",
+    "destination": "/reference/filtering/overview"
+  },
+  {
+    "source": "/documentation/filtering/overview",
+    "destination": "/reference/filtering/overview"
+  },
+  {
+    "source": "/documentation/filtering/indexed",
+    "destination": "/reference/filtering/indexed"
+  },
+  {
+    "source": "/documentation/filtering/external-indexes",
+    "destination": "/reference/filtering/external-indexes"
+  },
+  {
+    "source": "/documentation/aggregates/overview",
+    "destination": "/reference/aggregates/overview"
+  },
+  {
+    "source": "/documentation/aggregates/bucket/datehistogram",
+    "destination": "/reference/aggregates/bucket/datehistogram"
+  },
+  {
+    "source": "/documentation/aggregates/bucket/filters",
+    "destination": "/reference/aggregates/bucket/filters"
+  },
+  {
+    "source": "/documentation/aggregates/bucket/histogram",
+    "destination": "/reference/aggregates/bucket/histogram"
+  },
+  {
+    "source": "/documentation/aggregates/bucket/range",
+    "destination": "/reference/aggregates/bucket/range"
+  },
+  {
+    "source": "/documentation/aggregates/bucket/terms",
+    "destination": "/reference/aggregates/bucket/terms"
+  },
+  {
+    "source": "/documentation/aggregates/metrics/average",
+    "destination": "/reference/aggregates/metrics/average"
+  },
+  {
+    "source": "/documentation/aggregates/metrics/cardinality",
+    "destination": "/reference/aggregates/metrics/cardinality"
+  },
+  {
+    "source": "/documentation/aggregates/metrics/count",
+    "destination": "/reference/aggregates/metrics/count"
+  },
+  {
+    "source": "/documentation/aggregates/metrics/minmax",
+    "destination": "/reference/aggregates/metrics/minmax"
+  },
+  {
+    "source": "/documentation/aggregates/metrics/percentiles",
+    "destination": "/reference/aggregates/metrics/percentiles"
+  },
+  {
+    "source": "/documentation/aggregates/metrics/stats",
+    "destination": "/reference/aggregates/metrics/stats"
+  },
+  {
+    "source": "/documentation/aggregates/metrics/sum",
+    "destination": "/reference/aggregates/metrics/sum"
+  },
+  {
+    "source": "/documentation/aggregates/metrics/tophits",
+    "destination": "/reference/aggregates/metrics/tophits"
+  },
+  {
+    "source": "/documentation/aggregates/facets",
+    "destination": "/reference/aggregates/facets"
+  },
+  {
+    "source": "/documentation/aggregates/tuning",
+    "destination": "/operate/performance-tuning/aggregates"
+  },
+  {
+    "source": "/documentation/aggregates/limitations",
+    "destination": "/reference/aggregates/limitations"
+  },
+  {
+    "source": "/documentation/joins/overview",
+    "destination": "/reference/joins/overview"
+  },
+  {
+    "source": "/documentation/performance-tuning/overview",
+    "destination": "/operate/performance-tuning/overview"
+  },
+  {
+    "source": "/documentation/performance-tuning/create-index",
+    "destination": "/operate/performance-tuning/create-index"
+  },
+  {
+    "source": "/documentation/performance-tuning/reads",
+    "destination": "/operate/performance-tuning/reads"
+  },
+  {
+    "source": "/documentation/performance-tuning/writes",
+    "destination": "/operate/performance-tuning/writes"
+  },
+  {
+    "source": "/welcome/support",
+    "destination": "/project/support"
+  },
+  {
+    "source": "/deploy/overview",
+    "destination": "/operate/deploy/overview"
+  },
+  {
+    "source": "/deploy/self-hosted/kubernetes",
+    "destination": "/operate/deploy/self-hosted/kubernetes"
+  },
+  {
+    "source": "/deploy/self-hosted/extension",
+    "destination": "/operate/deploy/self-hosted/extension"
+  },
+  {
+    "source": "/deploy/self-hosted/high-availability",
+    "destination": "/operate/deploy/self-hosted/high-availability"
+  },
+  {
+    "source": "/deploy/cloud-platforms/railway",
+    "destination": "/operate/deploy/cloud-platforms/railway"
+  },
+  {
+    "source": "/deploy/cloud-platforms/render",
+    "destination": "/operate/deploy/cloud-platforms/render"
+  },
+  {
+    "source": "/deploy/cloud-platforms/fly",
+    "destination": "/operate/deploy/cloud-platforms/fly"
+  },
+  {
+    "source": "/deploy/cloud-platforms/digitalocean",
+    "destination": "/operate/deploy/cloud-platforms/digitalocean"
+  },
+  {
+    "source": "/deploy/cloud-platforms/dokku",
+    "destination": "/operate/deploy/cloud-platforms/dokku"
+  },
+  {
+    "source": "/deploy/logical-replication/getting-started",
+    "destination": "/operate/deploy/logical-replication/getting-started"
+  },
+  {
+    "source": "/deploy/logical-replication/operational-guide",
+    "destination": "/operate/deploy/logical-replication/operational-guide"
+  },
+  {
+    "source": "/deploy/logical-replication/configuration",
+    "destination": "/operate/deploy/logical-replication/configuration"
+  },
+  {
+    "source": "/deploy/logical-replication/multi-database",
+    "destination": "/operate/deploy/logical-replication/multi-database"
+  },
+  {
+    "source": "/deploy/byoc",
+    "destination": "/operate/deploy/byoc"
+  },
+  {
+    "source": "/deploy/enterprise",
+    "destination": "/operate/deploy/enterprise"
+  },
+  {
+    "source": "/deploy/upgrading",
+    "destination": "/operate/deploy/upgrading"
+  },
+  {
+    "source": "/deploy/third-party-extensions",
+    "destination": "/operate/deploy/third-party-extensions"
+  },
+  {
+    "source": "/deploy/citus",
+    "destination": "/operate/deploy/citus"
+  },
+  {
+    "source": "/deploy/ci/github-actions",
+    "destination": "/operate/deploy/ci/github-actions"
+  },
+  {
+    "source": "/deploy/ci/gitlab-ci",
+    "destination": "/operate/deploy/ci/gitlab-ci"
+  },
+  {
+    "source": "/changelog/0.25.4",
+    "destination": "/project/changelog/0.25.4"
+  },
+  {
+    "source": "/changelog/0.25.3",
+    "destination": "/project/changelog/0.25.3"
+  },
+  {
+    "source": "/changelog/0.25.2",
+    "destination": "/project/changelog/0.25.2"
+  },
+  {
+    "source": "/changelog/0.25.1",
+    "destination": "/project/changelog/0.25.1"
+  },
+  {
+    "source": "/changelog/0.25.0",
+    "destination": "/project/changelog/0.25.0"
+  },
+  {
+    "source": "/changelog/0.24.3",
+    "destination": "/project/changelog/0.24.3"
+  },
+  {
+    "source": "/changelog/0.24.2",
+    "destination": "/project/changelog/0.24.2"
+  },
+  {
+    "source": "/changelog/0.24.1",
+    "destination": "/project/changelog/0.24.1"
+  },
+  {
+    "source": "/changelog/0.24.0",
+    "destination": "/project/changelog/0.24.0"
+  },
+  {
+    "source": "/changelog/0.23.5",
+    "destination": "/project/changelog/0.23.5"
+  },
+  {
+    "source": "/changelog/0.23.4",
+    "destination": "/project/changelog/0.23.4"
+  },
+  {
+    "source": "/changelog/0.23.3",
+    "destination": "/project/changelog/0.23.3"
+  },
+  {
+    "source": "/changelog/0.23.2",
+    "destination": "/project/changelog/0.23.2"
+  },
+  {
+    "source": "/changelog/0.23.1",
+    "destination": "/project/changelog/0.23.1"
+  },
+  {
+    "source": "/changelog/0.23.0",
+    "destination": "/project/changelog/0.23.0"
+  },
+  {
+    "source": "/changelog/0.22.6",
+    "destination": "/project/changelog/0.22.6"
+  },
+  {
+    "source": "/changelog/0.22.5",
+    "destination": "/project/changelog/0.22.5"
+  },
+  {
+    "source": "/changelog/0.22.4",
+    "destination": "/project/changelog/0.22.4"
+  },
+  {
+    "source": "/changelog/0.22.3",
+    "destination": "/project/changelog/0.22.3"
+  },
+  {
+    "source": "/changelog/0.22.2",
+    "destination": "/project/changelog/0.22.2"
+  },
+  {
+    "source": "/changelog/0.22.1",
+    "destination": "/project/changelog/0.22.1"
+  },
+  {
+    "source": "/changelog/0.22.0",
+    "destination": "/project/changelog/0.22.0"
+  },
+  {
+    "source": "/changelog/0.21.16",
+    "destination": "/project/changelog/0.21.16"
+  },
+  {
+    "source": "/changelog/0.21.15",
+    "destination": "/project/changelog/0.21.15"
+  },
+  {
+    "source": "/changelog/0.21.14",
+    "destination": "/project/changelog/0.21.14"
+  },
+  {
+    "source": "/changelog/0.21.13",
+    "destination": "/project/changelog/0.21.13"
+  },
+  {
+    "source": "/changelog/0.21.12",
+    "destination": "/project/changelog/0.21.12"
+  },
+  {
+    "source": "/changelog/0.21.11",
+    "destination": "/project/changelog/0.21.11"
+  },
+  {
+    "source": "/changelog/0.21.10",
+    "destination": "/project/changelog/0.21.10"
+  },
+  {
+    "source": "/changelog/0.21.9",
+    "destination": "/project/changelog/0.21.9"
+  },
+  {
+    "source": "/changelog/0.21.8",
+    "destination": "/project/changelog/0.21.8"
+  },
+  {
+    "source": "/changelog/0.21.7",
+    "destination": "/project/changelog/0.21.7"
+  },
+  {
+    "source": "/changelog/0.21.6",
+    "destination": "/project/changelog/0.21.6"
+  },
+  {
+    "source": "/changelog/0.21.5",
+    "destination": "/project/changelog/0.21.5"
+  },
+  {
+    "source": "/changelog/0.21.4",
+    "destination": "/project/changelog/0.21.4"
+  },
+  {
+    "source": "/changelog/0.21.3",
+    "destination": "/project/changelog/0.21.3"
+  },
+  {
+    "source": "/changelog/0.21.2",
+    "destination": "/project/changelog/0.21.2"
+  },
+  {
+    "source": "/changelog/0.21.1",
+    "destination": "/project/changelog/0.21.1"
+  },
+  {
+    "source": "/changelog/0.21.0",
+    "destination": "/project/changelog/0.21.0"
+  },
+  {
+    "source": "/changelog/0.20.11",
+    "destination": "/project/changelog/0.20.11"
+  },
+  {
+    "source": "/changelog/0.20.10",
+    "destination": "/project/changelog/0.20.10"
+  },
+  {
+    "source": "/changelog/0.20.9",
+    "destination": "/project/changelog/0.20.9"
+  },
+  {
+    "source": "/changelog/0.20.8",
+    "destination": "/project/changelog/0.20.8"
+  },
+  {
+    "source": "/changelog/0.20.7",
+    "destination": "/project/changelog/0.20.7"
+  },
+  {
+    "source": "/changelog/0.20.6",
+    "destination": "/project/changelog/0.20.6"
+  },
+  {
+    "source": "/changelog/0.20.5",
+    "destination": "/project/changelog/0.20.5"
+  },
+  {
+    "source": "/changelog/0.20.4",
+    "destination": "/project/changelog/0.20.4"
+  },
+  {
+    "source": "/changelog/0.20.3",
+    "destination": "/project/changelog/0.20.3"
+  },
+  {
+    "source": "/changelog/0.20.2",
+    "destination": "/project/changelog/0.20.2"
+  },
+  {
+    "source": "/changelog/0.20.1",
+    "destination": "/project/changelog/0.20.1"
+  },
+  {
+    "source": "/changelog/0.20.0",
+    "destination": "/project/changelog/0.20.0"
+  },
+  {
+    "source": "/changelog/0.19.11",
+    "destination": "/project/changelog/0.19.11"
+  },
+  {
+    "source": "/changelog/0.19.10",
+    "destination": "/project/changelog/0.19.10"
+  },
+  {
+    "source": "/changelog/0.19.9",
+    "destination": "/project/changelog/0.19.9"
+  },
+  {
+    "source": "/changelog/0.19.8",
+    "destination": "/project/changelog/0.19.8"
+  },
+  {
+    "source": "/changelog/0.19.7",
+    "destination": "/project/changelog/0.19.7"
+  },
+  {
+    "source": "/changelog/0.19.6",
+    "destination": "/project/changelog/0.19.6"
+  },
+  {
+    "source": "/changelog/0.19.5",
+    "destination": "/project/changelog/0.19.5"
+  },
+  {
+    "source": "/changelog/0.19.4",
+    "destination": "/project/changelog/0.19.4"
+  },
+  {
+    "source": "/changelog/0.19.3",
+    "destination": "/project/changelog/0.19.3"
+  },
+  {
+    "source": "/changelog/0.19.2",
+    "destination": "/project/changelog/0.19.2"
+  },
+  {
+    "source": "/changelog/0.19.1",
+    "destination": "/project/changelog/0.19.1"
+  },
+  {
+    "source": "/changelog/0.19.0",
+    "destination": "/project/changelog/0.19.0"
+  },
+  {
+    "source": "/changelog/0.18.15",
+    "destination": "/project/changelog/0.18.15"
+  },
+  {
+    "source": "/changelog/0.18.14",
+    "destination": "/project/changelog/0.18.14"
+  },
+  {
+    "source": "/changelog/0.18.13",
+    "destination": "/project/changelog/0.18.13"
+  },
+  {
+    "source": "/changelog/0.18.12",
+    "destination": "/project/changelog/0.18.12"
+  },
+  {
+    "source": "/changelog/0.18.11",
+    "destination": "/project/changelog/0.18.11"
+  },
+  {
+    "source": "/changelog/0.18.10",
+    "destination": "/project/changelog/0.18.10"
+  },
+  {
+    "source": "/changelog/0.18.9",
+    "destination": "/project/changelog/0.18.9"
+  },
+  {
+    "source": "/changelog/0.18.8",
+    "destination": "/project/changelog/0.18.8"
+  },
+  {
+    "source": "/changelog/0.18.7",
+    "destination": "/project/changelog/0.18.7"
+  },
+  {
+    "source": "/changelog/0.18.6",
+    "destination": "/project/changelog/0.18.6"
+  },
+  {
+    "source": "/changelog/0.18.5",
+    "destination": "/project/changelog/0.18.5"
+  },
+  {
+    "source": "/changelog/0.18.4",
+    "destination": "/project/changelog/0.18.4"
+  },
+  {
+    "source": "/changelog/0.18.3",
+    "destination": "/project/changelog/0.18.3"
+  },
+  {
+    "source": "/changelog/0.18.2",
+    "destination": "/project/changelog/0.18.2"
+  },
+  {
+    "source": "/changelog/0.18.1",
+    "destination": "/project/changelog/0.18.1"
+  },
+  {
+    "source": "/changelog/0.18.0",
+    "destination": "/project/changelog/0.18.0"
+  },
+  {
+    "source": "/changelog/0.17.12",
+    "destination": "/project/changelog/0.17.12"
+  },
+  {
+    "source": "/changelog/0.17.10",
+    "destination": "/project/changelog/0.17.10"
+  },
+  {
+    "source": "/changelog/0.17.9",
+    "destination": "/project/changelog/0.17.9"
+  },
+  {
+    "source": "/changelog/0.17.8",
+    "destination": "/project/changelog/0.17.8"
+  },
+  {
+    "source": "/changelog/0.17.7",
+    "destination": "/project/changelog/0.17.7"
+  },
+  {
+    "source": "/changelog/0.17.6",
+    "destination": "/project/changelog/0.17.6"
+  },
+  {
+    "source": "/changelog/0.17.5",
+    "destination": "/project/changelog/0.17.5"
+  },
+  {
+    "source": "/changelog/0.17.4",
+    "destination": "/project/changelog/0.17.4"
+  },
+  {
+    "source": "/changelog/0.17.3",
+    "destination": "/project/changelog/0.17.3"
+  },
+  {
+    "source": "/changelog/0.17.2",
+    "destination": "/project/changelog/0.17.2"
+  },
+  {
+    "source": "/changelog/0.17.1",
+    "destination": "/project/changelog/0.17.1"
+  },
+  {
+    "source": "/changelog/0.17.0",
+    "destination": "/project/changelog/0.17.0"
+  },
+  {
+    "source": "/changelog/0.16.5",
+    "destination": "/project/changelog/0.16.5"
+  },
+  {
+    "source": "/changelog/0.16.4",
+    "destination": "/project/changelog/0.16.4"
+  },
+  {
+    "source": "/changelog/0.16.3",
+    "destination": "/project/changelog/0.16.3"
+  },
+  {
+    "source": "/changelog/0.16.2",
+    "destination": "/project/changelog/0.16.2"
+  },
+  {
+    "source": "/changelog/0.16.1",
+    "destination": "/project/changelog/0.16.1"
+  },
+  {
+    "source": "/changelog/0.16.0",
+    "destination": "/project/changelog/0.16.0"
+  },
+  {
+    "source": "/changelog/0.15.26",
+    "destination": "/project/changelog/0.15.26"
+  },
+  {
+    "source": "/changelog/0.15.25",
+    "destination": "/project/changelog/0.15.25"
+  },
+  {
+    "source": "/changelog/0.15.24",
+    "destination": "/project/changelog/0.15.24"
+  },
+  {
+    "source": "/changelog/0.15.23",
+    "destination": "/project/changelog/0.15.23"
+  },
+  {
+    "source": "/changelog/0.15.22",
+    "destination": "/project/changelog/0.15.22"
+  },
+  {
+    "source": "/changelog/0.15.21",
+    "destination": "/project/changelog/0.15.21"
+  },
+  {
+    "source": "/changelog/0.15.20",
+    "destination": "/project/changelog/0.15.20"
+  },
+  {
+    "source": "/changelog/0.15.19",
+    "destination": "/project/changelog/0.15.19"
+  },
+  {
+    "source": "/changelog/0.15.18",
+    "destination": "/project/changelog/0.15.18"
+  },
+  {
+    "source": "/changelog/0.15.17",
+    "destination": "/project/changelog/0.15.17"
+  },
+  {
+    "source": "/changelog/0.15.16",
+    "destination": "/project/changelog/0.15.16"
+  },
+  {
+    "source": "/changelog/0.15.15",
+    "destination": "/project/changelog/0.15.15"
+  },
+  {
+    "source": "/changelog/0.15.14",
+    "destination": "/project/changelog/0.15.14"
+  },
+  {
+    "source": "/changelog/0.15.13",
+    "destination": "/project/changelog/0.15.13"
+  },
+  {
+    "source": "/changelog/0.15.12",
+    "destination": "/project/changelog/0.15.12"
+  },
+  {
+    "source": "/changelog/0.15.11",
+    "destination": "/project/changelog/0.15.11"
+  },
+  {
+    "source": "/changelog/0.15.10",
+    "destination": "/project/changelog/0.15.10"
+  },
+  {
+    "source": "/changelog/0.15.9",
+    "destination": "/project/changelog/0.15.9"
+  },
+  {
+    "source": "/changelog/0.15.8",
+    "destination": "/project/changelog/0.15.8"
+  },
+  {
+    "source": "/changelog/0.15.7",
+    "destination": "/project/changelog/0.15.7"
+  },
+  {
+    "source": "/changelog/0.15.6",
+    "destination": "/project/changelog/0.15.6"
+  },
+  {
+    "source": "/changelog/0.15.5",
+    "destination": "/project/changelog/0.15.5"
+  },
+  {
+    "source": "/changelog/0.15.4",
+    "destination": "/project/changelog/0.15.4"
+  },
+  {
+    "source": "/changelog/0.15.3",
+    "destination": "/project/changelog/0.15.3"
+  },
+  {
+    "source": "/changelog/0.15.2",
+    "destination": "/project/changelog/0.15.2"
+  },
+  {
+    "source": "/changelog/0.15.1",
+    "destination": "/project/changelog/0.15.1"
+  },
+  {
+    "source": "/changelog/0.15.0",
+    "destination": "/project/changelog/0.15.0"
+  },
+  {
+    "source": "/changelog/0.14.1",
+    "destination": "/project/changelog/0.14.1"
+  },
+  {
+    "source": "/changelog/0.14.0",
+    "destination": "/project/changelog/0.14.0"
+  },
+  {
+    "source": "/changelog/deprecated",
+    "destination": "/project/changelog/deprecated"
+  }
+]

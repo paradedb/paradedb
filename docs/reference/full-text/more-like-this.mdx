@@ -1,0 +1,617 @@
+---
+title: More Like This
+description: Finds documents that are "like" another document.
+canonical: https://www.paradedb.com/docs/reference/full-text/more-like-this
+---
+
+The more like this (MLT) query finds documents that are "like" another document.
+To use this query, pass the [key field](/guides/choosing-a-key-field) value of the input document
+to `pdb.more_like_this`.
+
+For instance, the following query finds documents that are "like" a document with an `id` of `3`:
+
+<CodeGroup>
+```sql SQL
+SELECT id, description, rating, category
+FROM mock_items
+WHERE id @@@ pdb.more_like_this(3)
+ORDER BY id;
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.moreLikeThisId(mockItems.id, 3))
+  .orderBy(mockItems.id);
+```
+
+```python Django
+from paradedb import MoreLikeThis, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(MoreLikeThis(id=3))
+).values('id', 'description', 'rating', 'category').order_by('id')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.id, MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.more_like_this(MockItem.id, document_id=3))
+    .order_by(MockItem.id)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.more_like_this(3)
+        .select(:id, :description, :rating, :category)
+        .order(:id)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.MoreLikeThisId(item.Id, 3))
+    .Select(item => new { item.Id, item.Description, item.Rating, item.Category })
+    .OrderBy(item => item.Id)
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+```ini Expected Response
+ id |     description      | rating | category
+----+----------------------+--------+----------
+  3 | Sleek running shoes  |      5 | Footwear
+  4 | White jogging shoes  |      3 | Footwear
+  5 | Generic shoes        |      4 | Footwear
+ 13 | Sturdy hiking boots  |      4 | Footwear
+ 23 | Comfortable slippers |      3 | Footwear
+ 33 | Winter woolen socks  |      5 | Footwear
+(6 rows)
+```
+
+In the output above, notice that documents matching any of the indexed fields, `description`, `rating`, and `category`, were returned.
+This is because, by default, all fields present in the index are considered for matching.
+
+<Note>
+  The only exception is JSON fields, which are not yet supported and are ignored
+  by the more like this query.
+</Note>
+
+To find only documents that match on specific fields, provide an array of field names as the second argument:
+
+<CodeGroup>
+```sql SQL
+SELECT id, description, rating, category
+FROM mock_items
+WHERE id @@@ pdb.more_like_this(3, ARRAY['description'])
+ORDER BY id;
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.moreLikeThisId(mockItems.id, 3, { fields: ["description"] }))
+  .orderBy(mockItems.id);
+```
+
+```python Django
+from paradedb import MoreLikeThis, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(MoreLikeThis(id=3, fields=['description']))
+).values('id', 'description', 'rating', 'category').order_by('id')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.id, MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.more_like_this(MockItem.id, document_id=3, fields=["description"]))
+    .order_by(MockItem.id)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.more_like_this(3, fields: [:description])
+        .select(:id, :description, :rating, :category)
+        .order(:id)
+```
+
+```cs EF Core
+var moreLikeThisOptions = new MoreLikeThisOptions { Fields = new[] { "description" } };
+
+await dbContext
+    .MockItems.Where(item => EF.Functions.MoreLikeThisId(item.Id, 3, moreLikeThisOptions))
+    .Select(item => new { item.Id, item.Description, item.Rating, item.Category })
+    .OrderBy(item => item.Id)
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+```ini Expected Response
+ id |     description     | rating | category
+----+---------------------+--------+----------
+  3 | Sleek running shoes |      5 | Footwear
+  4 | White jogging shoes |      3 | Footwear
+  5 | Generic shoes       |      4 | Footwear
+(3 rows)
+```
+
+<Note>
+  Because JSON fields are not yet supported for MLT, an error will be returned
+  if a JSON field is passed into the array.
+</Note>
+
+## How It Works
+
+Let's look at how the MLT query works under the hood:
+
+1. Stored values for the input document's fields are retrieved. If they are text fields, they are tokenized and filtered in the same way
+   as the field was during [index creation](/reference/indexing/create-index).
+2. A set of representative terms is created from the input document. For example, in the statement above, these terms would be
+   `sleek`, `running`, and `shoes` for the `description` field; `5` for the `rating` field; `footwear` for the `category` field.
+3. Documents with at least one term match across any of the fields are considered a match.
+
+## Using a Custom Input Document
+
+In addition to providing a key field value, a custom document can also be provided as JSON.
+The JSON keys are field names and must correspond to field names in the index.
+
+<CodeGroup>
+```sql SQL
+SELECT id, description, rating, category
+FROM mock_items
+WHERE id @@@ pdb.more_like_this('{"description": "Sleek running shoes", "category": "footwear"}')
+ORDER BY id;
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.moreLikeThisDocument(mockItems.id, {
+      description: "Sleek running shoes",
+      category: "footwear",
+    }),
+  )
+  .orderBy(mockItems.id);
+```
+
+```python Django
+from paradedb import MoreLikeThis, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(MoreLikeThis(document={'description': 'Sleek running shoes', 'category': 'footwear'}))
+).values('id', 'description', 'rating', 'category').order_by('id')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.id, MockItem.description, MockItem.rating, MockItem.category)
+    .where(
+        search.more_like_this(
+            MockItem.id,
+            document={"description": "Sleek running shoes", "category": "footwear"},
+        )
+    )
+    .order_by(MockItem.id)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.more_like_this({ description: "Sleek running shoes", category: "footwear" }.to_json)
+        .select(:id, :description, :rating, :category)
+        .order(:id)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MoreLikeThisDocument(
+            item.Id,
+            """{"description":"Sleek running shoes","category":"footwear"}"""
+        )
+    )
+    .Select(item => new { item.Id, item.Description, item.Rating, item.Category })
+    .OrderBy(item => item.Id)
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+## Configuration Options
+
+### Term Frequency
+
+`min_term_frequency` excludes terms that appear fewer than a certain number of times in the input document.
+By default, no terms are excluded based on term frequency.
+
+For instance, the following query returns no results because no term appears twice in the input document.
+
+<CodeGroup>
+```sql SQL
+SELECT id, description, rating, category
+FROM mock_items
+WHERE id @@@ pdb.more_like_this(3, min_term_frequency => 2)
+ORDER BY id;
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.moreLikeThisId(mockItems.id, 3, { minTermFrequency: 2 }))
+  .orderBy(mockItems.id);
+```
+
+```python Django
+from paradedb import MoreLikeThis, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(MoreLikeThis(id=3, min_term_freq=2))
+).values('id', 'description', 'rating', 'category').order_by('id')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.id, MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.more_like_this(MockItem.id, document_id=3, min_term_frequency=2))
+    .order_by(MockItem.id)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.more_like_this(3, min_term_freq: 2)
+        .select(:id, :description, :rating, :category)
+        .order(:id)
+```
+
+```cs EF Core
+var moreLikeThisOptions = new MoreLikeThisOptions { MinTermFrequency = 2 };
+
+await dbContext
+    .MockItems.Where(item => EF.Functions.MoreLikeThisId(item.Id, 3, moreLikeThisOptions))
+    .Select(item => new { item.Id, item.Description, item.Rating, item.Category })
+    .OrderBy(item => item.Id)
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+### Document Frequency
+
+`min_doc_frequency` excludes terms that appear in fewer than a certain number of documents across the entire index,
+while `max_doc_frequency` excludes terms that appear in more than that many documents. By default, no terms are excluded
+based on document frequency.
+
+<CodeGroup>
+```sql SQL
+SELECT id, description, rating, category
+FROM mock_items
+WHERE id @@@ pdb.more_like_this(3, min_doc_frequency => 3)
+ORDER BY id;
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.moreLikeThisId(mockItems.id, 3, { minDocFrequency: 3 }))
+  .orderBy(mockItems.id);
+```
+
+```python Django
+from paradedb import MoreLikeThis, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(MoreLikeThis(id=3, min_doc_freq=3))
+).values('id', 'description', 'rating', 'category').order_by('id')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.id, MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.more_like_this(MockItem.id, document_id=3, min_doc_frequency=3))
+    .order_by(MockItem.id)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.more_like_this(3, min_doc_freq: 3)
+        .select(:id, :description, :rating, :category)
+        .order(:id)
+```
+
+```cs EF Core
+var moreLikeThisOptions = new MoreLikeThisOptions { MinDocFrequency = 3 };
+
+await dbContext
+    .MockItems.Where(item => EF.Functions.MoreLikeThisId(item.Id, 3, moreLikeThisOptions))
+    .Select(item => new { item.Id, item.Description, item.Rating, item.Category })
+    .OrderBy(item => item.Id)
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+### Max Query Terms
+
+By default, only the top 25 terms across all fields are considered for matching. Terms are scored using a combination of inverse document
+frequency and term frequency (TF-IDF) -- this means that terms that appear frequently in the input document and are rare across the index
+score the highest.
+
+This can be configured with `max_query_terms`:
+
+<CodeGroup>
+```sql SQL
+SELECT id, description, rating, category
+FROM mock_items
+WHERE id @@@ pdb.more_like_this(3, max_query_terms => 10)
+ORDER BY id;
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.moreLikeThisId(mockItems.id, 3, { maxQueryTerms: 10 }))
+  .orderBy(mockItems.id);
+```
+
+```python Django
+from paradedb import MoreLikeThis, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(MoreLikeThis(id=3, max_query_terms=10))
+).values('id', 'description', 'rating', 'category').order_by('id')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.id, MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.more_like_this(MockItem.id, document_id=3, max_query_terms=10))
+    .order_by(MockItem.id)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.more_like_this(3, max_query_terms: 10)
+        .select(:id, :description, :rating, :category)
+        .order(:id)
+```
+
+```cs EF Core
+var moreLikeThisOptions = new MoreLikeThisOptions { MaxQueryTerms = 10 };
+
+await dbContext
+    .MockItems.Where(item => EF.Functions.MoreLikeThisId(item.Id, 3, moreLikeThisOptions))
+    .Select(item => new { item.Id, item.Description, item.Rating, item.Category })
+    .OrderBy(item => item.Id)
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+### Term Length
+
+`min_word_length` and `max_word_length` can be used to exclude terms that are too short or too long, respectively. By default, no terms
+are excluded based on length.
+
+<CodeGroup>
+```sql SQL
+SELECT id, description, rating, category
+FROM mock_items
+WHERE id @@@ pdb.more_like_this(3, min_word_length => 5)
+ORDER BY id;
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.moreLikeThisId(mockItems.id, 3, { minWordLength: 5 }))
+  .orderBy(mockItems.id);
+```
+
+```python Django
+from paradedb import MoreLikeThis, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(MoreLikeThis(id=3, min_word_length=5))
+).values('id', 'description', 'rating', 'category').order_by('id')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.id, MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.more_like_this(MockItem.id, document_id=3, min_word_length=5))
+    .order_by(MockItem.id)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.more_like_this(3, min_word_length: 5)
+        .select(:id, :description, :rating, :category)
+        .order(:id)
+```
+
+```cs EF Core
+var moreLikeThisOptions = new MoreLikeThisOptions { MinWordLength = 5 };
+
+await dbContext
+    .MockItems.Where(item => EF.Functions.MoreLikeThisId(item.Id, 3, moreLikeThisOptions))
+    .Select(item => new { item.Id, item.Description, item.Rating, item.Category })
+    .OrderBy(item => item.Id)
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+### Custom Stopwords
+
+To exclude terms from being considered, provide a text array to `stopwords`:
+
+<CodeGroup>
+```sql SQL
+SELECT id, description, rating, category
+FROM mock_items
+WHERE id @@@ pdb.more_like_this(3, stopwords => ARRAY['the', 'a'])
+ORDER BY id;
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.moreLikeThisId(mockItems.id, 3, { stopwords: ["the", "a"] }))
+  .orderBy(mockItems.id);
+```
+
+```python Django
+from paradedb import MoreLikeThis, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(MoreLikeThis(id=3, stopwords=['the', 'a']))
+).values('id', 'description', 'rating', 'category').order_by('id')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.id, MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.more_like_this(MockItem.id, document_id=3, stopwords=["the", "a"]))
+    .order_by(MockItem.id)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.more_like_this(3, stopwords: %w[the a])
+        .select(:id, :description, :rating, :category)
+        .order(:id)
+```
+
+```cs EF Core
+var moreLikeThisOptions = new MoreLikeThisOptions { Stopwords = new[] { "the", "a" } };
+
+await dbContext
+    .MockItems.Where(item => EF.Functions.MoreLikeThisId(item.Id, 3, moreLikeThisOptions))
+    .Select(item => new { item.Id, item.Description, item.Rating, item.Category })
+    .OrderBy(item => item.Id)
+    .ToListAsync();
+```
+
+</CodeGroup>

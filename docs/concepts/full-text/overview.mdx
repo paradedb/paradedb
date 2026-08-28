@@ -1,0 +1,33 @@
+---
+title: How Text Search Works
+description: Understand how ParadeDB uses token matching to efficiently search large corpuses of text
+canonical: https://www.paradedb.com/docs/concepts/full-text/overview
+---
+
+Text search in ParadeDB, like Elasticsearch and most search engines, is centered around the concept of **token matching**.
+
+Token matching consists of two steps. First, at indexing time, text is processed by a tokenizer, which breaks input into discrete units called **tokens** or
+**terms**. For example, the [default](/reference/indexing/create-index) tokenizer splits the text `Sleek running shoes` into the tokens `sleek`, `running`, and `shoes`.
+
+Second, at query time, the query engine looks for token matches based on the specified query and query type. Some common query types include:
+
+- [Match](/reference/full-text/match): Matches documents containing any or all query tokens
+- [Phrase](/reference/full-text/phrase): Matches documents where all tokens appear in the same order as the query
+- [Term](/reference/full-text/term): Matches documents containing an exact token
+- ...and many more [advanced](/reference/full-text/query-builder) query types
+
+## Not Substring Matching
+
+While ParadeDB supports substring matching via [regex](/reference/full-text/regex) queries, it's important to note that token matching is **not** the
+same as substring matching.
+
+Token matching is a much more versatile and powerful technique. It enables relevance scoring, language-specific analysis, typo tolerance, and more expressive query types — capabilities that go far beyond simply looking for a sequence of characters.
+
+## Similarity Search
+
+Text search is different from similarity search, also known as vector search. Whereas text search matches based on token matches, similarity search
+matches based on semantic meaning.
+
+As of `0.25.0`, ParadeDB natively supports vector search inside its indexes. See [Vector Search](/reference/vector/overview) to learn more.
+
+The two are complementary, and can be combined into a single ranking. See [Hybrid Search](/reference/hybrid/overview).

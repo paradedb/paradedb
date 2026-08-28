@@ -1,0 +1,126 @@
+---
+title: Facets
+description: Compute a Top K and aggregate in one query
+canonical: https://www.paradedb.com/docs/reference/aggregates/facets
+---
+
+A common pattern in search is to query for both an aggregate and a set of search results. For example, "find the top 10
+results, and also count the total number of results."
+
+Instead of issuing two separate queries -- one for the search results, and another for the aggregate -- `pdb.agg` allows for
+these results to be returned in a single "faceted" query. This can significantly improve read throughput, since issuing a single
+query uses less CPU and disk I/O.
+
+For example, this query returns the top 3 search results alongside the total number of results found.
+
+<CodeGroup>
+```sql SQL
+SELECT
+  id, description, rating,
+  pdb.agg('{"value_count": {"field": "id"}}') OVER ()
+FROM mock_items
+WHERE category === 'electronics'
+ORDER BY rating DESC
+LIMIT 3;
+```
+
+```ts Drizzle
+import { and, desc } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    agg: search.agg({ value_count: { field: "id" } }).over(),
+  })
+  .from(mockItems)
+  .where(
+    and(
+      search.all(mockItems.id),
+      search.term(mockItems.category, "electronics"),
+    ),
+  )
+  .orderBy(desc(mockItems.rating))
+  .limit(3);
+```
+
+```python Django
+from django.db.models import Window
+from paradedb import Agg, ParadeDB, Term
+
+MockItem.objects.filter(
+    category=ParadeDB(Term('electronics'))
+).values(
+    'id', 'description', 'rating'
+).annotate(
+    agg=Window(expression=Agg('{"value_count": {"field": "id"}}'))
+).order_by('-rating')[:3]
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, search
+
+base = (
+    select(MockItem.id, MockItem.description, MockItem.rating)
+    .where(
+        search.all(MockItem.id),
+        search.term(MockItem.category, "electronics"),
+    )
+    .order_by(MockItem.rating.desc())
+    .limit(3)
+)
+
+stmt = facets.with_rows(base, agg=facets.value_count(field="id"), key_field=MockItem.id)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+    facets.extract(rows)
+
+```
+
+```ruby Rails
+relation = MockItem.search(:category)
+                   .term("electronics")
+                   .with_agg(agg: ParadeDB::Aggregations.value_count(:id))
+                   .select(:id, :description, :rating)
+                   .order(rating: :desc)
+                   .limit(3)
+
+rows = relation.to_a
+aggregates = relation.aggregates
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.Term(item.Category, "electronics"))
+    .OrderByDescending(item => item.Rating)
+    .Select(item => new
+    {
+        item.Id,
+        item.Description,
+        item.Rating,
+        Agg = EF.Functions.AggOver(new { value_count = new { field = "id" } })
+    })
+    .Take(3)
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+```ini Expected Response
+ id |         description         | rating |      agg
+----+-----------------------------+--------+----------------
+ 12 | Innovative wireless earbuds |      5 | {"value": 5.0}
+  1 | Ergonomic metal keyboard    |      4 | {"value": 5.0}
+  2 | Plastic Keyboard            |      4 | {"value": 5.0}
+(3 rows)
+```
+
+<Note>
+  Faceted queries require that `pdb.agg` be used as a window function:
+  `pdb.agg() OVER ()`.
+</Note>

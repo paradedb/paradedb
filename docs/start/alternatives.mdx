@@ -1,0 +1,30 @@
+---
+title: ParadeDB vs. Alternatives
+description: Compare ParadeDB with Postgres full-text search, pgvector, search engines, and vector stores.
+canonical: https://www.paradedb.com/docs/start/alternatives
+---
+
+Teams usually compare ParadeDB with two approaches: stretching vanilla Postgres with built-in full-text search or pgvector, or adding an external search engine or vector store like Elasticsearch, OpenSearch, or Pinecone.
+
+ParadeDB is for teams that want richer search and retrieval without moving queries, data freshness, and operational ownership out of Postgres.
+
+For vector search, ParadeDB uses pgvector's `vector` type for compatibility, but stores vectors in its own index rather than relying on pgvector's HNSW or IVFFlat indexes.
+
+|                             | **Postgres FTS / pgvector**                                         | **External search or vector system**                                | **ParadeDB**                                                                                                                                                         |
+| --------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Primary role**            | System of record with basic search or vector capabilities           | Search and retrieval engine                                         | System of record **and** search engine                                                                                                                               |
+| **Examples**                | Postgres full-text search, pgvector                                 | Elasticsearch, OpenSearch, Pinecone                                 | pg_search, ParadeDB Cloud                                                                                                                                            |
+| **Search features**         | Basic FTS, vector search, and ranking primitives                    | Rich search or vector features, depending on the system             | BM25, fuzzy matching, faceting, vector search, and hybrid search                                                                                                     |
+| **Analytics features**      | Limited for search-heavy workloads                                  | Aggregations over a separate replicated index                       | Facets and aggregations over the same ParadeDB index, with parallelization via Postgres [parallel workers](/operate/performance-tuning/reads#raise-parallel-workers) |
+| **Lag**                     | None in a single cluster                                            | At least network, ETL transformation, and indexing time             | None in a single cluster                                                                                                                                             |
+| **Operational complexity**  | Simple until search requirements outgrow built-in capabilities      | Additional datastore, sync pipeline, and failure modes              | Search stays in Postgres; ParadeDB Cloud adds a managed platform option                                                                                              |
+| **Scalability**             | Vertical scaling; horizontal scaling with read replicas or sharding | Horizontal scaling through a separate distributed system            | Vertical scaling; horizontal scaling with [read replicas](/operate/deploy/self-hosted/kubernetes) or [sharding with Citus](/operate/deploy/citus)                    |
+| **Language**                | SQL                                                                 | Custom DSL or SDK                                                   | Standard SQL with custom search operators                                                                                                                            |
+| **ACID guarantees**         | Full ACID compliance and read-after-write guarantees                | No multi-document ACID transactions                                 | Full ACID compliance and read-after-write guarantees                                                                                                                 |
+| **Update & delete support** | Built for fast-changing data                                        | Often more operationally expensive for frequent updates and deletes | Built for fast-changing data; [incremental vector index maintenance is in progress](/concepts/limitations#vector-search)                                             |
+
+## When to Use ParadeDB
+
+Use ParadeDB when your application data already lives in Postgres and search needs to run against that source of truth. ParadeDB is a strong fit when you need full-text search, vector retrieval, hybrid search, faceting, and aggregations without continuously syncing a second datastore.
+
+If your application is already organized around a separate search platform, or if your search workload is completely detached from transactional data, an external system may still make sense. The tradeoff is operational: you own the data movement, freshness, failure handling, and query translation between systems.

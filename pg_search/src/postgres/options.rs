@@ -33,7 +33,6 @@ use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Map;
-use tantivy::vector::BoundsScope;
 use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
 /* ADDING OPTIONS
@@ -78,7 +77,8 @@ pub(crate) const DEFAULT_MUTABLE_SEGMENT_ROWS: usize = 1000;
 pub(crate) const MAX_MUTABLE_SEGMENT_ROWS: usize = 10000;
 
 pub(crate) const DEFAULT_CENTROID_RATIO: f64 = 0.01;
-pub(crate) const DEFAULT_TRAINING_SAMPLES_PER_CENTROID: usize = 32;
+/// Matches the old default sampling volume (`centroid_ratio * 32`).
+pub(crate) const DEFAULT_TRAINING_SAMPLE_RATIO: f64 = 0.32;
 pub(crate) const DEFAULT_CLUSTER_REPLICATION: i32 = 1;
 
 #[pg_guard]
@@ -189,9 +189,17 @@ extern "C-unwind" fn validate_search_tokenizer(value: *const std::os::raw::c_cha
 }
 
 /// The only legal `bounds_scope`: the merge folds centroid bounds over a
-/// cluster's NATIVE (primary-assignment) members. Captured into the stored
-/// tantivy `IndexSettings` at CREATE INDEX, like the clustering threshold.
+/// cluster's NATIVE (primary-assignment) members. Kept as a CREATE INDEX
+/// option for compatibility; Tantivy no longer stores a bounds-scope setting.
 pub(crate) const BOUNDS_SCOPE_NATIVE: &str = "native";
+
+/// Local mirror of the former Tantivy `BoundsScope`. Native is the only
+/// supported value; bounds folding always covers primary-assignment members.
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
+pub enum BoundsScope {
+    #[default]
+    Native,
+}
 
 #[pg_guard]
 extern "C-unwind" fn validate_bounds_scope(value: *const std::os::raw::c_char) {
@@ -365,10 +373,9 @@ pub unsafe extern "C-unwind" fn amoptions(
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
-            optname: "training_samples_per_centroid".as_pg_cstr(),
-            opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
-            offset: std::mem::offset_of!(BM25IndexOptionsData, training_samples_per_centroid)
-                as i32,
+            optname: "training_sample_ratio".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_REAL,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, training_sample_ratio) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
@@ -479,8 +486,8 @@ impl BM25IndexOptions {
         self.options_data().bounds_scope()
     }
 
-    pub fn training_samples_per_centroid(&self) -> usize {
-        self.options_data().training_samples_per_centroid()
+    pub fn training_sample_ratio(&self) -> f32 {
+        self.options_data().training_sample_ratio()
     }
 
     pub fn cluster_replication(&self) -> usize {
@@ -835,7 +842,7 @@ struct BM25IndexOptionsData {
     sort_by_offset: i32,
     search_tokenizer_offset: i32,
     centroid_ratio: f64,
-    training_samples_per_centroid: i32,
+    training_sample_ratio: f64,
     cluster_replication: i32,
     partition_by_offset: i32,
     bounds_scope_offset: i32,
@@ -892,8 +899,8 @@ impl BM25IndexOptionsData {
         }
     }
 
-    pub fn training_samples_per_centroid(&self) -> usize {
-        self.training_samples_per_centroid.max(1) as usize
+    pub fn training_sample_ratio(&self) -> f32 {
+        self.training_sample_ratio as f32
     }
 
     /// Total cells a vector is written into (SPANN `ReplicaCount`): the primary
@@ -1157,13 +1164,13 @@ pub unsafe fn init() {
         1.0,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
-    pg_sys::add_int_reloption(
+    pg_sys::add_real_reloption(
         RELOPT_KIND_PDB,
-        "training_samples_per_centroid".as_pg_cstr(),
-        "k-means training vectors sampled per IVF centroid at index build time".as_pg_cstr(),
-        DEFAULT_TRAINING_SAMPLES_PER_CENTROID as i32,
-        1,
-        100_000,
+        "training_sample_ratio".as_pg_cstr(),
+        "Fraction of vectors sampled for IVF clustering at index build time".as_pg_cstr(),
+        DEFAULT_TRAINING_SAMPLE_RATIO,
+        0.000001,
+        1.0,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
     pg_sys::add_int_reloption(

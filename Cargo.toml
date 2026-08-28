@@ -64,21 +64,21 @@ debug-assertions = true
 overflow-checks = true
 
 [workspace.dependencies]
-pgrx = "=0.19.2"
-pgrx-tests = "=0.19.2"
-tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "c3caae3f613d5906c8080a3c3c2845190e749b64", features = [
+# Local path deps for stacked-IVF development (do not merge into stack PRs).
+tantivy = { path = "../tantivy", package = "tantivy", features = [
   "columnar-zstd-compression",
   "lz4-compression",
   "paradedb",
-  # Enables the SSTable backend.
-  "quickwit",
+  "quickwit",                  # for sstable support
   "stemmer",
   "stopwords",
 ], default-features = false }
+pgrx = "=0.19.2"
+pgrx-tests = "=0.19.2"
 tantivy-jieba = "0.20.0"
 
 [patch.crates-io]
-tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "c3caae3f613d5906c8080a3c3c2845190e749b64" }
+tantivy-tokenizer-api = { path = "../tantivy/tokenizer-api", package = "tantivy-tokenizer-api" }
 
 [workspace.lints.clippy]
 large_futures = "warn"

@@ -17,6 +17,7 @@
 
 use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
+use crate::index::writer::demux::{demux_merge, unrouted_segments};
 use crate::index::writer::index::{Mergeable, SearchIndexMerger};
 use crate::postgres::PgSearchRelation;
 use crate::postgres::delete::VacuumSignal;
@@ -492,6 +493,15 @@ unsafe fn merge_index(
 
         let mut merge_result: anyhow::Result<Option<SegmentMeta>> = Ok(None);
 
+        // A `partition_by` index routes its rows only at build time, so anything that arrives
+        // later holds no partition. A merge is where the layout heals: the candidates that are
+        // entirely unrouted come out as one segment per partition instead of one segment.
+        let unrouted = unrouted_segments(indexrel).unwrap_or_else(|e| {
+            pgrx::debug1!("do_merge: could not read the routed segments: {e}");
+            Default::default()
+        });
+        let target_partitions = indexrel.options().target_segment_count();
+
         for candidate in merge_candidates {
             if is_background && VacuumSignal::new(indexrel.oid()).wants_cancel() {
                 pgrx::debug1!("VACUUM waiting, exiting merge early");
@@ -500,7 +510,17 @@ unsafe fn merge_index(
 
             pgrx::debug1!("merging candidate with {} segments", candidate.0.len());
 
-            merge_result = merger.merge_segments(&candidate.0);
+            let route = !unrouted.is_empty() && candidate.0.iter().all(|id| unrouted.contains(id));
+            merge_result = if route {
+                demux_merge(indexrel, &candidate.0, target_partitions).map(|written| {
+                    pgrx::debug1!("routed a candidate into {} partitions", written.len());
+                    // The demux writes one segment per partition, so it has no single output
+                    // for the caller's accounting.
+                    None
+                })
+            } else {
+                merger.merge_segments(&candidate.0)
+            };
             if merge_result.is_err() {
                 break;
             }

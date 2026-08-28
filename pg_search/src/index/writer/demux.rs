@@ -32,10 +32,12 @@ use tantivy::{Directory, DocId};
 use tantivy_common::BitSet;
 
 use crate::api::FieldName;
+use crate::api::HashSet;
 use crate::index::fast_fields_helper::FFType;
 use crate::index::kdtree::{KdTree, Point};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::stats;
+use crate::index::stats::SegmentStats;
 use crate::postgres::rel::PgSearchRelation;
 use crate::schema::SearchFieldType;
 
@@ -103,6 +105,34 @@ pub(crate) fn demux_merge(
 
     commit(&directory, &index, &sources, &written)?;
     Ok(written)
+}
+
+/// The mergeable segments of `indexrel` that carry no box, so nothing routed them.
+///
+/// A build stamps every segment it writes. A segment without a box came in afterwards, through
+/// an `INSERT` or a merge that could not prove one.
+pub(crate) fn unrouted_segments(indexrel: &PgSearchRelation) -> Result<HashSet<SegmentId>> {
+    let dims = indexrel.options().partition_by();
+    let Some(dim) = dims.first() else {
+        return Ok(HashSet::default());
+    };
+    let directory = MvccSatisfies::Mergeable.directory(indexrel);
+    let index = Index::open(directory.clone())?;
+    let Ok(field) = index.schema().get_field(dim.as_ref()) else {
+        return Ok(HashSet::default());
+    };
+    let mut unrouted = HashSet::default();
+    for segment in index.searchable_segments()? {
+        let boxed = SegmentStats::of_segment(&segment)?
+            .map(|stats| stats.logical(field))
+            .transpose()?
+            .flatten()
+            .is_some();
+        if !boxed {
+            unrouted.insert(segment.id());
+        }
+    }
+    Ok(unrouted)
 }
 
 /// The segments of `index` named by `segment_ids`, in that order.
@@ -340,6 +370,71 @@ mod tests {
                 .unwrap(),
             before,
             "the rewrite keeps every row"
+        );
+    }
+
+    /// Nothing routes the rows an `INSERT` adds, so the merge that takes those segments has to.
+    /// No explicit call: an ordinary insert-time merge heals the layout.
+    #[pg_test]
+    fn a_merge_routes_what_no_build_routed() {
+        Spi::run(
+            r#"
+            CREATE TABLE demux_merged (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            SET paradedb.global_mutable_segment_rows = 0;
+            CREATE INDEX demux_merged_idx ON demux_merged USING bm25 (id, tenant_id, name)
+                WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 4,
+                      numeric_fields = '{"tenant_id": {"fast": true}}');
+            "#,
+        )
+        .unwrap();
+        for batch in 0..5 {
+            Spi::run(&format!(
+                r#"
+                INSERT INTO demux_merged (tenant_id, name)
+                SELECT (i * 7919) % 100, 'lorem ipsum ' || i || ' ' || repeat('padding here ', 20)
+                FROM generate_series({} , {}) i;
+                "#,
+                batch * 1000 + 1,
+                (batch + 1) * 1000
+            ))
+            .unwrap();
+        }
+
+        let indexrel = open_index("demux_merged_idx");
+        assert!(
+            persisted_split_points(&indexrel, "tenant_id")
+                .unwrap()
+                .is_none(),
+            "an insert cannot route"
+        );
+        drop(indexrel);
+
+        // A layer closes a candidate once its segments fill it by a third over, so a layer of
+        // 3.4 times the largest segment takes all five in one. Background layers would hand the
+        // merge to a worker that cannot see this transaction's segments.
+        let largest: i64 = Spi::get_one(
+            "SELECT max(byte_size)::bigint FROM paradedb.index_info('demux_merged_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        Spi::run(&format!(
+            "ALTER INDEX demux_merged_idx SET (layer_sizes = '{}', background_layer_sizes = '0');",
+            largest * 17 / 5
+        ))
+        .unwrap();
+        Spi::run("INSERT INTO demux_merged (tenant_id, name) VALUES (42, 'late row');").unwrap();
+
+        let indexrel = open_index("demux_merged_idx");
+        let split_points = persisted_split_points(&indexrel, "tenant_id")
+            .unwrap()
+            .expect("the merge routed the segments it took");
+        assert_eq!(split_points.len(), 3);
+        assert_eq!(
+            Spi::get_one::<i64>("SELECT count(*) FROM demux_merged WHERE id @@@ pdb.all();")
+                .unwrap()
+                .unwrap(),
+            5001,
+            "the merge keeps every row"
         );
     }
 

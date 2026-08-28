@@ -1,0 +1,5 @@
+---
+header: features
+---
+
+Added `paradedb.repartition()`, which routes an index's segments into the partitions its `partition_by` option asks for. An index that was created before its rows records no partition boundaries, so a range-partitioned join has nothing to cut on until the index is repartitioned or rebuilt.

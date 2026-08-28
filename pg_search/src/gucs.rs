@@ -338,7 +338,7 @@ pub fn init() {
     GucRegistry::define_bool_guc(
         c"paradedb.enable_range_partitioned_join",
         c"Allows the user to enable or disable range co-partitioned joins",
-        c"When enabled, DataFusion optimizer rules sample and co-partition inner joins across tables. Note that participating tables must also have a partition_by index option defined. Default is false.",
+        c"When enabled, DataFusion optimizer rules co-partition inner joins across tables on the split points a partitioned build recorded. Both tables must define partition_by on the join key. An index created empty records no split points until it is reindexed. Default is false.",
         &ENABLE_RANGE_PARTITIONED_JOIN,
         GucContext::Userset,
         GucFlags::default(),

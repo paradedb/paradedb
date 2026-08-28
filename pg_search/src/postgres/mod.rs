@@ -40,7 +40,7 @@ mod cost;
 mod delete;
 pub mod deparse;
 pub mod insert;
-mod merge;
+pub(crate) mod merge;
 pub mod options;
 mod ps_status;
 mod range;

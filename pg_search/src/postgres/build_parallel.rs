@@ -19,7 +19,7 @@ use crate::api::version::Version;
 use crate::gucs;
 use crate::index::kdtree::KdTree;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::stats::{LogicalBounds, LogicalBoundsByField};
+use crate::index::stats::partition_box;
 use crate::index::writer::index::{
     DiskSpaceGuard, IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
 };
@@ -58,7 +58,7 @@ use std::ffi::CString;
 use std::num::NonZeroUsize;
 use std::os::raw::c_int;
 use std::ptr::{NonNull, addr_of_mut};
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 use std::time::Instant;
 use tantivy::index::SegmentId;
 use tantivy::{SegmentMeta, TantivyDocument};
@@ -423,19 +423,6 @@ fn decode_ctid_record(bytes: &[u8]) -> u64 {
             .try_into()
             .expect("a ctid record should be CTID_RECORD_LEN bytes"),
     )
-}
-
-/// The kd-tree box of `partition`, keyed by field name, the way the `.stats` component records
-/// it.
-fn partition_box(tree: &KdTree, partition: usize) -> Option<Arc<LogicalBoundsByField>> {
-    let bounds = tree.partition_bounds(partition)?;
-    Some(Arc::new(
-        tree.dims()
-            .iter()
-            .zip(bounds)
-            .map(|(dim, (lower, upper))| (dim.as_ref().to_string(), LogicalBounds { lower, upper }))
-            .collect(),
-    ))
 }
 
 /// `open(2)` flag for `BufFileOpenFileSet`, and `whence` for `BufFileSeek`. pgrx binds no

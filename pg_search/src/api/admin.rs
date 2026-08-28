@@ -20,7 +20,10 @@ use crate::api::{HashMap, HashSet};
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::index::writer::demux::demux_merge;
+use crate::index::writer::index::SearchIndexMerger;
 use crate::postgres::index::IndexKind;
+use crate::postgres::merge::garbage_collect_index;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     LinkedList, MVCCEntry, SegmentMetaEntry, SegmentMetaEntryContent,
@@ -967,6 +970,65 @@ fn force_merge_raw_bytes(
 ) -> anyhow::Result<TableIterator<'static, (name!(new_segments, i64), name!(merged_segments, i64))>>
 {
     anyhow::bail!("force_merge is deprecated, run `VACUUM` instead");
+}
+
+/// Re-routes an index's segments into the partitions its `partition_by` option asks for, and
+/// returns how many it wrote.
+///
+/// A build routes the rows it indexes, but rows that arrive later do not know the partitions,
+/// so an index filled by `INSERT` holds no boundaries for a range-partitioned join to cut on.
+/// This rewrites the segments it can merge, and each one comes out carrying its partition.
+#[pg_extern]
+fn repartition(index: PgRelation) -> anyhow::Result<i64> {
+    let indexrel = {
+        let oid = index.oid();
+        drop(index);
+        // A RowExclusiveLock, as for any other statement that rewrites the index's segments.
+        PgSearchRelation::with_lock(oid, pg_sys::RowExclusiveLock as _)
+    };
+    if indexrel.options().partition_by().is_empty() {
+        anyhow::bail!(
+            "`{}` has no `partition_by` option to repartition on",
+            indexrel.name()
+        );
+    }
+    let target_partitions = indexrel.options().target_segment_count();
+
+    unsafe {
+        let metadata = MetaPage::open(&indexrel);
+        // Hold both locks for the whole rewrite: `ambulkdelete` blocks on the cleanup lock until
+        // it can see the segments this leaves behind, and no other backend may merge the sources
+        // out from under it.
+        let cleanup_lock = metadata.cleanup_lock_shared();
+        let merge_lock = metadata.acquire_merge_lock();
+
+        let mut busy = metadata.vacuum_list().read_list();
+        busy.extend(merge_lock.merge_list().list_segment_ids());
+
+        // The merger's pins keep the sources readable until the rewrite commits.
+        let merger = SearchIndexMerger::open(&indexrel, MvccSatisfies::Mergeable)?;
+        let segment_ids = merger
+            .all_entries()
+            .into_iter()
+            .filter(|(segment_id, entry)| {
+                !busy.contains(segment_id) && entry.is_mergeable(&indexrel)
+            })
+            .map(|(segment_id, _)| segment_id)
+            .collect::<Vec<_>>();
+
+        let current_xid = pg_sys::GetCurrentFullTransactionId();
+        let next_xid = pg_sys::ReadNextFullTransactionId();
+        let mut merge_list = merge_lock.merge_list();
+        let merge_entry = merge_list.add_segment_ids(segment_ids.iter(), current_xid)?;
+        let written = demux_merge(&indexrel, &segment_ids, target_partitions);
+        merge_list.remove_entry(merge_entry)?;
+        drop(merge_lock);
+        drop(merger);
+
+        garbage_collect_index(&indexrel, current_xid, next_xid);
+        drop(cleanup_lock);
+        Ok(written?.len() as i64)
+    }
 }
 
 #[pg_extern]

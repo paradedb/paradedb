@@ -69,6 +69,8 @@ SELECT id
 FROM issue_6108_bytes
 WHERE body @@@ pdb.term('alpha')
 ORDER BY id;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
     id     
 -----------
  -49999.00
@@ -86,6 +88,8 @@ SELECT id
 FROM issue_6108_i64
 WHERE body @@@ pdb.term('alpha')
 ORDER BY id;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
     id     
 -----------
  -49999.00

@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 use super::keyset::KeySet;
 use super::{anyelement_query_input_opoid, request_simplify};
-use crate::api::operator::{estimate_selectivity, find_var_relation, ReturnedNodePointer};
+use crate::api::operator::{ReturnedNodePointer, estimate_selectivity, find_var_relation};
 use crate::api::version::Version;
 use crate::api::{HashMap, HashSet};
 use crate::gucs::per_tuple_cost;
@@ -29,14 +29,14 @@ use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::scalar_datum_to_tantivy_value;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchFieldType;
-use crate::{nodecast, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
+use crate::{PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY, nodecast};
 use pgrx::callconv::{Arg, ArgAbi};
 use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
 };
 use pgrx::{
-    pg_extern, pg_func_extra, pg_getarg_datum_raw, pg_getarg_type, pg_sys, Internal, PgList, PgOid,
-    PgRelation,
+    Internal, PgList, PgOid, PgRelation, pg_extern, pg_func_extra, pg_getarg_datum_raw,
+    pg_getarg_type, pg_sys,
 };
 use std::ptr::NonNull;
 

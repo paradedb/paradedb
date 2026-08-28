@@ -428,8 +428,8 @@ FROM dist_products dp
 JOIN dist_regions dr ON dp.category = dr.category
 WHERE dp.name @@@ 'laptop OR jacket OR shoes'
 ORDER BY dp.category;
-                                                                                                            QUERY PLAN                                                                                                             
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: dp.category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -438,13 +438,12 @@ ORDER BY dp.category;
          Group By: category
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[]
-           :   VisibilityFilterExec: tables=[dp, dr]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[category@2, ctid_0@3, ctid_1@1]
-           :       CooperativeExec
-           :         PgSearchScan: table=dr, segments=1, query="all"
-           :       CooperativeExec
-           :         PgSearchScan: table=dp, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
+           :   HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(category@0, category@0)]
+           :     CooperativeExec
+           :       PgSearchScan: table=dr, segments=1, query="all"
+           :     CooperativeExec
+           :       PgSearchScan: table=dp, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 SELECT DISTINCT dp.category
 FROM dist_products dp
@@ -876,8 +875,8 @@ JOIN dist_regions dr ON dp.category = dr.category
 WHERE dp.name @@@ 'laptop OR jacket OR shoes'
 GROUP BY dp.category
 ORDER BY dp.category;
-                                                                                                               QUERY PLAN                                                                                                                
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                              QUERY PLAN                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Unique
    ->  Sort
          Sort Key: dp.category
@@ -888,13 +887,12 @@ ORDER BY dp.category;
                Aggregates: COUNT(*)
                DataFusion Physical Plan: 
                  : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
-                 :   VisibilityFilterExec: tables=[dp, dr]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[category@2, ctid_0@3, ctid_1@1]
-                 :       CooperativeExec
-                 :         PgSearchScan: table=dr, segments=1, query="all"
-                 :       CooperativeExec
-                 :         PgSearchScan: table=dp, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+                 :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[category@1]
+                 :     CooperativeExec
+                 :       PgSearchScan: table=dr, segments=1, query="all"
+                 :     CooperativeExec
+                 :       PgSearchScan: table=dp, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
 
 SELECT DISTINCT ON (dp.category) dp.category, COUNT(*)
 FROM dist_products dp
@@ -940,8 +938,8 @@ JOIN dist_regions dr ON dp.category = dr.category
 WHERE dp.name @@@ 'laptop OR jacket OR shoes'
 ORDER BY dp.category;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: dp, dr)
-                                                                                                            QUERY PLAN                                                                                                             
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: dp.category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -950,13 +948,12 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: dp
          Group By: category
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[]
-           :   VisibilityFilterExec: tables=[dp, dr]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[category@2, ctid_0@3, ctid_1@1]
-           :       CooperativeExec
-           :         PgSearchScan: table=dr, segments=1, query="all"
-           :       CooperativeExec
-           :         PgSearchScan: table=dp, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
+           :   HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(category@0, category@0)]
+           :     CooperativeExec
+           :       PgSearchScan: table=dr, segments=1, query="all"
+           :     CooperativeExec
+           :       PgSearchScan: table=dp, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 SELECT DISTINCT dp.category
 FROM dist_products dp
@@ -986,8 +983,8 @@ WHERE dp.name @@@ 'laptop OR jacket OR shoes'
 ORDER BY dp.category
 LIMIT 10;
 WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to volatile functions (tables: dp, dr)
-                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                  
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: dp.category
@@ -998,13 +995,12 @@ WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to volatile functions 
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=10), expr=[category@0 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[], lim=[10]
-                 :     VisibilityFilterExec: tables=[dp, dr]
-                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[category@2, ctid_0@3, ctid_1@1]
-                 :         CooperativeExec
-                 :           PgSearchScan: table=dr, segments=1, query="all"
-                 :         CooperativeExec
-                 :           PgSearchScan: table=dp, segments=1, dynamic_filters=2, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(((id)::double precision + random()) > '0'::double precision)"}]}}]}}
-(16 rows)
+                 :     HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(category@0, category@0)]
+                 :       CooperativeExec
+                 :         PgSearchScan: table=dr, segments=1, dynamic_filters=1, query="all"
+                 :       CooperativeExec
+                 :         PgSearchScan: table=dp, segments=1, dynamic_filters=2, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(((id)::double precision + random()) > '0'::double precision)"}]}}]}}
+(15 rows)
 
 SELECT DISTINCT dp.category
 FROM dist_products dp

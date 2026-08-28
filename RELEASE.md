@@ -9,6 +9,19 @@ ParadeDB uses a **fragment-based workflow** for release artifacts:
 
 At release time, the [**Publish GitHub Release** workflow](https://github.com/paradedb/paradedb/actions/workflows/publish-github-release.yml) automatically assembles these fragments into the versioned SQL upgrade script and changelog page.
 
+## Enterprise: Community Sync
+
+Commits from `paradedb/paradedb` are automatically synced to `paradedb/paradedb-enterprise` via GitHub Actions.
+
+If conflicts occur during automated sync, you'll be notified via Slack with instructions on how to resolve them manually.
+
+The sync workflow:
+
+- Automatically applies all community commits
+- Works entirely on patch branches created from `origin/main` - your local `main` is never modified
+- Pushes patch branches to `origin/main` after CI validation passes
+- Stops on conflicts and requires manual resolution
+
 ## Release Types
 
 | Type          | Description                                                                                                                        |
@@ -71,9 +84,43 @@ To publish a patch release from a stable branch:
    - Upon approval (by commenting `approved` on the issue), commit, tag `v<version>`, and publish the GitHub release.
    - **Sync to `main`:** Check out `main`, copy the assembled SQL script and changelog page, update `docs/docs.json`, delete the consumed fragments from `main`, and push the sync commit to `main`.
 
-## Post-Release Steps
+## Enterprise Release
 
-1. **Verify** that the GitHub release and tag were created correctly and that all downstream packaging jobs completed successfully.
-2. **Release** `paradedb/paradedb-enterprise` by following the instructions in the repository's RELEASE.md file.
+**Releases are always performed first on `paradedb/paradedb`: see above.**
+
+After executing the community release, executing an enterprise release involves:
+
+### Minor Releases (Enterprise)
+
+For a minor release (e.g. `0.22.0`):
+
+1. Manually trigger a rebase such that the community release commit (e.g. `chore: Prepare 0.22.0.`) has been synced to `origin/main`, but the post-release version bump commit has **not** been synced.
+2. Trigger a release on `main` using the [**Publish GitHub Release** workflow](https://github.com/paradedb/paradedb/actions/workflows/publish-github-release.yml).
+3. The workflow will automatically:
+   - Open a manual approval issue for `@pg_search-maintainers`.
+   - Upon approval (by commenting `approved` on the issue), tag `v<version>`, create the stable branch (e.g. `0.22.x`), and publish the GitHub release.
+
+### Beta (RC) Releases (Enterprise)
+
+For a beta release (e.g. `0.22.0-rc.0`):
+
+Trigger the [**Publish GitHub Release** workflow](https://github.com/paradedb/paradedb/actions/workflows/publish-github-release.yml) on the desired branch or commit with `beta: true`, matching the community process.
+
+### Patch Releases (Enterprise)
+
+For a patch release (e.g. `0.22.2`), stable branches should already exist in both `paradedb/paradedb` and `paradedb/paradedb-enterprise` with the same name (e.g. `0.22.x`).
+
+After executing the community release, you should "sync" all new commits on the community stable branch to the enterprise stable branch:
+
+1. Create a sync branch from the enterprise stable branch:
+   - Something like: `git checkout -b sync-0.22.2 origin/0.22.x` (where `origin` is your enterprise remote)
+2. Cherry-pick all new commits from the community stable branch into your sync branch:
+   - Something like `git cherry-pick abc0123...upstream/0.22.x` (where `upstream` is your community remote)
+3. Open a PR for your sync branch on enterprise, targeted at the stable branch, and get it reviewed.
+4. Land the PR with `Rebase and Merge`, then trigger a release on the stable branch using the [**Publish GitHub Release** workflow](https://github.com/paradedb/paradedb/actions/workflows/publish-github-release.yml).
+
+## Post-Release
+
+Verify that the GitHub release and tag were created correctly and that all downstream packaging jobs completed successfully.
 
 That's it! Go for a walk, you deserve it.

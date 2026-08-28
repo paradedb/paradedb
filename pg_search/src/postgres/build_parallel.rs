@@ -19,6 +19,7 @@ use crate::api::version::Version;
 use crate::gucs;
 use crate::index::kdtree::KdTree;
 use crate::index::mvcc::MvccSatisfies;
+use crate::index::stats::{LogicalBounds, LogicalBoundsByField};
 use crate::index::writer::index::{
     DiskSpaceGuard, IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
 };
@@ -57,7 +58,7 @@ use std::ffi::CString;
 use std::num::NonZeroUsize;
 use std::os::raw::c_int;
 use std::ptr::{addr_of_mut, NonNull};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 use tantivy::index::SegmentId;
 use tantivy::{SegmentMeta, TantivyDocument};
@@ -422,6 +423,19 @@ fn decode_ctid_record(bytes: &[u8]) -> u64 {
             .try_into()
             .expect("a ctid record should be CTID_RECORD_LEN bytes"),
     )
+}
+
+/// The kd-tree box of `partition`, keyed by field name, the way the `.stats` component records
+/// it.
+fn partition_box(tree: &KdTree, partition: usize) -> Option<Arc<LogicalBoundsByField>> {
+    let bounds = tree.partition_bounds(partition)?;
+    Some(Arc::new(
+        tree.dims()
+            .iter()
+            .zip(bounds)
+            .map(|(dim, (lower, upper))| (dim.as_ref().to_string(), LogicalBounds { lower, upper }))
+            .collect(),
+    ))
 }
 
 /// `open(2)` flag for `BufFileOpenFileSet`, and `whence` for `BufFileSeek`. pgrx binds no
@@ -1087,6 +1101,12 @@ impl<'a> WorkerBuildState<'a> {
             if self.writer.is_none() {
                 self.open_partition_writer()?;
             }
+            // Every segment of the partition carries its box, so a reader can prune on it without
+            // opening the segment.
+            self.writer
+                .as_mut()
+                .expect("drain_partitioned: writer should be set")
+                .set_logical_bounds(partition_box(&tree, partition));
             let mut partition_metas: Vec<SegmentMeta> = Vec::new();
             let mut ctids = PrefetchWindow::new(
                 &heaprel,
@@ -1564,9 +1584,16 @@ mod plan {
             return 1;
         }
 
-        // If the entire heap fits inside the smallest allowed Tantivy segment memory budget of 15MB, use 1 worker
+        // If the entire heap fits inside the smallest allowed Tantivy segment memory budget of 15MB, use 1 worker.
+        // A partitioned build with a target the user set is honored past that floor: its
+        // partition count comes from the kd-tree, not from the workers, so a small table gets
+        // the partitions it asked for. A plain build cuts on the worker layout instead, and
+        // its count under the floor would depend on the machine.
         let byte_size = plan::estimate_heap_byte_size(heaprel);
-        if byte_size <= 15 * 1024 * 1024 {
+        let options = indexrel.options();
+        let explicit_partitioned =
+            options.explicit_target_segment_count().is_some() && !options.partition_by().is_empty();
+        if byte_size <= 15 * 1024 * 1024 && !explicit_partitioned {
             pgrx::debug1!(
                 "heap byte size ({byte_size}) is less than 15MB, creating a single segment"
             );
@@ -1775,9 +1802,8 @@ mod tests {
     /// them.
     #[pg_test]
     fn test_partitioned_build_segments_and_docs() {
-        // The heap must exceed the 15MB floor in `adjusted_target_segment_count`, or the target
-        // collapses to a single partition. A ~900-byte name over 20k rows clears it while staying
-        // under the TOAST threshold. `tenant_id` is scattered across the heap.
+        // A ~900-byte name over 20k rows gives every partition a real share of the heap while
+        // staying under the TOAST threshold. `tenant_id` is scattered across the heap.
         Spi::run(
             r#"
             CREATE TABLE partitioned_build (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
@@ -2138,8 +2164,8 @@ mod tests {
     /// [`test_partitioned_build_partition_seen_by_one_participant`] covers the other extreme.
     #[pg_test]
     fn test_partitioned_build_result_parity() {
-        // ~950-byte rows over 20k rows clear the 15MB floor in `adjusted_target_segment_count`
-        // so the target of 8 yields real partitions, while staying under the TOAST threshold.
+        // ~950-byte rows over 20k rows give each of the 8 partitions a real share of the heap
+        // while staying under the TOAST threshold.
         Spi::run(
             r#"
             CREATE TABLE partitioned_parity (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, message TEXT);

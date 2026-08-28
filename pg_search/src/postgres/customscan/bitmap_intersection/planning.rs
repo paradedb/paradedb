@@ -44,6 +44,19 @@ struct HarvestedClause {
     matched_heap_expr: bool,
 }
 
+/// One index whose bitmap can feed the intersection, carrying what the combination
+/// step needs to score it and to tell it apart from a redundant one.
+struct Candidate {
+    ipath: *mut pg_sys::IndexPath,
+    index_name: String,
+    /// Cost of building this bitmap and converting it into the probe-able set.
+    build_cost: f64,
+    /// Fraction of the heap this index's quals select.
+    selectivity: f64,
+    /// Positions in `heap_exprs` this index's quals cover.
+    covers: Vec<usize>,
+}
+
 /// A successful harvest: the path to attach as a `custom_paths` child, plus the
 /// HeapExpr clauses its bitmap covers (with their planner-level lossiness).
 pub struct HarvestedBitmap {
@@ -333,78 +346,152 @@ impl BitmapPlanner {
         }
     }
 
-    /// Build a `BitmapHeapPath` over the non-ParadeDB index whose bitmap is worth
-    /// intersecting: every index with a key column matching a HeapExpr clause is
-    /// scored by [`Self::ledger`] and the best positive-net one wins. Without a
+    /// Build a `BitmapHeapPath` over the non-ParadeDB indexes whose bitmaps are worth
+    /// intersecting: every index with a key column matching a HeapExpr clause is scored
+    /// by [`Self::ledger`], and the positive-net ones are combined with a `BitmapAnd`
+    /// in descending net order while each addition still pays for itself. Without a
     /// ParadeDB-side row estimate the first workable index is taken unscored.
     unsafe fn build_bitmap_path(&self) -> Option<(*mut pg_sys::BitmapHeapPath, f64)> {
         unsafe {
-            // TODO: This currently returns the best index, but we can
-            // return all indexes that have a positive net benefit
-            let mut best: Option<(*mut pg_sys::IndexPath, f64)> = None;
+            let mut candidates = Vec::new();
             for ioi in PgList::<pg_sys::IndexOptInfo>::from_pg((*self.rel).indexlist).iter_ptr() {
-                if (*ioi).indexoid == self.bm25_oid || !(*ioi).amhasgetbitmap || (*ioi).hypothetical
-                {
+                let Some(candidate) = self.candidate(ioi) else {
                     continue;
+                };
+                // With no ParadeDB-side estimate there is nothing to score against, so
+                // the first workable index is taken unscored and uncombined.
+                if self.bm25_row_estimate.is_none() {
+                    return Some((self.heap_path(candidate.ipath.cast()), candidate.build_cost));
                 }
-                // Partial indexes need predicate-implication checks.
-                if !(*ioi).indpred.is_null() {
-                    continue;
-                }
+                candidates.push(candidate);
+            }
+            let bm25_row_estimate = self.bm25_row_estimate?;
+            if candidates.is_empty() {
+                return None;
+            }
 
-                let mut matched = Vec::new();
-                for ri in PgList::<pg_sys::RestrictInfo>::from_pg((*ioi).indrestrictinfo).iter_ptr()
-                {
-                    if self.matches_heap_expr((*ri).clause.cast())
-                        && let Some(iclause) = IndexClause::from_clause(self.root, ri, ioi)
-                    {
-                        matched.push(iclause);
-                    }
-                }
-                if matched.is_empty() {
-                    continue;
-                }
-                // `IndexPath.indexclauses` must be ordered by index column; the
-                // clauses above accumulate in `indrestrictinfo` order.
-                matched.sort_by_key(IndexClause::indexcol);
-                let mut iclauses = PgList::<pg_sys::IndexClause>::new();
-                for iclause in matched {
-                    iclauses.push(iclause.into_pg());
-                }
-                let ipath = pg_sys::create_index_path(
-                    self.root,
-                    ioi,
-                    iclauses.into_pg(),
-                    std::ptr::null_mut(),
-                    std::ptr::null_mut(),
-                    std::ptr::null_mut(),
-                    pg_sys::ScanDirection::ForwardScanDirection,
-                    false,
-                    std::ptr::null_mut(),
-                    1.0,
-                    false,
+            // Constant across candidates, so it is evaluated once for the whole pass.
+            let per_row_saved = self.per_row_saved();
+            let mut scored = Vec::with_capacity(candidates.len());
+            for candidate in candidates {
+                let net = self.ledger(&candidate, bm25_row_estimate, per_row_saved);
+                pgrx::debug1!(
+                    "[bitmap_intersection] index {}: net={net:.2} (bm25_row_estimate={bm25_row_estimate:.0} selectivity={:.6} indextotalcost={:.2})",
+                    candidate.index_name,
+                    candidate.selectivity,
+                    (*candidate.ipath).indextotalcost,
                 );
-                let index_name = PgSearchRelation::open((*ioi).indexoid).name().to_string();
-                if self.overflows_work_mem(ipath) {
+                scored.push((candidate, net));
+            }
+
+            // Best net first, then keep adding while the next bitmap still pays for
+            // itself: it only sees the rows its predecessors kept, so its benefit
+            // shrinks by their combined selectivity while its build cost stays full
+            // price. Sorted descending, so the first non-paying one ends the run.
+            scored.sort_by(|(_, a), (_, b)| b.total_cmp(a));
+            let mut chosen: Vec<Candidate> = Vec::new();
+            let mut covered: Vec<usize> = Vec::new();
+            let mut reachable_rows = bm25_row_estimate;
+            for (candidate, _) in scored {
+                // A multicolumn index and a single-column one over a shared key match
+                // the same clause. The second rejects nothing the first did not, and
+                // multiplying their selectivities would count that clause twice.
+                if candidate.covers.iter().all(|c| covered.contains(c)) {
                     pgrx::debug1!(
-                        "[bitmap_intersection] index {index_name}: bitmap would overflow work_mem, skipping"
+                        "[bitmap_intersection] index {}: covers nothing new, skipping",
+                        candidate.index_name
                     );
                     continue;
                 }
-                let Some(bm25_row_estimate) = self.bm25_row_estimate else {
-                    return Some((self.heap_path(ipath.cast()), self.bitmap_build_cost(ipath)));
-                };
-                let net = self.ledger(ipath, bm25_row_estimate);
+                let incremental = self.ledger(&candidate, reachable_rows, per_row_saved);
                 pgrx::debug1!(
-                    "[bitmap_intersection] index {index_name}: net={net:.2} (bm25_row_estimate={bm25_row_estimate:.0} selectivity={:.6} indextotalcost={:.2})",
-                    (*ipath).indexselectivity,
-                    (*ipath).indextotalcost,
+                    "[bitmap_intersection] index {}: incremental net={incremental:.2} against {} accepted bitmap(s) (reachable_rows={reachable_rows:.0})",
+                    candidate.index_name,
+                    chosen.len(),
                 );
-                if net > 0.0 && best.is_none_or(|(_, b)| net > b) {
-                    best = Some((ipath, net));
+                if incremental <= 0.0 {
+                    break;
+                }
+                reachable_rows *= candidate.selectivity;
+                covered.extend(&candidate.covers);
+                chosen.push(candidate);
+            }
+
+            let (first, rest) = chosen.split_first()?;
+            let build_cost = chosen.iter().map(|c| c.build_cost).sum();
+            let bitmapqual = if rest.is_empty() {
+                first.ipath.cast::<pg_sys::Path>()
+            } else {
+                let mut bitmapquals = PgList::<pg_sys::Path>::new();
+                for candidate in &chosen {
+                    bitmapquals.push(candidate.ipath.cast());
+                }
+                pg_sys::create_bitmap_and_path(self.root, self.rel, bitmapquals.into_pg()).cast()
+            };
+            Some((self.heap_path(bitmapqual), build_cost))
+        }
+    }
+
+    /// Score one index as an intersection source. `None` when it cannot produce a
+    /// usable bitmap, when none of its key columns matches a HeapExpr clause, or when
+    /// its bitmap would overflow `work_mem`.
+    unsafe fn candidate(&self, ioi: *mut pg_sys::IndexOptInfo) -> Option<Candidate> {
+        unsafe {
+            if (*ioi).indexoid == self.bm25_oid || !(*ioi).amhasgetbitmap || (*ioi).hypothetical {
+                return None;
+            }
+            // Partial indexes need predicate-implication checks.
+            if !(*ioi).indpred.is_null() {
+                return None;
+            }
+
+            let mut matched = Vec::new();
+            let mut covers = Vec::new();
+            for ri in PgList::<pg_sys::RestrictInfo>::from_pg((*ioi).indrestrictinfo).iter_ptr() {
+                if let Some(heap_expr) = self.heap_expr_index((*ri).clause.cast())
+                    && let Some(iclause) = IndexClause::from_clause(self.root, ri, ioi)
+                {
+                    matched.push(iclause);
+                    covers.push(heap_expr);
                 }
             }
-            best.map(|(ipath, _)| (self.heap_path(ipath.cast()), self.bitmap_build_cost(ipath)))
+            if matched.is_empty() {
+                return None;
+            }
+            // `IndexPath.indexclauses` must be ordered by index column; the
+            // clauses above accumulate in `indrestrictinfo` order.
+            matched.sort_by_key(IndexClause::indexcol);
+            let mut iclauses = PgList::<pg_sys::IndexClause>::new();
+            for iclause in matched {
+                iclauses.push(iclause.into_pg());
+            }
+            let ipath = pg_sys::create_index_path(
+                self.root,
+                ioi,
+                iclauses.into_pg(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                pg_sys::ScanDirection::ForwardScanDirection,
+                false,
+                std::ptr::null_mut(),
+                1.0,
+                false,
+            );
+            let index_name = PgSearchRelation::open((*ioi).indexoid).name().to_string();
+            if self.overflows_work_mem(ipath) {
+                pgrx::debug1!(
+                    "[bitmap_intersection] index {index_name}: bitmap would overflow work_mem, skipping"
+                );
+                return None;
+            }
+            Some(Candidate {
+                ipath,
+                index_name,
+                build_cost: self.bitmap_build_cost(ipath),
+                selectivity: selectivity(ipath),
+                covers,
+            })
         }
     }
 
@@ -444,18 +531,18 @@ impl BitmapPlanner {
         }
     }
 
-    /// Net benefit of probing this index's bitmap ahead of the heap filters.
+    /// Net benefit of probing this bitmap ahead of the heap filters.
     ///
-    /// Benefit: each ParadeDB-index row the bitmap rejects (the non-selected fraction)
-    /// skips its heap fetch and all heap filter evaluation.
+    /// Benefit: each row the bitmap rejects (the non-selected fraction of the
+    /// `reachable_rows` that still arrive at it) skips its heap fetch and all heap
+    /// filter evaluation. `reachable_rows` is the full ParadeDB-side estimate for the
+    /// first bitmap in an intersection, and the fraction its predecessors kept for
+    /// every bitmap after it.
     ///
     /// Cost: building the bitmap (`indextotalcost`) plus converting its entries into
-    /// the probe-able set.
-    unsafe fn ledger(&self, ipath: *mut pg_sys::IndexPath, bm25_row_estimate: f64) -> f64 {
-        unsafe {
-            let benefit = bm25_row_estimate * (1.0 - selectivity(ipath)) * self.per_row_saved();
-            benefit - self.bitmap_build_cost(ipath)
-        }
+    /// the probe-able set, which does not shrink as the intersection grows.
+    fn ledger(&self, candidate: &Candidate, reachable_rows: f64, per_row_saved: f64) -> f64 {
+        reachable_rows * (1.0 - candidate.selectivity) * per_row_saved - candidate.build_cost
     }
 
     /// A bitmap whose estimated TID count can't fit in `work_mem` degrades to lossy
@@ -480,12 +567,17 @@ impl BitmapPlanner {
         }
     }
 
-    unsafe fn matches_heap_expr(&self, clause: *mut pg_sys::Node) -> bool {
+    /// Position in [`Self::heap_exprs`] of the HeapExpr this clause is, if any.
+    unsafe fn heap_expr_index(&self, clause: *mut pg_sys::Node) -> Option<usize> {
         unsafe {
             self.heap_exprs
                 .iter()
-                .any(|expr| pg_sys::equal(clause.cast(), (*expr).cast()))
+                .position(|expr| pg_sys::equal(clause.cast(), (*expr).cast()))
         }
+    }
+
+    unsafe fn matches_heap_expr(&self, clause: *mut pg_sys::Node) -> bool {
+        unsafe { self.heap_expr_index(clause).is_some() }
     }
 }
 

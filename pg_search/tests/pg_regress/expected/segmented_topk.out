@@ -307,7 +307,7 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: d,
                      Output: d.id
                      Table: stk_documents
                      Index: stk_documents_bm25_idx
-                     Worker Selection: Row-capped
+                     Worker Selection: Cost model
                      Exec Method: ColumnarExecState
                      Fast Fields: id
                      Scores: false

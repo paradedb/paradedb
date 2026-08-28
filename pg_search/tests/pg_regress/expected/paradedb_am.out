@@ -62,7 +62,7 @@ SELECT id FROM items WHERE content @@@ 'wireless' ORDER BY id;
          Output: id
          Table: items
          Index: items_paradedb_idx
-         Worker Selection: Row-capped
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id
          Scores: false

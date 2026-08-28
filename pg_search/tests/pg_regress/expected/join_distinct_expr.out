@@ -204,8 +204,8 @@ WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not
  f             | WIRELESS ROUTER
  f             | Wireless Mouse
  t             | tablet
- t             | 
  f             | 
+ t             | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = on;
@@ -359,8 +359,8 @@ WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not
  TechCorp      | WIRELESS ROUTER
  TechCorp      | Wireless Mouse
  N/A           | tablet
- N/A           | 
  FastParts     | 
+ N/A           | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = on;
@@ -513,8 +513,8 @@ WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not
         8 | WIRELESS ROUTER
         8 | Wireless Mouse
           | tablet
-          | 
         9 | 
+          | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = on;
@@ -716,8 +716,8 @@ WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not
         8 | WIRELESS ROUTER
         8 | Wireless Mouse
           | tablet
-          | 
         9 | 
+          | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = on;
@@ -790,8 +790,8 @@ WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not
     100 | WIRELESS ROUTER
     100 | Wireless Mouse
     200 | tablet
-    300 | 
     200 | 
+    300 | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = on;
@@ -1093,8 +1093,8 @@ WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not
  TechCorp            | WIRELESS ROUTER
  TechCorp            | Wireless Mouse
  N/A                 | tablet
- N/A                 | 
  FastParts           | 
+ N/A                 | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = on;
@@ -1112,27 +1112,27 @@ ORDER BY p.name
     LIMIT 10;
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
 WARNING:  JoinScan not used: DISTINCT columns must be columnar indexed (tables: p, s)
-                                                                                   QUERY PLAN                                                                                    
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                    QUERY PLAN                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: p.name
-         ->  HashAggregate
-               Group Key: p.name, to_jsonb(s.name)
-               ->  Nested Loop
-                     Join Filter: (p.supplier_id = s.id)
+   ->  Unique
+         ->  Sort
+               Sort Key: p.name, (to_jsonb(s.name))
+               ->  Hash Join
+                     Hash Cond: (p.supplier_id = s.id)
                      ->  Custom Scan (ParadeDB Base Scan) on dex_products p
                            Table: dex_products
                            Index: dex_products_bm25
                            Exec Method: NormalScanExecState
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-                     ->  Custom Scan (ParadeDB Base Scan) on dex_suppliers s
-                           Table: dex_suppliers
-                           Index: dex_suppliers_bm25
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                     ->  Hash
+                           ->  Custom Scan (ParadeDB Base Scan) on dex_suppliers s
+                                 Table: dex_suppliers
+                                 Index: dex_suppliers_bm25
+                                 Exec Method: NormalScanExecState
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
 (19 rows)
 
 -- Verify: EXPLAIN should NOT show "ParadeDB Join Scan".
@@ -1234,8 +1234,8 @@ WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not
  D9CE5A9B751D2E18071CC135E51C524B | WIRELESS ROUTER
  D9CE5A9B751D2E18071CC135E51C524B | Wireless Mouse
                                   | tablet
-                                  | 
  9818B8B1AAC79FB78ABE7B48D8ECC003 | 
+                                  | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = on;

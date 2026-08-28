@@ -61,28 +61,27 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p, s)
-                                                                             QUERY PLAN                                                                              
----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                QUERY PLAN                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: p.id, p.name, s.name
    Sort Key: p.id
-   ->  Nested Loop
+   ->  Hash Join
          Output: p.id, p.name, s.name
-         Inner Unique: true
-         ->  Custom Scan (ParadeDB Base Scan) on public.products p
-               Output: p.id, p.name, p.supplier_id
-               Table: products
-               Index: products_bm25_idx
-               Worker Selection: Row-capped
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-         ->  Bitmap Heap Scan on public.suppliers s
+         Hash Cond: (s.id = p.supplier_id)
+         ->  Seq Scan on public.suppliers s
                Output: s.id, s.name, s.contact_info, s.country
-               Recheck Cond: (p.supplier_id = s.id)
-               ->  Bitmap Index Scan on suppliers_pkey
-                     Index Cond: (s.id = p.supplier_id)
-(19 rows)
+         ->  Hash
+               Output: p.id, p.name, p.supplier_id
+               ->  Custom Scan (ParadeDB Base Scan) on public.products p
+                     Output: p.id, p.name, p.supplier_id
+                     Table: products
+                     Index: products_bm25_idx
+                     Worker Selection: Cost model
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 -- =============================================================================
 -- TEST 2: JoinScan should be proposed with LIMIT and search predicate
@@ -259,30 +258,29 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 10;
-                                                                                QUERY PLAN                                                                                 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                   QUERY PLAN                                                                                    
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
    ->  Sort
          Output: p.id, p.name, s.name
          Sort Key: p.id
-         ->  Nested Loop
+         ->  Hash Join
                Output: p.id, p.name, s.name
-               Inner Unique: true
-               ->  Custom Scan (ParadeDB Base Scan) on public.products p
-                     Output: p.id, p.name, p.supplier_id
-                     Table: products
-                     Index: products_bm25_idx
-                     Worker Selection: Row-capped
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-               ->  Bitmap Heap Scan on public.suppliers s
+               Hash Cond: (s.id = p.supplier_id)
+               ->  Seq Scan on public.suppliers s
                      Output: s.id, s.name, s.contact_info, s.country
-                     Recheck Cond: (p.supplier_id = s.id)
-                     ->  Bitmap Index Scan on suppliers_pkey
-                           Index Cond: (s.id = p.supplier_id)
-(21 rows)
+               ->  Hash
+                     Output: p.id, p.name, p.supplier_id
+                     ->  Custom Scan (ParadeDB Base Scan) on public.products p
+                           Output: p.id, p.name, p.supplier_id
+                           Table: products
+                           Index: products_bm25_idx
+                           Worker Selection: Cost model
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
 
 -- Re-enable for cleanup verification
 SET paradedb.enable_join_custom_scan = on;
@@ -434,8 +432,8 @@ WHERE c.description @@@ 'color' AND s.description @@@ 'size'
 ORDER BY c.id, s.id
 LIMIT 10;
 WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: c, s)
-                                                                               QUERY PLAN                                                                               
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: c.name, s.name, c.id, s.id
    ->  Sort
@@ -447,19 +445,21 @@ WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is r
                      Output: c.name, c.id
                      Table: colors
                      Index: colors_bm25_idx
-                     Worker Selection: Row-capped
+                     Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"color","lenient":null,"conjunction_mode":null}}}}
-               ->  Custom Scan (ParadeDB Base Scan) on public.sizes s
+               ->  Materialize
                      Output: s.name, s.id
-                     Table: sizes
-                     Index: sizes_bm25_idx
-                     Worker Selection: Row-capped
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"size","lenient":null,"conjunction_mode":null}}}}
-(23 rows)
+                     ->  Custom Scan (ParadeDB Base Scan) on public.sizes s
+                           Output: s.name, s.id
+                           Table: sizes
+                           Index: sizes_bm25_idx
+                           Worker Selection: Cost model
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"size","lenient":null,"conjunction_mode":null}}}}
+(25 rows)
 
 -- =============================================================================
 -- TEST 9: Mixed-case column names (regression test for quoting issues)

@@ -266,7 +266,7 @@ LIMIT 5;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: i.id, i.name
          Relation Tree: t INNER (i ANTI r)
-         Join Cond: i.tag_id = t.id, i.id = r.item_id
+         Join Cond: i.tag_id = t.id, r.item_id = i.id
          Limit: 5
          Order By: i.id asc
          DataFusion Physical Plan: 

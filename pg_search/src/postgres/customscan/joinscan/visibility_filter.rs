@@ -52,10 +52,12 @@ use arrow_array::{Array, ArrayRef, RecordBatch, UInt64Array};
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
 use datafusion::arrow::compute::kernels::boolean::{and, is_not_null};
+use datafusion::catalog::Session;
 use datafusion::catalog::default_table_source::DefaultTableSource;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use datafusion::common::{DFSchemaRef, DataFusionError, Result};
-use datafusion::execution::{SendableRecordBatchStream, SessionState, TaskContext};
+use datafusion::execution::{SendableRecordBatchStream, TaskContext};
+use datafusion::logical_expr::physical_planning_context::PhysicalPlanningContext;
 use datafusion::logical_expr::{Extension, LogicalPlan, UserDefinedLogicalNode};
 use datafusion::optimizer::optimizer::ApplyOrder;
 use datafusion::optimizer::{OptimizerConfig, OptimizerRule};
@@ -66,13 +68,16 @@ use datafusion::physical_plan::filter_pushdown::{
 use datafusion::physical_plan::metrics::{
     BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet, RecordOutput,
 };
-use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
+use datafusion::physical_plan::{
+    ChildrenPropertiesMode, DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties,
+    ReplaceChildrenOptions,
+};
 use datafusion::physical_planner::{ExtensionPlanner, PhysicalPlanner};
 use pgrx::pg_sys;
 
 use crate::index::fast_fields_helper::{FFHelper, for_each_segment};
+use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::postgres::customscan::joinscan::CtidColumn;
-use crate::postgres::customscan::joinscan::build::{JoinType, RelNode};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::execution_plan::UnsafeSendStream;
@@ -282,40 +287,6 @@ impl OptimizerRule for VisibilityFilterOptimizerRule {
             wrapped.transformed || result.transformed,
         ))
     }
-}
-
-/// Returns the plan_positions whose ctid columns are still packed DocAddresses
-/// at the output of this join subtree.
-///
-/// This shared barrier analysis is used while translating join-level search
-/// predicates so each `SearchPredicateUDF` knows whether to emit packed or real
-/// ctids at the point where it is attached.
-pub fn deferred_plan_positions(node: &RelNode) -> crate::api::HashSet<usize> {
-    fn collect(node: &RelNode, acc: &mut crate::api::HashSet<usize>) {
-        match node {
-            RelNode::Scan(source) => {
-                acc.insert(source.plan_position);
-            }
-            RelNode::Join(join) => match join.join_type {
-                JoinType::Inner => {
-                    collect(&join.left, acc);
-                    collect(&join.right, acc);
-                }
-                JoinType::Left => collect(&join.left, acc),
-                JoinType::Semi => collect(&join.left, acc),
-                JoinType::Anti { .. } => collect(&join.left, acc),
-                JoinType::Right => collect(&join.right, acc),
-                JoinType::RightSemi => collect(&join.right, acc),
-                JoinType::RightAnti => collect(&join.right, acc),
-                _ => (),
-            },
-            RelNode::Filter(filter) => collect(&filter.input, acc),
-        }
-    }
-
-    let mut deferred = crate::api::HashSet::default();
-    collect(node, &mut deferred);
-    deferred
 }
 
 // ---------------------------------------------------------------------------
@@ -636,7 +607,10 @@ fn wrap_visibility_below_lookup_chain(
         table_names,
     )?) as Arc<dyn ExecutionPlan>;
     for lookup in lookups.into_iter().rev() {
-        result = lookup.with_new_children(vec![result])?;
+        result = lookup.replace_children(
+            vec![result],
+            ReplaceChildrenOptions::new(ChildrenPropertiesMode::Recompute),
+        )?;
     }
     Ok(result)
 }
@@ -655,7 +629,8 @@ impl ExtensionPlanner for VisibilityExtensionPlanner {
         node: &dyn UserDefinedLogicalNode,
         _logical_inputs: &[&LogicalPlan],
         physical_inputs: &[Arc<dyn ExecutionPlan>],
-        _session_state: &SessionState,
+        _session: &dyn Session,
+        _planning_context: &PhysicalPlanningContext,
     ) -> Result<Option<Arc<dyn ExecutionPlan>>> {
         let Some(vis_node) = node.as_any().downcast_ref::<VisibilityFilterNode>() else {
             return Ok(None);
@@ -791,13 +766,13 @@ impl VisibilityFilterExec {
 
     /// Rebuild from a dispatch descriptor, re-wiring the per-plan_position ctid resolvers from
     /// the scans the worker decoded below this node. A position whose scan sits behind a network
-    /// boundary rebuilds its resolver instead: a helper over that index's canonical segment view
+    /// boundary rebuilds its resolver instead: a helper replaying that source's segment view
     /// resolves any address a producer packed (ctid access needs no field layout).
     pub(crate) fn decode_for_dispatch(
         buf: &[u8],
         input: Arc<dyn ExecutionPlan>,
         ctid_resolvers: Vec<(usize, u32, Arc<FFHelper>)>,
-        index_segment_ids: &[crate::api::HashSet<tantivy::index::SegmentId>],
+        index_segment_views: &[SegmentView],
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let (plan_pos_oids, table_names, resolver_indexes): VisibilityDispatchPayload =
             serde_json::from_slice(buf).map_err(|e| {
@@ -813,16 +788,16 @@ impl VisibilityFilterExec {
             if ctid_resolvers.iter().any(|(pos, _, _)| *pos == plan_pos) {
                 continue;
             }
-            let ids = index_segment_ids.get(plan_pos).cloned().ok_or_else(|| {
+            let view = index_segment_views.get(plan_pos).cloned().ok_or_else(|| {
                 DataFusionError::Internal(format!(
-                    "VisibilityFilterExec dispatch: missing canonical segment ids for \
+                    "VisibilityFilterExec dispatch: missing segment view for \
                      plan_position {plan_pos}"
                 ))
             })?;
             let ffhelper = crate::scan::tantivy_lookup_exec::open_rebuilt_ffhelper(
                 indexrelid,
                 &[],
-                crate::index::mvcc::MvccSatisfies::ParallelWorker(ids),
+                MvccSatisfies::ParallelWorker(view),
             )?;
             exec.set_ctid_resolver(plan_pos, indexrelid, ffhelper);
         }
@@ -859,6 +834,15 @@ impl ExecutionPlan for VisibilityFilterExec {
 
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
         vec![&self.input]
+    }
+
+    fn apply_expressions(
+        &self,
+        _f: &mut dyn FnMut(
+            &Arc<dyn datafusion::physical_plan::PhysicalExpr>,
+        ) -> Result<TreeNodeRecursion>,
+    ) -> Result<TreeNodeRecursion> {
+        Ok(TreeNodeRecursion::Continue)
     }
 
     fn with_new_children(
@@ -1204,16 +1188,16 @@ mod tests {
         heap_oid: pg_sys::Oid,
         alias: Option<&str>,
     ) -> Result<LogicalPlan> {
-        let mut provider = PgSearchTableProvider::new(
-            ScanInfo {
-                heap_rti: 1,
-                heaprelid: heap_oid,
-                alias: alias.map(str::to_string),
-                ..Default::default()
-            },
-            vec![WhichFastField::Ctid],
-            None,
+        let mut scan_info = ScanInfo::new(
+            1,
+            heap_oid,
+            pgrx::pg_sys::InvalidOid,
+            crate::scan::ScanMode::all(),
         );
+        if let Some(alias) = alias {
+            scan_info = scan_info.with_alias(alias);
+        }
+        let mut provider = PgSearchTableProvider::new(scan_info, vec![WhichFastField::Ctid], None);
         provider.configure_deferred_outputs(
             &crate::api::HashSet::default(),
             VisibilityMode::Deferred { plan_position },

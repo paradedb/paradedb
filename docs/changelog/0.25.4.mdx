@@ -1,0 +1,41 @@
+---
+title: 0.25.4
+noindex: true
+---
+
+## New Features 🎉
+
+- Added support for aggregate score joins, enabling queries to `ORDER BY` a sum of scores across
+  joined tables.
+- Added `paradedb.vector_clusters` to inspect per-cluster posting list sizes and ball-bound radii
+  for vector indexes.
+
+## Performance Improvements 🚀
+
+- Cross-table disjunctive search predicates (e.g. `a.text @@@ 'foo' OR b.text @@@ 'bar'`) now evaluate
+  via predicate tagging rather than UDFs, improving low-selectivity disjunctive join query performance
+  by up to 22x.
+- MPP self-loops across stages on the same worker now communicate over an in-memory channel,
+  eliminating in-process serialization overhead.
+- Dynamic shared memory (DSM) allocation for parallel index scans on PostgreSQL 15–17 now sizes
+  EXPLAIN info slots only when used, reducing shared memory overhead from ~66MB to ~2MB.
+- Eliminated redundant eager planning passes in AggregateScan and JoinScan, sizing DSM allocations
+  directly from physical stages.
+- Gate MPP execution behind a minimum row count, configurable via `paradedb.mpp_min_rows`.
+
+## Stability Improvements 💪
+
+- Parallel MPP worker scans and leader consumers now replay the leaders's segment view and mutable
+  segment bounds.
+- AggregateScan now validates collation semantics during `GROUP BY` pushdown, falling back to PostgreSQL
+  for non-deterministic collations and `GROUPING SETS`.
+- Plain `EXPLAIN` now matches runtime behavior by rendering the serial execution plan when task discovery
+  finds fewer than 2 parallel tasks.
+- Dynamic filter pushdown is now tracked and reported via metrics across MPP execution stages.
+- `EXPLAIN` plans for the aggregate and join scan now display the table name or alias.
+
+## New Contributors 👋
+
+- [**aryanpatel-ctrl**](https://github.com/aryanpatel-ctrl)
+
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.25.4).

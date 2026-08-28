@@ -77,10 +77,14 @@ jobs:
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |
-          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
-          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          set -euo pipefail
+          curl --fail --silent --show-error https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            | gpg --dearmor \
+            | sudo tee /usr/share/keyrings/postgresql-pgdg.gpg >/dev/null
+          echo "deb [signed-by=/usr/share/keyrings/postgresql-pgdg.gpg] https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo "$VERSION_CODENAME")-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
           sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
-          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
+          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> "$GITHUB_PATH"
 
       - name: Install OpenBLAS (superkmeans-rs BLAS backend)
         run: |
@@ -164,7 +168,7 @@ jobs:
           # Switch back to the PR branch to check the migration file
           git checkout "$HEAD_REF"
 
-      - name: Check Schema Diff and Validate Migration
+      - name: Check Schema Diff and Validate Migration Fragment
         id: check_schema_diff
         run: |
           if test -s ~/diff.sql; then
@@ -180,35 +184,52 @@ jobs:
             echo
             echo "=========================================="
 
-            # Extract the version from Cargo.toml
-            CURRENT_VERSION=$(grep -m 1 '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
-            echo "Current version from Cargo.toml: $CURRENT_VERSION"
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+            shopt -s nullglob
 
-            # Find the migration file ending with the current version
-            MIGRATION_FILE=$(ls pg_search/sql/pg_search--*--${CURRENT_VERSION}.sql 2>/dev/null | head -n 1)
+            if [ -n "$PR_NUMBER" ]; then
+              MATCHING_FILES=(pg_search/sql/unreleased/"${PR_NUMBER}".*.sql)
+            else
+              # Fallback for non-PR events (workflow_dispatch, push)
+              MATCHING_FILES=(pg_search/sql/unreleased/*.sql)
+            fi
 
-            if [ -z "$MIGRATION_FILE" ]; then
-              echo "❌ ERROR: Schema changed but no migration file found ending with version $CURRENT_VERSION"
-              echo "Expected file: pg_search/sql/pg_search--<prev_version>--${CURRENT_VERSION}.sql"
-              echo "Please create a migration file with the schema changes."
+            if (( ${#MATCHING_FILES[@]} == 0 )); then
+              echo "❌ ERROR: Schema changed but no SQL migration fragment found in pg_search/sql/unreleased/"
+              if [ -n "$PR_NUMBER" ]; then
+                echo "Expected file: pg_search/sql/unreleased/${PR_NUMBER}.<short_description>.sql"
+              else
+                echo "Expected file: pg_search/sql/unreleased/<PR_NUMBER>.<short_description>.sql"
+              fi
+              echo "Please create a fragment file containing the required schema changes shown above."
               exit 1
             fi
 
-            echo "Found migration file: $MIGRATION_FILE"
+            echo "Found migration fragment(s):"
+            for f in "${MATCHING_FILES[@]}"; do
+              echo " - $f"
+            done
             echo
-            echo "Checking if migration file contains all schema changes (order-independent)..."
+
+            # Concatenate matching fragments into a temporary file for validation
+            COMBINED_FRAGMENT=$(mktemp)
+            cat "${MATCHING_FILES[@]}" > "$COMBINED_FRAGMENT"
+
+            echo "Checking if migration fragment(s) contain all schema changes (order-independent)..."
 
             # Compare schema changes independent of order, since pg-schema-diff output order is non-deterministic
-            if ! python3 .github/scripts/check_migration_diff.py ~/diff.sql "$MIGRATION_FILE" --debug; then
+            if ! python3 .github/scripts/check_migration_diff.py ~/diff.sql "$COMBINED_FRAGMENT" --debug; then
+              rm -f "$COMBINED_FRAGMENT"
               echo
-              echo "The migration file at $MIGRATION_FILE needs to be updated."
-              echo "Please ensure all the schema changes shown above are in your migration file."
+              echo "The migration fragment(s) need to be updated."
+              echo "Please ensure all the schema changes shown above are in your fragment file(s)."
               echo
               echo "ℹ️  NOTE: If you need to modify the SchemaBot-generated diff because it's incorrect,"
               echo "   please update the schema diff generation logic at:"
               echo "   https://github.com/paradedb/pg-schema-diff"
               exit 1
             fi
+            rm -f "$COMBINED_FRAGMENT"
           else
             echo "✅ No schema difference detected"
             echo "schema_diff_detected=false" >> $GITHUB_OUTPUT

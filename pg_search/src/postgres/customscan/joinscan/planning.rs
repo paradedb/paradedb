@@ -23,6 +23,7 @@
 //! - Collect required fields to ensure availability during execution
 //! - Handle ORDER BY score pathkeys
 
+use super::JoinDeclineReason;
 use super::build::{
     self as build, FilterNode, InputVarInfo, JoinCSClause, JoinKeyPair, JoinLevelExpr, JoinNode,
     JoinSource, JoinSourceCandidate, JoinType, RelNode,
@@ -31,13 +32,16 @@ use super::predicate::find_base_info_recursive;
 use super::privdat::{OutputColumnInfo, PrivateData};
 
 use crate::api::operator::anyelement_query_input_opoid;
+use crate::api::version::VersionInfo;
 use crate::api::{NullTestKind, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
 use crate::postgres::customscan::CustomScan;
-use crate::postgres::customscan::basescan::projections::score::is_score_func;
+use crate::postgres::customscan::basescan::projections::score::{
+    expr_contains_any_score, is_score_func,
+};
+use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::opexpr::lookup_operator;
-use crate::postgres::customscan::orderby::is_collation_pushdown_safe;
 use crate::postgres::customscan::pullup::{
     field_type_for_pullup, get_attno_by_name, resolve_fast_field,
 };
@@ -51,6 +55,7 @@ use crate::postgres::utils::{
 };
 use crate::postgres::var::{fieldname_from_var, strip_identity_wrappers};
 use crate::query::SearchQueryInput;
+use crate::schema::SearchFieldType;
 
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::schema::SearchIndexSchema;
@@ -217,7 +222,7 @@ pub(super) unsafe fn collect_join_sources_base_rel(
         side_info = side_info.with_alias(alias);
     }
 
-    // Subquery extraction is meaningful only when the base side has a BM25 index;
+    // Subquery extraction is meaningful only when the base side has a ParadeDB index;
     // otherwise the Semi/Anti/LeftMark wrapping has nothing useful to wrap.
     let mut classified = ClassifiedBaseRestrictInfo::empty();
 
@@ -314,7 +319,7 @@ pub unsafe fn classify_base_restrictinfo(
     // has pushed down to the base relation level.
     //
     // Note: Cross-table predicates (e.g., involving multiple tables in a join)
-    // are handled separately via SearchPredicateUDF through filter pushdown.
+    // are handled separately at the join level.
     let baserestrictinfo = PgList::<pg_sys::RestrictInfo>::from_pg(baserestrictinfo);
     if baserestrictinfo.is_empty() {
         return classified;
@@ -403,7 +408,7 @@ pub unsafe fn wrap_with_semi_anti(
         let Some((inner_node, inner_keys)) = collect_join_sources(inner_root, inner_rel) else {
             pgrx::debug1!(
                 "agg-on-join: SubPlan plan_id={plan_id} declined; \
-                 inner relation cannot be pushed (no BM25 index, volatile, \
+                 inner relation cannot be pushed (no ParadeDB index, volatile, \
                  or un-pushdownable predicates)"
             );
             return Err("subquery cannot be pushed into the aggregate scan".into());
@@ -664,15 +669,29 @@ unsafe fn collect_join_sources_join_rel(
                     let outer_ir = PgSearchRelation::open(outer_indexrelid);
                     let inner_hr = PgSearchRelation::open(inner_heaprelid);
                     let inner_ir = PgSearchRelation::open(inner_indexrelid);
-                    if resolve_fast_field(jk.outer_attno as i32, &outer_hr.tuple_desc(), &outer_ir)
-                        .is_none()
-                        || resolve_fast_field(
+                    let (Some(outer_ff), Some(inner_ff)) = (
+                        resolve_fast_field(
+                            jk.outer_attno as i32,
+                            &outer_hr.tuple_desc(),
+                            &outer_ir,
+                        ),
+                        resolve_fast_field(
                             jk.inner_attno as i32,
                             &inner_hr.tuple_desc(),
                             &inner_ir,
-                        )
-                        .is_none()
-                    {
+                        ),
+                    ) else {
+                        return None;
+                    };
+
+                    // A `NumericBytes` key is hashed on its stored bytes, so both indexes must
+                    // encode negative values the same way or equal values never match.
+                    if numeric_bytes_layouts_differ(&outer_ff, &outer_ir, &inner_ff, &inner_ir) {
+                        crate::postgres::customscan::joinscan::JoinScan::add_planner_warning(
+                            "join key NUMERIC columns are stored in different byte layouts; \
+                             reindex the older index",
+                            (),
+                        );
                         return None;
                     }
                 }
@@ -1024,6 +1043,30 @@ unsafe fn try_extract_null_and_subplan(
     })
 }
 
+/// Whether two `NumericBytes` join keys come from indexes that encode negative values
+/// differently. See `NUMERIC_BYTES_SORTABLE_NEGATIVES_VERSION`.
+fn numeric_bytes_layouts_differ(
+    outer_ff: &WhichFastField,
+    outer_ir: &PgSearchRelation,
+    inner_ff: &WhichFastField,
+    inner_ir: &PgSearchRelation,
+) -> bool {
+    let is_numeric_bytes = |ff: &WhichFastField| {
+        matches!(
+            ff,
+            WhichFastField::Named(_, SearchFieldType::NumericBytes(..))
+        )
+    };
+    is_numeric_bytes(outer_ff)
+        && is_numeric_bytes(inner_ff)
+        && outer_ir
+            .created_by_version()
+            .stores_sortable_negative_numeric_bytes()
+            != inner_ir
+                .created_by_version()
+                .stores_sortable_negative_numeric_bytes()
+}
+
 /// Extracts equi-join keys from a subplan's testexpr for `Semi`/`Anti` joins.
 unsafe fn extract_equi_keys_from_subplan(
     subplan: *mut pg_sys::SubPlan,
@@ -1236,6 +1279,24 @@ pub(super) unsafe fn collect_required_fields(
             other => other,
         };
         match feature {
+            OrderByFeature::ScoreSum { rtis } => {
+                for rti in rtis {
+                    if let Some(source) = plan_sources
+                        .iter_mut()
+                        .find(|s| s.scan_info.heap_rti == *rti)
+                    {
+                        ensure_score_bubbling(source);
+                    }
+                }
+            }
+            OrderByFeature::Score { rti } => {
+                if let Some(source) = plan_sources
+                    .iter_mut()
+                    .find(|s| s.scan_info.heap_rti == *rti)
+                {
+                    ensure_score_bubbling(source);
+                }
+            }
             OrderByFeature::Var { rti, attno, .. } => {
                 ensure_column_in_all_sources(&mut plan_sources, *rti, *attno);
             }
@@ -1372,7 +1433,7 @@ unsafe fn try_ensure_field(side: &mut JoinSource, attno: pg_sys::AttrNumber) -> 
 /// Ensures an expression-indexed fast field is projected from a `JoinSource`.
 ///
 /// Unlike `ensure_field` (which resolves plain columns via attno), this function
-/// looks up a search field by name in the BM25 index schema and adds the
+/// looks up a search field by name in the ParadeDB index schema and adds the
 /// corresponding `WhichFastField` directly.  Used for ORDER BY on indexed
 /// expressions like `upper(name)`, where the Tantivy field has no matching
 /// PostgreSQL column attno.
@@ -1465,25 +1526,27 @@ unsafe fn pathkey_is_outer_only(
 /// Check if all ORDER BY columns are fast fields.
 ///
 /// For JoinScan to be proposed, all columns used in ORDER BY must be fast fields
-/// in their respective BM25 indexes (or be paradedb.score() which is handled separately).
+/// in their respective ParadeDB indexes (or be paradedb.score() which is handled separately).
+/// Validate whether all ORDER BY clauses can be handled by JoinScan.
 ///
 /// Pathkeys that reference only relations outside this join subtree ("outer-only")
 /// are skipped — the parent plan is responsible for sorting on those keys.
 ///
-/// Returns true if:
+/// Returns `Ok(())` if:
 /// - No ORDER BY clause exists
-/// - All relevant ORDER BY columns are fast fields or score functions
+/// - All relevant ORDER BY columns are fast fields, score functions, or valid distinct expressions
 /// - All relevant ORDER BY columns have a byte-ordered (C-like) collation
 ///
-/// Returns false if any relevant ORDER BY column is not a fast field or uses a non C-like collation.
+/// Returns `Err(JoinDeclineReason)` if validation fails, indicating whether it failed due to
+/// an unsupported expression shape or an unsupported primitive.
 pub(super) unsafe fn order_by_columns_are_fast_fields(
     root: *mut pg_sys::PlannerInfo,
     sources: &[&JoinSource],
     has_distinct: bool,
-) -> bool {
+) -> Result<(), JoinDeclineReason> {
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
     if pathkeys.is_empty() {
-        return true;
+        return Ok(());
     }
 
     let source_rtis = collect_source_rtis(sources);
@@ -1498,19 +1561,29 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
         let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
         // If a collation isn't "safe" (C-like), then we can't pushdown as Tantivy uses byte ordering
         let collation = (*equivclass).ec_collation;
-        if !is_collation_pushdown_safe(collation) {
-            return false;
+        if !collation_supports(collation, CollationOperation::Ordering) {
+            return Err(JoinDeclineReason::new(
+                "JoinScan not used: ORDER BY columns must have a byte-ordered (C-like) collation",
+            ));
         }
 
+        let mut candidate_decline: Option<JoinDeclineReason> = None;
+
         for member in members.iter_ptr() {
-            let expr = (*member).em_expr;
+            let raw_expr = (*member).em_expr;
             // Chain strip_wrappers (for PlaceHolderVar/RelabelType) then
             // strip_identity_wrappers (for identity OpExpr like `id + 0`).
-            let mut expr = strip_identity_wrappers(strip_wrappers(expr.cast()));
+            let mut expr = strip_identity_wrappers(strip_wrappers(raw_expr.cast()));
 
             // Unwrap NullTest to inspect the inner expression
             if let Some(nt) = nodecast!(NullTest, T_NullTest, expr) {
                 expr = strip_identity_wrappers(strip_wrappers((*nt).arg.cast()));
+            }
+
+            if let Some(rtis) = extract_score_sum(expr.cast())
+                && rtis.iter().all(|rti| source_rtis.contains(rti))
+            {
+                continue 'pathkey;
             }
 
             if sources
@@ -1528,15 +1601,27 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                     continue;
                 }
 
+                let mut is_fast = false;
                 for source in sources {
                     if source.contains_rti(varno) {
                         let hr = PgSearchRelation::open(source.scan_info.heaprelid);
                         let ir = PgSearchRelation::open(source.scan_info.indexrelid);
                         if resolve_fast_field(varattno as i32, &hr.tuple_desc(), &ir).is_some() {
-                            continue 'pathkey;
+                            is_fast = true;
+                            break;
                         }
+                        let col_name =
+                            fieldname_from_var(source.scan_info.heaprelid, var, varattno)
+                                .map(|f| f.to_string())
+                                .unwrap_or_else(|| format!("attno {varattno}"));
+                        candidate_decline = Some(JoinDeclineReason::new(format!(
+                            "JoinScan not used: ORDER BY column '{col_name}' is not columnar indexed (fast = true)",
+                        )));
                         break;
                     }
+                }
+                if is_fast {
+                    continue 'pathkey;
                 }
             } else {
                 let mut found = false;
@@ -1565,13 +1650,27 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                 if found {
                     continue 'pathkey;
                 }
+
+                if expr_contains_any_score(expr.cast()) {
+                    candidate_decline = Some(JoinDeclineReason::new(
+                        "JoinScan not used: unsupported ORDER BY expression shape containing pdb.score(); only standalone pdb.score() or sums of pdb.score() across tables ('pdb.score(a) + pdb.score(b)') are supported",
+                    ));
+                } else if candidate_decline.is_none() {
+                    candidate_decline = Some(JoinDeclineReason::new(
+                        "JoinScan not used: unsupported ORDER BY expression shape; expressions must match an indexed expression or be a sum of pdb.score() calls",
+                    ));
+                }
             }
         }
 
-        return false;
+        return Err(candidate_decline.unwrap_or_else(|| {
+            JoinDeclineReason::new(
+                "JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation",
+            )
+        }));
     }
 
-    true
+    Ok(())
 }
 
 /// Check if all Var dependencies of an expression are fast fields in any source.
@@ -1675,7 +1774,7 @@ unsafe fn column_name_for_var(
     format!("rti {}, attno {}", varno, varattno)
 }
 
-/// Check if all DISTINCT columns are fast fields in their respective BM25 indexes.
+/// Check if all DISTINCT columns are fast fields in their respective ParadeDB indexes.
 ///
 /// DISTINCT requires all target columns to be available as fast fields so that
 /// deduplication can happen within DataFusion without heap access.
@@ -1684,6 +1783,37 @@ unsafe fn column_name_for_var(
 ///
 /// Returns `Some(entries)` if all DISTINCT columns are fast fields, `None` otherwise.
 /// When there is no DISTINCT clause, returns `Some(vec![])`.
+/// Whether every DISTINCT column settles equality the way the join dedup does.
+///
+/// JoinScan deduplicates on bytes. A nondeterministic collation can call two
+/// different byte strings equal, and the `Unique` Postgres plans above the scan
+/// cannot merge rows the scan already emitted apart.
+pub(super) unsafe fn distinct_collations_are_deterministic(root: *mut pg_sys::PlannerInfo) -> bool {
+    let parse = (*root).parse;
+    if parse.is_null() || (*parse).distinctClause.is_null() {
+        return true;
+    }
+
+    let distinct_list = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause);
+    let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+
+    distinct_list.iter_ptr().all(|clause| {
+        let tle_ref = (*clause).tleSortGroupRef;
+        match target_list
+            .iter_ptr()
+            .find(|te| (**te).ressortgroupref == tle_ref)
+        {
+            // Read the collation before any stripping: `COLLATE` reaches the
+            // planner as a `RelabelType` that `strip_wrappers` would discard.
+            Some(te) => collation_supports(
+                pg_sys::exprCollation((*te).expr as *mut pg_sys::Node),
+                CollationOperation::Equality,
+            ),
+            None => true,
+        }
+    })
+}
+
 pub(super) unsafe fn distinct_columns_are_fast_fields(
     root: *mut pg_sys::PlannerInfo,
     sources: &[&JoinSource],
@@ -1897,14 +2027,63 @@ pub(super) unsafe fn pathkey_uses_scores_from_source(
 
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;
-            let check_expr = strip_wrappers(expr.cast()).cast::<pg_sys::Expr>();
-
-            if is_score_func_recursive(check_expr, source) {
+            if expr_uses_scores_from_source(expr.cast(), source) {
                 return true;
             }
         }
     }
 
+    false
+}
+
+/// Check if an expression is a sum of one or more `pdb.score(var)` calls.
+/// Returns the list of RTIs for the referenced relations if it matches.
+pub(super) unsafe fn extract_score_sum(expr: *mut pg_sys::Node) -> Option<Vec<pg_sys::Index>> {
+    let mut rtis = Vec::new();
+    if !collect_score_sum_rtis(expr, &mut rtis) || rtis.is_empty() {
+        return None;
+    }
+    Some(rtis)
+}
+
+unsafe fn collect_score_sum_rtis(node: *mut pg_sys::Node, rtis: &mut Vec<pg_sys::Index>) -> bool {
+    if node.is_null() {
+        return false;
+    }
+    let stripped = strip_identity_wrappers(strip_wrappers(node));
+    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, stripped) {
+        if score_funcoids().contains(&(*funcexpr).funcid) {
+            let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+            if args.len() == 1
+                && let Some(arg) = args.get_ptr(0)
+                && let Some(var) = nodecast!(Var, T_Var, strip_wrappers(arg))
+            {
+                rtis.push((*var).varno as pg_sys::Index);
+                return true;
+            }
+        }
+        return false;
+    }
+    if let Some(opexpr) = nodecast!(OpExpr, T_OpExpr, stripped) {
+        let opno = (*opexpr).opno;
+        let opname_ptr = pg_sys::get_opname(opno);
+        let namespace_oid = pg_sys::get_func_namespace(pg_sys::get_opcode(opno));
+        let namespace_ptr = pg_sys::get_namespace_name(namespace_oid);
+        if !opname_ptr.is_null() && !namespace_ptr.is_null() {
+            let schema = std::ffi::CStr::from_ptr(namespace_ptr).to_bytes();
+            let opname = std::ffi::CStr::from_ptr(opname_ptr).to_bytes();
+            if schema == b"pg_catalog" && opname == b"+" {
+                let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+                if args.len() == 2
+                    && let Some(left) = args.get_ptr(0)
+                    && let Some(right) = args.get_ptr(1)
+                {
+                    return collect_score_sum_rtis(left, rtis)
+                        && collect_score_sum_rtis(right, rtis);
+                }
+            }
+        }
+    }
     false
 }
 
@@ -2011,15 +2190,24 @@ impl JoinSortExprKind {
             };
         }
 
-        for source in sources.iter() {
-            if is_score_func_recursive(check_expr.cast(), source) {
-                if !output_rtis.contains(&source.scan_info.heap_rti) {
-                    continue;
+        if let Some(rtis) = extract_score_sum(check_expr.cast()) {
+            if rtis.len() > 1 {
+                if !rtis.iter().all(|rti| output_rtis.contains(rti)) {
+                    return if pathkey_equivalence_member {
+                        Self::SkipMember
+                    } else {
+                        Self::NoMatch
+                    };
                 }
                 return Self::Resolved(OrderByInfo {
-                    feature: OrderByFeature::Score {
-                        rti: source.scan_info.heap_rti,
-                    },
+                    feature: OrderByFeature::ScoreSum { rtis },
+                    direction,
+                });
+            } else if let Some(&rti) = rtis.first()
+                && output_rtis.contains(&rti)
+            {
+                return Self::Resolved(OrderByInfo {
+                    feature: OrderByFeature::Score { rti },
                     direction,
                 });
             }

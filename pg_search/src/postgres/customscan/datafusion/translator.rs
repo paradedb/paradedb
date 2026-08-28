@@ -21,13 +21,10 @@ use datafusion::logical_expr::{BinaryExpr, Expr, LogicalPlanBuilder, Operator, c
 use datafusion::prelude::DataFrame;
 use pgrx::pg_sys;
 
-use crate::api::{HashMap, HashSet};
 use crate::postgres::customscan::joinscan::build::{
-    JoinLevelExpr, JoinLevelSearchPredicate, JoinNode, JoinSource, JoinType as PgJoinType,
-    RelationAlias,
+    JoinLevelExpr, JoinNode, JoinSource, JoinType as PgJoinType, RelationAlias,
 };
 use crate::postgres::customscan::joinscan::privdat::{OutputColumnInfo, SCORE_COL_NAME};
-use crate::scan::SearchPredicateUDF;
 
 pub trait ColumnMapper {
     /// Map a PostgreSQL variable to a DataFusion Column expression
@@ -120,21 +117,12 @@ impl<'a> PredicateTranslator<'a> {
 
     /// Translate a `JoinLevelExpr` tree to a DataFusion `Expr`.
     ///
-    /// This creates `SearchPredicateUDF` expressions for single-table predicates,
-    /// which can be pushed down to `PgSearchTableProvider` via DataFusion's
-    /// filter pushdown mechanism.
-    /// Translate a `JoinLevelExpr` tree to a DataFusion `Expr`.
-    ///
-    /// `deferred_positions` contains plan_positions whose ctid columns still hold
-    /// packed DocAddresses at this point in the plan. Each `SingleTablePredicate`
-    /// checks whether its `plan_position` is in the set to determine whether its
-    /// `SearchPredicateUDF` should emit packed DocAddresses or real ctids.
+    /// Single-table search predicates map to synthetic match tag columns
+    /// (`__{alias}_{idx}_tag_{local_idx}`), while multi-table expressions reference
+    /// their corresponding translated custom expressions.
     pub unsafe fn translate_join_level_expr(
         expr: &JoinLevelExpr,
         custom_exprs: &[Expr],
-        ctid_map: &HashMap<pg_sys::Index, Expr>,
-        predicates: &[JoinLevelSearchPredicate],
-        deferred_positions: &crate::api::HashSet<usize>,
         sources: &[&JoinSource],
     ) -> Option<Expr> {
         match expr {
@@ -142,18 +130,17 @@ impl<'a> PredicateTranslator<'a> {
                 plan_position,
                 predicate_idx,
             } => {
-                let predicate = predicates.get(*predicate_idx)?;
-                let col = ctid_map.get(&(*plan_position as pg_sys::Index))?;
-                let deferred = deferred_positions.contains(plan_position);
-                let udf = SearchPredicateUDF::with_deferred_visibility(
-                    predicate.indexrelid,
-                    predicate.heaprelid,
-                    predicate.query.clone(),
-                    predicate.display_string.clone(),
-                    deferred,
-                    Some(*plan_position),
-                );
-                Some(udf.into_expr(col.clone()))
+                let source = sources.iter().find(|s| s.plan_position == *plan_position)?;
+                let tag_name = match &source.scan_info.mode {
+                    crate::scan::ScanMode::Tagged { local_queries, .. } => {
+                        &local_queries
+                            .iter()
+                            .find(|tq| tq.predicate_idx.0 == *predicate_idx)?
+                            .tag_name
+                    }
+                    crate::scan::ScanMode::Standard { .. } => return None,
+                };
+                Some(col(tag_name))
             }
             JoinLevelExpr::MultiTablePredicate { predicate_idx } => {
                 custom_exprs.get(*predicate_idx).cloned()
@@ -162,23 +149,10 @@ impl<'a> PredicateTranslator<'a> {
                 if children.is_empty() {
                     return None;
                 }
-                let mut result = Self::translate_join_level_expr(
-                    &children[0],
-                    custom_exprs,
-                    ctid_map,
-                    predicates,
-                    deferred_positions,
-                    sources,
-                )?;
+                let mut result =
+                    Self::translate_join_level_expr(&children[0], custom_exprs, sources)?;
                 for child in &children[1..] {
-                    let right = Self::translate_join_level_expr(
-                        child,
-                        custom_exprs,
-                        ctid_map,
-                        predicates,
-                        deferred_positions,
-                        sources,
-                    )?;
+                    let right = Self::translate_join_level_expr(child, custom_exprs, sources)?;
                     result = Expr::BinaryExpr(BinaryExpr::new(
                         Box::new(result),
                         Operator::And,
@@ -191,23 +165,10 @@ impl<'a> PredicateTranslator<'a> {
                 if children.is_empty() {
                     return None;
                 }
-                let mut result = Self::translate_join_level_expr(
-                    &children[0],
-                    custom_exprs,
-                    ctid_map,
-                    predicates,
-                    deferred_positions,
-                    sources,
-                )?;
+                let mut result =
+                    Self::translate_join_level_expr(&children[0], custom_exprs, sources)?;
                 for child in &children[1..] {
-                    let right = Self::translate_join_level_expr(
-                        child,
-                        custom_exprs,
-                        ctid_map,
-                        predicates,
-                        deferred_positions,
-                        sources,
-                    )?;
+                    let right = Self::translate_join_level_expr(child, custom_exprs, sources)?;
                     result = Expr::BinaryExpr(BinaryExpr::new(
                         Box::new(result),
                         Operator::Or,
@@ -217,14 +178,7 @@ impl<'a> PredicateTranslator<'a> {
                 Some(result)
             }
             JoinLevelExpr::Not(child) => {
-                let inner = Self::translate_join_level_expr(
-                    child,
-                    custom_exprs,
-                    ctid_map,
-                    predicates,
-                    deferred_positions,
-                    sources,
-                )?;
+                let inner = Self::translate_join_level_expr(child, custom_exprs, sources)?;
                 Some(Expr::Not(Box::new(inner)))
             }
             JoinLevelExpr::MarkOrNull {
@@ -362,26 +316,15 @@ impl<'a> PredicateTranslator<'a> {
 /// `MarkOrNull` predicate triggers a post-filter projection that drops the
 /// synthetic `mark` column from the schema. AggregateScan never produces
 /// `MarkOrNull` predicates and passes `false`.
-#[allow(clippy::too_many_arguments)]
 pub fn apply_join_level_filter(
     mut df: DataFrame,
     predicate: &JoinLevelExpr,
     translated_exprs: &[Expr],
-    ctid_map: &HashMap<pg_sys::Index, Expr>,
-    join_level_predicates: &[JoinLevelSearchPredicate],
-    deferred_positions: &HashSet<usize>,
     sources: &[&JoinSource],
     handle_mark: bool,
 ) -> Result<DataFrame> {
     let filter_expr = unsafe {
-        PredicateTranslator::translate_join_level_expr(
-            predicate,
-            translated_exprs,
-            ctid_map,
-            join_level_predicates,
-            deferred_positions,
-            sources,
-        )
+        PredicateTranslator::translate_join_level_expr(predicate, translated_exprs, sources)
     }
     .ok_or_else(|| {
         DataFusionError::Internal(format!(

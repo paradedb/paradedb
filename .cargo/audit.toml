@@ -7,5 +7,5 @@ ignore = [
   "RUSTSEC-2026-0235",
 ]
 
-# Unmaintained crates are warnings, not failures. The tree carries nine.
+# Unmaintained crates are warnings, not failures.
 informational_warnings = ["unmaintained", "unsound", "notice"]

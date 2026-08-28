@@ -1,0 +1,20 @@
+---
+title: 0.25.5
+noindex: true
+---
+
+## New Features 🎉
+
+- Predicates that cannot be answered by the ParadeDB index can now be evaluated by intersecting
+  with a bitmap scan over another PostgreSQL index (btree, GIN, or GiST), rather than checking
+  every matching row against the heap, reducing buffer reads by up to 20x for selective filters.
+- Replaced the `paradedb.check_aggregate_scan` and `paradedb.check_topk_scan` GUCs with a single
+  unified `paradedb.planner_warnings` GUC (`off`, `warning`, or `error`). When set to `error`,
+  queries that cannot use an optimized ParadeDB scan raise an error instead of logging a warning.
+
+## Performance Improvements 🚀
+
+- MPP search readers are now initialized only in the processes that execute them, avoiding
+  redundant index opens on the leader and opening fast fields lazily per segment.
+
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.25.5).

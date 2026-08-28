@@ -98,7 +98,7 @@ SELECT description, rating FROM mock_items
 WHERE description === 'sleek running shoes'
 ORDER BY upper(description) DESC
     LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
                                                       QUERY PLAN                                                      
 ----------------------------------------------------------------------------------------------------------------------
  Limit
@@ -277,8 +277,8 @@ FROM expr_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY upper(p.name) ASC
     LIMIT 5;
-                                                                                                      QUERY PLAN                                                                                                       
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name, (upper(p.name))
    ->  Result
@@ -295,9 +295,9 @@ ORDER BY upper(p.name) ASC
                  :     SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=5, visibility_checks=[s, p]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@3, ctid_1@0, name@2]
                  :         CooperativeExec
-                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                 :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                  :         CooperativeExec
-                 :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+                 :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
 (19 rows)
 
 SELECT p.name, s.name AS supplier_name
@@ -325,8 +325,8 @@ FROM expr_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY s.name ASC
     LIMIT 5;
-                                                                                          QUERY PLAN                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                              QUERY PLAN                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -341,9 +341,9 @@ ORDER BY s.name ASC
            :     SegmentedTopKExec: expr=[name@1 ASC NULLS LAST], k=5, visibility_checks=[s, p]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@2, name@4, ctid_1@0]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
+           :           PgSearchScan: table=s, segments=1, dynamic_filters=2, query="all"
 (17 rows)
 
 SELECT p.name, s.name AS supplier_name
@@ -371,7 +371,7 @@ FROM expr_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY upper(p.category) ASC
     LIMIT 5;
-WARNING:  JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation (tables: p, s)
+WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions must match an indexed expression or be a sum of pdb.score() calls (tables: p, s)
                                                                                    QUERY PLAN                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -403,7 +403,7 @@ FROM expr_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY upper(p.category) ASC
     LIMIT 5;
-WARNING:  JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation (tables: p, s)
+WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions must match an indexed expression or be a sum of pdb.score() calls (tables: p, s)
        name       | supplier_name 
 ------------------+---------------
  Mouse Pad        | CableCo

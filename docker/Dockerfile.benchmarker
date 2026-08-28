@@ -1,0 +1,26 @@
+# syntax=docker/dockerfile:1
+#
+# docker/Dockerfile.benchmarker
+#
+# Full, runnable ParadeDB image built from THIS repo's source, for the
+# benchmarker CI workflow (.github/workflows/benchmark-benchmarker.yml).
+#
+# Unlike Dockerfile.paradedb-18 (which downloads a *released* pg_search .deb),
+# this overlays a pg_search that was compiled from the working tree onto a
+# released ParadeDB image. The compile happens on the runner via the
+# .github/actions/build-pg_search-source composite action (a plain native build,
+# so cargo caching actually works); this Dockerfile just swaps in the result.
+# Everything else (Postgres, tuning, bootstrap, other extensions) matches the
+# published image, so only pg_search differs from the release.
+#
+# Build context must contain an `artifacts/usr/` tree as staged by the action
+# (the action's `artifacts-dir` output). Pass BASE_IMAGE to pick the release.
+
+ARG BASE_IMAGE=paradedb/paradedb:latest-pg18
+FROM ${BASE_IMAGE}
+
+# Overwrite the base image's pg_search library, control file, and SQL scripts
+# with the source build. `CREATE EXTENSION pg_search` (run by the benchmarker
+# loader's pre.sql) then resolves to the version built from source. Its runtime
+# dependency (libopenblas0) is already present from the base image's pg_search.
+COPY artifacts/usr/ /usr/

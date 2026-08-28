@@ -26,7 +26,7 @@
 //! in parallel execution, or chained end-to-end when serial.
 
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
@@ -64,7 +64,7 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::explain::ExplainFormat;
-use crate::postgres::customscan::parallel::list_segment_ids;
+use crate::postgres::customscan::parallel::segment_view;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::rel::PgSearchRelation;
@@ -93,6 +93,8 @@ pub struct ScannerConfig {
     /// `need_scores` the index reader was opened with. Carried so a leader-dispatched worker
     /// re-opens its reader with the same scoring behavior (the reader itself can't travel).
     pub score_needed: bool,
+    /// Mode of the scan (e.g. Standard vs Tagged with optional lifted local query).
+    pub scan_mode: crate::scan::ScanMode,
 }
 
 /// State for a scan partition.
@@ -182,26 +184,17 @@ pub struct PgSearchScanPlan {
     /// and cloning the Arc is cheap.
     ffhelper: Option<Arc<FFHelper>>,
     pub indexrelid: u32,
+    pub table_alias: String,
     /// The JoinScan source identity when visibility is deferred.
     deferred_ctid_plan_position: Option<usize>,
-    /// When true, a HashJoin InList was successfully pushed down to a TermSet query.
-    dynamic_filter_pushdown: Arc<AtomicBool>,
     /// Sort order preserved across `with_filter_pushdown` rebuilds so the
     /// rebuilt plan keeps its equivalence properties.
     sort_order: Option<SortByField>,
-    /// Captures the per-segment `TermSetStrategy` chosen by the tantivy planner
-    /// for the pushed-down dynamic filter (issue #4895). Last-segment-wins is
-    /// fine because `EXPLAIN ANALYZE` only asks "did any segment use it?".
-    /// Stored as `u8` so it can live behind an `AtomicU8`; round-tripped
-    /// through `tantivy::query::StrategyTag` at render time. A value of
-    /// `StrategyTag::None as u8` (= 0) means no `TermSetWeight` ran on
-    /// this scan to write a tag — the EXPLAIN renderer falls back to
-    /// `=true` in that case.
-    dynamic_filter_strategy: Arc<AtomicU8>,
     range_sample: Option<RangePartitioningSample>,
     /// Global partition selected for a task-specialized variant. When present, this plan
     /// exposes one local partition and maps `execute(0)` back to this global partition.
     pub(crate) assigned_partition: Option<usize>,
+    pub(crate) scan_mode: crate::scan::ScanMode,
 }
 
 impl Clone for PgSearchScanPlan {
@@ -220,12 +213,12 @@ impl Clone for PgSearchScanPlan {
             deferred_fields: self.deferred_fields.clone(),
             ffhelper: self.ffhelper.clone(),
             indexrelid: self.indexrelid,
+            table_alias: self.table_alias.clone(),
             deferred_ctid_plan_position: self.deferred_ctid_plan_position,
-            dynamic_filter_pushdown: Arc::clone(&self.dynamic_filter_pushdown),
             sort_order: self.sort_order.clone(),
-            dynamic_filter_strategy: Arc::clone(&self.dynamic_filter_strategy),
             range_sample: self.range_sample.clone(),
             assigned_partition: self.assigned_partition,
+            scan_mode: self.scan_mode.clone(),
         }
     }
 }
@@ -306,6 +299,11 @@ impl PgSearchScanPlan {
             );
         }
 
+        let scan_mode = state
+            .as_ref()
+            .map(|s| s.scanner_config.scan_mode.clone())
+            .unwrap_or_else(|| crate::scan::ScanMode::standard(resolved_query.clone()));
+
         let exec_state = match state {
             Some(s) => {
                 if let Some(boundaries) = range_boundaries {
@@ -335,15 +333,19 @@ impl PgSearchScanPlan {
             deferred_fields,
             ffhelper,
             indexrelid,
+            table_alias: String::new(),
             deferred_ctid_plan_position,
-            dynamic_filter_pushdown: Arc::new(AtomicBool::new(false)),
             sort_order: sort_order.cloned(),
-            dynamic_filter_strategy: Arc::new(AtomicU8::new(0)),
             range_sample,
             assigned_partition: None,
+            scan_mode,
         }
     }
 
+    pub fn with_table_alias(mut self, table_alias: impl Into<String>) -> Self {
+        self.table_alias = table_alias.into();
+        self
+    }
     /// Returns a new copy of this plan resized to support exactly `target_partitions`.
     ///
     /// This allows a `TaskEstimator` or distributed planner to override the natural
@@ -429,16 +431,12 @@ impl PgSearchScanPlan {
             deferred_fields: self.deferred_fields.clone(),
             ffhelper: self.ffhelper.clone(),
             indexrelid: self.indexrelid,
+            table_alias: self.table_alias.clone(),
             deferred_ctid_plan_position: self.deferred_ctid_plan_position,
-            dynamic_filter_pushdown: Arc::new(AtomicBool::new(
-                self.dynamic_filter_pushdown.load(Ordering::Relaxed),
-            )),
             sort_order: self.sort_order.clone(),
-            dynamic_filter_strategy: Arc::new(AtomicU8::new(
-                self.dynamic_filter_strategy.load(Ordering::Relaxed),
-            )),
             range_sample: self.range_sample.clone(),
             assigned_partition: self.assigned_partition,
+            scan_mode: self.scan_mode.clone(),
         })
     }
 
@@ -500,7 +498,7 @@ impl PgSearchScanPlan {
     ///
     /// Only the recipe and the reader-rebuild inputs travel; the live `ScanState` (tantivy
     /// readers, visibility checkers) is process-local and gets rebuilt on the receiving worker
-    /// from its own `ParallelScanState`. `resolved_query` is the filter-combined,
+    /// from its own `ParallelScanState`. `scan_mode` carries the filter-combined,
     /// param-solved query the reader was opened with, so the receiver needs no `ExprContext`.
     ///
     /// Installed dynamic filters travel as proto expression nodes stamped with their
@@ -551,10 +549,10 @@ impl PgSearchScanPlan {
         let descriptor = ScanDispatchDescriptor {
             schema_proto: prost::Message::encode_to_vec(&schema_proto),
             dynamic_filters,
-            query: self.resolved_query.clone(),
             score_needed: scanner_config.score_needed,
             sort_order: self.sort_order.clone(),
             indexrelid: self.indexrelid,
+            table_alias: self.table_alias.clone(),
             deferred_fields: self.deferred_fields.clone(),
             deferred_ctid_plan_position: self.deferred_ctid_plan_position,
             which_fast_fields: scanner_config.which_fast_fields,
@@ -565,6 +563,7 @@ impl PgSearchScanPlan {
             global_partition_count: self.global_partition_count,
             range_sample: self.range_sample.clone(),
             assigned_partition: self.assigned_partition,
+            scan_mode: scanner_config.scan_mode,
         };
         serde_json::to_vec(&descriptor).map_err(|e| {
             DataFusionError::Internal(format!("PgSearchScan dispatch: serialize: {e}"))
@@ -626,15 +625,15 @@ impl PgSearchScanPlan {
         // list from `ParallelScanState`; a standard parallel scan (source_idx None) reads
         // the worker's full segment list. Mirrors the MVCC dispatch in `scan_inner`.
         let mvcc = match (descriptor.source_idx, parallel_state) {
-            (None, Some(ps)) => MvccSatisfies::ParallelWorker(unsafe { list_segment_ids(ps) }),
+            (None, Some(ps)) => MvccSatisfies::ParallelWorker(unsafe { segment_view(ps) }),
             (Some(idx), Some(ps)) => {
-                MvccSatisfies::ParallelWorker(unsafe { (*ps).segment_ids_for_source(idx) })
+                MvccSatisfies::ParallelWorker(unsafe { (*ps).segment_view_for_source(idx) })
             }
             (_, None) => MvccSatisfies::Snapshot,
         };
 
-        let query = descriptor.query;
-        let needs_tokenizer = query.needs_tokenizer();
+        let query = descriptor.scan_mode.query().clone();
+        let needs_tokenizer = descriptor.scan_mode.needs_tokenizer();
         let reader = SearchIndexReader::open_with_context(
             &index_rel,
             query.clone(),
@@ -662,6 +661,7 @@ impl PgSearchScanPlan {
             heap_relid: descriptor.heap_relid,
             batch_size_hint: descriptor.batch_size_hint,
             score_needed: descriptor.score_needed,
+            scan_mode: descriptor.scan_mode,
         };
         let state = ScanState {
             source_idx: descriptor.source_idx,
@@ -692,7 +692,8 @@ impl PgSearchScanPlan {
             descriptor.global_partition_count,
             parallel_state,
             descriptor.range_sample,
-        );
+        )
+        .with_table_alias(descriptor.table_alias);
         plan.dynamic_filters = dynamic_filters;
         let final_plan = if let Some(assigned) = descriptor.assigned_partition {
             plan.with_assigned_partition(assigned)
@@ -714,10 +715,11 @@ struct ScanDispatchDescriptor {
     /// `PhysicalExprNode`. Their `expr_id` lets a deduplicating decode re-share one instance
     /// with the operator that updates it.
     dynamic_filters: Vec<Vec<u8>>,
-    query: SearchQueryInput,
     score_needed: bool,
     sort_order: Option<SortByField>,
     indexrelid: u32,
+    #[serde(default)]
+    table_alias: String,
     deferred_fields: Vec<DeferredField>,
     deferred_ctid_plan_position: Option<usize>,
     which_fast_fields: Vec<WhichFastField>,
@@ -732,6 +734,7 @@ struct ScanDispatchDescriptor {
     global_partition_count: usize,
     range_sample: Option<RangePartitioningSample>,
     assigned_partition: Option<usize>,
+    scan_mode: crate::scan::ScanMode,
 }
 
 /// The output partitioning a scan declares to DataFusion.
@@ -808,7 +811,11 @@ fn strategy_name(strategy: tantivy::query::StrategyTag) -> &'static str {
 
 impl DisplayAs for PgSearchScanPlan {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "PgSearchScan: segments={}", self.segment_count)?;
+        write!(
+            f,
+            "PgSearchScan: table={}, segments={}",
+            self.table_alias, self.segment_count
+        )?;
         if let Some(range_sample) = &self.range_sample {
             if let Some(assigned) = self.assigned_partition {
                 let partitioning = range_sample.build(self.global_partition_count);
@@ -841,25 +848,26 @@ impl DisplayAs for PgSearchScanPlan {
         if !self.dynamic_filters.is_empty() {
             write!(f, ", dynamic_filters={}", self.dynamic_filters.len())?;
         }
-        if self.dynamic_filter_pushdown.load(Ordering::Relaxed) {
-            // Render a single token. `TermSetWeight` writes the chosen
-            // `StrategyTag` to the sink on every dispatch, so the value
-            // is the strategy name (`gallop` / `linear` /
-            // `bitset_from_postings` / `automaton` / `empty`). Falls
-            // back to `true` only when pushdown was indicated but no
-            // `TermSetWeight` ran to record a tag — e.g., the dynamic
-            // filter handled a non-TermSet shape, or the scan
-            // short-circuited before any segment was processed.
-            let tag = self.dynamic_filter_strategy.load(Ordering::Relaxed);
-            let strategy = tantivy::query::StrategyTag::try_from(tag)
-                .unwrap_or(tantivy::query::StrategyTag::None);
-            if matches!(strategy, tantivy::query::StrategyTag::None) {
-                write!(f, ", dynamic_filter_pushdown=true")?;
-            } else {
-                write!(f, ", dynamic_filter_pushdown={}", strategy_name(strategy))?;
+        match &self.scan_mode {
+            crate::scan::ScanMode::Standard { .. } => {
+                write!(f, ", query={}", self.resolved_query.explain_format())?;
+            }
+            crate::scan::ScanMode::Tagged {
+                base_query,
+                local_queries,
+            } => {
+                let has_base = !matches!(**base_query, SearchQueryInput::All);
+                if has_base {
+                    write!(f, ", query={}", base_query.explain_format())?;
+                } else if local_queries.is_empty() {
+                    write!(f, ", query=\"all\"")?;
+                }
+                for tq in local_queries {
+                    write!(f, ", tag_{}={}", tq.tag_idx.0, tq.query.explain_format())?;
+                }
             }
         }
-        write!(f, ", query={}", self.resolved_query.explain_format())
+        Ok(())
     }
 }
 
@@ -925,6 +933,15 @@ impl ExecutionPlan for PgSearchScanPlan {
 
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
         vec![]
+    }
+
+    fn apply_expressions(
+        &self,
+        f: &mut dyn FnMut(
+            &Arc<dyn PhysicalExpr>,
+        ) -> Result<datafusion::common::tree_node::TreeNodeRecursion>,
+    ) -> Result<datafusion::common::tree_node::TreeNodeRecursion> {
+        datafusion::physical_plan::apply_expression_roots(&self.dynamic_filters, f)
     }
 
     fn with_new_children(
@@ -1009,13 +1026,12 @@ impl ExecutionPlan for PgSearchScanPlan {
             .then(|| MetricBuilder::new(&self.metrics).counter("rows_pruned", target_partition));
 
         let baseline_metrics = BaselineMetrics::new(&self.metrics, target_partition);
+        let plan_metrics = self.metrics.clone();
         let schema = self.properties.eq_properties.schema().clone();
         let score_column_schema_idx: Option<usize> = schema
             .column_with_name(&WhichFastField::Score.name())
             .map(|(idx, _)| idx);
         let dynamic_filters = self.dynamic_filters.clone();
-        let dynamic_filter_pushdown = self.dynamic_filter_pushdown.clone();
-        let dynamic_filter_strategy = self.dynamic_filter_strategy.clone();
 
         let stream_gen = async_stream::try_stream! {
             // Create a local copy of the reader if the query changed
@@ -1029,15 +1045,16 @@ impl ExecutionPlan for PgSearchScanPlan {
             // this block is evaluated lazily during the first `poll_next`, which happens
             // AFTER the build side has completed and dynamic filters are published.
             let mut dynamic_filters = dynamic_filters.clone();
-            if !dynamic_filters.is_empty()
-                && try_dynamic_filter_pushdown(
+            let strategy_sink = Arc::new(AtomicU8::new(0));
+            let pushed = if !dynamic_filters.is_empty() {
+                try_dynamic_filter_pushdown(
                     &mut reader,
                     &mut dynamic_filters,
-                    Some(dynamic_filter_strategy.clone()),
+                    Some(strategy_sink.clone()),
                 )
-            {
-                dynamic_filter_pushdown.store(true, Ordering::Relaxed);
-            }
+            } else {
+                false
+            };
 
             let search_results = if range_boundaries.is_some() {
                 // Range partitioned mode explicitly scans all segments
@@ -1046,23 +1063,48 @@ impl ExecutionPlan for PgSearchScanPlan {
                 // Standard mode delegates to the parallel state if present
                 match parallel_state {
                     Some(ps) => reader.search_lazy(ps, source_idx, planner_estimated_rows),
+                    // No shared scan state even though the plan may carry per-source claim
+                    // markers: the serial fallback (size gate, short launch). The plan was
+                    // built while MPP was eligible but executes as a plain serial scan, so
+                    // search everything. Two takers are legitimate here: the leader's serial
+                    // fallback, and a parallel-safe scan replicated whole into a PG worker
+                    // (each worker runs the full serial plan, so a full search is correct).
+                    // MPP-dispatched fragments cannot land here: their decode always injects
+                    // the state, and the worker entrypoint errors when the DSM lacks it.
                     None => reader.search(),
                 }
             };
+            let need_scores = scanner_config
+                .which_fast_fields
+                .iter()
+                .any(|wff| matches!(wff, WhichFastField::Score));
             let mut scanner = Scanner::new(
                 search_results,
                 scanner_config.batch_size_hint,
                 scanner_config.which_fast_fields,
                 scanner_config.heap_relid,
             );
+            if let crate::scan::ScanMode::Tagged { local_queries, .. } = &scanner_config.scan_mode {
+                for tq in local_queries {
+                    let weight = reader
+                        .compile_match_weight(&tq.query, need_scores)
+                        .map_err(|e| DataFusionError::Internal(format!(
+                            "Failed to compile match weight for tag {}: {e}",
+                            tq.tag_name
+                        )))?;
+                    scanner.add_tagged_query(tq.tag_name.clone(), weight);
+                }
+            }
             let df_batch_size = crate::gucs::dynamic_filter_batch_size();
             if df_batch_size > 0 {
                 scanner.set_batch_size(df_batch_size as usize);
             }
 
+            let mut pushdown_metric_recorded = false;
             loop {
                 let timer = baseline_metrics.elapsed_compute().timer();
-                let (pre_filters, score_threshold) = build_filters(&dynamic_filters, &schema, score_column_schema_idx);
+                let (pre_filters, score_threshold) =
+                    build_filters(&dynamic_filters, &schema, score_column_schema_idx);
                 let pre_filters_wrapper = if pre_filters.is_empty() {
                     None
                 } else {
@@ -1072,7 +1114,9 @@ impl ExecutionPlan for PgSearchScanPlan {
                     })
                 };
 
-                scanner.set_score_threshold(score_threshold);
+                if scanner.can_pushdown_score_threshold() {
+                    scanner.set_score_threshold(score_threshold);
+                }
                 let next_batch = scanner.next(
                     &ffhelper,
                     &mut visibility,
@@ -1080,12 +1124,42 @@ impl ExecutionPlan for PgSearchScanPlan {
                 );
                 timer.done();
 
+                if pushed && !pushdown_metric_recorded {
+                    let tag = strategy_sink.load(Ordering::Relaxed);
+                    if tag > 0 {
+                        let strategy = tantivy::query::StrategyTag::try_from(tag)
+                            .unwrap_or(tantivy::query::StrategyTag::None);
+                        let metric_name = if matches!(strategy, tantivy::query::StrategyTag::None) {
+                            "dynamic_filter_pushdown".to_string()
+                        } else {
+                            format!("dynamic_filter_pushdown_{}", strategy_name(strategy))
+                        };
+                        MetricBuilder::new(&plan_metrics)
+                            .counter(metric_name, target_partition)
+                            .add(1);
+                        pushdown_metric_recorded = true;
+                    }
+                }
+
                 match next_batch {
                     Some(batch) => {
                         let record_batch = batch.to_record_batch(&schema);
                         yield record_batch.record_output(&baseline_metrics);
                     }
                     None => {
+                        if pushed && !pushdown_metric_recorded {
+                            let tag = strategy_sink.load(Ordering::Relaxed);
+                            let strategy = tantivy::query::StrategyTag::try_from(tag)
+                                .unwrap_or(tantivy::query::StrategyTag::None);
+                            let metric_name = if matches!(strategy, tantivy::query::StrategyTag::None) {
+                                "dynamic_filter_pushdown".to_string()
+                            } else {
+                                format!("dynamic_filter_pushdown_{}", strategy_name(strategy))
+                            };
+                            MetricBuilder::new(&plan_metrics)
+                                .counter(metric_name, target_partition)
+                                .add(1);
+                        }
                         // Flush pre-materialization filter stats from Scanner.
                         if let Some(ref counter) = rows_scanned {
                             counter.add(scanner.pre_filter_rows_scanned);

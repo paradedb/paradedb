@@ -1,7 +1,7 @@
 ---
 title: Aggregate Syntax
 description: Accelerate aggregates with the ParadeDB index
-canonical: https://docs.paradedb.com/documentation/aggregates/overview
+canonical: https://www.paradedb.com/docs/documentation/aggregates/overview
 ---
 
 The `pdb.agg` function accepts an Elasticsearch-compatible JSON aggregate query string. It executes the aggregate using the
@@ -247,10 +247,10 @@ await dbContext
 
 ## Performance Optimization
 
-On every query, ParadeDB runs checks to ensure that deleted or updated-away rows are not factored into the result set.
+By default, `pdb.agg` runs MVCC visibility checks to ensure that deleted or updated-away rows are not factored into the result set. This behavior is controlled by the `solve_mvcc` argument, which defaults to `true`.
 
 If your table is not frequently updated or you can tolerate an approximate result, the performance of aggregate queries can be improved by disabling these visibility checks.
-To do so, set the second argument of `pdb.agg` to `false`.
+To do so, set `solve_mvcc` to `false`.
 
 <CodeGroup>
 ```sql SQL

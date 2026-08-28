@@ -25,6 +25,15 @@ use std::num::NonZeroUsize;
 use tantivy::aggregation::DEFAULT_BUCKET_LIMIT;
 
 use crate::postgres::options::MAX_MUTABLE_SEGMENT_ROWS;
+use crate::postgres::options::MAX_TARGET_SEGMENT_COUNT;
+
+#[derive(pgrx::PostgresGucEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum PlannerWarnings {
+    Off,
+    #[default]
+    Warning,
+    Error,
+}
 
 /// Spill DataFusion sorts/aggregates/joins to a `BufFile` temp file on `work_mem`
 /// overflow, instead of erroring. Off by default.
@@ -33,11 +42,15 @@ static SPILL_TO_DISK: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// Allows the user to toggle the use of our "ParadeDB Base Scan".
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Allows the user to toggle bitmap intersection with non-ParadeDB indexes.
+static ENABLE_BITMAP_INTERSECTION: GucSetting<bool> = GucSetting::<bool>::new(true);
+
 /// Allows the user to toggle the use of our "ParadeDB Aggregate Scan".
 static ENABLE_AGGREGATE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-/// Validate aggregate scan eligibility
-static CHECK_AGGREGATE_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
+/// Controls the behavior of ParadeDB planner warnings when an optimized scan cannot be used
+static PLANNER_WARNINGS: GucSetting<PlannerWarnings> =
+    GucSetting::<PlannerWarnings>::new(PlannerWarnings::Warning);
 
 /// Allows the user to toggle the use of our "ParadeDB Join Scan".
 static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
@@ -107,9 +120,6 @@ static GLOBAL_ENABLE_BACKGROUND_MERGING: GucSetting<bool> = GucSetting::<bool>::
 static GLOBAL_MUTABLE_SEGMENT_ROWS: GucSetting<i32> = GucSetting::<i32>::new(-1);
 static EXPLAIN_RECURSIVE_ESTIMATES: GucSetting<bool> = GucSetting::<bool>::new(false);
 
-/// Validate Top K scan eligibility for LIMIT queries
-static CHECK_TOPK_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
-
 /// When true, queries with expensive scorer construction (fuzzy, regex, range)
 /// use a cheap heuristic for selectivity estimation instead of building a full Tantivy scorer.
 static ENABLE_HEURISTIC_SELECTIVITY: GucSetting<bool> = GucSetting::<bool>::new(true);
@@ -151,6 +161,24 @@ static MPP_TEST_PANIC_IN_WORKER: GucSetting<bool> = GucSetting::<bool>::new(fals
 /// logs). When off, the same call sites route through `debug1!()` — still reachable via
 /// `SET log_min_messages = DEBUG1` but invisible to CI's default WARNING capture.
 static MPP_TRACE: GucSetting<bool> = GucSetting::<bool>::new(false);
+
+/// Minimum estimated row count in the scan's largest source for MPP to engage. The launch
+/// (worker spawn, plan dispatch, per-worker index opens) costs tens of milliseconds; below
+/// this size a serial plan finishes in the same order, so the query stays serial. Each
+/// source counts the rows its predicate is estimated to match (its live document count when
+/// unanalyzed). The benchmark grid loses across the board at 100k matched rows and wins
+/// from 1m up; the default sits between.
+///
+/// The default is a measurement, not a constant: it tracks the MPP-vs-serial crossover,
+/// which moves whenever MPP's per-query economics move. Recalibrate it when the launch
+/// floor shrinks, and when the distributed plan closes a capability gap against the serial
+/// plan. The known open gap is dynamic filters across process boundaries: within one
+/// process a join's build side prunes the probe scan, but a filter never crosses the mesh,
+/// so selective joins pay a penalty under MPP that inflates the serial side of the
+/// crossover. To recompute: run the benchmark suite's join queries (serial vs the MPP
+/// alternatives) across the dataset scales and set the default between the largest losing
+/// scale and the smallest winning one.
+static MPP_MIN_ROWS: GucSetting<i32> = GucSetting::<i32>::new(500_000);
 
 /// Per-inbox ring size in bytes. Each MPP query lays out one MPSC inbox per proc
 /// (leader plus workers), so the mesh region is about `N × mpp_queue_size`, and
@@ -292,12 +320,21 @@ pub fn init() {
     );
 
     GucRegistry::define_bool_guc(
-        c"paradedb.check_aggregate_scan",
-        c"Validate Aggregate scan eligibility",
-        c"When enabled, logs a warning if a query expected to use the aggregate scan cannot. \
-          This helps detect performance issues during development where queries expected \
-          to use the aggregate scan fall back to slower execution methods.",
-        &CHECK_AGGREGATE_SCAN,
+        c"paradedb.enable_bitmap_intersection",
+        c"Enable intersecting ParadeDB scans with bitmaps from other indexes",
+        c"When enabled (default), a ParadeDB scan whose query carries heap-filter predicates covered by another index (btree, GiST, GIN) builds that index's bitmap and prunes documents against it before touching the heap.",
+        &ENABLE_BITMAP_INTERSECTION,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_enum_guc(
+        c"paradedb.planner_warnings",
+        c"Controls the behavior of ParadeDB planner warnings when an optimized scan cannot be used",
+        c"When set to 'warning' (default), logs a warning if a query expected to use an optimized \
+          scan (BaseScan / Top K, AggregateScan, or JoinScan) cannot. When set to 'error', raises \
+          an error instead. When set to 'off', suppresses checks and warnings.",
+        &PLANNER_WARNINGS,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -451,7 +488,7 @@ pub fn init() {
         c"Setting this to a non-zero value ignores the `target_segment_count` property on all indexes in favor of this value",
         &GLOBAL_TARGET_SEGMENT_COUNT,
         0,
-        8192,
+        MAX_TARGET_SEGMENT_COUNT,
         GucContext::Sighup,
         GucFlags::default(),
     );
@@ -523,17 +560,6 @@ pub fn init() {
         c"for testing, ensures the same handling of null aggregates as Postgres",
         c"Meant for internal testing usage",
         &ADD_DOC_COUNT_TO_AGGS,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
-    GucRegistry::define_bool_guc(
-        c"paradedb.check_topk_scan",
-        c"Validate Top K scan eligibility for LIMIT queries",
-        c"When enabled, logs a warning if a query with LIMIT cannot use the Top K scan. \
-          This helps detect performance issues during development where queries expected \
-          to use the Top K optimization fall back to slower execution methods.",
-        &CHECK_TOPK_SCAN,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -676,6 +702,20 @@ pub fn init() {
     );
 
     GucRegistry::define_int_guc(
+        c"paradedb.mpp_min_rows",
+        c"Minimum estimated source row count for MPP",
+        c"MPP engages only when the scan's largest source is estimated to match at least \
+          this many rows (its live document count when the table is unanalyzed); smaller \
+          queries run serially, where the launch cost would dominate. Set to 0 to disable \
+          the size gate.",
+        &MPP_MIN_ROWS,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
         c"paradedb.mpp_queue_size",
         c"Per-inbox ring size for MPP shuffles",
         c"Sets the per-inbox ring size for MPP shuffles. Accepts standard \
@@ -722,8 +762,12 @@ pub fn enable_aggregate_custom_scan() -> bool {
     ENABLE_AGGREGATE_CUSTOM_SCAN.get()
 }
 
-pub fn check_aggregate_scan() -> bool {
-    CHECK_AGGREGATE_SCAN.get()
+pub fn enable_bitmap_intersection() -> bool {
+    ENABLE_BITMAP_INTERSECTION.get()
+}
+
+pub fn planner_warnings() -> PlannerWarnings {
+    PLANNER_WARNINGS.get()
 }
 
 pub fn enable_join_custom_scan() -> bool {
@@ -779,7 +823,7 @@ pub fn global_enable_background_merging() -> bool {
 }
 
 // NB:  MEMORY_BUDGET_NUM_BYTES_MIN comes from [`tantivy::index_writer::MEMORY_BUDGET_NUM_BYTES_MIN`], which is not publicly exposed
-mod limits {
+pub(crate) mod limits {
     const MARGIN_IN_BYTES: usize = 1_000_000;
     // Size of the margin for the `memory_arena`. A segment is closed when the remaining memory
     // in the `memory_arena` goes below MARGIN_IN_BYTES.
@@ -885,10 +929,6 @@ pub fn explain_recursive_estimates() -> bool {
     EXPLAIN_RECURSIVE_ESTIMATES.get()
 }
 
-pub fn check_topk_scan() -> bool {
-    CHECK_TOPK_SCAN.get()
-}
-
 pub fn enable_heuristic_selectivity() -> bool {
     ENABLE_HEURISTIC_SELECTIVITY.get()
 }
@@ -920,6 +960,10 @@ pub fn mpp_test_panic_in_worker() -> bool {
 
 pub fn mpp_trace() -> bool {
     MPP_TRACE.get()
+}
+
+pub fn mpp_min_rows() -> i32 {
+    MPP_MIN_ROWS.get()
 }
 
 pub fn mpp_queue_size() -> usize {

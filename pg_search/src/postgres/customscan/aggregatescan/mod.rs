@@ -55,14 +55,17 @@ use datafusion_distributed::shm::MppMesh;
 use crate::postgres::customscan::mpp::glue::mpp_is_active;
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
+use crate::postgres::customscan::mpp::launch::mpp_gated_by_min_rows;
+use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parallelism;
 
+use crate::PARAMETERIZED_SELECTIVITY;
 use crate::api::SortDirection;
 use crate::api::agg_funcoid;
 use crate::gucs;
 
 use crate::aggregate::{NULL_SENTINEL_MAX, NULL_SENTINEL_MIN};
 use crate::customscan::aggregatescan::build::AggregateCSClause;
-use crate::index::mvcc::MvccSatisfies;
+use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::ParallelScanArgs;
 use crate::postgres::PgSearchRelation;
@@ -82,10 +85,14 @@ use crate::postgres::customscan::aggregatescan::privdat::PrivateData;
 use crate::postgres::customscan::aggregatescan::scan_state::{
     AggregateScanState, ExecutionState, WrappedAggregateProjection,
 };
+use crate::postgres::customscan::bitmap_intersection::{self, BitmapPlanner};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
+};
+use crate::postgres::customscan::collation_semantics::{
+    CollationOperation, CollationSafety, assess_collation, collation_supports,
 };
 use crate::postgres::customscan::exec::{
     begin_custom_scan, end_custom_scan, exec_custom_scan, explain_custom_scan, rescan_custom_scan,
@@ -93,8 +100,9 @@ use crate::postgres::customscan::exec::{
 };
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::hook::query_has_paradedb_agg;
+use crate::postgres::customscan::joinscan::JoinScan;
+use crate::postgres::customscan::joinscan::planning::transparent_path_subpath;
 use crate::postgres::customscan::joinscan::scan_state::{build_physical_plan, build_task_context};
-use crate::postgres::customscan::orderby::is_collation_pushdown_safe;
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, range_table};
@@ -110,6 +118,91 @@ use std::ffi::CStr;
 
 #[derive(Default)]
 pub struct AggregateScan;
+
+/// Why AggregateScan cannot preserve PostgreSQL's grouping semantics.
+///
+/// These are planner-level eligibility failures: plain aggregates fall back to
+/// PostgreSQL, while `pdb.agg()` queries error at plan time with the reason.
+enum GroupingPushdownDeclineReason {
+    GroupingSets,
+    MissingPathKeys,
+    NondeterministicCollation,
+}
+
+impl GroupingPushdownDeclineReason {
+    fn detail(&self) -> &'static str {
+        match self {
+            Self::GroupingSets => "GROUPING SETS are not supported",
+            Self::MissingPathKeys => "could not verify GROUP BY semantics",
+            Self::NondeterministicCollation => "GROUP BY uses a nondeterministic collation",
+        }
+    }
+}
+
+/// Validates that AggregateScan can preserve PostgreSQL's GROUP BY semantics,
+/// returning the decline reason when it cannot.
+///
+/// PostgreSQL uses each grouping expression's collation to determine equality,
+/// while ParadeDB's aggregation backends group text by its underlying value.
+/// Deterministic collations break provider-level ties with a byte comparison,
+/// so they preserve byte-based grouping equality even when their ordering is
+/// not byte-compatible. Nondeterministic collations do not.
+unsafe fn validate_grouping_pushdown(
+    args: &CreateUpperPathsHookArgs,
+) -> Result<(), GroupingPushdownDeclineReason> {
+    let parse = args.root().parse;
+    if !parse.is_null() && !(*parse).groupingSets.is_null() {
+        return Err(GroupingPushdownDeclineReason::GroupingSets);
+    }
+
+    if args.root().group_pathkeys.is_null() {
+        // A scalar aggregate has no grouping keys. In contrast, a GROUP BY
+        // with no pathkey metadata gives us no way to verify the collation
+        // semantics that the aggregation backend must preserve.
+        return if !parse.is_null() && !(*parse).groupClause.is_null() {
+            Err(GroupingPushdownDeclineReason::MissingPathKeys)
+        } else {
+            Ok(())
+        };
+    }
+
+    for pathkey in PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys).iter_ptr() {
+        let equivalence_class = (*pathkey).pk_eclass;
+        if equivalence_class.is_null() {
+            return Err(GroupingPushdownDeclineReason::MissingPathKeys);
+        }
+
+        let collation = (*equivalence_class).ec_collation;
+        if assess_collation(collation, CollationOperation::Equality)
+            == CollationSafety::NondeterministicEquality
+        {
+            return Err(GroupingPushdownDeclineReason::NondeterministicCollation);
+        }
+    }
+
+    Ok(())
+}
+
+/// Returns whether ordering a single grouping key can be delegated to ParadeDB.
+///
+/// This is stricter than grouping equality: deterministic ICU collations are
+/// safe for grouping, but PostgreSQL must still perform their ordering.
+unsafe fn grouping_key_order_is_pushdown_safe(args: &CreateUpperPathsHookArgs) -> bool {
+    if args.root().group_pathkeys.is_null() {
+        return false;
+    }
+
+    PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys)
+        .iter_ptr()
+        .all(|pathkey| {
+            let equivalence_class = (*pathkey).pk_eclass;
+            !equivalence_class.is_null()
+                && collation_supports(
+                    (*equivalence_class).ec_collation,
+                    CollationOperation::Ordering,
+                )
+        })
+}
 
 /// A collection of index information that is necessary for making result-rewriting decisions
 pub struct AggIndexInfo {
@@ -140,6 +233,8 @@ enum AggregateDeclineReason {
     NotAllBm25,
     JoinPredicate(datafusion_build::PathPredicateDeclineReason),
     CrossJoin,
+    DistinctOn,
+    NondeterministicCollation,
     /// Errors carrying a free-form message (parse-tree extraction, target-list
     /// extraction, fast-field population) — the underlying helper already
     /// produces a contextual string.
@@ -149,7 +244,7 @@ enum AggregateDeclineReason {
 impl AggregateDeclineReason {
     fn detail(&self) -> std::borrow::Cow<'static, str> {
         match self {
-            Self::NotAllBm25 => "all tables in the join must have BM25 indexes".into(),
+            Self::NotAllBm25 => "all tables in the join must have ParadeDB indexes".into(),
             Self::JoinPredicate(reason) => match reason {
                 datafusion_build::PathPredicateDeclineReason::ExternParam => {
                     "generic prepared-plan parameters in join predicates are not supported".into()
@@ -166,19 +261,161 @@ impl AggregateDeclineReason {
                 }
             },
             Self::CrossJoin => "CROSS JOINs are not supported (no equi-join keys)".into(),
+            Self::DistinctOn => "DISTINCT ON is not supported".into(),
+            Self::NondeterministicCollation => {
+                "DISTINCT on a nondeterministic collation is not supported".into()
+            }
             Self::Other(msg) => msg.clone().into(),
         }
     }
 
-    fn emit(&self) {
+    fn emit(&self, alias: String) {
         AggregateScan::add_planner_warning(
             format!("Aggregate Scan (DataFusion) not used: {}", self.detail()),
-            "join".to_string(),
+            alias,
         );
     }
 
     fn emit_error(&self) {
         pgrx::error!("Cannot execute pdb.agg: {}", self.detail());
+    }
+}
+
+/// Resolve the table alias used in planner-warning messages emitted by a
+/// declined `DataFusion` aggregate path. Single-table cases report the actual
+/// relation alias; multi-table joins keep the generic "join" shorthand.
+unsafe fn resolve_decline_alias(args: &CreateUpperPathsHookArgs) -> String {
+    let input_rel = args.input_rel();
+    if input_rel.reloptkind != pg_sys::RelOptKind::RELOPT_BASEREL {
+        return "join".to_string();
+    }
+    let Some(rti) = range_table::bms_exactly_one_member(input_rel.relids) else {
+        return "join".to_string();
+    };
+    let Some(rte) = range_table::get_rte(
+        args.root().simple_rel_array_size as usize,
+        args.root().simple_rte_array,
+        rti,
+    ) else {
+        return "unknown".to_string();
+    };
+    rte_alias_or_unknown(rte)
+}
+
+/// Whether `JoinScan` already offered a path for this join relation.
+///
+/// The upper-paths hook runs after the join relation is complete, so its
+/// pathlist answers the question directly. JoinScan's path can sit under any of
+/// the row-preserving wrappers, a `Gather` above a parallel join in particular,
+/// so peel with the same helper JoinScan itself uses. Matching on the node tag
+/// rather than `pathtype` matters: `GroupResultPath` and `MinMaxAggPath` also
+/// plan to `T_Result`, and their second field is a `List`, not a subpath.
+unsafe fn joinrel_has_joinscan_path(input_rel: &pg_sys::RelOptInfo) -> bool {
+    let joinscan_methods = JoinScan::custom_path_methods();
+    PgList::<pg_sys::Path>::from_pg(input_rel.pathlist)
+        .iter_ptr()
+        .any(|mut path| {
+            while let Some(subpath) = transparent_path_subpath(path) {
+                path = subpath;
+            }
+            !path.is_null()
+                && (*path).type_ == pg_sys::NodeTag::T_CustomPath
+                && (*(path as *mut pg_sys::CustomPath)).methods == joinscan_methods
+        })
+}
+
+/// A grouping operation, unifying GROUP BY and SELECT DISTINCT
+/// (`SELECT DISTINCT a, b` ≡ `GROUP BY a, b` with no aggregates).
+///
+/// Resolves the stage difference once in [`Self::from_args`], so the rest of the
+/// aggregate path reads the shape and never checks `args.stage`.
+#[derive(Clone, Copy)]
+pub(crate) struct GroupingShape {
+    is_distinct: bool,
+    reltarget: *mut pg_sys::PathTarget,
+    rows: f64,
+}
+
+impl GroupingShape {
+    unsafe fn from_args(args: &CreateUpperPathsHookArgs) -> Self {
+        // The upper-paths hook only dispatches GROUP BY and DISTINCT to this
+        // scan, so a non-DISTINCT stage is GROUP BY.
+        debug_assert!(
+            args.stage == pg_sys::UpperRelationKind::UPPERREL_GROUP_AGG
+                || args.stage == pg_sys::UpperRelationKind::UPPERREL_DISTINCT,
+            "GroupingShape models only GROUP BY and DISTINCT stages",
+        );
+        let is_distinct = args.stage == pg_sys::UpperRelationKind::UPPERREL_DISTINCT;
+        // GROUP BY records the output columns in `output_rel.reltarget`. At
+        // `UPPERREL_DISTINCT` that is empty, so the columns come from
+        // `input_rel.reltarget`, the projection feeding the distinct.
+        let reltarget = if is_distinct {
+            args.input_rel().reltarget
+        } else {
+            args.output_rel().reltarget
+        };
+        // Neither upper rel has its own `rows` filled in yet; both read ~0 here.
+        //
+        // DISTINCT borrows the estimate from the Unique paths Postgres already
+        // costed onto the same relation, because a DISTINCT that claims one row
+        // misprices every node above it. GROUP BY keeps the bare clamp: its
+        // estimate would come from table statistics, and one expected-output file
+        // is shared across PG 15 through 18, so a stats-derived number is not
+        // stable enough to assert. The clamp is what keeps `numGroups` positive
+        // for a DISTINCT planned above a pushed-down GROUP BY, which `ExecInitAgg`
+        // asserts on.
+        let rows = if is_distinct {
+            PgList::<pg_sys::Path>::from_pg(args.output_rel().pathlist)
+                .get_ptr(0)
+                .map(|path| (*path).rows)
+                .unwrap_or(args.output_rel().rows)
+        } else {
+            args.output_rel().rows
+        };
+        Self {
+            is_distinct,
+            reltarget,
+            rows: rows.max(1.0),
+        }
+    }
+
+    /// True for `SELECT DISTINCT`, false for `GROUP BY`.
+    pub(crate) fn is_distinct(&self) -> bool {
+        self.is_distinct
+    }
+
+    /// The `PathTarget` defining the grouping/DISTINCT output columns.
+    pub(crate) fn reltarget(&self) -> *mut pg_sys::PathTarget {
+        self.reltarget
+    }
+
+    /// Positive grouped-output row estimate.
+    pub(crate) fn rows(&self) -> f64 {
+        self.rows
+    }
+
+    /// The grouping/DISTINCT output column expressions.
+    pub(crate) unsafe fn target_exprs(&self) -> PgList<pg_sys::Expr> {
+        if self.reltarget.is_null() {
+            return PgList::new();
+        }
+        PgList::<pg_sys::Expr>::from_pg((*self.reltarget).exprs)
+    }
+
+    /// Whether any output column carries a collation that makes byte grouping
+    /// disagree with Postgres.
+    ///
+    /// Deterministic collations settle equality with a byte comparison, so the
+    /// aggregation backends group them the way Postgres does. A nondeterministic
+    /// collation can call two different byte strings equal, and no node above the
+    /// scan can merge groups the scan already emitted apart.
+    unsafe fn has_nondeterministic_collation(&self) -> bool {
+        self.target_exprs().iter_ptr().any(|expr| {
+            !collation_supports(
+                pg_sys::exprCollation(expr as *mut pg_sys::Node),
+                CollationOperation::Equality,
+            )
+        })
     }
 }
 
@@ -221,63 +458,99 @@ impl CustomScan for AggregateScan {
             }
         };
 
+        if let Err(reason) = unsafe { validate_grouping_pushdown(builder.args()) } {
+            if has_paradedb_agg {
+                pgrx::error!("Cannot execute pdb.agg: {}", reason.detail());
+            } else if gucs::enable_aggregate_custom_scan()
+                && gucs::planner_warnings() != gucs::PlannerWarnings::Off
+            {
+                Self::add_planner_warning(
+                    format!(
+                        "Aggregate Scan not used: {}. \
+                         To disable this warning: SET paradedb.planner_warnings = 'off'",
+                        reason.detail()
+                    ),
+                    unsafe { resolve_decline_alias(builder.args()) },
+                );
+            }
+            return Vec::new();
+        }
+
         let input_rel = builder.args().input_rel();
+        let shape = unsafe { GroupingShape::from_args(builder.args()) };
 
         match input_rel.reloptkind {
             pg_sys::RelOptKind::RELOPT_BASEREL => {
-                let use_datafusion = unsafe {
-                    // If the estimated number of groups exceeds Tantivy's bucket
-                    // limit, fall back to DataFusion which has no such limit;
-                    // Tantivy would otherwise silently truncate the GROUP BY at the
-                    // cap. A single-column GROUP BY that is key-ordered and bounded
-                    // by a LIMIT within the cap is exempt — Tantivy answers it
-                    // correctly and faster via its bounded top-N pushdown. The
-                    // ORDER BY on the grouping key is required: only a key-ordered
-                    // prefix has exact counts past the cap; an unordered or
-                    // count-ordered LIMIT would silently return approximate counts.
-                    let max_buckets = gucs::max_term_agg_buckets() as f64;
-                    let exceeds_cap = builder.args().estimate_group_count() > max_buckets;
-                    let bounded_on_tantivy = builder.args().is_single_grouping_column()
-                        && builder.args().orders_by_grouping_key()
-                        && builder
-                            .args()
-                            .limit_plus_offset()
-                            .is_some_and(|fetch| fetch as f64 <= max_buckets);
-                    (exceeds_cap && !bounded_on_tantivy)
-                        // ORDER BY aggregate + LIMIT: route to DataFusion which has
-                        // no bucket cap and provides native TopK via SortExec(fetch=K).
-                        || build::has_aggregate_orderby_with_limit(builder.args())
-                        // NUMERIC aggregates and NUMERIC group keys only work on
-                        // the DataFusion backend: Tantivy aggregations compute in
-                        // f64 and cannot read the decimal-bytes storage.
-                        //
-                        // `pdb.agg()` is excluded because its argument is a
-                        // Tantivy aggregation spec, and only the Tantivy backend
-                        // can execute that JSON. Routing it here would produce a
-                        // plan with no way to run the spec. A `pdb.agg()` over a
-                        // NUMERIC field therefore keeps declining until the spec
-                        // gains a DataFusion translation.
-                        || (!has_paradedb_agg && builder.args().has_numeric_aggregate())
-                };
+                // DISTINCT runs the GROUP BY routing forced to DataFusion:
+                // Tantivy's TermsAggregation is faster for low-cardinality
+                // GROUP BY but has a hard bucket cap that would silently
+                // truncate a high-cardinality DISTINCT.
+                let use_datafusion = shape.is_distinct()
+                    || unsafe {
+                        // If the estimated number of groups exceeds Tantivy's bucket
+                        // limit, fall back to DataFusion which has no such limit;
+                        // Tantivy would otherwise silently truncate the GROUP BY at the
+                        // cap. A single-column GROUP BY that is key-ordered and bounded
+                        // by a LIMIT within the cap is exempt — Tantivy answers it
+                        // correctly and faster via its bounded top-N pushdown. The
+                        // ORDER BY on the grouping key is required: only a key-ordered
+                        // prefix has exact counts past the cap; an unordered or
+                        // count-ordered LIMIT would silently return approximate counts.
+                        let max_buckets = gucs::max_term_agg_buckets() as f64;
+                        let exceeds_cap = builder.args().estimate_group_count() > max_buckets;
+                        let bounded_on_tantivy = builder.args().is_single_grouping_column()
+                            && builder.args().orders_by_grouping_key()
+                            && grouping_key_order_is_pushdown_safe(builder.args())
+                            && builder
+                                .args()
+                                .limit_plus_offset()
+                                .is_some_and(|fetch| fetch as f64 <= max_buckets);
+                        (exceeds_cap && !bounded_on_tantivy)
+                            // ORDER BY aggregate + LIMIT: route to DataFusion which has
+                            // no bucket cap and provides native TopK via SortExec(fetch=K).
+                            || build::has_aggregate_orderby_with_limit(builder.args())
+                            // NUMERIC aggregates and NUMERIC group keys only work on
+                            // the DataFusion backend: Tantivy aggregations compute in
+                            // f64 and cannot read the decimal-bytes storage.
+                            //
+                            // `pdb.agg()` is excluded because its argument is a
+                            // Tantivy aggregation spec, and only the Tantivy backend
+                            // can execute that JSON. Routing it here would produce a
+                            // plan with no way to run the spec. A `pdb.agg()` over a
+                            // NUMERIC field therefore keeps declining until the spec
+                            // gains a DataFusion translation.
+                            || (!has_paradedb_agg && builder.args().has_numeric_aggregate())
+                    };
                 if use_datafusion {
                     if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg_recursive {
                         return Vec::new();
                     }
-                    return Self::build_datafusion_aggregate_path(builder, has_paradedb_agg);
+                    return Self::build_datafusion_aggregate_path(builder, has_paradedb_agg, shape);
                 }
-                Self::build_tantivy_aggregate_path(builder, has_paradedb_agg)
+                Self::build_tantivy_aggregate_path(builder, has_paradedb_agg, shape)
             }
             pg_sys::RelOptKind::RELOPT_JOINREL => {
+                // JoinScan deduplicates a DISTINCT itself and materializes the
+                // heap late, so leave the shape to it whenever it accepted the
+                // join. Asking whether it built a path (rather than replaying its
+                // gates) keeps a join it turned down from losing both pushdowns.
+                let defer_to_joinscan =
+                    shape.is_distinct() && unsafe { joinrel_has_joinscan_path(input_rel) };
+                if defer_to_joinscan {
+                    return Vec::new();
+                }
                 if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg_recursive {
                     return Vec::new();
                 }
-                Self::build_datafusion_aggregate_path(builder, has_paradedb_agg)
+                Self::build_datafusion_aggregate_path(builder, has_paradedb_agg, shape)
             }
             _ => Vec::new(),
         }
     }
 
     fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {
+        unsafe { bitmap_intersection::keep_bitmap_child_plan(&mut builder) };
+
         // Extract values from private data before the match to avoid borrow conflicts.
         let (is_tantivy, heap_rti_val, should_replace_val, clause_count_val) =
             match builder.custom_private() {
@@ -461,6 +734,18 @@ impl CustomScan for AggregateScan {
         _ancestors: *mut pg_sys::List,
         explainer: &mut Explainer,
     ) {
+        if let Some(bitmap_exec) = state.custom_state().bitmap_exec.as_ref() {
+            explainer.add_text("Bitmap Intersection", bitmap_exec.index_names().join(", "));
+            if explainer.is_analyze()
+                && let Some((exact, lossy, recheck, rejected)) = bitmap_exec.cursor_stats()
+            {
+                explainer.add_unsigned_integer("Bitmap Exact Pages", exact, None);
+                explainer.add_unsigned_integer("Bitmap Lossy Pages", lossy, None);
+                explainer.add_unsigned_integer("Bitmap Recheck Pages", recheck, None);
+                explainer.add_unsigned_integer("Bitmap Rejected Docs", rejected, None);
+            }
+        }
+
         if state.custom_state().is_datafusion_backend() {
             explainer.add_text("Backend", "DataFusion");
             if let Some(ref df_state) = state.custom_state().datafusion_state {
@@ -496,16 +781,6 @@ impl CustomScan for AggregateScan {
                     groups.sort();
                     groups.dedup();
                     explainer.add_text("Group By", groups.join(", "));
-                }
-
-                // Show join-level search predicates (cross-table WHERE filters)
-                if !df_state.join_level_predicates.is_empty() {
-                    let preds: Vec<String> = df_state
-                        .join_level_predicates
-                        .iter()
-                        .map(|p| p.display_string.clone())
-                        .collect();
-                    explainer.add_text("Search Filter", preds.join(" AND "));
                 }
 
                 // Show multi-table predicates (non-@@@ cross-table filters)
@@ -621,6 +896,17 @@ impl CustomScan for AggregateScan {
             // `BaseScanState::open_relations`.
             state.custom_state_mut().open_relations(lockmode);
 
+            // Initialize the harvested child bitmap scan, if any; registering it in
+            // custom_ps lets EXPLAIN render it.
+            let cscan = state.csstate.ss.ps.plan.cast::<pg_sys::CustomScan>();
+            if let Some(bitmap_exec) = bitmap_intersection::BitmapExec::init(cscan, estate, eflags)
+            {
+                let mut custom_ps = PgList::<pg_sys::PlanState>::from_pg(state.csstate.custom_ps);
+                custom_ps.push(bitmap_exec.planstate());
+                state.csstate.custom_ps = custom_ps.into_pg();
+                state.custom_state_mut().bitmap_exec = Some(bitmap_exec);
+            }
+
             state
                 .custom_state_mut()
                 .init_expr_context(estate, planstate);
@@ -650,6 +936,10 @@ impl CustomScan for AggregateScan {
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        state.custom_state_mut().bitmap_cell = None;
+        if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut() {
+            unsafe { bitmap_exec.rescan() };
+        }
         state.custom_state_mut().state = ExecutionState::NotStarted;
         // Reset DataFusion state so rescan rebuilds the plan and stream.
         // Drop stream before runtime to avoid tokio panics.
@@ -700,6 +990,11 @@ impl CustomScan for AggregateScan {
     }
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        state.custom_state_mut().bitmap_cell = None;
+        if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.take() {
+            unsafe { bitmap_exec.shutdown() };
+        }
+
         // Explicitly drop DataFusion resources (runtime, stream, batches) at the
         // intended lifecycle boundary rather than relying on Postgres to drop the
         // state wrapper later. Mirrors JoinScan::end_custom_scan.
@@ -835,6 +1130,14 @@ impl AggregateScan {
     /// Planning remains lazy: the finished physical stages provide the exact dispatch payload
     /// before DSM allocation, so begin never needs a throwaway logical plan.
     fn prepare_mpp(state: &mut CustomScanStateWrapper<Self>) {
+        // The size gate decides here, before any MPP work: a gated query keeps
+        // `MppLifecycle::Inactive`, so exec plans serially and no manifest is pinned.
+        let Some(df_state) = state.custom_state().datafusion_state.as_ref() else {
+            return;
+        };
+        if mpp_gated_by_min_rows(df_state.plan.sources().into_iter().map(|s| &s.scan_info)) {
+            return;
+        }
         Self::ensure_source_manifests(state);
 
         let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() else {
@@ -854,32 +1157,34 @@ impl AggregateScan {
         // Manifests were captured in `prepare_mpp` (begin); `ensure` is idempotent.
         Self::ensure_source_manifests(state);
 
-        let all_sources: Vec<&[tantivy::SegmentReader]> = state
+        let all_sources: Vec<SegmentView> = state
             .custom_state()
             .source_manifests
             .iter()
-            .map(|m| m.segment_readers())
+            .map(|m| m.segment_view())
             .collect();
         let args = ParallelScanArgs {
             all_sources,
             query: vec![],
             with_aggregates: false,
+            with_segment_info: false,
         };
-
         crate::postgres::customscan::mpp::launch::launch_mpp_aggregate(physical, args)
     }
 
-    /// Build the aggregate's DataFusion physical plan under `ctx`. `is_mpp` marks that parallel
-    /// execution is being attempted and stamps each provider's per-source dispatch metadata
-    /// (`is_parallel`, `mpp_source_idx`); the worker-bound stage encodes carry that metadata, so
-    /// it must be present on the plan the dispatch payload is derived from. The serial fallback
-    /// plans without it. An associated fn (not a closure) so the `df_state` borrow it takes
-    /// ends at each call site, freeing `state` for the MPP launch in between.
+    /// Build the aggregate's DataFusion physical plan under `ctx`. `mpp_manifests` marks that
+    /// parallel execution is being attempted and stamps each provider's per-source dispatch
+    /// metadata (`is_parallel`, `mpp_source_idx`); the worker-bound stage encodes carry that
+    /// metadata, so it must be present on the plan the dispatch payload is derived from. It also
+    /// carries the views the providers replay, which are the same manifests `launch_mpp` puts in
+    /// the DSM. The serial fallback plans without it. An associated fn (not a closure) so the
+    /// `df_state` borrow it takes ends at each call site, freeing `state` for the MPP launch in
+    /// between.
     fn build_agg_physical_plan(
         df_state: &mut scan_state::DataFusionAggState,
         runtime: &tokio::runtime::Runtime,
         ctx: &datafusion::prelude::SessionContext,
-        is_mpp: bool,
+        mpp_manifests: Option<&[SearchIndexManifest]>,
         runtime_expr_context: Option<*mut pg_sys::ExprContext>,
         runtime_planstate: Option<*mut pg_sys::PlanState>,
     ) -> Arc<dyn ExecutionPlan> {
@@ -897,7 +1202,7 @@ impl AggregateScan {
                 ctx,
                 runtime_expr_context,
                 runtime_planstate,
-                is_mpp,
+                mpp_manifests,
             )
             .await?;
             df_state.group_df_indices = group_df_indices;
@@ -928,11 +1233,10 @@ impl AggregateScan {
     /// and contains execution metrics. We merge in MPP worker metrics if applicable.
     ///
     /// In plain EXPLAIN, execution hasn't happened, so we must rebuild the physical plan.
-    /// When `mpp_is_active()` we rebuild with the same distributed planner the leader
-    /// will run with, attached to a drain-less stub mesh. The planner only consults
-    /// the mesh's worker count, not the actual `shm_mq` queues, so the stub is enough
-    /// to produce a `DistributedExec` root. That lets us render the stage boxes via
-    /// `datafusion_distributed::display_plan_ascii`.
+    /// When `mpp_is_active()` we first rebuild against `producer_worker_cap()` (`mesh = None`)
+    /// so the distributed planner can emit a `DistributedExec` for display. If task
+    /// discovery says launch will not run (#5784 / `max_producer_task_count < 2`), rebuild
+    /// serially so the printed shape matches execution.
     fn render_df_physical_plan(
         df_state: &scan_state::DataFusionAggState,
         explainer: &mut Explainer,
@@ -957,36 +1261,42 @@ impl AggregateScan {
 
             let custom_exprs = df_state.custom_exprs;
             let custom_scan_tlist = df_state.custom_scan_tlist;
-            let ctx = if mpp_is_active() {
-                // EXPLAIN-time: skip the shm_mq transport install (no execution, no `open()` call).
-                // The shared session-context builder takes `mesh = None` and derives `n_workers`
-                // from `producer_worker_cap()`, so the planner still emits a `DistributedExec`
-                // root with the right stage sizing for display.
-                Self::build_mpp_session_context(None)
-            } else {
-                create_aggregate_session_context()
-            };
             let Ok(runtime) = tokio::runtime::Builder::new_current_thread().build() else {
                 explainer.add_text("DataFusion Plan", "(tokio runtime unavailable)");
                 return;
             };
-            let plan_result = runtime.block_on(async {
-                let (logical, _) = build_join_aggregate_plan(
-                    &df_state.plan,
-                    &df_state.targetlist,
-                    df_state.topk.as_ref(),
-                    &df_state.join_level_predicates,
-                    custom_exprs,
-                    custom_scan_tlist,
-                    df_state.having_filter.as_ref(),
-                    &ctx,
-                    Some(expr_context.as_ptr()),
-                    None,
-                    false,
-                )
-                .await?;
-                build_physical_plan(&ctx, logical).await
-            });
+            let build_with = |ctx: &datafusion::prelude::SessionContext| {
+                runtime.block_on(async {
+                    let (logical, _) = build_join_aggregate_plan(
+                        &df_state.plan,
+                        &df_state.targetlist,
+                        df_state.topk.as_ref(),
+                        &df_state.join_level_predicates,
+                        custom_exprs,
+                        custom_scan_tlist,
+                        df_state.having_filter.as_ref(),
+                        ctx,
+                        Some(expr_context.as_ptr()),
+                        None,
+                        None,
+                    )
+                    .await?;
+                    build_physical_plan(ctx, logical).await
+                })
+            };
+            let gated =
+                mpp_gated_by_min_rows(df_state.plan.sources().into_iter().map(|s| &s.scan_info));
+            let plan_result = if mpp_is_active() && !gated {
+                // EXPLAIN-time: skip the shm_mq transport install (no execution, no `open()` call).
+                // Plan against the cap first; fall back to serial when launch would not run (#5784).
+                match build_with(&Self::build_mpp_session_context(None)) {
+                    Ok(mpp_plan) if mpp_plan_has_data_parallelism(&mpp_plan) => Ok(mpp_plan),
+                    Ok(_) => build_with(&create_aggregate_session_context()),
+                    Err(e) => Err(e),
+                }
+            } else {
+                build_with(&create_aggregate_session_context())
+            };
             match plan_result {
                 Ok(p) => p,
                 Err(e) => {
@@ -1006,6 +1316,7 @@ impl AggregateScan {
     fn build_tantivy_aggregate_path(
         builder: CustomPathBuilder<Self>,
         has_paradedb_agg: bool,
+        shape: GroupingShape,
     ) -> Vec<pg_sys::CustomPath> {
         let parent_relids = builder.args().input_rel().relids;
         let Some(heap_rti) = (unsafe { range_table::bms_exactly_one_member(parent_relids) }) else {
@@ -1035,14 +1346,23 @@ impl AggregateScan {
 
         let Some((_table, index)) = rel_get_bm25_index(heap_relid) else {
             if has_paradedb_agg {
-                pgrx::error!("Cannot execute pdb.agg: table must have a BM25 index");
+                pgrx::error!("Cannot execute pdb.agg: table must have a ParadeDB index");
             }
             return Vec::new();
         };
 
         match AggregateCSClause::build(builder, heap_rti, &index) {
-            Ok((builder, aggregate_clause)) => {
+            Ok((builder, mut aggregate_clause)) => {
                 Self::mark_contexts_successful(unsafe { rte_alias_or_unknown(heap_rte) });
+
+                let builder = unsafe {
+                    Self::attach_bitmap_intersection(
+                        builder.set_rows(shape.rows()),
+                        heap_rti,
+                        index.oid(),
+                        &mut aggregate_clause,
+                    )
+                };
 
                 vec![builder.build(PrivateData::Tantivy {
                     heap_rti,
@@ -1053,10 +1373,12 @@ impl AggregateScan {
             Err(CustomScanBuildError::Incompatible(e)) => {
                 if has_paradedb_agg {
                     pgrx::error!("Cannot execute pdb.agg: {}", e);
-                } else if gucs::enable_aggregate_custom_scan() && gucs::check_aggregate_scan() {
+                } else if gucs::enable_aggregate_custom_scan()
+                    && gucs::planner_warnings() != gucs::PlannerWarnings::Off
+                {
                     let warning_msg = format!(
                         "Aggregate Scan not used: {}. \
-                         To disable this warning: SET paradedb.check_aggregate_scan = false",
+                         To disable this warning: SET paradedb.planner_warnings = 'off'",
                         e,
                     );
                     Self::add_planner_warning(warning_msg, _table.name().to_string());
@@ -1067,19 +1389,64 @@ impl AggregateScan {
         }
     }
 
+    /// Attach a harvested bitmap-intersection child, rewriting the covered
+    /// HeapFilters and surfacing the bitmap build cost on the path.
+    unsafe fn attach_bitmap_intersection(
+        mut builder: CustomPathBuilder<Self>,
+        heap_rti: pg_sys::Index,
+        bm25_oid: pg_sys::Oid,
+        aggregate_clause: &mut AggregateCSClause,
+    ) -> CustomPathBuilder<Self> {
+        unsafe {
+            let root = builder.args().root;
+            let base_rel = if !(*root).simple_rel_array.is_null()
+                && (heap_rti as i32) < (*root).simple_rel_array_size
+            {
+                *(*root).simple_rel_array.add(heap_rti as usize)
+            } else {
+                std::ptr::null_mut()
+            };
+
+            let bm25_row_estimate = (!base_rel.is_null() && (*base_rel).tuples > 0.0)
+                .then(|| (*base_rel).tuples * PARAMETERIZED_SELECTIVITY);
+            if let Some(harvested) = BitmapPlanner::from_search_query(
+                root,
+                base_rel,
+                bm25_oid,
+                aggregate_clause.query(),
+                bm25_row_estimate,
+            )
+            .and_then(|planner| planner.harvest())
+            {
+                harvested.rewrite_query(aggregate_clause.query_mut());
+                let mut children = PgList::<pg_sys::Path>::new();
+                children.push(harvested.path);
+                let startup_cost = builder.startup_cost() + harvested.build_cost;
+                let total_cost = builder.total_cost() + harvested.build_cost;
+                builder = builder
+                    .set_custom_paths(children)
+                    .set_startup_cost(startup_cost)
+                    .set_total_cost(total_cost);
+            }
+            builder
+        }
+    }
+
     /// New DataFusion-backed aggregate path for JOINs.
     fn build_datafusion_aggregate_path(
         builder: CustomPathBuilder<Self>,
         has_paradedb_agg: bool,
+        shape: GroupingShape,
     ) -> Vec<pg_sys::CustomPath> {
-        match Self::try_build_datafusion_aggregate_path(builder) {
+        let alias = unsafe { resolve_decline_alias(builder.args()) };
+        match Self::try_build_datafusion_aggregate_path(builder, shape) {
             Ok(path) => vec![path],
             Err(AggregatePathDecline::Quiet) => Vec::new(),
             Err(AggregatePathDecline::Warn(reason)) => {
                 if has_paradedb_agg {
                     reason.emit_error();
-                } else if gucs::check_aggregate_scan() {
-                    reason.emit();
+                } else if gucs::planner_warnings() != gucs::PlannerWarnings::Off {
+                    reason.emit(alias);
                 }
                 Vec::new()
             }
@@ -1093,11 +1460,12 @@ impl AggregateScan {
     /// that owe the planner a NOTICE.
     fn try_build_datafusion_aggregate_path(
         builder: CustomPathBuilder<Self>,
+        shape: GroupingShape,
     ) -> Result<pg_sys::CustomPath, AggregatePathDecline> {
         let root = builder.args().root;
         let input_rel = builder.args().input_rel();
 
-        // Silent gates: no sources, or no BM25 index at all → not a candidate.
+        // Silent gates: no sources, or no ParadeDB index at all → not a candidate.
         let sources = unsafe { collect_join_agg_sources(root, input_rel) };
         if sources.is_empty() {
             return Err(AggregatePathDecline::Quiet);
@@ -1156,7 +1524,24 @@ impl AggregateScan {
             }
         }
 
-        // All tables must have BM25 indexes (DataFusion scans all via PgSearchTableProvider).
+        if shape.is_distinct() {
+            // DISTINCT ON can't be modelled as an aggregate. A GROUP BY under a
+            // DISTINCT ON still pushes down, with PG applying the DISTINCT ON
+            // above the grouped output, so this is gated on the shape.
+            let has_distinct_on = unsafe {
+                let parse = builder.args().root().parse;
+                !parse.is_null() && (*parse).hasDistinctOn
+            };
+            if has_distinct_on {
+                return Err(warn(AggregateDeclineReason::DistinctOn));
+            }
+
+            if unsafe { shape.has_nondeterministic_collation() } {
+                return Err(warn(AggregateDeclineReason::NondeterministicCollation));
+            }
+        }
+
+        // All tables must have ParadeDB indexes (DataFusion scans all via PgSearchTableProvider).
         if !all_have_bm25_index(&sources) {
             return Err(warn(AggregateDeclineReason::NotAllBm25));
         }
@@ -1184,8 +1569,9 @@ impl AggregateScan {
                 .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
         // Extract aggregate target list (GROUP BY + aggregates)
-        let targetlist = unsafe { extract_aggregate_targetlist(builder.args(), &sources, &plan) }
-            .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
+        let targetlist =
+            unsafe { extract_aggregate_targetlist(builder.args(), &sources, &plan, shape) }
+                .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
         // Reject plans with any join node that has no equi-keys (CROSS JOIN).
         // Without join keys, PgSearchTableProvider has no Named fields,
@@ -1210,7 +1596,7 @@ impl AggregateScan {
         // We do NOT declare pathkeys to Postgres because scanrelid=0 CustomScans
         // cannot resolve pathkey items through setrefs.c. Postgres may add a
         // redundant Sort above us, which is correct (just wasteful on K rows).
-        let topk = unsafe { detect_join_aggregate_topk(builder.args(), &targetlist) };
+        let topk = unsafe { detect_join_aggregate_topk(builder.args(), &targetlist, shape) };
 
         // Extract HAVING clause if present.
         //
@@ -1259,6 +1645,14 @@ impl AggregateScan {
         // MPP launches its own producer workers from `exec_custom_scan` through the builder, so the
         // path stays serial to PG. Marking it parallel-aware would make PG plan a Gather over it and
         // spawn a redundant second worker set whose serial aggregates duplicate the result.
+
+        // Set the pathtarget to the grouping output columns so the Sort/Limit
+        // nodes above can resolve their Var references. Required for DISTINCT
+        // (output_rel.reltarget.exprs is empty); for GROUP BY it equals the
+        // builder's default.
+        let builder = builder
+            .set_pathtarget(shape.reltarget())
+            .set_rows(shape.rows());
 
         // Build the custom path with DataFusion private data
         let multi_table_clause_count = multi_table_clauses.len();
@@ -1519,6 +1913,15 @@ impl AggregateScan {
             } else {
                 create_aggregate_session_context()
             };
+            // Capture before the `df_state` borrow below. `prepare_mpp` pinned the manifests at
+            // begin; the providers build their readers from them, and `launch_mpp` ships their
+            // views to the workers.
+            let mpp_manifests: Vec<SearchIndexManifest> = if is_mpp {
+                Self::ensure_source_manifests(state);
+                state.custom_state().source_manifests.to_vec()
+            } else {
+                Vec::new()
+            };
 
             let t_plan = std::time::Instant::now();
             let physical_plan = {
@@ -1531,7 +1934,7 @@ impl AggregateScan {
                     df_state,
                     &runtime,
                     &plan_ctx,
-                    is_mpp,
+                    is_mpp.then_some(mpp_manifests.as_slice()),
                     runtime_expr_context,
                     runtime_planstate,
                 )
@@ -1572,7 +1975,7 @@ impl AggregateScan {
                             df_state,
                             &runtime,
                             &serial_ctx,
-                            false,
+                            None,
                             runtime_expr_context,
                             runtime_planstate,
                         );
@@ -1928,6 +2331,7 @@ unsafe fn group_key_to_datum(
 unsafe fn detect_join_aggregate_topk(
     args: &CreateUpperPathsHookArgs,
     targetlist: &join_targetlist::JoinAggregateTargetList,
+    shape: GroupingShape,
 ) -> Option<privdat::DataFusionTopK> {
     let parse = args.root().parse;
     if parse.is_null() || (*parse).sortClause.is_null() {
@@ -1951,12 +2355,7 @@ unsafe fn detect_join_aggregate_topk(
     let direction =
         SortDirection::from_sort_op((*sort_clause_ptr).sortop, (*sort_clause_ptr).nulls_first)?;
 
-    // Find matching position in output_rel target using structural equality
-    let reltarget = args.output_rel().reltarget;
-    if reltarget.is_null() {
-        return None;
-    }
-    let target_exprs = PgList::<pg_sys::Expr>::from_pg((*reltarget).exprs);
+    let target_exprs = shape.target_exprs();
 
     let mut match_pos = None;
     for (pos, target_expr) in target_exprs.iter_ptr().enumerate() {
@@ -2013,7 +2412,7 @@ unsafe fn detect_join_aggregate_topk(
 
         // If the collation for this pathkey isn't "safe" (C-like), then we can't pushdown as Tantivy uses byte ordering
         let collation = pg_sys::exprCollation(sort_expr);
-        if !is_collation_pushdown_safe(collation) {
+        if !collation_supports(collation, CollationOperation::Ordering) {
             return None;
         }
 
@@ -2236,7 +2635,7 @@ unsafe fn get_aggregate_name(aggref: *mut pg_sys::Aggref) -> String {
 ///
 /// AggregateScan currently does not support extracting `RTE_SUBQUERY` nodes and will typically
 /// emit a WARNING when it encounters one. However, if a subquery is a TopK query (has a `LIMIT`
-/// and an `ORDER BY` on a BM25 index), we want to silently decline it instead. This is because
+/// and an `ORDER BY` on a ParadeDB index), we want to silently decline it instead. This is because
 /// `BaseScan` will natively optimize the subquery, meaning we can safely step aside without
 /// bothering the user with a planner warning.
 unsafe fn query_will_use_topk(parse: *mut pgrx::pg_sys::Query) -> bool {

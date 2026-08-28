@@ -9,7 +9,8 @@ license.workspace = true
 workspace = true
 
 [features]
-# Off by default the crate compiles to nothing; `enabled` links the SDK + coverage shim. See lib.rs.
+# This crate is a no-op unless the `enabled` feature is set. Enabling it links
+# the SDK and coverage shim; see lib.rs.
 enabled = ["dep:antithesis_sdk", "dep:antithesis-instrumentation"]
 
 [dependencies]

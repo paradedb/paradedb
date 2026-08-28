@@ -331,9 +331,10 @@ jobs:
           Requires:       openblas
 
           %description
-          pg_search is a Postgres extension that brings full-text search, vector
-          retrieval, and aggregations to PostgreSQL tables. It is built on top of
-          Tantivy, the Rust-based alternative to Apache Lucene, using pgrx.
+          pg_search upgrades Postgres with a custom index for fast full-text and
+          vector search, BM25 scoring, filtering, and aggregations. Your application
+          data and search engine live in one database, with no second system to
+          deploy and nothing to sync.
 
           %install
           %{__rm} -rf %{buildroot}

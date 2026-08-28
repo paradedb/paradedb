@@ -48,7 +48,7 @@
 //!    - Future work will allow no-limit joins when both sides have search predicates.
 //!
 //! 4. **Search predicate**: At least one side must have:
-//!    - A BM25 index on the table
+//!    - A ParadeDB index on the table
 //!    - A `@@@` search predicate in the WHERE clause
 //!
 //! 5. **Multi-level Joins**: JoinScan supports multi-level joins (e.g., `(A JOIN B) JOIN C`).
@@ -56,7 +56,7 @@
 //!    multiple JoinScan operators.
 //!
 //! 6. **Fast-field columns**: All columns used in the join must be fast fields in their
-//!    respective BM25 indexes. This allows the join to be executed entirely within the index:
+//!    respective ParadeDB indexes. This allows the join to be executed entirely within the index:
 //!    - Equi-join keys (e.g., `a.id = b.id`) must be fast fields for join execution
 //!    - Multi-table predicates (e.g., `a.price > b.min_price`) must reference fast fields
 //!    - ORDER BY columns must be fast fields for efficient sorting
@@ -89,7 +89,7 @@
 //! WHERE p.description @@@ 'wireless'
 //! LIMIT 10;
 //!
-//! -- JoinScan IS proposed if price/min_price are fast fields in BM25 indexes
+//! -- JoinScan IS proposed if price/min_price are fast fields in ParadeDB indexes
 //! SELECT p.name, s.name
 //! FROM products p
 //! JOIN suppliers s ON p.supplier_id = s.id
@@ -169,7 +169,7 @@ use self::scan_state::{
 };
 use crate::api::HashSet;
 use crate::api::OrderByFeature;
-use crate::index::mvcc::MvccSatisfies;
+use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
@@ -177,11 +177,15 @@ use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::joinscan::planning::distinct_columns_are_fast_fields;
+use crate::postgres::customscan::joinscan::planning::{
+    distinct_collations_are_deterministic, distinct_columns_are_fast_fields,
+};
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::mpp::glue::mpp_is_active;
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
+use crate::postgres::customscan::mpp::launch::mpp_gated_by_min_rows;
+use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parallelism;
 use arrow_array::Array;
 use datafusion_distributed::shm::MppMesh;
 
@@ -259,6 +263,9 @@ impl JoinDeclineReason {
     }
 
     fn emit(&self, aliases: &[String]) {
+        if crate::gucs::planner_warnings() == crate::gucs::PlannerWarnings::Off {
+            return;
+        }
         match self {
             Self::ContainsAggregate => {
                 if crate::gucs::enable_aggregate_custom_scan() {
@@ -568,7 +575,7 @@ impl JoinScan {
             .any(|s| s.scan_info.indexrelid == pg_sys::InvalidOid)
         {
             return Err(JoinDeclineReason::new(
-                "JoinScan not used: at least one relation lacks a BM25 index",
+                "JoinScan not used: at least one relation lacks a ParadeDB index",
             ));
         }
 
@@ -605,17 +612,19 @@ impl JoinScan {
             ));
         }
 
-        if has_distinct && distinct_columns_are_fast_fields(root, &all_sources).is_none() {
+        if has_distinct && !distinct_collations_are_deterministic(root) {
             return Err(JoinDeclineReason::new(
-                "JoinScan not used: DISTINCT columns must be fast fields",
+                "JoinScan not used: DISTINCT on a nondeterministic collation is not supported",
             ));
         }
 
-        if !order_by_columns_are_fast_fields(root, &all_sources, has_distinct) {
+        if has_distinct && distinct_columns_are_fast_fields(root, &all_sources).is_none() {
             return Err(JoinDeclineReason::new(
-                "JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation",
+                "JoinScan not used: DISTINCT columns must be columnar indexed",
             ));
         }
+
+        order_by_columns_are_fast_fields(root, &all_sources, has_distinct)?;
 
         for jk in join_keys {
             let outer_source = all_sources.iter().find(|s| s.contains_rti(jk.outer_rti));
@@ -787,7 +796,7 @@ impl JoinScan {
         state.custom_state_mut().source_manifests = manifests;
     }
 
-    /// Build plan_position → canonical segment IDs map for SearchPredicateUDF.
+    /// Build the plan_position → segment view list every reader of a source replays.
     ///
     /// This is keyed by plan_position rather than indexrelid because it is a
     /// per-source contract, not just a per-index one. The same index can appear
@@ -797,37 +806,27 @@ impl JoinScan {
     /// inject another source's segment set and make packed DocAddresses resolve
     /// against the wrong segment ordering.
     ///
-    /// Workers use frozen segment IDs from DSM to match the leader's segment set.
-    /// Leader/serial uses manifests captured with the same snapshot.
-    fn build_index_segment_ids(
+    /// The manifests are also what populates the DSM, so the leader's providers and every
+    /// worker reader open the same view.
+    fn build_source_manifests(
         state: &mut CustomScanStateWrapper<Self>,
         _join_clause: &JoinCSClause,
         plan_sources: &[&build::JoinSource],
-    ) -> Vec<crate::api::HashSet<tantivy::index::SegmentId>> {
-        let mut ids_by_pos = vec![None; plan_sources.len()];
-
+    ) -> Vec<SearchIndexManifest> {
         Self::ensure_source_manifests(state);
-        for (i, _source) in plan_sources.iter().enumerate() {
-            if let Some(manifest) = state.custom_state().source_manifests.get(i) {
-                let ids: crate::api::HashSet<_> = manifest
-                    .segment_readers()
-                    .iter()
-                    .map(|r| r.segment_id())
-                    .collect();
-                ids_by_pos[i] = Some(ids);
-            }
-        }
-
-        ids_by_pos
-            .into_iter()
-            .enumerate()
-            .map(|(plan_position, ids)| {
-                ids.unwrap_or_else(|| {
-                    panic!(
-                        "missing canonical segment IDs for join source at plan_position {}",
-                        plan_position
-                    )
-                })
+        (0..plan_sources.len())
+            .map(|plan_position| {
+                state
+                    .custom_state()
+                    .source_manifests
+                    .get(plan_position)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "missing source manifest for join source at plan_position \
+                             {plan_position}"
+                        )
+                    })
+                    .clone()
             })
             .collect()
     }
@@ -892,16 +891,17 @@ impl JoinScan {
         physical: &Arc<dyn ExecutionPlan>,
     ) -> Option<crate::postgres::customscan::mpp::glue::MppLeaderState> {
         Self::ensure_source_manifests(state);
-        let all_sources: Vec<&[tantivy::SegmentReader]> = state
+        let all_sources: Vec<SegmentView> = state
             .custom_state()
             .source_manifests
             .iter()
-            .map(|manifest| manifest.segment_readers())
+            .map(|manifest| manifest.segment_view())
             .collect();
         let args = ParallelScanArgs {
             all_sources,
             query: vec![],
             with_aggregates: false,
+            with_segment_info: false,
         };
         crate::postgres::customscan::mpp::launch::launch_mpp_join(physical, args)
     }
@@ -1316,30 +1316,51 @@ impl CustomScan for JoinScan {
             }
             // For plain EXPLAIN, reconstruct the plan using the same session configuration
             // that execution uses so `VisibilityFilterExec` appears in the displayed plan,
-            // matching EXPLAIN ANALYZE. When MPP is active, pass `mesh = None`; the shared
-            // session-context builder derives `n_workers` from `producer_worker_cap()` and
-            // skips the shm_mq transport install (EXPLAIN doesn't execute).
+            // matching EXPLAIN ANALYZE. When MPP is active, first build against
+            // `producer_worker_cap()` (`mesh = None`); if task discovery says launch will
+            // not run (#5784 / `max_producer_task_count < 2`), rebuild serially so the
+            // printed shape matches execution.
             let expr_context = crate::postgres::utils::ExprContextGuard::new();
-            let ctx = if mpp_is_active() {
-                Self::build_mpp_session_context(None)
-            } else {
-                create_datafusion_session_context(SessionContextProfile::Join)
-            };
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .build()
                 .expect("Failed to create tokio runtime");
-            let logical_plan = deserialize_logical_plan_with_runtime(
-                logical_plan,
-                &ctx.task_ctx(),
-                None,
-                Some(expr_context.as_ptr()),
-                None,
-                vec![],
-            )
-            .expect("Failed to deserialize logical plan");
-            let physical_plan = runtime
-                .block_on(build_physical_plan(&ctx, logical_plan))
-                .expect("Failed to create execution plan");
+            let build_with = |ctx: &datafusion::prelude::SessionContext| {
+                let logical_plan = deserialize_logical_plan_with_runtime(
+                    logical_plan,
+                    &ctx.task_ctx(),
+                    None,
+                    Some(expr_context.as_ptr()),
+                    None,
+                    vec![],
+                )
+                .expect("Failed to deserialize logical plan");
+                runtime
+                    .block_on(build_physical_plan(ctx, logical_plan))
+                    .expect("Failed to create execution plan")
+            };
+            let gated = mpp_gated_by_min_rows(
+                state
+                    .custom_state()
+                    .join_clause
+                    .plan
+                    .sources()
+                    .into_iter()
+                    .map(|source| &source.scan_info),
+            );
+            let physical_plan = if mpp_is_active() && !gated {
+                let mpp_plan = build_with(&Self::build_mpp_session_context(None));
+                if mpp_plan_has_data_parallelism(&mpp_plan) {
+                    mpp_plan
+                } else {
+                    build_with(&create_datafusion_session_context(
+                        SessionContextProfile::Join,
+                    ))
+                }
+            } else {
+                build_with(&create_datafusion_session_context(
+                    SessionContextProfile::Join,
+                ))
+            };
             explain_physical_plan(&physical_plan, explainer);
         }
     }
@@ -1362,9 +1383,20 @@ impl CustomScan for JoinScan {
             // resolved and rebaked at execution time before it is deserialized to build the
             // physical plan. The finished stages then provide the exact dispatch payload before
             // DSM allocation. Only the leader runs this branch (`ParallelWorkerNumber == -1`).
+            // The size gate decides here, before any MPP work: a gated query takes the plain
+            // serial path and never builds the distributed plan or captures manifests.
             if mpp_is_active()
                 && unsafe { pg_sys::ParallelWorkerNumber } == -1
                 && state.custom_state().logical_plan.is_some()
+                && !mpp_gated_by_min_rows(
+                    state
+                        .custom_state()
+                        .join_clause
+                        .plan
+                        .sources()
+                        .into_iter()
+                        .map(|source| &source.scan_info),
+                )
             {
                 state.custom_state_mut().mpp = MppLifecycle::Pending;
             }
@@ -1435,8 +1467,8 @@ impl CustomScan for JoinScan {
                     .clone()
                     .expect("Logical plan is required");
 
-                let index_segment_ids =
-                    Self::build_index_segment_ids(state, &join_clause, &plan_sources);
+                let source_manifests =
+                    Self::build_source_manifests(state, &join_clause, &plan_sources);
 
                 // For parameterized LIMIT/OFFSET, the planning-time logical plan has no Limit
                 // node. Resolve the fetch once; each planning pass below injects it (before
@@ -1470,7 +1502,7 @@ impl CustomScan for JoinScan {
                             None,
                             Some(runtime_context),
                             Some(planstate),
-                            index_segment_ids.clone(),
+                            source_manifests.clone(),
                         )
                         .expect("Failed to deserialize logical plan");
                         let logical_plan = match runtime_fetch {
@@ -1536,7 +1568,7 @@ impl CustomScan for JoinScan {
                                 None,
                                 Some(runtime_context),
                                 Some(planstate),
-                                index_segment_ids.clone(),
+                                source_manifests.clone(),
                             )
                             .expect("Failed to deserialize serial fallback logical plan");
                             let logical_plan = match runtime_fetch {
@@ -1724,22 +1756,22 @@ unsafe fn compute_output_columns(
                 // the parent plan will not read this position.
                 output_columns.push(privdat::OutputColumnInfo::Pruned);
             }
-        } else {
-            let mut found_score = false;
-            for source in join_clause.plan.sources() {
-                if expr_uses_scores_from_source(check_expr.cast(), source) {
-                    let rti = get_score_func_rti(check_expr.cast()).unwrap_or(0);
-                    output_columns.push(privdat::OutputColumnInfo::Score {
-                        plan_position: source.plan_position,
-                        rti,
-                    });
-                    found_score = true;
-                    break;
-                }
-            }
-            if !found_score {
+        } else if let Some(rti) = get_score_func_rti(check_expr.cast()) {
+            if let Some(source) = join_clause
+                .plan
+                .sources()
+                .iter()
+                .find(|s| s.contains_rti(rti))
+            {
+                output_columns.push(privdat::OutputColumnInfo::Score {
+                    plan_position: source.plan_position,
+                    rti,
+                });
+            } else {
                 output_columns.push(privdat::OutputColumnInfo::Pruned);
             }
+        } else {
+            output_columns.push(privdat::OutputColumnInfo::Pruned);
         }
     }
 

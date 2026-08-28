@@ -36,7 +36,6 @@ use crate::postgres::customscan::datafusion::explain::format_expr_for_explain;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::pullup::resolve_fast_field;
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
-use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{expr_collect_rtis, expr_collect_vars, expr_contains_any_operator};
@@ -164,6 +163,8 @@ pub unsafe fn extract_join_level_conditions(
         join_clause = join_clause.with_join_level_expr(final_expr);
     }
 
+    join_clause.assign_tagged_queries();
+
     Ok((join_clause, multi_table_predicate_clauses))
 }
 
@@ -227,7 +228,9 @@ pub unsafe fn transform_to_search_expr(
         }
     }
 
-    // If this is a single-table expression with search predicate, extract as Predicate
+    // If this is a single-table expression with search predicate, extract as a single
+    // Tantivy search predicate so that table-local negation (with NULL-preserving exists guards),
+    // conjunctions, and disjunctions are evaluated natively by Tantivy.
     if has_search_op && rtis.len() == 1 && referenced_source_indices.len() == 1 {
         let rti = *rtis.iter().next().unwrap();
         let source = &sources[referenced_source_indices[0]];
@@ -262,7 +265,8 @@ pub unsafe fn transform_to_search_expr(
         return Some(JoinLevelExpr::MultiTablePredicate { predicate_idx });
     }
 
-    // Handle BoolExpr
+    // If this is a cross-table BoolExpr, preserve its boolean structure (AND, OR, NOT)
+    // in JoinLevelExpr so it can be translated into DataFusion's boolean expressions.
     if node_type == pg_sys::NodeTag::T_BoolExpr {
         let boolexpr = node as *mut pg_sys::BoolExpr;
         let boolop = (*boolexpr).boolop;
@@ -359,15 +363,7 @@ pub unsafe fn extract_single_table_predicate(
     )?;
 
     let query = SearchQueryInput::from(&qual);
-
-    // Eagerly deparse the expression for EXPLAIN output while planner pointers are valid
-    let display_str = {
-        let context = PlannerContext::from_planner(root);
-        let index_rel = PgSearchRelation::open(indexrelid);
-        deparse_expr(Some(&context), &index_rel, expr)
-    };
-
-    let idx = join_clause.add_join_level_predicate(rti, indexrelid, heaprelid, query, display_str);
+    let idx = join_clause.add_join_level_predicate(rti, indexrelid, heaprelid, query);
     Some(idx)
 }
 

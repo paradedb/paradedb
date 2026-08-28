@@ -54,6 +54,10 @@ use tokenizers::{SearchNormalizer, SearchTokenizer};
 // However for machines with only a few CPUs, we set the target segment count to 4
 // to avoid cramming everything into a single segment
 const MIN_TARGET_SEGMENT_COUNT: usize = 4;
+/// A partitioned build keeps one spill file buffer per partition open outside the worker budget,
+/// and every partition carries its own segments as the index grows, so a count in the thousands
+/// costs more than its pruning could pay back. The global GUC shares this bound.
+pub(crate) const MAX_TARGET_SEGMENT_COUNT: i32 = 1024;
 
 static mut RELOPT_KIND_PDB: pg_sys::relopt_kind::Type = 0;
 
@@ -1099,7 +1103,7 @@ pub unsafe fn init() {
         "When creating or reindexing, how many segments should be created".as_pg_cstr(),
         0,
         0,
-        i32::MAX,
+        MAX_TARGET_SEGMENT_COUNT,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
     pg_sys::add_int_reloption(

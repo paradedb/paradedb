@@ -23,15 +23,15 @@ comment:
   require_head: true
 
 ignore:
-  - "**/*_test.rs"
-  - "**/*.md"
-  - "**/*.toml"
-  - "**/*.yaml"
-  - "**/*.yml"
   - "**/.pgrx/**/*"
-  - "**/Makefile"
-  - "**/tests/**"
   - "benchmarks/**/*"
   - "docs/**/*"
   - "node_modules/**/*"
   - "target/**/*"
+  - "**/tests/**"
+  - "**/*.md"
+  - "**/*.toml"
+  - "**/*.yaml"
+  - "**/*.yml"
+  - "**/*_test.rs"
+  - "**/Makefile"

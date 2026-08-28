@@ -1,0 +1,9 @@
+self-hosted-runner:
+  # RunsOn runner attributes are expressed as labels in workflow `runs-on` arrays.
+  labels:
+    - family=*
+    - image=*
+    - extras=*
+    - cpu=*
+    - ram=*
+    - volume=*

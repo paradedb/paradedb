@@ -26,9 +26,8 @@ use datafusion::logical_expr::{AggregateUDF, Extension, LogicalPlan, ScalarUDF};
 use datafusion_proto::logical_plan::LogicalExtensionCodec;
 use datafusion_proto::protobuf::DfSchema;
 use pgrx::pg_sys::{ExprContext, Oid, PlanState};
-use tantivy::index::SegmentId;
 
-use crate::api::HashSet;
+use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterNode;
 use crate::scan::late_materialization::{DeferredField, LateMaterializeNode};
@@ -46,10 +45,14 @@ struct PgSearchExtensionCodec {
     expr_context: Option<*mut ExprContext>,
     /// Executor planstate, needed to initialize runtime Postgres expressions in source queries.
     planstate: Option<*mut PlanState>,
-    /// Canonical segment ID sets for all join sources, indexed by plan_position.
-    index_segment_ids: Vec<HashSet<SegmentId>>,
+    /// The leader's captured manifest of every join source, indexed by plan_position. A
+    /// decoded provider builds its reader from its source's manifest, so packed addresses
+    /// stay comparable across the leader and its workers.
+    source_manifests: Vec<SearchIndexManifest>,
 }
 
+// SAFETY: pg_search runs DataFusion on a single-threaded runtime inside the backend, so the
+// process-local fields (raw pointers, the reference-counted manifests) never cross a thread.
 unsafe impl Send for PgSearchExtensionCodec {}
 unsafe impl Sync for PgSearchExtensionCodec {}
 
@@ -215,10 +218,22 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         let mut provider: PgSearchTableProvider = serde_json::from_slice(buf).map_err(|e| {
             DataFusionError::Internal(format!("Failed to deserialize PgSearchTableProvider: {e}"))
         })?;
-        // MPP sources also call `checkout_segment_for_source` against
-        // `parallel_state`, so inject the pointer for them too.
-        if provider.source_idx().is_some() {
+        if let Some(plan_position) = provider.source_idx() {
+            // MPP sources also call `checkout_segment_for_source` against
+            // `parallel_state`, so inject the pointer for them too.
             provider.set_parallel_state(self.parallel_state);
+
+            // An empty list means this decode has no manifests to offer (plain EXPLAIN), but
+            // a short list is a bug, and falling back to a snapshot open would silently break
+            // the address exchange with the workers.
+            if !self.source_manifests.is_empty() {
+                let manifest = self.source_manifests.get(plan_position).ok_or_else(|| {
+                    DataFusionError::Internal(format!(
+                        "missing captured manifest for plan_position {plan_position}"
+                    ))
+                })?;
+                provider.set_manifest(manifest.clone());
+            }
         }
         provider.set_expr_context(self.expr_context);
         provider.set_planstate(self.planstate);
@@ -269,7 +284,7 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
     }
 
     fn try_decode_udf(&self, name: &str, buf: &[u8]) -> Result<Arc<ScalarUDF>> {
-        try_decode_pg_search_udf(name, buf, &self.index_segment_ids)?.ok_or_else(|| {
+        try_decode_pg_search_udf(name, buf)?.ok_or_else(|| {
             DataFusionError::NotImplemented(format!("UDF '{name}' deserialization not implemented"))
         })
     }
@@ -296,20 +311,110 @@ pub fn serialize_logical_plan(plan: &LogicalPlan) -> Result<bytes::Bytes> {
 
 /// Deserializes a DataFusion `LogicalPlan` using a codec populated with the
 /// runtime state required by execution.
-#[allow(clippy::too_many_arguments)]
 pub fn deserialize_logical_plan_with_runtime(
     bytes: &[u8],
     ctx: &TaskContext,
     parallel_state: Option<*mut ParallelScanState>,
     expr_context: Option<*mut ExprContext>,
     planstate: Option<*mut PlanState>,
-    index_segment_ids: Vec<HashSet<SegmentId>>,
+    source_manifests: Vec<SearchIndexManifest>,
 ) -> Result<LogicalPlan> {
     let codec = PgSearchExtensionCodec {
         parallel_state,
         expr_context,
         planstate,
-        index_segment_ids,
+        source_manifests,
     };
     datafusion_proto::bytes::logical_plan_from_bytes_with_extension_codec(bytes, ctx, &codec)
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use pgrx::prelude::*;
+
+    /// The reuse property end to end through the codec seam: a decoded provider builds its
+    /// reader from the injected manifest, so planning performs zero additional index opens
+    /// and the scan still streams every row. If `set_manifest` stopped being called, the
+    /// provider would fall back to a fresh snapshot open with correct results, and only the
+    /// open counter can catch that.
+    #[pg_test]
+    fn decoded_provider_reuses_the_injected_manifest() {
+        use datafusion::catalog::default_table_source::DefaultTableSource;
+        use datafusion::execution::TaskContext;
+        use datafusion::logical_expr::LogicalPlanBuilder;
+        use futures::TryStreamExt;
+
+        use crate::index::fast_fields_helper::WhichFastField;
+        use crate::index::mvcc::MvccSatisfies;
+        use crate::index::reader::index::SearchIndexManifest;
+        use crate::index::reader::index::test_support::{
+            INDEX_COMPONENT_OPENS, segmented_index_fixture,
+        };
+        use crate::scan::info::ScanInfo;
+        use crate::scan::table_provider::PgSearchTableProvider;
+        use crate::schema::SearchFieldType;
+
+        let (index_rel, heap_oid) = segmented_index_fixture("codec_manifest_test", 2, false);
+        unsafe {
+            pg_sys::PushActiveSnapshot(pg_sys::GetTransactionSnapshot());
+        }
+        let manifest = SearchIndexManifest::capture(&index_rel, MvccSatisfies::Snapshot)
+            .expect("manifest capture");
+
+        let fields = vec![WhichFastField::Named(
+            "id".to_string(),
+            SearchFieldType::I64(pg_sys::INT8OID),
+        )];
+        let provider = PgSearchTableProvider::new(
+            ScanInfo::new(1, heap_oid, index_rel.oid(), crate::scan::ScanMode::all()),
+            fields,
+            Some(0),
+        );
+        let plan = LogicalPlanBuilder::scan(
+            "codec_manifest_test",
+            Arc::new(DefaultTableSource::new(Arc::new(provider))),
+            None,
+        )
+        .expect("scan builder")
+        .build()
+        .expect("logical plan");
+        let bytes = serialize_logical_plan(&plan).expect("serialize");
+
+        let opens_before = INDEX_COMPONENT_OPENS.load(std::sync::atomic::Ordering::Relaxed);
+        let task_ctx = TaskContext::default();
+        let decoded = deserialize_logical_plan_with_runtime(
+            &bytes,
+            &task_ctx,
+            None,
+            None,
+            None,
+            vec![manifest],
+        )
+        .expect("deserialize with manifest");
+
+        let session = datafusion::prelude::SessionContext::new();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let physical = runtime
+            .block_on(session.state().create_physical_plan(&decoded))
+            .expect("physical plan (runs the provider's scan)");
+        assert_eq!(
+            INDEX_COMPONENT_OPENS.load(std::sync::atomic::Ordering::Relaxed),
+            opens_before,
+            "a decoded provider with an injected manifest must not open the index again"
+        );
+
+        let stream = physical
+            .execute(0, Arc::new(TaskContext::default()))
+            .expect("execute");
+        let batches = runtime
+            .block_on(stream.try_collect::<Vec<_>>())
+            .expect("stream");
+        assert_eq!(batches.iter().map(|b| b.num_rows()).sum::<usize>(), 20);
+
+        unsafe { pg_sys::PopActiveSnapshot() };
+    }
 }

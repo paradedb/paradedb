@@ -7,21 +7,22 @@ This is a basic, single-query latency, benchmarking suite for ParadeDB. It execu
 The benchmarking scripts require a Postgres database with [`pg_search`](/pg_search) installed. If you are building `pg_search` with
 `cargo pgrx`, make sure to build in `--release` mode. It also requires AWS credentials to be available in order to load the data.
 
-### pg_stat_staements
+### pg_stat_statements
 
-Query timing is done via `pg_stat_statements`, so you'll need to configure it. The import bits are:
+Query timing is done via `pg_stat_statements`, so you'll need to configure it. The important settings are:
 
 - `pg_stat_statements` must be in `shared_preload_libraries`.
-  - `ALTER SYSTEM SET shared_preload_libraries = pg_search,pg_stat_statements;`
-- Then after a postgres restart, configure it:
+  - `ALTER SYSTEM SET shared_preload_libraries = 'pg_search,pg_stat_statements';`
+- After restarting Postgres, configure it:
 
   ```sql
   CREATE EXTENSION pg_stat_statements;
   ALTER SYSTEM SET pg_stat_statements.track_planning = on;
   ALTER SYSTEM SET pg_stat_statements.track = top;
+  SELECT pg_reload_conf();
   ```
 
-  These will take effect after one more postgres restart.
+  New sessions will use these settings after the configuration reload.
 
 ## Usage
 
@@ -83,7 +84,7 @@ cargo run -- --help
 - `--clear-caches` must be set to `false` if you're running on a non-Linux system. (It defaults to `true`).
 - `--skip-index`: Including this skips index creation (and the after-create-index hook). Useful for iterating on queries against an already-indexed database.
 - `--runs`: How many warm samples to capture from each query. Defaults to 3.
-- `--vacuum`: Controls whether `VACUUM FULL ANALYZE` is ran before running the queries. Defaults to `true`.
+- `--vacuum`: Controls whether `VACUUM FULL ANALYZE`, followed by `VACUUM ANALYZE` to update the visibility map, runs before the queries. Defaults to `true`.
 
 ## Notable Heap Options
 
@@ -97,7 +98,7 @@ cargo run -- --help
 
 Each benchmark run uses a single dataset located under `datasets/$name`. The heap must already be present — loaded by `load-heap` (which reads from the dataset's `data-source` at the given `--size`) or restored from a snapshot.
 
-The queries that are benchmarked for a dataset are located at `datasets/$name/queries/*.sql`. Each query file represents a single query: when a single file contains multiple queries, the first query in the file is considered to be the canonical/idiomatic way to write the query, and any additional queries in the file are considered alternative ways to write the query. The canonical query may not always be the fastest (yet!) but we strive to make the canonical query perform as well as a non-idiomatic, slightly contorted query might.
+The queries that are benchmarked for a dataset are located directly under `datasets/$name/queries/`, or under `datasets/$name/queries/{index}/` when index variants need different SQL. Each query file represents a single query: when a single file contains multiple queries, the first query in the file is considered to be the canonical/idiomatic way to write the query, and any additional queries in the file are considered alternative ways to write the query. The canonical query may not always be the fastest (yet!) but we strive to make the canonical query perform as well as a non-idiomatic, slightly contorted query might.
 
 ### Dataset Directory Layout
 
@@ -107,7 +108,7 @@ The queries that are benchmarked for a dataset are located at `datasets/$name/qu
 - `create_tables.sql`
 - `indexes/{index}.sql` (one file per index variant, e.g. `bm25`, `hnsw`, `ivfflat`; chosen with `benchmark --index`)
 - `prewarm.sql`
-- `queries/*.sql`
+- `queries/*.sql` or `queries/{index}/*.sql`
 - `after_create_index.sql` (optional)
 
 ### Preparing Datasets

@@ -1,58 +1,57 @@
-# IDEs
-.vscode/
-.idea/
-*.iml
-*.swp
+# AI assistants
+.claude/
+.cursor/
+CLAUDE.local.md
+CLAUDE.md
 
-# macOS
-.DS_Store
-
-# Cargo
+# Build artifacts
 target/
-
-# Credentials
-*.pem
-*credentials*.json
-*service-account*.json
-*-key.json
+*.deb
 
 # Code coverage
 *.profraw
 
-# Property test regression state
-*.proptest-regressions
+# Credentials
+*.pem
+*-key.json
+*credentials*.json
+*service-account*.json
 
-# Binaries
-*.deb
-
-# Ruff
-.ruff_cache/
-
-# Env files
+# Development environments
+.direnv/
+.pgrx/
 .env
 
-# Samply
-profile.json*
+# Editors and IDEs
+.idea/
+.vscode/
+*.iml
+*.swp
 
-# Patch/diff
-*.orig
-*.rej
+# Generated documentation tests
+.github/scripts/verify/
 
-# Node
-node_modules/
-package.json
-package-lock.json
+# macOS
+.DS_Store
 
 # Nix artifacts
 result*
 
-# Cursor
-.cursor/
+# Node.js
+node_modules/
+package-lock.json
+package.json
 
-# Claude
-.claude/
-CLAUDE.md
-CLAUDE.local.md
+# Patch artifacts
+*.orig
+*.rej
 
-.github/scripts/verify
-__pycache__
+# Profiling
+profile.json*
+
+# Property testing
+*.proptest-regressions
+
+# Python
+.ruff_cache/
+__pycache__/

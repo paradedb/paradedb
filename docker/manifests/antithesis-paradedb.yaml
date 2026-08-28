@@ -35,7 +35,7 @@ metadata:
     app.kubernetes.io/name: paradedb
     app.kubernetes.io/instance: paradedb
     app.kubernetes.io/part-of: cloudnative-pg
-    app.kubernetes.io/version: "0.25.0"
+    app.kubernetes.io/version: "0.25.3"
     app.kubernetes.io/managed-by: Helm
 data:
   custom-queries: |
@@ -143,7 +143,7 @@ metadata:
     app.kubernetes.io/name: paradedb
     app.kubernetes.io/instance: paradedb
     app.kubernetes.io/part-of: cloudnative-pg
-    app.kubernetes.io/version: "0.25.0"
+    app.kubernetes.io/version: "0.25.3"
     app.kubernetes.io/managed-by: Helm
 data:
   custom-queries: |
@@ -163,10 +163,10 @@ data:
         JOIN pg_am am ON am.oid = c.relam
         JOIN LATERAL paradedb.index_info(c.oid) AS info ON true
         WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
-          AND am.amname = 'bm25'
+          AND am.amname = 'paradedb'
         GROUP BY n.nspname, c.relname, c.oid;
       target_databases: ["*"]
-      predicate_query: "SELECT 1 FROM pg_extension WHERE extname = 'pg_search' AND extversion = '0.25.0';"
+      predicate_query: "SELECT 1 FROM pg_extension WHERE extname = 'pg_search' AND extversion = '0.25.3';"
       metrics:
         - datname:
             description: Name of the database
@@ -213,7 +213,7 @@ data:
         LEFT JOIN index_layer_histogram i ON i.relname = t.relname AND i.high = t.high
         GROUP BY datname, t.relname;
       target_databases: ["*"]
-      predicate_query: "SELECT 1 FROM pg_extension WHERE extname = 'pg_search' AND extversion = '0.25.0';"
+      predicate_query: "SELECT 1 FROM pg_extension WHERE extname = 'pg_search' AND extversion = '0.25.3';"
       metrics:
         - datname:
             description: Name of the database
@@ -246,7 +246,7 @@ metadata:
     app.kubernetes.io/name: paradedb
     app.kubernetes.io/instance: paradedb
     app.kubernetes.io/part-of: cloudnative-pg
-    app.kubernetes.io/version: "0.25.0"
+    app.kubernetes.io/version: "0.25.3"
     app.kubernetes.io/managed-by: Helm
 spec:
   instances: 1

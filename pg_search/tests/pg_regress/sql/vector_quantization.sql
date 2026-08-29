@@ -120,9 +120,9 @@ SELECT bool_or(vector_format = 'ivf') AS cosine_has_ivf
 FROM paradedb.vector_info('q_cosine_idx', 'vec');
 
 -- The gamma audit requires the fixed 100-query cross-product protocol,
--- reports both real-query and held-out sources, and is read-only. The
--- uncalibrated-path assertion immediately below proves that this call did not
--- install calibration in index settings.
+-- reports both real-query and held-out sources, and is read-only. Calibration
+-- metadata is diagnostic-only under R1, so its presence or absence never
+-- selects the quantized scorer.
 SELECT count(*)
 FROM paradedb.vector_gamma_audit(
     'q_cosine_idx',
@@ -213,9 +213,9 @@ SELECT
     count(*) FILTER (WHERE final_depth) = 1 AS cone_one_final_depth
 FROM cone;
 
--- Save the level-0 oracle before calibration. A fractional probe budget makes
--- this the unquantized-IVF baseline, not an exhaustive scan; the calibrated
--- level-0 query below must preserve its result order and exact scores.
+-- Save the level-0 oracle before diagnostic calibration. A fractional probe
+-- budget makes this the unquantized-IVF baseline, not an exhaustive scan; the
+-- later level-0 query must preserve its result order and exact scores.
 SET paradedb.vector_cluster_max_probe = 0.25;
 CREATE TEMP TABLE q_cosine_unquantized_ivf AS
 SELECT
@@ -230,10 +230,9 @@ FROM (
     LIMIT 10
 ) hits;
 
--- An uncalibrated quantized field must announce and use the routed,
--- full-precision IVF path. The NOTICE is query-scoped even though the fixture
--- can contain multiple segments.
-SET client_min_messages = NOTICE;
+-- Diagnostic calibration is not a scorer prerequisite. Before any
+-- vector_calibrate call, the positive-depth query must already use the
+-- quantized layers rather than routed full-precision fallback.
 WITH plan AS (
     SELECT quant_explain(
         'SELECT id FROM q_cosine WHERE id @@@ pdb.all() '
@@ -244,12 +243,11 @@ WITH plan AS (
     FROM plan
 )
 SELECT
-    (jsonb_path_query_first(value, '$.**.exact_scan_ns') #>> '{}')::bigint > 0
-        AS uncalibrated_uses_ivf_exact,
-    jsonb_path_query_first(value, '$.**.layer0_scored') IS NULL
-        AS uncalibrated_skips_quantized_layers
+    (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint > 0
+        AS uncalibrated_uses_quantized_layers,
+    jsonb_path_query_first(value, '$.**.exact_scan_ns') IS NULL
+        AS uncalibrated_skips_ivf_exact
 FROM segment_info;
-SET client_min_messages = WARNING;
 SET paradedb.vector_cluster_max_probe = 1.0;
 
 -- The SQL boundary rejects NULLs itself (the function is intentionally not
@@ -268,7 +266,8 @@ SELECT * FROM paradedb.vector_calibrate(
 SELECT
     array_agg(depth ORDER BY depth) = ARRAY[1, 2] AS cosine_depths,
     bool_and(source = 'real_query') AS cosine_real_query_source,
-    bool_and(sample_count > 0) AS cosine_has_samples
+    bool_and(sample_count > 0) AS cosine_has_samples,
+    bool_and(abs(bias) <= 0.3) AS cosine_bias_tripwire
 FROM paradedb.vector_calibrate(
     'q_cosine_idx',
     'vec',

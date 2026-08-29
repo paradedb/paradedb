@@ -98,12 +98,17 @@ type GammaConeAuditRow = (
     name!(final_depth, bool),
 );
 
-/// Calibrate one quantized vector field with caller-supplied production
-/// queries, then atomically replace the index-level settings record.
+/// Record gamma-corrected estimator diagnostics for one quantized vector field
+/// with caller-supplied production queries, then atomically replace the
+/// index-level settings record.
 ///
 /// External queries are independent of the indexed corpus, so row sampling
 /// deliberately performs no cluster-membership exclusion. Every supplied
-/// query is validated; the first 256 are measured to bound calibration work.
+/// query is validated; the first 256 are measured to bound diagnostic work.
+/// The measurement uses production quantized-query preparation, exact
+/// per-depth gamma correction, and the analytical gamma-model sigma.
+/// Persisted `(bias, spread)` values are R1 tripwires only: quantized scanning
+/// never reads them as a correction or band-width input.
 ///
 /// `AnyArray` is deliberate at the Rust boundary: pgrx has no native pgvector
 /// array type. The SQL declaration below fixes the public type to `vector[]`,
@@ -173,7 +178,15 @@ fn vector_calibrate_internal(
         .position(|config| config.field == field)
         .with_context(|| format!("field {field:?} is not configured for quantization"))?;
     let expected_dim = settings.vector_quantization[quantization_idx].dim;
-    let queries = decode_queries(&queries, expected_dim)?;
+    let queries = decode_queries(&queries, expected_dim)?
+        .into_iter()
+        .map(|values| VectorGammaAuditQuery {
+            values,
+            // External queries have no posting membership and therefore no
+            // self-match cluster to exclude from the serving-condition audit.
+            excluded_doc_id: None,
+        })
+        .collect::<Vec<_>>();
 
     let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
     let vector_field = search_reader
@@ -209,7 +222,7 @@ fn vector_calibrate_internal(
         "field {field:?} has no visible IVF posting-membership rows to calibrate"
     );
 
-    let mut measurements: Option<VectorCalibrationMeasurements> = None;
+    let mut measurements: Option<VectorGammaAuditMeasurements> = None;
     for ((segment_reader, &segment_memberships), &segment_sample_rows) in search_reader
         .segment_readers()
         .iter()
@@ -221,7 +234,8 @@ fn vector_calibrate_internal(
         }
         let vector_index = segment_reader.vector_index(vector_field)?;
         let segment_measurements = vector_index
-            .calibrate_external_queries(
+            .audit_gamma_queries(
+                VectorQuantizationCalibrationSource::RealQuery,
                 &queries,
                 segment_sample_rows,
                 segment_reader.alive_bitset(),
@@ -232,17 +246,19 @@ fn vector_calibrate_internal(
                     segment_reader.segment_id().short_uuid_string()
                 )
             })?;
-        if let Some(aggregate) = &mut measurements {
-            aggregate.merge(&segment_measurements)?;
-        } else {
-            measurements = Some(segment_measurements);
-        }
+        merge_gamma_measurements(&mut measurements, segment_measurements)?;
     }
 
     let measurements =
         measurements.context("no visible quantized segment supplied calibration measurements")?;
-    log_calibration_stability(index.name(), &field, &measurements);
-    let calibration = measurements.finish(VectorQuantizationCalibrationSource::RealQuery)?;
+    ensure!(
+        measurements.source == VectorQuantizationCalibrationSource::RealQuery,
+        "gamma diagnostic returned a non-real-query source"
+    );
+    log_calibration_stability(index.name(), &field, &measurements.calibration);
+    let calibration = measurements
+        .calibration
+        .finish(VectorQuantizationCalibrationSource::RealQuery)?;
     let rows = calibration
         .iter()
         .enumerate()

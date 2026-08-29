@@ -178,6 +178,41 @@ SELECT
     ) AS gamma_counts
 FROM audit;
 
+-- The cone audit is a separate, read-only diagnostic of the shipped
+-- analytical bands: all clusters are admitted, estimates are gamma-corrected
+-- with zero centering, and the fixed k=10, kappa=(2,4) protocol runs on
+-- exactly 100 external queries.
+WITH cone AS MATERIALIZED (
+    SELECT *
+    FROM paradedb.vector_gamma_cone_audit(
+        'q_cosine_idx',
+        'vec',
+        ARRAY(
+            SELECT quant_fixture_vector(768, g)
+            FROM generate_series(0, 99) g
+        )
+    )
+)
+SELECT
+    count(*) = 2 AS cone_two_depths,
+    array_agg(depth ORDER BY depth) = ARRAY[1, 2] AS cone_depths,
+    array_agg(kappa ORDER BY depth) = ARRAY[2.0::real, 4.0::real] AS cone_kappas,
+    bool_and(
+        protocol = 'C1_ALL_CLUSTERS_GAMMA_CONE_K10_K2_K4'
+        AND query_count = 100
+        AND top_k = 10
+    ) AS cone_protocol,
+    bool_and(
+        mean_scored_rows >= mean_survivor_rows
+        AND mean_survivor_rows >= mean_survivor_docs
+        AND mean_survivor_fraction BETWEEN 0.0 AND 1.0
+        AND mean_candidate_recall BETWEEN 0.0 AND 1.0
+        AND min_candidate_recall BETWEEN 0.0 AND 1.0
+        AND queries_with_miss BETWEEN 0 AND query_count
+    ) AS cone_ranges,
+    count(*) FILTER (WHERE final_depth) = 1 AS cone_one_final_depth
+FROM cone;
+
 -- Save the level-0 oracle before calibration. A fractional probe budget makes
 -- this the unquantized-IVF baseline, not an exhaustive scan; the calibrated
 -- level-0 query below must preserve its result order and exact scores.

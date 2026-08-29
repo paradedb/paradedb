@@ -28,7 +28,8 @@ use pgrx::{AnyArray, PgRelation, Spi, pg_sys};
 use tantivy::schema::FieldType;
 use tantivy::vector::{
     VectorAuditMoments, VectorCalibrationMeasurements, VectorGammaAuditMeasurements,
-    VectorGammaAuditQuery, VectorQuantizationCalibrationSource, VectorQuantizationDepthCalibration,
+    VectorGammaAuditQuery, VectorGammaConeAuditMeasurements, VectorQuantizationCalibrationSource,
+    VectorQuantizationDepthCalibration,
 };
 
 const MAX_CALIBRATION_QUERIES: usize = 256;
@@ -37,6 +38,7 @@ const GAMMA_AUDIT_QUERY_COUNT: usize = 100;
 const GAMMA_AUDIT_SAMPLE_ROWS: usize = 1_000;
 const REAL_QUERY_GAMMA_PROTOCOL: &str = "Q1_REAL_CROSS_PRODUCT_BQ4";
 const HELD_OUT_GAMMA_PROTOCOL: &str = "H1_HELD_OUT_CROSS_PRODUCT_BQ4";
+const GAMMA_CONE_PROTOCOL: &str = "C1_ALL_CLUSTERS_GAMMA_CONE_K10_K2_K4";
 
 type CalibrationRow = (
     name!(depth, i32),
@@ -78,6 +80,22 @@ type GammaAuditRow = (
     name!(orthogonality_spread, f64),
     name!(orthogonality_abs_p99, f64),
     name!(orthogonality_abs_max, f64),
+);
+
+type GammaConeAuditRow = (
+    name!(protocol, String),
+    name!(depth, i32),
+    name!(kappa, f32),
+    name!(query_count, i32),
+    name!(top_k, i32),
+    name!(mean_scored_rows, f64),
+    name!(mean_survivor_rows, f64),
+    name!(mean_survivor_docs, f64),
+    name!(mean_survivor_fraction, f64),
+    name!(mean_candidate_recall, f64),
+    name!(min_candidate_recall, f64),
+    name!(queries_with_miss, i32),
+    name!(final_depth, bool),
 );
 
 /// Calibrate one quantized vector field with caller-supplied production
@@ -533,10 +551,156 @@ fn vector_gamma_audit_internal(
     Ok(TableIterator::new(rows))
 }
 
+/// Measure only confidence-band survivor behavior: every cluster and every
+/// visible posting membership is admitted, so routing and probe budgets cannot
+/// hide a band miss. Gamma-corrected estimates use zero centering by contract;
+/// the separate 1K cross-product endpoint remains the bias regression gate.
+#[pg_extern(
+    name = "vector_gamma_cone_audit",
+    sql = r#"
+CREATE FUNCTION paradedb.vector_gamma_cone_audit(
+    index regclass,
+    field text,
+    queries vector[]
+) RETURNS TABLE(
+    protocol text,
+    depth integer,
+    kappa real,
+    query_count integer,
+    top_k integer,
+    mean_scored_rows double precision,
+    mean_survivor_rows double precision,
+    mean_survivor_docs double precision,
+    mean_survivor_fraction double precision,
+    mean_candidate_recall double precision,
+    min_candidate_recall double precision,
+    queries_with_miss integer,
+    final_depth boolean
+)
+STABLE PARALLEL UNSAFE
+LANGUAGE c
+AS 'MODULE_PATHNAME', 'vector_gamma_cone_audit_internal_wrapper';
+"#
+)]
+fn vector_gamma_cone_audit_internal(
+    index: Option<PgRelation>,
+    field: Option<String>,
+    queries: Option<AnyArray>,
+) -> Result<
+    TableIterator<
+        'static,
+        (
+            name!(protocol, String),
+            name!(depth, i32),
+            name!(kappa, f32),
+            name!(query_count, i32),
+            name!(top_k, i32),
+            name!(mean_scored_rows, f64),
+            name!(mean_survivor_rows, f64),
+            name!(mean_survivor_docs, f64),
+            name!(mean_survivor_fraction, f64),
+            name!(mean_candidate_recall, f64),
+            name!(min_candidate_recall, f64),
+            name!(queries_with_miss, i32),
+            name!(final_depth, bool),
+        ),
+    >,
+> {
+    let index = index.context("index must not be NULL")?;
+    let field = field.context("field must not be NULL")?;
+    let queries = queries.context("queries must not be NULL")?;
+    let index_oid = index.oid();
+    reject_partitioned_index(index_oid, PartitionedIndexOperation::GammaConeAudit)?;
+    drop(index);
+
+    let index = PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as _);
+    ensure!(
+        unsafe { pg_sys::get_rel_relkind(index.oid()) as u8 } == pg_sys::RELKIND_INDEX,
+        "vector gamma cone audit requires a physical index"
+    );
+    ensure!(
+        is_bm25_index(&index),
+        "vector gamma cone audit requires a ParadeDB index"
+    );
+    ensure!(index.is_usable(), "index is not valid, ready, and live");
+
+    let settings = load_index_settings(&index)?
+        .with_context(|| format!("index {:?} has no persisted settings", index.name()))?;
+    let quantization = settings
+        .vector_quantization
+        .iter()
+        .find(|config| config.field == field)
+        .with_context(|| format!("field {field:?} is not configured for quantization"))?;
+    let (external_queries, input_query_count) = decode_queries_capped(
+        &queries,
+        quantization.dim,
+        GAMMA_AUDIT_QUERY_COUNT,
+        "gamma cone audit",
+    )?;
+    ensure!(
+        input_query_count == GAMMA_AUDIT_QUERY_COUNT,
+        "vector gamma cone audit requires exactly {GAMMA_AUDIT_QUERY_COUNT} queries; received {input_query_count}"
+    );
+    let external_queries = external_queries
+        .into_iter()
+        .map(|values| VectorGammaAuditQuery {
+            values,
+            excluded_doc_id: None,
+        })
+        .collect::<Vec<_>>();
+
+    let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
+    let vector_field = search_reader
+        .schema()
+        .tantivy_schema()
+        .get_field(&field)
+        .with_context(|| format!("field {field:?} is absent from the index schema"))?;
+    let field_entry = search_reader
+        .schema()
+        .tantivy_schema()
+        .get_field_entry(vector_field);
+    let FieldType::Vector(vector_options) = field_entry.field_type() else {
+        bail!("field {field:?} is not a vector field");
+    };
+    ensure!(
+        vector_options.dim() == quantization.dim,
+        "quantization dimension {} for field {field:?} does not match schema dimension {}",
+        quantization.dim,
+        vector_options.dim()
+    );
+
+    // A cone boundary is segment-wide. Reject multiple physical vector
+    // segments rather than silently applying per-segment boundaries and
+    // calling their average an index-wide result.
+    let mut vector_segments = Vec::new();
+    for segment_reader in search_reader.segment_readers() {
+        let vector_index = segment_reader.vector_index(vector_field)?;
+        if vector_index.num_vectors() != 0 {
+            vector_segments.push((segment_reader, vector_index));
+        }
+    }
+    ensure!(
+        vector_segments.len() == 1,
+        "vector gamma cone audit requires exactly one non-empty vector segment; found {}",
+        vector_segments.len()
+    );
+    let (segment_reader, vector_index) = vector_segments.into_iter().next().unwrap();
+    let measurements = vector_index
+        .audit_gamma_cone(&external_queries, segment_reader.alive_bitset())?
+        .with_context(|| {
+            format!(
+                "segment {} has no quantized IVF storage for field {field:?}",
+                segment_reader.segment_id().short_uuid_string()
+            )
+        })?;
+    Ok(TableIterator::new(gamma_cone_audit_rows(&measurements)?))
+}
+
 #[derive(Clone, Copy)]
 enum PartitionedIndexOperation {
     Calibration,
     GammaAudit,
+    GammaConeAudit,
 }
 
 fn reject_partitioned_index(
@@ -573,6 +737,12 @@ fn reject_partitioned_index(
                 "cannot audit gamma on a partitioned index parent; child indexes: {children}; audit each child index individually with paradedb.vector_gamma_audit"
             ),
             "call paradedb.vector_gamma_audit for each child index individually".to_string(),
+        ),
+        PartitionedIndexOperation::GammaConeAudit => (
+            format!(
+                "cannot audit a gamma cone on a partitioned index parent; child indexes: {children}; audit each child index individually with paradedb.vector_gamma_cone_audit"
+            ),
+            "call paradedb.vector_gamma_cone_audit for each child index individually".to_string(),
         ),
     };
     pgrx::pg_sys::panic::ErrorReport::new(
@@ -843,6 +1013,53 @@ fn gamma_audit_rows(measurements: &VectorGammaAuditMeasurements) -> Result<Vec<G
                 orthogonality.spread,
                 orthogonality.abs_p99,
                 orthogonality.abs_max,
+            ))
+        })
+        .collect()
+}
+
+fn gamma_cone_audit_rows(
+    measurements: &VectorGammaConeAuditMeasurements,
+) -> Result<Vec<GammaConeAuditRow>> {
+    ensure!(
+        measurements.query_count != 0 && measurements.top_k != 0,
+        "gamma cone audit returned an empty query or top-k protocol"
+    );
+    let depth_count = measurements.depths.len();
+    measurements
+        .depths
+        .iter()
+        .enumerate()
+        .map(|(depth, measurement)| {
+            let mean = |moments: &VectorAuditMoments, label: &str| {
+                moments
+                    .mean()
+                    .with_context(|| format!("gamma cone {label} has no measurements"))
+            };
+            ensure!(
+                measurement.candidate_recall.sample_count == u64::from(measurements.query_count),
+                "gamma cone depth {} measured {} queries; expected {}",
+                depth + 1,
+                measurement.candidate_recall.sample_count,
+                measurements.query_count
+            );
+            Ok((
+                GAMMA_CONE_PROTOCOL.to_string(),
+                i32::try_from(depth + 1).context("gamma cone depth exceeds SQL integer range")?,
+                measurement.kappa,
+                i32::try_from(measurements.query_count)
+                    .context("gamma cone query count exceeds SQL integer range")?,
+                i32::try_from(measurements.top_k)
+                    .context("gamma cone top-k exceeds SQL integer range")?,
+                mean(&measurement.scored_rows, "scored rows")?,
+                mean(&measurement.survivor_rows, "survivor rows")?,
+                mean(&measurement.survivor_docs, "survivor docs")?,
+                mean(&measurement.survivor_fraction, "survivor fraction")?,
+                mean(&measurement.candidate_recall, "candidate recall")?,
+                measurement.candidate_recall.min,
+                i32::try_from(measurement.queries_with_miss)
+                    .context("gamma cone miss count exceeds SQL integer range")?,
+                depth + 1 == depth_count,
             ))
         })
         .collect()

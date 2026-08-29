@@ -287,16 +287,19 @@ unsafe fn make_placeholder_const_from_funcexpr(
 }
 
 /// Walker callback for [`expression_tree_walker`] that returns `true` (abort)
-/// when it encounters a join context.
+/// when it encounters a join or retained filter sublink context.
 #[pg_guard]
-unsafe extern "C-unwind" fn find_join_expr_walker(
+unsafe extern "C-unwind" fn find_join_or_sublink_walker(
     node: *mut pg_sys::Node,
     _context: *mut std::ffi::c_void,
 ) -> bool {
     if node.is_null() {
         return false;
     }
-    if (*node).type_ == pg_sys::NodeTag::T_JoinExpr {
+    if matches!(
+        (*node).type_,
+        pg_sys::NodeTag::T_JoinExpr | pg_sys::NodeTag::T_SubLink
+    ) {
         return true;
     }
     // Comma joins are a `FromExpr` with multiple fromlist entries and no
@@ -308,7 +311,7 @@ unsafe extern "C-unwind" fn find_join_expr_walker(
     {
         return true;
     }
-    expression_tree_walker(node, Some(find_join_expr_walker), _context)
+    expression_tree_walker(node, Some(find_join_or_sublink_walker), _context)
 }
 
 #[pg_extern(immutable, parallel_safe)]
@@ -317,6 +320,7 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
     // node in a `PlaceHolderVar`. This ensures that Postgres won't lose the scores when they're
     // emitted by our custom scan from underneath:
     // - JOIN nodes (Hash Join, Merge Join, etc.)
+    // - SubPlan nodes (retained filter sublinks)
     // - Gather nodes (parallel aggregation)
     //
     // Without PlaceHolderVar, PostgreSQL may decide to re-evaluate the score function at a higher
@@ -334,17 +338,18 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
         let root = (*srs).root;
         let has_aggs = !(*root).parse.is_null() && (*(*root).parse).hasAggs;
 
-        // We walk the jointree instead of checking hasJoinRTEs because
+        // We walk the jointree instead of checking hasJoinRTEs/hasSubLinks because
         // anti/semi-joins (from NOT EXISTS/EXISTS sublinks pulled up by
-        // pull_up_sublinks) create JoinExpr nodes without setting hasJoinRTEs.
-        let has_joins = !(*root).parse.is_null()
-            && find_join_expr_walker(
+        // pull_up_sublinks) create JoinExpr nodes without setting hasJoinRTEs,
+        // while retained filter sublinks remain as SubLink nodes in jointree quals.
+        let has_joins_or_sublinks = !(*root).parse.is_null()
+            && find_join_or_sublink_walker(
                 (*(*root).parse).jointree as *mut pg_sys::Node,
                 std::ptr::null_mut(),
             );
 
-        if !has_joins && !has_aggs {
-            // No joins and no aggregates - PlaceHolderVar provides no benefit
+        if !has_joins_or_sublinks && !has_aggs {
+            // No joins, sublinks, or aggregates - PlaceHolderVar provides no benefit
             return ReturnedNodePointer(None);
         }
 

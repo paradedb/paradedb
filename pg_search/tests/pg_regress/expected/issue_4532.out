@@ -342,7 +342,7 @@ LIMIT 10;
            :       CooperativeExec
            :         PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
            :       VisibilityFilterExec: tables=[r, c]
-           :         TantivyLookupExec: decode=[], resolve_ctid=[ctid_0, ctid_1]
+           :         TantivyLookupExec: decode=[], resolve_ctid=[ctid_1, ctid_2]
            :           HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
            :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, region_id@1)], projection=[id@2, ctid_1@1, ctid_2@4]
            :               CooperativeExec

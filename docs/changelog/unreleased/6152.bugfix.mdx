@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+Search predicates whose right-hand side is a `STABLE` expression, such as a row-level security policy's `id @@@ my_query_function()` or a `current_setting(...)` cast, are now folded with `estimate_expression_value()` at plan time for selectivity estimation, so the custom scan is chosen with a real row estimate instead of losing to a plain index scan whenever the query has additional predicates.

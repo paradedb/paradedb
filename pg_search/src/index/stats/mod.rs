@@ -147,6 +147,45 @@ fn ranges_intersect(
     !ends_before(a_hi, b_lo) && !ends_before(b_hi, a_lo)
 }
 
+fn lower_bound_ge(a_lo: Bound<&PdbOwnedValue>, b_lo: Bound<&PdbOwnedValue>) -> bool {
+    match (a_lo, b_lo) {
+        (_, Bound::Unbounded) => true,
+        (Bound::Unbounded, _) => false,
+        (Bound::Included(a), Bound::Included(b))
+        | (Bound::Excluded(a), Bound::Included(b))
+        | (Bound::Excluded(a), Bound::Excluded(b)) => {
+            comparable(a, b) && a.total_cmp(b) != Ordering::Less
+        }
+        (Bound::Included(a), Bound::Excluded(b)) => {
+            comparable(a, b) && a.total_cmp(b) == Ordering::Greater
+        }
+    }
+}
+
+fn upper_bound_le(a_hi: Bound<&PdbOwnedValue>, b_hi: Bound<&PdbOwnedValue>) -> bool {
+    match (a_hi, b_hi) {
+        (_, Bound::Unbounded) => true,
+        (Bound::Unbounded, _) => false,
+        (Bound::Included(a), Bound::Included(b))
+        | (Bound::Excluded(a), Bound::Included(b))
+        | (Bound::Excluded(a), Bound::Excluded(b)) => {
+            comparable(a, b) && a.total_cmp(b) != Ordering::Greater
+        }
+        (Bound::Included(a), Bound::Excluded(b)) => {
+            comparable(a, b) && a.total_cmp(b) == Ordering::Less
+        }
+    }
+}
+
+fn range_is_subset(
+    a_lo: Bound<&PdbOwnedValue>,
+    a_hi: Bound<&PdbOwnedValue>,
+    b_lo: Bound<&PdbOwnedValue>,
+    b_hi: Bound<&PdbOwnedValue>,
+) -> bool {
+    lower_bound_ge(a_lo, b_lo) && upper_bound_le(a_hi, b_hi)
+}
+
 /// The looser of two lower bounds. At an equal value the inclusive one is looser.
 fn min_lower(a: &Bound<PdbOwnedValue>, b: &Bound<PdbOwnedValue>) -> Bound<PdbOwnedValue> {
     match (a, b) {
@@ -261,6 +300,27 @@ impl LogicalBounds {
     pub(crate) fn may_hold_nulls(&self) -> bool {
         matches!(self.lower, Bound::Unbounded)
     }
+
+    /// Whether all values in this box are guaranteed to fall in `[lower, upper)`.
+    pub(crate) fn is_subset_of(
+        &self,
+        lower: &Bound<PdbOwnedValue>,
+        upper: &Bound<PdbOwnedValue>,
+    ) -> bool {
+        for own in [&self.lower, &self.upper] {
+            if let Bound::Included(v) | Bound::Excluded(v) = own
+                && !(bound_comparable(lower, v) && bound_comparable(upper, v))
+            {
+                return false;
+            }
+        }
+        range_is_subset(
+            self.lower.as_ref(),
+            self.upper.as_ref(),
+            lower.as_ref(),
+            upper.as_ref(),
+        )
+    }
 }
 
 impl EmpiricalStats {
@@ -275,6 +335,23 @@ impl EmpiricalStats {
             return true;
         }
         ranges_intersect(
+            Bound::Included(&self.min),
+            Bound::Included(&self.max),
+            lower.as_ref(),
+            upper.as_ref(),
+        )
+    }
+
+    /// Whether all values in `[min, max]` are guaranteed to fall in `[lower, upper)`.
+    pub(crate) fn is_subset_of(
+        &self,
+        lower: &Bound<PdbOwnedValue>,
+        upper: &Bound<PdbOwnedValue>,
+    ) -> bool {
+        if !(bound_comparable(lower, &self.min) && bound_comparable(upper, &self.max)) {
+            return false;
+        }
+        range_is_subset(
             Bound::Included(&self.min),
             Bound::Included(&self.max),
             lower.as_ref(),

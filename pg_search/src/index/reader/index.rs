@@ -937,6 +937,49 @@ impl SearchIndexReader {
         }
     }
 
+    /// Search specific index segments with different queries for fully included vs partially included segments.
+    ///
+    /// Fully included segments evaluate against `self` (the unconstrained base query),
+    /// while partially included segments evaluate against `constrained_reader` (which includes the partition RangeQuery).
+    pub fn search_segments_with_range_filter(
+        &self,
+        included: impl Iterator<Item = SegmentId>,
+        constrained_reader: &SearchIndexReader,
+        partially_included: impl Iterator<Item = SegmentId>,
+    ) -> MultiSegmentSearchResults {
+        let unconstrained_weight = Arc::new(LazyWeight::new(
+            self.query().box_clone(),
+            self.need_scores,
+            self.searcher.clone(),
+        ));
+        let constrained_weight = Arc::new(LazyWeight::new(
+            constrained_reader.query().box_clone(),
+            constrained_reader.need_scores,
+            constrained_reader.searcher.clone(),
+        ));
+        let mut iterators = Vec::new();
+        for (segment_ord, segment_reader) in self.segment_readers_in_segments(included) {
+            iterators.push(ScorerIter::new(
+                DeferredScorer::new(Arc::clone(&unconstrained_weight), segment_reader.clone()),
+                segment_ord,
+                segment_reader.clone(),
+            ));
+        }
+        for (segment_ord, segment_reader) in self.segment_readers_in_segments(partially_included) {
+            iterators.push(ScorerIter::new(
+                DeferredScorer::new(Arc::clone(&constrained_weight), segment_reader.clone()),
+                segment_ord,
+                segment_reader.clone(),
+            ));
+        }
+        MultiSegmentSearchResults {
+            searcher: self.searcher.clone(),
+            iterators,
+            lazy_iterators: None,
+            lazy_estimated_rows: None,
+        }
+    }
+
     /// Search all available index segments for matching documents using lazy checkout from the
     /// parallel state to allow load balancing across parallel workers.
     ///

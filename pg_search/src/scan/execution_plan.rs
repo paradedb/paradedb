@@ -1024,7 +1024,7 @@ impl ExecutionPlan for PgSearchScanPlan {
             scanner_config,
             ffhelper,
             mut visibility,
-            reader,
+            mut reader,
         } = scan_state;
 
         let has_dynamic_filters = !self.dynamic_filters.is_empty();
@@ -1042,12 +1042,6 @@ impl ExecutionPlan for PgSearchScanPlan {
         let dynamic_filters = self.dynamic_filters.clone();
 
         let stream_gen = async_stream::try_stream! {
-            // Create a local copy of the reader if the query changed
-            let mut reader = match &range_boundaries {
-                Some(rb) => reader.and_query_input(&rb.partition_bounds(target_partition)),
-                None => reader,
-            };
-
             // Optimized Search Integration:
             // We initialize the search here, inside the stream, because for HashJoin
             // this block is evaluated lazily during the first `poll_next`, which happens
@@ -1065,12 +1059,27 @@ impl ExecutionPlan for PgSearchScanPlan {
             };
 
             let search_results = if let Some(range_boundaries) = &range_boundaries {
-                // Range partitioned mode has no shared scan state: each partition searches the
-                // segments its bounds can reach, per their `.stats`. The query above still
-                // filters the rows, so a segment kept in doubt costs time, not correctness.
-                let segment_ids =
+                let partition_segments =
                     segments_for_partition(&reader, range_boundaries, target_partition);
-                reader.search_segments(segment_ids.into_iter())
+
+                MetricBuilder::new(&plan_metrics)
+                    .counter("segments_included", target_partition)
+                    .add(partition_segments.included.len());
+                MetricBuilder::new(&plan_metrics)
+                    .counter("segments_partially_included", target_partition)
+                    .add(partition_segments.partially_included.len());
+                MetricBuilder::new(&plan_metrics)
+                    .counter("segments_pruned", target_partition)
+                    .add(partition_segments.pruned_count);
+
+                let constrained_reader =
+                    reader.and_query_input(&range_boundaries.partition_bounds(target_partition));
+
+                reader.search_segments_with_range_filter(
+                    partition_segments.included.into_iter(),
+                    &constrained_reader,
+                    partition_segments.partially_included.into_iter(),
+                )
             } else {
                 // Standard mode delegates to the parallel state if present
                 match parallel_state {

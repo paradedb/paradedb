@@ -243,8 +243,26 @@ mod tests {
         let mut chosen = Vec::new();
         for partition in 0..8 {
             let segments = segments_for_partition(&reader, &boundaries, partition);
-            assert_eq!(segments.len(), 1, "partition {partition}: {segments:?}");
-            chosen.extend(segments);
+            assert_eq!(
+                segments.total_scanned(),
+                1,
+                "partition {partition}: {segments:?}"
+            );
+            assert_eq!(
+                segments.included.len(),
+                1,
+                "partition {partition} should be fully included"
+            );
+            assert_eq!(
+                segments.partially_included.len(),
+                0,
+                "partition {partition} should have 0 partially included"
+            );
+            assert_eq!(
+                segments.pruned_count, 7,
+                "partition {partition} should prune 7 segments"
+            );
+            chosen.extend(segments.included);
         }
         chosen.sort();
         chosen.dedup();
@@ -257,7 +275,22 @@ mod tests {
         };
         let low = segments_for_partition(&reader, &coarse, 0);
         let high = segments_for_partition(&reader, &coarse, 1);
-        assert_eq!((low.len(), high.len()), (4, 4));
+        assert_eq!(
+            (
+                low.included.len(),
+                low.partially_included.len(),
+                low.pruned_count
+            ),
+            (4, 0, 4)
+        );
+        assert_eq!(
+            (
+                high.included.len(),
+                high.partially_included.len(),
+                high.pruned_count
+            ),
+            (4, 0, 4)
+        );
     }
 
     /// Without a partitioned build, the empirical `min`/`max` still prunes: a serial build over
@@ -303,8 +336,8 @@ mod tests {
                 .filter(|r| r.intersects(&range.lower, &range.upper))
                 .count();
             let chosen = segments_for_partition(&reader, &boundaries, partition);
-            assert_eq!(chosen.len(), expected, "partition {partition}");
-            pruned_somewhere |= chosen.len() < stats.len();
+            assert_eq!(chosen.total_scanned(), expected, "partition {partition}");
+            pruned_somewhere |= chosen.pruned_count > 0;
         }
         assert!(pruned_somewhere);
     }
@@ -402,13 +435,21 @@ mod tests {
         for partition in 0..4 {
             let chosen = segments_for_partition(&reader, &boundaries, partition);
             assert_eq!(
-                chosen.len(),
+                chosen.total_scanned(),
                 2,
                 "its own segment and the unboxed one: {chosen:?}"
             );
+            assert_eq!(chosen.included.len(), 1, "boxed segment is fully included");
+            assert_eq!(
+                chosen.partially_included.len(),
+                1,
+                "unboxed segment is partially included"
+            );
+            assert_eq!(chosen.pruned_count, 3, "3 other boxed segments are pruned");
+            let scanned: Vec<SegmentId> = chosen.all_scanned().copied().collect();
             everywhere = Some(match everywhere {
-                None => chosen,
-                Some(prev) => prev.into_iter().filter(|id| chosen.contains(id)).collect(),
+                None => scanned,
+                Some(prev) => prev.into_iter().filter(|id| scanned.contains(id)).collect(),
             });
         }
         assert_eq!(
@@ -480,7 +521,11 @@ mod tests {
                 1
             };
             let chosen = segments_for_partition(&reader, &boundaries, partition);
-            assert_eq!(chosen.len(), expected, "partition {partition}: {chosen:?}");
+            assert_eq!(
+                chosen.total_scanned(),
+                expected,
+                "partition {partition}: {chosen:?}"
+            );
         }
         // `ALTER INDEX` refuses a relation this transaction still holds open.
         drop(reader);
@@ -582,8 +627,8 @@ mod tests {
                 .filter(|r| r.intersects(&range.lower, &range.upper))
                 .count();
             let chosen = segments_for_partition(&reader, &boundaries, partition);
-            assert_eq!(chosen.len(), expected, "partition {partition}");
-            pruned_somewhere |= chosen.len() < stats.len();
+            assert_eq!(chosen.total_scanned(), expected, "partition {partition}");
+            pruned_somewhere |= chosen.pruned_count > 0;
         }
         assert!(pruned_somewhere);
     }
@@ -690,5 +735,48 @@ mod tests {
         assert!(!e.intersects(&Bound::Excluded(i(9)), &Bound::Unbounded));
         assert!(!e.intersects(&Bound::Unbounded, &Bound::Excluded(i(5))));
         assert!(e.intersects(&Bound::Unbounded, &Bound::Included(i(5))));
+    }
+
+    #[test]
+    fn bounds_subset_containment() {
+        let i = |v: i64| PdbOwnedValue::I64(v);
+        let a = LogicalBounds {
+            lower: Bound::Included(i(10)),
+            upper: Bound::Excluded(i(20)),
+        };
+
+        // Fully containing range [10, 20)
+        assert!(a.is_subset_of(&Bound::Included(i(10)), &Bound::Excluded(i(20))));
+        // Wider range [0, 30)
+        assert!(a.is_subset_of(&Bound::Included(i(0)), &Bound::Excluded(i(30))));
+        // Unbounded range [-inf, +inf)
+        assert!(a.is_subset_of(&Bound::Unbounded, &Bound::Unbounded));
+        // Lower unbounded [-inf, 20)
+        assert!(a.is_subset_of(&Bound::Unbounded, &Bound::Excluded(i(20))));
+        // Upper unbounded [10, +inf)
+        assert!(a.is_subset_of(&Bound::Included(i(10)), &Bound::Unbounded));
+
+        // Tighter lower [15, 20) -> not a subset
+        assert!(!a.is_subset_of(&Bound::Included(i(15)), &Bound::Excluded(i(20))));
+        // Tighter upper [10, 15) -> not a subset
+        assert!(!a.is_subset_of(&Bound::Included(i(10)), &Bound::Excluded(i(15))));
+        // Shifted range [15, 25) -> not a subset
+        assert!(!a.is_subset_of(&Bound::Included(i(15)), &Bound::Excluded(i(25))));
+        // Disjoint range [20, 30) -> not a subset
+        assert!(!a.is_subset_of(&Bound::Included(i(20)), &Bound::Excluded(i(30))));
+
+        let e = EmpiricalStats {
+            min: i(10),
+            max: i(19),
+            nullable: false,
+        };
+        // [10, 19] is fully inside [10, 20)
+        assert!(e.is_subset_of(&Bound::Included(i(10)), &Bound::Excluded(i(20))));
+        // [10, 19] is fully inside [10, 19]
+        assert!(e.is_subset_of(&Bound::Included(i(10)), &Bound::Included(i(19))));
+        // [10, 19] is not inside [10, 19) because 19 is excluded
+        assert!(!e.is_subset_of(&Bound::Included(i(10)), &Bound::Excluded(i(19))));
+        // [10, 19] is not inside [11, 20)
+        assert!(!e.is_subset_of(&Bound::Included(i(11)), &Bound::Excluded(i(20))));
     }
 }

@@ -22,7 +22,7 @@ use std::cmp::Ordering;
 use std::ops::Bound;
 
 use tantivy::Index;
-use tantivy::index::{SegmentId, SegmentReader};
+use tantivy::index::SegmentId;
 
 use super::SegmentStats;
 use crate::index::mvcc::MvccSatisfies;
@@ -75,21 +75,54 @@ pub(crate) fn persisted_split_points(
     Ok((!points.is_empty()).then_some(points))
 }
 
-/// The segments of `reader` that can hold a row of `partition`. A segment without statistics
-/// it can be ranked against is kept, so the query the caller still applies stays the source of
-/// truth.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SegmentInclusion {
+    FullyIncluded,
+    PartiallyIncluded,
+    Excluded,
+}
+
+/// The classified segments for a given partition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PartitionSegments {
+    pub(crate) included: Vec<SegmentId>,
+    pub(crate) partially_included: Vec<SegmentId>,
+    pub(crate) pruned_count: usize,
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+impl PartitionSegments {
+    pub(crate) fn total_scanned(&self) -> usize {
+        self.included.len() + self.partially_included.len()
+    }
+
+    pub(crate) fn all_scanned(&self) -> impl Iterator<Item = &SegmentId> {
+        self.included.iter().chain(self.partially_included.iter())
+    }
+}
+
+/// The segments of `reader` that can hold a row of `partition`, classified by whether they
+/// require a partition `RangeQuery` or are fully contained within the partition range.
 pub(crate) fn segments_for_partition(
     reader: &SearchIndexReader,
     boundaries: &RangePartitioning,
     partition: usize,
-) -> Vec<SegmentId> {
+) -> PartitionSegments {
     let all = reader.segment_ids();
     let Some(range) = boundaries.partition_range(partition) else {
-        return all;
+        return PartitionSegments {
+            included: all,
+            partially_included: Vec::new(),
+            pruned_count: 0,
+        };
     };
     let field_name = boundaries.partition_by.as_ref();
     let Ok(field) = reader.schema().tantivy_schema().get_field(field_name) else {
-        return all;
+        return PartitionSegments {
+            included: Vec::new(),
+            partially_included: all,
+            pruned_count: 0,
+        };
     };
     // A recent index keeps datetimes in an `I64` column, so its statistics need the same lift
     // as its values; a legacy index stored them as `Date` already.
@@ -103,46 +136,96 @@ pub(crate) fn segments_for_partition(
         _ => false,
     };
 
-    reader
-        .segment_readers()
-        .iter()
-        .filter(|segment_reader| {
-            let Ok(Some(stats)) = SegmentStats::of_reader(segment_reader) else {
-                return true;
-            };
-            let Ok(logical) = stats.logical(field) else {
-                return true;
-            };
-            let Ok(empirical) = stats.empirical(field) else {
-                return true;
-            };
-            let empirical = match empirical {
-                Some(empirical) if is_date => match empirical.into_dates() {
-                    Some(empirical) => Some(empirical),
-                    None => return true,
-                },
-                other => other,
-            };
-            let (lower, upper) = (&range.lower, &range.upper);
-            match (logical, empirical) {
-                (None, None) => true,
-                (Some(bounds), None) => {
-                    (range.includes_nulls && bounds.may_hold_nulls())
-                        || bounds.intersects(lower, upper)
+    let mut included = Vec::new();
+    let mut partially_included = Vec::new();
+    let mut pruned_count = 0;
+
+    for segment_reader in reader.segment_readers() {
+        let Ok(Some(stats)) = SegmentStats::of_reader(segment_reader) else {
+            partially_included.push(segment_reader.segment_id());
+            continue;
+        };
+        let Ok(logical) = stats.logical(field) else {
+            partially_included.push(segment_reader.segment_id());
+            continue;
+        };
+        let Ok(empirical) = stats.empirical(field) else {
+            partially_included.push(segment_reader.segment_id());
+            continue;
+        };
+        let empirical = match empirical {
+            Some(empirical) if is_date => match empirical.into_dates() {
+                Some(empirical) => Some(empirical),
+                None => {
+                    partially_included.push(segment_reader.segment_id());
+                    continue;
                 }
-                (None, Some(empirical)) => {
-                    (range.includes_nulls && empirical.nullable)
-                        || empirical.intersects(lower, upper)
-                }
-                // The box holds what the build routed here and the empirical range what the
-                // segment holds now, so a partition has to reach both. The empirical range is
-                // the tighter of the two once a partition cuts inside a box.
-                (Some(bounds), Some(empirical)) => {
-                    (range.includes_nulls && empirical.nullable)
-                        || (bounds.intersects(lower, upper) && empirical.intersects(lower, upper))
+            },
+            other => other,
+        };
+        let (lower, upper) = (&range.lower, &range.upper);
+        let inclusion = match (logical, empirical) {
+            (None, None) => SegmentInclusion::PartiallyIncluded,
+            (Some(bounds), None) => {
+                let intersects = (range.includes_nulls && bounds.may_hold_nulls())
+                    || bounds.intersects(lower, upper);
+                if !intersects {
+                    SegmentInclusion::Excluded
+                } else if (range.includes_nulls || !bounds.may_hold_nulls())
+                    && bounds.is_subset_of(lower, upper)
+                {
+                    SegmentInclusion::FullyIncluded
+                } else {
+                    SegmentInclusion::PartiallyIncluded
                 }
             }
-        })
-        .map(SegmentReader::segment_id)
-        .collect()
+            (None, Some(empirical)) => {
+                let intersects = (range.includes_nulls && empirical.nullable)
+                    || empirical.intersects(lower, upper);
+                if !intersects {
+                    SegmentInclusion::Excluded
+                } else if (range.includes_nulls || !empirical.nullable)
+                    && empirical.is_subset_of(lower, upper)
+                {
+                    SegmentInclusion::FullyIncluded
+                } else {
+                    SegmentInclusion::PartiallyIncluded
+                }
+            }
+            // The box holds what the build routed here and the empirical range what the
+            // segment holds now, so a partition has to reach both. The empirical range is
+            // the tighter of the two once a partition cuts inside a box.
+            (Some(bounds), Some(empirical)) => {
+                let intersects = (range.includes_nulls && empirical.nullable)
+                    || (bounds.intersects(lower, upper) && empirical.intersects(lower, upper));
+                if !intersects {
+                    SegmentInclusion::Excluded
+                } else {
+                    let logical_subset = (range.includes_nulls || !bounds.may_hold_nulls())
+                        && bounds.is_subset_of(lower, upper);
+                    let empirical_subset = (range.includes_nulls || !empirical.nullable)
+                        && empirical.is_subset_of(lower, upper);
+                    if logical_subset || empirical_subset {
+                        SegmentInclusion::FullyIncluded
+                    } else {
+                        SegmentInclusion::PartiallyIncluded
+                    }
+                }
+            }
+        };
+
+        match inclusion {
+            SegmentInclusion::FullyIncluded => included.push(segment_reader.segment_id()),
+            SegmentInclusion::PartiallyIncluded => {
+                partially_included.push(segment_reader.segment_id())
+            }
+            SegmentInclusion::Excluded => pruned_count += 1,
+        }
+    }
+
+    PartitionSegments {
+        included,
+        partially_included,
+        pruned_count,
+    }
 }

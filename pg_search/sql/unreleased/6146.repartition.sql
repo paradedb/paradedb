@@ -1,4 +1,4 @@
-CREATE FUNCTION paradedb."repartition"(
+CREATE  FUNCTION "repartition"(
 	"index" regclass /* PgRelation */
 ) RETURNS bigint /* anyhow :: Result < i64 > */
 STRICT

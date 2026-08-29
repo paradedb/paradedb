@@ -27,12 +27,16 @@ use pgrx::prelude::*;
 use pgrx::{AnyArray, PgRelation, Spi, pg_sys};
 use tantivy::schema::FieldType;
 use tantivy::vector::{
-    VectorCalibrationMeasurements, VectorQuantizationCalibrationSource,
-    VectorQuantizationDepthCalibration,
+    VectorAuditMoments, VectorCalibrationMeasurements, VectorGammaAuditMeasurements,
+    VectorGammaAuditQuery, VectorQuantizationCalibrationSource, VectorQuantizationDepthCalibration,
 };
 
 const MAX_CALIBRATION_QUERIES: usize = 256;
 const CALIBRATION_SAMPLE_ROWS: usize = 1_000;
+const GAMMA_AUDIT_QUERY_COUNT: usize = 100;
+const GAMMA_AUDIT_SAMPLE_ROWS: usize = 1_000;
+const REAL_QUERY_GAMMA_PROTOCOL: &str = "Q1_REAL_CROSS_PRODUCT_BQ4";
+const HELD_OUT_GAMMA_PROTOCOL: &str = "H1_HELD_OUT_CROSS_PRODUCT_BQ4";
 
 type CalibrationRow = (
     name!(depth, i32),
@@ -40,6 +44,40 @@ type CalibrationRow = (
     name!(spread, f32),
     name!(sample_count, i32),
     name!(source, String),
+);
+
+type GammaAuditRow = (
+    name!(source, String),
+    name!(protocol, String),
+    name!(depth, i32),
+    name!(bias, f32),
+    name!(spread, f32),
+    name!(sample_count, i32),
+    name!(gamma_sample_count, i64),
+    name!(gamma_mean, f64),
+    name!(gamma_spread, f64),
+    name!(gamma_min, f64),
+    name!(gamma_p50, f64),
+    name!(gamma_p95, f64),
+    name!(gamma_p99, f64),
+    name!(gamma_max, f64),
+    name!(f16_band_error_sample_count, i64),
+    name!(f16_band_error_mean, f64),
+    name!(f16_band_error_spread, f64),
+    name!(f16_band_error_abs_p99, f64),
+    name!(f16_band_error_abs_max, f64),
+    name!(clamp_band_error_sample_count, i64),
+    name!(clamp_band_error_mean, f64),
+    name!(clamp_band_error_spread, f64),
+    name!(clamp_band_error_abs_p99, f64),
+    name!(clamp_band_error_abs_max, f64),
+    name!(zero_count, i64),
+    name!(clamp_count, i64),
+    name!(orthogonality_sample_count, i64),
+    name!(orthogonality_mean, f64),
+    name!(orthogonality_spread, f64),
+    name!(orthogonality_abs_p99, f64),
+    name!(orthogonality_abs_max, f64),
 );
 
 /// Calibrate one quantized vector field with caller-supplied production
@@ -91,7 +129,7 @@ fn vector_calibrate_internal(
     let field = field.context("field must not be NULL")?;
     let queries = queries.context("queries must not be NULL")?;
     let index_oid = index.oid();
-    reject_partitioned_index(index_oid)?;
+    reject_partitioned_index(index_oid, PartitionedIndexOperation::Calibration)?;
     drop(index);
 
     // The settings list and its metapage pointer are one physical-index
@@ -199,7 +237,312 @@ fn vector_calibrate_internal(
     Ok(TableIterator::new(rows))
 }
 
-fn reject_partitioned_index(index_oid: pg_sys::Oid) -> Result<()> {
+/// Measure gamma-corrected estimator behavior without changing index settings.
+///
+/// The real-query protocol validates every caller-supplied query and measures
+/// exactly the first 100. The held-out protocol independently samples exactly
+/// 100 distinct visible stored documents across the index. Only a stored
+/// pseudo-query's origin segment receives its `doc_id`, so all replica
+/// memberships of that document are excluded there; external queries have no
+/// residency and therefore no exclusion. Both protocols use the same
+/// index-wide 1,000-posting-row target allocation.
+#[pg_extern(
+    name = "vector_gamma_audit",
+    sql = r#"
+CREATE FUNCTION paradedb.vector_gamma_audit(
+    index regclass,
+    field text,
+    queries vector[]
+) RETURNS TABLE(
+    source text,
+    protocol text,
+    depth integer,
+    bias real,
+    spread real,
+    sample_count integer,
+    gamma_sample_count bigint,
+    gamma_mean double precision,
+    gamma_spread double precision,
+    gamma_min double precision,
+    gamma_p50 double precision,
+    gamma_p95 double precision,
+    gamma_p99 double precision,
+    gamma_max double precision,
+    f16_band_error_sample_count bigint,
+    f16_band_error_mean double precision,
+    f16_band_error_spread double precision,
+    f16_band_error_abs_p99 double precision,
+    f16_band_error_abs_max double precision,
+    clamp_band_error_sample_count bigint,
+    clamp_band_error_mean double precision,
+    clamp_band_error_spread double precision,
+    clamp_band_error_abs_p99 double precision,
+    clamp_band_error_abs_max double precision,
+    zero_count bigint,
+    clamp_count bigint,
+    orthogonality_sample_count bigint,
+    orthogonality_mean double precision,
+    orthogonality_spread double precision,
+    orthogonality_abs_p99 double precision,
+    orthogonality_abs_max double precision
+)
+STABLE PARALLEL UNSAFE
+LANGUAGE c
+AS 'MODULE_PATHNAME', 'vector_gamma_audit_internal_wrapper';
+"#
+)]
+fn vector_gamma_audit_internal(
+    index: Option<PgRelation>,
+    field: Option<String>,
+    queries: Option<AnyArray>,
+) -> Result<
+    TableIterator<
+        'static,
+        (
+            name!(source, String),
+            name!(protocol, String),
+            name!(depth, i32),
+            name!(bias, f32),
+            name!(spread, f32),
+            name!(sample_count, i32),
+            name!(gamma_sample_count, i64),
+            name!(gamma_mean, f64),
+            name!(gamma_spread, f64),
+            name!(gamma_min, f64),
+            name!(gamma_p50, f64),
+            name!(gamma_p95, f64),
+            name!(gamma_p99, f64),
+            name!(gamma_max, f64),
+            name!(f16_band_error_sample_count, i64),
+            name!(f16_band_error_mean, f64),
+            name!(f16_band_error_spread, f64),
+            name!(f16_band_error_abs_p99, f64),
+            name!(f16_band_error_abs_max, f64),
+            name!(clamp_band_error_sample_count, i64),
+            name!(clamp_band_error_mean, f64),
+            name!(clamp_band_error_spread, f64),
+            name!(clamp_band_error_abs_p99, f64),
+            name!(clamp_band_error_abs_max, f64),
+            name!(zero_count, i64),
+            name!(clamp_count, i64),
+            name!(orthogonality_sample_count, i64),
+            name!(orthogonality_mean, f64),
+            name!(orthogonality_spread, f64),
+            name!(orthogonality_abs_p99, f64),
+            name!(orthogonality_abs_max, f64),
+        ),
+    >,
+> {
+    let index = index.context("index must not be NULL")?;
+    let field = field.context("field must not be NULL")?;
+    let queries = queries.context("queries must not be NULL")?;
+    let index_oid = index.oid();
+    reject_partitioned_index(index_oid, PartitionedIndexOperation::GammaAudit)?;
+    drop(index);
+
+    // This endpoint is deliberately read-only: AccessShare keeps the physical
+    // index stable while Snapshot visibility determines the live rows. In
+    // particular, there is no settings-list replacement or metapage swap.
+    let index = PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as _);
+    ensure!(
+        unsafe { pg_sys::get_rel_relkind(index.oid()) as u8 } == pg_sys::RELKIND_INDEX,
+        "vector gamma audit requires a physical index"
+    );
+    ensure!(
+        is_bm25_index(&index),
+        "vector gamma audit requires a ParadeDB index"
+    );
+    ensure!(index.is_usable(), "index is not valid, ready, and live");
+
+    let settings = load_index_settings(&index)?
+        .with_context(|| format!("index {:?} has no persisted settings", index.name()))?;
+    let quantization = settings
+        .vector_quantization
+        .iter()
+        .find(|config| config.field == field)
+        .with_context(|| format!("field {field:?} is not configured for quantization"))?;
+    let expected_dim = quantization.dim;
+    let (external_queries, input_query_count) = decode_queries_capped(
+        &queries,
+        expected_dim,
+        GAMMA_AUDIT_QUERY_COUNT,
+        "gamma audit",
+    )?;
+    ensure!(
+        input_query_count >= GAMMA_AUDIT_QUERY_COUNT,
+        "vector gamma audit requires at least {GAMMA_AUDIT_QUERY_COUNT} queries; received {input_query_count}"
+    );
+    debug_assert_eq!(external_queries.len(), GAMMA_AUDIT_QUERY_COUNT);
+    let external_queries = external_queries
+        .into_iter()
+        .map(|values| VectorGammaAuditQuery {
+            values,
+            excluded_doc_id: None,
+        })
+        .collect::<Vec<_>>();
+
+    let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
+    let vector_field = search_reader
+        .schema()
+        .tantivy_schema()
+        .get_field(&field)
+        .with_context(|| format!("field {field:?} is absent from the index schema"))?;
+    let field_entry = search_reader
+        .schema()
+        .tantivy_schema()
+        .get_field_entry(vector_field);
+    let FieldType::Vector(vector_options) = field_entry.field_type() else {
+        bail!("field {field:?} is not a vector field");
+    };
+    ensure!(
+        vector_options.dim() == expected_dim,
+        "quantization dimension {expected_dim} for field {field:?} does not match schema dimension {}",
+        vector_options.dim()
+    );
+
+    let membership_rows = search_reader
+        .segment_readers()
+        .iter()
+        .map(|segment_reader| -> Result<u64> {
+            let vector_index = segment_reader.vector_index(vector_field)?;
+            u64::try_from(vector_index.live_posting_row_count(segment_reader.alive_bitset()))
+                .context("live posting-membership row count exceeds u64")
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let sample_rows = allocate_sample_rows(&membership_rows, GAMMA_AUDIT_SAMPLE_ROWS);
+    ensure!(
+        sample_rows.iter().sum::<usize>() != 0,
+        "field {field:?} has no visible IVF posting-membership rows to audit"
+    );
+
+    let distinct_rows = search_reader
+        .segment_readers()
+        .iter()
+        .map(|segment_reader| -> Result<u64> {
+            let vector_index = segment_reader.vector_index(vector_field)?;
+            u64::try_from(vector_index.live_distinct_vector_count(segment_reader.alive_bitset()))
+                .context("live distinct-vector count exceeds u64")
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let held_out_allocations = allocate_sample_rows(&distinct_rows, GAMMA_AUDIT_QUERY_COUNT);
+    ensure!(
+        held_out_allocations.iter().sum::<usize>() == GAMMA_AUDIT_QUERY_COUNT,
+        "vector gamma audit requires at least {GAMMA_AUDIT_QUERY_COUNT} visible stored vectors; found {}",
+        distinct_rows.iter().sum::<u64>()
+    );
+
+    let mut held_out_queries = Vec::with_capacity(GAMMA_AUDIT_QUERY_COUNT);
+    for (origin_segment, (segment_reader, &segment_query_count)) in search_reader
+        .segment_readers()
+        .iter()
+        .zip(&held_out_allocations)
+        .enumerate()
+    {
+        if segment_query_count == 0 {
+            continue;
+        }
+        let vector_index = segment_reader.vector_index(vector_field)?;
+        let segment_queries = vector_index
+            .sample_gamma_pseudo_queries(segment_query_count, segment_reader.alive_bitset())?
+            .with_context(|| {
+                format!(
+                    "visible segment {} has vectors but no quantized storage for field {field:?}",
+                    segment_reader.segment_id().short_uuid_string()
+                )
+            })?;
+        ensure!(
+            segment_queries.len() == segment_query_count,
+            "segment {} returned {} held-out gamma queries; expected {segment_query_count}",
+            segment_reader.segment_id().short_uuid_string(),
+            segment_queries.len()
+        );
+        ensure!(
+            segment_queries
+                .iter()
+                .all(|query| query.excluded_doc_id.is_some()),
+            "held-out gamma queries from their origin segment must carry a document id"
+        );
+        held_out_queries.extend(
+            segment_queries
+                .into_iter()
+                .map(|query| (origin_segment, query)),
+        );
+    }
+    debug_assert_eq!(held_out_queries.len(), GAMMA_AUDIT_QUERY_COUNT);
+
+    let mut real_measurements: Option<VectorGammaAuditMeasurements> = None;
+    let mut held_out_measurements: Option<VectorGammaAuditMeasurements> = None;
+    for (target_segment, (segment_reader, &segment_sample_rows)) in search_reader
+        .segment_readers()
+        .iter()
+        .zip(&sample_rows)
+        .enumerate()
+    {
+        if segment_sample_rows == 0 {
+            continue;
+        }
+        let vector_index = segment_reader.vector_index(vector_field)?;
+        let segment_real = vector_index
+            .audit_gamma_queries(
+                VectorQuantizationCalibrationSource::RealQuery,
+                &external_queries,
+                segment_sample_rows,
+                segment_reader.alive_bitset(),
+            )?
+            .with_context(|| {
+                format!(
+                    "visible segment {} has sampled rows but no quantized storage for field {field:?}",
+                    segment_reader.segment_id().short_uuid_string()
+                )
+            })?;
+        merge_gamma_measurements(&mut real_measurements, segment_real)?;
+
+        let segment_held_out_queries = held_out_queries
+            .iter()
+            .map(|(origin_segment, query)| VectorGammaAuditQuery {
+                values: query.values.clone(),
+                excluded_doc_id: if *origin_segment == target_segment {
+                    query.excluded_doc_id
+                } else {
+                    None
+                },
+            })
+            .collect::<Vec<_>>();
+        let segment_held_out = vector_index
+            .audit_gamma_queries(
+                VectorQuantizationCalibrationSource::HeldOut,
+                &segment_held_out_queries,
+                segment_sample_rows,
+                segment_reader.alive_bitset(),
+            )?
+            .with_context(|| {
+                format!(
+                    "visible segment {} has sampled rows but no quantized storage for field {field:?}",
+                    segment_reader.segment_id().short_uuid_string()
+                )
+            })?;
+        merge_gamma_measurements(&mut held_out_measurements, segment_held_out)?;
+    }
+
+    let held_out_measurements = held_out_measurements
+        .context("no visible quantized segment supplied held-out gamma measurements")?;
+    let real_measurements = real_measurements
+        .context("no visible quantized segment supplied real-query gamma measurements")?;
+    let mut rows = gamma_audit_rows(&held_out_measurements)?;
+    rows.extend(gamma_audit_rows(&real_measurements)?);
+    Ok(TableIterator::new(rows))
+}
+
+#[derive(Clone, Copy)]
+enum PartitionedIndexOperation {
+    Calibration,
+    GammaAudit,
+}
+
+fn reject_partitioned_index(
+    index_oid: pg_sys::Oid,
+    operation: PartitionedIndexOperation,
+) -> Result<()> {
     let relkind = unsafe { pg_sys::get_rel_relkind(index_oid) as u8 };
     if relkind != pg_sys::RELKIND_PARTITIONED_INDEX {
         return Ok(());
@@ -218,19 +561,48 @@ fn reject_partitioned_index(index_oid: pg_sys::Oid) -> Result<()> {
     } else {
         children.join(", ")
     };
+    let (message, hint) = match operation {
+        PartitionedIndexOperation::Calibration => (
+            format!(
+                "cannot calibrate a partitioned index parent; child indexes: {children}; calibrate each child index individually with paradedb.vector_calibrate"
+            ),
+            "call paradedb.vector_calibrate for each child index individually".to_string(),
+        ),
+        PartitionedIndexOperation::GammaAudit => (
+            format!(
+                "cannot audit gamma on a partitioned index parent; child indexes: {children}; audit each child index individually with paradedb.vector_gamma_audit"
+            ),
+            "call paradedb.vector_gamma_audit for each child index individually".to_string(),
+        ),
+    };
     pgrx::pg_sys::panic::ErrorReport::new(
         pgrx::PgSqlErrorCode::ERRCODE_WRONG_OBJECT_TYPE,
-        format!(
-            "cannot calibrate a partitioned index parent; child indexes: {children}; calibrate each child index individually with paradedb.vector_calibrate"
-        ),
+        message,
         pgrx::function_name!(),
     )
-    .set_hint("call paradedb.vector_calibrate for each child index individually")
+    .set_hint(hint)
     .report(pgrx::PgLogLevel::ERROR);
     Ok(())
 }
 
 fn decode_queries(queries: &AnyArray, expected_dim: usize) -> Result<Vec<Vec<f32>>> {
+    decode_queries_capped(
+        queries,
+        expected_dim,
+        MAX_CALIBRATION_QUERIES,
+        "quantization calibration",
+    )
+    .map(|(queries, _)| queries)
+}
+
+/// Validate every supplied array element while retaining only the bounded
+/// prefix used by the caller's measurement protocol.
+fn decode_queries_capped(
+    queries: &AnyArray,
+    expected_dim: usize,
+    max_queries: usize,
+    query_kind: &str,
+) -> Result<(Vec<Vec<f32>>, usize)> {
     let element_oid = unsafe { pg_sys::get_element_type(queries.oid()) };
     ensure!(
         is_pgvector_oid(element_oid),
@@ -247,31 +619,26 @@ fn decode_queries(queries: &AnyArray, expected_dim: usize) -> Result<Vec<Vec<f32
     let mut decoded = Vec::new();
     let mut input_count = 0usize;
     for (query_idx, datum) in array.iter().enumerate() {
-        let datum = datum
-            .with_context(|| format!("quantization calibration query {} is NULL", query_idx + 1))?;
+        let datum =
+            datum.with_context(|| format!("{query_kind} query {} is NULL", query_idx + 1))?;
         // SAFETY: the array element OID was checked against pgvector's OID
         // above, and `Array::iter` established that this element is non-NULL.
         // `PgVector` detoasts and copies the datum before returning.
         let query = unsafe { PgVector::from_polymorphic_datum(datum, false, element_oid) }
-            .with_context(|| {
-                format!(
-                    "could not decode quantization calibration query {}",
-                    query_idx + 1
-                )
-            })?;
+            .with_context(|| format!("could not decode {query_kind} query {}", query_idx + 1))?;
         ensure!(
             query.0.len() == expected_dim,
-            "quantization calibration query {} has dimension {}; expected {expected_dim}",
+            "{query_kind} query {} has dimension {}; expected {expected_dim}",
             query_idx + 1,
             query.0.len()
         );
         input_count += 1;
-        if decoded.len() < MAX_CALIBRATION_QUERIES {
+        if decoded.len() < max_queries {
             decoded.push(query.0);
         }
     }
     ensure!(input_count != 0, "queries must not be empty");
-    Ok(decoded)
+    Ok((decoded, input_count))
 }
 
 /// Allocate an index-wide row budget proportionally to each visible segment's
@@ -315,18 +682,170 @@ fn calibration_row(
     depth: usize,
     calibration: &VectorQuantizationDepthCalibration,
 ) -> Result<CalibrationRow> {
-    let source = match calibration.source {
-        VectorQuantizationCalibrationSource::HeldOut => "held_out",
-        VectorQuantizationCalibrationSource::RealQuery => "real_query",
-    };
     Ok((
         i32::try_from(depth + 1).context("quantization depth exceeds SQL integer range")?,
         calibration.bias,
         calibration.spread,
         i32::try_from(calibration.sample_count)
             .context("quantization calibration sample count exceeds SQL integer range")?,
-        source.to_string(),
+        calibration_source_label(calibration.source).to_string(),
     ))
+}
+
+fn calibration_source_label(source: VectorQuantizationCalibrationSource) -> &'static str {
+    match source {
+        VectorQuantizationCalibrationSource::HeldOut => "held_out",
+        VectorQuantizationCalibrationSource::RealQuery => "real_query",
+    }
+}
+
+fn gamma_protocol(source: VectorQuantizationCalibrationSource) -> &'static str {
+    match source {
+        VectorQuantizationCalibrationSource::HeldOut => HELD_OUT_GAMMA_PROTOCOL,
+        VectorQuantizationCalibrationSource::RealQuery => REAL_QUERY_GAMMA_PROTOCOL,
+    }
+}
+
+fn merge_gamma_measurements(
+    aggregate: &mut Option<VectorGammaAuditMeasurements>,
+    segment: VectorGammaAuditMeasurements,
+) -> Result<()> {
+    if let Some(aggregate) = aggregate {
+        aggregate.merge(&segment)?;
+    } else {
+        *aggregate = Some(segment);
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+struct DistributionSummary {
+    sample_count: i64,
+    mean: f64,
+    spread: f64,
+    min: f64,
+    p50: f64,
+    p95: f64,
+    p99: f64,
+    max: f64,
+}
+
+#[derive(Clone, Copy)]
+struct ErrorSummary {
+    sample_count: i64,
+    mean: f64,
+    spread: f64,
+    abs_p99: f64,
+    abs_max: f64,
+}
+
+fn moment_count(moments: &VectorAuditMoments, label: &str) -> Result<i64> {
+    i64::try_from(moments.sample_count)
+        .with_context(|| format!("{label} sample count exceeds SQL bigint range"))
+}
+
+fn distribution_summary(moments: &VectorAuditMoments, label: &str) -> Result<DistributionSummary> {
+    Ok(DistributionSummary {
+        sample_count: moment_count(moments, label)?,
+        mean: moments
+            .mean()
+            .with_context(|| format!("{label} has no finite measurements"))?,
+        spread: moments
+            .spread()
+            .with_context(|| format!("{label} has no finite measurements"))?,
+        min: (moments.sample_count != 0)
+            .then_some(moments.min)
+            .with_context(|| format!("{label} has no finite measurements"))?,
+        p50: moments
+            .p50()
+            .with_context(|| format!("{label} has no finite measurements"))?,
+        p95: moments
+            .p95()
+            .with_context(|| format!("{label} has no finite measurements"))?,
+        p99: moments
+            .p99()
+            .with_context(|| format!("{label} has no finite measurements"))?,
+        max: (moments.sample_count != 0)
+            .then_some(moments.max)
+            .with_context(|| format!("{label} has no finite measurements"))?,
+    })
+}
+
+fn error_summary(moments: &VectorAuditMoments, label: &str) -> Result<ErrorSummary> {
+    Ok(ErrorSummary {
+        sample_count: moment_count(moments, label)?,
+        mean: moments
+            .mean()
+            .with_context(|| format!("{label} has no finite measurements"))?,
+        spread: moments
+            .spread()
+            .with_context(|| format!("{label} has no finite measurements"))?,
+        abs_p99: moments
+            .p99_abs()
+            .with_context(|| format!("{label} has no finite measurements"))?,
+        abs_max: moments
+            .max_abs()
+            .with_context(|| format!("{label} has no finite measurements"))?,
+    })
+}
+
+fn gamma_audit_rows(measurements: &VectorGammaAuditMeasurements) -> Result<Vec<GammaAuditRow>> {
+    let calibration = measurements.calibration.finish(measurements.source)?;
+    ensure!(
+        calibration.len() == measurements.depths.len(),
+        "gamma audit calibration and diagnostic depth counts differ"
+    );
+    let source = calibration_source_label(measurements.source);
+    let protocol = gamma_protocol(measurements.source);
+    measurements
+        .depths
+        .iter()
+        .zip(&calibration)
+        .enumerate()
+        .map(|(depth, (diagnostics, calibration))| {
+            let gamma = distribution_summary(&diagnostics.gamma_raw, "gamma")?;
+            let f16 = error_summary(&diagnostics.f16_band_error, "f16 band error")?;
+            let clamp = error_summary(&diagnostics.clamp_band_error, "clamp band error")?;
+            let orthogonality =
+                error_summary(&diagnostics.orthogonality_defect, "orthogonality defect")?;
+            Ok((
+                source.to_string(),
+                protocol.to_string(),
+                i32::try_from(depth + 1).context("quantization depth exceeds SQL integer range")?,
+                calibration.bias,
+                calibration.spread,
+                i32::try_from(calibration.sample_count)
+                    .context("gamma audit sample count exceeds SQL integer range")?,
+                gamma.sample_count,
+                gamma.mean,
+                gamma.spread,
+                gamma.min,
+                gamma.p50,
+                gamma.p95,
+                gamma.p99,
+                gamma.max,
+                f16.sample_count,
+                f16.mean,
+                f16.spread,
+                f16.abs_p99,
+                f16.abs_max,
+                clamp.sample_count,
+                clamp.mean,
+                clamp.spread,
+                clamp.abs_p99,
+                clamp.abs_max,
+                i64::try_from(diagnostics.zero_count)
+                    .context("gamma zero count exceeds SQL bigint range")?,
+                i64::try_from(diagnostics.clamp_count)
+                    .context("gamma clamp count exceeds SQL bigint range")?,
+                orthogonality.sample_count,
+                orthogonality.mean,
+                orthogonality.spread,
+                orthogonality.abs_p99,
+                orthogonality.abs_max,
+            ))
+        })
+        .collect()
 }
 
 fn log_calibration_stability(

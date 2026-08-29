@@ -119,6 +119,65 @@ VACUUM q_cosine;
 SELECT bool_or(vector_format = 'ivf') AS cosine_has_ivf
 FROM paradedb.vector_info('q_cosine_idx', 'vec');
 
+-- The gamma audit requires the fixed 100-query cross-product protocol,
+-- reports both real-query and held-out sources, and is read-only. The
+-- uncalibrated-path assertion immediately below proves that this call did not
+-- install calibration in index settings.
+SELECT count(*)
+FROM paradedb.vector_gamma_audit(
+    'q_cosine_idx',
+    'vec',
+    ARRAY(
+        SELECT quant_fixture_vector(768, g)
+        FROM generate_series(0, 98) g
+    )
+);
+
+WITH audit AS MATERIALIZED (
+    SELECT *
+    FROM paradedb.vector_gamma_audit(
+        'q_cosine_idx',
+        'vec',
+        ARRAY(
+            SELECT quant_fixture_vector(768, g)
+            FROM generate_series(0, 100) g
+        )
+    )
+)
+SELECT
+    count(*) = 4 AS gamma_two_sources_two_depths,
+    array_agg(DISTINCT depth ORDER BY depth) = ARRAY[1, 2] AS gamma_depths,
+    array_agg(DISTINCT source ORDER BY source)
+        = ARRAY['held_out', 'real_query'] AS gamma_sources,
+    bool_and(
+        protocol = CASE source
+            WHEN 'held_out' THEN 'H1_HELD_OUT_CROSS_PRODUCT_BQ4'
+            WHEN 'real_query' THEN 'Q1_REAL_CROSS_PRODUCT_BQ4'
+        END
+    ) AS gamma_protocols,
+    bool_and(
+        sample_count > 0
+        AND gamma_sample_count > 0
+        AND f16_band_error_sample_count > 0
+        AND clamp_band_error_sample_count > 0
+        AND orthogonality_sample_count > 0
+        AND spread >= 0
+    ) AS gamma_samples,
+    bool_and(
+        gamma_min <= gamma_p50
+        AND gamma_p50 <= gamma_p95
+        AND gamma_p95 <= gamma_p99
+        AND gamma_p99 <= gamma_max
+        AND f16_band_error_abs_p99 <= f16_band_error_abs_max
+        AND clamp_band_error_abs_p99 <= clamp_band_error_abs_max
+        AND orthogonality_abs_p99 <= orthogonality_abs_max
+    ) AS gamma_distributions,
+    bool_and(
+        zero_count BETWEEN 0 AND gamma_sample_count
+        AND clamp_count BETWEEN 0 AND gamma_sample_count
+    ) AS gamma_counts
+FROM audit;
+
 -- Save the level-0 oracle before calibration. A fractional probe budget makes
 -- this the unquantized-IVF baseline, not an exhaustive scan; the calibrated
 -- level-0 query below must preserve its result order and exact scores.

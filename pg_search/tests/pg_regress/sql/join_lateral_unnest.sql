@@ -7,7 +7,7 @@
 --
 -- Exercises:
 -- 1. 2-table INNER JOIN + CROSS JOIN LATERAL unnest + LIMIT (JoinScan)
--- 2. 3-table JOIN + CROSS JOIN LATERAL unnest (Scileads join shape) + LIMIT (JoinScan)
+-- 2. 3-table JOIN + CROSS JOIN LATERAL unnest + LIMIT (JoinScan)
 -- 3. LEFT JOIN LATERAL unnest (preserving NULL and empty array rows) (JoinScan)
 -- 4. Multiple CROSS JOIN LATERAL unnests across different joined tables (JoinScan)
 -- 5. Filtering on the unnested column in WHERE (JoinScan)
@@ -74,28 +74,16 @@ INSERT INTO jlu_stores (brand_id, store_name, regions) VALUES
 -- =====================================================================
 
 CREATE INDEX jlu_products_idx ON jlu_products
-USING paradedb (id, title, categories, price)
-WITH (
-    key_field='id',
-    text_fields='{"title": {}, "categories": {"fast": true, "tokenizer": {"type": "keyword"}}}',
-    numeric_fields='{"price": {"fast": true}}'
-);
+USING paradedb (id, title, (categories::pdb.literal), price)
+WITH (key_field='id');
 
 CREATE INDEX jlu_brands_idx ON jlu_brands
-USING paradedb (id, product_id, brand_name, tags)
-WITH (
-    key_field='id',
-    numeric_fields='{"product_id": {"fast": true}}',
-    text_fields='{"brand_name": {}, "tags": {"fast": true, "tokenizer": {"type": "keyword"}}}'
-);
+USING paradedb (id, product_id, brand_name, (tags::pdb.literal))
+WITH (key_field='id');
 
 CREATE INDEX jlu_stores_idx ON jlu_stores
-USING paradedb (id, brand_id, store_name, regions)
-WITH (
-    key_field='id',
-    numeric_fields='{"brand_id": {"fast": true}}',
-    text_fields='{"store_name": {}, "regions": {"fast": true, "tokenizer": {"type": "keyword"}}}'
-);
+USING paradedb (id, brand_id, store_name, (regions::pdb.literal))
+WITH (key_field='id');
 
 -- =====================================================================
 -- TEST 1: Basic 2-table INNER JOIN with CROSS JOIN LATERAL unnest + LIMIT

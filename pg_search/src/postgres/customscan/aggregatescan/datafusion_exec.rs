@@ -41,8 +41,8 @@ use crate::postgres::customscan::datafusion::numeric_agg::{
 };
 use crate::postgres::customscan::datafusion::timestamp_to_date::timestamp_to_date_udf;
 use crate::postgres::customscan::datafusion::translator::{
-    ColumnMapper, PredicateTranslator, apply_join_level_filter, build_join_df_with_filter,
-    make_col, make_source_col,
+    ColumnMapper, PredicateTranslator, apply_join_level_filter, apply_relnode_unnest,
+    build_join_df_with_filter, make_col, make_source_col,
 };
 use crate::postgres::customscan::joinscan::CtidColumn;
 use crate::postgres::customscan::joinscan::build::{JoinSource, RelNode, RelationAlias};
@@ -518,9 +518,9 @@ fn numeric_avg(col: Expr, field_type: &SearchFieldType) -> Expr {
     }
 }
 
-/// Recursively lower a [`RelNode`] tree into a DataFusion [`DataFrame`].
+/// Recursively lower a [`RelNode`] tree into a DataFusion [`DataFrame`] for AggregateScan.
 ///
-/// Unlike JoinScan's `build_relnode_df`, this version:
+/// Handles Scan, Join, Filter, and Unnest operators. Unlike JoinScan's variant, this:
 /// - Does NOT handle LIMIT, ORDER BY, DISTINCT, or output projection
 ///   (those are handled by the aggregate layer above)
 /// - Is single-threaded (no partitioning logic)
@@ -579,7 +579,7 @@ fn build_relnode_df<'a>(
 
                 let mut sources = join.left.sources();
                 sources.extend(join.right.sources());
-                build_join_df_with_filter(left_df, right_df, join, &sources, &[])
+                build_join_df_with_filter(left_df, right_df, join, &sources, &[], &[])
             }
             RelNode::Filter(filter) => {
                 let df = build_relnode_df(
@@ -630,6 +630,20 @@ fn build_relnode_df<'a>(
                     &sources,
                     /* handle_mark = */ false,
                 )
+            }
+            RelNode::Unnest(unnest) => {
+                let df = build_relnode_df(
+                    ctx,
+                    &unnest.input,
+                    top_level_plan,
+                    custom_exprs,
+                    custom_scan_tlist,
+                    expr_context,
+                    planstate,
+                    mpp_manifests,
+                )
+                .await?;
+                apply_relnode_unnest(df, unnest)
             }
         }
     }

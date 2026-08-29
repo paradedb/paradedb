@@ -54,8 +54,8 @@ use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::customscan::datafusion::translator::{
     ColumnMapper, CombinedMapper, PredicateTranslator, apply_join_level_filter,
-    build_join_df_with_filter, make_col, make_source_col, make_source_score_col,
-    translate_pg_node_string,
+    apply_relnode_unnest, build_join_df_with_filter, make_col, make_source_col,
+    make_source_score_col, translate_pg_node_string,
 };
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, PrivateData, SCORE_COL_NAME,
@@ -80,6 +80,14 @@ fn resolve_var_to_df_col(
     rti: pg_sys::Index,
     attno: pg_sys::AttrNumber,
 ) -> Option<Expr> {
+    if let Some(unnest_info) = join_clause.plan.find_lateral_unnest(rti) {
+        let source = join_clause
+            .plan
+            .sources()
+            .into_iter()
+            .find(|s| s.contains_rti(unnest_info.source_rti.0))?;
+        return Some(make_source_col(source, &unnest_info.field_name));
+    }
     join_clause.plan.sources().iter().find_map(|source| {
         let mapped = source.map_var(rti, attno)?;
         let field = source.column_name(mapped)?;
@@ -485,11 +493,12 @@ struct RelNodeBuildCtx<'a> {
     join_clause: &'a JoinCSClause,
     translated_exprs: &'a [Expr],
     output_columns: &'a [OutputColumnInfo],
+    lateral_unnests: &'a [build::LateralUnnestInfo],
 }
 
 /// Recursively lowers a `RelNode` tree into a DataFusion `DataFrame`.
 ///
-/// This traversal maps the abstract relation operators (Scan, Join, Filter) onto DataFusion's
+/// This traversal maps the abstract relation operators (Scan, Join, Filter, Unnest) onto DataFusion's
 /// logical planning APIs:
 /// - **Scan**: Instantiates a `PgSearchTableProvider` containing the Tantivy index boundaries and
 ///   the set of required fields for a single relation, wrapping it in an aliased context.
@@ -498,6 +507,7 @@ struct RelNodeBuildCtx<'a> {
 ///   of the equality expression to avoid `SchemaError`s in DataFusion.
 /// - **Filter**: Maps complex, cross-table PostgreSQL scalar expressions down to the DataFusion
 ///   engine for row-level execution.
+/// - **Unnest**: Expands multi-valued array fast fields into rows via DataFusion's `unnest_columns_with_options`.
 ///
 /// All references that don't change between recursive calls are bundled into
 /// [`RelNodeBuildCtx`] so the recursive sites can stay terse.
@@ -529,7 +539,14 @@ fn build_relnode_df<'a>(
                 let right_df = build_relnode_df(rctx, &join.right).await?;
                 let mut sources = join.left.sources();
                 sources.extend(join.right.sources());
-                build_join_df_with_filter(left_df, right_df, join, &sources, rctx.output_columns)
+                build_join_df_with_filter(
+                    left_df,
+                    right_df,
+                    join,
+                    &sources,
+                    rctx.output_columns,
+                    rctx.lateral_unnests,
+                )
             }
             RelNode::Filter(filter) => {
                 let df = build_relnode_df(rctx, &filter.input).await?;
@@ -541,6 +558,10 @@ fn build_relnode_df<'a>(
                     &sources,
                     /* handle_mark = */ true,
                 )
+            }
+            RelNode::Unnest(unnest) => {
+                let df = build_relnode_df(rctx, &unnest.input).await?;
+                apply_relnode_unnest(df, unnest)
             }
         }
     };
@@ -568,9 +589,16 @@ fn build_clause_df<'a>(
             ));
         }
 
+        let lateral_unnests: Vec<build::LateralUnnestInfo> = join_clause
+            .plan
+            .lateral_unnests()
+            .into_iter()
+            .cloned()
+            .collect();
         let mapper = CombinedMapper {
             sources: &plan_sources,
             output_columns: &private_data.output_columns,
+            lateral_unnests: &lateral_unnests,
         };
         let translator = PredicateTranslator::new(&plan_sources).with_mapper(Box::new(mapper));
         let translated_exprs = unsafe { translate_custom_exprs(&translator, custom_exprs)? };
@@ -584,6 +612,7 @@ fn build_clause_df<'a>(
             join_clause,
             translated_exprs: &translated_exprs,
             output_columns: &private_data.output_columns,
+            lateral_unnests: &lateral_unnests,
         };
         let df = build_relnode_df(&rctx, &join_clause.plan).await?;
 
@@ -688,6 +717,10 @@ fn apply_distinct_group_by(
             | build::ChildProjection::IndexedExpression { rti, attno } => {
                 let e = build_projection_expr(proj, join_clause);
                 (e, Some((*rti, *attno)))
+            }
+            build::ChildProjection::Unnested { function_rti, .. } => {
+                let e = build_projection_expr(proj, join_clause);
+                (e, Some((*function_rti, 1)))
             }
         };
 
@@ -908,6 +941,10 @@ fn apply_output_projection(
                         resolve_distinct_col(distinct_col_map, false, *rti, *attno)
                             .unwrap_or_else(|| col(&col_alias))
                     }
+                    build::ChildProjection::Unnested { function_rti, .. } => {
+                        resolve_distinct_col(distinct_col_map, false, *function_rti, 1)
+                            .unwrap_or_else(|| col(&col_alias))
+                    }
                 }
             } else {
                 build_projection_expr(proj, join_clause)
@@ -957,6 +994,15 @@ fn build_projection_expr(
         | ChildProjection::IndexedExpression { rti, attno } => {
             if let Some(expr) = resolve_var_to_df_col(join_clause, *rti, *attno) {
                 return expr;
+            }
+        }
+        ChildProjection::Unnested {
+            source_rti,
+            field_name,
+            ..
+        } => {
+            if let Some(source) = plan_sources.iter().find(|s| s.contains_rti(*source_rti)) {
+                return make_source_col(source, field_name);
             }
         }
         ChildProjection::Expression { .. } => {

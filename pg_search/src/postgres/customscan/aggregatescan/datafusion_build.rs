@@ -181,8 +181,11 @@ fn source_field_candidates<'a>(
     (matches, reasons)
 }
 
-/// Walk every column in the heap tuple descriptor, resolving each through the
-/// given ParadeDB index. Returns an empty vec when `bm25_index` is `None`.
+/// Collects all fast-field metadata for a base relation.
+///
+/// Iterates across the relation's tuple descriptor, resolving each attribute to either
+/// a scalar fast field via [`resolve_fast_field`] or a multi-valued array fast field
+/// in the ParadeDB index schema. Returns an empty vector if `bm25_index` is None.
 unsafe fn collect_source_fields(
     relid: pg_sys::Oid,
     bm25_index: Option<&PgSearchRelation>,
@@ -192,6 +195,7 @@ unsafe fn collect_source_fields(
     };
     let heaprel = PgSearchRelation::open(relid);
     let tupdesc = heaprel.tuple_desc();
+    let schema = crate::schema::SearchIndexSchema::open(bm25).ok();
     let mut fields = Vec::new();
     for attno in 1..=tupdesc.len() {
         if let Some(field) = resolve_fast_field(attno as i32, &tupdesc, bm25) {
@@ -199,6 +203,25 @@ unsafe fn collect_source_fields(
                 attno: attno as pg_sys::AttrNumber,
                 field,
             });
+        } else if let Some(schema) = &schema {
+            let att = tupdesc.get(attno - 1).unwrap();
+            let col_name = att.name();
+            if let Some(search_field) = schema.search_field(col_name)
+                && search_field.is_fast()
+            {
+                let categorized = schema.categorized_fields();
+                if let Some((_, data)) = categorized.iter().find(|(sf, _)| sf == &search_field)
+                    && data.is_array
+                {
+                    fields.push(FieldInfo {
+                        attno: attno as pg_sys::AttrNumber,
+                        field: WhichFastField::Array(
+                            col_name.to_string(),
+                            search_field.field_type(),
+                        ),
+                    });
+                }
+            }
         }
     }
     fields
@@ -387,10 +410,12 @@ unsafe fn apply_search_filter_or_decline(
     Ok(())
 }
 
-/// Walk a `FromExpr` and produce a `RelNode` tree.
+/// Translates a parse-tree `FromExpr` into a `RelNode` tree.
 ///
-/// A `FromExpr` contains a `fromlist` (list of tables/joins) and `quals` (WHERE).
-/// The WHERE quals are extracted separately - here we only build the join structure.
+/// Builds a `RelNode` for the first FROM item, then folds subsequent items into
+/// `RelNode::Unnest` nodes (when referencing lateral unnest functions) or implicit
+/// inner joins. Finally, extracts equi-join keys from WHERE quals and attaches them
+/// to the corresponding join nodes.
 unsafe fn build_relnode_from_fromexpr(
     root: *mut pg_sys::PlannerInfo,
     from: *mut pg_sys::FromExpr,
@@ -413,6 +438,24 @@ unsafe fn build_relnode_from_fromexpr(
         let node = from_list
             .get_ptr(i)
             .ok_or_else(|| format!("failed to get FROM item at index {}", i))?;
+        if (*node).type_ == pg_sys::NodeTag::T_RangeTblRef {
+            let rti = (*(node as *mut pg_sys::RangeTblRef)).rtindex as pg_sys::Index;
+            if let Some(mut unnest_info) =
+                crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(root, rti)
+                && result.contains_rti(unnest_info.source_rti.0)
+            {
+                unnest_info.is_left_join = false;
+                result = RelNode::Unnest(Box::new(
+                    crate::postgres::customscan::joinscan::build::UnnestNode {
+                        input: result,
+                        unnest_info,
+                        absorbed_clauses: Vec::new(),
+                    },
+                ));
+                continue;
+            }
+        }
+
         let right = build_relnode_from_node(root, node, sources)?;
 
         // Implicit join - equi-keys will come from WHERE clause quals
@@ -605,6 +648,37 @@ unsafe fn build_join_node(
         _ => {}
     }
 
+    let try_unnest = |node_arg: *mut pg_sys::Node,
+                      other_arg: *mut pg_sys::Node|
+     -> Result<Option<RelNode>, String> {
+        if !node_arg.is_null() && (*node_arg).type_ == pg_sys::NodeTag::T_RangeTblRef {
+            let rti = (*(node_arg as *mut pg_sys::RangeTblRef)).rtindex as pg_sys::Index;
+            if let Some(mut unnest_info) =
+                crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(root, rti)
+            {
+                let other = build_relnode_from_node(root, other_arg, sources)?;
+                if other.contains_rti(unnest_info.source_rti.0) {
+                    unnest_info.is_left_join = join.jointype == pg_sys::JoinType::JOIN_LEFT;
+                    return Ok(Some(RelNode::Unnest(Box::new(
+                        crate::postgres::customscan::joinscan::build::UnnestNode {
+                            input: other,
+                            unnest_info,
+                            absorbed_clauses: Vec::new(),
+                        },
+                    ))));
+                }
+            }
+        }
+        Ok(None)
+    };
+
+    if let Some(unnest_node) = try_unnest(join.rarg, join.larg)? {
+        return Ok(unnest_node);
+    }
+    if let Some(unnest_node) = try_unnest(join.larg, join.rarg)? {
+        return Ok(unnest_node);
+    }
+
     let outer = build_relnode_from_node(root, join.larg, sources)?;
     let inner = build_relnode_from_node(root, join.rarg, sources)?;
 
@@ -773,7 +847,7 @@ unsafe fn extract_non_equi_filter_from_quals(
 
     for &node in &non_equi_nodes {
         if !all_vars_are_fast_fields_for_agg(node, sources)
-            || !PredicateTranslator::can_translate(Some(root), &all_sources, node)
+            || !PredicateTranslator::can_translate(Some(root), &all_sources, node, None)
         {
             if crate::postgres::customscan::collation_semantics::expr_has_unsupported_collation(
                 node,

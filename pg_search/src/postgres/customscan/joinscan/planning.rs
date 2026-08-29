@@ -26,7 +26,7 @@
 use super::JoinDeclineReason;
 use super::build::{
     self as build, FilterNode, InputVarInfo, JoinCSClause, JoinKeyPair, JoinLevelExpr, JoinNode,
-    JoinSource, JoinSourceCandidate, JoinType, RelNode,
+    JoinSource, JoinSourceCandidate, JoinType, RelNode, UnnestNode,
 };
 use super::predicate::{find_base_info_recursive, resolve_join_conditions};
 use super::privdat::{OutputColumnInfo, PrivateData};
@@ -615,6 +615,47 @@ unsafe fn collect_join_sources_join_rel(
 
         let outer_rel = (*outer_path).parent;
         let inner_rel = (*inner_path).parent;
+
+        // Check if inner_rel or outer_rel is a lateral unnest on the other side
+        let try_unnest = |unnest_rel: *mut pg_sys::RelOptInfo,
+                          input_rel: *mut pg_sys::RelOptInfo|
+         -> Option<CollectedJoinRel> {
+            if unnest_rel.is_null() || pg_sys::bms_num_members((*unnest_rel).relids) != 1 {
+                return None;
+            }
+            let rti = bms_iter((*unnest_rel).relids).next().unwrap();
+            let mut unnest_info = build::try_extract_lateral_unnest(root, rti)?;
+            let input_collected = collect_join_sources(root, input_rel)?;
+            if !input_collected.plan.contains_rti(unnest_info.source_rti.0) {
+                return None;
+            }
+            unnest_info.is_left_join = (*join_path).jointype == pg_sys::JoinType::JOIN_LEFT;
+            let mut absorbed_clauses: Vec<*mut pg_sys::RestrictInfo> = Vec::new();
+            if !(*unnest_rel).baserestrictinfo.is_null() {
+                let baserestrict =
+                    PgList::<pg_sys::RestrictInfo>::from_pg((*unnest_rel).baserestrictinfo);
+                for ri in baserestrict.iter_ptr() {
+                    absorbed_clauses.push(ri);
+                }
+            }
+            let plan = RelNode::Unnest(Box::new(UnnestNode {
+                input: input_collected.plan,
+                unnest_info,
+                absorbed_clauses,
+            }));
+            Some(CollectedJoinRel {
+                plan,
+                join_keys: input_collected.join_keys,
+                multi_table_clauses: input_collected.multi_table_clauses,
+            })
+        };
+
+        if let Some(res) = try_unnest(inner_rel, outer_rel) {
+            return Some(res);
+        }
+        if let Some(res) = try_unnest(outer_rel, inner_rel) {
+            return Some(res);
+        }
 
         let outer_collected = collect_join_sources(root, outer_rel)?;
         let inner_collected = collect_join_sources(root, inner_rel)?;
@@ -1354,10 +1395,24 @@ pub(super) unsafe fn collect_required_fields(
     // relation shares an RTI value with an outer relation (inner queries
     // have their own RTI numbering space), forcing us to over-project.
     let join_key_projections = join_clause.plan.join_key_projections();
+    let lateral_unnests: Vec<_> = join_clause
+        .plan
+        .lateral_unnests()
+        .into_iter()
+        .cloned()
+        .collect();
     let mut plan_sources = join_clause.plan.sources_mut();
 
     for source in &mut plan_sources {
         ensure_ctid(source);
+    }
+
+    for unnest in &lateral_unnests {
+        for source in &mut plan_sources {
+            if source.contains_rti(unnest.source_rti.0) {
+                ensure_array_field(source, unnest.source_attno, &unnest.field_name);
+            }
+        }
     }
 
     if plan_sources.len() >= 2 {
@@ -1549,6 +1604,22 @@ unsafe fn try_ensure_field(side: &mut JoinSource, attno: pg_sys::AttrNumber) -> 
     Some(())
 }
 
+/// Ensures that an array fast field for a lateral unnest is projected from a `JoinSource`.
+unsafe fn ensure_array_field(side: &mut JoinSource, attno: pg_sys::AttrNumber, field_name: &str) {
+    if side.scan_info.fields.iter().any(|f| f.attno == attno) {
+        return;
+    }
+    let indexrel = PgSearchRelation::open(side.scan_info.indexrelid);
+    if let Ok(schema) = crate::schema::SearchIndexSchema::open(&indexrel)
+        && let Some(search_field) = schema.search_field(field_name)
+    {
+        side.scan_info.add_field(
+            attno,
+            WhichFastField::Array(field_name.to_string(), search_field.field_type()),
+        );
+    }
+}
+
 /// Ensures an expression-indexed fast field is projected from a `JoinSource`.
 ///
 /// Unlike `ensure_field` (which resolves plain columns via attno), this function
@@ -1600,40 +1671,39 @@ fn collect_source_rtis(sources: &[&JoinSource]) -> Vec<pg_sys::Index> {
     sources.iter().map(|s| s.scan_info.heap_rti).collect()
 }
 
-/// Count query_pathkeys that reference at least one source relation (i.e. are
+/// Count query_pathkeys that reference at least one output relation (i.e. are
 /// not outer-only). This is the number of pathkeys JoinScan is responsible for.
 pub(super) unsafe fn count_relevant_pathkeys(
     root: *mut pg_sys::PlannerInfo,
-    sources: &[&JoinSource],
+    output_rtis: &[pg_sys::Index],
 ) -> usize {
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
-    let source_rtis = collect_source_rtis(sources);
     pathkeys
         .iter_ptr()
-        .filter(|pk| !pathkey_is_outer_only((**pk).pk_eclass, &source_rtis))
+        .filter(|pk| !pathkey_is_outer_only((**pk).pk_eclass, output_rtis))
         .count()
 }
 
 /// Returns true if no equivalence class member for this pathkey references any
-/// relation in `source_rtis`. Such pathkeys are "outer-only" w.r.t. this join
+/// relation in `output_rtis`. Such pathkeys are "outer-only" w.r.t. this join
 /// subtree — the parent plan owns sorting on those keys.
 unsafe fn pathkey_is_outer_only(
     equivclass: *mut pg_sys::EquivalenceClass,
-    source_rtis: &[pg_sys::Index],
+    output_rtis: &[pg_sys::Index],
 ) -> bool {
     let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
     for member in members.iter_ptr() {
         let check_expr = strip_wrappers((*member).em_expr.cast());
 
         if let Some(var) = nodecast!(Var, T_Var, check_expr) {
-            if source_rtis.contains(&((*var).varno as pg_sys::Index)) {
+            if output_rtis.contains(&((*var).varno as pg_sys::Index)) {
                 return false;
             }
         } else {
             let var_list = pg_sys::pull_var_clause(check_expr, PVC_RECURSE_ALL);
             let vars = PgList::<pg_sys::Var>::from_pg(var_list);
             for var_ptr in vars.iter_ptr() {
-                if source_rtis.contains(&((*var_ptr).varno as pg_sys::Index)) {
+                if output_rtis.contains(&((*var_ptr).varno as pg_sys::Index)) {
                     return false;
                 }
             }
@@ -1715,6 +1785,15 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
             if let Some(var) = nodecast!(Var, T_Var, expr) {
                 let varno = (*var).varno as pg_sys::Index;
                 let varattno = (*var).varattno;
+
+                if let Some(unnest_info) =
+                    crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(
+                        root, varno,
+                    )
+                    && source_rtis.contains(&unnest_info.source_rti.0)
+                {
+                    continue 'pathkey;
+                }
 
                 if !source_rtis.contains(&varno) {
                     continue;
@@ -2273,6 +2352,7 @@ enum JoinSortExprKind {
 
 impl JoinSortExprKind {
     unsafe fn classify(
+        root: *mut pg_sys::PlannerInfo,
         check_expr: *mut pg_sys::Expr,
         direction: SortDirection,
         sources: &[&JoinSource],
@@ -2292,6 +2372,7 @@ impl JoinSortExprKind {
                 NullTestKind::IsNotNull
             };
             return match Self::classify(
+                root,
                 inner_expr,
                 direction,
                 sources,
@@ -2342,6 +2423,23 @@ impl JoinSortExprKind {
                 } else {
                     Self::NoMatch
                 };
+            }
+
+            if let Some(unnest_info) =
+                crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(
+                    root, varno,
+                )
+                && let Some(_source) = sources
+                    .iter()
+                    .find(|s| s.contains_rti(unnest_info.source_rti.0))
+            {
+                return Self::Resolved(OrderByInfo {
+                    feature: OrderByFeature::Field {
+                        name: crate::api::FieldName::from(unnest_info.field_name.clone()),
+                        rti: unnest_info.source_rti.0,
+                    },
+                    direction,
+                });
             }
 
             for source in sources {
@@ -2426,7 +2524,7 @@ pub(super) unsafe fn extract_orderby_from_parse_sort_clause(
         let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
         let check_expr = strip_wrappers(sort_expr.cast()).cast::<pg_sys::Expr>();
 
-        match JoinSortExprKind::classify(check_expr, direction, sources, output_rtis, false) {
+        match JoinSortExprKind::classify(root, check_expr, direction, sources, output_rtis, false) {
             JoinSortExprKind::Resolved(info) => result.push(info),
             JoinSortExprKind::SkipMember => unreachable!("sortClause entry is not an EC member"),
             JoinSortExprKind::NoMatch => return None,
@@ -2485,8 +2583,6 @@ pub(super) unsafe fn extract_orderby(
         return Some(result);
     }
 
-    let source_rtis = collect_source_rtis(sources);
-
     let distinct_target_list = if has_distinct {
         let parse = (*root).parse;
         Some(PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList))
@@ -2498,7 +2594,7 @@ pub(super) unsafe fn extract_orderby(
         let pathkey = pathkey_ptr;
         let equivclass = (*pathkey).pk_eclass;
 
-        if pathkey_is_outer_only(equivclass, &source_rtis) {
+        if pathkey_is_outer_only(equivclass, output_rtis) {
             continue;
         }
         let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
@@ -2547,7 +2643,14 @@ pub(super) unsafe fn extract_orderby(
                 }
             }
 
-            match JoinSortExprKind::classify(check_expr, direction, sources, output_rtis, true) {
+            match JoinSortExprKind::classify(
+                root,
+                check_expr,
+                direction,
+                sources,
+                output_rtis,
+                true,
+            ) {
                 JoinSortExprKind::Resolved(info) => {
                     // For DISTINCT queries, NullTest pathkeys come from the
                     // DISTINCT target list — they are handled by the GROUP BY,

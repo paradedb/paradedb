@@ -38,6 +38,12 @@ pub enum OutputColumnInfo {
         plan_position: usize,
         rti: pg_sys::Index,
     },
+    /// An unnested column from a LATERAL unnest join.
+    Unnested {
+        function_rti: pg_sys::Index,
+        source_rti: pg_sys::Index,
+        field_name: String,
+    },
     /// A column pruned by a semi/anti join or a non-Var, non-score expression.
     /// Always emits NULL at execution time.
     Pruned,
@@ -54,6 +60,15 @@ impl From<&OutputColumnInfo> for ChildProjection {
             } => ChildProjection::Column {
                 rti: *rti,
                 attno: *original_attno,
+            },
+            OutputColumnInfo::Unnested {
+                function_rti,
+                source_rti,
+                field_name,
+            } => ChildProjection::Unnested {
+                function_rti: *function_rti,
+                source_rti: *source_rti,
+                field_name: field_name.clone(),
             },
             OutputColumnInfo::Pruned => ChildProjection::Column { rti: 0, attno: 0 },
         }

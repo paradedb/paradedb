@@ -44,7 +44,8 @@ use crate::schema::SearchFieldType;
 /// not every value, and the fast fields are read again to route.
 const MAX_SAMPLE_DOCS: usize = 30_000;
 
-/// The route of a document that no partition takes, because a delete removed it.
+/// The route of a document that no partition takes, because a delete removed it. It also
+/// bounds how many partitions a route can name.
 const NO_ROUTE: u16 = u16::MAX;
 
 /// Merges `segment_ids` into one segment per partition, and returns the segments it wrote.
@@ -84,6 +85,12 @@ pub(crate) fn demux_merge(
         sample(&readers, &dims, &field_types),
         target_partitions,
     );
+    if tree.partition_count() >= NO_ROUTE as usize {
+        bail!(
+            "a demux merge cannot address {} partitions",
+            tree.partition_count()
+        );
+    }
     let routes = routes(&readers, &dims, &field_types, &tree);
 
     let mut written = Vec::new();
@@ -100,6 +107,14 @@ pub(crate) fn demux_merge(
             &tree,
             masks.unwrap(),
         )?);
+    }
+
+    // Every live document of the sources has to reach exactly one output. Losing one here
+    // would be silent, so nothing is published until the counts agree.
+    let live: u64 = readers.iter().map(|r| r.num_docs() as u64).sum();
+    let routed: u64 = written.iter().map(|meta| meta.max_doc() as u64).sum();
+    if live != routed {
+        bail!("a demux merge routed {routed} of {live} documents");
     }
 
     commit(&directory, &index, &sources, &written)?;
@@ -151,14 +166,11 @@ fn sources(index: &Index, segment_ids: &[SegmentId]) -> Result<Vec<Segment>> {
         .collect()
 }
 
-/// The point of `doc`, or `None` when a dimension is not a fast field of this segment.
-fn point(ffs: &[FFType], field_types: &[Option<SearchFieldType>], doc: DocId) -> Option<Point> {
+/// The point `doc` routes on.
+fn point(ffs: &[FFType], field_types: &[Option<SearchFieldType>], doc: DocId) -> Point {
     ffs.iter()
         .zip(field_types)
-        .map(|(ff, field_type)| match ff {
-            FFType::Junk => None,
-            _ => Some(ff.value(doc, *field_type).0),
-        })
+        .map(|(ff, field_type)| ff.value(doc, *field_type).0)
         .collect()
 }
 
@@ -184,10 +196,8 @@ fn sample(
     for reader in readers {
         let ffs = fast_fields(reader, dims);
         for doc in reader.doc_ids_alive() {
-            if seen.is_multiple_of(stride)
-                && let Some(point) = point(&ffs, field_types, doc)
-            {
-                sample.push(point);
+            if seen.is_multiple_of(stride) {
+                sample.push(point(&ffs, field_types, doc));
             }
             seen += 1;
         }
@@ -208,9 +218,7 @@ fn routes(
             let ffs = fast_fields(reader, dims);
             let mut routes = vec![NO_ROUTE; reader.max_doc() as usize];
             for doc in reader.doc_ids_alive() {
-                if let Some(point) = point(&ffs, field_types, doc) {
-                    routes[doc as usize] = tree.route(&point) as u16;
-                }
+                routes[doc as usize] = tree.route(&point(&ffs, field_types, doc)) as u16;
             }
             routes
         })

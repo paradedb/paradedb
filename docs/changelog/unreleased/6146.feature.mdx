@@ -2,4 +2,4 @@
 header: features
 ---
 
-An index with `partition_by` now keeps its partitioned layout without a rebuild. A merge whose inputs carry no partition routes them, so rows that arrive through `INSERT` regain a partition on the merges that already run. `CREATE INDEX CONCURRENTLY` and `REINDEX CONCURRENTLY` route their segments in a pass after the build, so a concurrently built index no longer starts unpartitioned.
+An index with `partition_by` now keeps its partitioned layout without a rebuild: a merge routes segments that no build routed, and a concurrent build routes what it wrote once its scan finishes.

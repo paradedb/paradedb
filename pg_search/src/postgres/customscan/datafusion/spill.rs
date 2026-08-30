@@ -24,12 +24,6 @@
 //! resource-owner machinery even if the query is cancelled or the backend crashes —
 //! none of which DataFusion's OS-tempdir path provides.
 //!
-//! This implements DataFusion's [`TempFileFactory`] / [`SpillFile`] / [`SpillWriter`]
-//! trait family (added upstream to support pluggable spill backends such as
-//! `ObjectStore`-backed spilling; see `datafusion-examples/examples/data_io/
-//! object_store_spill.rs`) rather than a custom `DiskManager`, since `BufFile` has no
-//! OS-visible path — the same shape problem that motivated those traits upstream.
-//!
 //! # BufFile FFI
 //!
 //! `BufFile`'s API is synchronous and not thread-safe to share across threads; a
@@ -50,6 +44,19 @@
 //! `BufFileRead` on a different OS thread, which is both unsound (`BufFile` and PG's
 //! memory-context/resource-owner state are backend-thread-local) and would escape the
 //! `HeldInterrupts` holdoff that the rest of the codebase relies on.
+//!
+//! # Cursor tracking
+//!
+//! `BufFile` has one cursor shared between every reader and writer of the same handle.
+//! Under `RepartitionExec`, a `SpillPoolReader`'s [`SpillFile::read_stream`] and a
+//! `BufFileSpillWriter`'s `write()` calls can interleave on the same file (both run on
+//! the same OS thread, but call-by-call, not one to completion before the other
+//! starts). Neither side can assume the cursor is still wherever *it* left it, because
+//! the other side may have moved it in between calls. Both `BufFileSpillWriter`'s
+//! `write()` implementation and the `poll_fn` inside [`SpillFile::read_stream`] track
+//! their own position independently and re-seek to it before every
+//! `BufFileWrite`/`BufFileRead` call — never relying on the shared cursor's position
+//! surviving between calls, only ever setting it explicitly right before each use.
 
 use bytes::Bytes;
 use datafusion::common::exec_datafusion_err;
@@ -133,10 +140,8 @@ struct BufFileSpillFile {
 
 impl SpillFile for BufFileSpillFile {
     fn path(&self) -> Option<&Path> {
-        // BufFile has no single OS-visible path (it may span multiple 1GB segment
-        // files, and may live in any of PG's temp_tablespaces); callers that want a
-        // literal filesystem path (there are none in the traits' current callers,
-        // as of the pinned DataFusion rev) can't be served here.
+        // BufFile has no single OS-visible path: it may span multiple segment
+        // files, and may live in any of PG's configured temp_tablespaces.
         None
     }
 
@@ -150,14 +155,22 @@ impl SpillFile for BufFileSpillFile {
         Pin<Box<dyn Stream<Item = datafusion::common::Result<Bytes>> + Send>>,
     > {
         let file = self.file;
-        // Rewind to the start: open_writer() shares this file's one cursor, which is
-        // left at end-of-data after the writes. (DataFusion's own OS-tempfile SpillFile
-        // avoids this by opening a fresh, independently-positioned std::fs::File per
-        // read_stream() call; BufFile has no path to reopen, so we seek the one handle
-        // back to 0 instead. `whence = 0` is SEEK_SET -- pgrx doesn't bind a constant,
-        // matching the literal keyset.rs uses.)
-        unsafe { buffile_seek(file.get(), 0, 0, 0) }
-            .map_err(|e| exec_datafusion_err!("failed to seek BufFile spill file: {e}"))?;
+        // This pass's own read position, tracked the same way BufFileSpillWriter tracks
+        // its write position: a writer interleaved with this read can (and does, under
+        // RepartitionExec) move the shared BufFile cursor between our poll_fn calls, so
+        // every read below re-seeks to this tracked position first instead of trusting
+        // that the cursor is still wherever our own previous read left it. Starts at
+        // (0, 0) ("start of file"), the same as the up-front seek this replaces — see
+        // the module-level "Cursor tracking" note. Tracks fileno as well as offset, not
+        // just a running byte count: BufFile transparently spans multiple 1GB segment
+        // files, so a spill exceeding one segment needs the real (fileno, offset) pair
+        // BufFileTell reports, not a byte offset assumed to stay within segment 0.
+        // `whence = 0` is SEEK_SET -- pgrx doesn't bind a constant, matching the literal
+        // keyset.rs uses.
+        let mut position = BufFilePosition {
+            fileno: 0,
+            offset: 0,
+        };
         // Reused across every chunk of this pass instead of allocating fresh per read;
         // BufFileRead fills it in place and we copy out only the bytes actually read.
         let mut scratch = vec![0u8; READ_CHUNK_BYTES];
@@ -168,36 +181,83 @@ impl SpillFile for BufFileSpillFile {
             // plain blocking call here is both sound and consistent with the rest of
             // the crate's DataFusion streams.
             std::task::Poll::Ready(
-                match unsafe { buffile_read_chunk(file.get(), &mut scratch) } {
-                    Ok(0) => None,
-                    Ok(n) => Some(Ok(Bytes::copy_from_slice(&scratch[..n]))),
-                    Err(e) => Some(Err(exec_datafusion_err!(
-                        "failed to read BufFile spill file: {e}"
-                    ))),
-                },
+                (|| {
+                    // Re-anchor before every read: an interleaved write (or another pass's
+                    // read_stream) since our last read may have moved the shared cursor.
+                    unsafe { buffile_seek(file.get(), position.fileno, position.offset, 0) }
+                        .map_err(|e| {
+                            exec_datafusion_err!("failed to seek BufFile spill file: {e}")
+                        })?;
+                    match unsafe { buffile_read_chunk(file.get(), &mut scratch) } {
+                        Ok(0) => Ok(None),
+                        Ok(n) => {
+                            let (fileno, offset) =
+                                unsafe { buffile_tell(file.get()) }.map_err(|e| {
+                                    exec_datafusion_err!("failed to tell BufFile spill file: {e}")
+                                })?;
+                            position = BufFilePosition { fileno, offset };
+                            Ok(Some(Bytes::copy_from_slice(&scratch[..n])))
+                        }
+                        Err(e) => Err(exec_datafusion_err!(
+                            "failed to read BufFile spill file: {e}"
+                        )),
+                    }
+                })()
+                .transpose(),
             )
         })))
     }
 
     fn open_writer(&self) -> datafusion::common::Result<Box<dyn SpillWriter>> {
+        // Ask PG for the true position rather than assuming (0, 0): this file was just
+        // created and nothing has written to it yet, but reading the real value here
+        // (instead of hardcoding the fresh-file case) keeps this correct even if that
+        // assumption ever stops holding.
+        let (fileno, offset) = unsafe { buffile_tell(self.file.get()) }
+            .map_err(|e| exec_datafusion_err!("failed to tell BufFile spill file: {e}"))?;
         Ok(Box::new(BufFileSpillWriter {
             file: self.file,
             size: Arc::clone(&self.size),
+            position: BufFilePosition { fileno, offset },
         }))
     }
 }
 
-/// Writes to a `BufFile` via the [`std::io::Write`] impl [`SpillWriter`] requires.
+/// Writes to a `BufFile` via the [`std::io::Write`] impl [`SpillWriter`] requires. See
+/// the module-level "Writer cursor tracking" note for why `position` is tracked here.
 struct BufFileSpillWriter {
     file: SendSyncBufFile,
     size: Arc<AtomicU64>,
+    position: BufFilePosition,
+}
+
+/// This writer's own last-known `BufFile` cursor position, restored before every write
+/// so an interleaved `read_stream()` seek can't strand the next append. Mirrors the
+/// `(fileno, offset)` pair `BufFileTell`/`BufFileSeek` use.
+struct BufFilePosition {
+    fileno: c_int,
+    offset: pg_sys::off_t,
 }
 
 impl io::Write for BufFileSpillWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        unsafe { buffile_write(self.file.get(), buf) }
-            .map_err(|e| io::Error::other(format!("BufFile write failed: {e}")))?;
+        unsafe {
+            // Re-anchor before writing: a read_stream() poll interleaved since our last
+            // write may have moved the shared BufFile cursor (see module-level note).
+            buffile_seek(
+                self.file.get(),
+                self.position.fileno,
+                self.position.offset,
+                0, /* SEEK_SET */
+            )
+            .map_err(|e| io::Error::other(format!("BufFile seek failed: {e}")))?;
+            buffile_write(self.file.get(), buf)
+                .map_err(|e| io::Error::other(format!("BufFile write failed: {e}")))?;
+        }
         self.size.fetch_add(buf.len() as u64, Ordering::Relaxed);
+        let (fileno, offset) =
+            unsafe { buffile_tell(self.file.get()) }.map_err(io::Error::other)?;
+        self.position = BufFilePosition { fileno, offset };
         Ok(buf.len())
     }
 
@@ -261,7 +321,8 @@ unsafe fn buffile_read_chunk(
 }
 
 // The following wrap Postgres APIs whose signatures differ across supported versions,
-// mirroring `api::operator::keyset`'s shims for the same functions.
+// mirroring `api::operator::keyset`'s shims for the same functions. (Folded into a
+// shared module in a follow-up commit — see PR discussion.)
 
 /// Write `data` to `file`. (PG15's `BufFileWrite` takes `*mut`; PG16+ takes `*const`.)
 unsafe fn buffile_write(file: *mut pg_sys::BufFile, data: &[u8]) -> Result<(), &'static str> {
@@ -288,4 +349,14 @@ unsafe fn buffile_seek(
         return Err("BufFileSeek failed");
     }
     Ok(())
+}
+
+/// Returns `file`'s current `(fileno, offset)` position. Mirrors
+/// `api::operator::keyset`'s `buffile_tell` (folded into a shared module in a
+/// follow-up commit — see PR discussion).
+unsafe fn buffile_tell(file: *mut pg_sys::BufFile) -> Result<(c_int, pg_sys::off_t), &'static str> {
+    let mut fileno: c_int = 0;
+    let mut offset: pg_sys::off_t = 0;
+    unsafe { pg_sys::BufFileTell(file, &mut fileno, &mut offset) };
+    Ok((fileno, offset))
 }

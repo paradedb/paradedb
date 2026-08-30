@@ -20,6 +20,7 @@ use crate::gucs;
 use crate::index::kdtree::KdTree;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::stats::partition_box;
+use crate::index::writer::demux::route_index;
 use crate::index::writer::index::{
     DiskSpaceGuard, IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
 };
@@ -1335,10 +1336,10 @@ pub(super) fn build_index(
     };
 
     // Boundaries are fixed before any worker starts, so every worker cuts on the same ones.
-    // Partitioned builds cover only non-concurrent CREATE INDEX for now: a concurrent build's
-    // deferred re-fetch could index row versions newer than its registered snapshot, so under
-    // CONCURRENTLY skip the planning entirely: no heap sample, and no tree in the DSM for
-    // workers to deserialize and drop.
+    // The partitioned scan covers only a non-concurrent build: a concurrent build's deferred
+    // re-fetch could index row versions newer than its registered snapshot, so under
+    // CONCURRENTLY skip the planning entirely (no heap sample, no tree in the DSM) and route
+    // the finished segments afterwards instead.
     // TODO(M3): the target segment count doubles as the partition count for now; rename the
     // reloption to `partition_count` once partitioned storage lands.
     let nworkers = plan::create_index_nworkers(&heaprel, &indexrel);
@@ -1464,6 +1465,18 @@ pub(super) fn build_index(
         pgrx::debug1!("build_index: total_tuples: {total_tuples}, total_merges: {total_merges}");
         total_tuples
     };
+
+    // The scan above indexed without routing, so the layout it left holds no partitions. The
+    // rewrite reads only the segments the build wrote, so the snapshot correspondence that
+    // ruled the scan out does not apply to it.
+    if concurrent && !indexrel.options().partition_by().is_empty() {
+        unsafe {
+            route_index(
+                &indexrel,
+                plan::adjusted_target_segment_count(&heaprel, &indexrel),
+            )?;
+        }
+    }
 
     unsafe { set_ps_display_remove_suffix() };
     Ok(total_tuples)

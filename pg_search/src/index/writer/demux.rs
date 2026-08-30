@@ -30,6 +30,8 @@ use tantivy::index::{Index, IndexMeta, Segment, SegmentId, SegmentMeta, SegmentR
 use tantivy::indexer::merger::IndexMerger;
 use tantivy::{BitSet, Directory, DocId};
 
+use pgrx::pg_sys;
+
 use crate::api::FieldName;
 use crate::api::HashSet;
 use crate::index::fast_fields_helper::FFType;
@@ -37,7 +39,10 @@ use crate::index::kdtree::{KdTree, Point};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::stats;
 use crate::index::stats::SegmentStats;
+use crate::index::writer::index::SearchIndexMerger;
+use crate::postgres::merge::garbage_collect_index;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::storage::metadata::MetaPage;
 use crate::schema::SearchFieldType;
 
 /// How many documents the routing sample reads. The tree needs the shape of the distribution,
@@ -147,6 +152,49 @@ pub(crate) fn unrouted_segments(indexrel: &PgSearchRelation) -> Result<HashSet<S
         }
     }
     Ok(unrouted)
+}
+
+/// Rewrites every mergeable segment of `indexrel` into one segment per partition, and returns
+/// the segments it wrote.
+///
+/// A build routes the rows it scans; this routes what the index already holds, reading only the
+/// segments. A concurrent build calls it once its workers are done, because routing during its
+/// scan could break the correspondence between its registered snapshot and the rows it indexes.
+pub(crate) unsafe fn route_index(
+    indexrel: &PgSearchRelation,
+    target_partitions: usize,
+) -> Result<Vec<SegmentMeta>> {
+    let metadata = MetaPage::open(indexrel);
+    // Hold both locks for the whole rewrite: `ambulkdelete` blocks on the cleanup lock until
+    // it can see the segments this leaves behind, and no other backend may merge the sources
+    // out from under it.
+    let cleanup_lock = metadata.cleanup_lock_shared();
+    let merge_lock = metadata.acquire_merge_lock();
+
+    let mut busy = metadata.vacuum_list().read_list();
+    busy.extend(merge_lock.merge_list().list_segment_ids());
+
+    // The merger's pins keep the sources readable until the rewrite commits.
+    let merger = SearchIndexMerger::open(indexrel, MvccSatisfies::Mergeable)?;
+    let segment_ids = merger
+        .all_entries()
+        .into_iter()
+        .filter(|(segment_id, entry)| !busy.contains(segment_id) && entry.is_mergeable(indexrel))
+        .map(|(segment_id, _)| segment_id)
+        .collect::<Vec<_>>();
+
+    let current_xid = pg_sys::GetCurrentFullTransactionId();
+    let next_xid = pg_sys::ReadNextFullTransactionId();
+    let mut merge_list = merge_lock.merge_list();
+    let merge_entry = merge_list.add_segment_ids(segment_ids.iter(), current_xid)?;
+    let written = demux_merge(indexrel, &segment_ids, target_partitions);
+    merge_list.remove_entry(merge_entry)?;
+    drop(merge_lock);
+    drop(merger);
+
+    garbage_collect_index(indexrel, current_xid, next_xid);
+    drop(cleanup_lock);
+    written
 }
 
 /// The segments of `index` named by `segment_ids`, in that order.
@@ -333,9 +381,9 @@ mod tests {
     }
 
     /// An index created before its rows holds no boundaries, and a build is the only thing that
-    /// can route. `repartition` routes what the index already holds.
+    /// can route. A full rewrite routes what the index already holds.
     #[pg_test]
-    fn repartition_routes_an_index_filled_by_inserts() {
+    fn a_rewrite_routes_an_index_filled_by_inserts() {
         Spi::run(
             r#"
             CREATE TABLE demux_late (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
@@ -359,12 +407,10 @@ mod tests {
         let before = Spi::get_one::<i64>("SELECT count(*) FROM demux_late WHERE id @@@ pdb.all();")
             .unwrap()
             .unwrap();
-        drop(indexrel);
 
-        let written = Spi::get_one::<i64>("SELECT paradedb.repartition('demux_late_idx');")
-            .unwrap()
-            .unwrap();
-        assert_eq!(written, 4, "one segment per partition");
+        let written = unsafe { super::route_index(&indexrel, 4) }.unwrap();
+        assert_eq!(written.len(), 4, "one segment per partition");
+        drop(indexrel);
 
         let indexrel = open_index("demux_late_idx");
         let split_points = persisted_split_points(&indexrel, "tenant_id")
@@ -448,7 +494,7 @@ mod tests {
     /// A merge carries the deletes of its sources, so a rewrite must not resurrect a row that a
     /// `DELETE` removed.
     #[pg_test]
-    fn repartition_keeps_deleted_rows_deleted() {
+    fn a_rewrite_keeps_deleted_rows_deleted() {
         Spi::run(
             r#"
             CREATE TABLE demux_deleted (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
@@ -469,7 +515,9 @@ mod tests {
                 .unwrap();
         assert_eq!(before, 3000);
 
-        Spi::run("SELECT paradedb.repartition('demux_deleted_idx');").unwrap();
+        let indexrel = open_index("demux_deleted_idx");
+        unsafe { super::route_index(&indexrel, 4) }.unwrap();
+        drop(indexrel);
 
         assert_eq!(
             Spi::get_one::<i64>("SELECT count(*) FROM demux_deleted WHERE id @@@ pdb.all();")

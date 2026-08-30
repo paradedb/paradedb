@@ -28,8 +28,7 @@
 use anyhow::{Result, bail};
 use tantivy::index::{Index, IndexMeta, Segment, SegmentId, SegmentMeta, SegmentReader};
 use tantivy::indexer::merger::IndexMerger;
-use tantivy::{Directory, DocId};
-use tantivy_common::BitSet;
+use tantivy::{BitSet, Directory, DocId};
 
 use crate::api::FieldName;
 use crate::api::HashSet;

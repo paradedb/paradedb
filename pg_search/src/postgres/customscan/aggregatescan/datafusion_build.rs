@@ -1358,9 +1358,11 @@ const VM_CHECK_COST: f64 = 1.0;
 const HEAP_CHECK_COST: f64 = 25.0;
 
 /// Relative cost of turning a packed doc address back into a ctid after the
-/// join. The join scrambles the scan's doc order, so the per-segment ctid
-/// column reads and visibility-map probes lose the locality the scan had.
-const DEFERRED_RESOLVE_COST: f64 = 4.0;
+/// join and checking it, measured against the near-free VM-bit check an
+/// all-visible heap pays in the scan. The post-join read is random across
+/// segments while the in-scan check rides ctid order, so on an all-visible
+/// heap deferral only pays once the join keeps about 1 row in 30.
+const DEFERRED_RESOLVE_COST: f64 = 32.0;
 
 /// Plan positions whose visibility check is cheaper to run once per row that
 /// reaches the aggregate than once per row the scan produces.

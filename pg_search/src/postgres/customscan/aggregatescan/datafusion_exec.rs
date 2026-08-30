@@ -47,6 +47,7 @@ use crate::postgres::customscan::joinscan::scan_state::{
     create_datafusion_session_context, register_source_table,
 };
 use crate::scan::PgSearchTableProvider;
+use crate::scan::table_provider::VisibilityMode;
 use crate::schema::SearchFieldType;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::functions_aggregate::array_agg::array_agg_udaf;
@@ -78,6 +79,7 @@ pub async fn build_join_aggregate_plan(
     custom_exprs: *mut pg_sys::List,
     custom_scan_tlist: *mut pg_sys::List,
     having_filter: Option<&FilterExpr>,
+    deferred_visibility: &[usize],
     ctx: &SessionContext,
     expr_context: Option<*mut pg_sys::ExprContext>,
     planstate: Option<*mut pg_sys::PlanState>,
@@ -91,6 +93,7 @@ pub async fn build_join_aggregate_plan(
         join_level_predicates,
         custom_exprs,
         custom_scan_tlist,
+        deferred_visibility,
         expr_context,
         planstate,
         mpp_manifests,
@@ -284,6 +287,7 @@ fn build_relnode_df<'a>(
     join_level_predicates: &'a [JoinLevelSearchPredicate],
     custom_exprs: *mut pg_sys::List,
     custom_scan_tlist: *mut pg_sys::List,
+    deferred_visibility: &'a [usize],
     expr_context: Option<*mut pg_sys::ExprContext>,
     planstate: Option<*mut pg_sys::PlanState>,
     mpp_manifests: Option<&'a [SearchIndexManifest]>,
@@ -297,6 +301,7 @@ fn build_relnode_df<'a>(
                     source,
                     top_level_plan,
                     plan_position,
+                    deferred_visibility.contains(&plan_position),
                     expr_context,
                     planstate,
                     mpp_manifests,
@@ -314,6 +319,7 @@ fn build_relnode_df<'a>(
                     join_level_predicates,
                     custom_exprs,
                     custom_scan_tlist,
+                    deferred_visibility,
                     expr_context,
                     planstate,
                     mpp_manifests,
@@ -326,6 +332,7 @@ fn build_relnode_df<'a>(
                     join_level_predicates,
                     custom_exprs,
                     custom_scan_tlist,
+                    deferred_visibility,
                     expr_context,
                     planstate,
                     mpp_manifests,
@@ -342,6 +349,7 @@ fn build_relnode_df<'a>(
                     join_level_predicates,
                     custom_exprs,
                     custom_scan_tlist,
+                    deferred_visibility,
                     expr_context,
                     planstate,
                     mpp_manifests,
@@ -526,11 +534,19 @@ impl FilterExpr {
 }
 
 /// Build a DataFusion [`DataFrame`] for a single scan source.
+///
+/// Unlike JoinScan's `build_source_df`, this version:
+/// - Does NOT include Score columns
+/// - Is always single-threaded (no partitioning)
+/// - Only defers visibility (and with it, text materialization) when the
+///   plan-time gate picked this source, see `deferred_visibility_sources`
+#[allow(clippy::too_many_arguments)]
 async fn build_source_df(
     ctx: &SessionContext,
     source: &JoinSource,
     plan: &RelNode,
     plan_position: usize,
+    defer_visibility: bool,
     expr_context: Option<*mut pg_sys::ExprContext>,
     planstate: Option<*mut pg_sys::PlanState>,
     mpp_manifests: Option<&[SearchIndexManifest]>,
@@ -604,23 +620,21 @@ async fn build_source_df(
     // agg-on-join path match JoinScan and Base Scan.
     provider.set_expr_context(source_expr_context);
     provider.set_planstate(planstate);
-
-    // Deferring an aggregate source's visibility trades an in-scan check for a
-    // post-join one. On the current cost model that only pays for specific
-    // shapes, so it stays off until selective late materialization can pick
-    // them. With it off the source keeps eager, in-scan visibility.
-    if crate::gucs::enable_aggregate_late_materialization() {
+    if defer_visibility {
+        // Join keys and join-filter inputs are read below the aggregate's
+        // visibility filter, so they must leave the scan already materialized.
+        // Numeric keys are never deferred anyway; this covers text keys.
         let mut required_early: crate::api::HashSet<String> = Default::default();
         for jk in plan.join_keys() {
-            if source.contains_rti(jk.outer_rti)
-                && let Some(col) = source.column_name(jk.outer_attno)
-            {
-                required_early.insert(col);
-            }
-            if source.contains_rti(jk.inner_rti)
-                && let Some(col) = source.column_name(jk.inner_attno)
-            {
-                required_early.insert(col);
+            for (rti, attno) in [
+                (jk.outer_rti, jk.outer_attno),
+                (jk.inner_rti, jk.inner_attno),
+            ] {
+                if source.contains_rti(rti)
+                    && let Some(col) = source.column_name(attno)
+                {
+                    required_early.insert(col);
+                }
             }
         }
         for (rti, attno) in plan.filter_input_vars() {
@@ -630,13 +644,11 @@ async fn build_source_df(
                 required_early.insert(col);
             }
         }
-
         provider.configure_deferred_outputs(
             &required_early,
-            crate::scan::VisibilityMode::Deferred { plan_position },
+            VisibilityMode::Deferred { plan_position },
         );
     }
-
     let df = register_source_table(ctx, alias.as_str(), provider).await?;
 
     // Select fields AND ensure CTID and Score are aliased consistently with JoinScan

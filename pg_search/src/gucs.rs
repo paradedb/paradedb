@@ -54,7 +54,18 @@ static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true)
 /// Allows the user to toggle range co-partitioning for joins.
 static ENABLE_RANGE_PARTITIONED_JOIN: GucSetting<bool> = GucSetting::<bool>::new(false);
 
-static ENABLE_AGGREGATE_LATE_MATERIALIZATION: GucSetting<bool> = GucSetting::<bool>::new(false);
+/// Controls when an aggregate-on-join defers a source's visibility check to a
+/// `VisibilityFilter` below the aggregate instead of checking in the scan.
+#[derive(pgrx::PostgresGucEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum AggregateLateMaterialization {
+    Off,
+    #[default]
+    Auto,
+    Force,
+}
+
+static AGGREGATE_LATE_MATERIALIZATION: GucSetting<AggregateLateMaterialization> =
+    GucSetting::<AggregateLateMaterialization>::new(AggregateLateMaterialization::Auto);
 
 /// Allows the user to toggle the use of the custom scan without use of the `@@@` operator. The
 /// default is `false`.
@@ -346,11 +357,11 @@ pub fn init() {
         GucFlags::default(),
     );
 
-    GucRegistry::define_bool_guc(
-        c"paradedb.enable_aggregate_late_materialization",
+    GucRegistry::define_enum_guc(
+        c"paradedb.aggregate_late_materialization",
         c"Defer visibility checks above aggregate-on-join plans",
-        c"When enabled, an aggregate over a join may defer a source's visibility check to a VisibilityFilter below the aggregate instead of checking eagerly in the scan. Off until selective late materialization can decide when deferral pays. Default is false.",
-        &ENABLE_AGGREGATE_LATE_MATERIALIZATION,
+        c"When set to 'auto' (default), a plan-time cost gate defers a source's visibility check to a VisibilityFilter below the aggregate when the join reduces that source's rows enough to pay for the post-join resolution. 'force' defers every source; 'off' keeps every check eager in the scan.",
+        &AGGREGATE_LATE_MATERIALIZATION,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -771,8 +782,8 @@ pub fn enable_range_partitioned_join() -> bool {
     ENABLE_RANGE_PARTITIONED_JOIN.get()
 }
 
-pub fn enable_aggregate_late_materialization() -> bool {
-    ENABLE_AGGREGATE_LATE_MATERIALIZATION.get()
+pub fn aggregate_late_materialization() -> AggregateLateMaterialization {
+    AGGREGATE_LATE_MATERIALIZATION.get()
 }
 
 pub fn enable_custom_scan_without_operator() -> bool {

@@ -1345,6 +1345,95 @@ unsafe fn require_fast_field(
     }
 }
 
+/// Rows below which a source's visibility check is noise either way, so the
+/// plan stays in its simpler eager shape.
+const DEFERRED_VISIBILITY_MIN_ROWS: f64 = 10_000.0;
+
+/// Relative cost of confirming one row against the visibility map when its
+/// heap page is all-visible. The unit of the other two constants.
+const VM_CHECK_COST: f64 = 1.0;
+
+/// Relative cost of fetching a heap tuple for a row whose page is not
+/// all-visible.
+const HEAP_CHECK_COST: f64 = 25.0;
+
+/// Relative cost of turning a packed doc address back into a ctid after the
+/// join. The join scrambles the scan's doc order, so the per-segment ctid
+/// column reads and visibility-map probes lose the locality the scan had.
+const DEFERRED_RESOLVE_COST: f64 = 4.0;
+
+/// Plan positions whose visibility check is cheaper to run once per row that
+/// reaches the aggregate than once per row the scan produces.
+///
+/// A source only qualifies when every join above it preserves its rows, so
+/// its rows reach the aggregate unchecked and the aggregate is its barrier.
+/// The comparison is `barrier_rows * deferred_cost` against
+/// `scan_rows * eager_cost`, with the planner's join estimate as
+/// `barrier_rows`. A 1:N join fans the "1" side out, so its rows are seen
+/// more often after the join than before it, and it stays eager.
+pub unsafe fn deferred_visibility_sources(
+    plan: &RelNode,
+    input_rel: &pg_sys::RelOptInfo,
+) -> Vec<usize> {
+    let barrier_rows = input_rel.rows;
+    if barrier_rows <= 0.0 || !barrier_rows.is_finite() {
+        return Vec::new();
+    }
+
+    let mut preserved = Vec::new();
+    collect_preserved_sources(plan, &mut preserved);
+
+    preserved
+        .into_iter()
+        .filter(|source| {
+            let Some(scan_rows) = source.scan_info.estimate.known_rows() else {
+                return false;
+            };
+            if scan_rows < DEFERRED_VISIBILITY_MIN_ROWS {
+                return false;
+            }
+            let heaprel = PgSearchRelation::open(source.scan_info.heaprelid);
+            let all_visible = all_visible_fraction(&heaprel);
+            let not_visible_cost = (1.0 - all_visible) * HEAP_CHECK_COST;
+            let eager_cost = VM_CHECK_COST + not_visible_cost;
+            let deferred_cost = DEFERRED_RESOLVE_COST + eager_cost;
+            barrier_rows * deferred_cost < scan_rows * eager_cost
+        })
+        .map(|source| source.plan_position)
+        .collect()
+}
+
+/// Sources whose rows every ancestor join passes through to the root.
+fn collect_preserved_sources<'a>(node: &'a RelNode, acc: &mut Vec<&'a JoinSource>) {
+    match node {
+        RelNode::Scan(source) => acc.push(source),
+        RelNode::Filter(filter) => collect_preserved_sources(&filter.input, acc),
+        RelNode::Join(join) => match join.join_type {
+            JoinType::Inner => {
+                collect_preserved_sources(&join.left, acc);
+                collect_preserved_sources(&join.right, acc);
+            }
+            JoinType::Left | JoinType::Semi | JoinType::Anti { .. } | JoinType::LeftMark => {
+                collect_preserved_sources(&join.left, acc)
+            }
+            JoinType::Right | JoinType::RightSemi | JoinType::RightAnti | JoinType::RightMark => {
+                collect_preserved_sources(&join.right, acc)
+            }
+            JoinType::Full | JoinType::UniqueOuter | JoinType::UniqueInner => {}
+        },
+    }
+}
+
+/// Share of heap pages the visibility map marks all-visible. A relation
+/// that was never vacuumed reports negative stats and gets zero.
+fn all_visible_fraction(heaprel: &PgSearchRelation) -> f64 {
+    let pages = heaprel.relpages();
+    if pages <= 0 {
+        return 0.0;
+    }
+    (heaprel.relallvisible().max(0) as f64 / pages as f64).min(1.0)
+}
+
 /// Populate the `fields` on each `JoinSource` in the `RelNode` tree based on
 /// columns referenced in the target list (GROUP BY + aggregate arguments) and
 /// join keys. Without this, `PgSearchTableProvider` exposes an empty schema.

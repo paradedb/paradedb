@@ -69,6 +69,8 @@ pub struct DataFusionAggState {
     pub custom_scan_tlist: *mut pg_sys::List,
     /// HAVING clause filter applied after aggregation.
     pub having_filter: Option<FilterExpr>,
+    /// Plan positions checked for visibility below the aggregate instead of in the scan.
+    pub deferred_visibility: Vec<usize>,
     /// Tokio runtime for async DataFusion execution.
     pub runtime: Option<tokio::runtime::Runtime>,
     /// The executed physical plan, kept so EXPLAIN ANALYZE can merge the worker metrics that

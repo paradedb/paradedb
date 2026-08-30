@@ -27,6 +27,7 @@ pub mod join_targetlist;
 pub mod json_rewrite;
 pub mod limit_offset;
 pub mod orderby;
+use crate::gucs::AggregateLateMaterialization;
 use crate::postgres::customscan::orderby::validate_topk_compatibility;
 pub mod privdat;
 pub mod scan_state;
@@ -696,6 +697,7 @@ impl CustomScan for AggregateScan {
                 join_level_predicates,
                 multi_table_predicates,
                 having_filter,
+                deferred_visibility,
                 ..
             } => {
                 // Replace Aggrefs for DataFusion path too
@@ -715,6 +717,7 @@ impl CustomScan for AggregateScan {
                     custom_exprs,
                     custom_scan_tlist,
                     having_filter,
+                    deferred_visibility,
                     runtime: None,
                     physical_plan: None,
                     stream: None,
@@ -1199,6 +1202,7 @@ impl AggregateScan {
                 custom_exprs,
                 custom_scan_tlist,
                 df_state.having_filter.as_ref(),
+                &df_state.deferred_visibility,
                 ctx,
                 runtime_expr_context,
                 runtime_planstate,
@@ -1275,6 +1279,7 @@ impl AggregateScan {
                         custom_exprs,
                         custom_scan_tlist,
                         df_state.having_filter.as_ref(),
+                        &df_state.deferred_visibility,
                         ctx,
                         Some(expr_context.as_ptr()),
                         None,
@@ -1591,6 +1596,16 @@ impl AggregateScan {
         }
         .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
+        let deferred_visibility = match gucs::aggregate_late_materialization() {
+            AggregateLateMaterialization::Off => Vec::new(),
+            AggregateLateMaterialization::Force => {
+                plan.sources().iter().map(|s| s.plan_position).collect()
+            }
+            AggregateLateMaterialization::Auto => unsafe {
+                datafusion_build::deferred_visibility_sources(&plan, input_rel)
+            },
+        };
+
         // Detect ORDER BY on aggregate + LIMIT for TopK pushdown into DataFusion.
         // DataFusion's SortExec(fetch=K) uses a bounded TopK heap internally.
         // We do NOT declare pathkeys to Postgres because scanrelid=0 CustomScans
@@ -1664,6 +1679,7 @@ impl AggregateScan {
             multi_table_predicates,
             multi_table_clause_count,
             having_filter,
+            deferred_visibility,
         });
 
         // Append raw PG Expr pointers to custom_private after the serialized

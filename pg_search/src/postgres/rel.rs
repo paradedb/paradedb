@@ -345,6 +345,15 @@ impl PgSearchRelation {
         unsafe { PgTupleDesc::from_pg_unchecked(self.rd_att) }
     }
 
+    /// Negative when the relation has never been vacuumed or analyzed.
+    pub fn relpages(&self) -> i32 {
+        unsafe { (*self.rd_rel).relpages }
+    }
+
+    pub fn relallvisible(&self) -> i32 {
+        unsafe { (*self.rd_rel).relallvisible }
+    }
+
     pub fn reltuples(&self) -> Option<f32> {
         let reltuples = unsafe { (*self.rd_rel).reltuples };
 

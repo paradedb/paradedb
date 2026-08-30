@@ -1,10 +1,10 @@
--- Coverage for the aggregate late-materialization path behind
--- paradedb.enable_aggregate_late_materialization. Default off keeps aggregates
--- eager; this flips it on so the deferred path (serial and MPP) does not rot.
+-- Coverage for the deferred aggregate visibility path behind
+-- paradedb.aggregate_late_materialization. 'force' defers every source so the
+-- deferred path (serial and MPP) does not rot regardless of the cost gate.
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.enable_join_custom_scan TO on;
-SET paradedb.enable_aggregate_late_materialization TO on;
+SET paradedb.aggregate_late_materialization TO force;
 CREATE TABLE alm_products (
     id SERIAL PRIMARY KEY,
     description TEXT,
@@ -80,6 +80,46 @@ SET max_parallel_workers TO 8;
 SET min_parallel_table_scan_size TO 0;
 SET parallel_setup_cost TO 0;
 SET parallel_tuple_cost TO 0;
+SELECT p.category, COUNT(*)
+FROM alm_products p JOIN alm_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+ORDER BY p.category;
+  category   | count 
+-------------+-------
+ Clothing    |     1
+ Electronics |     1
+ Sports      |     2
+(3 rows)
+
+-- Under 'auto', the cost gate keeps tiny sources eager: below the row floor a
+-- deferred check cannot pay for its post-join resolution.
+SET paradedb.aggregate_late_materialization TO auto;
+SET max_parallel_workers_per_gather TO 0;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT p.category, COUNT(*)
+FROM alm_products p JOIN alm_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+ORDER BY p.category;
+                                                                                                     QUERY PLAN                                                                                                     
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: p.category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: alm_products_idx (p), alm_tags_idx (t)
+         Group By: category
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
+           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1]
+           :     CooperativeExec
+           :       PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
+           :     CooperativeExec
+           :       PgSearchScan: table=t, segments=1, dynamic_filters=1, query="all"
+(14 rows)
+
 SELECT p.category, COUNT(*)
 FROM alm_products p JOIN alm_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'

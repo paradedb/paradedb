@@ -192,6 +192,11 @@ pub enum PrivateData {
         /// HAVING clause filter applied after aggregation.
         #[serde(default)]
         having_filter: Option<FilterExpr>,
+        /// Plan positions whose visibility check moves out of the scan and
+        /// into a `VisibilityFilter` right below the aggregate. Chosen at
+        /// plan time by `datafusion_build::deferred_visibility_sources`.
+        #[serde(default)]
+        deferred_visibility: Vec<usize>,
     },
 }
 

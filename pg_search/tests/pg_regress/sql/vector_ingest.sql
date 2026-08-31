@@ -15,7 +15,7 @@ CREATE TABLE nonfinite_vec (
 );
 CREATE INDEX nonfinite_vec_idx ON nonfinite_vec
     USING paradedb (id, vec vector_cosine_ops)
-    WITH (key_field = id);
+    WITH (key_field = id, vector_fields = '{"vec":{"dims":3,"quantization":false}}');
 
 -- vector_in: the text parser rejects NaN before a datum exists.
 INSERT INTO nonfinite_vec VALUES (1, '[NaN, 0, 0]');

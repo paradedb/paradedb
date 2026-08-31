@@ -29,6 +29,7 @@ CREATE INDEX delvec_idx ON delvec
     USING paradedb (id, label, vec vector_l2_ops)
     WITH (
         key_field = id,
+        vector_fields = '{"vec":{"dims":16,"quantization":false}}',
         target_segment_count = 1,
         mutable_segment_rows = 0,
         layer_sizes = '600kb',

@@ -64,7 +64,10 @@ INSERT INTO mlt_vec (description, embedding) VALUES
     ('aaa aaa', '[4,5,6]'),
     ('ddd eee fff', '[7,8,9]');
 
-CREATE INDEX ON mlt_vec USING paradedb (id, description, embedding) WITH (key_field = 'id');
+CREATE INDEX ON mlt_vec USING paradedb (id, description, embedding) WITH (
+    key_field = 'id',
+    vector_fields = '{"embedding":{"dims":3,"quantization":false}}'
+);
 
 SELECT id, description FROM mlt_vec WHERE id @@@ pdb.more_like_this(1);
 SELECT id, description FROM mlt_vec WHERE id @@@ pdb.more_like_this(1, ARRAY['description']);

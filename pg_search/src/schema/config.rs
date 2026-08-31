@@ -114,8 +114,8 @@ pub enum SearchFieldConfig {
     Vector {
         /// Vector dimension.
         dims: usize,
-        /// Optional quantization schedule.
-        #[serde(default)]
+        /// Quantization schedule.
+        #[serde(default = "default_vector_quantization")]
         quantization: Option<VectorQuantizationConfig>,
     },
 }
@@ -135,17 +135,12 @@ impl VectorQuantizationConfig {
     pub fn layers(&self) -> Option<Vec<u8>> {
         match self {
             Self::Enabled(false) => None,
-            Self::Enabled(true) => Some(vec![1, 4]),
+            Self::Enabled(true) => Some(vec![1, 1]),
             Self::Explicit { layers } => Some(layers.clone()),
         }
     }
 
     fn validate(&self) -> Result<()> {
-        if matches!(self, Self::Enabled(false)) {
-            anyhow::bail!(
-                "quantization=false is not supported; omit the quantization key to disable it"
-            );
-        }
         let Some(layers) = self.layers() else {
             return Ok(());
         };
@@ -392,11 +387,11 @@ impl SearchFieldConfig {
         Self::from_json(json!({"Json": {"fast": true}}))
     }
 
-    /// Creates an unquantized vector-field configuration.
+    /// Creates a vector-field configuration with default quantization.
     pub fn default_vector(dims: usize) -> Self {
         Self::Vector {
             dims,
-            quantization: None,
+            quantization: default_vector_quantization(),
         }
     }
 }
@@ -671,6 +666,10 @@ fn default_as_true() -> bool {
     true
 }
 
+fn default_vector_quantization() -> Option<VectorQuantizationConfig> {
+    Some(VectorQuantizationConfig::Enabled(true))
+}
+
 fn default_as_freqs_and_positions() -> IndexRecordOption {
     IndexRecordOption(tantivy::schema::IndexRecordOption::WithFreqsAndPositions)
 }
@@ -681,12 +680,25 @@ mod tests {
 
     #[test]
     fn vector_quantization_accepts_default_and_explicit_schedules() {
+        let omitted = SearchFieldConfig::vector_from_json(json!({
+            "dims": 768
+        }))
+        .unwrap();
+        assert_eq!(omitted.quantization_layers(), Some(vec![1, 1]));
+
         let defaults = SearchFieldConfig::vector_from_json(json!({
             "dims": 768,
             "quantization": true
         }))
         .unwrap();
-        assert_eq!(defaults.quantization_layers(), Some(vec![1, 4]));
+        assert_eq!(defaults.quantization_layers(), Some(vec![1, 1]));
+
+        let disabled = SearchFieldConfig::vector_from_json(json!({
+            "dims": 768,
+            "quantization": false
+        }))
+        .unwrap();
+        assert_eq!(disabled.quantization_layers(), None);
 
         let explicit = SearchFieldConfig::vector_from_json(json!({
             "dims": 768,
@@ -698,13 +710,6 @@ mod tests {
 
     #[test]
     fn vector_quantization_validates_layer_count_width_and_order() {
-        let disabled = SearchFieldConfig::vector_from_json(json!({
-            "dims": 768,
-            "quantization": false
-        }))
-        .unwrap_err();
-        assert!(disabled.to_string().contains("omit the quantization key"));
-
         let too_many = SearchFieldConfig::vector_from_json(json!({
             "dims": 768,
             "quantization": { "layers": [1, 1, 1, 1] }

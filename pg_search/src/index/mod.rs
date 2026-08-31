@@ -27,6 +27,7 @@ pub mod writer;
 pub use directory::*;
 pub use search::*;
 
+use crate::api::FieldName;
 use crate::postgres::options::BM25IndexOptions;
 use crate::schema::SearchIndexSchema;
 use anyhow::{Context, Result};
@@ -46,16 +47,14 @@ pub fn index_settings(
     schema: &tantivy::schema::Schema,
 ) -> Result<IndexSettings> {
     let mut vector_quantization = Vec::new();
-    for (field_name, field_config) in options.vector_config().iter().flatten() {
-        let Some(bits) = field_config.quantization_layers() else {
+    for (_, field_entry) in schema.fields() {
+        let FieldType::Vector(vector_options) = field_entry.field_type() else {
             continue;
         };
-        let field = schema.get_field(field_name.as_ref()).with_context(|| {
-            format!("quantization field {field_name:?} is absent from the schema")
-        })?;
-        let vector_options = match schema.get_field_entry(field).field_type() {
-            FieldType::Vector(vector_options) => vector_options,
-            _ => anyhow::bail!("quantization field {field_name:?} is not a vector field"),
+        let field_name = field_entry.name();
+        let field_config = options.field_config_or_default(&FieldName::from(field_name));
+        let Some(bits) = field_config.quantization_layers() else {
+            continue;
         };
         let mut os_rng = SysRng;
         let layers = bits

@@ -34,7 +34,7 @@ INSERT INTO vsp VALUES
 -- ============================================================
 CREATE INDEX vsp_idx ON vsp
     USING paradedb (id, label, vec vector_l2_ops)
-    WITH (key_field = id);
+    WITH (key_field = id, vector_fields = '{"vec":{"dims":3,"quantization":false}}');
 
 -- match: <-> pushes down
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -59,7 +59,7 @@ DROP INDEX vsp_idx;
 -- ============================================================
 CREATE INDEX vsp_idx ON vsp
     USING paradedb (id, label, vec vector_cosine_ops)
-    WITH (key_field = id);
+    WITH (key_field = id, vector_fields = '{"vec":{"dims":3,"quantization":false}}');
 
 -- mismatch: <-> falls back, planner warns
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -84,7 +84,7 @@ DROP INDEX vsp_idx;
 -- ============================================================
 CREATE INDEX vsp_idx ON vsp
     USING paradedb (id, label, vec vector_ip_ops)
-    WITH (key_field = id);
+    WITH (key_field = id, vector_fields = '{"vec":{"dims":3,"quantization":false}}');
 
 -- mismatch: <-> falls back, planner warns
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -112,7 +112,7 @@ DROP INDEX vsp_idx;
 -- GUC's current value rather than a stale plan-time fold.
 CREATE INDEX vsp_idx ON vsp
     USING paradedb (id, label, vec vector_cosine_ops)
-    WITH (key_field = id);
+    WITH (key_field = id, vector_fields = '{"vec":{"dims":3,"quantization":false}}');
 
 SET vsp.q = '[1,0,0]';
 
@@ -141,7 +141,7 @@ DROP INDEX vsp_idx;
 -- never exercise this path.
 CREATE INDEX vsp_idx ON vsp
     USING paradedb (id, label, vec vector_cosine_ops)
-    WITH (key_field = id);
+    WITH (key_field = id, vector_fields = '{"vec":{"dims":3,"quantization":false}}');
 
 SET plan_cache_mode = force_generic_plan;
 PREPARE vsp_p(vector) AS
@@ -169,7 +169,7 @@ DROP INDEX vsp_idx;
 -- same three opclasses as `bm25`, with vector_l2_ops as its DEFAULT too.
 CREATE INDEX vsp_idx ON vsp
     USING paradedb (id, label, vec vector_cosine_ops)
-    WITH (key_field = id);
+    WITH (key_field = id, vector_fields = '{"vec":{"dims":3,"quantization":false}}');
 
 -- match: <=> pushes down
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -180,13 +180,13 @@ DROP INDEX vsp_idx;
 
 CREATE INDEX vsp_idx ON vsp
     USING paradedb (id, label, vec vector_ip_ops)
-    WITH (key_field = id);
+    WITH (key_field = id, vector_fields = '{"vec":{"dims":3,"quantization":false}}');
 DROP INDEX vsp_idx;
 
 -- a bare vector column resolves to vector_l2_ops, the AM default
 CREATE INDEX vsp_idx ON vsp
     USING paradedb (id, label, vec)
-    WITH (key_field = id);
+    WITH (key_field = id, vector_fields = '{"vec":{"dims":3,"quantization":false}}');
 
 SELECT opc.opcname
 FROM pg_index i
@@ -210,7 +210,7 @@ DROP INDEX vsp_idx;
 -- ranking only the rows the predicate matches.
 CREATE INDEX vsp_idx ON vsp
     USING paradedb (id, label, vec vector_cosine_ops)
-    WITH (key_field = id);
+    WITH (key_field = id, vector_fields = '{"vec":{"dims":3,"quantization":false}}');
 
 -- === (term): rows 1 and 3 contain 'wind'; ranked 1 then 3 by distance
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -257,7 +257,7 @@ INSERT INTO vsp_tie VALUES
 
 CREATE INDEX vsp_tie_idx ON vsp_tie
     USING paradedb (id, (cat::pdb.literal), vec vector_l2_ops)
-    WITH (key_field = id);
+    WITH (key_field = id, vector_fields = '{"vec":{"dims":3,"quantization":false}}');
 
 -- pushes down: both pathkeys are absorbed by the TopK scan (no Sort node)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

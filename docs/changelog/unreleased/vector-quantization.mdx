@@ -4,19 +4,16 @@ header: features
 
 **After upgrading, `REINDEX` every ParadeDB index that contains a vector field; installing the new shared library and running `ALTER EXTENSION` alone is not sufficient.**
 
-Quantized vector search. Vector fields in a ParadeDB index can now store compact 1-bit and 4-bit codes alongside full-precision vectors. Queries filter candidates through the codes and rerank the survivors exactly, so results match the unquantized scan at the same probe setting. Quantization is opt-in per field and off by default:
+Quantized vector search. Vector fields in a ParadeDB index now store compact codes alongside full-precision vectors by default. Queries filter candidates through the codes and rerank the survivors exactly, so results match an unquantized scan at the same probe setting:
 
 ```sql
 CREATE INDEX ON items USING paradedb (id, embedding)
-WITH (
-  key_field = 'id',
-  vector_fields = '{"embedding": {"quantization": true}}'
-);
+WITH (key_field = 'id');
 ```
 
-`"quantization": true` uses the default `[1, 4]` schedule, a 1-bit layer refined by a 4-bit layer. Any schedule of one to three layers of 1–4 bits can be supplied explicitly, such as `{"quantization": {"layers": [1, 4]}}`.
+The default `[1, 1]` schedule uses two 1-bit layers. Any schedule of one to three layers of 1–4 bits can be supplied explicitly, such as `{"quantization": {"layers": [1, 4]}}`. Set `"quantization": false` for a field that should remain unquantized.
 
-On Cohere 1M with 1024-dimensional cosine vectors, top-10 queries ran ~4× faster at 99% recall and ~2× faster at 95% recall for ~7% more index size, measured with one segment and one worker. Quantization takes effect when a field is built; use `REINDEX` to enable it on an existing index.
+On Cohere 1M with 1024-dimensional cosine vectors and an explicit `[1, 4]` schedule, top-10 queries ran ~4× faster at 99% recall and ~2× faster at 95% recall for ~7% more index size, measured with one segment and one worker. Quantization takes effect when a field is built; use `REINDEX` to change an existing index.
 
 - Added `paradedb.max_scan_levels` to limit how many code layers a query reads. It defaults to all built layers; `0` scans full-precision vectors through the same cluster routing.
 - `paradedb.vector_info` now reports `quantized`, the `layers` schedule, `bytes_per_row`, and the format identifier for each vector field.

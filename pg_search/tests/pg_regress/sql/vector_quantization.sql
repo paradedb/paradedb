@@ -73,7 +73,7 @@ CREATE INDEX q_cal_unquantized_idx ON q_cal_unquantized
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
     key_field = id,
-    vector_fields = '{"vec":{"dims":64}}'
+    vector_fields = '{"vec":{"dims":64,"quantization":false}}'
 );
 INSERT INTO q_cal_unquantized
 SELECT g, quant_fixture_vector(64, g) FROM generate_series(1, 100) g;
@@ -104,7 +104,7 @@ CREATE INDEX q_below_floor_idx ON q_below_floor
 USING paradedb (id, vec vector_l2_ops)
 WITH (
     key_field = id,
-    vector_fields = '{"vec":{"dims":63,"quantization":true}}'
+    vector_fields = '{"vec":{"dims":63}}'
 );
 DROP TABLE q_below_floor;
 
@@ -128,7 +128,7 @@ CREATE INDEX q_cosine_idx ON q_cosine
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
     key_field = id,
-    vector_fields = '{"vec":{"dims":768,"quantization":true}}',
+    vector_fields = '{"vec":{"dims":768}}',
     centroid_ratio = 0.2,
     target_segment_count = 1,
     mutable_segment_rows = 0,
@@ -144,7 +144,7 @@ CREATE INDEX q_estimator_idx ON q_estimator
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
     key_field = id,
-    vector_fields = '{"vec":{"dims":768,"quantization":true}}',
+    vector_fields = '{"vec":{"dims":768}}',
     centroid_ratio = 0.2,
     target_segment_count = 1,
     mutable_segment_rows = 0,
@@ -160,8 +160,8 @@ VACUUM q_estimator;
 SELECT
     bool_or(vector_format = 'ivf') AS cosine_has_ivf,
     bool_and(quantized) AS cosine_quantized,
-    bool_and(layers = ARRAY[1, 4]) AS cosine_layers,
-    bool_and(bytes_per_row = 500) AS cosine_bytes_per_row,
+    bool_and(layers = ARRAY[1, 1]) AS cosine_layers,
+    bool_and(bytes_per_row = 212) AS cosine_bytes_per_row,
     bool_and(format = 3) AS cosine_format
 FROM paradedb.vector_info('q_cosine_idx', 'vec');
 
@@ -356,8 +356,7 @@ CREATE TABLE q_flat (id integer PRIMARY KEY, vec vector(100));
 CREATE INDEX q_flat_idx ON q_flat
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
-    key_field = id,
-    vector_fields = '{"vec":{"dims":100,"quantization":true}}'
+    key_field = id
 );
 INSERT INTO q_flat SELECT g, quant_fixture_vector(100, g) FROM generate_series(1, 32) g;
 

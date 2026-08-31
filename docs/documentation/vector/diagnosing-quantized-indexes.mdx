@@ -15,7 +15,7 @@ SELECT vector_field, quantized, layers, bytes_per_row, format
 FROM paradedb.vector_info('search_idx', 'embedding');
 ```
 
-`layers` lists the bit width of each quantization layer in scoring order. An unquantized field reports `quantized = false` and `NULL` for `layers`, `bytes_per_row`, and `format`. The other `vector_info` columns continue to describe the field's segments and cluster layout.
+`layers` lists the bit width of each quantization layer in scoring order. Vector fields use `[1, 1]` quantization by default; set `"quantization": false` in that field's `vector_fields` configuration to disable it. An unquantized field reports `quantized = false` and `NULL` for `layers`, `bytes_per_row`, and `format`. The other `vector_info` columns continue to describe the field's segments and cluster layout.
 
 ## Measure the Estimator
 

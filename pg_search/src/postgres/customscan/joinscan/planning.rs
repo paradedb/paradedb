@@ -166,6 +166,23 @@ unsafe fn get_type_info(type_oid: pg_sys::Oid) -> (i16, bool) {
     (typlen, typbyval)
 }
 
+/// Collected information about a relation tree during join source collection.
+pub(super) struct CollectedJoinRel {
+    pub plan: RelNode,
+    pub join_keys: Vec<JoinKeyPair>,
+    pub multi_table_clauses: Vec<*mut pg_sys::Expr>,
+}
+
+impl CollectedJoinRel {
+    pub fn new(plan: RelNode, join_keys: Vec<JoinKeyPair>) -> Self {
+        Self {
+            plan,
+            join_keys,
+            multi_table_clauses: Vec::new(),
+        }
+    }
+}
+
 /// Main entry point for constructing a DataFusion relational query tree (`RelNode`) from
 /// a PostgreSQL planner `RelOptInfo` structure.
 ///
@@ -179,11 +196,11 @@ unsafe fn get_type_info(type_oid: pg_sys::Oid) -> (i16, bool) {
 ///    equi-join conditions.
 ///
 /// Returns an intermediate `RelNode` tree capturing the execution plan structure, as well as a list
-/// of all extracted equi-join keys.
+/// of all extracted equi-join keys and predicates.
 pub(super) unsafe fn collect_join_sources(
     root: *mut pg_sys::PlannerInfo,
     rel: *mut pg_sys::RelOptInfo,
-) -> Option<(RelNode, Vec<JoinKeyPair>)> {
+) -> Option<CollectedJoinRel> {
     if rel.is_null() {
         return None;
     }
@@ -214,7 +231,7 @@ pub(super) unsafe fn collect_join_sources_base_rel(
     root: *mut pg_sys::PlannerInfo,
     rel: *mut pg_sys::RelOptInfo,
     rti: pg_sys::Index,
-) -> Option<(RelNode, Vec<JoinKeyPair>)> {
+) -> Option<CollectedJoinRel> {
     let (relid, alias, _bm25_opt) = build::lookup_base_rel_info(root, rti)?;
 
     let mut side_info = JoinSourceCandidate::new(root.into(), rti).with_heaprelid(relid);
@@ -277,7 +294,7 @@ pub(super) unsafe fn collect_join_sources_base_rel(
     current_node = node;
     current_node = wrap_with_mark_filter(current_node, classified.or_subplans, &mut all_keys);
 
-    Some((current_node, all_keys))
+    Some(CollectedJoinRel::new(current_node, all_keys))
 }
 
 /// Buckets that [`classify_base_restrictinfo`] sorts a relation's
@@ -405,7 +422,7 @@ pub unsafe fn wrap_with_semi_anti(
             return Err("subquery cannot be pushed into the aggregate scan".into());
         }
 
-        let Some((inner_node, inner_keys)) = collect_join_sources(inner_root, inner_rel) else {
+        let Some(inner_collected) = collect_join_sources(inner_root, inner_rel) else {
             pgrx::debug1!(
                 "agg-on-join: SubPlan plan_id={plan_id} declined; \
                  inner relation cannot be pushed (no ParadeDB index, volatile, \
@@ -413,6 +430,8 @@ pub unsafe fn wrap_with_semi_anti(
             );
             return Err("subquery cannot be pushed into the aggregate scan".into());
         };
+        let inner_node = inner_collected.plan;
+        let inner_keys = inner_collected.join_keys;
 
         // Recursively collect join sources for the inner subquery
         all_keys.extend(inner_keys);
@@ -482,10 +501,11 @@ unsafe fn wrap_with_mark_filter(
             continue;
         }
 
-        let Some((inner_node, inner_keys)) = collect_join_sources(or_ext.inner_root, inner_rel)
-        else {
+        let Some(inner_collected) = collect_join_sources(or_ext.inner_root, inner_rel) else {
             continue;
         };
+        let inner_node = inner_collected.plan;
+        let inner_keys = inner_collected.join_keys;
 
         all_keys.extend(inner_keys);
 
@@ -540,7 +560,7 @@ unsafe fn wrap_with_mark_filter(
 unsafe fn collect_join_sources_join_rel(
     root: *mut pg_sys::PlannerInfo,
     rel: *mut pg_sys::RelOptInfo,
-) -> Option<(RelNode, Vec<JoinKeyPair>)> {
+) -> Option<CollectedJoinRel> {
     // We only inspect the cheapest path chosen by PostgreSQL.
     let raw_path = (*rel).cheapest_total_path;
     if raw_path.is_null() {
@@ -566,10 +586,20 @@ unsafe fn collect_join_sources_join_rel(
                 let private_list = PgList::<pg_sys::Node>::from_pg((*custom_path).custom_private);
                 if !private_list.is_empty() {
                     let private_data = PrivateData::from((*custom_path).custom_private);
-                    // Return the plan from the existing JoinScan
+                    // Return the plan and predicates from the existing JoinScan
                     let plan = private_data.join_clause.plan.clone();
                     let join_keys = plan.join_keys();
-                    return Some((plan, join_keys));
+                    let mut multi_table_clauses = Vec::new();
+                    for i in 1..private_list.len() {
+                        if let Some(node_ptr) = private_list.get_ptr(i) {
+                            multi_table_clauses.push(node_ptr.cast());
+                        }
+                    }
+                    return Some(CollectedJoinRel {
+                        plan,
+                        join_keys,
+                        multi_table_clauses,
+                    });
                 }
             }
         }
@@ -585,9 +615,21 @@ unsafe fn collect_join_sources_join_rel(
         let outer_rel = (*outer_path).parent;
         let inner_rel = (*inner_path).parent;
 
-        let (outer_node, mut keys) = collect_join_sources(root, outer_rel)?;
-        let (inner_node, inner_keys) = collect_join_sources(root, inner_rel)?;
-        keys.extend(inner_keys);
+        let outer_collected = collect_join_sources(root, outer_rel)?;
+        let inner_collected = collect_join_sources(root, inner_rel)?;
+
+        let left_sources_count = outer_collected.plan.sources().len();
+        let inner_node = inner_collected
+            .plan
+            .offset_plan_positions(left_sources_count);
+
+        let mut keys = outer_collected.join_keys;
+        keys.extend(inner_collected.join_keys);
+
+        let mut multi_table_clauses = outer_collected.multi_table_clauses;
+        multi_table_clauses.extend(inner_collected.multi_table_clauses);
+
+        let outer_node = outer_collected.plan;
 
         let mut all_sources = outer_node.sources();
         all_sources.extend(inner_node.sources());
@@ -710,8 +752,8 @@ unsafe fn collect_join_sources_join_rel(
             }
         };
 
-        // Inner is the only join type where wrapping the reconstructed join in
-        // a `RelNode::Filter` is semantically equivalent. Outer joins
+        // Absorbed search clauses must lower to `RelNode::Filter` sitting
+        // immediately above the absorbing `JoinNode`. Outer joins
         // (Left/Right/Full) would drop outer-fill rows the post-Filter
         // shouldn't see; pruned-side joins (Semi/Anti/Mark, both directions)
         // would leave Vars unresolved against the pruned schema;
@@ -742,7 +784,11 @@ unsafe fn collect_join_sources_join_rel(
         // there would only add a duplicate path.
         join_node.canonicalize_orientation();
 
-        return Some((RelNode::Join(Box::new(join_node)), keys));
+        return Some(CollectedJoinRel {
+            plan: RelNode::Join(Box::new(join_node)),
+            join_keys: keys,
+            multi_table_clauses,
+        });
     }
 
     None

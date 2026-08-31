@@ -512,10 +512,12 @@ pub unsafe fn try_create_subplan_join_paths(
     }
 
     // Try to extract SubPlan-based joins from baserestrictinfo.
-    let (plan, join_keys) = match collect_join_sources_base_rel(root, rel, rti) {
+    let collected = match collect_join_sources_base_rel(root, rel, rti) {
         Some(res) => res,
         None => return Vec::new(),
     };
+    let plan = collected.plan;
+    let join_keys = collected.join_keys;
 
     // Only proceed if the plan actually contains a join (from SubPlan extraction).
     if !plan.has_semi_or_anti() {
@@ -1072,22 +1074,31 @@ impl CustomScan for JoinScan {
             // join condition evaluation manually during execution using the original Var
             // references.
 
-            // Extract the column mappings from the UPDATED targetlist (before we add restrictlist
-            // Vars). The updated targetlist has the SELECT's output columns plus any missing
-            // search operators, which is what ps_ResultTupleSlot is based on. We store this
-            // mapping in PrivateData so build_result_tuple can use it during execution.
-            let mut private_data = PrivateData::from(node.custom_private);
-
-            private_data.output_columns =
-                compute_output_columns(&private_data.join_clause, tlist_ptr, root);
-
-            let updated_entries = PgList::<pg_sys::TargetEntry>::from_pg(tlist_ptr);
-            build_output_projection(&mut private_data, &updated_entries, root);
-
             // Add heap condition clauses to custom_exprs so they get transformed by
             // set_customscan_references. The Vars in these expressions will be converted to
             // INDEX_VAR references into custom_scan_tlist.
             node.custom_exprs = splice_path_private_into_list(node.custom_exprs, best_path);
+
+            // Ensure all Vars referenced in custom_exprs (heap condition clauses)
+            // are present in custom_scan_tlist so setrefs can create INDEX_VAR references.
+            let path_private_full = PgList::<pg_sys::Node>::from_pg((*best_path).custom_private);
+            let mut scan_tlist = PgList::<pg_sys::TargetEntry>::from_pg(node.custom_scan_tlist);
+            for i in 1..path_private_full.len() {
+                if let Some(node_ptr) = path_private_full.get_ptr(i) {
+                    crate::postgres::utils::add_vars_to_tlist(node_ptr, &mut scan_tlist);
+                }
+            }
+            node.custom_scan_tlist = scan_tlist.into_pg();
+
+            // Extract the column mappings from custom_scan_tlist (including any added
+            // custom_exprs Vars) so INDEX_VAR references can be resolved.
+            let mut private_data = PrivateData::from(node.custom_private);
+
+            private_data.output_columns =
+                compute_output_columns(&private_data.join_clause, node.custom_scan_tlist, root);
+
+            let updated_entries = PgList::<pg_sys::TargetEntry>::from_pg(tlist_ptr);
+            build_output_projection(&mut private_data, &updated_entries, root);
             // Snapshot custom_exprs before setrefs rewrites it, for MPP re-baking.
             // Needed for any of: maybe_solve_and_rebake (resolves Param/PostgresExpression
             // nodes) or rebake_for_mpp_fallback (serial replan on a short-launch decline,
@@ -2062,11 +2073,18 @@ impl JoinScan {
         }
 
         // Silent gates: collect outer/inner sources or bail without a warning.
-        let (outer_node, mut join_keys) =
-            collect_join_sources(root, outerrel).ok_or(JoinPathDecline::Quiet)?;
-        let (inner_node, inner_keys) =
-            collect_join_sources(root, innerrel).ok_or(JoinPathDecline::Quiet)?;
-        join_keys.extend(inner_keys);
+        let outer_collected = collect_join_sources(root, outerrel).ok_or(JoinPathDecline::Quiet)?;
+        let inner_collected = collect_join_sources(root, innerrel).ok_or(JoinPathDecline::Quiet)?;
+
+        let left_sources_count = outer_collected.plan.sources().len();
+        let inner_node = inner_collected
+            .plan
+            .offset_plan_positions(left_sources_count);
+
+        let mut join_keys = outer_collected.join_keys;
+        join_keys.extend(inner_collected.join_keys);
+
+        let outer_node = outer_collected.plan;
 
         let aliases: Vec<String> = {
             let mut all_sources = outer_node.sources();
@@ -2087,12 +2105,14 @@ impl JoinScan {
         };
 
         // The minimum requirement for considering the join scan is that a
-        // search predicate is used — either in a source or in a join-level
+        // search predicate is used — either in a source, a sub-join plan, or in a join-level
         // condition. Below this gate, every Err carries a planner warning.
         {
             let mut all_sources = outer_node.sources();
             all_sources.extend(inner_node.sources());
             if !all_sources.iter().any(|s| s.scan_info.has_search_predicate)
+                && !outer_node.has_search_predicate()
+                && !inner_node.has_search_predicate()
                 && !join_conditions.has_search_predicate
             {
                 return Err(JoinPathDecline::Quiet);
@@ -2265,6 +2285,9 @@ impl JoinScan {
         let (mut join_clause, limit_offset) =
             Self::validate_and_build_clause(root, &plan, &join_keys, has_distinct).map_err(warn)?;
 
+        let mut multi_table_clauses = outer_collected.multi_table_clauses;
+        multi_table_clauses.extend(inner_collected.multi_table_clauses);
+
         // --- Join-level predicate extraction (join-hook specific) ---
         // This builds an expression tree that can reference:
         // - Predicate nodes: Tantivy search queries
@@ -2274,7 +2297,7 @@ impl JoinScan {
         // `JoinNode.filter` (above) are filtered out of `remaining_other_conditions`
         // so they are not re-processed here as MultiTablePredicates.
         let current_sources = join_clause.plan.sources();
-        let (join_clause_updated, multi_table_clauses) = extract_join_level_conditions(
+        let (join_clause_updated, new_multi_table_clauses) = extract_join_level_conditions(
             root,
             extra,
             &current_sources,
@@ -2287,16 +2310,12 @@ impl JoinScan {
             ))
         })?;
         join_clause = join_clause_updated;
+        multi_table_clauses.extend(new_multi_table_clauses);
 
-        // Post-extraction check: need at least one side predicate OR join-level predicates.
+        // Post-extraction check: need at least one search predicate in the plan.
         // This is a silent gate — the join is no longer interesting once predicates have
         // been pulled out.
-        let current_sources_after_cond = join_clause.plan.sources();
-        let has_side_predicate = current_sources_after_cond
-            .iter()
-            .any(|s| s.has_search_predicate());
-        let has_join_level_predicates = !join_clause.join_level_predicates.is_empty();
-        if !has_side_predicate && !has_join_level_predicates {
+        if !join_clause.plan.has_search_predicate() {
             return Err(JoinPathDecline::Quiet);
         }
 

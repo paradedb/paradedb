@@ -2077,14 +2077,9 @@ impl JoinScan {
         let inner_collected = collect_join_sources(root, innerrel).ok_or(JoinPathDecline::Quiet)?;
 
         let left_sources_count = outer_collected.plan.sources().len();
-        let search_pred_offset = outer_collected.join_level_predicates.len();
-        let multi_table_offset = outer_collected.multi_table_predicates.len();
-
         let inner_node = inner_collected
             .plan
-            .offset_plan_positions(left_sources_count)
-            .offset_predicate_indices(search_pred_offset)
-            .offset_multi_table_predicate_indices(multi_table_offset);
+            .offset_plan_positions(left_sources_count);
 
         let mut join_keys = outer_collected.join_keys;
         join_keys.extend(inner_collected.join_keys);
@@ -2290,16 +2285,6 @@ impl JoinScan {
         let (mut join_clause, limit_offset) =
             Self::validate_and_build_clause(root, &plan, &join_keys, has_distinct).map_err(warn)?;
 
-        join_clause.join_level_predicates = outer_collected.join_level_predicates;
-        join_clause
-            .join_level_predicates
-            .extend(inner_collected.join_level_predicates);
-
-        join_clause.multi_table_predicates = outer_collected.multi_table_predicates;
-        join_clause
-            .multi_table_predicates
-            .extend(inner_collected.multi_table_predicates);
-
         let mut multi_table_clauses = outer_collected.multi_table_clauses;
         multi_table_clauses.extend(inner_collected.multi_table_clauses);
 
@@ -2327,16 +2312,10 @@ impl JoinScan {
         join_clause = join_clause_updated;
         multi_table_clauses.extend(new_multi_table_clauses);
 
-        // Post-extraction check: need at least one side predicate OR join-level predicates OR plan search predicate.
+        // Post-extraction check: need at least one search predicate in the plan.
         // This is a silent gate — the join is no longer interesting once predicates have
         // been pulled out.
-        let current_sources_after_cond = join_clause.plan.sources();
-        let has_side_predicate = current_sources_after_cond
-            .iter()
-            .any(|s| s.has_search_predicate());
-        let has_join_level_predicates = !join_clause.join_level_predicates.is_empty();
-        let plan_has_search_predicate = join_clause.plan.has_search_predicate();
-        if !has_side_predicate && !has_join_level_predicates && !plan_has_search_predicate {
+        if !join_clause.plan.has_search_predicate() {
             return Err(JoinPathDecline::Quiet);
         }
 

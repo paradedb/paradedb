@@ -25,9 +25,8 @@
 
 use super::JoinDeclineReason;
 use super::build::{
-    self as build, FilterNode, InputVarInfo, JoinCSClause, JoinKeyPair, JoinLevelExpr,
-    JoinLevelSearchPredicate, JoinNode, JoinSource, JoinSourceCandidate, JoinType,
-    MultiTablePredicateInfo, RelNode,
+    self as build, FilterNode, InputVarInfo, JoinCSClause, JoinKeyPair, JoinLevelExpr, JoinNode,
+    JoinSource, JoinSourceCandidate, JoinType, RelNode,
 };
 use super::predicate::find_base_info_recursive;
 use super::privdat::{OutputColumnInfo, PrivateData};
@@ -171,8 +170,6 @@ unsafe fn get_type_info(type_oid: pg_sys::Oid) -> (i16, bool) {
 pub(super) struct CollectedJoinRel {
     pub plan: RelNode,
     pub join_keys: Vec<JoinKeyPair>,
-    pub join_level_predicates: Vec<JoinLevelSearchPredicate>,
-    pub multi_table_predicates: Vec<MultiTablePredicateInfo>,
     pub multi_table_clauses: Vec<*mut pg_sys::Expr>,
 }
 
@@ -181,8 +178,6 @@ impl CollectedJoinRel {
         Self {
             plan,
             join_keys,
-            join_level_predicates: Vec::new(),
-            multi_table_predicates: Vec::new(),
             multi_table_clauses: Vec::new(),
         }
     }
@@ -603,8 +598,6 @@ unsafe fn collect_join_sources_join_rel(
                     return Some(CollectedJoinRel {
                         plan,
                         join_keys,
-                        join_level_predicates: private_data.join_clause.join_level_predicates,
-                        multi_table_predicates: private_data.join_clause.multi_table_predicates,
                         multi_table_clauses,
                     });
                 }
@@ -626,23 +619,12 @@ unsafe fn collect_join_sources_join_rel(
         let inner_collected = collect_join_sources(root, inner_rel)?;
 
         let left_sources_count = outer_collected.plan.sources().len();
-        let search_pred_offset = outer_collected.join_level_predicates.len();
-        let multi_table_offset = outer_collected.multi_table_predicates.len();
-
         let inner_node = inner_collected
             .plan
-            .offset_plan_positions(left_sources_count)
-            .offset_predicate_indices(search_pred_offset)
-            .offset_multi_table_predicate_indices(multi_table_offset);
+            .offset_plan_positions(left_sources_count);
 
         let mut keys = outer_collected.join_keys;
         keys.extend(inner_collected.join_keys);
-
-        let mut join_level_predicates = outer_collected.join_level_predicates;
-        join_level_predicates.extend(inner_collected.join_level_predicates);
-
-        let mut multi_table_predicates = outer_collected.multi_table_predicates;
-        multi_table_predicates.extend(inner_collected.multi_table_predicates);
 
         let mut multi_table_clauses = outer_collected.multi_table_clauses;
         multi_table_clauses.extend(inner_collected.multi_table_clauses);
@@ -805,8 +787,6 @@ unsafe fn collect_join_sources_join_rel(
         return Some(CollectedJoinRel {
             plan: RelNode::Join(Box::new(join_node)),
             join_keys: keys,
-            join_level_predicates,
-            multi_table_predicates,
             multi_table_clauses,
         });
     }

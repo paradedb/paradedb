@@ -628,8 +628,6 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
 pub struct MultiTablePredicateInfo {
     /// Human-readable description for EXPLAIN output.
     pub description: String,
-    /// Index of this condition in the restrictlist (for runtime extraction).
-    pub restrictinfo_index: usize,
 }
 
 /// A boolean expression tree for join-level conditions.
@@ -639,13 +637,12 @@ pub enum JoinLevelExpr {
     SingleTablePredicate {
         /// Plan position of the source (in the order yielded by `RelNode::sources()`) this predicate references.
         plan_position: usize,
-        /// Index into the `join_level_predicates` vector.
-        predicate_idx: usize,
+        /// The search predicate to evaluate against Tantivy.
+        predicate: Box<JoinLevelSearchPredicate>,
     },
     /// Leaf: multi-table predicate, evaluate at runtime against the joined row pair.
     MultiTablePredicate {
-        /// Index into the `multi_table_predicates` vector.
-        predicate_idx: usize,
+        predicate: Box<MultiTablePredicateInfo>,
     },
     /// Logical AND of child expressions.
     And(Vec<JoinLevelExpr>),
@@ -699,6 +696,18 @@ impl JoinLevelExpr {
         }
     }
 
+    pub fn has_multi_table_predicate(&self) -> bool {
+        match self {
+            Self::SingleTablePredicate { .. } => false,
+            Self::MultiTablePredicate { .. } => true,
+            Self::And(children) | Self::Or(children) => {
+                children.iter().any(|c| c.has_multi_table_predicate())
+            }
+            Self::Not(inner) => inner.has_multi_table_predicate(),
+            Self::MarkOrNull { .. } | Self::PgExpression { .. } => false,
+        }
+    }
+
     pub fn offset_plan_positions(&mut self, offset: usize) {
         if offset == 0 {
             return;
@@ -718,41 +727,76 @@ impl JoinLevelExpr {
         }
     }
 
-    pub fn offset_predicate_indices(&mut self, offset: usize) {
-        if offset == 0 {
-            return;
-        }
+    pub fn collect_search_predicates<'a>(
+        &'a self,
+        acc: &mut Vec<(usize, &'a JoinLevelSearchPredicate)>,
+    ) {
         match self {
-            Self::SingleTablePredicate { predicate_idx, .. } => {
-                *predicate_idx += offset;
+            Self::SingleTablePredicate {
+                plan_position,
+                predicate,
+            } => {
+                acc.push((*plan_position, predicate.as_ref()));
             }
-            Self::MultiTablePredicate { .. } => {}
             Self::And(children) | Self::Or(children) => {
                 for c in children {
-                    c.offset_predicate_indices(offset);
+                    c.collect_search_predicates(acc);
                 }
             }
-            Self::Not(inner) => inner.offset_predicate_indices(offset),
-            Self::MarkOrNull { .. } | Self::PgExpression { .. } => {}
+            Self::Not(inner) => inner.collect_search_predicates(acc),
+            Self::MultiTablePredicate { .. }
+            | Self::MarkOrNull { .. }
+            | Self::PgExpression { .. } => {}
         }
     }
 
-    pub fn offset_multi_table_predicate_indices(&mut self, offset: usize) {
-        if offset == 0 {
-            return;
-        }
+    pub fn visit_queries_mut(&mut self, f: &mut impl FnMut(&mut SearchQueryInput)) {
         match self {
-            Self::SingleTablePredicate { .. } => {}
-            Self::MultiTablePredicate { predicate_idx } => {
-                *predicate_idx += offset;
+            Self::SingleTablePredicate { predicate, .. } => f(&mut predicate.query),
+            Self::And(children) | Self::Or(children) => {
+                for c in children {
+                    c.visit_queries_mut(f);
+                }
+            }
+            Self::Not(inner) => inner.visit_queries_mut(f),
+            Self::MultiTablePredicate { .. }
+            | Self::MarkOrNull { .. }
+            | Self::PgExpression { .. } => {}
+        }
+    }
+
+    pub fn visit_queries(&self, f: &mut impl FnMut(&SearchQueryInput)) {
+        match self {
+            Self::SingleTablePredicate { predicate, .. } => f(&predicate.query),
+            Self::And(children) | Self::Or(children) => {
+                for c in children {
+                    c.visit_queries(f);
+                }
+            }
+            Self::Not(inner) => inner.visit_queries(f),
+            Self::MultiTablePredicate { .. }
+            | Self::MarkOrNull { .. }
+            | Self::PgExpression { .. } => {}
+        }
+    }
+
+    pub fn collect_multi_table_predicates<'a>(
+        &'a self,
+        acc: &mut Vec<&'a MultiTablePredicateInfo>,
+    ) {
+        match self {
+            Self::MultiTablePredicate { predicate } => {
+                acc.push(predicate.as_ref());
             }
             Self::And(children) | Self::Or(children) => {
                 for c in children {
-                    c.offset_multi_table_predicate_indices(offset);
+                    c.collect_multi_table_predicates(acc);
                 }
             }
-            Self::Not(inner) => inner.offset_multi_table_predicate_indices(offset),
-            Self::MarkOrNull { .. } | Self::PgExpression { .. } => {}
+            Self::Not(inner) => inner.collect_multi_table_predicates(acc),
+            Self::SingleTablePredicate { .. }
+            | Self::MarkOrNull { .. }
+            | Self::PgExpression { .. } => {}
         }
     }
 }
@@ -906,6 +950,56 @@ impl RelNode {
         .unwrap_or(false)
     }
 
+    /// Returns true if this node or any subtree contains a multi-table predicate.
+    pub fn has_multi_table_predicates(&self) -> bool {
+        self.exists(|node| {
+            let has = match node {
+                Self::Filter(f) => f.predicate.has_multi_table_predicate(),
+                Self::Join(j) => j
+                    .filter
+                    .as_ref()
+                    .is_some_and(|f| f.has_multi_table_predicate()),
+                Self::Scan(_) => false,
+            };
+            Ok(has)
+        })
+        .unwrap_or(false)
+    }
+
+    /// Recursively collects all search predicates in this tree.
+    pub fn search_predicates(&self) -> Vec<JoinLevelSearchPredicate> {
+        let mut predicates = Vec::new();
+        let _ = self.apply(|node| {
+            if let Self::Filter(f) = node {
+                f.predicate.collect_search_predicates(&mut predicates);
+            }
+            if let Self::Join(j) = node
+                && let Some(ref f) = j.filter
+            {
+                f.collect_search_predicates(&mut predicates);
+            }
+            Ok(TreeNodeRecursion::Continue)
+        });
+        predicates.into_iter().map(|(_, p)| p.clone()).collect()
+    }
+
+    /// Recursively collects all multi-table predicates in this tree.
+    pub fn multi_table_predicates(&self) -> Vec<MultiTablePredicateInfo> {
+        let mut predicates = Vec::new();
+        let _ = self.apply(|node| {
+            if let Self::Filter(f) = node {
+                f.predicate.collect_multi_table_predicates(&mut predicates);
+            }
+            if let Self::Join(j) = node
+                && let Some(ref f) = j.filter
+            {
+                f.collect_multi_table_predicates(&mut predicates);
+            }
+            Ok(TreeNodeRecursion::Continue)
+        });
+        predicates.into_iter().cloned().collect()
+    }
+
     /// Offset plan_position on all SingleTablePredicate expressions in this tree.
     pub fn offset_plan_positions(self, offset: usize) -> Self {
         if offset == 0 {
@@ -918,48 +1012,6 @@ impl RelNode {
                 Self::Join(j) => {
                     if let Some(ref mut filter) = j.filter {
                         filter.offset_plan_positions(offset);
-                    }
-                }
-            }
-            Ok(Transformed::yes(node))
-        })
-        .expect("infallible tree transformation")
-        .data
-    }
-
-    /// Offset predicate_idx on all SingleTablePredicate expressions in this tree.
-    pub fn offset_predicate_indices(self, offset: usize) -> Self {
-        if offset == 0 {
-            return self;
-        }
-        self.transform_down(|mut node| {
-            match &mut node {
-                Self::Scan(_) => {}
-                Self::Filter(f) => f.predicate.offset_predicate_indices(offset),
-                Self::Join(j) => {
-                    if let Some(ref mut filter) = j.filter {
-                        filter.offset_predicate_indices(offset);
-                    }
-                }
-            }
-            Ok(Transformed::yes(node))
-        })
-        .expect("infallible tree transformation")
-        .data
-    }
-
-    /// Offset predicate_idx on all MultiTablePredicate expressions in this tree.
-    pub fn offset_multi_table_predicate_indices(self, offset: usize) -> Self {
-        if offset == 0 {
-            return self;
-        }
-        self.transform_down(|mut node| {
-            match &mut node {
-                Self::Scan(_) => {}
-                Self::Filter(f) => f.predicate.offset_multi_table_predicate_indices(offset),
-                Self::Join(j) => {
-                    if let Some(ref mut filter) = j.filter {
-                        filter.offset_multi_table_predicate_indices(offset);
                     }
                 }
             }
@@ -1444,8 +1496,14 @@ impl RelNode {
             RelNode::Join(j) => {
                 j.left.visit_queries_mut(f);
                 j.right.visit_queries_mut(f);
+                if let Some(ref mut filter) = j.filter {
+                    filter.visit_queries_mut(f);
+                }
             }
-            RelNode::Filter(filt) => filt.input.visit_queries_mut(f),
+            RelNode::Filter(filt) => {
+                filt.input.visit_queries_mut(f);
+                filt.predicate.visit_queries_mut(f);
+            }
         }
     }
 
@@ -1469,8 +1527,14 @@ impl RelNode {
             RelNode::Join(j) => {
                 j.left.visit_queries(f);
                 j.right.visit_queries(f);
+                if let Some(ref filter) = j.filter {
+                    filter.visit_queries(f);
+                }
             }
-            RelNode::Filter(filt) => filt.input.visit_queries(f),
+            RelNode::Filter(filt) => {
+                filt.input.visit_queries(f);
+                filt.predicate.visit_queries(f);
+            }
         }
     }
 }
@@ -1563,10 +1627,6 @@ pub struct JoinCSClause {
     /// `LimitOffset` form so parameterized values are resolved at execution
     /// time rather than dropped at planning time.
     pub limit_offset: Option<LimitOffset>,
-    /// Join-level search predicates (Tantivy queries to execute).
-    pub join_level_predicates: Vec<JoinLevelSearchPredicate>,
-    /// Heap conditions (PostgreSQL expressions referencing both sides).
-    pub multi_table_predicates: Vec<MultiTablePredicateInfo>,
     /// ORDER BY clause to be applied to the DataFusion plan.
     pub order_by: Vec<OrderByInfo>,
     /// Projection of output columns for this join.
@@ -1580,8 +1640,6 @@ impl JoinCSClause {
         let mut clause = Self {
             plan,
             limit_offset: None,
-            join_level_predicates: Vec::new(),
-            multi_table_predicates: Vec::new(),
             order_by: Vec::new(),
             output_projection: None,
             has_distinct: false,
@@ -1612,41 +1670,9 @@ impl JoinCSClause {
         self
     }
 
-    /// Add a join-level predicate and return its index.
-    pub fn add_join_level_predicate(
-        &mut self,
-        rti: pg_sys::Index,
-        indexrelid: pg_sys::Oid,
-        heaprelid: pg_sys::Oid,
-        query: SearchQueryInput,
-    ) -> usize {
-        let idx = self.join_level_predicates.len();
-        self.join_level_predicates.push(JoinLevelSearchPredicate {
-            rti,
-            indexrelid,
-            heaprelid,
-            query,
-        });
-        idx
-    }
-
-    /// Add a heap condition and return its index.
-    pub fn add_multi_table_predicate(
-        &mut self,
-        description: String,
-        restrictinfo_index: usize,
-    ) -> usize {
-        let idx = self.multi_table_predicates.len();
-        self.multi_table_predicates.push(MultiTablePredicateInfo {
-            description,
-            restrictinfo_index,
-        });
-        idx
-    }
-
     /// Returns true if there are heap conditions to evaluate.
     pub fn has_multi_table_predicates(&self) -> bool {
-        !self.multi_table_predicates.is_empty()
+        self.plan.has_multi_table_predicates()
     }
 
     /// Set the join-level expression tree by wrapping the current plan in a FilterNode.
@@ -1706,13 +1732,9 @@ impl JoinCSClause {
             None
         }
     }
-    /// Visit every `SearchQueryInput` in this clause: both inside `Scan` nodes
-    /// (via `plan`) and inside `join_level_predicates`.
+    /// Visit every `SearchQueryInput` in this clause via `plan`.
     pub fn visit_queries_mut(&mut self, f: &mut impl FnMut(&mut SearchQueryInput)) {
         self.plan.visit_queries_mut(f);
-        for pred in &mut self.join_level_predicates {
-            f(&mut pred.query);
-        }
     }
 
     /// Read-only counterpart of `visit_queries_mut`, for callers (e.g. EXPLAIN) that only
@@ -1720,9 +1742,6 @@ impl JoinCSClause {
     /// to satisfy a `&mut` receiver.
     pub fn visit_queries(&self, f: &mut impl FnMut(&SearchQueryInput)) {
         self.plan.visit_queries(f);
-        for pred in &self.join_level_predicates {
-            f(&pred.query);
-        }
     }
 
     pub fn has_postgres_expressions(&self) -> bool {
@@ -1770,9 +1789,10 @@ impl JoinCSClause {
         });
     }
 
-    /// Configures `ScanMode::Tagged` on each join source that participates in `join_level_predicates`.
+    /// Configures `ScanMode::Tagged` on each join source that participates in search predicates.
     pub fn assign_tagged_queries(&mut self) {
-        assign_tagged_queries(self.plan.sources_mut(), &self.join_level_predicates);
+        let predicates = self.plan.search_predicates();
+        assign_tagged_queries(self.plan.sources_mut(), &predicates);
     }
 }
 

@@ -15,6 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+//! SQL diagnostics for vector quantization.
+
 use crate::index::directory::utils::{load_index_settings, replace_settings};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -98,21 +100,11 @@ type ExactEConeAuditRow = (
     name!(final_depth, bool),
 );
 
-/// Record exact-E estimator diagnostics for one quantized vector field
-/// with caller-supplied production queries, then atomically replace the
-/// index-level settings record.
+/// Measures and persists per-depth quantization diagnostics.
 ///
-/// External queries are independent of the indexed corpus, so row sampling
-/// deliberately performs no cluster-membership exclusion. Every supplied
-/// query is validated; the first 256 are measured to bound diagnostic work.
-/// The measurement uses production quantized-query preparation, exact
-/// per-depth stored gamma correction, and the production exact-E sigma.
-/// Persisted `(bias, spread)` values are diagnostic tripwires only: quantized
-/// scanning never reads them as a correction or band-width input.
+/// # Errors
 ///
-/// `AnyArray` is deliberate at the Rust boundary: pgrx has no native pgvector
-/// array type. The SQL declaration below fixes the public type to `vector[]`,
-/// and the element OID is checked before the sole unsafe datum conversion.
+/// Returns an error for invalid input or unavailable quantized storage.
 #[pg_extern(
     name = "vector_calibrate",
     sql = r#"
@@ -155,10 +147,6 @@ fn vector_calibrate_internal(
     reject_partitioned_index(index_oid, PartitionedIndexOperation::Calibration)?;
     drop(index);
 
-    // The settings list and its metapage pointer are one physical-index
-    // resource. Hold the strongest relation lock for the complete
-    // read-measure-replace operation so concurrent calibrators cannot lose an
-    // update and a concurrent merge cannot observe two settings generations.
     let index = PgSearchRelation::with_lock(index_oid, pg_sys::AccessExclusiveLock as _);
     ensure!(
         unsafe { pg_sys::get_rel_relkind(index.oid()) as u8 } == pg_sys::RELKIND_INDEX,
@@ -182,8 +170,6 @@ fn vector_calibrate_internal(
         .into_iter()
         .map(|values| VectorErrorAuditQuery {
             values,
-            // External queries have no posting membership and therefore no
-            // self-match cluster to exclude from the serving-condition audit.
             excluded_doc_id: None,
         })
         .collect::<Vec<_>>();
@@ -272,18 +258,11 @@ fn vector_calibrate_internal(
     Ok(TableIterator::new(rows))
 }
 
-/// Measure the stored exact-E estimator without changing index settings.
+/// Measures exact-error estimator diagnostics without changing index settings.
 ///
-/// The real-query protocol validates every caller-supplied query and measures
-/// exactly the first 100. The held-out protocol independently samples exactly
-/// 100 distinct visible stored documents across the index. Only a stored
-/// pseudo-query's origin segment receives its `doc_id`, so all replica
-/// memberships of that document are excluded there; external queries have no
-/// residency and therefore no exclusion. Both protocols use the same
-/// index-wide 1,000-posting-row target allocation. `gamma_diagnostics` keeps
-/// the row shape below pgrx's tuple-column limit while exposing named stored
-/// and raw distributions, zero/clamp counts, and absolute binary16 band-error
-/// tails without dropping the existing exact-E columns.
+/// # Errors
+///
+/// Returns an error for invalid input or unavailable quantized storage.
 #[pg_extern(
     name = "vector_error_audit",
     sql = r#"
@@ -378,9 +357,6 @@ fn vector_error_audit_internal(
     reject_partitioned_index(index_oid, PartitionedIndexOperation::ErrorAudit)?;
     drop(index);
 
-    // This endpoint is deliberately read-only: AccessShare keeps the physical
-    // index stable while Snapshot visibility determines the live rows. In
-    // particular, there is no settings-list replacement or metapage swap.
     let index = PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as _);
     ensure!(
         unsafe { pg_sys::get_rel_relkind(index.oid()) as u8 } == pg_sys::RELKIND_INDEX,
@@ -571,10 +547,11 @@ fn vector_error_audit_internal(
     Ok(TableIterator::new(rows))
 }
 
-/// Measure only confidence-band survivor behavior: every cluster and every
-/// visible posting membership is admitted, so routing and probe budgets cannot
-/// hide a band miss. Stored exact-E estimates use zero centering by contract;
-/// the separate 1K exact-E endpoint remains the bias regression gate.
+/// Measures confidence-band survivor behavior across all clusters.
+///
+/// # Errors
+///
+/// Returns an error for invalid input or unavailable quantized storage.
 #[pg_extern(
     name = "vector_error_cone_audit",
     sql = r#"
@@ -689,9 +666,6 @@ fn vector_error_cone_audit_internal(
         vector_options.dim()
     );
 
-    // A cone boundary is segment-wide. Reject multiple physical vector
-    // segments rather than silently applying per-segment boundaries and
-    // calling their average an index-wide result.
     let mut vector_segments = Vec::new();
     for segment_reader in search_reader.segment_readers() {
         let vector_index = segment_reader.vector_index(vector_field)?;
@@ -785,8 +759,6 @@ fn decode_queries(queries: &AnyArray, expected_dim: usize) -> Result<Vec<Vec<f32
     .map(|(queries, _)| queries)
 }
 
-/// Validate every supplied array element while retaining only the bounded
-/// prefix used by the caller's measurement protocol.
 fn decode_queries_capped(
     queries: &AnyArray,
     expected_dim: usize,
@@ -799,11 +771,6 @@ fn decode_queries_capped(
         "queries must have type vector[]"
     );
 
-    // Borrowed iteration is required here. pgrx 0.19's consuming
-    // `AnyArrayIterator` asserts that its data pointer is in bounds before it
-    // checks a NULL bitmap bit, which panics for an all-NULL varlena array.
-    // `Array::iter` checks nullness first and therefore lets us surface the
-    // promised SQL validation error without reading the element bytes.
     let array = pgrx::AnyArray::into::<pgrx::Array<pg_sys::Datum>>(queries)
         .context("could not decode queries vector[]")?;
     let mut decoded = Vec::new();
@@ -811,9 +778,7 @@ fn decode_queries_capped(
     for (query_idx, datum) in array.iter().enumerate() {
         let datum =
             datum.with_context(|| format!("{query_kind} query {} is NULL", query_idx + 1))?;
-        // SAFETY: the array element OID was checked against pgvector's OID
-        // above, and `Array::iter` established that this element is non-NULL.
-        // `PgVector` detoasts and copies the datum before returning.
+        // SAFETY: `element_oid` is pgvector and `datum` is non-null.
         let query = unsafe { PgVector::from_polymorphic_datum(datum, false, element_oid) }
             .with_context(|| format!("could not decode {query_kind} query {}", query_idx + 1))?;
         ensure!(
@@ -831,9 +796,6 @@ fn decode_queries_capped(
     Ok((decoded, input_count))
 }
 
-/// Allocate an index-wide row budget proportionally to each visible segment's
-/// posting-membership count. Largest-remainder rounding is deterministic:
-/// equal remainders are awarded in segment-reader order.
 fn allocate_sample_rows(membership_rows: &[u64], requested: usize) -> Vec<usize> {
     let total = membership_rows
         .iter()

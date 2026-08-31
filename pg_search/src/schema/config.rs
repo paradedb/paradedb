@@ -110,24 +110,28 @@ pub enum SearchFieldConfig {
         fast: bool,
     },
     Facet,
+    /// A vector field.
     Vector {
+        /// Vector dimension.
         dims: usize,
+        /// Optional quantization schedule.
         #[serde(default)]
         quantization: Option<VectorQuantizationConfig>,
     },
 }
 
-/// SQL-facing opt-in for one vector field's residual quantization schedule.
-/// `true` selects `[1, 4]`; an explicit object preserves the caller's layer
-/// ordering.
+/// A vector field's quantization schedule.
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum VectorQuantizationConfig {
+    /// Enables the default schedule when true.
     Enabled(bool),
+    /// Specifies layer widths in scoring order.
     Explicit { layers: Vec<u8> },
 }
 
 impl VectorQuantizationConfig {
+    /// Returns the enabled layer widths.
     pub fn layers(&self) -> Option<Vec<u8>> {
         match self {
             Self::Enabled(false) => None,
@@ -258,6 +262,11 @@ impl SearchFieldConfig {
         }
     }
 
+    /// Parses a vector-field configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the JSON shape or quantization schedule is invalid.
     pub fn vector_from_json(value: serde_json::Value) -> Result<Self> {
         let config: Self = serde_json::from_value(json!({
             "Vector": value
@@ -275,6 +284,7 @@ impl SearchFieldConfig {
         }
     }
 
+    /// Returns the configured quantization layer widths.
     pub fn quantization_layers(&self) -> Option<Vec<u8>> {
         match self {
             SearchFieldConfig::Vector {
@@ -382,6 +392,7 @@ impl SearchFieldConfig {
         Self::from_json(json!({"Json": {"fast": true}}))
     }
 
+    /// Creates an unquantized vector-field configuration.
     pub fn default_vector(dims: usize) -> Self {
         Self::Vector {
             dims,

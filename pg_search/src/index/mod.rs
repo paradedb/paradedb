@@ -36,11 +36,11 @@ use tantivy::columnar::CodecType;
 use tantivy::schema::FieldType;
 use tantivy::vector::{VectorQuantizationConfig, VectorQuantizationLayer};
 
-/// The [`IndexSettings`] used for every tantivy index pg_search creates.
+/// Builds the Tantivy settings for a ParadeDB index.
 ///
-/// `docstore_compress_dedicated_thread` must remain `false`: a dedicated compressor thread
-/// receives process-directed signals, and pgrx's background worker signal handlers call into
-/// Postgres FFI, which panics off the main thread. Compress inline instead.
+/// # Errors
+///
+/// Returns an error when a quantized field is invalid or seed generation fails.
 pub fn index_settings(
     options: &BM25IndexOptions,
     schema: &tantivy::schema::Schema,

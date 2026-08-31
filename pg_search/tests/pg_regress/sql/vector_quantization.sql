@@ -1,6 +1,3 @@
--- End-to-end SQL proof for the quantized vector path. The clustering
--- threshold is captured at CREATE INDEX, so a small deterministic fixture can
--- cross the flat/IVF boundary without making the regression test enormous.
 SET client_min_messages = WARNING;
 CREATE EXTENSION IF NOT EXISTS vector;
 \i common/common_setup.sql
@@ -32,9 +29,6 @@ BEGIN
 END
 $$;
 
--- Relation-shape diagnostics are deterministic. Partition parents name every
--- child index and direct callers to calibrate the physical children
--- independently.
 CREATE TABLE q_cal_parent (id integer, vec vector(64)) PARTITION BY RANGE (id);
 CREATE TABLE q_cal_parent_low PARTITION OF q_cal_parent
     FOR VALUES FROM (MINVALUE) TO (0);
@@ -77,8 +71,6 @@ SELECT * FROM paradedb.vector_calibrate(
 );
 DROP TABLE q_cal_unquantized;
 
--- CREATE INDEX validation: the configured dimension must match the schema,
--- and quantized fields are inside the validated d >= 64 model envelope.
 CREATE TABLE q_bad_dims (id integer PRIMARY KEY, vec vector(100));
 CREATE INDEX q_bad_dims_idx ON q_bad_dims
 USING paradedb (id, vec vector_l2_ops)
@@ -112,9 +104,6 @@ WITH (
 );
 DROP TABLE q_schedule_validation;
 
--- d=768 cosine, using the SQL shorthand for the default [1,4] schedule. Forty
--- centroids keep the 25% level-zero probe non-exhaustive despite the 16-work-unit
--- small-segment probe floor.
 CREATE TABLE q_cosine (id integer PRIMARY KEY, vec vector(768));
 CREATE INDEX q_cosine_idx ON q_cosine
 USING paradedb (id, vec vector_cosine_ops)
@@ -134,10 +123,6 @@ VACUUM q_cosine;
 SELECT bool_or(vector_format = 'ivf') AS cosine_has_ivf
 FROM paradedb.vector_info('q_cosine_idx', 'vec');
 
--- The exact-E audit requires the fixed 100-query protocol,
--- reports both real-query and held-out sources, and is read-only. Calibration
--- metadata is diagnostic-only, so its presence or absence never
--- selects the quantized scorer.
 SELECT count(*)
 FROM paradedb.vector_error_audit(
     'q_cosine_idx',
@@ -209,10 +194,6 @@ SELECT
     ) AS exact_e_distributions
 FROM audit;
 
--- The cone audit is a separate, read-only diagnostic of the shipped
--- analytical bands: all clusters are admitted, estimates use stored exact-E
--- with zero centering, and the fixed k=10, uniform kappa=2 protocol runs on
--- exactly 100 external queries.
 WITH cone AS MATERIALIZED (
     SELECT *
     FROM paradedb.vector_error_cone_audit(
@@ -244,9 +225,6 @@ SELECT
     count(*) FILTER (WHERE final_depth) = 1 AS cone_one_final_depth
 FROM cone;
 
--- Save the level-0 oracle before diagnostic metadata is written. A fractional
--- probe budget makes this the unquantized-IVF baseline, not an exhaustive scan;
--- the later level-0 query must preserve its result order and exact scores.
 SET paradedb.vector_cluster_max_probe = 0.25;
 CREATE TEMP TABLE q_cosine_unquantized_ivf AS
 SELECT
@@ -261,9 +239,6 @@ FROM (
     LIMIT 10
 ) hits;
 
--- Diagnostic metadata is not a scorer prerequisite. Without it, the
--- positive-depth query must already use the quantized layers rather than
--- routed full-precision fallback.
 WITH plan AS (
     SELECT quant_explain(
         'SELECT id FROM q_cosine WHERE id @@@ pdb.all() '
@@ -281,8 +256,6 @@ SELECT
 FROM segment_info;
 SET paradedb.vector_cluster_max_probe = 1.0;
 
--- The SQL boundary rejects NULLs itself (the function is intentionally not
--- STRICT), validates every array element, and measures a bounded prefix.
 SELECT * FROM paradedb.vector_calibrate(NULL, 'vec', ARRAY[quant_fixture_vector(768, 0)]);
 SELECT * FROM paradedb.vector_calibrate('q_cosine_idx', NULL, ARRAY[quant_fixture_vector(768, 0)]);
 SELECT * FROM paradedb.vector_calibrate('q_cosine_idx', 'vec', NULL);
@@ -326,8 +299,6 @@ WITH plan AS (
         'ORDER BY vec <=> quant_fixture_vector(768, 0), id LIMIT 10'
     ) AS value
 ), segment_info AS (
-    -- Custom EXPLAIN properties are represented as JSON text inside FORMAT
-    -- JSON, so parse that property before checking the flat ProbeStats keys.
     SELECT (jsonb_path_query_first(value, '$.**."Segment Info"') #>> '{}')::jsonb AS value
     FROM plan
 )
@@ -350,7 +321,6 @@ SELECT
         AS rerank_io_flat
 FROM segment_info;
 
--- d=768 L2 exercises slot 14 and score assembly as -dist^2.
 CREATE TABLE q_l2 (id integer PRIMARY KEY, vec vector(768));
 CREATE INDEX q_l2_idx ON q_l2
 USING paradedb (id, vec vector_l2_ops)
@@ -394,7 +364,6 @@ FROM (
     LIMIT 10
 ) hits;
 
--- Odd d=100 exercises exact-d rotation and zero-tail packing through SQL.
 CREATE TABLE q_odd (id integer PRIMARY KEY, vec vector(100));
 CREATE INDEX q_odd_idx ON q_odd
 USING paradedb (id, vec vector_l2_ops)
@@ -438,8 +407,6 @@ FROM (
     LIMIT 10
 ) hits;
 
--- A sub-threshold segment remains flat. Level zero must retain this existing
--- brute-force behavior while IVF segments keep routing and the probe budget.
 CREATE TABLE q_flat (id integer PRIMARY KEY, vec vector(100));
 CREATE INDEX q_flat_idx ON q_flat
 USING paradedb (id, vec vector_cosine_ops)
@@ -449,9 +416,6 @@ WITH (
 );
 INSERT INTO q_flat SELECT g, quant_fixture_vector(100, g) FROM generate_series(1, 32) g;
 
--- Prefix depth zero disables quantized scoring but keeps the same IVF routing
--- and work budget. Use the same fractional probe as the saved unquantized-IVF
--- baseline so order, ids, and exact scores can be compared directly.
 SET paradedb.max_scan_levels = 0;
 SET paradedb.vector_cluster_max_probe = 0.25;
 

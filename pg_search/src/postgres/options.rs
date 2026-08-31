@@ -197,9 +197,7 @@ extern "C-unwind" fn validate_search_tokenizer(value: *const std::os::raw::c_cha
         .unwrap_or_else(|| panic!("invalid search_tokenizer: '{s}'"));
 }
 
-/// The only legal `bounds_scope`: the merge folds centroid bounds over a
-/// cluster's NATIVE (primary-assignment) members. Captured into the stored
-/// tantivy `IndexSettings` at CREATE INDEX, like the clustering threshold.
+/// Native posting members define stored vector bounds.
 pub(crate) const BOUNDS_SCOPE_NATIVE: &str = "native";
 
 #[pg_guard]
@@ -492,18 +490,26 @@ impl BM25IndexOptions {
         }
     }
 
+    /// Returns the IVF centroid ratio.
     pub fn centroid_ratio(&self) -> f32 {
         self.options_data().centroid_ratio()
     }
 
+    /// Returns the stored vector-bounds scope.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the persisted scope is invalid.
     pub fn bounds_scope(&self) -> BoundsScope {
         self.options_data().bounds_scope()
     }
 
+    /// Returns the training samples used per centroid.
     pub fn training_samples_per_centroid(&self) -> usize {
         self.options_data().training_samples_per_centroid()
     }
 
+    /// Returns the posting memberships written per vector.
     pub fn cluster_replication(&self) -> usize {
         self.options_data().cluster_replication()
     }
@@ -600,6 +606,7 @@ impl BM25IndexOptions {
         self.lazy.inet.borrow()
     }
 
+    /// Returns the vector-field configurations.
     pub fn vector_config(&self) -> Ref<'_, Option<HashMap<FieldName, SearchFieldConfig>>> {
         if self.lazy.vector.borrow().is_none() {
             *self.lazy.vector.borrow_mut() = Some(self.options_data().vector_configs());
@@ -914,12 +921,16 @@ impl BM25IndexOptionsData {
         }
     }
 
+    /// Returns the IVF centroid ratio.
     pub fn centroid_ratio(&self) -> f32 {
         self.centroid_ratio as f32
     }
 
-    /// The stored-bounds scope, validated at option-set time; anything but
-    /// the default reads as `Native` (the only variant).
+    /// Returns the stored vector-bounds scope.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the persisted scope is invalid.
     pub fn bounds_scope(&self) -> BoundsScope {
         let value = self.get_str(self.bounds_scope_offset, BOUNDS_SCOPE_NATIVE.to_string());
         match value.as_str() {
@@ -928,14 +939,12 @@ impl BM25IndexOptionsData {
         }
     }
 
+    /// Returns the training samples used per centroid.
     pub fn training_samples_per_centroid(&self) -> usize {
         self.training_samples_per_centroid.max(1) as usize
     }
 
-    /// Total cells a vector is written into (SPANN `ReplicaCount`): the primary
-    /// plus up to `cluster_replication - 1` next-nearest cells, selected by
-    /// tantivy at merge time in the field's metric. `1` is primary-only. Any
-    /// non-positive value is treated as `1`.
+    /// Returns the posting memberships written per vector.
     pub fn cluster_replication(&self) -> usize {
         if self.cluster_replication <= 0 {
             1
@@ -1033,6 +1042,7 @@ impl BM25IndexOptionsData {
         )
     }
 
+    /// Returns the vector-field configurations.
     pub fn vector_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
         self.deserialize_configs(
             self.vector_fields_offset,

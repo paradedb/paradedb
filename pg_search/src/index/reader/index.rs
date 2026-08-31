@@ -114,10 +114,11 @@ pub struct TopKSearchResults {
     aggregation_results: Option<IntermediateAggregationResults>,
 }
 
-/// Docs (+ optional aggregations) from a TopK search, plus opaque per-segment
-/// JSON info harvested from the collector Fruit (e.g. vector probe stats).
+/// Top-k results, aggregations, and per-segment metrics.
 pub struct TopKSearch {
+    /// Search results and aggregations.
     pub results: TopKSearchResults,
+    /// Per-segment collector metrics.
     pub segment_info: BTreeMap<SegmentId, serde_json::Value>,
 }
 
@@ -367,8 +368,7 @@ pub struct SearchIndexReader {
     total_docs: u64,
     index_created_by_version: Option<Version>,
     segment_ordinal_by_id: HashMap<SegmentId, SegmentOrdinal>,
-    /// Query-level index/searcher open time, charged once to the first vector
-    /// segment so flat-numeric aggregation remains additive.
+    /// Query-level reader initialization time.
     scan_init_ns: u64,
     /// The directory `underlying_index` opened over; kept to capture this reader's
     /// [`SegmentView`].
@@ -1069,21 +1069,7 @@ impl SearchIndexReader {
         )
     }
 
-    /// Search the Tantivy index for the Top K matching documents in specific segments.
-    ///
-    /// The documents are returned in either score or field order, in the given direction: at least
-    /// one `OrderByInfo` must be defined.
-    ///
-    /// If a TopKAuxiliaryCollector with a vischeck is provided, this method pre-filters for MVCC
-    /// visibility. Otherwise — no auxiliary collector, or one whose vischeck is `None` because
-    /// MVCC is solved lazily inside its aggregation collector — it is up to the caller to filter
-    /// the results for MVCC visibility, and re-query if necessary.
-    ///
-    /// `parallel_state_holding_shared_threshold` should only be passed if we intend to query with a shared_threshold
-    ///
-    /// Fruit-side metrics (e.g. vector probe stats) are returned as opaque
-    /// per-segment JSON in [`TopKSearch::segment_info`], not bolted onto
-    /// [`TopKSearchResults`].
+    /// Searches selected segments for the top-k documents.
     pub fn search_top_k_in_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
@@ -1260,8 +1246,6 @@ impl SearchIndexReader {
                     .resolved()
                     .expect("vector ORDER BY query vector was never resolved")
                     .to_vec();
-                // Testing knob: push the GUC's work-model open cost into
-                // tantivy so this search's probe budget reflects it.
                 tantivy::vector::set_fixed_probe_cost_rows(
                     crate::gucs::vector_fixed_probe_cost_rows(),
                 );
@@ -1286,12 +1270,8 @@ impl SearchIndexReader {
                     tie_breaks.remove(i);
                 }
 
-                // Record SegmentIds as the (possibly lazy) iterator is consumed so
-                // we can zip them with per-segment ProbeStats from the Fruit.
                 let collected_ids = std::cell::RefCell::new(Vec::new());
                 let segment_ids = segment_ids.inspect(|id| collected_ids.borrow_mut().push(*id));
-                // Fruit is `VectorSimilarityFruit` — hits plus per-segment
-                // ProbeStats — for every tie-break shape.
                 let tie_break_count = tie_breaks.len();
                 let mut tie_breaks = tie_breaks.into_iter();
                 let mut next = || tie_breaks.next().expect("tie-break feature should exist");
@@ -1856,7 +1836,6 @@ impl SearchIndexReader {
                     feature: OrderByFeature::VectorDistance { .. },
                     ..
                 } => {
-                    // Vector distance cannot be a secondary sort key
                     unimplemented!("Vector distance ORDER BY can only be the primary sort key")
                 }
             }

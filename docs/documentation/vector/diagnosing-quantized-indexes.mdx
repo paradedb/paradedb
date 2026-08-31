@@ -53,10 +53,10 @@ FROM paradedb.vector_estimator_info(
 
 Provided queries report `query_source = 'provided'`. The function accepts at most 256 queries.
 
-| Measurement | Interpretation |
-| --- | --- |
-| `bias` | `0` means the estimator is centered. A healthy reading has \|bias\| ≤ `0.3`. A larger magnitude indicates systematic mis-scoring for these queries and creates recall risk at the candidate filter. |
-| `spread` | `1.0` means the error model is exact. A value below `1.0` is conservative: it is safe but may do slightly more work. A healthy reading is at most `1.15`; above that, the safety margin no longer covers the observed error and recall may drop at high probe fractions. |
+| Measurement | Interpretation                                                                                                                                                                                                                                                           |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `bias`      | `0` means the estimator is centered. A healthy reading has \|bias\| ≤ `0.3`. A larger magnitude indicates systematic mis-scoring for these queries and creates recall risk at the candidate filter.                                                                      |
+| `spread`    | `1.0` means the error model is exact. A value below `1.0` is conservative: it is safe but may do slightly more work. A healthy reading is at most `1.15`; above that, the safety margin no longer covers the observed error and recall may drop at high probe fractions. |
 
 ## What the Measurement Covers
 

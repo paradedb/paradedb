@@ -240,25 +240,32 @@ fn collect_visibility_source_metadata(
 /// that acts as a barrier (or the root).
 fn collect_beneficial_deferred_visibility_inner<'a>(
     node: &'a LogicalPlan,
-    ancestors: &mut Vec<&'a LogicalPlan>,
+    ancestors: &mut Vec<(&'a LogicalPlan, usize)>,
     beneficial: &mut BTreeSet<usize>,
 ) {
     if let LogicalPlan::TableScan(scan) = node {
         if let Some(provider) = pg_search_provider_from_scan(scan)
             && let Some(plan_pos) = provider.configured_deferred_ctid_plan_position()
         {
-            // Like `has_reduction_before_stop`, but the stopping barrier itself
-            // counts when it reduces rows: a semi, anti, or outer join is both
-            // the barrier for a side and the reduction that makes deferring
-            // that side's check worthwhile.
+            // Like `has_reduction_before_stop`, but a stopping barrier that
+            // reduces rows counts for the side that continues past it: a semi,
+            // anti, or outer join is the reduction that makes deferring the
+            // preserved side's check worthwhile. The checked side's filter
+            // lands below that join, so nothing reduces its rows first and it
+            // stays eager unless something below already did.
             let mut has_reduction = false;
-            for ancestor in ancestors.iter().rev() {
-                if !matches!(barrier_status(ancestor), BarrierStatus::None) {
-                    has_reduction = has_reduction || is_reduction_node(ancestor);
-                    break;
-                }
-                if is_reduction_node(ancestor) {
-                    has_reduction = true;
+            for (ancestor, from_child) in ancestors.iter().rev() {
+                match barrier_status(ancestor) {
+                    BarrierStatus::None => {
+                        if is_reduction_node(ancestor) {
+                            has_reduction = true;
+                        }
+                    }
+                    BarrierStatus::Partial(checked) if *from_child == checked => break,
+                    _ => {
+                        has_reduction = has_reduction || is_reduction_node(ancestor);
+                        break;
+                    }
                 }
             }
             if has_reduction {
@@ -268,11 +275,11 @@ fn collect_beneficial_deferred_visibility_inner<'a>(
         return;
     }
 
-    ancestors.push(node);
-    for child in node.inputs() {
+    for (idx, child) in node.inputs().into_iter().enumerate() {
+        ancestors.push((node, idx));
         collect_beneficial_deferred_visibility_inner(child, ancestors, beneficial);
+        ancestors.pop();
     }
-    ancestors.pop();
 }
 
 fn collect_beneficial_deferred_visibility(plan: &LogicalPlan) -> BTreeSet<usize> {
@@ -1684,10 +1691,13 @@ mod tests {
             first.transformed,
             "{join_type:?}: first pass should transform"
         );
+        // The checked side's filter would sit right below the join, where
+        // nothing has reduced its rows yet, so it stays eager and only the
+        // preserved side defers.
         assert_eq!(
             count_visibility_nodes(&first.data),
-            2,
-            "{join_type:?}: expected 2 visibility nodes"
+            1,
+            "{join_type:?}: expected 1 visibility node"
         );
 
         // Root should be a VisibilityFilterNode covering the preserved side.
@@ -1716,34 +1726,87 @@ mod tests {
             (join.left.as_ref(), join.right.as_ref())
         };
 
-        // The forced child should be wrapped with VisibilityFilterNode.
-        let LogicalPlan::Extension(forced_ext) = forced_plan else {
-            panic!("{join_type:?}: expected forced child to be wrapped with VisibilityFilterNode");
-        };
-        let forced_vf = forced_ext
-            .node
-            .as_any()
-            .downcast_ref::<VisibilityFilterNode>()
-            .expect("forced child should be VisibilityFilterNode");
-        assert_eq!(
-            forced_vf.plan_pos_oids,
-            vec![(forced_pos, forced_oid)],
-            "{join_type:?}: forced child visibility should cover forced side"
-        );
-
-        // The preserved child should be the raw scan (no visibility wrapper).
-        assert!(
-            !matches!(preserved_plan, LogicalPlan::Extension(ext)
-                if ext.node.as_any().downcast_ref::<VisibilityFilterNode>().is_some()),
-            "{join_type:?}: preserved child should NOT be wrapped with VisibilityFilterNode"
-        );
+        let _ = (forced_pos, forced_oid);
+        for (side, child) in [("forced", forced_plan), ("preserved", preserved_plan)] {
+            assert!(
+                !matches!(child, LogicalPlan::Extension(ext)
+                    if ext.node.as_any().downcast_ref::<VisibilityFilterNode>().is_some()),
+                "{join_type:?}: {side} child should NOT be wrapped with VisibilityFilterNode"
+            );
+        }
 
         let second = rule.rewrite(first.data.clone(), &config)?;
         assert!(
             !second.transformed,
             "{join_type:?}: second pass should be idempotent"
         );
-        assert_eq!(count_visibility_nodes(&second.data), 2);
+        assert_eq!(count_visibility_nodes(&second.data), 1);
+        Ok(())
+    }
+
+    /// A reduction below the checked side changes the answer: deferring past
+    /// that reduction pays, so the partial barrier forces the check below the
+    /// join.
+    #[pg_test]
+    fn left_join_reduced_checked_side_forces_visibility_below_join() -> Result<()> {
+        let config = OptimizerContext::new();
+
+        const POS_A: usize = 0;
+        const POS_B: usize = 1;
+        let oid_a = pg_sys::Oid::from(42);
+        let oid_b = pg_sys::Oid::from(43);
+
+        let rule = VisibilityFilterOptimizerRule::new();
+
+        let left = make_ctid_plan(POS_A, oid_a, Some("a"))?;
+        let right = LogicalPlanBuilder::from(make_ctid_plan(POS_B, oid_b, Some("b"))?)
+            .filter(col(CtidColumn::new(POS_B).to_string()).gt(datafusion::logical_expr::lit(10)))?
+            .build()?;
+
+        let plan = LogicalPlanBuilder::from(left)
+            .join_on(
+                right,
+                datafusion::common::JoinType::Left,
+                vec![
+                    col(CtidColumn::new(POS_A).to_string())
+                        .eq(col(CtidColumn::new(POS_B).to_string())),
+                ],
+            )?
+            .build()?;
+
+        let first = rule.rewrite(plan, &config)?;
+        assert!(first.transformed, "first pass should transform");
+        assert_eq!(count_visibility_nodes(&first.data), 2);
+
+        let LogicalPlan::Extension(root_ext) = &first.data else {
+            panic!("expected root to be VisibilityFilterNode");
+        };
+        let root_vf = root_ext
+            .node
+            .as_any()
+            .downcast_ref::<VisibilityFilterNode>()
+            .expect("root should be VisibilityFilterNode");
+        assert_eq!(
+            root_vf.plan_pos_oids,
+            vec![(POS_A, oid_a)],
+            "root visibility should cover the preserved side"
+        );
+
+        let LogicalPlan::Join(join) = &root_vf.input else {
+            panic!("expected child of root visibility to be Join");
+        };
+        let LogicalPlan::Extension(forced_ext) = join.right.as_ref() else {
+            panic!("expected checked child to be wrapped with VisibilityFilterNode");
+        };
+        let forced_vf = forced_ext
+            .node
+            .as_any()
+            .downcast_ref::<VisibilityFilterNode>()
+            .expect("checked child should be VisibilityFilterNode");
+        assert_eq!(forced_vf.plan_pos_oids, vec![(POS_B, oid_b)]);
+
+        let second = rule.rewrite(first.data.clone(), &config)?;
+        assert!(!second.transformed, "second pass should be idempotent");
         Ok(())
     }
 

@@ -49,6 +49,12 @@
 //! and create_custom_path (see comments in hook.rs about duplication with extract_quals).
 //! See GitHub issue #3455 for potential unification.
 //!
+//! # Limitations
+//! PARTITION BY and ORDER BY in OVER clauses are not supported in our use case,
+//! because we compute facets over the entire result set, not partitioned subsets.
+//! If grouping_columns is non-empty, we reject the query.
+
+//!
 //! # Example Usage
 //!
 //! ```sql

@@ -1822,7 +1822,10 @@ SELECT
     p.name,
     r.score,
     COUNT(*) OVER () AS total_count,
-    SUM(r.score) OVER () AS total_score
+    SUM(r.score) OVER () AS total_score,
+    AVG(r.score) OVER () AS avg_score,
+    MIN(r.score) OVER () AS min_score,
+    MAX(r.score) OVER () AS max_score
 FROM products p
 JOIN product_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop'
@@ -1832,12 +1835,12 @@ WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to window functions (t
                                                                                      QUERY PLAN                                                                                      
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: p.id, p.name, r.score, (count(*) OVER w1), (sum(r.score) OVER w1)
+   Output: p.id, p.name, r.score, (count(*) OVER w1), (sum(r.score) OVER w1), (avg(r.score) OVER w1), (min(r.score) OVER w1), (max(r.score) OVER w1)
    ->  Sort
-         Output: p.id, p.name, r.score, (count(*) OVER w1), (sum(r.score) OVER w1)
+         Output: p.id, p.name, r.score, (count(*) OVER w1), (sum(r.score) OVER w1), (avg(r.score) OVER w1), (min(r.score) OVER w1), (max(r.score) OVER w1)
          Sort Key: r.score DESC
          ->  WindowAgg
-               Output: p.id, p.name, r.score, count(*) OVER w1, sum(r.score) OVER w1
+               Output: p.id, p.name, r.score, count(*) OVER w1, sum(r.score) OVER w1, avg(r.score) OVER w1, min(r.score) OVER w1, max(r.score) OVER w1
                Window: w1 AS ()
                ->  Hash Join
                      Output: p.id, p.name, r.score
@@ -1862,18 +1865,21 @@ SELECT
     p.name,
     r.score,
     COUNT(*) OVER () AS total_count,
-    SUM(r.score) OVER () AS total_score
+    SUM(r.score) OVER () AS total_score,
+    AVG(r.score) OVER () AS avg_score,
+    MIN(r.score) OVER () AS min_score,
+    MAX(r.score) OVER () AS max_score
 FROM products p
 JOIN product_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop'
 ORDER BY r.score DESC
 LIMIT 3;
 WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to window functions (tables: p, r)
- id |    name     | score | total_count | total_score 
-----+-------------+-------+-------------+-------------
-  1 | MacBook Pro |    95 |           4 |         321
-  3 | ThinkPad X1 |    91 |           4 |         321
-  1 | MacBook Pro |    70 |           4 |         321
+ id |    name     | score | total_count | total_score |      avg_score      | min_score | max_score 
+----+-------------+-------+-------------+-------------+---------------------+-----------+-----------
+  1 | MacBook Pro |    95 |           4 |         321 | 80.2500000000000000 |        65 |        95
+  3 | ThinkPad X1 |    91 |           4 |         321 | 80.2500000000000000 |        65 |        95
+  1 | MacBook Pro |    70 |           4 |         321 | 80.2500000000000000 |        65 |        95
 (3 rows)
 
 -- Test 28: Window function in subquery

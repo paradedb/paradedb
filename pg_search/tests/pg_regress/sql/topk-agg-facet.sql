@@ -991,7 +991,10 @@ SELECT
     p.name,
     r.score,
     COUNT(*) OVER () AS total_count,
-    SUM(r.score) OVER () AS total_score
+    SUM(r.score) OVER () AS total_score,
+    AVG(r.score) OVER () AS avg_score,
+    MIN(r.score) OVER () AS min_score,
+    MAX(r.score) OVER () AS max_score
 FROM products p
 JOIN product_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop'
@@ -1003,7 +1006,10 @@ SELECT
     p.name,
     r.score,
     COUNT(*) OVER () AS total_count,
-    SUM(r.score) OVER () AS total_score
+    SUM(r.score) OVER () AS total_score,
+    AVG(r.score) OVER () AS avg_score,
+    MIN(r.score) OVER () AS min_score,
+    MAX(r.score) OVER () AS max_score
 FROM products p
 JOIN product_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop'

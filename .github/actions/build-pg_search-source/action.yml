@@ -49,21 +49,11 @@ runs:
   using: composite
   steps:
     - name: Install PostgreSQL ${{ inputs.pg-version }} and build dependencies
-      shell: bash
-      run: |
-        set -euo pipefail
-        sudo install -d -m 0755 /usr/share/keyrings
-        curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-          | sudo tee /usr/share/keyrings/postgresql.asc > /dev/null
-        echo "deb [signed-by=/usr/share/keyrings/postgresql.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
-          | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
-        sudo apt-get update
-        # clang for bindgen; libopenblas-dev for pg_search's BLAS backend
-        # (SuperKMeans IVF clusterer); PG headers supply pg_config.
-        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-          build-essential ca-certificates curl git pkg-config libssl-dev clang lld \
-          libopenblas-dev \
-          "postgresql-${{ inputs.pg-version }}" "postgresql-server-dev-${{ inputs.pg-version }}"
+      uses: ./.github/actions/setup-postgres
+      with:
+        pg_version: ${{ inputs.pg-version }}
+        extra_packages: >-
+          build-essential ca-certificates curl git pkg-config libssl-dev clang lld libopenblas-dev
 
     - name: Extract pinned toolchain versions
       id: versions

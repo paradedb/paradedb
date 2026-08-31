@@ -114,15 +114,9 @@ jobs:
           sudo apt-get update && sudo apt-get install -y lsof libopenblas-dev lld
 
       - name: Install & Configure Supported PostgreSQL Version
-        run: |
-          set -euo pipefail
-          curl --fail --silent --show-error https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-            | gpg --dearmor \
-            | sudo tee /usr/share/keyrings/postgresql-pgdg.gpg >/dev/null
-          echo "deb [signed-by=/usr/share/keyrings/postgresql-pgdg.gpg] https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo "$VERSION_CODENAME")-pgdg main" \
-            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
-          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
-          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> "$GITHUB_PATH"
+        uses: ./.github/actions/setup-postgres
+        with:
+          pg_version: ${{ matrix.pg_version }}
 
       # Needed for hybrid search unit tests
       - name: Install pgvector

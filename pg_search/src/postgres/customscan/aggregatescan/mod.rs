@@ -942,9 +942,12 @@ impl CustomScan for AggregateScan {
         }
         state.custom_state_mut().state = ExecutionState::NotStarted;
         // Reset DataFusion state so rescan rebuilds the plan and stream.
-        // Drop stream before runtime to avoid tokio panics.
+        // Drop stream and physical_plan before runtime -- see the drop-order note in
+        // end_custom_scan; the same BufFile-spill hazard applies here since the old
+        // plan is discarded and rebuilt on the next execution.
         if let Some(ref mut df_state) = state.custom_state_mut().datafusion_state {
             df_state.stream = None;
+            df_state.physical_plan = None;
             df_state.current_batch = None;
             df_state.batch_row_idx = 0;
             df_state.runtime = None;
@@ -1006,9 +1009,17 @@ impl CustomScan for AggregateScan {
                 Some(mut leader) => leader.finish.take(),
                 _ => None,
             };
-            // Drop the stream first (tokio + mesh), then everything else holding a mesh reference
-            // (physical plan, session) via `drop(df_state)`, before destroying the DSM below.
+            // Drop order matters: anything holding a BufFile-backed spill Arc
+            // (see datafusion/spill.rs) must be freed before `runtime` drops --
+            // RepartitionExec's abort_helper only requests task cancellation, it
+            // doesn't synchronously free what the task held. Dropping the tokio
+            // Runtime is what actually forces that. stream and physical_plan are
+            // the two fields that can reach a spill Arc, so both must go first;
+            // physical_plan is cleared explicitly rather than left to drop(df_state)
+            // since struct field order isn't a safe thing to rely on here.
+            // Mirrors JoinScan::finish_mpp_execution.
             df_state.stream = None;
+            df_state.physical_plan = None;
             df_state.current_batch = None;
             df_state.runtime = None;
             drop(df_state);

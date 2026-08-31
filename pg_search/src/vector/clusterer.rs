@@ -20,17 +20,29 @@ use std::sync::{Arc, Mutex};
 use superkmeans::{HierarchicalSuperKMeans, HierarchicalSuperKMeansConfig};
 use tantivy::vector::{
     BuiltRouter, IvfCentroids, IvfClusterer, IvfConfig, IvfIndexBuilder, IvfMatrix,
-    IvfMergeSettings, IvfTrainingVectors, IvfVectors, Metric, SuperKMeansLevelClusterer,
-    VectorOptions,
+    IvfMergeSettings, IvfTrainingVectors, IvfVectors, Metric, NeighborhoodGraphConfig,
+    RelativeNeighborhoodGraph, SuperKMeansLevelClusterer, VectorOptions,
 };
-use tantivy::{Index, TantivyError};
+use tantivy::{Executor, Index, TantivyError};
 
+use crate::gucs::{self, VectorRouter};
 use crate::postgres::options::BM25IndexOptions;
 
 const DEFAULT_ASSIGN_BATCH_SIZE: usize = 40_960;
 /// Stacked-IVF branching factor for the routing index over trained centroids.
 const ROUTER_BRANCHING_FACTOR: usize = 16;
 const ROUTER_ITERS_PER_SPLIT: u32 = 5;
+
+fn router_build_executor() -> tantivy::Result<Executor> {
+    let num_threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+    if num_threads > 1 {
+        Executor::multi_thread(num_threads, "ivf-router-")
+    } else {
+        Ok(Executor::single_thread())
+    }
+}
 
 /// A `HierarchicalSuperKMeans` built for assignment, tagged with the
 /// `(dim, angular)` it was constructed for. `assign` never reads the clusterer's
@@ -49,6 +61,7 @@ pub struct SuperKMeansIvfClusterer {
     centroid_ratio: f32,
     training_sample_ratio: f32,
     assign_batch_size: usize,
+    router: VectorRouter,
     /// Lazily-built clusterer reused across `assign` batches.
     assign_cache: Arc<Mutex<Option<AssignClusterer>>>,
 }
@@ -60,6 +73,7 @@ impl std::fmt::Debug for SuperKMeansIvfClusterer {
             .field("centroid_ratio", &self.centroid_ratio)
             .field("training_sample_ratio", &self.training_sample_ratio)
             .field("assign_batch_size", &self.assign_batch_size)
+            .field("router", &self.router)
             .finish_non_exhaustive()
     }
 }
@@ -74,6 +88,7 @@ impl Default for SuperKMeansIvfClusterer {
             centroid_ratio: 0.01,
             training_sample_ratio: 0.32,
             assign_batch_size: DEFAULT_ASSIGN_BATCH_SIZE,
+            router: VectorRouter::Graph,
             assign_cache: Arc::new(Mutex::new(None)),
         }
     }
@@ -94,12 +109,64 @@ impl SuperKMeansIvfClusterer {
         self
     }
 
+    pub fn with_router(mut self, router: VectorRouter) -> Self {
+        self.router = router;
+        self
+    }
+
     /// Density-preserving leaf cap: a subsample of size
     /// `training_sample_ratio * N` should still yield about
     /// `centroid_ratio * N` leaves.
     fn max_leaf_size(&self) -> usize {
         let leaf = (self.training_sample_ratio / self.centroid_ratio).round() as usize;
         leaf.max(1)
+    }
+
+    fn build_stacked_router(
+        &self,
+        options: &VectorOptions,
+        matrix: &IvfMatrix<f32>,
+    ) -> tantivy::Result<BuiltRouter> {
+        let clusterer = SuperKMeansLevelClusterer {
+            iters_per_split: ROUTER_ITERS_PER_SPLIT,
+        };
+        let (index, perm) = IvfIndexBuilder::new(
+            matrix.values.clone(),
+            matrix.rows,
+            options.dim(),
+            &clusterer,
+            IvfConfig::new(ROUTER_BRANCHING_FACTOR),
+        )
+        .build();
+        Ok(BuiltRouter::Stacked { index, perm })
+    }
+
+    fn build_graph_router(
+        &self,
+        options: &VectorOptions,
+        matrix: &IvfMatrix<f32>,
+    ) -> tantivy::Result<BuiltRouter> {
+        // Build needs a borrowed arena; BuiltRouter::Graph needs owned vectors.
+        // Serialize adjacency after build and reopen over the owned buffer.
+        let vectors = matrix.values.clone();
+        let config = NeighborhoodGraphConfig::default();
+        let mut borrowed = RelativeNeighborhoodGraph::new(
+            vectors.as_slice(),
+            options.dim(),
+            options.metric(),
+            config,
+        );
+        borrowed.build(&router_build_executor()?);
+        let mut adjacency = Vec::new();
+        borrowed.serialize(&mut adjacency)?;
+        let owned = RelativeNeighborhoodGraph::open(
+            &adjacency,
+            vectors,
+            options.dim(),
+            options.metric(),
+            config,
+        )?;
+        Ok(BuiltRouter::Graph(owned))
     }
 }
 
@@ -289,25 +356,19 @@ impl IvfClusterer for SuperKMeansIvfClusterer {
             return Ok(None);
         }
 
-        let clusterer = SuperKMeansLevelClusterer {
-            iters_per_split: ROUTER_ITERS_PER_SPLIT,
+        let router = match self.router {
+            VectorRouter::Ivf => self.build_stacked_router(options, matrix)?,
+            VectorRouter::Graph => self.build_graph_router(options, matrix)?,
         };
-        let (index, perm) = IvfIndexBuilder::new(
-            matrix.values.clone(),
-            matrix.rows,
-            options.dim(),
-            &clusterer,
-            IvfConfig::new(ROUTER_BRANCHING_FACTOR),
-        )
-        .build();
-        Ok(Some(BuiltRouter::Stacked { index, perm }))
+        Ok(Some(router))
     }
 }
 
 pub fn set_ivf_clusterer(index: &mut Index, options: &BM25IndexOptions) {
     let clusterer = SuperKMeansIvfClusterer::new()
         .with_centroid_ratio(options.centroid_ratio())
-        .with_training_sample_ratio(options.training_sample_ratio());
+        .with_training_sample_ratio(options.training_sample_ratio())
+        .with_router(gucs::vector_router());
     index.set_ivf_clusterer(Arc::new(clusterer));
 }
 
@@ -338,26 +399,31 @@ mod tests {
         assert_eq!(settings.assign_batch_size, DEFAULT_ASSIGN_BATCH_SIZE);
     }
 
-    #[test]
-    fn build_router_returns_stacked_for_multi_centroid_sets() {
-        use tantivy::vector::IvfClusterer;
-
-        let dim = 8;
-        let n = 64;
+    fn sample_centroids(dim: usize, n: usize) -> IvfCentroids {
         let mut values = Vec::with_capacity(n * dim);
         for i in 0..n {
             for d in 0..dim {
                 values.push((i * dim + d) as f32 * 0.01);
             }
         }
-        let centroids = IvfCentroids::F32(IvfMatrix {
+        IvfCentroids::F32(IvfMatrix {
             values,
             rows: n,
             dims: dim,
-        });
+        })
+    }
+
+    #[test]
+    fn build_router_returns_stacked_for_ivf() {
+        use tantivy::vector::IvfClusterer;
+
+        let dim = 8;
+        let n = 64;
+        let centroids = sample_centroids(dim, n);
         let options = VectorOptions::new(dim, Metric::L2);
 
         let router = SuperKMeansIvfClusterer::new()
+            .with_router(VectorRouter::Ivf)
             .build_router(&options, &centroids)
             .expect("build_router")
             .expect("expected Some(BuiltRouter)");
@@ -368,6 +434,27 @@ mod tests {
                 assert!(index.nlist() > 0);
             }
             BuiltRouter::Graph(_) => panic!("expected stacked router, not graph"),
+        }
+    }
+
+    #[test]
+    fn build_router_returns_graph_when_configured() {
+        use tantivy::vector::IvfClusterer;
+
+        let dim = 8;
+        let n = 32;
+        let centroids = sample_centroids(dim, n);
+        let options = VectorOptions::new(dim, Metric::L2);
+
+        let router = SuperKMeansIvfClusterer::new()
+            .with_router(VectorRouter::Graph)
+            .build_router(&options, &centroids)
+            .expect("build_router")
+            .expect("expected Some(BuiltRouter)");
+
+        match router {
+            BuiltRouter::Graph(graph) => assert_eq!(graph.len(), n),
+            BuiltRouter::Stacked { .. } => panic!("expected graph router, not stacked"),
         }
     }
 
@@ -383,6 +470,7 @@ mod tests {
         });
         let options = VectorOptions::new(dim, Metric::L2);
         let router = SuperKMeansIvfClusterer::new()
+            .with_router(VectorRouter::Ivf)
             .build_router(&options, &centroids)
             .unwrap();
         assert!(router.is_none());

@@ -1777,8 +1777,20 @@ impl From<anyhow::Error> for QueryError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 struct PostgresPointer(*mut std::os::raw::c_void);
+
+impl PartialEq for PostgresPointer {
+    fn eq(&self, other: &Self) -> bool {
+        if self.0 == other.0 {
+            return true;
+        }
+        if self.0.is_null() || other.0.is_null() {
+            return false;
+        }
+        unsafe { pg_sys::equal(self.0.cast(), other.0.cast()) }
+    }
+}
 
 // SAFETY: PostgresPointer is only used within PostgreSQL's single-threaded context
 // during query execution. The PostgresPointer serialization/deserialization handles

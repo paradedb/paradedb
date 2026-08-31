@@ -123,36 +123,48 @@ impl<'a> PredicateTranslator<'a> {
     pub unsafe fn translate_join_level_expr(
         expr: &JoinLevelExpr,
         custom_exprs: &[Expr],
+        custom_expr_idx: &mut usize,
         sources: &[&JoinSource],
     ) -> Option<Expr> {
         match expr {
             JoinLevelExpr::SingleTablePredicate {
                 plan_position,
-                predicate_idx,
+                predicate,
             } => {
                 let source = sources.iter().find(|s| s.plan_position == *plan_position)?;
                 let tag_name = match &source.scan_info.mode {
                     crate::scan::ScanMode::Tagged { local_queries, .. } => {
                         &local_queries
                             .iter()
-                            .find(|tq| tq.predicate_idx.0 == *predicate_idx)?
+                            .find(|tq| tq.query.as_ref() == &predicate.query)?
                             .tag_name
                     }
                     crate::scan::ScanMode::Standard { .. } => return None,
                 };
                 Some(col(tag_name))
             }
-            JoinLevelExpr::MultiTablePredicate { predicate_idx } => {
-                custom_exprs.get(*predicate_idx).cloned()
+            JoinLevelExpr::MultiTablePredicate { .. } => {
+                let expr = custom_exprs.get(*custom_expr_idx).cloned();
+                *custom_expr_idx += 1;
+                expr
             }
             JoinLevelExpr::And(children) => {
                 if children.is_empty() {
                     return None;
                 }
-                let mut result =
-                    Self::translate_join_level_expr(&children[0], custom_exprs, sources)?;
+                let mut result = Self::translate_join_level_expr(
+                    &children[0],
+                    custom_exprs,
+                    custom_expr_idx,
+                    sources,
+                )?;
                 for child in &children[1..] {
-                    let right = Self::translate_join_level_expr(child, custom_exprs, sources)?;
+                    let right = Self::translate_join_level_expr(
+                        child,
+                        custom_exprs,
+                        custom_expr_idx,
+                        sources,
+                    )?;
                     result = Expr::BinaryExpr(BinaryExpr::new(
                         Box::new(result),
                         Operator::And,
@@ -165,10 +177,19 @@ impl<'a> PredicateTranslator<'a> {
                 if children.is_empty() {
                     return None;
                 }
-                let mut result =
-                    Self::translate_join_level_expr(&children[0], custom_exprs, sources)?;
+                let mut result = Self::translate_join_level_expr(
+                    &children[0],
+                    custom_exprs,
+                    custom_expr_idx,
+                    sources,
+                )?;
                 for child in &children[1..] {
-                    let right = Self::translate_join_level_expr(child, custom_exprs, sources)?;
+                    let right = Self::translate_join_level_expr(
+                        child,
+                        custom_exprs,
+                        custom_expr_idx,
+                        sources,
+                    )?;
                     result = Expr::BinaryExpr(BinaryExpr::new(
                         Box::new(result),
                         Operator::Or,
@@ -178,7 +199,8 @@ impl<'a> PredicateTranslator<'a> {
                 Some(result)
             }
             JoinLevelExpr::Not(child) => {
-                let inner = Self::translate_join_level_expr(child, custom_exprs, sources)?;
+                let inner =
+                    Self::translate_join_level_expr(child, custom_exprs, custom_expr_idx, sources)?;
                 Some(Expr::Not(Box::new(inner)))
             }
             JoinLevelExpr::MarkOrNull {
@@ -321,8 +343,14 @@ pub fn apply_join_level_filter(
     sources: &[&JoinSource],
     handle_mark: bool,
 ) -> Result<DataFrame> {
+    let mut custom_expr_idx = 0;
     let filter_expr = unsafe {
-        PredicateTranslator::translate_join_level_expr(predicate, translated_exprs, sources)
+        PredicateTranslator::translate_join_level_expr(
+            predicate,
+            translated_exprs,
+            &mut custom_expr_idx,
+            sources,
+        )
     }
     .ok_or_else(|| {
         DataFusionError::Internal(format!(

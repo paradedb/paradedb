@@ -38,9 +38,7 @@ use crate::postgres::customscan::datafusion::translator::{
     apply_join_level_filter, build_join_df, make_col, make_source_col, ColumnMapper,
     PredicateTranslator,
 };
-use crate::postgres::customscan::joinscan::build::{
-    JoinLevelSearchPredicate, JoinSource, RelNode, RelationAlias,
-};
+use crate::postgres::customscan::joinscan::build::{JoinSource, RelNode, RelationAlias};
 use crate::postgres::customscan::joinscan::scan_state::{
     create_datafusion_session_context, register_source_table, SessionContextProfile,
 };
@@ -78,7 +76,6 @@ pub async fn build_join_aggregate_plan(
     plan: &RelNode,
     targetlist: &JoinAggregateTargetList,
     topk: Option<&DataFusionTopK>,
-    join_level_predicates: &[JoinLevelSearchPredicate],
     custom_exprs: *mut pg_sys::List,
     custom_scan_tlist: *mut pg_sys::List,
     having_filter: Option<&FilterExpr>,
@@ -91,7 +88,6 @@ pub async fn build_join_aggregate_plan(
     let df = build_relnode_df(
         ctx,
         plan,
-        join_level_predicates,
         custom_exprs,
         custom_scan_tlist,
         expr_context,
@@ -284,7 +280,6 @@ pub async fn build_join_aggregate_plan(
 fn build_relnode_df<'a>(
     ctx: &'a SessionContext,
     node: &'a RelNode,
-    join_level_predicates: &'a [JoinLevelSearchPredicate],
     custom_exprs: *mut pg_sys::List,
     custom_scan_tlist: *mut pg_sys::List,
     expr_context: Option<*mut pg_sys::ExprContext>,
@@ -312,7 +307,6 @@ fn build_relnode_df<'a>(
                 let left_df = build_relnode_df(
                     ctx,
                     &join.left,
-                    join_level_predicates,
                     custom_exprs,
                     custom_scan_tlist,
                     expr_context,
@@ -323,7 +317,6 @@ fn build_relnode_df<'a>(
                 let right_df = build_relnode_df(
                     ctx,
                     &join.right,
-                    join_level_predicates,
                     custom_exprs,
                     custom_scan_tlist,
                     expr_context,
@@ -338,7 +331,6 @@ fn build_relnode_df<'a>(
                 let df = build_relnode_df(
                     ctx,
                     &filter.input,
-                    join_level_predicates,
                     custom_exprs,
                     custom_scan_tlist,
                     expr_context,
@@ -346,13 +338,6 @@ fn build_relnode_df<'a>(
                     mpp_manifests,
                 )
                 .await?;
-
-                let has_predicates = !join_level_predicates.is_empty() || !custom_exprs.is_null();
-
-                if !has_predicates {
-                    // No predicates to apply — pass through
-                    return Ok(df);
-                }
 
                 let sources = filter.input.output_sources();
 

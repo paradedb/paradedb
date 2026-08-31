@@ -21,9 +21,7 @@ use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList;
 use crate::postgres::customscan::aggregatescan::privdat::{DataFusionTopK, FilterExpr};
 use crate::postgres::customscan::bitmap_intersection::BitmapExec;
-use crate::postgres::customscan::joinscan::build::{
-    JoinLevelSearchPredicate, MultiTablePredicateInfo, RelNode,
-};
+use crate::postgres::customscan::joinscan::build::RelNode;
 use crate::postgres::customscan::mpp::glue::MppLaunchTiming;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
@@ -49,16 +47,12 @@ pub enum ExecutionState {
 pub struct DataFusionAggState {
     /// The join tree.
     pub plan: RelNode,
+    /// Original plan preserved for rescans.
+    pub base_plan: Option<RelNode>,
     /// GROUP BY columns and aggregate functions.
     pub targetlist: JoinAggregateTargetList,
     /// Optional TopK sort+limit pushed down from Postgres.
     pub topk: Option<DataFusionTopK>,
-    /// Cross-table search predicates for join-level filtering.
-    pub join_level_predicates: Vec<JoinLevelSearchPredicate>,
-    /// Original predicates preserved for rescans.
-    pub base_join_level_predicates: Option<Vec<JoinLevelSearchPredicate>>,
-    /// Non-@@@ cross-table predicates (descriptions for EXPLAIN).
-    pub multi_table_predicates: Vec<MultiTablePredicateInfo>,
     /// Raw PG Expr pointers from custom_exprs (after setrefs transforms
     /// Var nodes to INDEX_VAR references). Used to translate non-@@@
     /// cross-table predicates at execution time.
@@ -197,11 +191,13 @@ impl SolvePostgresExpressions for AggregateScanState {
         // join-level predicates for unresolved PostgresExpression nodes
         // (prepared statement parameters like $1).
         if let Some(ref mut df) = self.datafusion_state {
-            if df
-                .join_level_predicates
-                .iter_mut()
-                .any(|p| p.query.has_postgres_expressions())
-            {
+            let mut has = false;
+            df.plan.visit_queries(&mut |q| {
+                if q.has_postgres_expressions() {
+                    has = true;
+                }
+            });
+            if has {
                 return true;
             }
         }
@@ -214,11 +210,13 @@ impl SolvePostgresExpressions for AggregateScanState {
 
     fn has_parameters(&mut self) -> bool {
         if let Some(ref mut df) = self.datafusion_state {
-            if df
-                .join_level_predicates
-                .iter_mut()
-                .any(|p| p.query.has_parameters())
-            {
+            let mut has = false;
+            df.plan.visit_queries(&mut |q| {
+                if q.has_parameters() {
+                    has = true;
+                }
+            });
+            if has {
                 return true;
             }
         }
@@ -234,8 +232,8 @@ impl SolvePostgresExpressions for AggregateScanState {
             self.aggregate_clause = base.clone();
         }
         if let Some(ref mut df) = self.datafusion_state {
-            if let Some(base) = &df.base_join_level_predicates {
-                df.join_level_predicates = base.clone();
+            if let Some(base) = &df.base_plan {
+                df.plan = base.clone();
             }
         }
     }
@@ -260,9 +258,9 @@ impl SolvePostgresExpressions for AggregateScanState {
 
     fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
         if let Some(ref mut df) = self.datafusion_state {
-            for pred in &mut df.join_level_predicates {
-                pred.query.init_postgres_expressions(planstate);
-            }
+            df.plan.visit_queries_mut(&mut |q| {
+                q.init_postgres_expressions(planstate);
+            });
         }
         self.aggregate_clause
             .query_mut()
@@ -274,9 +272,9 @@ impl SolvePostgresExpressions for AggregateScanState {
 
     fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
         if let Some(ref mut df) = self.datafusion_state {
-            for pred in &mut df.join_level_predicates {
-                pred.query.solve_postgres_expressions(expr_context);
-            }
+            df.plan.visit_queries_mut(&mut |q| {
+                q.solve_postgres_expressions(expr_context);
+            });
         }
         if !self.is_datafusion_backend() {
             self.aggregate_clause

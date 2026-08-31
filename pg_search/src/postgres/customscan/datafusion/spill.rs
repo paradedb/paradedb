@@ -90,11 +90,9 @@ struct BufFileTempFileFactory;
 impl TempFileFactory for BufFileTempFileFactory {
     fn create_temp_file(
         &self,
-        description: &str,
+        _description: &str,
     ) -> datafusion::common::Result<Arc<dyn SpillFile>> {
-        let file = unsafe { create_transaction_scoped_buffile() }.map_err(|e| {
-            exec_datafusion_err!("failed to create BufFile spill file for {description}: {e}")
-        })?;
+        let file = unsafe { create_transaction_scoped_buffile() };
         Ok(Arc::new(BufFileSpillFile {
             file: SendSyncBufFile(file),
             size: Arc::new(AtomicU64::new(0)),
@@ -286,7 +284,13 @@ impl Drop for BufFileSpillFile {
 /// context, so it outlives the per-tuple/per-batch contexts DataFusion operators may
 /// be running under, but is still guaranteed to be cleaned up (temp file removed, VFD
 /// released) when the transaction ends — matching `api::operator::keyset`'s `Sorter::finish`.
-unsafe fn create_transaction_scoped_buffile() -> Result<*mut pg_sys::BufFile, &'static str> {
+///
+/// `BufFileCreateTemp` never returns NULL; on failure it raises via `palloc`/`ereport`,
+/// which unwinds past this function rather than returning, so there's no error case to
+/// report here. If it raises after `CurrentResourceOwner`/`CurrentMemoryContext` are
+/// swapped in but before they're restored, the transaction abort path resets both, so
+/// the swap doesn't need its own unwind handling.
+unsafe fn create_transaction_scoped_buffile() -> *mut pg_sys::BufFile {
     unsafe {
         let saved_owner = pg_sys::CurrentResourceOwner;
         let saved_cxt = pg_sys::CurrentMemoryContext;
@@ -295,10 +299,7 @@ unsafe fn create_transaction_scoped_buffile() -> Result<*mut pg_sys::BufFile, &'
         let file = pg_sys::BufFileCreateTemp(false);
         pg_sys::CurrentResourceOwner = saved_owner;
         pg_sys::CurrentMemoryContext = saved_cxt;
-        if file.is_null() {
-            return Err("BufFileCreateTemp returned NULL");
-        }
-        Ok(file)
+        file
     }
 }
 
@@ -321,8 +322,7 @@ unsafe fn buffile_read_chunk(
 }
 
 // The following wrap Postgres APIs whose signatures differ across supported versions,
-// mirroring `api::operator::keyset`'s shims for the same functions. (Folded into a
-// shared module in a follow-up commit — see PR discussion.)
+// mirroring `api::operator::keyset`'s shims for the same functions.
 
 /// Write `data` to `file`. (PG15's `BufFileWrite` takes `*mut`; PG16+ takes `*const`.)
 unsafe fn buffile_write(file: *mut pg_sys::BufFile, data: &[u8]) -> Result<(), &'static str> {
@@ -352,8 +352,7 @@ unsafe fn buffile_seek(
 }
 
 /// Returns `file`'s current `(fileno, offset)` position. Mirrors
-/// `api::operator::keyset`'s `buffile_tell` (folded into a shared module in a
-/// follow-up commit — see PR discussion).
+/// `api::operator::keyset`'s `buffile_tell`
 unsafe fn buffile_tell(file: *mut pg_sys::BufFile) -> Result<(c_int, pg_sys::off_t), &'static str> {
     let mut fileno: c_int = 0;
     let mut offset: pg_sys::off_t = 0;

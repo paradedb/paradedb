@@ -84,8 +84,8 @@ WHERE p.id NOT IN (
        OR p.company_id IN (SELECT c.id FROM issue_4719_companies c))
 ORDER BY p.id DESC
 LIMIT 26;
-                                                                                           QUERY PLAN                                                                                            
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id
    ->  Custom Scan (ParadeDB Join Scan)
@@ -99,15 +99,17 @@ LIMIT 26;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=26), expr=[id@1 DESC], preserve_partitioning=[false]
            :     FilterExec: mark@3 OR company_id@1 IS NULL, projection=[ctid_0@0, id@2]
-           :       HashJoinExec: mode=CollectLeft, join_type=RightMark, on=[(id@0, company_id@1)]
-           :         CooperativeExec
-           :           PgSearchScan: table=c, segments=1, query="all"
-           :         HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@2, person_id@0)], null_aware
+           :       HashJoinExec: mode=CollectLeft, join_type=LeftMark, on=[(company_id@1, id@0)]
+           :         VisibilityFilterExec: tables=[p]
+           :           HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@2, person_id@0)], null_aware
+           :             CooperativeExec
+           :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query="all"
+           :             CooperativeExec
+           :               PgSearchScan: table=x, segments=1, query={"term_set":{"terms":[{"field":"company_id","value":10},{"field":"company_id","value":20},{"field":"company_id","value":50}]}}
+           :         VisibilityFilterExec: tables=[c]
            :           CooperativeExec
-           :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query="all"
-           :           CooperativeExec
-           :             PgSearchScan: table=x, segments=1, query={"term_set":{"terms":[{"field":"company_id","value":10},{"field":"company_id","value":20},{"field":"company_id","value":50}]}}
-(21 rows)
+           :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query="all"
+(23 rows)
 
 SELECT p.id
 FROM issue_4719_people p

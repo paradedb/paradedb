@@ -40,16 +40,15 @@ AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c))
 ORDER BY id DESC
 LIMIT 26;
 WARNING:  Aggregate Scan (DataFusion) not used: OR-nested subquery cannot be pushed into the aggregate scan (table: p)
-                                                                                                                                                  QUERY PLAN                                                                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                   QUERY PLAN                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.full_name, ((p.full_name IS NULL)), p.linkedin_followers, ((p.linkedin_followers IS NULL)), p.seniority_slug, ((p.seniority_slug IS NULL))
-   ->  Sort
+   ->  Unique
          Output: p.id, p.full_name, ((p.full_name IS NULL)), p.linkedin_followers, ((p.linkedin_followers IS NULL)), p.seniority_slug, ((p.seniority_slug IS NULL))
-         Sort Key: p.id DESC
-         ->  HashAggregate
+         ->  Sort
                Output: p.id, p.full_name, ((p.full_name IS NULL)), p.linkedin_followers, ((p.linkedin_followers IS NULL)), p.seniority_slug, ((p.seniority_slug IS NULL))
-               Group Key: p.id, p.full_name, (p.full_name IS NULL), p.linkedin_followers, (p.linkedin_followers IS NULL), p.seniority_slug, (p.seniority_slug IS NULL)
+               Sort Key: p.id DESC, p.full_name, ((p.full_name IS NULL)), p.linkedin_followers, ((p.linkedin_followers IS NULL)), p.seniority_slug, ((p.seniority_slug IS NULL))
                ->  Result
                      Output: p.id, p.full_name, (p.full_name IS NULL), p.linkedin_followers, (p.linkedin_followers IS NULL), p.seniority_slug, (p.seniority_slug IS NULL)
                      ->  Custom Scan (ParadeDB Join Scan)
@@ -63,12 +62,14 @@ WARNING:  Aggregate Scan (DataFusion) not used: OR-nested subquery cannot be pus
                              : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0]
                              :   SortExec: TopK(fetch=26), expr=[id@1 DESC], preserve_partitioning=[false]
                              :     FilterExec: mark@3 OR company_id@1 IS NULL, projection=[ctid_0@0, id@2]
-                             :       HashJoinExec: mode=CollectLeft, join_type=RightMark, on=[(id@0, company_id@1)]
-                             :         CooperativeExec
-                             :           PgSearchScan: table=c, segments=1, query="all"
-                             :         CooperativeExec
-                             :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
-(26 rows)
+                             :       HashJoinExec: mode=CollectLeft, join_type=LeftMark, on=[(company_id@1, id@0)]
+                             :         VisibilityFilterExec: tables=[p]
+                             :           CooperativeExec
+                             :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
+                             :         VisibilityFilterExec: tables=[c]
+                             :           CooperativeExec
+                             :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query="all"
+(27 rows)
 
 SELECT DISTINCT
     p.id AS id,

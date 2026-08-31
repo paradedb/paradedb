@@ -87,13 +87,31 @@ BEGIN
 END
 $$ LANGUAGE plpgsql;
 
--- GUC off (default): the same overflow must fail cleanly from the disabled
--- disk manager, not spill.
-SELECT f.title, COUNT(*), SUM(p.size_bytes)
-FROM mpp_spill_large_files f
-JOIN mpp_spill_large_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
-GROUP BY f.title;
+-- GUC off (default): the same overflow must fail from the disabled disk
+-- manager.
+CREATE TABLE mpp_spill_guc_off_outcome (msg text);
+DO $$
+DECLARE
+    err_text text;
+BEGIN
+    PERFORM f.title, COUNT(*), SUM(p.size_bytes)
+    FROM mpp_spill_large_files f
+    JOIN mpp_spill_large_pages p ON f.id = p.file_id
+    WHERE f.content @@@ 'Section'
+    GROUP BY f.title;
+    INSERT INTO mpp_spill_guc_off_outcome VALUES ('unexpected success with spill_to_disk off');
+EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS err_text = MESSAGE_TEXT;
+    IF err_text LIKE '%temporary files are not enabled in the DiskManager%' AND err_text LIKE '%raise work_mem to run it%' THEN
+        INSERT INTO mpp_spill_guc_off_outcome
+            VALUES ('failed from the disabled disk manager, with pool''s "raise work_mem" message, chained');
+    ELSE
+        INSERT INTO mpp_spill_guc_off_outcome
+            VALUES ('failed, but not from the disk manager: ' || err_text);
+    END IF;
+END$$;
+SELECT msg FROM mpp_spill_guc_off_outcome;
+DROP TABLE mpp_spill_guc_off_outcome;
 
 -- GUC on: the FinalPartitioned aggregate spills and completes.
 SET paradedb.spill_to_disk TO on;

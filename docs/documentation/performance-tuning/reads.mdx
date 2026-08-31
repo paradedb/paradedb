@@ -119,7 +119,7 @@ constraints, and table size.
 
 ## Spilling to Disk
 
-[Join pushdown](/docs/documentation/joins/overview.mdx) and [aggregate pushdown](/docs/documentation/aggregates/overview.mdx) execute through DataFusion, which allocates against Postgres' `work_mem` for the executing backend (or, for parallel MPP queries, `work_mem` per parallel worker). By default, a query that would exceed `work_mem` returns an error rather than silently using more memory than configured.
+[Join pushdown](/documentation/joins/overview.mdx) and [aggregate pushdown](/documentation/aggregates/overview.mdx) execute through DataFusion, which allocates against Postgres' `work_mem` for the executing backend (or, for parallel MPP queries, `work_mem` per parallel worker). By default, a query that would exceed `work_mem` returns an error rather than silently using more memory than configured.
 
 `paradedb.spill_to_disk` allows these queries to spill to disk instead of erroring when `work_mem` is exceeded. It is off by default.
 

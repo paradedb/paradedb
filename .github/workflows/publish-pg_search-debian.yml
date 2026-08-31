@@ -247,20 +247,10 @@ jobs:
 
       - name: Install & Configure Supported PostgreSQL Version
         if: steps.guard.outputs.build == 'true'
-        run: |
-          # Create keyrings dir (works on Debian/Ubuntu)
-          sudo install -d -m 0755 /usr/share/keyrings
-
-          # Download PostgreSQL signing key & add PostgreSQL APT repository with signed-by
-          wget -qO- https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo tee /usr/share/keyrings/postgresql.asc > /dev/null
-          sudo sh -c 'echo "deb [signed-by=/usr/share/keyrings/postgresql.asc] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-
-          # Install PostgreSQL + build tooling
-          DEBIAN_FRONTEND=noninteractive sudo apt-get update
-          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }} debhelper devscripts dput gnupg libopenblas-dev
-
-          # Add Postgres bin dir to PATH for subsequent steps
-          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> "$GITHUB_PATH"
+        uses: ./.github/actions/setup-postgres
+        with:
+          pg_version: ${{ matrix.pg_version }}
+          extra_packages: debhelper devscripts dput gnupg libopenblas-dev
 
       - name: Extract pgrx Version
         if: steps.guard.outputs.build == 'true'

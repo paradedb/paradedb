@@ -29,12 +29,10 @@ runs:
         rustflags: "" # Use .cargo/config.toml target-cpu flags
 
     - name: Install & Configure Supported PostgreSQL Version
-      shell: bash
-      run: |
-        wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
-        sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-        sudo apt-get update && sudo apt-get install -y libopenblas-dev postgresql-${{ inputs.pg_version }} postgresql-server-dev-${{ inputs.pg_version }} postgresql-${{ inputs.pg_version }}-pgvector
-        echo "/usr/lib/postgresql/${{ inputs.pg_version }}/bin" >> $GITHUB_PATH
+      uses: ./.github/actions/setup-postgres
+      with:
+        pg_version: ${{ inputs.pg_version }}
+        extra_packages: lld libopenblas-dev postgresql-${{ inputs.pg_version }}-pgvector
 
     # Separate prefix-key from debug workflows - benchmarks compile with --release.
     # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.

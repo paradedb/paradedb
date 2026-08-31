@@ -95,7 +95,7 @@ bytes = { version = "1", features = ["serde"] }
 # both point to the same datafusion ref.
 datafusion = { version = "55.0.0", default-features = false }
 datafusion-proto = { version = "55.0.0", default-features = false }
-datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed", tag = "snapshot-main-2026-08-20-204632", default-features = false }
+datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed", branch = "stuhood.worker-lifecycle", default-features = false }
 futures = "0.3"
 async-stream = "0.3.6"
 prost = "0.14.3"

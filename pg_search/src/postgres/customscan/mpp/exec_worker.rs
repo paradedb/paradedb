@@ -231,7 +231,6 @@ fn spawn_fragment_execution_task(
 ) -> FragmentFuture {
     Box::pin(async move {
         let mut sinks_opt: Vec<_> = per_partition_sinks.into_iter().map(Some).collect();
-        let n_partitions = sinks_opt.len();
 
         // The cancellation token is never cancelled on this path; worker interrupts bail via
         // the cooperative drain pass.
@@ -241,7 +240,6 @@ fn spawn_fragment_execution_task(
             &mesh,
             stage_id,
             task_idx,
-            n_partitions,
             token,
             move |_request, _headers, range| {
                 let len = range.end - range.start;

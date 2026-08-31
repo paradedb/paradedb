@@ -1772,7 +1772,7 @@ WARNING:  JoinScan not used: join keys must be fast fields (tables: p, pc)
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (21 rows)
 
-SELECT 
+SELECT
     p.id,
     p.name,
     p.rating,
@@ -1789,6 +1789,91 @@ WARNING:  JoinScan not used: join keys must be fast fields (tables: p, pc)
   1 | MacBook Pro |    4.8 | Portable computing devices |           4
   5 | ASUS ROG    |    4.7 | Portable computing devices |           4
   3 | ThinkPad X1 |    4.5 | Portable computing devices |           4
+(3 rows)
+
+-- Test 27b: Global window function over a JOIN with fast-field join keys
+-- Unlike Test 27 (whose TEXT join keys already disqualify JoinScan), this join
+-- is otherwise JoinScan-compatible, so the empty OVER () window aggregate is
+-- the only reason for falling back to PostgreSQL's WindowAgg.
+-- Should use a custom scan once https://github.com/paradedb/paradedb/issues/5637
+-- is implemented.
+CREATE TABLE product_reviews (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER,
+    content TEXT,
+    score INTEGER
+);
+INSERT INTO product_reviews (product_id, content, score) VALUES
+(1, 'Excellent build quality', 95),
+(1, 'Battery could be better', 70),
+(2, 'Great value ultrabook', 88),
+(3, 'Keyboard is fantastic', 91),
+(5, 'Runs hot under load', 65);
+CREATE INDEX product_reviews_idx ON product_reviews
+USING paradedb (
+    id,
+    product_id,
+    (content::pdb.unicode_words),
+    score
+) WITH (key_field='id');
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    p.name,
+    r.score,
+    COUNT(*) OVER () AS total_count,
+    SUM(r.score) OVER () AS total_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to window functions (tables: p, r)
+                                                                                     QUERY PLAN                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.name, r.score, (count(*) OVER w1), (sum(r.score) OVER w1)
+   ->  Sort
+         Output: p.id, p.name, r.score, (count(*) OVER w1), (sum(r.score) OVER w1)
+         Sort Key: r.score DESC
+         ->  WindowAgg
+               Output: p.id, p.name, r.score, count(*) OVER w1, sum(r.score) OVER w1
+               Window: w1 AS ()
+               ->  Hash Join
+                     Output: p.id, p.name, r.score
+                     Inner Unique: true
+                     Hash Cond: (r.product_id = p.id)
+                     ->  Seq Scan on public.product_reviews r
+                           Output: r.id, r.product_id, r.content, r.score
+                     ->  Hash
+                           Output: p.id, p.name
+                           ->  Custom Scan (ParadeDB Base Scan) on public.products p
+                                 Output: p.id, p.name
+                                 Table: products
+                                 Index: products_idx
+                                 Worker Selection: Cost model
+                                 Exec Method: NormalScanExecState
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(24 rows)
+
+SELECT
+    p.id,
+    p.name,
+    r.score,
+    COUNT(*) OVER () AS total_count,
+    SUM(r.score) OVER () AS total_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to window functions (tables: p, r)
+ id |    name     | score | total_count | total_score 
+----+-------------+-------+-------------+-------------
+  1 | MacBook Pro |    95 |           4 |         321
+  3 | ThinkPad X1 |    91 |           4 |         321
+  1 | MacBook Pro |    70 |           4 |         321
 (3 rows)
 
 -- Test 28: Window function in subquery
@@ -2489,5 +2574,6 @@ LIMIT 5;
 (4 rows)
 
 -- Cleanup
+DROP TABLE product_reviews CASCADE;
 DROP TABLE product_categories CASCADE;
 DROP TABLE products CASCADE;

@@ -945,7 +945,7 @@ WHERE p.description @@@ 'laptop'
 ORDER BY p.rating DESC
 LIMIT 3;
 
-SELECT 
+SELECT
     p.id,
     p.name,
     p.rating,
@@ -955,6 +955,59 @@ FROM products p
 JOIN product_categories pc ON p.category = pc.name
 WHERE p.description @@@ 'laptop'
 ORDER BY p.rating DESC
+LIMIT 3;
+
+-- Test 27b: Global window function over a JOIN with fast-field join keys
+-- Unlike Test 27 (whose TEXT join keys already disqualify JoinScan), this join
+-- is otherwise JoinScan-compatible, so the empty OVER () window aggregate is
+-- the only reason for falling back to PostgreSQL's WindowAgg.
+-- Should use a custom scan once https://github.com/paradedb/paradedb/issues/5637
+-- is implemented.
+CREATE TABLE product_reviews (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER,
+    content TEXT,
+    score INTEGER
+);
+
+INSERT INTO product_reviews (product_id, content, score) VALUES
+(1, 'Excellent build quality', 95),
+(1, 'Battery could be better', 70),
+(2, 'Great value ultrabook', 88),
+(3, 'Keyboard is fantastic', 91),
+(5, 'Runs hot under load', 65);
+
+CREATE INDEX product_reviews_idx ON product_reviews
+USING paradedb (
+    id,
+    product_id,
+    (content::pdb.unicode_words),
+    score
+) WITH (key_field='id');
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    p.name,
+    r.score,
+    COUNT(*) OVER () AS total_count,
+    SUM(r.score) OVER () AS total_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+SELECT
+    p.id,
+    p.name,
+    r.score,
+    COUNT(*) OVER () AS total_count,
+    SUM(r.score) OVER () AS total_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop'
+ORDER BY r.score DESC
 LIMIT 3;
 
 -- Test 28: Window function in subquery
@@ -1314,5 +1367,6 @@ ORDER BY rating DESC
 LIMIT 5;
 
 -- Cleanup
+DROP TABLE product_reviews CASCADE;
 DROP TABLE product_categories CASCADE;
 DROP TABLE products CASCADE;

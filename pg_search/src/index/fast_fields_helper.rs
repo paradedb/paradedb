@@ -479,10 +479,15 @@ where
         let (seg_ord, doc_id) = unpack_doc_address(packed);
         by_seg[seg_ord as usize].push((row_idx, doc_id));
     }
-    for (seg_ord, rows) in by_seg.into_iter().enumerate() {
+    for (seg_ord, mut rows) in by_seg.into_iter().enumerate() {
         if rows.is_empty() {
             continue;
         }
+
+        // A fast-field column reads fastest in DocId order. Rows reach here in whatever
+        // order the plan produced them, which a join above the scan no longer keeps, so
+        // sort before the fetch. Callers map results back by their row index.
+        rows.sort_unstable_by_key(|(_, doc_id)| *doc_id);
 
         process(seg_ord as SegmentOrdinal, rows)?;
     }

@@ -735,6 +735,10 @@ enum BarrierStatus {
 /// Partial Barriers include left/left semi/left anti and right/right semi/right anti joins - the null-supplying child must have visibility checked, while
 /// the preserved side should remain deferred
 ///
+/// A consumed or null-supplying side cannot check above its join: a dead row
+/// that reaches the join fabricates a semi match, suppresses an anti row, or
+/// replaces a null-extension, and its ctid never reaches the plan top anyway.
+///
 /// Full Barriers include all other non-inner joins (outer, etc),
 /// aggregates, distinct, window functions, and sort-with-limit.
 ///

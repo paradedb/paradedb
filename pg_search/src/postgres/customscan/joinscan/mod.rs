@@ -183,7 +183,6 @@ use crate::postgres::customscan::joinscan::planning::{
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::mpp::glue::mpp_is_active;
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
-use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::mpp::launch::mpp_gated_by_min_rows;
 use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parallelism;
 use arrow_array::Array;
@@ -1398,16 +1397,13 @@ impl CustomScan for JoinScan {
                         .map(|source| &source.scan_info),
                 )
             {
-                state.custom_state_mut().mpp = MppLifecycle::Pending;
+                state.custom_state_mut().mpp.mark_pending();
             }
         }
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        let relaunch_mpp = matches!(
-            &state.custom_state().mpp,
-            MppLifecycle::Pending | MppLifecycle::Launched(_)
-        );
+        let relaunch_mpp = state.custom_state().mpp.is_active();
         Self::finish_mpp_execution(state);
         state.custom_state_mut().relations.clear();
         state.custom_state_mut().reset();
@@ -1416,12 +1412,13 @@ impl CustomScan for JoinScan {
                 state.custom_state().logical_plan.is_some(),
                 "MPP rescan requires logical plan bytes"
             );
-            state.custom_state_mut().mpp = MppLifecycle::Pending;
+            state.custom_state_mut().mpp.mark_pending();
         }
     }
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
         let mut launch_us = crate::postgres::customscan::mpp::glue::MppLaunchTiming::default();
+        let mut mpp_guard = state.custom_state_mut().mpp.enter_guard();
         unsafe {
             if state.custom_state().datafusion_stream.is_none() {
                 // Solve any Param/SubPlan-backed SearchQueryInputs on the leader and rebake the
@@ -1521,7 +1518,7 @@ impl CustomScan for JoinScan {
                             .expect("Failed to create execution plan")
                     };
 
-                let mpp_pending = state.custom_state_mut().mpp.take_pending();
+                let mpp_pending = mpp_guard.take_pending();
                 // Leader session context: on an MPP attempt, layer the DF-D fork's
                 // distributed-planner knobs over the Join profile so the resulting physical
                 // plan is a `DistributedExec`, with `producer_worker_cap()` acting as the
@@ -1539,8 +1536,6 @@ impl CustomScan for JoinScan {
                 // On a launch fallback (nothing to distribute, or too few attached workers) no
                 // workers remain and the `DistributedExec` shape has no mesh to read from, so
                 // replan serially.
-                let mut launched: Option<crate::postgres::customscan::mpp::glue::MppLeaderState> =
-                    None;
                 let (ctx, plan) = if mpp_pending {
                     match Self::launch_mpp(state, &plan) {
                         Some(leader) => {
@@ -1554,7 +1549,7 @@ impl CustomScan for JoinScan {
                             launch_us.attach_us = leader.timing.attach_us;
                             launch_us.leader_setup_us = leader.timing.leader_setup_us;
                             launch_us.workers = leader.timing.workers;
-                            launched = Some(leader);
+                            mpp_guard.install_leader(leader);
                             (exec_ctx, plan)
                         }
                         None => {
@@ -1609,25 +1604,15 @@ impl CustomScan for JoinScan {
                 let t_exec = std::time::Instant::now();
                 let stream = {
                     let _guard = runtime.enter();
-                    match plan.execute(0, task_ctx) {
-                        Ok(s) => s,
-                        Err(e) => {
-                            drop(plan);
-                            drop(ctx);
-                            drop(launched);
-                            pgrx::error!("Failed to execute DataFusion plan: {e}");
-                        }
-                    }
+                    plan.execute(0, task_ctx)
+                        .expect("Failed to execute DataFusion plan")
                 };
-                if let Some(leader) = launched.take() {
-                    state.custom_state_mut().mpp = MppLifecycle::Launched(leader);
-                }
                 launch_us.exec_us = t_exec.elapsed().as_micros() as u64;
 
                 // Retain the executed plan so EXPLAIN ANALYZE can extract metrics. Record the
                 // launch timing only when the query actually ran distributed (workers attached);
                 // a serial fallback never reaches `Launched` and leaves `workers` at zero.
-                if state.custom_state().mpp.is_launched() {
+                if mpp_guard.is_launched() {
                     state.custom_state_mut().launch_timing = Some(launch_us);
                     state.custom_state_mut().stream_built_at = Some(std::time::Instant::now());
                 }
@@ -1681,7 +1666,6 @@ impl CustomScan for JoinScan {
                         state.custom_state_mut().batch_index = 0;
                     }
                     Some(Err(e)) => {
-                        let _ = state.custom_state_mut().mpp.take_leader();
                         pgrx::error!("DataFusion execution failed: {}", e);
                     }
                     None => return std::ptr::null_mut(),

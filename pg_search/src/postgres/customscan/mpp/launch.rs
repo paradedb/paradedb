@@ -229,12 +229,21 @@ fn run_launched_worker(state_manager: ParallelStateManager, seed_ctx: fn() -> Se
     run_mpp_worker(inputs, seed_ctx(), &runtime);
 }
 
-/// Where MPP sits in a scan's launch lifecycle. Every transition consumes the previous stage,
-/// so a scan is in exactly one stage at a time; a single field keeps the impossible
-/// combinations unrepresentable. Held only by the leader; builder-launched workers reconstruct
-/// their state from DSM and never carry this.
+/// Where MPP sits in a scan's launch lifecycle. Held only by the leader; builder-launched
+/// workers reconstruct their state from DSM and never carry this.
+///
+/// Encapsulates the internal [`LifecycleState`] transitions and ensures that active leader
+/// sessions cannot be orphaned during query aborts by requiring an [`MppGuard`] during execution.
 #[derive(Default)]
-pub enum MppLifecycle {
+pub struct MppLifecycle {
+    state: LifecycleState,
+}
+
+/// Internal stage machine for [`MppLifecycle`]. Every transition consumes the previous stage,
+/// so a scan is in exactly one stage at a time; a single field keeps impossible combinations
+/// unrepresentable.
+#[derive(Default)]
+enum LifecycleState {
     /// Serial execution: the query didn't qualify, a fallback abandoned the launch, or
     /// teardown already reclaimed the leader state.
     #[default]
@@ -248,45 +257,129 @@ pub enum MppLifecycle {
 }
 
 impl MppLifecycle {
+    pub fn mark_pending(&mut self) {
+        self.state = LifecycleState::Pending;
+    }
+
     /// Consume the pending launch marker. Leaves `Inactive`, so a launch fallback reads as the
     /// serial path from then on.
     pub fn take_pending(&mut self) -> bool {
-        match std::mem::take(self) {
-            MppLifecycle::Pending => true,
+        match std::mem::take(&mut self.state) {
+            LifecycleState::Pending => true,
             other => {
-                *self = other;
+                self.state = other;
                 false
             }
         }
     }
 
+    /// Returns true if currently in `Pending` or `Launched` state.
+    pub fn is_active(&self) -> bool {
+        matches!(
+            self.state,
+            LifecycleState::Pending | LifecycleState::Launched(_)
+        )
+    }
+
+    pub fn is_launched(&self) -> bool {
+        matches!(self.state, LifecycleState::Launched(_))
+    }
+
+    pub fn install_leader(&mut self, leader: MppLeaderState) {
+        self.state = LifecycleState::Launched(leader);
+    }
+
     /// Consume the leader state at teardown, leaving `Inactive`.
     pub fn take_leader(&mut self) -> Option<MppLeaderState> {
-        match std::mem::take(self) {
-            MppLifecycle::Launched(leader) => Some(leader),
+        match std::mem::take(&mut self.state) {
+            LifecycleState::Launched(leader) => Some(leader),
             other => {
-                *self = other;
+                self.state = other;
                 None
             }
         }
     }
 
     pub fn leader(&self) -> Option<&MppLeaderState> {
-        match self {
-            MppLifecycle::Launched(leader) => Some(leader),
+        match &self.state {
+            LifecycleState::Launched(leader) => Some(leader),
             _ => None,
         }
     }
 
     pub fn leader_mut(&mut self) -> Option<&mut MppLeaderState> {
-        match self {
-            MppLifecycle::Launched(leader) => Some(leader),
+        match &mut self.state {
+            LifecycleState::Launched(leader) => Some(leader),
             _ => None,
         }
     }
 
+    /// Enter an active execution scope guarded against unwinding panics.
+    pub fn enter_guard(&mut self) -> MppGuard {
+        MppGuard {
+            lifecycle_ptr: self as *mut MppLifecycle,
+        }
+    }
+}
+
+/// Stack-bound RAII guard for MPP leader execution.
+///
+/// ### Why this stack guard is necessary
+/// On query abort, PostgreSQL invokes `AtAbort_Parallel()` at the start of `AbortTransaction()`,
+/// blocking in `WaitForParallelWorkersToExit()` before query memory contexts are reset. If parallel
+/// workers are waiting on the leader (e.g. for plan dispatch in `take_set_plan`), they only awaken
+/// and exit when [`LeaderSession`](datafusion_distributed::shm::LeaderSession) drops and broadcasts
+/// `SessionEnd`.
+///
+/// Because `pgrx` unwinds the Rust stack before `AbortTransaction()` begins, this guard's [`Drop`]
+/// consumes and drops [`MppLeaderState`] during unwinding, broadcasting `SessionEnd` so workers exit
+/// before PostgreSQL blocks in `WaitForParallelWorkersToExit()`.
+pub struct MppGuard {
+    lifecycle_ptr: *mut MppLifecycle,
+}
+
+impl MppGuard {
+    #[allow(dead_code)]
+    pub fn new(lifecycle: &mut MppLifecycle) -> Self {
+        Self {
+            lifecycle_ptr: lifecycle as *mut MppLifecycle,
+        }
+    }
+
+    pub fn take_pending(&mut self) -> bool {
+        unsafe { (*self.lifecycle_ptr).take_pending() }
+    }
+
     pub fn is_launched(&self) -> bool {
-        matches!(self, MppLifecycle::Launched(_))
+        unsafe { (*self.lifecycle_ptr).is_launched() }
+    }
+
+    pub fn install_leader(&mut self, leader: MppLeaderState) {
+        unsafe { (*self.lifecycle_ptr).install_leader(leader) }
+    }
+
+    #[allow(dead_code)]
+    pub fn leader(&self) -> Option<&MppLeaderState> {
+        unsafe { (*self.lifecycle_ptr).leader() }
+    }
+
+    #[allow(dead_code)]
+    pub fn leader_mut(&mut self) -> Option<&mut MppLeaderState> {
+        unsafe { (*self.lifecycle_ptr).leader_mut() }
+    }
+
+    pub fn take_leader(&mut self) -> Option<MppLeaderState> {
+        unsafe { (*self.lifecycle_ptr).take_leader() }
+    }
+}
+
+impl Drop for MppGuard {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            // Unwinding due to panic or pgrx::error!
+            // Automatically take and drop the leader session to broadcast SessionEnd!
+            let _ = self.take_leader();
+        }
     }
 }
 
@@ -551,7 +644,8 @@ mod tests {
 
     #[pg_test]
     fn pending_launch_is_consumed_once() {
-        let mut lifecycle = MppLifecycle::Pending;
+        let mut lifecycle = MppLifecycle::default();
+        lifecycle.mark_pending();
 
         assert!(lifecycle.take_pending());
         assert!(!lifecycle.take_pending());

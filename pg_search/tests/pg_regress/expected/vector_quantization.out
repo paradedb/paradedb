@@ -215,17 +215,15 @@ FROM q_estimator_provided;
 
 SELECT
     held_out.depth,
-    abs(held_out.bias) <= 0.3 AS held_out_bias_healthy,
-    abs(provided.bias) <= 0.3 AS provided_bias_healthy,
-    held_out.spread <= 1.15 AS held_out_spread_healthy,
-    provided.spread <= 1.15 AS provided_spread_healthy
+    (abs(held_out.bias) <= 0.3) = (abs(provided.bias) <= 0.3) AS bias_health_agrees,
+    (held_out.spread <= 1.15) = (provided.spread <= 1.15) AS spread_health_agrees
 FROM q_estimator_held_out held_out
 JOIN q_estimator_provided provided USING (depth)
 ORDER BY depth;
- depth | held_out_bias_healthy | provided_bias_healthy | held_out_spread_healthy | provided_spread_healthy 
--------+-----------------------+-----------------------+-------------------------+-------------------------
-     1 | t                     | t                     | t                       | t
-     2 | t                     | t                     | t                       | t
+ depth | bias_health_agrees | spread_health_agrees 
+-------+--------------------+----------------------
+     1 | t                  | t
+     2 | t                  | t
 (2 rows)
 
 SET paradedb.vector_cluster_max_probe = 0.25;

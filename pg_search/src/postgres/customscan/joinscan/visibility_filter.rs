@@ -80,7 +80,7 @@ use crate::postgres::customscan::joinscan::CtidColumn;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::execution_plan::UnsafeSendStream;
-use crate::scan::late_materialization::has_reduction_before_stop;
+use crate::scan::late_materialization::is_reduction_node;
 use crate::scan::table_provider::{VisibilitySourceMetadata, pg_search_provider_from_scan};
 use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
 use arrow_select::filter::filter_record_batch;
@@ -246,11 +246,24 @@ fn collect_beneficial_deferred_visibility_inner<'a>(
     if let LogicalPlan::TableScan(scan) = node {
         if let Some(provider) = pg_search_provider_from_scan(scan)
             && let Some(plan_pos) = provider.configured_deferred_ctid_plan_position()
-            && has_reduction_before_stop(ancestors, |ancestor| {
-                !matches!(barrier_status(ancestor), BarrierStatus::None)
-            })
         {
-            beneficial.insert(plan_pos);
+            // Like `has_reduction_before_stop`, but the stopping barrier itself
+            // counts when it reduces rows: a semi, anti, or outer join is both
+            // the barrier for a side and the reduction that makes deferring
+            // that side's check worthwhile.
+            let mut has_reduction = false;
+            for ancestor in ancestors.iter().rev() {
+                if !matches!(barrier_status(ancestor), BarrierStatus::None) {
+                    has_reduction = has_reduction || is_reduction_node(ancestor);
+                    break;
+                }
+                if is_reduction_node(ancestor) {
+                    has_reduction = true;
+                }
+            }
+            if has_reduction {
+                beneficial.insert(plan_pos);
+            }
         }
         return;
     }

@@ -2105,7 +2105,6 @@ dependencies = [
 [[package]]
 name = "datafusion-distributed"
 version = "3.0.0"
-source = "git+https://github.com/paradedb/datafusion-distributed?tag=snapshot-main-2026-08-20-204632#4d870ae1a5abb23618eac0b1844c265ffa2991d8"
 dependencies = [
  "async-stream",
  "async-trait",

@@ -309,7 +309,7 @@ mod tests {
             )
             .unwrap()
         };
-        let mesh = session.mesh;
+        let mesh = session.mesh.clone();
         mesh.mark_detached();
 
         assert!(

@@ -1944,6 +1944,7 @@ impl AggregateScan {
             // On a launch fallback (nothing to distribute, or too few attached workers) no workers
             // remain and the `DistributedExec` shape has no mesh to read from, so replan serially
             // below.
+            let mut launched: Option<crate::postgres::customscan::mpp::glue::MppLeaderState> = None;
             let leader = if mpp_pending {
                 Self::launch_mpp(state, &physical_plan)
             } else {
@@ -1966,7 +1967,7 @@ impl AggregateScan {
                         let mut timing = leader.timing;
                         timing.plan_us = plan_us;
                         df_state.launch_timing = Some(timing);
-                        df_state.mpp = MppLifecycle::Launched(leader);
+                        launched = Some(leader);
                         (exec_ctx, physical_plan)
                     }
                     None => {
@@ -2013,10 +2014,17 @@ impl AggregateScan {
                 let _guard = runtime.enter();
                 match physical_plan.execute(0, task_ctx) {
                     Ok(s) => s,
-                    Err(e) => pgrx::error!("Failed to execute DataFusion aggregate plan: {}", e),
+                    Err(e) => {
+                        drop(ctx);
+                        drop(launched);
+                        pgrx::error!("Failed to execute DataFusion aggregate plan: {e}");
+                    }
                 }
             };
 
+            if let Some(leader) = launched.take() {
+                df_state.mpp = MppLifecycle::Launched(leader);
+            }
             df_state.runtime = Some(runtime);
             df_state.physical_plan = Some(physical_plan);
             df_state.stream = Some(stream);
@@ -2067,6 +2075,7 @@ impl AggregateScan {
                     df_state.batch_row_idx = 0;
                 }
                 Some(Err(e)) => {
+                    let _ = df_state.mpp.take_leader();
                     pgrx::error!("DataFusion aggregate execution failed: {}", e);
                 }
                 None => {

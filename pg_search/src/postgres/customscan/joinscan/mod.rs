@@ -1539,6 +1539,8 @@ impl CustomScan for JoinScan {
                 // On a launch fallback (nothing to distribute, or too few attached workers) no
                 // workers remain and the `DistributedExec` shape has no mesh to read from, so
                 // replan serially.
+                let mut launched: Option<crate::postgres::customscan::mpp::glue::MppLeaderState> =
+                    None;
                 let (ctx, plan) = if mpp_pending {
                     match Self::launch_mpp(state, &plan) {
                         Some(leader) => {
@@ -1552,7 +1554,7 @@ impl CustomScan for JoinScan {
                             launch_us.attach_us = leader.timing.attach_us;
                             launch_us.leader_setup_us = leader.timing.leader_setup_us;
                             launch_us.workers = leader.timing.workers;
-                            state.custom_state_mut().mpp = MppLifecycle::Launched(leader);
+                            launched = Some(leader);
                             (exec_ctx, plan)
                         }
                         None => {
@@ -1607,9 +1609,19 @@ impl CustomScan for JoinScan {
                 let t_exec = std::time::Instant::now();
                 let stream = {
                     let _guard = runtime.enter();
-                    plan.execute(0, task_ctx)
-                        .expect("Failed to execute DataFusion plan")
+                    match plan.execute(0, task_ctx) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            drop(plan);
+                            drop(ctx);
+                            drop(launched);
+                            pgrx::error!("Failed to execute DataFusion plan: {e}");
+                        }
+                    }
                 };
+                if let Some(leader) = launched.take() {
+                    state.custom_state_mut().mpp = MppLifecycle::Launched(leader);
+                }
                 launch_us.exec_us = t_exec.elapsed().as_micros() as u64;
 
                 // Retain the executed plan so EXPLAIN ANALYZE can extract metrics. Record the
@@ -1659,20 +1671,19 @@ impl CustomScan for JoinScan {
 
                 match next_batch {
                     Some(Ok(batch)) => {
-                        // First distributed batch out: fold the worker decode, first scan, and
-                        // network hop into the launch timing.
-                        if let Some(built) = state.custom_state().stream_built_at {
-                            if let Some(t) = state.custom_state_mut().launch_timing.as_mut()
-                                && t.first_frame_us == 0
-                            {
-                                t.first_frame_us = built.elapsed().as_micros() as u64;
+                        if let Some(t_built) = state.custom_state().stream_built_at {
+                            if let Some(ref mut timing) = state.custom_state_mut().launch_timing {
+                                timing.first_frame_us = t_built.elapsed().as_micros() as u64;
                             }
                             state.custom_state_mut().stream_built_at = None;
                         }
                         state.custom_state_mut().current_batch = Some(batch);
                         state.custom_state_mut().batch_index = 0;
                     }
-                    Some(Err(e)) => panic!("DataFusion execution failed: {}", e),
+                    Some(Err(e)) => {
+                        let _ = state.custom_state_mut().mpp.take_leader();
+                        pgrx::error!("DataFusion execution failed: {}", e);
+                    }
                     None => return std::ptr::null_mut(),
                 }
             }

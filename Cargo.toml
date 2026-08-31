@@ -64,12 +64,12 @@ debug-assertions = true
 overflow-checks = true
 
 [workspace.dependencies]
-# Local path deps for stacked-IVF development (do not merge into stack PRs).
-tantivy = { path = "../tantivy", package = "tantivy", features = [
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "5488eaa9b2ee9655c1d0c6efd9fc875599b9dd8e", features = [
   "columnar-zstd-compression",
   "lz4-compression",
   "paradedb",
-  "quickwit",                  # for sstable support
+  # Enables the SSTable backend.
+  "quickwit",
   "stemmer",
   "stopwords",
 ], default-features = false }
@@ -78,7 +78,7 @@ pgrx-tests = "=0.19.2"
 tantivy-jieba = "0.20.0"
 
 [patch.crates-io]
-tantivy-tokenizer-api = { path = "../tantivy/tokenizer-api", package = "tantivy-tokenizer-api" }
+tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "5488eaa9b2ee9655c1d0c6efd9fc875599b9dd8e" }
 
 [workspace.lints.clippy]
 large_futures = "warn"

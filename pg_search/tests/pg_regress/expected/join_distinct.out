@@ -108,8 +108,8 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                            QUERY PLAN                                                                                                            
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                      QUERY PLAN                                                                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name
    ->  Unique
@@ -128,9 +128,9 @@ ORDER BY p.name
                  :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
                  :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
                  :           CooperativeExec
-                 :             PgSearchScan: table=s, segments=1, query="all"
+                 :             PgSearchScan: table=s, segments=1, visibility=deferred, query="all"
                  :           CooperativeExec
-                 :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                 :             PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (21 rows)
 
 -- =============================================================================
@@ -149,8 +149,8 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY s.name
     LIMIT 20;
-                                                                                                        QUERY PLAN                                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                  QUERY PLAN                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit  (cost=10.00..11.00 rows=20 width=32)
    ->  Custom Scan (ParadeDB Join Scan)  (cost=10.00..11.00 rows=20 width=32)
          Relation Tree: s INNER p
@@ -163,9 +163,9 @@ ORDER BY s.name
            :     SegmentedTopKExec: expr=[name@1 ASC NULLS LAST], k=20, visibility_checks=[s, p]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3]
            :         CooperativeExec
-           :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
+           :           PgSearchScan: table=s, segments=1, dynamic_filters=1, visibility=deferred, query="all"
            :         CooperativeExec
-           :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT s.name AS supplier_name
@@ -249,8 +249,8 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY paradedb.score(p.id) DESC, p.name
     LIMIT 10;
-                                                                                                             QUERY PLAN                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, (paradedb.score(p.id))
    ->  Unique
@@ -269,10 +269,10 @@ ORDER BY paradedb.score(p.id) DESC, p.name
                  :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
                  :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[ctid_0@0, score@2, ctid_1@3, name@5]
                  :           CooperativeExec
-                 :             PgSearchScan: table=s, segments=1, query="all"
+                 :             PgSearchScan: table=s, segments=1, visibility=deferred, query="all"
                  :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, supplier_id@2 as supplier_id, name@3 as name]
                  :             CooperativeExec
-                 :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                 :               PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (22 rows)
 
 SELECT DISTINCT p.name, paradedb.score(p.id) AS score
@@ -324,8 +324,8 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                             QUERY PLAN                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name, c.name
    ->  Unique
@@ -344,12 +344,12 @@ ORDER BY p.name
                  :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1, ctid_2]
                  :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@3)], projection=[ctid_0@3, name@4, ctid_1@0, name@2, ctid_2@5, name@7]
                  :           CooperativeExec
-                 :             PgSearchScan: table=c, segments=1, query="all"
+                 :             PgSearchScan: table=c, segments=1, visibility=deferred, query="all"
                  :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_2@3, category_id@5, name@6]
                  :             CooperativeExec
-                 :               PgSearchScan: table=s, segments=1, query="all"
+                 :               PgSearchScan: table=s, segments=1, visibility=deferred, query="all"
                  :             CooperativeExec
-                 :               PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                 :               PgSearchScan: table=p, segments=1, dynamic_filters=2, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (24 rows)
 
 SELECT DISTINCT p.name AS product, s.name AS supplier, c.name AS category
@@ -427,8 +427,8 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY s.name
     LIMIT 10;
-                                                                                                            QUERY PLAN                                                                                                            
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                      QUERY PLAN                                                                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name
    ->  Unique
@@ -447,9 +447,9 @@ ORDER BY s.name
                  :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
                  :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
                  :           CooperativeExec
-                 :             PgSearchScan: table=s, segments=1, query="all"
+                 :             PgSearchScan: table=s, segments=1, visibility=deferred, query="all"
                  :           CooperativeExec
-                 :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                 :             PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (21 rows)
 
 -- =============================================================================
@@ -465,8 +465,8 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                        QUERY PLAN                                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                  QUERY PLAN                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -481,9 +481,9 @@ ORDER BY p.name
            :     SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=10, visibility_checks=[s, p]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, name@4]
            :         CooperativeExec
-           :           PgSearchScan: table=s, segments=1, query="all"
+           :           PgSearchScan: table=s, segments=1, visibility=deferred, query="all"
            :         CooperativeExec
-           :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=p, segments=1, dynamic_filters=2, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 -- =============================================================================
@@ -499,8 +499,8 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless' AND s.name = 'TechCorp'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                        QUERY PLAN                                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                  QUERY PLAN                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -515,9 +515,9 @@ ORDER BY p.name
            :     SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=10, visibility_checks=[s, p]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, name@4]
            :         CooperativeExec
-           :           PgSearchScan: table=s, segments=1, query={"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(name = 'TechCorp'::text)"}]}}
+           :           PgSearchScan: table=s, segments=1, visibility=deferred, query={"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(name = 'TechCorp'::text)"}]}}
            :         CooperativeExec
-           :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=p, segments=1, dynamic_filters=2, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 -- =============================================================================
@@ -575,8 +575,8 @@ FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
     LIMIT 10;
-                                                                                                               QUERY PLAN                                                                                                               
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: (pdb.agg_fn('COUNT(*)'::text))
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -588,9 +588,9 @@ WHERE p.description @@@ 'wireless'
            : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0]
            :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@0)], projection=[]
            :     CooperativeExec
-           :       PgSearchScan: table=s, segments=1, visibility=eager, query="all"
+           :       PgSearchScan: table=s, segments=1, query="all"
            :     CooperativeExec
-           :       PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :       PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (14 rows)
 
 -- =============================================================================
@@ -623,8 +623,8 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p, s)
-                                                                                                               QUERY PLAN                                                                                                               
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: p.name, s.name
    Sort Key: p.name
@@ -635,12 +635,13 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p,
          Group By: name
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[name@0 as name, name@1 as name], aggr=[]
-           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[name@2, name@1]
-           :     CooperativeExec
-           :       PgSearchScan: table=s, segments=1, visibility=eager, query="all"
-           :     CooperativeExec
-           :       PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(15 rows)
+           :   TantivyLookupExec: decode=[name, name]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[name@2, name@1]
+           :       CooperativeExec
+           :         PgSearchScan: table=s, segments=1, query="all"
+           :       CooperativeExec
+           :         PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 -- =============================================================================
 -- TEST 14: DISTINCT with search predicates on both sides
@@ -716,8 +717,8 @@ WHERE
 ORDER BY
     score DESC
 LIMIT 10;
-                                                                                                                                                                 QUERY PLAN                                                                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                            QUERY PLAN                                                                                                                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, (paradedb.score(p.id))
    ->  Unique
@@ -737,10 +738,10 @@ LIMIT 10;
                  :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
                  :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], filter=__p_1_tag_0@1 OR __s_0_tag_0@0, projection=[ctid_0@0, score@3, ctid_1@4, id@6, name@7]
                  :           CooperativeExec
-                 :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"USA","lenient":null,"conjunction_mode":null}}}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}}
+                 :             PgSearchScan: table=s, segments=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"USA","lenient":null,"conjunction_mode":null}}}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}}
                  :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, supplier_id@2 as supplier_id, id@3 as id, name@4 as name, __p_1_tag_0@5 as __p_1_tag_0]
                  :             CooperativeExec
-                 :               PgSearchScan: table=p, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}}
+                 :               PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=deferred, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}}
 (23 rows)
 
 SELECT DISTINCT
@@ -857,8 +858,8 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 3 OFFSET 2;
-                                                                                                            QUERY PLAN                                                                                                            
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                      QUERY PLAN                                                                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name
    ->  Unique
@@ -878,9 +879,9 @@ ORDER BY p.name
                  :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
                  :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
                  :           CooperativeExec
-                 :             PgSearchScan: table=s, segments=1, query="all"
+                 :             PgSearchScan: table=s, segments=1, visibility=deferred, query="all"
                  :           CooperativeExec
-                 :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                 :             PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (22 rows)
 
 -- Expected: Offset: 2 appears in the Custom Scan (ParadeDB Join Scan) node
@@ -928,12 +929,12 @@ LIMIT 50;
                  :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
                  :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(person_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, id@3, name@4]
                  :           CooperativeExec
-                 :             PgSearchScan: table=j, segments=1, query={"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}}
+                 :             PgSearchScan: table=j, segments=1, visibility=deferred, query={"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}}
                  :           HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@1, person_id@0)], null_aware
                  :             CooperativeExec
-                 :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query="all"
+                 :               PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=deferred, query="all"
                  :             CooperativeExec
-                 :               PgSearchScan: table=j2, segments=1, visibility=eager, query={"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}}
+                 :               PgSearchScan: table=j2, segments=1, query={"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}}
 (21 rows)
 
 SELECT DISTINCT p.id, p.name
@@ -965,8 +966,8 @@ WHERE j.id @@@ paradedb.parse('title:developer')
   )
 ORDER BY p.id
 LIMIT 50;
-                                                                                              QUERY PLAN                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                     QUERY PLAN                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: p.id
@@ -979,12 +980,12 @@ LIMIT 50;
                  :   AggregateExec: mode=Single, gby=[id@0 as id, name@1 as name], aggr=[]
                  :     HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(person_id@0, id@0)]
                  :       CooperativeExec
-                 :         PgSearchScan: table=j, segments=1, visibility=eager, query={"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}}
+                 :         PgSearchScan: table=j, segments=1, query={"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}}
                  :       HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@0, person_id@0)], null_aware
                  :         CooperativeExec
-                 :           PgSearchScan: table=p, segments=1, dynamic_filters=2, visibility=eager, query="all"
+                 :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query="all"
                  :         CooperativeExec
-                 :           PgSearchScan: table=j2, segments=1, visibility=eager, query={"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}}
+                 :           PgSearchScan: table=j2, segments=1, query={"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}}
 (18 rows)
 
 SELECT DISTINCT p.id, p.name
@@ -1037,8 +1038,8 @@ WHERE deleted_at IS NULL
   )
 ORDER BY profile_id
 LIMIT 50;
-                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                              
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Custom Scan (ParadeDB Join Scan)
@@ -1055,9 +1056,9 @@ LIMIT 50;
                  :       TantivyLookupExec: decode=[], fetch=[ctid_0]
                  :         HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(profile_id@1, profile_id@0)]
                  :           CooperativeExec
-                 :             PgSearchScan: table=pp, segments=1, query={"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
+                 :             PgSearchScan: table=pp, segments=1, visibility=deferred, query={"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
                  :           CooperativeExec
-                 :             PgSearchScan: table=pp2, segments=1, dynamic_filters=1, visibility=eager, query={"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
+                 :             PgSearchScan: table=pp2, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
 (19 rows)
 
 SELECT DISTINCT profile_id

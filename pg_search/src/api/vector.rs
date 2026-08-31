@@ -17,7 +17,7 @@
 
 //! SQL diagnostics for vector quantization.
 
-use crate::index::directory::utils::{load_index_settings, replace_settings};
+use crate::index::directory::utils::load_index_settings;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::catalog::is_pgvector_oid;
@@ -25,31 +25,32 @@ use crate::postgres::is_bm25_index;
 use crate::postgres::rel::PgSearchRelation;
 use crate::vector::PgVector;
 use anyhow::{Context, Result, bail, ensure};
+#[cfg(feature = "pg_test")]
+use pgrx::JsonB;
 use pgrx::prelude::*;
-use pgrx::{AnyArray, JsonB, PgRelation, Spi, pg_sys};
+use pgrx::{AnyArray, PgRelation, Spi, pg_sys};
 use tantivy::schema::FieldType;
+#[cfg(feature = "pg_test")]
 use tantivy::vector::{
-    VectorAuditMoments, VectorCalibrationMeasurements, VectorErrorAuditMeasurements,
-    VectorErrorAuditQuery, VectorErrorConeAuditMeasurements, VectorQuantizationCalibrationSource,
-    VectorQuantizationDepthCalibration,
+    VectorAuditMoments, VectorErrorAuditMeasurements, VectorErrorConeAuditMeasurements,
 };
+use tantivy::vector::{VectorEstimatorMeasurements, VectorEstimatorQuery, VectorEstimatorSource};
 
-const MAX_CALIBRATION_QUERIES: usize = 256;
-const CALIBRATION_SAMPLE_ROWS: usize = 1_000;
+const MAX_ESTIMATOR_QUERIES: usize = 256;
+const ESTIMATOR_SAMPLE_ROWS: usize = 1_000;
+const HELD_OUT_ESTIMATOR_QUERIES: usize = 100;
+#[cfg(feature = "pg_test")]
 const EXACT_E_AUDIT_QUERY_COUNT: usize = 100;
+#[cfg(feature = "pg_test")]
 const EXACT_E_AUDIT_SAMPLE_ROWS: usize = 1_000;
+#[cfg(feature = "pg_test")]
 const REAL_QUERY_EXACT_E_PROTOCOL: &str = "REAL_QUERY_EXACT_E_BQ4";
+#[cfg(feature = "pg_test")]
 const HELD_OUT_EXACT_E_PROTOCOL: &str = "HELD_OUT_EXACT_E_BQ4";
+#[cfg(feature = "pg_test")]
 const EXACT_E_CONE_PROTOCOL: &str = "ALL_CLUSTERS_EXACT_E_CONE_K10_KAPPA2";
 
-type CalibrationRow = (
-    name!(depth, i32),
-    name!(bias, f32),
-    name!(spread, f32),
-    name!(sample_count, i32),
-    name!(source, String),
-);
-
+#[cfg(feature = "pg_test")]
 type ExactEAuditRow = (
     name!(source, String),
     name!(protocol, String),
@@ -84,6 +85,7 @@ type ExactEAuditRow = (
     name!(gamma_diagnostics, JsonB),
 );
 
+#[cfg(feature = "pg_test")]
 type ExactEConeAuditRow = (
     name!(protocol, String),
     name!(depth, i32),
@@ -100,31 +102,35 @@ type ExactEConeAuditRow = (
     name!(final_depth, bool),
 );
 
-/// Measures and persists per-depth quantization diagnostics.
+/// Measures normalized quantized-estimator errors without running a search.
+///
+/// The work is approximately 1,000 sampled rows times the query count per depth. It takes seconds
+/// on a warm index and is not intended for per-request use.
 ///
 /// # Errors
 ///
-/// Returns an error for invalid input or unavailable quantized storage.
+/// Returns an error for invalid input, a partitioned parent, or unavailable quantized storage.
 #[pg_extern(
-    name = "vector_calibrate",
+    name = "vector_estimator_info",
     sql = r#"
-CREATE FUNCTION paradedb.vector_calibrate(
+CREATE FUNCTION paradedb.vector_estimator_info(
     index regclass,
     field text,
-    queries vector[]
+    queries vector[] DEFAULT NULL
 ) RETURNS TABLE(
     depth integer,
     bias real,
     spread real,
-    sample_count integer,
-    source text
+    sample_rows integer,
+    query_count integer,
+    query_source text
 )
-VOLATILE PARALLEL UNSAFE
+STABLE PARALLEL UNSAFE
 LANGUAGE c
-AS 'MODULE_PATHNAME', 'vector_calibrate_internal_wrapper';
+AS 'MODULE_PATHNAME', 'vector_estimator_info_internal_wrapper';
 "#
 )]
-fn vector_calibrate_internal(
+fn vector_estimator_info_internal(
     index: Option<PgRelation>,
     field: Option<String>,
     queries: Option<AnyArray>,
@@ -135,44 +141,25 @@ fn vector_calibrate_internal(
             name!(depth, i32),
             name!(bias, f32),
             name!(spread, f32),
-            name!(sample_count, i32),
-            name!(source, String),
+            name!(sample_rows, i32),
+            name!(query_count, i32),
+            name!(query_source, String),
         ),
     >,
 > {
     let index = index.context("index must not be NULL")?;
     let field = field.context("field must not be NULL")?;
-    let queries = queries.context("queries must not be NULL")?;
     let index_oid = index.oid();
-    reject_partitioned_index(index_oid, PartitionedIndexOperation::Calibration)?;
     drop(index);
 
-    let index = PgSearchRelation::with_lock(index_oid, pg_sys::AccessExclusiveLock as _);
+    let index = PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as _);
+    reject_partitioned_index(index.oid(), PartitionedIndexOperation::EstimatorInfo)?;
     ensure!(
-        unsafe { pg_sys::get_rel_relkind(index.oid()) as u8 } == pg_sys::RELKIND_INDEX,
-        "vector calibration requires a physical index"
-    );
-    ensure!(
-        is_bm25_index(&index),
-        "vector calibration requires a ParadeDB index"
+        unsafe { pg_sys::get_rel_relkind(index.oid()) as u8 } == pg_sys::RELKIND_INDEX
+            && is_bm25_index(&index),
+        "vector_estimator_info requires a ParadeDB index"
     );
     ensure!(index.is_usable(), "index is not valid, ready, and live");
-
-    let mut settings = load_index_settings(&index)?
-        .with_context(|| format!("index {:?} has no persisted settings", index.name()))?;
-    let quantization_idx = settings
-        .vector_quantization
-        .iter()
-        .position(|config| config.field == field)
-        .with_context(|| format!("field {field:?} is not configured for quantization"))?;
-    let expected_dim = settings.vector_quantization[quantization_idx].dim;
-    let queries = decode_queries(&queries, expected_dim)?
-        .into_iter()
-        .map(|values| VectorErrorAuditQuery {
-            values,
-            excluded_doc_id: None,
-        })
-        .collect::<Vec<_>>();
 
     let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
     let vector_field = search_reader
@@ -187,6 +174,14 @@ fn vector_calibrate_internal(
     let FieldType::Vector(vector_options) = field_entry.field_type() else {
         bail!("field {field:?} is not a vector field");
     };
+    let settings = load_index_settings(&index)?;
+    let quantization = settings
+        .as_ref()
+        .into_iter()
+        .flat_map(|settings| &settings.vector_quantization)
+        .find(|config| config.field == field)
+        .with_context(|| format!("field is not quantized; nothing to diagnose: {field:?}"))?;
+    let expected_dim = quantization.dim;
     ensure!(
         vector_options.dim() == expected_dim,
         "quantization dimension {expected_dim} for field {field:?} does not match schema dimension {}",
@@ -202,59 +197,106 @@ fn vector_calibrate_internal(
                 .context("live posting-membership row count exceeds u64")
         })
         .collect::<Result<Vec<_>>>()?;
-    let sample_rows = allocate_sample_rows(&membership_rows, CALIBRATION_SAMPLE_ROWS);
+    let sample_rows = allocate_sample_rows(&membership_rows, ESTIMATOR_SAMPLE_ROWS);
     ensure!(
         sample_rows.iter().sum::<usize>() != 0,
-        "field {field:?} has no visible IVF posting-membership rows to calibrate"
+        "field {field:?} has no visible IVF posting-membership rows to diagnose"
     );
 
-    let mut measurements: Option<VectorErrorAuditMeasurements> = None;
-    for ((segment_reader, &segment_memberships), &segment_sample_rows) in search_reader
+    let (queries, query_source) = match queries {
+        Some(queries) => {
+            let queries = decode_estimator_queries(&queries, expected_dim)?
+                .into_iter()
+                .map(|values| VectorEstimatorQuery {
+                    values,
+                    excluded_doc_id: None,
+                })
+                .map(|query| (None, query))
+                .collect();
+            (queries, "provided")
+        }
+        None => (
+            sample_held_out_queries(&search_reader, vector_field)?,
+            "held_out",
+        ),
+    };
+    let estimator_source = match query_source {
+        "provided" => VectorEstimatorSource::Provided,
+        "held_out" => VectorEstimatorSource::HeldOut,
+        _ => unreachable!("query source is selected above"),
+    };
+
+    let mut measurements: Option<VectorEstimatorMeasurements> = None;
+    for (target_segment, (segment_reader, &segment_sample_rows)) in search_reader
         .segment_readers()
         .iter()
-        .zip(&membership_rows)
         .zip(&sample_rows)
+        .enumerate()
     {
         if segment_sample_rows == 0 {
             continue;
         }
         let vector_index = segment_reader.vector_index(vector_field)?;
+        let target_queries = queries
+            .iter()
+            .map(|(origin_segment, query)| VectorEstimatorQuery {
+                values: query.values.clone(),
+                excluded_doc_id: (*origin_segment == Some(target_segment))
+                    .then_some(query.excluded_doc_id)
+                    .flatten(),
+            })
+            .collect::<Vec<_>>();
         let segment_measurements = vector_index
-            .audit_error_queries(
-                VectorQuantizationCalibrationSource::RealQuery,
-                &queries,
+            .measure_estimator_queries(
+                estimator_source,
+                &target_queries,
                 segment_sample_rows,
                 segment_reader.alive_bitset(),
             )?
             .with_context(|| {
                 format!(
-                    "visible segment {} has {segment_memberships} IVF posting-membership rows but no quantized storage for field {field:?}",
+                    "visible segment {} has sampled rows but no quantized storage for field {field:?}",
                     segment_reader.segment_id().short_uuid_string()
                 )
             })?;
-        merge_exact_e_measurements(&mut measurements, segment_measurements)?;
+        merge_estimator_measurements(&mut measurements, segment_measurements)?;
     }
 
     let measurements =
-        measurements.context("no visible quantized segment supplied calibration measurements")?;
+        measurements.context("no visible quantized segment supplied estimator measurements")?;
     ensure!(
-        measurements.source == VectorQuantizationCalibrationSource::RealQuery,
-        "exact-E diagnostic returned a non-real-query source"
+        measurements.source() == estimator_source,
+        "estimator measurement source does not match the requested query source"
     );
-    log_calibration_stability(index.name(), &field, &measurements.calibration);
-    let calibration = measurements.calibration.finish(
-        VectorQuantizationCalibrationSource::RealQuery,
-        REAL_QUERY_EXACT_E_PROTOCOL,
-    )?;
-    let rows = calibration
+    let sample_rows = i32::try_from(measurements.sample_rows())
+        .context("estimator sample-row count exceeds SQL integer range")?;
+    let query_count = i32::try_from(measurements.query_count())
+        .context("estimator query count exceeds SQL integer range")?;
+    let rows = measurements
+        .aggregate()
         .iter()
         .enumerate()
-        .map(|(depth, value)| calibration_row(depth, value))
+        .map(|(depth, moments)| {
+            Ok((
+                i32::try_from(depth + 1).context("quantization depth exceeds SQL integer range")?,
+                measurement_to_real(
+                    moments
+                        .bias()
+                        .context("estimator depth has no finite bias measurements")?,
+                    "estimator bias",
+                )?,
+                measurement_to_real(
+                    moments
+                        .spread()
+                        .context("estimator depth has no finite spread measurements")?,
+                    "estimator spread",
+                )?,
+                sample_rows,
+                query_count,
+                query_source.to_string(),
+            ))
+        })
         .collect::<Result<Vec<_>>>()?;
-    settings.vector_quantization[quantization_idx]
-        .install_real_query_calibration(calibration.clone())?;
-    replace_settings(&index, &settings)?;
-
     Ok(TableIterator::new(rows))
 }
 
@@ -263,6 +305,7 @@ fn vector_calibrate_internal(
 /// # Errors
 ///
 /// Returns an error for invalid input or unavailable quantized storage.
+#[cfg(feature = "pg_test")]
 #[pg_extern(
     name = "vector_error_audit",
     sql = r#"
@@ -389,7 +432,7 @@ fn vector_error_audit_internal(
     debug_assert_eq!(external_queries.len(), EXACT_E_AUDIT_QUERY_COUNT);
     let external_queries = external_queries
         .into_iter()
-        .map(|values| VectorErrorAuditQuery {
+        .map(|values| VectorEstimatorQuery {
             values,
             excluded_doc_id: None,
         })
@@ -457,7 +500,7 @@ fn vector_error_audit_internal(
         }
         let vector_index = segment_reader.vector_index(vector_field)?;
         let segment_queries = vector_index
-            .sample_error_pseudo_queries(segment_query_count, segment_reader.alive_bitset())?
+            .sample_estimator_pseudo_queries(segment_query_count, segment_reader.alive_bitset())?
             .with_context(|| {
                 format!(
                     "visible segment {} has vectors but no quantized storage for field {field:?}",
@@ -498,7 +541,7 @@ fn vector_error_audit_internal(
         let vector_index = segment_reader.vector_index(vector_field)?;
         let segment_real = vector_index
             .audit_error_queries(
-                VectorQuantizationCalibrationSource::RealQuery,
+                VectorEstimatorSource::Provided,
                 &external_queries,
                 segment_sample_rows,
                 segment_reader.alive_bitset(),
@@ -513,7 +556,7 @@ fn vector_error_audit_internal(
 
         let segment_held_out_queries = held_out_queries
             .iter()
-            .map(|(origin_segment, query)| VectorErrorAuditQuery {
+            .map(|(origin_segment, query)| VectorEstimatorQuery {
                 values: query.values.clone(),
                 excluded_doc_id: if *origin_segment == target_segment {
                     query.excluded_doc_id
@@ -524,7 +567,7 @@ fn vector_error_audit_internal(
             .collect::<Vec<_>>();
         let segment_held_out = vector_index
             .audit_error_queries(
-                VectorQuantizationCalibrationSource::HeldOut,
+                VectorEstimatorSource::HeldOut,
                 &segment_held_out_queries,
                 segment_sample_rows,
                 segment_reader.alive_bitset(),
@@ -552,6 +595,7 @@ fn vector_error_audit_internal(
 /// # Errors
 ///
 /// Returns an error for invalid input or unavailable quantized storage.
+#[cfg(feature = "pg_test")]
 #[pg_extern(
     name = "vector_error_cone_audit",
     sql = r#"
@@ -640,7 +684,7 @@ fn vector_error_cone_audit_internal(
     );
     let external_queries = external_queries
         .into_iter()
-        .map(|values| VectorErrorAuditQuery {
+        .map(|values| VectorEstimatorQuery {
             values,
             excluded_doc_id: None,
         })
@@ -692,8 +736,10 @@ fn vector_error_cone_audit_internal(
 
 #[derive(Clone, Copy)]
 enum PartitionedIndexOperation {
-    Calibration,
+    EstimatorInfo,
+    #[cfg(feature = "pg_test")]
     ErrorAudit,
+    #[cfg(feature = "pg_test")]
     ErrorConeAudit,
 }
 
@@ -720,18 +766,20 @@ fn reject_partitioned_index(
         children.join(", ")
     };
     let (message, hint) = match operation {
-        PartitionedIndexOperation::Calibration => (
+        PartitionedIndexOperation::EstimatorInfo => (
             format!(
-                "cannot calibrate a partitioned index parent; child indexes: {children}; calibrate each child index individually with paradedb.vector_calibrate"
+                "cannot diagnose a partitioned index parent; child indexes: {children}; run vector_estimator_info for each child index"
             ),
-            "call paradedb.vector_calibrate for each child index individually".to_string(),
+            "run paradedb.vector_estimator_info for each child index individually".to_string(),
         ),
+        #[cfg(feature = "pg_test")]
         PartitionedIndexOperation::ErrorAudit => (
             format!(
                 "cannot audit exact-E on a partitioned index parent; child indexes: {children}; audit each child index individually with paradedb.vector_error_audit"
             ),
             "call paradedb.vector_error_audit for each child index individually".to_string(),
         ),
+        #[cfg(feature = "pg_test")]
         PartitionedIndexOperation::ErrorConeAudit => (
             format!(
                 "cannot audit an exact-E cone on a partitioned index parent; child indexes: {children}; audit each child index individually with paradedb.vector_error_cone_audit"
@@ -749,14 +797,14 @@ fn reject_partitioned_index(
     Ok(())
 }
 
-fn decode_queries(queries: &AnyArray, expected_dim: usize) -> Result<Vec<Vec<f32>>> {
-    decode_queries_capped(
-        queries,
-        expected_dim,
-        MAX_CALIBRATION_QUERIES,
-        "quantization calibration",
-    )
-    .map(|(queries, _)| queries)
+fn decode_estimator_queries(queries: &AnyArray, expected_dim: usize) -> Result<Vec<Vec<f32>>> {
+    let (queries, input_count) =
+        decode_queries_capped(queries, expected_dim, MAX_ESTIMATOR_QUERIES, "estimator")?;
+    ensure!(
+        input_count <= MAX_ESTIMATOR_QUERIES,
+        "vector_estimator_info accepts at most {MAX_ESTIMATOR_QUERIES} queries; received {input_count}"
+    );
+    Ok(queries)
 }
 
 fn decode_queries_capped(
@@ -830,34 +878,107 @@ fn allocate_sample_rows(membership_rows: &[u64], requested: usize) -> Vec<usize>
     allocations
 }
 
-fn calibration_row(
-    depth: usize,
-    calibration: &VectorQuantizationDepthCalibration,
-) -> Result<CalibrationRow> {
-    Ok((
-        i32::try_from(depth + 1).context("quantization depth exceeds SQL integer range")?,
-        calibration.bias,
-        calibration.spread,
-        i32::try_from(calibration.sample_count)
-            .context("quantization calibration sample count exceeds SQL integer range")?,
-        calibration_source_label(calibration.source).to_string(),
-    ))
+fn sample_held_out_queries(
+    search_reader: &SearchIndexReader,
+    vector_field: tantivy::schema::Field,
+) -> Result<Vec<(Option<usize>, VectorEstimatorQuery)>> {
+    let distinct_rows = search_reader
+        .segment_readers()
+        .iter()
+        .map(|segment_reader| -> Result<u64> {
+            let vector_index = segment_reader.vector_index(vector_field)?;
+            u64::try_from(vector_index.live_distinct_vector_count(segment_reader.alive_bitset()))
+                .context("live distinct-vector count exceeds u64")
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let allocations = allocate_sample_rows(&distinct_rows, HELD_OUT_ESTIMATOR_QUERIES);
+    let total_distinct = distinct_rows.iter().sum::<u64>();
+    ensure!(
+        allocations.iter().sum::<usize>() == HELD_OUT_ESTIMATOR_QUERIES,
+        "vector_estimator_info held-out mode requires at least {HELD_OUT_ESTIMATOR_QUERIES} visible stored vectors; found {total_distinct}"
+    );
+
+    let mut queries = Vec::with_capacity(HELD_OUT_ESTIMATOR_QUERIES);
+    for (origin_segment, (segment_reader, &query_count)) in search_reader
+        .segment_readers()
+        .iter()
+        .zip(&allocations)
+        .enumerate()
+    {
+        if query_count == 0 {
+            continue;
+        }
+        let vector_index = segment_reader.vector_index(vector_field)?;
+        let segment_queries = vector_index
+            .sample_estimator_pseudo_queries(query_count, segment_reader.alive_bitset())?
+            .with_context(|| {
+                format!(
+                    "visible segment {} has vectors but no quantized storage",
+                    segment_reader.segment_id().short_uuid_string()
+                )
+            })?;
+        ensure!(
+            segment_queries.len() == query_count,
+            "segment {} returned {} held-out estimator queries; expected {query_count}",
+            segment_reader.segment_id().short_uuid_string(),
+            segment_queries.len()
+        );
+        ensure!(
+            segment_queries
+                .iter()
+                .all(|query| query.excluded_doc_id.is_some()),
+            "held-out estimator queries must carry their source document id"
+        );
+        queries.extend(
+            segment_queries
+                .into_iter()
+                .map(|query| (Some(origin_segment), query)),
+        );
+    }
+    ensure!(
+        queries.len() == HELD_OUT_ESTIMATOR_QUERIES,
+        "held-out estimator query count does not match its deterministic allocation"
+    );
+    Ok(queries)
 }
 
-fn calibration_source_label(source: VectorQuantizationCalibrationSource) -> &'static str {
+fn merge_estimator_measurements(
+    aggregate: &mut Option<VectorEstimatorMeasurements>,
+    segment: VectorEstimatorMeasurements,
+) -> Result<()> {
+    if let Some(aggregate) = aggregate {
+        aggregate.merge(&segment)?;
+    } else {
+        *aggregate = Some(segment);
+    }
+    Ok(())
+}
+
+fn measurement_to_real(value: f64, label: &str) -> Result<f32> {
+    ensure!(
+        value.is_finite() && value.abs() <= f64::from(f32::MAX),
+        "{label} is outside the SQL real range"
+    );
+    Ok(value as f32)
+}
+
+#[cfg(feature = "pg_test")]
+fn calibration_source_label(source: VectorEstimatorSource) -> &'static str {
     match source {
-        VectorQuantizationCalibrationSource::HeldOut => "held_out",
-        VectorQuantizationCalibrationSource::RealQuery => "real_query",
+        VectorEstimatorSource::HeldOut => "held_out",
+        VectorEstimatorSource::Provided => "real_query",
     }
 }
 
-fn exact_e_protocol(source: VectorQuantizationCalibrationSource) -> &'static str {
+#[cfg(feature = "pg_test")]
+fn exact_e_protocol(source: VectorEstimatorSource) -> &'static str {
     match source {
-        VectorQuantizationCalibrationSource::HeldOut => HELD_OUT_EXACT_E_PROTOCOL,
-        VectorQuantizationCalibrationSource::RealQuery => REAL_QUERY_EXACT_E_PROTOCOL,
+        VectorEstimatorSource::HeldOut => HELD_OUT_EXACT_E_PROTOCOL,
+        VectorEstimatorSource::Provided => REAL_QUERY_EXACT_E_PROTOCOL,
     }
 }
 
+#[cfg(feature = "pg_test")]
 fn merge_exact_e_measurements(
     aggregate: &mut Option<VectorErrorAuditMeasurements>,
     segment: VectorErrorAuditMeasurements,
@@ -870,6 +991,7 @@ fn merge_exact_e_measurements(
     Ok(())
 }
 
+#[cfg(feature = "pg_test")]
 #[derive(Clone, Copy)]
 struct DistributionSummary {
     sample_count: i64,
@@ -882,11 +1004,13 @@ struct DistributionSummary {
     max: f64,
 }
 
+#[cfg(feature = "pg_test")]
 fn moment_count(moments: &VectorAuditMoments, label: &str) -> Result<i64> {
     i64::try_from(moments.sample_count)
         .with_context(|| format!("{label} sample count exceeds SQL bigint range"))
 }
 
+#[cfg(feature = "pg_test")]
 fn distribution_summary(moments: &VectorAuditMoments, label: &str) -> Result<DistributionSummary> {
     Ok(DistributionSummary {
         sample_count: moment_count(moments, label)?,
@@ -914,6 +1038,7 @@ fn distribution_summary(moments: &VectorAuditMoments, label: &str) -> Result<Dis
     })
 }
 
+#[cfg(feature = "pg_test")]
 fn gamma_diagnostics_json(
     diagnostics: &tantivy::vector::VectorErrorDepthMeasurements,
 ) -> Result<JsonB> {
@@ -956,22 +1081,20 @@ fn gamma_diagnostics_json(
     })))
 }
 
+#[cfg(feature = "pg_test")]
 fn exact_e_audit_rows(measurements: &VectorErrorAuditMeasurements) -> Result<Vec<ExactEAuditRow>> {
     let protocol = exact_e_protocol(measurements.source);
-    let calibration = measurements
-        .calibration
-        .finish(measurements.source, protocol)?;
     ensure!(
-        calibration.len() == measurements.depths.len(),
-        "exact-E audit calibration and diagnostic depth counts differ"
+        measurements.estimator.aggregate().len() == measurements.depths.len(),
+        "exact-E audit estimator and diagnostic depth counts differ"
     );
     let source = calibration_source_label(measurements.source);
     measurements
         .depths
         .iter()
-        .zip(&calibration)
+        .zip(measurements.estimator.aggregate())
         .enumerate()
-        .map(|(depth, (diagnostics, calibration))| {
+        .map(|(depth, (diagnostics, estimator))| {
             let residual_norm_squared =
                 distribution_summary(&diagnostics.residual_norm_squared, "residual squared norm")?;
             let gamma = distribution_summary(&diagnostics.stored_gamma, "stored gamma")?;
@@ -982,9 +1105,19 @@ fn exact_e_audit_rows(measurements: &VectorErrorAuditMeasurements) -> Result<Vec
                 source.to_string(),
                 protocol.to_string(),
                 i32::try_from(depth + 1).context("quantization depth exceeds SQL integer range")?,
-                calibration.bias,
-                calibration.spread,
-                i32::try_from(calibration.sample_count)
+                measurement_to_real(
+                    estimator
+                        .bias()
+                        .context("exact-E audit depth has no bias measurements")?,
+                    "exact-E audit bias",
+                )?,
+                measurement_to_real(
+                    estimator
+                        .spread()
+                        .context("exact-E audit depth has no spread measurements")?,
+                    "exact-E audit spread",
+                )?,
+                i32::try_from(estimator.sample_count)
                     .context("exact-E audit sample count exceeds SQL integer range")?,
                 residual_norm_squared.sample_count,
                 residual_norm_squared.mean,
@@ -1016,6 +1149,7 @@ fn exact_e_audit_rows(measurements: &VectorErrorAuditMeasurements) -> Result<Vec
         .collect()
 }
 
+#[cfg(feature = "pg_test")]
 fn exact_e_cone_audit_rows(
     measurements: &VectorErrorConeAuditMeasurements,
 ) -> Result<Vec<ExactEConeAuditRow>> {
@@ -1063,80 +1197,9 @@ fn exact_e_cone_audit_rows(
         .collect()
 }
 
-fn log_calibration_stability(
-    index_name: &str,
-    field: &str,
-    measurements: &VectorCalibrationMeasurements,
-) {
-    let depth_count = measurements.aggregate().len();
-    for depth in 0..depth_count {
-        let (biases, spreads): (Vec<_>, Vec<_>) = measurements
-            .per_query()
-            .iter()
-            .filter_map(|query| {
-                let moments = query.get(depth)?;
-                Some((moments.bias()?, moments.spread()?))
-            })
-            .unzip();
-        let Some(bias) = summarize(&biases) else {
-            continue;
-        };
-        let spread = summarize(&spreads).expect("bias and spread samples have the same shape");
-        log::info!(
-            target: crate::postgres::build_logging::QUANTIZATION_CALIBRATION_TARGET,
-            "quantization_calibration_stability index={index_name:?} field={field:?} depth={} query_count={} bias_mean={} bias_stddev={} bias_min={} bias_max={} spread_mean={} spread_stddev={} spread_min={} spread_max={}",
-            depth + 1,
-            biases.len(),
-            bias.mean,
-            bias.stddev,
-            bias.min,
-            bias.max,
-            spread.mean,
-            spread.stddev,
-            spread.min,
-            spread.max,
-        );
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct Summary {
-    mean: f64,
-    stddev: f64,
-    min: f64,
-    max: f64,
-}
-
-fn summarize(values: &[f64]) -> Option<Summary> {
-    let (&first, rest) = values.split_first()?;
-    let mut sum = first;
-    let mut min = first;
-    let mut max = first;
-    for &value in rest {
-        sum += value;
-        min = min.min(value);
-        max = max.max(value);
-    }
-    let mean = sum / values.len() as f64;
-    let variance = values
-        .iter()
-        .map(|value| {
-            let centered = value - mean;
-            centered * centered
-        })
-        .sum::<f64>()
-        / values.len() as f64;
-    Some(Summary {
-        mean,
-        stddev: variance.max(0.0).sqrt(),
-        min,
-        max,
-    })
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{Summary, allocate_sample_rows, summarize};
+    use super::allocate_sample_rows;
 
     #[test]
     fn sample_row_allocation_handles_empty_inputs() {
@@ -1163,19 +1226,5 @@ mod tests {
         let allocations = allocate_sample_rows(&[1, 2, 7, 0], 6);
         assert_eq!(allocations, vec![1, 1, 4, 0]);
         assert_eq!(allocations.iter().sum::<usize>(), 6);
-    }
-
-    #[test]
-    fn stability_summary_reports_population_shape() {
-        assert_eq!(summarize(&[]), None);
-        assert_eq!(
-            summarize(&[1.0, 2.0, 3.0]),
-            Some(Summary {
-                mean: 2.0,
-                stddev: (2.0f64 / 3.0).sqrt(),
-                min: 1.0,
-                max: 3.0,
-            })
-        );
     }
 }

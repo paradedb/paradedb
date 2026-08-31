@@ -17,6 +17,19 @@ AS $$
     )::vector
     FROM generate_series(1, d) i
 $$;
+CREATE FUNCTION quant_isotropic_vector(d integer, n integer)
+RETURNS vector
+LANGUAGE SQL IMMUTABLE PARALLEL SAFE
+AS $$
+    SELECT (
+        '[' || string_agg(
+            (((hashtextextended(n::text || ':' || i::text, 81985529216486895) & 1048575)
+                / 524287.5) - 1.0)::text,
+            ',' ORDER BY i
+        ) || ']'
+    )::vector
+    FROM generate_series(1, d) i
+$$;
 CREATE FUNCTION quant_explain(query_text text)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -40,24 +53,21 @@ CREATE INDEX q_cal_parent_low_idx ON q_cal_parent_low (id);
 CREATE INDEX q_cal_parent_high_idx ON q_cal_parent_high (id);
 ALTER INDEX q_cal_parent_idx ATTACH PARTITION q_cal_parent_low_idx;
 ALTER INDEX q_cal_parent_idx ATTACH PARTITION q_cal_parent_high_idx;
-SELECT * FROM paradedb.vector_calibrate(
+SELECT * FROM paradedb.vector_estimator_info(
     'q_cal_parent_idx',
-    'vec',
-    ARRAY[quant_fixture_vector(64, 0)]
+    'vec'
 );
-ERROR:  cannot calibrate a partitioned index parent; child indexes: q_cal_parent_high_idx, q_cal_parent_low_idx; calibrate each child index individually with paradedb.vector_calibrate
-SELECT * FROM paradedb.vector_calibrate(
+ERROR:  cannot diagnose a partitioned index parent; child indexes: q_cal_parent_high_idx, q_cal_parent_low_idx; run vector_estimator_info for each child index
+SELECT * FROM paradedb.vector_estimator_info(
     'q_cal_parent_low',
-    'vec',
-    ARRAY[quant_fixture_vector(64, 0)]
+    'vec'
 );
-ERROR:  vector calibration requires a physical index
-SELECT * FROM paradedb.vector_calibrate(
+ERROR:  vector_estimator_info requires a ParadeDB index
+SELECT * FROM paradedb.vector_estimator_info(
     'q_cal_parent_low_idx',
-    'vec',
-    ARRAY[quant_fixture_vector(64, 0)]
+    'vec'
 );
-ERROR:  vector calibration requires a ParadeDB index
+ERROR:  vector_estimator_info requires a ParadeDB index
 DROP TABLE q_cal_parent;
 CREATE TABLE q_cal_unquantized (id integer PRIMARY KEY, vec vector(64));
 CREATE INDEX q_cal_unquantized_idx ON q_cal_unquantized
@@ -66,12 +76,25 @@ WITH (
     key_field = id,
     vector_fields = '{"vec":{"dims":64}}'
 );
-SELECT * FROM paradedb.vector_calibrate(
+INSERT INTO q_cal_unquantized
+SELECT g, quant_fixture_vector(64, g) FROM generate_series(1, 100) g;
+VACUUM q_cal_unquantized;
+SELECT
+    bool_and(NOT quantized) AS unquantized_false,
+    bool_and(layers IS NULL) AS unquantized_layers_null,
+    bool_and(bytes_per_row IS NULL) AS unquantized_bytes_null,
+    bool_and(format IS NULL) AS unquantized_format_null
+FROM paradedb.vector_info('q_cal_unquantized_idx', 'vec');
+ unquantized_false | unquantized_layers_null | unquantized_bytes_null | unquantized_format_null 
+-------------------+-------------------------+------------------------+-------------------------
+ t                 | t                       | t                      | t
+(1 row)
+
+SELECT * FROM paradedb.vector_estimator_info(
     'q_cal_unquantized_idx',
-    'vec',
-    ARRAY[quant_fixture_vector(64, 0)]
+    'vec'
 );
-ERROR:  field "vec" is not configured for quantization
+ERROR:  field is not quantized; nothing to diagnose: "vec"
 DROP TABLE q_cal_unquantized;
 CREATE TABLE q_bad_dims (id integer PRIMARY KEY, vec vector(100));
 CREATE INDEX q_bad_dims_idx ON q_bad_dims
@@ -121,122 +144,89 @@ WITH (
 INSERT INTO q_cosine SELECT g, quant_fixture_vector(768, g) FROM generate_series(1, 100) g;
 INSERT INTO q_cosine SELECT g, quant_fixture_vector(768, g) FROM generate_series(101, 200) g;
 VACUUM q_cosine;
-SELECT bool_or(vector_format = 'ivf') AS cosine_has_ivf
+CREATE TABLE q_estimator (id integer PRIMARY KEY, vec vector(768));
+CREATE INDEX q_estimator_idx ON q_estimator
+USING paradedb (id, vec vector_cosine_ops)
+WITH (
+    key_field = id,
+    vector_fields = '{"vec":{"dims":768,"quantization":true}}',
+    centroid_ratio = 0.2,
+    target_segment_count = 1,
+    mutable_segment_rows = 0,
+    layer_sizes = '400kb',
+    background_layer_sizes = '0'
+);
+INSERT INTO q_estimator
+SELECT g, quant_isotropic_vector(768, g) FROM generate_series(1, 128) g;
+INSERT INTO q_estimator
+SELECT g, quant_isotropic_vector(768, g) FROM generate_series(129, 256) g;
+VACUUM q_estimator;
+SELECT
+    bool_or(vector_format = 'ivf') AS cosine_has_ivf,
+    bool_and(quantized) AS cosine_quantized,
+    bool_and(layers = ARRAY[1, 4]) AS cosine_layers,
+    bool_and(bytes_per_row = 500) AS cosine_bytes_per_row,
+    bool_and(format > 0) AS cosine_format
 FROM paradedb.vector_info('q_cosine_idx', 'vec');
- cosine_has_ivf 
-----------------
- t
+ cosine_has_ivf | cosine_quantized | cosine_layers | cosine_bytes_per_row | cosine_format 
+----------------+------------------+---------------+----------------------+---------------
+ t              | t                | t             | t                    | t
 (1 row)
 
-SELECT count(*)
-FROM paradedb.vector_error_audit(
-    'q_cosine_idx',
+CREATE TEMP TABLE q_estimator_held_out AS
+SELECT * FROM paradedb.vector_estimator_info(
+    'q_estimator_idx',
+    'vec'
+);
+SELECT
+    array_agg(depth ORDER BY depth) = ARRAY[1, 2] AS held_out_depths,
+    bool_and(query_source = 'held_out') AS held_out_source,
+    bool_and(sample_rows = 256) AS held_out_sample_rows,
+    bool_and(query_count = 100) AS held_out_query_count,
+    bool_and(abs(bias) <= 0.3) AS held_out_bias_healthy,
+    bool_and(spread <= 1.15) AS held_out_spread_healthy
+FROM q_estimator_held_out;
+ held_out_depths | held_out_source | held_out_sample_rows | held_out_query_count | held_out_bias_healthy | held_out_spread_healthy 
+-----------------+-----------------+----------------------+----------------------+-----------------------+-------------------------
+ t               | t               | t                    | t                    | t                     | t
+(1 row)
+
+CREATE TEMP TABLE q_estimator_provided AS
+SELECT * FROM paradedb.vector_estimator_info(
+    'q_estimator_idx',
     'vec',
     ARRAY(
-        SELECT quant_fixture_vector(768, g)
-        FROM generate_series(0, 98) g
+        SELECT quant_isotropic_vector(768, g)
+        FROM generate_series(1001, 1100) g
     )
 );
-ERROR:  vector error audit requires at least 100 queries; received 99
-WITH audit AS MATERIALIZED (
-    SELECT *
-    FROM paradedb.vector_error_audit(
-        'q_cosine_idx',
-        'vec',
-        ARRAY(
-            SELECT quant_fixture_vector(768, g)
-            FROM generate_series(0, 100) g
-        )
-    )
-)
 SELECT
-    count(*) = 4 AS exact_e_two_sources_two_depths,
-    array_agg(DISTINCT depth ORDER BY depth) = ARRAY[1, 2] AS exact_e_depths,
-    array_agg(DISTINCT source ORDER BY source)
-        = ARRAY['held_out', 'real_query'] AS exact_e_sources,
-    bool_and(
-        protocol = CASE source
-            WHEN 'held_out' THEN 'HELD_OUT_EXACT_E_BQ4'
-            WHEN 'real_query' THEN 'REAL_QUERY_EXACT_E_BQ4'
-        END
-    ) AS exact_e_protocols,
-    bool_and(
-        sample_count > 0
-        AND residual_norm_squared_sample_count > 0
-        AND gamma_sample_count > 0
-        AND corrected_error_ratio_sample_count > 0
-        AND sigma_sample_count > 0
-        AND (gamma_diagnostics->'stored'->>'sample_count')::bigint = gamma_sample_count
-        AND (gamma_diagnostics->'raw'->>'sample_count')::bigint > 0
-        AND (gamma_diagnostics->'round_trip_band_error'->>'sample_count')::bigint > 0
-        AND spread >= 0
-    ) AS exact_e_samples,
-    bool_and(
-        residual_norm_squared_mean >= 0
-        AND residual_norm_squared_p95 <= residual_norm_squared_p99
-        AND residual_norm_squared_p99 <= residual_norm_squared_max
-        AND gamma_p95 <= gamma_p99
-        AND gamma_p99 <= gamma_max
-        AND (gamma_diagnostics->'stored'->>'min')::double precision
-            <= (gamma_diagnostics->'stored'->>'p50')::double precision
-        AND (gamma_diagnostics->'stored'->>'p50')::double precision
-            <= (gamma_diagnostics->'stored'->>'p95')::double precision
-        AND (gamma_diagnostics->'raw'->>'min')::double precision
-            <= (gamma_diagnostics->'raw'->>'p50')::double precision
-        AND (gamma_diagnostics->'raw'->>'p50')::double precision
-            <= (gamma_diagnostics->'raw'->>'p95')::double precision
-        AND (gamma_diagnostics->>'zero_scale_count')::bigint BETWEEN 0 AND gamma_sample_count
-        AND (gamma_diagnostics->>'lower_clamp_count')::bigint BETWEEN 0 AND gamma_sample_count
-        AND (gamma_diagnostics->>'upper_clamp_count')::bigint BETWEEN 0 AND gamma_sample_count
-        AND (gamma_diagnostics->'round_trip_band_error'->>'p99_abs')::double precision
-            <= (gamma_diagnostics->'round_trip_band_error'->>'max_abs')::double precision
-        AND corrected_error_ratio_mean >= 0
-        AND corrected_error_ratio_p95 <= corrected_error_ratio_p99
-        AND corrected_error_ratio_p99 <= corrected_error_ratio_max
-        AND sigma_mean >= 0
-        AND sigma_p95 <= sigma_p99
-        AND sigma_p99 <= sigma_max
-    ) AS exact_e_distributions
-FROM audit;
- exact_e_two_sources_two_depths | exact_e_depths | exact_e_sources | exact_e_protocols | exact_e_samples | exact_e_distributions 
---------------------------------+----------------+-----------------+-------------------+-----------------+-----------------------
- t                              | t              | t               | t                 | t               | t
+    array_agg(depth ORDER BY depth) = ARRAY[1, 2] AS provided_depths,
+    bool_and(query_source = 'provided') AS provided_source,
+    bool_and(sample_rows = 256) AS provided_sample_rows,
+    bool_and(query_count = 100) AS provided_query_count,
+    bool_and(abs(bias) <= 0.3) AS provided_bias_healthy,
+    bool_and(spread <= 1.15) AS provided_spread_healthy
+FROM q_estimator_provided;
+ provided_depths | provided_source | provided_sample_rows | provided_query_count | provided_bias_healthy | provided_spread_healthy 
+-----------------+-----------------+----------------------+----------------------+-----------------------+-------------------------
+ t               | t               | t                    | t                    | t                     | t
 (1 row)
 
-WITH cone AS MATERIALIZED (
-    SELECT *
-    FROM paradedb.vector_error_cone_audit(
-        'q_cosine_idx',
-        'vec',
-        ARRAY(
-            SELECT quant_fixture_vector(768, g)
-            FROM generate_series(0, 99) g
-        )
-    )
-)
 SELECT
-    count(*) = 2 AS cone_two_depths,
-    array_agg(depth ORDER BY depth) = ARRAY[1, 2] AS cone_depths,
-    array_agg(kappa ORDER BY depth) = ARRAY[2.0::real, 2.0::real] AS cone_kappas,
-    bool_and(
-        protocol = 'ALL_CLUSTERS_EXACT_E_CONE_K10_KAPPA2'
-        AND query_count = 100
-        AND top_k = 10
-    ) AS cone_protocol,
-    bool_and(
-        mean_scored_rows >= mean_survivor_rows
-        AND mean_survivor_rows >= mean_survivor_docs
-        AND mean_survivor_fraction BETWEEN 0.0 AND 1.0
-        AND mean_candidate_recall BETWEEN 0.0 AND 1.0
-        AND min_candidate_recall BETWEEN 0.0 AND 1.0
-        AND queries_with_miss BETWEEN 0 AND query_count
-    ) AS cone_ranges,
-    count(*) FILTER (WHERE final_depth) = 1 AS cone_one_final_depth
-FROM cone;
- cone_two_depths | cone_depths | cone_kappas | cone_protocol | cone_ranges | cone_one_final_depth 
------------------+-------------+-------------+---------------+-------------+----------------------
- t               | t           | t           | t             | t           | t
-(1 row)
+    held_out.depth,
+    abs(held_out.bias) <= 0.3 AS held_out_bias_healthy,
+    abs(provided.bias) <= 0.3 AS provided_bias_healthy,
+    held_out.spread <= 1.15 AS held_out_spread_healthy,
+    provided.spread <= 1.15 AS provided_spread_healthy
+FROM q_estimator_held_out held_out
+JOIN q_estimator_provided provided USING (depth)
+ORDER BY depth;
+ depth | held_out_bias_healthy | provided_bias_healthy | held_out_spread_healthy | provided_spread_healthy 
+-------+-----------------------+-----------------------+-------------------------+-------------------------
+     1 | t                     | t                     | t                       | t
+     2 | t                     | t                     | t                       | t
+(2 rows)
 
 SET paradedb.vector_cluster_max_probe = 0.25;
 CREATE TEMP TABLE q_cosine_unquantized_ivf AS
@@ -272,42 +262,33 @@ FROM segment_info;
 (1 row)
 
 SET paradedb.vector_cluster_max_probe = 1.0;
-SELECT * FROM paradedb.vector_calibrate(NULL, 'vec', ARRAY[quant_fixture_vector(768, 0)]);
+SELECT * FROM paradedb.vector_estimator_info(NULL, 'vec');
 ERROR:  index must not be NULL
-SELECT * FROM paradedb.vector_calibrate('q_cosine_idx', NULL, ARRAY[quant_fixture_vector(768, 0)]);
+SELECT * FROM paradedb.vector_estimator_info('q_cosine_idx', NULL);
 ERROR:  field must not be NULL
-SELECT * FROM paradedb.vector_calibrate('q_cosine_idx', 'vec', NULL);
-ERROR:  queries must not be NULL
-SELECT * FROM paradedb.vector_calibrate('q_cosine_idx', 'vec', ARRAY[]::vector[]);
+SELECT * FROM paradedb.vector_estimator_info('q_cosine_idx', 'missing');
+ERROR:  field "missing" is absent from the index schema
+SELECT * FROM paradedb.vector_estimator_info('q_cosine_idx', 'id');
+ERROR:  field "id" is not a vector field
+SELECT * FROM paradedb.vector_estimator_info('q_cosine_idx', 'vec', ARRAY[]::vector[]);
 ERROR:  queries must not be empty
-SELECT * FROM paradedb.vector_calibrate('q_cosine_idx', 'vec', ARRAY[NULL::vector]);
-ERROR:  quantization calibration query 1 is NULL
-SELECT * FROM paradedb.vector_calibrate(
+SELECT * FROM paradedb.vector_estimator_info('q_cosine_idx', 'vec', ARRAY[NULL::vector]);
+ERROR:  estimator query 1 is NULL
+SELECT * FROM paradedb.vector_estimator_info(
     'q_cosine_idx',
     'vec',
     ARRAY[quant_fixture_vector(100, 0)]
 );
-ERROR:  quantization calibration query 1 has dimension 100; expected 768
-SELECT
-    array_agg(depth ORDER BY depth) = ARRAY[1, 2] AS cosine_depths,
-    bool_and(source = 'real_query') AS cosine_real_query_source,
-    bool_and(sample_count > 0) AS cosine_has_samples,
-    bool_and(abs(bias) <= 0.3) AS cosine_bias_tripwire
-FROM paradedb.vector_calibrate(
+ERROR:  estimator query 1 has dimension 100; expected 768
+SELECT * FROM paradedb.vector_estimator_info(
     'q_cosine_idx',
     'vec',
-    ARRAY[
-        quant_fixture_vector(768, 0),
-        quant_fixture_vector(768, 1),
-        quant_fixture_vector(768, 2),
-        quant_fixture_vector(768, 3)
-    ]
+    ARRAY(
+        SELECT quant_fixture_vector(768, g)
+        FROM generate_series(0, 256) g
+    )
 );
- cosine_depths | cosine_real_query_source | cosine_has_samples | cosine_bias_tripwire 
----------------+--------------------------+--------------------+----------------------
- t             | t                        | t                  | t
-(1 row)
-
+ERROR:  vector_estimator_info accepts at most 256 queries; received 257
 CREATE TEMP TABLE q_cosine_quantized AS
 SELECT array_agg(id) AS ids
 FROM (
@@ -370,25 +351,6 @@ FROM paradedb.vector_info('q_l2_idx', 'vec');
  t
 (1 row)
 
-SELECT
-    array_agg(depth ORDER BY depth) = ARRAY[1, 2] AS l2_depths,
-    bool_and(source = 'real_query') AS l2_real_query_source,
-    bool_and(sample_count > 0) AS l2_has_samples
-FROM paradedb.vector_calibrate(
-    'q_l2_idx',
-    'vec',
-    ARRAY[
-        quant_fixture_vector(768, 0),
-        quant_fixture_vector(768, 1),
-        quant_fixture_vector(768, 2),
-        quant_fixture_vector(768, 3)
-    ]
-);
- l2_depths | l2_real_query_source | l2_has_samples 
------------+----------------------+----------------
- t         | t                    | t
-(1 row)
-
 CREATE TEMP TABLE q_l2_quantized AS
 SELECT array_agg(id) AS ids
 FROM (
@@ -417,25 +379,6 @@ FROM paradedb.vector_info('q_odd_idx', 'vec');
  odd_has_ivf 
 -------------
  t
-(1 row)
-
-SELECT
-    array_agg(depth ORDER BY depth) = ARRAY[1, 2] AS odd_depths,
-    bool_and(source = 'real_query') AS odd_real_query_source,
-    bool_and(sample_count > 0) AS odd_has_samples
-FROM paradedb.vector_calibrate(
-    'q_odd_idx',
-    'vec',
-    ARRAY[
-        quant_fixture_vector(100, 0),
-        quant_fixture_vector(100, 1),
-        quant_fixture_vector(100, 2),
-        quant_fixture_vector(100, 3)
-    ]
-);
- odd_depths | odd_real_query_source | odd_has_samples 
-------------+-----------------------+-----------------
- t          | t                     | t
 (1 row)
 
 CREATE TEMP TABLE q_odd_quantized AS
@@ -538,8 +481,10 @@ RESET paradedb.max_scan_levels;
 RESET paradedb.vector_cluster_max_probe;
 RESET paradedb.vector_clustering_threshold;
 DROP TABLE q_cosine;
+DROP TABLE q_estimator;
 DROP TABLE q_l2;
 DROP TABLE q_odd;
 DROP TABLE q_flat;
 DROP FUNCTION quant_explain(text);
 DROP FUNCTION quant_fixture_vector(integer, integer);
+DROP FUNCTION quant_isotropic_vector(integer, integer);

@@ -15,30 +15,22 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! PostgreSQL logging bridge for IVF builds and quantization diagnostics.
+//! PostgreSQL logging bridge for IVF builds.
 
 const IVF_BUILD_TARGET: &str = "paradedb::ivf_build";
-pub(crate) const QUANTIZATION_CALIBRATION_TARGET: &str = "paradedb::quantization_calibration";
 
 struct IvfBuildLogger;
 
 impl log::Log for IvfBuildLogger {
     fn enabled(&self, metadata: &log::Metadata) -> bool {
-        matches!(
-            metadata.target(),
-            IVF_BUILD_TARGET | QUANTIZATION_CALIBRATION_TARGET
-        ) && metadata.level() <= log::Level::Info
+        metadata.target() == IVF_BUILD_TARGET && metadata.level() <= log::Level::Info
     }
 
     fn log(&self, record: &log::Record) {
         if !self.enabled(record.metadata()) {
             return;
         }
-        match record.target() {
-            IVF_BUILD_TARGET => pgrx::notice!("{}", record.args()),
-            QUANTIZATION_CALIBRATION_TARGET => pgrx::log!("{}", record.args()),
-            _ => unreachable!("enabled rejects every other logging target"),
-        }
+        pgrx::notice!("{}", record.args());
     }
 
     fn flush(&self) {}

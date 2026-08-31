@@ -17,6 +17,7 @@
 
 use crate::api::FieldName;
 use crate::api::{HashMap, HashSet};
+use crate::index::directory::utils::load_index_settings;
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -30,7 +31,7 @@ use crate::postgres::utils::{item_pointer_to_u64, u64_to_item_pointer};
 use crate::query::SearchQueryInput;
 use crate::query::pdb_query::pdb as pdb_query;
 use crate::schema::{IndexRecordOption, SearchFieldType};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use pgrx::JsonB;
 use pgrx::PgRelation;
 use pgrx::datum::DatumWithOid;
@@ -411,6 +412,10 @@ fn vector_info(
             name!(vector_avg_cluster_size, Option<f64>),
             name!(vector_empty_clusters, Option<AnyNumeric>),
             name!(vector_total_memberships, Option<AnyNumeric>),
+            name!(quantized, bool),
+            name!(layers, Option<Vec<i32>>),
+            name!(bytes_per_row, Option<i32>),
+            name!(format, Option<i32>),
         ),
     >,
 > {
@@ -431,6 +436,7 @@ fn vector_info(
             continue;
         }
         let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
+        let settings = load_index_settings(&index)?;
         let resolved = search_reader
             .schema()
             .fields()
@@ -445,6 +451,27 @@ fn vector_info(
         let Some(vector_field) = resolved else {
             anyhow::bail!("`{field}` is not a vector field of the index");
         };
+        let quantization = settings
+            .as_ref()
+            .into_iter()
+            .flat_map(|settings| &settings.vector_quantization)
+            .find(|config| config.field == field);
+        let quantized = quantization.is_some();
+        let layers = quantization.map(|config| {
+            config
+                .layers
+                .iter()
+                .map(|layer| i32::from(layer.bits))
+                .collect()
+        });
+        let bytes_per_row = quantization
+            .map(|config| i32::try_from(config.bytes_per_row()))
+            .transpose()
+            .context("quantized bytes per row exceeds SQL integer range")?;
+        let format = quantization
+            .map(|config| i32::try_from(config.format_version))
+            .transpose()
+            .context("quantization format exceeds SQL integer range")?;
         for segment_reader in search_reader.segment_readers() {
             let vector_index = segment_reader.vector_index(vector_field)?;
             let Some(info) = vector_index.info() else {
@@ -471,6 +498,10 @@ fn vector_info(
                 cluster_stats.map(|stats| stats.avg_cluster_size),
                 cluster_stats.map(|stats| stats.empty_clusters.into()),
                 total_memberships.map(Into::into),
+                quantized,
+                layers.clone(),
+                bytes_per_row,
+                format,
             ));
         }
     }

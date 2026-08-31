@@ -116,3 +116,45 @@ to have less or more. Mostly this depends on the distribution of work across par
 constraints, and table size.
 
 </Note>
+
+## Spilling to Disk
+
+[Join pushdown](/docs/documentation/joins/overview.mdx) and [aggregate pushdown](/docs/documentation/aggregates/overview.mdx) execute through DataFusion, which allocates against Postgres' `work_mem` for the executing backend (or, for parallel MPP queries, `work_mem` per parallel worker). By default, a query that would exceed `work_mem` returns an error rather than silently using more memory than configured.
+
+`paradedb.spill_to_disk` allows these queries to spill to disk instead of erroring when `work_mem` is exceeded. It is off by default.
+
+```sql
+SET paradedb.spill_to_disk TO on;
+```
+
+Spilled data is written through Postgres' own temp-file mechanism (`BufFile`), so it respects `temp_file_limit` and `temp_tablespaces`, and is cleaned up automatically at the end of the transaction - including on an early-terminated query or a crashed backend.
+
+<Note>
+  Enabling `paradedb.spill_to_disk` trades peak memory usage for slower
+  execution and disk I/O on large sorts, aggregates, and joins. We recommend
+  first trying to raise `work_mem` for the session or query, and only
+  enabling spilling for queries where that isn't practical.
+
+```sql
+SET work_mem = '256MB';
+```
+
+</Note>
+
+Whether a query actually spills instead of erroring depends on which physical operator DataFusion chooses, not just this GUC:
+
+- **Aggregates** (`GROUP BY`, hash-based aggregation) spill today. A high-cardinality `GROUP BY` that exceeds `work_mem` will spill its groups to disk when this GUC is on.
+- **Joins mostly don't spill yet.** DataFusion defaults to a hash join for equi-joins (`prefer_hash_join`), and hash join's build side has no spill path - it errors on `work_mem` overflow regardless of this GUC. Only joins that plan as a `NestedLoopJoinExec` (for example, a `CROSS JOIN` or a join with no equality condition) or a `SortMergeJoinExec` currently support spilling.
+- **Sorts** that spill do so through the same mechanism, and are covered when reached via a spilling-capable operator (for example, the sort feeding a `SortMergeJoinExec`). Note this is the plain sort operator - `TopK` (used for `ORDER BY ... LIMIT`, including `JoinScan`'s own top-N path) has no spill path and will still error on `work_mem` overflow regardless of this GUC.
+
+In practice, most `JOIN` queries that exceed `work_mem` today will still return an error with `paradedb.spill_to_disk` on, because they plan as a hash join. This is a limitation of the underlying join operator, not of the GUC itself, and may change as DataFusion's join spilling support expands.
+
+To check whether a specific query actually spilled, run `EXPLAIN (ANALYZE, VERBOSE)` and look for a nonzero `spill_count` on the relevant node (for example, `AggregateExec`).
+
+```sql
+EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF, BUFFERS OFF)
+SELECT category, COUNT(*), SUM(price)
+FROM mock_items
+WHERE description @@@ 'shoes'
+GROUP BY category;
+```

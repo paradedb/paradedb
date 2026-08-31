@@ -15,11 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::gucs;
 use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::demux::{demux_merge, unrouted_segments};
 use crate::index::writer::index::{Mergeable, SearchIndexMerger};
 use crate::postgres::PgSearchRelation;
+use crate::postgres::build_parallel::plan;
 use crate::postgres::delete::VacuumSignal;
 use crate::postgres::locks::AdvisoryLock;
 use crate::postgres::ps_status::{MERGING, set_ps_display_suffix};
@@ -496,11 +498,20 @@ unsafe fn merge_index(
         // A `partition_by` index routes its rows only at build time, so anything that arrives
         // later holds no partition. A merge is where the layout heals: the candidates that are
         // entirely unrouted come out as one segment per partition instead of one segment.
-        let unrouted = unrouted_segments(indexrel).unwrap_or_else(|e| {
-            pgrx::debug1!("do_merge: could not read the routed segments: {e}");
+        let unrouted = if gucs::enable_merge_routing() {
+            unrouted_segments(indexrel).unwrap_or_else(|e| {
+                pgrx::debug1!("merge_index: could not read the routed segments: {e}");
+                Default::default()
+            })
+        } else {
             Default::default()
-        });
-        let target_partitions = indexrel.options().target_segment_count();
+        };
+        // The same target a build would cut, so a small heap does not come out in more
+        // partitions than a rebuild would give it.
+        let target_partitions = indexrel
+            .heap_relation()
+            .map(|heaprel| plan::adjusted_target_segment_count(&heaprel, indexrel))
+            .unwrap_or_else(|| indexrel.options().target_segment_count());
 
         for candidate in merge_candidates {
             if is_background && VacuumSignal::new(indexrel.oid()).wants_cancel() {
@@ -512,11 +523,14 @@ unsafe fn merge_index(
 
             let route = !unrouted.is_empty() && candidate.0.iter().all(|id| unrouted.contains(id));
             merge_result = if route {
-                demux_merge(indexrel, &candidate.0, target_partitions).map(|written| {
+                demux_merge(indexrel, &candidate.0, target_partitions).and_then(|written| {
+                    // The demux replaced the sources itself; dropping the merger's pins on
+                    // them lets the collection below recycle them.
+                    unsafe { merger.drop_pins(&candidate.0) }?;
                     pgrx::debug1!("routed a candidate into {} partitions", written.len());
                     // The demux writes one segment per partition, so it has no single output
                     // for the caller's accounting.
-                    None
+                    Ok(None)
                 })
             } else {
                 merger.merge_segments(&candidate.0)

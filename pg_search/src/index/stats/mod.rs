@@ -46,7 +46,7 @@ mod pruning;
 mod tests;
 
 use plugin::stats_component;
-pub(crate) use plugin::{StatsWriter, register, register_with_bounds};
+pub(crate) use plugin::{StatsWriter, logical_bounds_hold, register, register_with_bounds};
 pub(crate) use pruning::{persisted_split_points, segments_for_partition};
 
 const EMPIRICAL_IDX: usize = 0;

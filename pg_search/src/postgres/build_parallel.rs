@@ -1468,13 +1468,17 @@ pub(super) fn build_index(
 
     // The scan above indexed without routing, so the layout it left holds no partitions. The
     // rewrite reads only the segments the build wrote, so the snapshot correspondence that
-    // ruled the scan out does not apply to it.
-    if concurrent && !indexrel.options().partition_by().is_empty() {
-        unsafe {
+    // ruled the scan out does not apply to it. The index is complete and correct without it,
+    // and a later merge can still route, so a failure here must not take down the build.
+    if concurrent && gucs::enable_merge_routing() && !indexrel.options().partition_by().is_empty() {
+        let routed = unsafe {
             route_index(
                 &indexrel,
                 plan::adjusted_target_segment_count(&heaprel, &indexrel),
-            )?;
+            )
+        };
+        if let Err(e) = routed {
+            pgrx::warning!("could not route the index after its build: {e}");
         }
     }
 
@@ -1482,7 +1486,7 @@ pub(super) fn build_index(
     Ok(total_tuples)
 }
 
-mod plan {
+pub(crate) mod plan {
     use super::*;
 
     pub(super) const MAX_VECTOR_BUILD_WORKERS: usize = 4;
@@ -1575,7 +1579,7 @@ mod plan {
     }
 
     /// If we determine that the table is very small, we should just create a single segment
-    pub(super) fn adjusted_target_segment_count(
+    pub(crate) fn adjusted_target_segment_count(
         heaprel: &PgSearchRelation,
         indexrel: &PgSearchRelation,
     ) -> usize {

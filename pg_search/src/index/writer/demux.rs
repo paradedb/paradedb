@@ -28,6 +28,7 @@
 use anyhow::{Result, bail};
 use tantivy::index::{Index, IndexMeta, Segment, SegmentId, SegmentMeta, SegmentReader};
 use tantivy::indexer::merger::IndexMerger;
+use tantivy::schema::FieldType;
 use tantivy::{BitSet, Directory, DocId};
 
 use pgrx::pg_sys;
@@ -44,6 +45,7 @@ use crate::postgres::merge::garbage_collect_index;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::schema::SearchFieldType;
+use crate::vector::clusterer::set_ivf_clusterer;
 
 /// How many documents the routing sample reads. The tree needs the shape of the distribution,
 /// not every value, and the fast fields are read again to route.
@@ -100,12 +102,14 @@ pub(crate) fn demux_merge(
 
     let mut written = Vec::new();
     for partition in 0..tree.partition_count() {
+        pgrx::check_for_interrupts!();
         let masks = masks(&readers, &routes, partition);
         // A partition no document took would write a segment holding nothing.
         if masks.is_none() {
             continue;
         }
         written.push(write_partition(
+            indexrel,
             &directory,
             segment_ids,
             partition,
@@ -126,11 +130,48 @@ pub(crate) fn demux_merge(
     Ok(written)
 }
 
+/// Whether a demux can route this index at all: every `partition_by` dimension must have a
+/// fast column to read the routes from, and must keep a box on the output (see
+/// [`stats::logical_bounds_hold`]). A dimension that fails the first check has no values to
+/// route on; one that fails the second would leave the outputs unrouted, and every later
+/// merge would take them all over again.
+pub(crate) fn routable(indexrel: &PgSearchRelation) -> Result<bool> {
+    let dims = indexrel.options().partition_by();
+    if dims.is_empty() {
+        return Ok(false);
+    }
+    let schema = indexrel.schema()?;
+    let schema = schema.tantivy_schema();
+    for dim in &dims {
+        let Ok(field) = schema.get_field(dim.as_ref()) else {
+            return Ok(false);
+        };
+        let fast = match schema.get_field_entry(field).field_type() {
+            FieldType::Str(options) => options.get_fast_field_tokenizer_name().is_some(),
+            FieldType::U64(options) | FieldType::I64(options) | FieldType::F64(options) => {
+                options.is_fast()
+            }
+            FieldType::Bool(options) => options.is_fast(),
+            FieldType::Date(options) => options.is_fast(),
+            FieldType::Bytes(options) => options.is_fast(),
+            _ => false,
+        };
+        if !fast || !stats::logical_bounds_hold(schema, field) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 /// The mergeable segments of `indexrel` that carry no box, so nothing routed them.
 ///
 /// A build stamps every segment it writes. A segment without a box came in afterwards, through
-/// an `INSERT` or a merge that could not prove one.
+/// an `INSERT` or a merge that could not prove one. An index that is not [`routable`] reports
+/// no unrouted segments, so its merges stay ordinary.
 pub(crate) fn unrouted_segments(indexrel: &PgSearchRelation) -> Result<HashSet<SegmentId>> {
+    if !routable(indexrel)? {
+        return Ok(HashSet::default());
+    }
     let dims = indexrel.options().partition_by();
     let Some(dim) = dims.first() else {
         return Ok(HashSet::default());
@@ -142,6 +183,15 @@ pub(crate) fn unrouted_segments(indexrel: &PgSearchRelation) -> Result<HashSet<S
     };
     let mut unrouted = HashSet::default();
     for segment in index.searchable_segments()? {
+        // Opening a component of a mutable segment materializes the whole segment first, and
+        // its entry already says it has no `.stats`.
+        let has_stats = directory
+            .segment_meta_entry(&segment.id())
+            .is_some_and(|entry| entry.stats().is_some());
+        if !has_stats {
+            unrouted.insert(segment.id());
+            continue;
+        }
         let boxed = SegmentStats::of_segment(&segment)?
             .map(|stats| stats.logical(field))
             .transpose()?
@@ -164,6 +214,9 @@ pub(crate) unsafe fn route_index(
     indexrel: &PgSearchRelation,
     target_partitions: usize,
 ) -> Result<Vec<SegmentMeta>> {
+    if !routable(indexrel)? {
+        return Ok(Vec::new());
+    }
     let metadata = MetaPage::open(indexrel);
     // Hold both locks for the whole rewrite: `ambulkdelete` blocks on the cleanup lock until
     // it can see the segments this leaves behind, and no other backend may merge the sources
@@ -214,11 +267,13 @@ fn sources(index: &Index, segment_ids: &[SegmentId]) -> Result<Vec<Segment>> {
         .collect()
 }
 
-/// The point `doc` routes on.
+/// The point `doc` routes on. A document with no value routes as `NULL`, which the tree sends
+/// to the first partition; a frozen mutable segment can hold such documents even under a
+/// `NOT NULL` column, because it materializes an unfetchable ctid as an empty document.
 fn point(ffs: &[FFType], field_types: &[Option<SearchFieldType>], doc: DocId) -> Point {
     ffs.iter()
         .zip(field_types)
-        .map(|(ff, field_type)| ff.value(doc, *field_type).0)
+        .map(|(ff, field_type)| ff.value_or_null(doc, *field_type).0)
         .collect()
 }
 
@@ -253,7 +308,8 @@ fn sample(
     sample
 }
 
-/// The partition of every document, per segment. A deleted document takes [`NO_ROUTE`].
+/// The partition of every document, per segment. A deleted document takes [`NO_ROUTE`]. Two
+/// bytes per document bound what a route holds in memory, however large the candidate is.
 fn routes(
     readers: &[SegmentReader],
     dims: &[FieldName],
@@ -306,6 +362,7 @@ fn masks(
 
 /// Merges the documents `masks` selects into one segment carrying `partition`'s box.
 fn write_partition(
+    indexrel: &PgSearchRelation,
     directory: &crate::index::directory::mvcc::MVCCDirectory,
     segment_ids: &[SegmentId],
     partition: usize,
@@ -318,6 +375,9 @@ fn write_partition(
     match stats::partition_box(tree, partition) {
         Some(logical) => stats::register_with_bounds(&mut index, logical),
         None => stats::register(&mut index),
+    }
+    if indexrel.schema()?.has_vector_field() {
+        set_ivf_clusterer(&mut index, indexrel.options());
     }
     let sources = sources(&index, segment_ids)?;
 
@@ -534,5 +594,78 @@ mod tests {
             0,
             "a deleted row stays deleted"
         );
+    }
+
+    /// A document with no value in the partition column routes as `NULL`, into the first
+    /// partition, instead of failing the merge.
+    #[pg_test]
+    fn a_rewrite_routes_null_partition_values() {
+        Spi::run(
+            r#"
+            CREATE TABLE demux_nulls (id BIGSERIAL PRIMARY KEY, tenant TEXT, name TEXT);
+            SET paradedb.global_mutable_segment_rows = 0;
+            CREATE INDEX demux_nulls_idx ON demux_nulls USING bm25 (id, tenant, name)
+                WITH (key_field = 'id', partition_by = 'tenant', target_segment_count = 4,
+                      text_fields = '{"tenant": {"tokenizer": {"type": "keyword"}, "fast": true, "normalizer": "raw"}}');
+            INSERT INTO demux_nulls (tenant, name)
+            SELECT CASE WHEN i % 10 = 0 THEN NULL ELSE 't' || (i * 7919) % 100 END,
+                   'lorem ipsum ' || i
+            FROM generate_series(1, 4000) i;
+            "#,
+        )
+        .unwrap();
+
+        let indexrel = open_index("demux_nulls_idx");
+        let written = unsafe { super::route_index(&indexrel, 4) }.unwrap();
+        assert_eq!(written.len(), 4, "one segment per partition");
+        drop(indexrel);
+
+        let indexrel = open_index("demux_nulls_idx");
+        persisted_split_points(&indexrel, "tenant")
+            .unwrap()
+            .expect("the rewrite routed every segment");
+        assert_eq!(
+            Spi::get_one::<i64>("SELECT count(*) FROM demux_nulls WHERE id @@@ pdb.all();")
+                .unwrap()
+                .unwrap(),
+            4000,
+            "the rewrite keeps the rows with no tenant"
+        );
+    }
+
+    /// `partition_by` on a field a demux cannot read or stamp declines instead of routing: a
+    /// non-fast column holds no values to route on, and a normalized text column cannot keep
+    /// its box, so its outputs would come back as candidates forever.
+    #[pg_test]
+    fn an_unroutable_partition_key_declines() {
+        Spi::run(
+            r#"
+            CREATE TABLE demux_slow (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            SET paradedb.global_mutable_segment_rows = 0;
+            CREATE INDEX demux_slow_idx ON demux_slow USING bm25 (id, tenant_id, name)
+                WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 4,
+                      numeric_fields = '{"tenant_id": {"fast": false}}');
+            INSERT INTO demux_slow (tenant_id, name)
+            SELECT (i * 7919) % 100, 'lorem ipsum ' || i FROM generate_series(1, 2000) i;
+
+            CREATE TABLE demux_norm (id BIGSERIAL PRIMARY KEY, tenant TEXT, name TEXT);
+            CREATE INDEX demux_norm_idx ON demux_norm USING bm25 (id, tenant, name)
+                WITH (key_field = 'id', partition_by = 'tenant', target_segment_count = 4,
+                      text_fields = '{"tenant": {"tokenizer": {"type": "keyword"}, "fast": true, "normalizer": "lowercase"}}');
+            INSERT INTO demux_norm (tenant, name)
+            SELECT 'T' || (i * 7919) % 100, 'lorem ipsum ' || i FROM generate_series(1, 2000) i;
+            "#,
+        )
+        .unwrap();
+
+        for index in ["demux_slow_idx", "demux_norm_idx"] {
+            let indexrel = open_index(index);
+            assert!(
+                super::unrouted_segments(&indexrel).unwrap().is_empty(),
+                "`{index}` must not offer segments to route"
+            );
+            let written = unsafe { super::route_index(&indexrel, 4) }.unwrap();
+            assert!(written.is_empty(), "`{index}` must decline a rewrite");
+        }
     }
 }

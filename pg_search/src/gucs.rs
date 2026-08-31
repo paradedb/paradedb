@@ -55,6 +55,8 @@ static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true)
 static ENABLE_RANGE_PARTITIONED_JOIN: GucSetting<bool> = GucSetting::<bool>::new(false);
 
 static ENABLE_AGGREGATE_LATE_MATERIALIZATION: GucSetting<bool> = GucSetting::<bool>::new(false);
+/// Allows the user to stop merges from routing unrouted segments of a `partition_by` index.
+static ENABLE_MERGE_ROUTING: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Allows the user to toggle the use of the custom scan without use of the `@@@` operator. The
 /// default is `false`.
@@ -358,6 +360,15 @@ pub fn init() {
         c"Defer visibility checks above aggregate-on-join plans",
         c"When enabled, an aggregate over a join may defer a source's visibility check to a VisibilityFilter below the aggregate instead of checking eagerly in the scan. Off until selective late materialization can decide when deferral pays. Default is false.",
         &ENABLE_AGGREGATE_LATE_MATERIALIZATION,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_merge_routing",
+        c"Allows the user to enable or disable segment routing on merges",
+        c"When enabled, a merge of a partition_by index whose inputs carry no partition routes them into one segment per partition, and a concurrent build routes its segments after its scan. Disabling it falls back to ordinary merges. Default is true.",
+        &ENABLE_MERGE_ROUTING,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -791,6 +802,10 @@ pub fn enable_range_partitioned_join() -> bool {
 
 pub fn enable_aggregate_late_materialization() -> bool {
     ENABLE_AGGREGATE_LATE_MATERIALIZATION.get()
+}
+
+pub fn enable_merge_routing() -> bool {
+    ENABLE_MERGE_ROUTING.get()
 }
 
 pub fn enable_custom_scan_without_operator() -> bool {

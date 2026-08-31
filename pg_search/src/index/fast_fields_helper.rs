@@ -246,6 +246,38 @@ impl FFType {
         }
     }
 
+    /// Like [`Self::value`], but a document with no value in the column comes back as
+    /// [`PdbOwnedValue::Null`]. Fetch paths treat a missing value as corruption and panic;
+    /// maintenance reads cannot, because a column is nullable and a frozen mutable segment
+    /// materializes an unfetchable ctid as an empty document.
+    pub fn value_or_null(
+        &self,
+        doc: DocId,
+        search_field_type: Option<SearchFieldType>,
+    ) -> TantivyValue {
+        match self {
+            FFType::Text(ff) => {
+                let Some(ord) = ff.term_ords(doc).next() else {
+                    return TantivyValue(PdbOwnedValue::Null);
+                };
+                let mut s = String::new();
+                ff.ord_to_str(ord, &mut s)
+                    .expect("string should be retrievable for term ord");
+                TantivyValue(s.into())
+            }
+            FFType::Bytes(ff) => {
+                let Some(ord) = ff.term_ords(doc).next() else {
+                    return TantivyValue(PdbOwnedValue::Null);
+                };
+                let mut bytes = Vec::new();
+                ff.ord_to_bytes(ord, &mut bytes)
+                    .expect("bytes should be retrievable for term ord");
+                TantivyValue(PdbOwnedValue::Bytes(bytes))
+            }
+            other => other.value(doc, search_field_type),
+        }
+    }
+
     /// Given a [`DocId`], what is its "fast field" value?
     #[inline(always)]
     pub fn value(&self, doc: DocId, search_field_type: Option<SearchFieldType>) -> TantivyValue {

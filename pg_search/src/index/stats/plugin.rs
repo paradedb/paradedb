@@ -166,7 +166,7 @@ fn write_stats(
 /// The build routes on raw values, but a partition's range query runs on the fast column. A
 /// text normalizer other than `raw` reorders that column, so a box in raw order could prune a
 /// segment the query still needs.
-fn logical_bounds_hold(schema: &Schema, field: Field) -> bool {
+pub(crate) fn logical_bounds_hold(schema: &Schema, field: Field) -> bool {
     match schema.get_field_entry(field).field_type() {
         FieldType::Str(options) => options.get_fast_field_tokenizer_name() == Some("raw"),
         _ => true,

@@ -44,11 +44,12 @@ WARNING:  Aggregate Scan (DataFusion) not used: OR-nested subquery cannot be pus
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.full_name, ((p.full_name IS NULL)), p.linkedin_followers, ((p.linkedin_followers IS NULL)), p.seniority_slug, ((p.seniority_slug IS NULL))
-   ->  Unique
+   ->  Sort
          Output: p.id, p.full_name, ((p.full_name IS NULL)), p.linkedin_followers, ((p.linkedin_followers IS NULL)), p.seniority_slug, ((p.seniority_slug IS NULL))
-         ->  Sort
+         Sort Key: p.id DESC
+         ->  HashAggregate
                Output: p.id, p.full_name, ((p.full_name IS NULL)), p.linkedin_followers, ((p.linkedin_followers IS NULL)), p.seniority_slug, ((p.seniority_slug IS NULL))
-               Sort Key: p.id DESC, p.full_name, ((p.full_name IS NULL)), p.linkedin_followers, ((p.linkedin_followers IS NULL)), p.seniority_slug, ((p.seniority_slug IS NULL))
+               Group Key: p.id, p.full_name, (p.full_name IS NULL), p.linkedin_followers, (p.linkedin_followers IS NULL), p.seniority_slug, (p.seniority_slug IS NULL)
                ->  Result
                      Output: p.id, p.full_name, (p.full_name IS NULL), p.linkedin_followers, (p.linkedin_followers IS NULL), p.seniority_slug, (p.seniority_slug IS NULL)
                      ->  Custom Scan (ParadeDB Join Scan)
@@ -69,7 +70,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: OR-nested subquery cannot be pus
                              :         VisibilityFilterExec: tables=[c]
                              :           CooperativeExec
                              :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query="all"
-(27 rows)
+(28 rows)
 
 SELECT DISTINCT
     p.id AS id,

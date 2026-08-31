@@ -555,7 +555,7 @@ LIMIT 10;
          Output: id, name, (id + 0)
          Table: companies
          Index: companies_bm25_idx
-         Worker Selection: Row-capped
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: id desc
@@ -578,7 +578,7 @@ LIMIT 10;
          Output: id, name, (id * 1)
          Table: companies
          Index: companies_bm25_idx
-         Worker Selection: Row-capped
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: id desc
@@ -601,7 +601,7 @@ LIMIT 10;
          Output: id, name, (big_id + '0'::bigint)
          Table: companies
          Index: companies_bm25_idx
-         Worker Selection: Row-capped
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: big_id desc
@@ -624,7 +624,7 @@ LIMIT 10;
          Output: id, name, (0 + id)
          Table: companies
          Index: companies_bm25_idx
-         Worker Selection: Row-capped
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: id desc
@@ -662,7 +662,7 @@ WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions 
                      Output: c.id, c.name
                      Table: companies
                      Index: companies_bm25_idx
-                     Worker Selection: Row-capped
+                     Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
@@ -670,7 +670,7 @@ WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions 
                      Output: fr.company_id
                      Table: funding_rounds
                      Index: funding_rounds_bm25_idx
-                     Worker Selection: Row-capped
+                     Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
@@ -705,7 +705,7 @@ WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions 
                      Output: c.id, c.name
                      Table: companies
                      Index: companies_bm25_idx
-                     Worker Selection: Row-capped
+                     Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
@@ -713,7 +713,7 @@ WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions 
                      Output: fr.company_id
                      Table: funding_rounds
                      Index: funding_rounds_bm25_idx
-                     Worker Selection: Row-capped
+                     Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
@@ -748,7 +748,7 @@ WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions 
                      Output: c.id, c.name
                      Table: companies
                      Index: companies_bm25_idx
-                     Worker Selection: Row-capped
+                     Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
@@ -756,7 +756,7 @@ WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions 
                      Output: fr.company_id
                      Table: funding_rounds
                      Index: funding_rounds_bm25_idx
-                     Worker Selection: Row-capped
+                     Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
@@ -844,7 +844,7 @@ WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions 
                      Output: c.id, c.name
                      Table: companies
                      Index: companies_bm25_idx
-                     Worker Selection: Row-capped
+                     Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
@@ -852,7 +852,7 @@ WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions 
                      Output: fr.company_id
                      Table: funding_rounds
                      Index: funding_rounds_bm25_idx
-                     Worker Selection: Row-capped
+                     Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"term":{"field":"round_type","value":"seed"}}}}

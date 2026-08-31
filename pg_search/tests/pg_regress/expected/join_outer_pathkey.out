@@ -142,8 +142,8 @@ WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relatio
  Limit
    ->  Sort
          Sort Key: cat.category_name, p.id
-         ->  Hash Join
-               Hash Cond: (p.company_id = c.id)
+         ->  Nested Loop
+               Join Filter: (p.company_id = c.id)
                ->  Hash Join
                      Hash Cond: (cat.product_id = p.id)
                      ->  Seq Scan on categories_op cat
@@ -154,7 +154,7 @@ WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relatio
                                  Exec Method: NormalScanExecState
                                  Scores: false
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo","lenient":null,"conjunction_mode":null}}}}
-               ->  Hash
+               ->  Materialize
                      ->  Custom Scan (ParadeDB Base Scan) on companies_op c
                            Table: companies_op
                            Index: companies_op_idx

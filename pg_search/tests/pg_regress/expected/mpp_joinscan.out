@@ -401,7 +401,7 @@ LIMIT 10;
            :   ┌───── Stage 3 ── tasks=3, partitions=4
            :   │ LocalLimitExec: fetch=10
            :   │   TantivyLookupExec: decode=[title]
-           :   │     SegmentedTopKExec: expr=[title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], k=10
+           :   │     SegmentedTopKExec: expr=[title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], k=10, visibility_checks=[f]
            :   │       HashJoinExec: mode=Partitioned, join_type=Left, on=[(id@1, file_id@1)], projection=[ctid_0@3, size_bytes@5, ctid_1@0, title@2]
            :   │         [Stage 1] => NetworkShuffleExec: output_partitions=4, input_tasks=3
            :   │         [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=3

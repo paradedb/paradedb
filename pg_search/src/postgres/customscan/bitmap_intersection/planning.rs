@@ -519,6 +519,7 @@ impl IndexClause {
             match (*(*ri).clause.cast::<pg_sys::Node>()).type_ {
                 pg_sys::NodeTag::T_OpExpr => Self::from_opexpr(root, ri, ioi),
                 pg_sys::NodeTag::T_FuncExpr => Self::from_funcexpr(root, ri, ioi),
+                pg_sys::NodeTag::T_ScalarArrayOpExpr => Self::from_saop(ri, ioi),
                 _ => None,
             }
         }
@@ -569,6 +570,42 @@ impl IndexClause {
                     {
                         return Some(iclause);
                     }
+                }
+            }
+            None
+        }
+    }
+
+    /// Mirrors core's `match_saopclause_to_indexcol`: `key = ANY(array)` answers from the
+    /// index when the array is a pseudoconstant. `ALL` is rejected because the index
+    /// cannot answer a conjunction over the array in one scan, and there is no commuted
+    /// form to try because the array can only be the right operand.
+    unsafe fn from_saop(
+        ri: *mut pg_sys::RestrictInfo,
+        ioi: *mut pg_sys::IndexOptInfo,
+    ) -> Option<Self> {
+        unsafe {
+            let saop = (*ri).clause.cast::<pg_sys::ScalarArrayOpExpr>();
+            if !(*saop).useOr {
+                return None;
+            }
+            let args = PgList::<pg_sys::Node>::from_pg((*saop).args);
+            if args.len() != 2 {
+                return None;
+            }
+            let (leftop, rightop) = (
+                strip_relabel(args.get_ptr(0)?),
+                strip_relabel(args.get_ptr(1)?),
+            );
+            if !is_pseudoconstant(rightop) {
+                return None;
+            }
+
+            for indexcol in 0..(*ioi).nkeycolumns {
+                if pg_sys::match_index_to_operand(leftop, indexcol, ioi)
+                    && Self::direct_match_ok((*saop).opno, (*saop).inputcollid, indexcol, ioi)
+                {
+                    return Some(Self::direct(ri, ri, indexcol));
                 }
             }
             None

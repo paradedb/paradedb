@@ -598,37 +598,51 @@ async fn build_source_df(
     provider.set_expr_context(source_expr_context);
     provider.set_planstate(planstate);
 
-    // Deferring an aggregate source's visibility trades an in-scan check for a
-    // post-join one. On the current cost model that only pays for specific
-    // shapes, so it stays off until selective late materialization can pick
-    // them. With it off the source keeps eager, in-scan visibility.
-    if crate::gucs::enable_aggregate_late_materialization() {
-        let mut required_early: crate::api::HashSet<String> = Default::default();
-        for jk in plan.join_keys() {
-            if source.contains_rti(jk.outer_rti)
-                && let Some(col) = source.column_name(jk.outer_attno)
-            {
-                required_early.insert(col);
-            }
-            if source.contains_rti(jk.inner_rti)
-                && let Some(col) = source.column_name(jk.inner_attno)
-            {
-                required_early.insert(col);
-            }
+    // Join keys and join-filter inputs are read below any deferred decode, so
+    // they must leave the scan already materialized. Everything else that is a
+    // string can travel as a term ordinal and decode at its anchor, where the
+    // join has already dropped the rows that never needed the string.
+    let mut required_early: crate::api::HashSet<String> = Default::default();
+    for jk in plan.join_keys() {
+        if source.contains_rti(jk.outer_rti)
+            && let Some(col) = source.column_name(jk.outer_attno)
+        {
+            required_early.insert(col);
         }
-        for (rti, attno) in plan.filter_input_vars() {
-            if source.contains_rti(rti)
-                && let Some(col) = source.column_name(attno)
-            {
-                required_early.insert(col);
-            }
+        if source.contains_rti(jk.inner_rti)
+            && let Some(col) = source.column_name(jk.inner_attno)
+        {
+            required_early.insert(col);
         }
-
-        provider.configure_deferred_outputs(
-            &required_early,
-            crate::scan::VisibilityMode::Deferred { plan_position },
-        );
     }
+    for (rti, attno) in plan.filter_input_vars() {
+        if source.contains_rti(rti)
+            && let Some(col) = source.column_name(attno)
+        {
+            required_early.insert(col);
+        }
+    }
+
+    // A source an outer join can null-fill keeps every string materialized:
+    // the join's NULL cannot ride a union column, so a deferred decode would
+    // resurrect the value.
+    if plan.null_fillable_sources().contains(&plan_position) {
+        for f in &fields {
+            if let WhichFastField::Named(name, _) = f {
+                required_early.insert(name.clone());
+            }
+        }
+    }
+
+    // Deferring the visibility check is a separate decision from deferring
+    // string decode: it trades an in-scan check for a post-join one, which
+    // only pays for specific shapes, so it stays behind the GUC.
+    let visibility_mode = if crate::gucs::enable_aggregate_late_materialization() {
+        crate::scan::VisibilityMode::Deferred { plan_position }
+    } else {
+        crate::scan::VisibilityMode::Eager
+    };
+    provider.configure_deferred_outputs(&required_early, visibility_mode);
 
     let df = register_source_table(ctx, alias.as_str(), provider).await?;
 

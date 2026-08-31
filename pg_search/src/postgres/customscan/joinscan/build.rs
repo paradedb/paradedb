@@ -1213,6 +1213,43 @@ impl RelNode {
         result
     }
 
+    /// Plan positions of sources an ancestor outer join can null-fill. A string
+    /// deferred past that join loses the null-fill: a union column has no
+    /// validity bitmap, so the decoded value resurrects a row's NULL.
+    pub fn null_fillable_sources(&self) -> crate::api::HashSet<usize> {
+        let mut acc = crate::api::HashSet::default();
+        self.collect_null_fillable(false, &mut acc);
+        acc
+    }
+
+    fn collect_null_fillable(&self, nullable: bool, acc: &mut crate::api::HashSet<usize>) {
+        match self {
+            RelNode::Scan(s) => {
+                if nullable {
+                    acc.insert(s.plan_position);
+                }
+            }
+            RelNode::Filter(f) => f.input.collect_null_fillable(nullable, acc),
+            RelNode::Join(j) => {
+                let (left_nullable, right_nullable) = match j.join_type {
+                    JoinType::Inner
+                    | JoinType::Semi
+                    | JoinType::Anti { .. }
+                    | JoinType::LeftMark
+                    | JoinType::RightSemi
+                    | JoinType::RightAnti
+                    | JoinType::RightMark => (false, false),
+                    JoinType::Left => (false, true),
+                    JoinType::Right => (true, false),
+                    JoinType::Full | JoinType::UniqueOuter | JoinType::UniqueInner => (true, true),
+                };
+                j.left.collect_null_fillable(nullable || left_nullable, acc);
+                j.right
+                    .collect_null_fillable(nullable || right_nullable, acc);
+            }
+        }
+    }
+
     /// Recursively collects all mutable base join sources from this tree.
     pub fn sources_mut(&mut self) -> Vec<&mut JoinSource> {
         let mut result = Vec::new();

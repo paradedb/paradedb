@@ -35,6 +35,16 @@ pub enum PlannerWarnings {
     Error,
 }
 
+/// Which IVF centroid router `build_router` writes into `.centroids` slot `[2]`.
+#[derive(pgrx::PostgresGucEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum VectorRouter {
+    /// Stacked IVF over the trained centroids.
+    Ivf,
+    /// Relative neighborhood graph over the trained centroids.
+    #[default]
+    Graph,
+}
+
 /// Allows the user to toggle the use of our "ParadeDB Base Scan".
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
@@ -280,8 +290,17 @@ pub fn vector_fixed_probe_cost_rows() -> f64 {
 /// brute-forcing their vectors.
 static VECTOR_CLUSTERING_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(500);
 
+/// Which router `SuperKMeansIvfClusterer::build_router` builds over trained
+/// centroids. Read when the IVF clusterer is installed on an index writer.
+static VECTOR_ROUTER: GucSetting<VectorRouter> =
+    GucSetting::<VectorRouter>::new(VectorRouter::Graph);
+
 pub fn vector_clustering_threshold() -> usize {
     VECTOR_CLUSTERING_THRESHOLD.get().max(1) as usize
+}
+
+pub fn vector_router() -> VectorRouter {
+    VECTOR_ROUTER.get()
 }
 
 pub fn init() {
@@ -527,6 +546,15 @@ pub fn init() {
         &VECTOR_CLUSTERING_THRESHOLD,
         1,
         i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_enum_guc(
+        c"paradedb.vector_router",
+        c"IVF centroid router type written at merge time",
+        c"Controls whether SuperKMeans builds a stacked IVF (`ivf`) or relative-neighborhood-graph (`graph`) router over trained centroids. Captured when the index writer installs the IVF clusterer.",
+        &VECTOR_ROUTER,
         GucContext::Userset,
         GucFlags::default(),
     );

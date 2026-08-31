@@ -93,8 +93,8 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT count(*)
 FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
 WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
-                                                                                       QUERY PLAN                                                                                       
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                     QUERY PLAN                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: pdb.agg_fn('COUNT(*)'::text)
    Backend: DataFusion
@@ -102,14 +102,12 @@ WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0]
-     :   VisibilityFilterExec: tables=[u]
-     :     TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(owner_user_id@0, id@0)], projection=[ctid_0@2]
-     :         CooperativeExec
-     :           PgSearchScan: table=p, segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-     :         CooperativeExec
-     :           PgSearchScan: table=u, segments=4, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-(14 rows)
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(owner_user_id@0, id@0)], projection=[]
+     :     CooperativeExec
+     :       PgSearchScan: table=p, segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     :     CooperativeExec
+     :       PgSearchScan: table=u, segments=4, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+(12 rows)
 
 SELECT count(*)
 FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
@@ -184,8 +182,8 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT count(*)
 FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
 WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
-                                                                                                              QUERY PLAN                                                                                                               
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: pdb.agg_fn('COUNT(*)'::text)
    Backend: DataFusion
@@ -199,19 +197,17 @@ WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
      : └──────────────────────────────────────────────────
      :   ┌───── Stage 1 ── tasks=3, partitions=3
      :   │ AggregateExec: mode=Partial, gby=[], aggr=[count(1) as agg_0]
-     :   │   VisibilityFilterExec: tables=[u]
-     :   │     TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
-     :   │       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(owner_user_id@0, id@0)], projection=[ctid_0@2]
-     :   │         DistributedLeafExec:
-     :   │           t0: PgSearchScan: table=p, segments=4, partition=owner_user_id[-∞..10001), query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-     :   │           t1: PgSearchScan: table=p, segments=4, partition=owner_user_id[10001..15001), query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-     :   │           t2: PgSearchScan: table=p, segments=4, partition=owner_user_id[15001..∞), query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-     :   │         DistributedLeafExec:
-     :   │           t0: PgSearchScan: table=u, segments=4, partition=id[-∞..10001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :   │           t1: PgSearchScan: table=u, segments=4, partition=id[10001..15001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :   │           t2: PgSearchScan: table=u, segments=4, partition=id[15001..∞), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │   HashJoinExec: mode=Partitioned, join_type=Inner, on=[(owner_user_id@0, id@0)], projection=[]
+     :   │     DistributedLeafExec:
+     :   │       t0: PgSearchScan: table=p, segments=4, partition=owner_user_id[-∞..10001), query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     :   │       t1: PgSearchScan: table=p, segments=4, partition=owner_user_id[10001..15001), query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     :   │       t2: PgSearchScan: table=p, segments=4, partition=owner_user_id[15001..∞), query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     :   │     DistributedLeafExec:
+     :   │       t0: PgSearchScan: table=u, segments=4, partition=id[-∞..10001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │       t1: PgSearchScan: table=u, segments=4, partition=id[10001..15001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │       t2: PgSearchScan: table=u, segments=4, partition=id[15001..∞), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :   └──────────────────────────────────────────────────
-(25 rows)
+(23 rows)
 
 SELECT count(*)
 FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
@@ -339,8 +335,8 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT count(*)
 FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
 WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
-                                                                                                              QUERY PLAN                                                                                                               
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: pdb.agg_fn('COUNT(*)'::text)
    Backend: DataFusion
@@ -354,21 +350,19 @@ WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
      : └──────────────────────────────────────────────────
      :   ┌───── Stage 1 ── tasks=4, partitions=4
      :   │ AggregateExec: mode=Partial, gby=[], aggr=[count(1) as agg_0]
-     :   │   VisibilityFilterExec: tables=[u]
-     :   │     TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
-     :   │       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(owner_user_id@0, id@0)], projection=[ctid_0@2]
-     :   │         DistributedLeafExec:
-     :   │           t0: PgSearchScan: table=p, segments=4, partition=owner_user_id[-∞..5001), query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-     :   │           t1: PgSearchScan: table=p, segments=4, partition=owner_user_id[5001..10001), query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-     :   │           t2: PgSearchScan: table=p, segments=4, partition=owner_user_id[10001..15001), query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-     :   │           t3: PgSearchScan: table=p, segments=4, partition=owner_user_id[15001..∞), query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-     :   │         DistributedLeafExec:
-     :   │           t0: PgSearchScan: table=u, segments=4, partition=id[-∞..5001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :   │           t1: PgSearchScan: table=u, segments=4, partition=id[5001..10001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :   │           t2: PgSearchScan: table=u, segments=4, partition=id[10001..15001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :   │           t3: PgSearchScan: table=u, segments=4, partition=id[15001..∞), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │   HashJoinExec: mode=Partitioned, join_type=Inner, on=[(owner_user_id@0, id@0)], projection=[]
+     :   │     DistributedLeafExec:
+     :   │       t0: PgSearchScan: table=p, segments=4, partition=owner_user_id[-∞..5001), query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     :   │       t1: PgSearchScan: table=p, segments=4, partition=owner_user_id[5001..10001), query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     :   │       t2: PgSearchScan: table=p, segments=4, partition=owner_user_id[10001..15001), query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     :   │       t3: PgSearchScan: table=p, segments=4, partition=owner_user_id[15001..∞), query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     :   │     DistributedLeafExec:
+     :   │       t0: PgSearchScan: table=u, segments=4, partition=id[-∞..5001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │       t1: PgSearchScan: table=u, segments=4, partition=id[5001..10001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │       t2: PgSearchScan: table=u, segments=4, partition=id[10001..15001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │       t3: PgSearchScan: table=u, segments=4, partition=id[15001..∞), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :   └──────────────────────────────────────────────────
-(27 rows)
+(25 rows)
 
 SELECT count(*)
 FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id

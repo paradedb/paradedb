@@ -58,14 +58,14 @@ static ENABLE_RANGE_PARTITIONED_JOIN: GucSetting<bool> = GucSetting::<bool>::new
 /// `VisibilityFilter` below the aggregate instead of checking in the scan.
 #[derive(pgrx::PostgresGucEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum AggregateLateMaterialization {
-    Off,
     #[default]
+    Off,
     Auto,
     Force,
 }
 
 static AGGREGATE_LATE_MATERIALIZATION: GucSetting<AggregateLateMaterialization> =
-    GucSetting::<AggregateLateMaterialization>::new(AggregateLateMaterialization::Auto);
+    GucSetting::<AggregateLateMaterialization>::new(AggregateLateMaterialization::Off);
 
 /// Allows the user to toggle the use of the custom scan without use of the `@@@` operator. The
 /// default is `false`.
@@ -360,7 +360,7 @@ pub fn init() {
     GucRegistry::define_enum_guc(
         c"paradedb.aggregate_late_materialization",
         c"Defer visibility checks above aggregate-on-join plans",
-        c"When set to 'auto' (default), a plan-time cost gate defers a source's visibility check to a VisibilityFilter below the aggregate when the join reduces that source's rows enough to pay for the post-join resolution. 'force' defers every source; 'off' keeps every check eager in the scan.",
+        c"When set to 'off' (default), every aggregate source checks visibility eagerly in the scan. 'auto' lets a plan-time cost gate defer a source's check to a VisibilityFilter below the aggregate when the join reduces that source's rows enough to pay for the post-join resolution. 'force' defers every source.",
         &AGGREGATE_LATE_MATERIALIZATION,
         GucContext::Userset,
         GucFlags::default(),

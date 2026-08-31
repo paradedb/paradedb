@@ -39,6 +39,16 @@ use tantivy::vector::{VectorEstimatorMeasurements, VectorEstimatorQuery, VectorE
 const MAX_ESTIMATOR_QUERIES: usize = 256;
 const ESTIMATOR_SAMPLE_ROWS: usize = 1_000;
 const HELD_OUT_ESTIMATOR_QUERIES: usize = 100;
+
+type EstimatorInfoRow = (
+    name!(depth, i32),
+    name!(bias, f32),
+    name!(spread, f32),
+    name!(sample_rows, i32),
+    name!(query_count, i32),
+    name!(query_source, String),
+);
+
 #[cfg(feature = "pg_test")]
 const EXACT_E_AUDIT_QUERY_COUNT: usize = 100;
 #[cfg(feature = "pg_test")]
@@ -134,19 +144,7 @@ fn vector_estimator_info_internal(
     index: Option<PgRelation>,
     field: Option<String>,
     queries: Option<AnyArray>,
-) -> Result<
-    TableIterator<
-        'static,
-        (
-            name!(depth, i32),
-            name!(bias, f32),
-            name!(spread, f32),
-            name!(sample_rows, i32),
-            name!(query_count, i32),
-            name!(query_source, String),
-        ),
-    >,
-> {
+) -> Result<TableIterator<'static, EstimatorInfoRow>> {
     let index = index.context("index must not be NULL")?;
     let field = field.context("field must not be NULL")?;
     let index_oid = index.oid();

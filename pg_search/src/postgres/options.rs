@@ -22,6 +22,7 @@ use std::rc::Rc;
 
 use crate::api::{FieldName, HashMap};
 use crate::gucs;
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{ExtractedFieldAttribute, extract_field_attributes};
 use crate::schema::IndexRecordOption;
 use crate::schema::{SearchFieldConfig, SearchFieldType};
@@ -175,6 +176,77 @@ extern "C-unwind" fn validate_partition_by(value: *const std::os::raw::c_char) {
 
     if fields == 0 {
         panic!("invalid partition_by value: must specify at least one field");
+    }
+}
+
+/// Refuses an `ALTER INDEX ... SET` that changes `partition_by`: nothing here rebuilds the
+/// segments, and they keep the layout of the value they were built with. Clearing it is
+/// allowed, because an empty `partition_by` reads as "not partitioned" everywhere.
+///
+/// A reloption validator sees only the new value, so the comparison against the old one runs
+/// from the utility hook, before the statement executes.
+unsafe fn guard_partition_by_change(pstmt: *mut pg_sys::PlannedStmt) {
+    unsafe {
+        let stmt = (*pstmt).utilityStmt;
+        if stmt.is_null() || !is_a(stmt, pg_sys::NodeTag::T_AlterTableStmt) {
+            return;
+        }
+        let alter = stmt.cast::<pg_sys::AlterTableStmt>();
+        // `ALTER TABLE` reaches an index too, so the relation decides, not the statement kind.
+        let mut new_value = None;
+        for cmd in PgList::<pg_sys::AlterTableCmd>::from_pg((*alter).cmds).iter_ptr() {
+            if (*cmd).subtype != pg_sys::AlterTableType::AT_SetRelOptions {
+                continue;
+            }
+            for def in PgList::<pg_sys::DefElem>::from_pg((*cmd).def.cast()).iter_ptr() {
+                let name = core::ffi::CStr::from_ptr((*def).defname);
+                if name.to_bytes() == b"partition_by" && !(*def).arg.is_null() {
+                    new_value = Some(
+                        core::ffi::CStr::from_ptr(pg_sys::defGetString(def))
+                            .to_string_lossy()
+                            .into_owned(),
+                    );
+                }
+            }
+        }
+        let Some(new_value) = new_value else {
+            return;
+        };
+        let new_dims = new_value
+            .split(',')
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| s.trim().to_string())
+            .collect::<Vec<_>>();
+        if new_dims.is_empty() {
+            return;
+        }
+
+        // A relation the statement cannot resolve falls through to the standard error.
+        let oid = pg_sys::RangeVarGetRelidExtended(
+            (*alter).relation,
+            pg_sys::AccessShareLock as _,
+            pg_sys::RVROption::RVR_MISSING_OK,
+            None,
+            core::ptr::null_mut(),
+        );
+        if oid == pg_sys::InvalidOid {
+            return;
+        }
+        let indexrel = PgSearchRelation::with_lock(oid, pg_sys::AccessShareLock as _);
+        if !crate::postgres::build::is_bm25_index(&indexrel) {
+            return;
+        }
+        let old_dims = indexrel
+            .options()
+            .partition_by()
+            .iter()
+            .map(|f| f.as_ref().to_string())
+            .collect::<Vec<_>>();
+        if new_dims != old_dims {
+            pgrx::error!(
+                "`partition_by` cannot be changed by `ALTER INDEX` because the segments keep the layout it was built with; recreate the index to change it"
+            );
+        }
     }
 }
 
@@ -1035,6 +1107,35 @@ impl BM25IndexOptionsData {
 
 // it adds the tokenizer option to the list of relation options so we can parse it in amoptions
 pub unsafe fn init() {
+    // A reloption validator sees only the new value, so the check against the current
+    // `partition_by` needs the statement, and that takes a utility hook.
+    static mut PREV_PROCESS_UTILITY_HOOK: pg_sys::ProcessUtility_hook_type = None;
+
+    #[allow(clippy::too_many_arguments)]
+    #[rustfmt::skip]
+    #[pg_guard]
+    unsafe extern "C-unwind" fn process_utility_hook(
+        pstmt: *mut pg_sys::PlannedStmt,
+        query_string: *const ::core::ffi::c_char,
+        read_only_tree: bool,
+        context: pg_sys::ProcessUtilityContext::Type,
+        params: pg_sys::ParamListInfo,
+        query_env: *mut pg_sys::QueryEnvironment,
+        dest: *mut pg_sys::DestReceiver,
+        qc: *mut pg_sys::QueryCompletion,
+    ) {
+        guard_partition_by_change(pstmt);
+
+        if let Some(prev_hook) = PREV_PROCESS_UTILITY_HOOK {
+            prev_hook(pstmt, query_string, read_only_tree, context, params, query_env, dest, qc);
+        } else {
+            pg_sys::standard_ProcessUtility(pstmt, query_string, read_only_tree, context, params, query_env, dest, qc);
+        }
+    }
+
+    PREV_PROCESS_UTILITY_HOOK = pg_sys::ProcessUtility_hook;
+    pg_sys::ProcessUtility_hook = Some(process_utility_hook);
+
     // adding our own relopt type because zombodb does, but one of the built-in Postgres ones might be more appropriate
     RELOPT_KIND_PDB = pg_sys::add_reloption_kind();
     pg_sys::add_string_reloption(

@@ -19,6 +19,7 @@ use crate::api::FieldName;
 use crate::api::version::VersionInfo;
 use crate::index::index_settings;
 use crate::index::mvcc::MvccSatisfies;
+use crate::index::writer::demux::routable;
 use crate::postgres::build_parallel::build_index;
 use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::rel::PgSearchRelation;
@@ -225,8 +226,14 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
     for partition_field in options.partition_by() {
         check_single_valued(&partition_field, "partition_by");
     }
-    // The routability of `partition_by` is checked in `build_index`: it needs the tantivy
-    // schema, which does not exist yet here.
+    // A key that a merge cannot route would leave every row that arrives after the build
+    // unrouted forever, so it is refused up front. The stored schema does not exist yet, so
+    // the check runs on the one this build will write.
+    if !options.partition_by().is_empty()
+        && let Err(e) = routable(&planned_schema(index_relation), &options.partition_by())
+    {
+        panic!("{e}");
+    }
 }
 
 fn validate_field_config(
@@ -316,6 +323,17 @@ fn am_handler_oid(amname: &CStr) -> Option<pg_sys::Oid> {
 }
 
 fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
+    let schema = planned_schema(index_relation);
+    let directory = MvccSatisfies::Snapshot.directory(index_relation);
+
+    let settings = index_settings(index_relation.options(), &schema);
+    let _ = Index::create(directory, schema, settings)?;
+    Ok(())
+}
+
+/// The tantivy schema this index will carry, from its reloptions and heap attributes. The
+/// stored copy exists only after [`create_index`], so validation reads the schema from here.
+fn planned_schema(index_relation: &PgSearchRelation) -> Schema {
     let options = index_relation.options();
     let mut builder = Schema::builder();
 
@@ -378,12 +396,7 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
         options.field_config_or_default(&FieldName::from("ctid")),
     );
 
-    let schema = builder.build();
-    let directory = MvccSatisfies::Snapshot.directory(index_relation);
-
-    let settings = index_settings(options, &schema);
-    let _ = Index::create(directory, schema, settings)?;
-    Ok(())
+    builder.build()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

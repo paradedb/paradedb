@@ -28,7 +28,7 @@
 use anyhow::{Result, bail};
 use tantivy::index::{Index, IndexMeta, Segment, SegmentId, SegmentMeta, SegmentReader};
 use tantivy::indexer::merger::IndexMerger;
-use tantivy::schema::FieldType;
+use tantivy::schema::{FieldType, Schema};
 use tantivy::{BitSet, Directory, DocId};
 
 use pgrx::pg_sys;
@@ -130,18 +130,22 @@ pub(crate) fn demux_merge(
     Ok(written)
 }
 
-/// The first `partition_by` dimension a demux cannot serve, if any. Every dimension must have
-/// a fast column to read the routes from, and must keep a box on the output (see
-/// [`stats::logical_bounds_hold`]). A dimension that fails the first check has no values to
-/// route on; one that fails the second would leave the outputs unrouted, and every later
-/// merge would take them all over again.
-pub(crate) fn unroutable_dim(indexrel: &PgSearchRelation) -> Result<Option<FieldName>> {
-    let dims = indexrel.options().partition_by();
-    let schema = indexrel.schema()?;
-    let schema = schema.tantivy_schema();
-    for dim in &dims {
+/// Whether `dims` can be routed on `schema`: `Ok(false)` when there is no `partition_by` at
+/// all, and an error naming the first dimension that cannot be served. Every dimension must
+/// have a fast column to read the routes from, and must keep a box on the output (see
+/// [`stats::logical_bounds_hold`]): without the first there are no values to route on, and
+/// without the second the outputs would come back as candidates forever.
+///
+/// The build refuses an index this errors on, and `ALTER INDEX` refuses to change
+/// `partition_by`, so only an index from before those checks can carry an unroutable key.
+/// Its merges decline instead of failing the `INSERT` or `VACUUM` they run under.
+pub(crate) fn routable(schema: &Schema, dims: &[FieldName]) -> Result<bool> {
+    if dims.is_empty() {
+        return Ok(false);
+    }
+    for dim in dims {
         let Ok(field) = schema.get_field(dim.as_ref()) else {
-            return Ok(Some(dim.clone()));
+            bail!("`{dim}` cannot be used in `partition_by` because it is not in the index");
         };
         let fast = match schema.get_field_entry(field).field_type() {
             FieldType::Str(options) => options.get_fast_field_tokenizer_name().is_some(),
@@ -154,22 +158,12 @@ pub(crate) fn unroutable_dim(indexrel: &PgSearchRelation) -> Result<Option<Field
             _ => false,
         };
         if !fast || !stats::logical_bounds_hold(schema, field) {
-            return Ok(Some(dim.clone()));
+            bail!(
+                "`{dim}` cannot be used in `partition_by` because it does not have a fast column in raw order"
+            );
         }
     }
-    Ok(None)
-}
-
-/// Whether a demux can route this index at all. `build_index` refuses an unroutable
-/// `partition_by` up front, but `ALTER INDEX ... SET` takes a reloption without a rebuild, so
-/// the merge paths can still meet one. They decline instead of erroring: a merge runs inside
-/// the `INSERT` or `VACUUM` that triggered it, and an error over an index option would abort
-/// them, on every retry.
-pub(crate) fn routable(indexrel: &PgSearchRelation) -> Result<bool> {
-    if indexrel.options().partition_by().is_empty() {
-        return Ok(false);
-    }
-    Ok(unroutable_dim(indexrel)?.is_none())
+    Ok(true)
 }
 
 /// The mergeable segments of `indexrel` that carry no box, so nothing routed them.
@@ -178,10 +172,11 @@ pub(crate) fn routable(indexrel: &PgSearchRelation) -> Result<bool> {
 /// an `INSERT` or a merge that could not prove one. An index that is not [`routable`] reports
 /// no unrouted segments, so its merges stay ordinary.
 pub(crate) fn unrouted_segments(indexrel: &PgSearchRelation) -> Result<HashSet<SegmentId>> {
-    if !routable(indexrel)? {
+    let dims = indexrel.options().partition_by();
+    let index_schema = indexrel.schema()?;
+    if !routable(index_schema.tantivy_schema(), &dims)? {
         return Ok(HashSet::default());
     }
-    let dims = indexrel.options().partition_by();
     let Some(dim) = dims.first() else {
         return Ok(HashSet::default());
     };
@@ -223,9 +218,14 @@ pub(crate) unsafe fn route_index(
     indexrel: &PgSearchRelation,
     target_partitions: usize,
 ) -> Result<Vec<SegmentMeta>> {
-    if !routable(indexrel)? {
+    let index_schema = indexrel.schema()?;
+    if !routable(
+        index_schema.tantivy_schema(),
+        &indexrel.options().partition_by(),
+    )? {
         return Ok(Vec::new());
     }
+    drop(index_schema);
     let metadata = MetaPage::open(indexrel);
     // Hold both locks for the whole rewrite: `ambulkdelete` blocks on the cleanup lock until
     // it can see the segments this leaves behind, and no other backend may merge the sources
@@ -659,34 +659,47 @@ mod tests {
         .unwrap();
     }
 
-    /// `ALTER INDEX ... SET` takes a reloption without a rebuild, so an unroutable key can
-    /// appear on a built index. Routing declines it: an error here would abort the `INSERT`
-    /// or `VACUUM` the merge runs under, on every retry.
-    #[pg_test]
-    fn an_altered_in_partition_key_declines() {
+    /// Nothing reroutes a built index when its `partition_by` changes, so the change is
+    /// refused outright.
+    #[pg_test(
+        error = "`partition_by` cannot be changed by `ALTER INDEX` because the segments keep the layout it was built with; recreate the index to change it"
+    )]
+    fn altering_partition_by_is_rejected() {
         Spi::run(
             r#"
             CREATE TABLE demux_altered (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
-            SET paradedb.global_mutable_segment_rows = 0;
             CREATE INDEX demux_altered_idx ON demux_altered USING bm25 (id, tenant_id, name)
                 WITH (key_field = 'id', target_segment_count = 4,
-                      numeric_fields = '{"tenant_id": {"fast": false}}');
-            INSERT INTO demux_altered (tenant_id, name)
-            SELECT (i * 7919) % 100, 'lorem ipsum ' || i FROM generate_series(1, 2000) i;
+                      numeric_fields = '{"tenant_id": {"fast": true}}');
             ALTER INDEX demux_altered_idx SET (partition_by = 'tenant_id');
             "#,
         )
         .unwrap();
+    }
 
-        let indexrel = open_index("demux_altered_idx");
-        assert!(
-            super::unrouted_segments(&indexrel).unwrap().is_empty(),
-            "an unroutable key must not offer segments to route"
-        );
-        let written = unsafe { super::route_index(&indexrel, 4) }.unwrap();
-        assert!(
-            written.is_empty(),
-            "an unroutable key must decline a rewrite"
+    /// Clearing `partition_by` is the way out: an empty value reads as "not partitioned"
+    /// everywhere, so no segment layout is betrayed and writes keep working.
+    #[pg_test]
+    fn clearing_partition_by_is_allowed() {
+        Spi::run(
+            r#"
+            CREATE TABLE demux_cleared (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            SET paradedb.global_mutable_segment_rows = 0;
+            CREATE INDEX demux_cleared_idx ON demux_cleared USING bm25 (id, tenant_id, name)
+                WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 4,
+                      numeric_fields = '{"tenant_id": {"fast": true}}');
+            INSERT INTO demux_cleared (tenant_id, name)
+            SELECT (i * 7919) % 100, 'lorem ipsum ' || i FROM generate_series(1, 2000) i;
+            ALTER INDEX demux_cleared_idx RESET (partition_by);
+            INSERT INTO demux_cleared (tenant_id, name) VALUES (7, 'late row');
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            Spi::get_one::<i64>("SELECT count(*) FROM demux_cleared WHERE id @@@ pdb.all();")
+                .unwrap()
+                .unwrap(),
+            2001
         );
     }
 }

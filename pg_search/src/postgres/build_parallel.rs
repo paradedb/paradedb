@@ -20,7 +20,7 @@ use crate::gucs;
 use crate::index::kdtree::KdTree;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::stats::partition_box;
-use crate::index::writer::demux::{route_index, unroutable_dim};
+use crate::index::writer::demux::route_index;
 use crate::index::writer::index::{
     DiskSpaceGuard, IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
 };
@@ -1343,16 +1343,6 @@ pub(super) fn build_index(
     // TODO(M3): the target segment count doubles as the partition count for now; rename the
     // reloption to `partition_count` once partitioned storage lands.
     let nworkers = plan::create_index_nworkers(&heaprel, &indexrel);
-    // The build is the one moment the user watches, so a key that a merge can never route
-    // errors here, not in the `INSERT` a merge later runs under. It stays a runtime check
-    // because `ALTER INDEX ... SET` takes a reloption without a rebuild.
-    if !indexrel.options().partition_by().is_empty()
-        && let Some(dim) = unroutable_dim(&indexrel)?
-    {
-        pgrx::error!(
-            "`{dim}` cannot be used in `partition_by` because it does not have a fast column in raw order"
-        );
-    }
     // An index that declares `partition_by` is always built partitioned, however the target and
     // the workers come out; the partitioned path handles a single partition too.
     let partitioning = if concurrent {

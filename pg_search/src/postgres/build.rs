@@ -225,6 +225,8 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
     for partition_field in options.partition_by() {
         check_single_valued(&partition_field, "partition_by");
     }
+    // The routability of `partition_by` is checked in `build_index`: it needs the tantivy
+    // schema, which does not exist yet here.
 }
 
 fn validate_field_config(

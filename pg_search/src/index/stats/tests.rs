@@ -606,19 +606,12 @@ mod tests {
     }
 
     /// Routing compares raw text, but the partition query reads the fast column. A normalizer
-    /// reorders that column, so such a field gets no box.
-    #[pg_test]
-    fn normalized_text_field_gets_no_logical_bounds() {
+    /// reorders that column, so such a key cannot hold a box and the build refuses it.
+    #[pg_test(
+        error = "`name` cannot be used in `partition_by` because it does not have a fast column in raw order"
+    )]
+    fn a_normalized_text_partition_key_is_rejected() {
         text_partitioned_index("stats_text_lower", "stats_text_lower_idx", "lowercase");
-        let indexrel = open_index("stats_text_lower_idx");
-        let (field, stats) = segment_stats(&indexrel, "name");
-        assert!(stats.len() > 1);
-        for segment in &stats {
-            assert!(segment.logical(field).unwrap().is_none());
-            let empirical = segment.empirical(field).unwrap().unwrap();
-            assert!(matches!(empirical.min, PdbOwnedValue::Str(_)));
-        }
-        assert!(persisted_split_points(&indexrel, "name").unwrap().is_none());
     }
 
     /// With the raw normalizer the fast column keeps the routing order, so the box holds.

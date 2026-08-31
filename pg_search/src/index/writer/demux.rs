@@ -130,21 +130,18 @@ pub(crate) fn demux_merge(
     Ok(written)
 }
 
-/// Whether a demux can route this index at all: every `partition_by` dimension must have a
-/// fast column to read the routes from, and must keep a box on the output (see
+/// The first `partition_by` dimension a demux cannot serve, if any. Every dimension must have
+/// a fast column to read the routes from, and must keep a box on the output (see
 /// [`stats::logical_bounds_hold`]). A dimension that fails the first check has no values to
 /// route on; one that fails the second would leave the outputs unrouted, and every later
 /// merge would take them all over again.
-pub(crate) fn routable(indexrel: &PgSearchRelation) -> Result<bool> {
+pub(crate) fn unroutable_dim(indexrel: &PgSearchRelation) -> Result<Option<FieldName>> {
     let dims = indexrel.options().partition_by();
-    if dims.is_empty() {
-        return Ok(false);
-    }
     let schema = indexrel.schema()?;
     let schema = schema.tantivy_schema();
     for dim in &dims {
         let Ok(field) = schema.get_field(dim.as_ref()) else {
-            return Ok(false);
+            return Ok(Some(dim.clone()));
         };
         let fast = match schema.get_field_entry(field).field_type() {
             FieldType::Str(options) => options.get_fast_field_tokenizer_name().is_some(),
@@ -157,10 +154,22 @@ pub(crate) fn routable(indexrel: &PgSearchRelation) -> Result<bool> {
             _ => false,
         };
         if !fast || !stats::logical_bounds_hold(schema, field) {
-            return Ok(false);
+            return Ok(Some(dim.clone()));
         }
     }
-    Ok(true)
+    Ok(None)
+}
+
+/// Whether a demux can route this index at all. `build_index` refuses an unroutable
+/// `partition_by` up front, but `ALTER INDEX ... SET` takes a reloption without a rebuild, so
+/// the merge paths can still meet one. They decline instead of erroring: a merge runs inside
+/// the `INSERT` or `VACUUM` that triggered it, and an error over an index option would abort
+/// them, on every retry.
+pub(crate) fn routable(indexrel: &PgSearchRelation) -> Result<bool> {
+    if indexrel.options().partition_by().is_empty() {
+        return Ok(false);
+    }
+    Ok(unroutable_dim(indexrel)?.is_none())
 }
 
 /// The mergeable segments of `indexrel` that carry no box, so nothing routed them.
@@ -633,39 +642,51 @@ mod tests {
         );
     }
 
-    /// `partition_by` on a field a demux cannot read or stamp declines instead of routing: a
-    /// non-fast column holds no values to route on, and a normalized text column cannot keep
-    /// its box, so its outputs would come back as candidates forever.
-    #[pg_test]
-    fn an_unroutable_partition_key_declines() {
+    /// A key a demux cannot read holds no values to route on, so the build refuses it up
+    /// front instead of leaving an index that no merge can ever heal.
+    #[pg_test(
+        error = "`tenant_id` cannot be used in `partition_by` because it does not have a fast column in raw order"
+    )]
+    fn a_non_fast_partition_key_is_rejected() {
         Spi::run(
             r#"
             CREATE TABLE demux_slow (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
-            SET paradedb.global_mutable_segment_rows = 0;
             CREATE INDEX demux_slow_idx ON demux_slow USING bm25 (id, tenant_id, name)
                 WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 4,
                       numeric_fields = '{"tenant_id": {"fast": false}}');
-            INSERT INTO demux_slow (tenant_id, name)
-            SELECT (i * 7919) % 100, 'lorem ipsum ' || i FROM generate_series(1, 2000) i;
+            "#,
+        )
+        .unwrap();
+    }
 
-            CREATE TABLE demux_norm (id BIGSERIAL PRIMARY KEY, tenant TEXT, name TEXT);
-            CREATE INDEX demux_norm_idx ON demux_norm USING bm25 (id, tenant, name)
-                WITH (key_field = 'id', partition_by = 'tenant', target_segment_count = 4,
-                      text_fields = '{"tenant": {"tokenizer": {"type": "keyword"}, "fast": true, "normalizer": "lowercase"}}');
-            INSERT INTO demux_norm (tenant, name)
-            SELECT 'T' || (i * 7919) % 100, 'lorem ipsum ' || i FROM generate_series(1, 2000) i;
+    /// `ALTER INDEX ... SET` takes a reloption without a rebuild, so an unroutable key can
+    /// appear on a built index. Routing declines it: an error here would abort the `INSERT`
+    /// or `VACUUM` the merge runs under, on every retry.
+    #[pg_test]
+    fn an_altered_in_partition_key_declines() {
+        Spi::run(
+            r#"
+            CREATE TABLE demux_altered (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            SET paradedb.global_mutable_segment_rows = 0;
+            CREATE INDEX demux_altered_idx ON demux_altered USING bm25 (id, tenant_id, name)
+                WITH (key_field = 'id', target_segment_count = 4,
+                      numeric_fields = '{"tenant_id": {"fast": false}}');
+            INSERT INTO demux_altered (tenant_id, name)
+            SELECT (i * 7919) % 100, 'lorem ipsum ' || i FROM generate_series(1, 2000) i;
+            ALTER INDEX demux_altered_idx SET (partition_by = 'tenant_id');
             "#,
         )
         .unwrap();
 
-        for index in ["demux_slow_idx", "demux_norm_idx"] {
-            let indexrel = open_index(index);
-            assert!(
-                super::unrouted_segments(&indexrel).unwrap().is_empty(),
-                "`{index}` must not offer segments to route"
-            );
-            let written = unsafe { super::route_index(&indexrel, 4) }.unwrap();
-            assert!(written.is_empty(), "`{index}` must decline a rewrite");
-        }
+        let indexrel = open_index("demux_altered_idx");
+        assert!(
+            super::unrouted_segments(&indexrel).unwrap().is_empty(),
+            "an unroutable key must not offer segments to route"
+        );
+        let written = unsafe { super::route_index(&indexrel, 4) }.unwrap();
+        assert!(
+            written.is_empty(),
+            "an unroutable key must decline a rewrite"
+        );
     }
 }

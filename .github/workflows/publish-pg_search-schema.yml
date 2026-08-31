@@ -69,11 +69,10 @@ jobs:
           cache-all-crates: true
 
       - name: Install & Configure PostgreSQL ${{ env.pg_version }}
-        run: |
-          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
-          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          sudo apt-get update && sudo apt-get install -y postgresql-${{ env.pg_version }} postgresql-server-dev-${{ env.pg_version }} libopenblas-dev
-          echo "/usr/lib/postgresql/${{ env.pg_version }}/bin" >> $GITHUB_PATH
+        uses: ./.github/actions/setup-postgres
+        with:
+          pg_version: ${{ env.pg_version }}
+          extra_packages: libopenblas-dev lld
 
       - name: Install pgrx
         run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug

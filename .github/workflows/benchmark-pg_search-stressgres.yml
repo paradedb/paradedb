@@ -191,11 +191,10 @@ jobs:
           sudo apt-get update && sudo apt-get install -y lsof fontconfig pkg-config libfontconfig1-dev libopenblas-dev
 
       - name: Install & Configure Supported PostgreSQL Version
-        run: |
-          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
-          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          sudo apt-get update && sudo apt-get install -y postgresql-${{ env.pg_version }} postgresql-server-dev-${{ env.pg_version }} postgresql-${{ env.pg_version }}-pgvector
-          echo "/usr/lib/postgresql/${{ env.pg_version }}/bin" >> $GITHUB_PATH
+        uses: ./.github/actions/setup-postgres
+        with:
+          pg_version: ${{ env.pg_version }}
+          extra_packages: postgresql-${{ env.pg_version }}-pgvector
 
       # Separate prefix-key from debug workflows — benchmarks compile with --release.
       # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.

@@ -31,8 +31,8 @@ use thiserror::Error;
 
 use crate::index::directory::utils::load_index_settings;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
-use crate::index::stats::{self, LogicalBoundsByField, StatsWriter};
 use crate::index::setup_tokenizers;
+use crate::index::stats::{self, LogicalBoundsByField, StatsWriter};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{STATS_EXT, SegmentMetaEntry};
 use crate::vector::clusterer::set_ivf_clusterer;

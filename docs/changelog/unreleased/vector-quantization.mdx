@@ -1,4 +1,23 @@
-## New Features 🎉
+---
+header: features
+---
 
-- Added optional per-field vector quantization schedules that store compact codes alongside full-precision vectors.
-- Added `paradedb.vector_estimator_info` as a read-only diagnostic for checking quantized estimator bias and spread on stored or caller-provided queries. It does not change index settings or scan behavior.
+**After upgrading, `REINDEX` every ParadeDB index that contains a vector field; installing the new shared library and running `ALTER EXTENSION` alone is not sufficient.**
+
+Quantized vector search. Vector fields in a ParadeDB index can now store compact 1-bit and 4-bit codes alongside full-precision vectors. Queries filter candidates through the codes and rerank the survivors exactly, so results match the unquantized scan at the same probe setting. Quantization is opt-in per field and off by default:
+
+```sql
+CREATE INDEX ON items USING paradedb (id, embedding)
+WITH (
+  key_field = 'id',
+  vector_fields = '{"embedding": {"quantization": true}}'
+);
+```
+
+`"quantization": true` uses the default `[1, 4]` schedule, a 1-bit layer refined by a 4-bit layer. Any schedule of one to three layers of 1–4 bits can be supplied explicitly, such as `{"quantization": {"layers": [1, 4]}}`.
+
+On Cohere 1M with 1024-dimensional cosine vectors, top-10 queries ran ~4× faster at 99% recall and ~2× faster at 95% recall for ~7% more index size, measured with one segment and one worker. Quantization takes effect when a field is built; use `REINDEX` to enable it on an existing index.
+
+- Added `paradedb.max_scan_levels` to limit how many code layers a query reads. It defaults to all built layers; `0` scans full-precision vectors through the same cluster routing.
+- `paradedb.vector_info` now reports `quantized`, the `layers` schedule, `bytes_per_row`, and the format identifier for each vector field.
+- Added `paradedb.vector_estimator_info(index, field[, queries])`, a read-only diagnostic that reports per-layer estimator bias and spread on indexed data or supplied `vector[]` queries. It never changes index behavior. See [Diagnosing Quantized Vector Indexes](/documentation/vector/diagnosing-quantized-indexes).

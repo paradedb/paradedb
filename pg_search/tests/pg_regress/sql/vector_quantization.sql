@@ -162,7 +162,7 @@ SELECT
     bool_and(quantized) AS cosine_quantized,
     bool_and(layers = ARRAY[1, 4]) AS cosine_layers,
     bool_and(bytes_per_row = 500) AS cosine_bytes_per_row,
-    bool_and(format > 0) AS cosine_format
+    bool_and(format = 3) AS cosine_format
 FROM paradedb.vector_info('q_cosine_idx', 'vec');
 
 CREATE TEMP TABLE q_estimator_held_out AS

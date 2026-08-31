@@ -30,7 +30,6 @@ CREATE INDEX remerge_idx ON remerge
     USING paradedb (id, vec vector_l2_ops)
     WITH (
         key_field = id,
-        vector_fields = '{"vec":{"dims":16,"quantization":false}}',
         cluster_replication = 3,
         target_segment_count = 1,
         mutable_segment_rows = 0,

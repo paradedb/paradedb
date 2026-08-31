@@ -29,7 +29,7 @@ INSERT INTO vsp VALUES
 -- ============================================================
 CREATE INDEX vsp_idx ON vsp
     USING paradedb (id, label, vec vector_l2_ops)
-    WITH (key_field = id, vector_fields = '{"vec":{"dims":3,"quantization":false}}');
+    WITH (key_field = id);
 -- match: <-> pushes down
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
@@ -109,7 +109,7 @@ DROP INDEX vsp_idx;
 -- ============================================================
 CREATE INDEX vsp_idx ON vsp
     USING paradedb (id, label, vec vector_cosine_ops)
-    WITH (key_field = id, vector_fields = '{"vec":{"dims":3,"quantization":false}}');
+    WITH (key_field = id);
 -- mismatch: <-> falls back, planner warns
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
@@ -189,7 +189,7 @@ DROP INDEX vsp_idx;
 -- ============================================================
 CREATE INDEX vsp_idx ON vsp
     USING paradedb (id, label, vec vector_ip_ops)
-    WITH (key_field = id, vector_fields = '{"vec":{"dims":3,"quantization":false}}');
+    WITH (key_field = id);
 -- mismatch: <-> falls back, planner warns
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
@@ -272,7 +272,7 @@ DROP INDEX vsp_idx;
 -- GUC's current value rather than a stale plan-time fold.
 CREATE INDEX vsp_idx ON vsp
     USING paradedb (id, label, vec vector_cosine_ops)
-    WITH (key_field = id, vector_fields = '{"vec":{"dims":3,"quantization":false}}');
+    WITH (key_field = id);
 SET vsp.q = '[1,0,0]';
 -- pushes down (Custom Scan / TopKScanExecState), not a Sort fallback
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -320,7 +320,7 @@ DROP INDEX vsp_idx;
 -- never exercise this path.
 CREATE INDEX vsp_idx ON vsp
     USING paradedb (id, label, vec vector_cosine_ops)
-    WITH (key_field = id, vector_fields = '{"vec":{"dims":3,"quantization":false}}');
+    WITH (key_field = id);
 SET plan_cache_mode = force_generic_plan;
 PREPARE vsp_p(vector) AS
 SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> $1 LIMIT 2;
@@ -373,7 +373,7 @@ DROP INDEX vsp_idx;
 -- same three opclasses as `bm25`, with vector_l2_ops as its DEFAULT too.
 CREATE INDEX vsp_idx ON vsp
     USING paradedb (id, label, vec vector_cosine_ops)
-    WITH (key_field = id, vector_fields = '{"vec":{"dims":3,"quantization":false}}');
+    WITH (key_field = id);
 -- match: <=> pushes down
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
@@ -400,12 +400,12 @@ SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
 DROP INDEX vsp_idx;
 CREATE INDEX vsp_idx ON vsp
     USING paradedb (id, label, vec vector_ip_ops)
-    WITH (key_field = id, vector_fields = '{"vec":{"dims":3,"quantization":false}}');
+    WITH (key_field = id);
 DROP INDEX vsp_idx;
 -- a bare vector column resolves to vector_l2_ops, the AM default
 CREATE INDEX vsp_idx ON vsp
     USING paradedb (id, label, vec)
-    WITH (key_field = id, vector_fields = '{"vec":{"dims":3,"quantization":false}}');
+    WITH (key_field = id);
 SELECT opc.opcname
 FROM pg_index i
 JOIN unnest(i.indclass) WITH ORDINALITY AS c(opcoid, ord) ON true
@@ -448,7 +448,7 @@ DROP INDEX vsp_idx;
 -- ranking only the rows the predicate matches.
 CREATE INDEX vsp_idx ON vsp
     USING paradedb (id, label, vec vector_cosine_ops)
-    WITH (key_field = id, vector_fields = '{"vec":{"dims":3,"quantization":false}}');
+    WITH (key_field = id);
 -- === (term): rows 1 and 3 contain 'wind'; ranked 1 then 3 by distance
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM vsp WHERE label === 'wind' ORDER BY vec <=> '[1,0,0]' LIMIT 2;
@@ -560,7 +560,7 @@ INSERT INTO vsp_tie VALUES
     (6, 'y', '[0,0.9,0.1]');
 CREATE INDEX vsp_tie_idx ON vsp_tie
     USING paradedb (id, (cat::pdb.literal), vec vector_l2_ops)
-    WITH (key_field = id, vector_fields = '{"vec":{"dims":3,"quantization":false}}');
+    WITH (key_field = id);
 -- pushes down: both pathkeys are absorbed by the TopK scan (no Sort node)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM vsp_tie WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]', id LIMIT 3;

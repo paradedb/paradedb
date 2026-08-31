@@ -14,8 +14,7 @@ USING paradedb (
 )
 WITH (
   key_field = 'id',
-  json_fields = '{"metadata":{"fast":true}}',
-  vector_fields = '{"embedding":{"dims":8,"quantization":false}}'
+  json_fields = '{"metadata":{"fast":true}}'
 );
 
 CREATE INDEX orders_idx ON orders

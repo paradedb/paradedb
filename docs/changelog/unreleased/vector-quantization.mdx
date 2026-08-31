@@ -11,7 +11,7 @@ CREATE INDEX ON items USING paradedb (id, embedding)
 WITH (key_field = 'id');
 ```
 
-The default `[1, 1]` schedule uses two 1-bit layers. Any schedule of one to three layers of 1–4 bits can be supplied explicitly, such as `{"quantization": {"layers": [1, 4]}}`. Set `"quantization": false` for a field that should remain unquantized.
+The default `[1, 1]` schedule uses two 1-bit layers for vectors with at least 64 dimensions. Lower-dimensional vectors remain unquantized. Any schedule of one to three layers of 1–4 bits can be supplied explicitly, such as `{"quantization": {"layers": [1, 4]}}`. Set `"quantization": false` for a field that should remain unquantized.
 
 On Cohere 1M with 1024-dimensional cosine vectors and an explicit `[1, 4]` schedule, top-10 queries ran ~4× faster at 99% recall and ~2× faster at 95% recall for ~7% more index size, measured with one segment and one worker. Quantization takes effect when a field is built; use `REINDEX` to change an existing index.
 

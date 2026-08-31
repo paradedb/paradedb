@@ -112,13 +112,14 @@ pub enum SearchFieldConfig {
     Facet,
     /// A vector field.
     Vector {
-        /// Vector dimension.
-        dims: usize,
         /// Quantization schedule.
-        #[serde(default = "default_vector_quantization")]
+        #[serde(default)]
         quantization: Option<VectorQuantizationConfig>,
     },
 }
+
+/// Minimum vector dimension for default or explicitly enabled quantization.
+pub const MIN_QUANTIZATION_DIMENSIONS: usize = 64;
 
 /// A vector field's quantization schedule.
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
@@ -387,11 +388,20 @@ impl SearchFieldConfig {
         Self::from_json(json!({"Json": {"fast": true}}))
     }
 
-    /// Creates a vector-field configuration with default quantization.
+    /// Applies the dimension-dependent default to an explicit vector configuration.
+    pub fn resolve_vector_defaults(self, dims: usize) -> Self {
+        match self {
+            Self::Vector { quantization } => Self::Vector {
+                quantization: quantization.or_else(|| default_vector_quantization(dims)),
+            },
+            config => config,
+        }
+    }
+
+    /// Creates the default configuration for a vector field.
     pub fn default_vector(dims: usize) -> Self {
         Self::Vector {
-            dims,
-            quantization: default_vector_quantization(),
+            quantization: default_vector_quantization(dims),
         }
     }
 }
@@ -666,8 +676,10 @@ fn default_as_true() -> bool {
     true
 }
 
-fn default_vector_quantization() -> Option<VectorQuantizationConfig> {
-    Some(VectorQuantizationConfig::Enabled(true))
+fn default_vector_quantization(dims: usize) -> Option<VectorQuantizationConfig> {
+    Some(VectorQuantizationConfig::Enabled(
+        dims >= MIN_QUANTIZATION_DIMENSIONS,
+    ))
 }
 
 fn default_as_freqs_and_positions() -> IndexRecordOption {
@@ -680,28 +692,35 @@ mod tests {
 
     #[test]
     fn vector_quantization_accepts_default_and_explicit_schedules() {
-        let omitted = SearchFieldConfig::vector_from_json(json!({
-            "dims": 768
-        }))
-        .unwrap();
-        assert_eq!(omitted.quantization_layers(), Some(vec![1, 1]));
+        let omitted = SearchFieldConfig::vector_from_json(json!({})).unwrap();
+        assert_eq!(omitted.clone().quantization_layers(), None);
+        assert_eq!(
+            omitted
+                .clone()
+                .resolve_vector_defaults(MIN_QUANTIZATION_DIMENSIONS)
+                .quantization_layers(),
+            Some(vec![1, 1])
+        );
+        assert_eq!(
+            omitted
+                .resolve_vector_defaults(MIN_QUANTIZATION_DIMENSIONS - 1)
+                .quantization_layers(),
+            None
+        );
 
         let defaults = SearchFieldConfig::vector_from_json(json!({
-            "dims": 768,
             "quantization": true
         }))
         .unwrap();
         assert_eq!(defaults.quantization_layers(), Some(vec![1, 1]));
 
         let disabled = SearchFieldConfig::vector_from_json(json!({
-            "dims": 768,
             "quantization": false
         }))
         .unwrap();
         assert_eq!(disabled.quantization_layers(), None);
 
         let explicit = SearchFieldConfig::vector_from_json(json!({
-            "dims": 768,
             "quantization": { "layers": [1, 4, 3] }
         }))
         .unwrap();
@@ -711,7 +730,6 @@ mod tests {
     #[test]
     fn vector_quantization_validates_layer_count_width_and_order() {
         let too_many = SearchFieldConfig::vector_from_json(json!({
-            "dims": 768,
             "quantization": { "layers": [1, 1, 1, 1] }
         }))
         .unwrap_err();
@@ -722,14 +740,12 @@ mod tests {
         );
 
         let grid_first = SearchFieldConfig::vector_from_json(json!({
-            "dims": 768,
             "quantization": { "layers": [4, 1] }
         }))
         .unwrap();
         assert_eq!(grid_first.quantization_layers(), Some(vec![4, 1]));
 
         let wide = SearchFieldConfig::vector_from_json(json!({
-            "dims": 768,
             "quantization": { "layers": [1, 5] }
         }))
         .unwrap_err();

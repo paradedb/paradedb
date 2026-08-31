@@ -27,7 +27,7 @@ In this example, `embedding` is added to the ParadeDB index with cosine similari
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING paradedb (id, description, category, embedding vector_cosine_ops)
-WITH (key_field='id', vector_fields='{"embedding":{"dims":8,"quantization":false}}');
+WITH (key_field='id');
 ```
 
 ```ts Drizzle
@@ -77,10 +77,7 @@ idx = Index(
     indexing.ParadeDBField(MockItem.category),
     indexing.VectorField(MockItem.embedding, metric="cosine"),
     postgresql_using="paradedb",
-    postgresql_with={
-        "key_field": "id",
-        "vector_fields": "'{\"embedding\":{\"dims\":8,\"quantization\":false}}'",
-    },
+    postgresql_with={"key_field": "id"},
 )
 
 with engine.begin() as conn:
@@ -174,13 +171,7 @@ recall and latency, especially over large datasets. The following `WITH` options
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING paradedb (id, description, category, embedding vector_cosine_ops)
-WITH (
-  key_field='id',
-  centroid_ratio=0.01,
-  training_samples_per_centroid=32,
-  cluster_replication=1,
-  vector_fields='{"embedding":{"dims":8,"quantization":false}}'
-);
+WITH (key_field='id', centroid_ratio=0.01, training_samples_per_centroid=32, cluster_replication=1);
 ```
 
 ```ts Drizzle
@@ -239,7 +230,6 @@ idx = Index(
     postgresql_using="paradedb",
     postgresql_with={
         "key_field": "id",
-        "vector_fields": "'{\"embedding\":{\"dims\":8,\"quantization\":false}}'",
         **indexing.VectorIndexOptions(
             centroid_ratio=0.01,
             training_samples_per_centroid=32,

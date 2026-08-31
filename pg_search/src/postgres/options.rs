@@ -544,10 +544,14 @@ impl BM25IndexOptions {
     /// Returns either the config explicitly set in the CREATE INDEX WITH options,
     /// falling back to the default config for the field type.
     pub fn field_config_or_default(&self, field_name: &FieldName) -> SearchFieldConfig {
+        let field_type = self.get_field_type(field_name);
         match self.field_config(field_name) {
-            Some(config) => config,
+            Some(config) => match field_type {
+                Some(SearchFieldType::Vector(_, dims, _)) => config.resolve_vector_defaults(dims),
+                _ => config,
+            },
             None => {
-                let field_type = self.get_field_type(field_name).unwrap_or_else(|| {
+                let field_type = field_type.unwrap_or_else(|| {
                     panic!(
                         "field `{field_name}` is not configured in the CREATE INDEX WITH options"
                     )

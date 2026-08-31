@@ -12,7 +12,6 @@ CREATE INDEX mv_idx ON mv
     USING paradedb (id, label, vec vector_l2_ops)
     WITH (
         key_field = id,
-        vector_fields = '{"vec":{"dims":3,"quantization":false}}',
         mutable_segment_rows = 100,
         background_layer_sizes = '0',
         layer_sizes = '100mb'

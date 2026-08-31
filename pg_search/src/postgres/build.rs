@@ -25,7 +25,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::custom_rmgr;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::{ExtractedFieldAttribute, extract_field_attributes};
-use crate::schema::{SearchFieldConfig, SearchFieldType};
+use crate::schema::{MIN_QUANTIZATION_DIMENSIONS, SearchFieldConfig, SearchFieldType};
 use anyhow::Result;
 use pgrx::*;
 use std::ffi::CStr;
@@ -212,23 +212,11 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
         validate_field_config(field_name, &key_field_name, config, options, |t| {
             matches!(t, SearchFieldType::Vector(..))
         });
-        let SearchFieldConfig::Vector {
-            dims: configured_dims,
-            ..
-        } = config
-        else {
-            unreachable!("vector config parser returned a non-vector config")
-        };
         let Some(SearchFieldType::Vector(_, schema_dims, _)) = options.get_field_type(field_name)
         else {
             unreachable!("vector field validation accepted a non-vector field")
         };
-        if *configured_dims != schema_dims {
-            panic!(
-                "vector field `{field_name}` config dimension {configured_dims} does not match schema dimension {schema_dims}"
-            );
-        }
-        if config.quantization_layers().is_some() && schema_dims < 64 {
+        if config.quantization_layers().is_some() && schema_dims < MIN_QUANTIZATION_DIMENSIONS {
             panic!(
                 "quantization requires dimension ≥ 64; the quantization error model is not validated below this"
             );

@@ -700,7 +700,7 @@ mod tests {
             Spi::run("CREATE TABLE t_vec (id SERIAL, data TEXT, embedding vector(3));").unwrap();
             Spi::run("INSERT INTO t_vec (data, embedding) VALUES ('test', '[1,0,0]');").unwrap();
             Spi::run(
-                r#"CREATE INDEX t_vec_idx ON t_vec USING paradedb (id, data, embedding vector_l2_ops) WITH (key_field = 'id', vector_fields = '{"embedding":{"dims":3,"quantization":false}}')"#,
+                "CREATE INDEX t_vec_idx ON t_vec USING paradedb (id, data, embedding vector_l2_ops) WITH (key_field = 'id')",
             )
             .unwrap();
             Spi::get_one::<pg_sys::Oid>(

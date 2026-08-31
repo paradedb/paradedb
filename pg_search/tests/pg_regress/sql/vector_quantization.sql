@@ -73,7 +73,7 @@ CREATE INDEX q_cal_unquantized_idx ON q_cal_unquantized
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
     key_field = id,
-    vector_fields = '{"vec":{"dims":64,"quantization":false}}'
+    vector_fields = '{"vec":{"quantization":false}}'
 );
 INSERT INTO q_cal_unquantized
 SELECT g, quant_fixture_vector(64, g) FROM generate_series(1, 100) g;
@@ -90,36 +90,35 @@ SELECT * FROM paradedb.vector_estimator_info(
 );
 DROP TABLE q_cal_unquantized;
 
-CREATE TABLE q_bad_dims (id integer PRIMARY KEY, vec vector(100));
-CREATE INDEX q_bad_dims_idx ON q_bad_dims
+CREATE TABLE q_explicit_below_floor (id integer PRIMARY KEY, vec vector(63));
+CREATE INDEX q_explicit_below_floor_idx ON q_explicit_below_floor
 USING paradedb (id, vec vector_l2_ops)
 WITH (
     key_field = id,
-    vector_fields = '{"vec":{"dims":99,"quantization":true}}'
+    vector_fields = '{"vec":{"quantization":true}}'
 );
-DROP TABLE q_bad_dims;
+DROP TABLE q_explicit_below_floor;
 
-CREATE TABLE q_below_floor (id integer PRIMARY KEY, vec vector(63));
-CREATE INDEX q_below_floor_idx ON q_below_floor
+CREATE TABLE q_default_below_floor (id integer PRIMARY KEY, vec vector(63));
+CREATE INDEX q_default_below_floor_idx ON q_default_below_floor
 USING paradedb (id, vec vector_l2_ops)
 WITH (
-    key_field = id,
-    vector_fields = '{"vec":{"dims":63}}'
+    key_field = id
 );
-DROP TABLE q_below_floor;
+DROP TABLE q_default_below_floor;
 
 CREATE TABLE q_schedule_validation (id integer PRIMARY KEY, vec vector(64));
 CREATE INDEX q_too_many_layers_idx ON q_schedule_validation
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
     key_field = id,
-    vector_fields = '{"vec":{"dims":64,"quantization":{"layers":[1,1,1,1]}}}'
+    vector_fields = '{"vec":{"quantization":{"layers":[1,1,1,1]}}}'
 );
 CREATE INDEX q_grid_first_idx ON q_schedule_validation
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
     key_field = id,
-    vector_fields = '{"vec":{"dims":64,"quantization":{"layers":[4]}}}'
+    vector_fields = '{"vec":{"quantization":{"layers":[4]}}}'
 );
 DROP TABLE q_schedule_validation;
 
@@ -128,7 +127,6 @@ CREATE INDEX q_cosine_idx ON q_cosine
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
     key_field = id,
-    vector_fields = '{"vec":{"dims":768}}',
     centroid_ratio = 0.2,
     target_segment_count = 1,
     mutable_segment_rows = 0,
@@ -144,7 +142,6 @@ CREATE INDEX q_estimator_idx ON q_estimator
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
     key_field = id,
-    vector_fields = '{"vec":{"dims":768}}',
     centroid_ratio = 0.2,
     target_segment_count = 1,
     mutable_segment_rows = 0,
@@ -301,7 +298,7 @@ CREATE INDEX q_l2_idx ON q_l2
 USING paradedb (id, vec vector_l2_ops)
 WITH (
     key_field = id,
-    vector_fields = '{"vec":{"dims":768,"quantization":{"layers":[1,4]}}}',
+    vector_fields = '{"vec":{"quantization":{"layers":[1,4]}}}',
     target_segment_count = 1,
     mutable_segment_rows = 0,
     layer_sizes = '400kb',
@@ -329,7 +326,7 @@ CREATE INDEX q_odd_idx ON q_odd
 USING paradedb (id, vec vector_l2_ops)
 WITH (
     key_field = id,
-    vector_fields = '{"vec":{"dims":100,"quantization":{"layers":[1,4]}}}',
+    vector_fields = '{"vec":{"quantization":{"layers":[1,4]}}}',
     target_segment_count = 1,
     mutable_segment_rows = 0,
     layer_sizes = '50kb',

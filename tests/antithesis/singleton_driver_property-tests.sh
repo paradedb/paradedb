@@ -14,7 +14,7 @@ set -Eeuo pipefail
 
 export DATABASE_URL="postgresql://postgres:antithesis-super-secret-password@paradedb-rw:5432/paradedb"
 export PARADEDB_FORCE_PARALLEL=1
-# Hang detector for pathologically slow generated queries (issue #2733), not a fault-tolerance knob.
+# Hang detector for pathologically slow generated queries, not a fault-tolerance knob.
 export PARADEDB_QGEN_STATEMENT_TIMEOUT_MS="${PARADEDB_QGEN_STATEMENT_TIMEOUT_MS:-60000}"
 export PROPTEST_CASES="${PROPTEST_CASES:-128}"
 # Disable proptest's source-relative regression file persistence: the qgen

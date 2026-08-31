@@ -30,6 +30,7 @@ use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 pub use crate::scan::ScanInfo;
 use anyhow::anyhow;
+use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use pgrx::{PgList, pg_sys};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -685,6 +686,77 @@ pub enum JoinLevelExpr {
     },
 }
 
+impl JoinLevelExpr {
+    pub fn has_search_predicate(&self) -> bool {
+        match self {
+            Self::SingleTablePredicate { .. } => true,
+            Self::MultiTablePredicate { .. } => false,
+            Self::And(children) | Self::Or(children) => {
+                children.iter().any(|c| c.has_search_predicate())
+            }
+            Self::Not(inner) => inner.has_search_predicate(),
+            Self::MarkOrNull { .. } | Self::PgExpression { .. } => false,
+        }
+    }
+
+    pub fn offset_plan_positions(&mut self, offset: usize) {
+        if offset == 0 {
+            return;
+        }
+        match self {
+            Self::SingleTablePredicate { plan_position, .. } => {
+                *plan_position += offset;
+            }
+            Self::MultiTablePredicate { .. } => {}
+            Self::And(children) | Self::Or(children) => {
+                for c in children {
+                    c.offset_plan_positions(offset);
+                }
+            }
+            Self::Not(inner) => inner.offset_plan_positions(offset),
+            Self::MarkOrNull { .. } | Self::PgExpression { .. } => {}
+        }
+    }
+
+    pub fn offset_predicate_indices(&mut self, offset: usize) {
+        if offset == 0 {
+            return;
+        }
+        match self {
+            Self::SingleTablePredicate { predicate_idx, .. } => {
+                *predicate_idx += offset;
+            }
+            Self::MultiTablePredicate { .. } => {}
+            Self::And(children) | Self::Or(children) => {
+                for c in children {
+                    c.offset_predicate_indices(offset);
+                }
+            }
+            Self::Not(inner) => inner.offset_predicate_indices(offset),
+            Self::MarkOrNull { .. } | Self::PgExpression { .. } => {}
+        }
+    }
+
+    pub fn offset_multi_table_predicate_indices(&mut self, offset: usize) {
+        if offset == 0 {
+            return;
+        }
+        match self {
+            Self::SingleTablePredicate { .. } => {}
+            Self::MultiTablePredicate { predicate_idx } => {
+                *predicate_idx += offset;
+            }
+            Self::And(children) | Self::Or(children) => {
+                for c in children {
+                    c.offset_multi_table_predicate_indices(offset);
+                }
+            }
+            Self::Not(inner) => inner.offset_multi_table_predicate_indices(offset),
+            Self::MarkOrNull { .. } | Self::PgExpression { .. } => {}
+        }
+    }
+}
+
 /// A node in the intermediate relational plan tree.
 ///
 /// `RelNode` serves as the Intermediate Representation (IR) between PostgreSQL's C-based
@@ -774,17 +846,150 @@ pub struct FilterNode {
 
 type JoinKeySide<'a> = (&'a JoinSource, pg_sys::AttrNumber);
 
-// TODO: Implement `datafusion::common::tree_node::TreeNode` for `RelNode`.
-// This trait will likely be implemented in a future patch to enable functional, boilerplate-free
-// tree rewrites (using `.transform_up()` and `.transform_down()`). This is specifically
-// useful for hoisting PostgreSQL subqueries (like `InitPlan`s temporarily stored inside
-// expressions) into relational `SemiJoin` or `AntiJoin` nodes in the IR tree.
+// `RelNode` implements DataFusion's `TreeNode` trait to enable functional, boilerplate-free
+// tree walks and rewrites (`.apply()`, `.exists()`, `.transform_up()`, `.transform_down()`).
+//
+// TODO: Consider migrating additional manual tree-walking operations (such as
+// `rewrite_pruned_join_keys`, `output_sources`, or subquery lifting) to use `TreeNode`
+// methods.
+impl TreeNode for RelNode {
+    fn apply_children<'n, F: FnMut(&'n Self) -> datafusion::common::Result<TreeNodeRecursion>>(
+        &'n self,
+        mut f: F,
+    ) -> datafusion::common::Result<TreeNodeRecursion> {
+        match self {
+            Self::Scan(_) => Ok(TreeNodeRecursion::Continue),
+            Self::Filter(filter) => f(&filter.input),
+            Self::Join(join) => f(&join.left)?.visit_sibling(|| f(&join.right)),
+        }
+    }
+
+    fn map_children<F: FnMut(Self) -> datafusion::common::Result<Transformed<Self>>>(
+        self,
+        mut f: F,
+    ) -> datafusion::common::Result<Transformed<Self>> {
+        match self {
+            Self::Scan(_) => Ok(Transformed::no(self)),
+            Self::Filter(filter) => {
+                let FilterNode { input, predicate } = *filter;
+                let input = f(input)?;
+                Ok(input
+                    .update_data(|input| Self::Filter(Box::new(FilterNode { input, predicate }))))
+            }
+            Self::Join(mut join) => {
+                let left = f(join.left)?;
+                let right = f(join.right)?;
+                let transformed = left.transformed || right.transformed;
+                let tnr = left.tnr.visit_sibling(|| Ok(right.tnr))?;
+                join.left = left.data;
+                join.right = right.data;
+                Ok(Transformed::new(Self::Join(join), transformed, tnr))
+            }
+        }
+    }
+}
 
 impl RelNode {
+    /// Returns true if this node or any subtree contains a search predicate.
+    pub fn has_search_predicate(&self) -> bool {
+        self.exists(|node| {
+            let has = match node {
+                Self::Scan(s) => s.has_search_predicate(),
+                Self::Filter(f) => f.predicate.has_search_predicate(),
+                Self::Join(j) => {
+                    !j.absorbed_search_clauses.is_empty()
+                        || j.filter.as_ref().is_some_and(|f| f.has_search_predicate())
+                }
+            };
+            Ok(has)
+        })
+        .unwrap_or(false)
+    }
+
+    /// Offset plan_position on all SingleTablePredicate expressions in this tree.
+    pub fn offset_plan_positions(self, offset: usize) -> Self {
+        if offset == 0 {
+            return self;
+        }
+        self.transform_down(|mut node| {
+            match &mut node {
+                Self::Scan(_) => {}
+                Self::Filter(f) => f.predicate.offset_plan_positions(offset),
+                Self::Join(j) => {
+                    if let Some(ref mut filter) = j.filter {
+                        filter.offset_plan_positions(offset);
+                    }
+                }
+            }
+            Ok(Transformed::yes(node))
+        })
+        .expect("infallible tree transformation")
+        .data
+    }
+
+    /// Offset predicate_idx on all SingleTablePredicate expressions in this tree.
+    pub fn offset_predicate_indices(self, offset: usize) -> Self {
+        if offset == 0 {
+            return self;
+        }
+        self.transform_down(|mut node| {
+            match &mut node {
+                Self::Scan(_) => {}
+                Self::Filter(f) => f.predicate.offset_predicate_indices(offset),
+                Self::Join(j) => {
+                    if let Some(ref mut filter) = j.filter {
+                        filter.offset_predicate_indices(offset);
+                    }
+                }
+            }
+            Ok(Transformed::yes(node))
+        })
+        .expect("infallible tree transformation")
+        .data
+    }
+
+    /// Offset predicate_idx on all MultiTablePredicate expressions in this tree.
+    pub fn offset_multi_table_predicate_indices(self, offset: usize) -> Self {
+        if offset == 0 {
+            return self;
+        }
+        self.transform_down(|mut node| {
+            match &mut node {
+                Self::Scan(_) => {}
+                Self::Filter(f) => f.predicate.offset_multi_table_predicate_indices(offset),
+                Self::Join(j) => {
+                    if let Some(ref mut filter) = j.filter {
+                        filter.offset_multi_table_predicate_indices(offset);
+                    }
+                }
+            }
+            Ok(Transformed::yes(node))
+        })
+        .expect("infallible tree transformation")
+        .data
+    }
+
     /// Recursively collects all unsupported join types found in the tree.
     pub fn unsupported_join_types(&self) -> Vec<JoinType> {
         let mut unsupported = Vec::new();
-        self.collect_unsupported_join_types(&mut unsupported);
+        let _ = self.apply(|node| {
+            if let Self::Join(j) = node
+                && !matches!(
+                    j.join_type,
+                    JoinType::Inner
+                        | JoinType::Left
+                        | JoinType::Right
+                        | JoinType::Full
+                        | JoinType::Semi
+                        | JoinType::Anti { .. }
+                        | JoinType::LeftMark
+                        | JoinType::RightMark
+                )
+            {
+                unsupported.push(j.join_type);
+            }
+            Ok(TreeNodeRecursion::Continue)
+        });
         unsupported.sort_by_key(|t| t.to_string());
         unsupported.dedup_by_key(|t| t.to_string());
         unsupported
@@ -866,52 +1071,25 @@ impl RelNode {
 
     /// Returns true if the query tree contains a SEMI or ANTI join at any level.
     pub fn has_semi_or_anti(&self) -> bool {
-        match self {
-            RelNode::Scan(_) => false,
-            RelNode::Join(j) => {
-                matches!(
-                    j.join_type,
-                    JoinType::Semi
-                        | JoinType::Anti { .. }
-                        | JoinType::LeftMark
-                        | JoinType::RightMark
-                ) || j.left.has_semi_or_anti()
-                    || j.right.has_semi_or_anti()
-            }
-            RelNode::Filter(f) => f.input.has_semi_or_anti(),
-        }
-    }
-
-    fn collect_unsupported_join_types(&self, acc: &mut Vec<JoinType>) {
-        match self {
-            RelNode::Scan(_) => {}
-            RelNode::Join(j) => {
-                if !matches!(
-                    j.join_type,
-                    JoinType::Inner
-                        | JoinType::Left
-                        | JoinType::Right
-                        | JoinType::Full
-                        | JoinType::Semi
-                        | JoinType::Anti { .. }
-                        | JoinType::LeftMark
-                        | JoinType::RightMark
-                ) {
-                    acc.push(j.join_type);
-                }
-                j.left.collect_unsupported_join_types(acc);
-                j.right.collect_unsupported_join_types(acc);
-            }
-            RelNode::Filter(f) => f.input.collect_unsupported_join_types(acc),
-        }
+        self.exists(|node| {
+            Ok(matches!(
+                node,
+                RelNode::Join(j)
+                    if matches!(
+                        j.join_type,
+                        JoinType::Semi
+                            | JoinType::Anti { .. }
+                            | JoinType::LeftMark
+                            | JoinType::RightMark
+                    )
+            ))
+        })
+        .unwrap_or(false)
     }
 
     pub fn contains_rti(&self, rti: pg_sys::Index) -> bool {
-        match self {
-            RelNode::Scan(s) => s.scan_info.heap_rti == rti,
-            RelNode::Join(j) => j.left.contains_rti(rti) || j.right.contains_rti(rti),
-            RelNode::Filter(f) => f.input.contains_rti(rti),
-        }
+        self.exists(|node| Ok(matches!(node, RelNode::Scan(s) if s.scan_info.heap_rti == rti)))
+            .unwrap_or(false)
     }
 
     pub fn source_for_rti_in_subtree(&self, rti: pg_sys::Index) -> Option<&JoinSource> {
@@ -971,19 +1149,13 @@ impl RelNode {
     /// Recursively collects all base join sources from this tree.
     pub fn sources(&self) -> Vec<&JoinSource> {
         let mut result = Vec::new();
-        self.collect_sources(&mut result);
-        result
-    }
-
-    fn collect_sources<'a>(&'a self, acc: &mut Vec<&'a JoinSource>) {
-        match self {
-            RelNode::Scan(s) => acc.push(&**s),
-            RelNode::Join(j) => {
-                j.left.collect_sources(acc);
-                j.right.collect_sources(acc);
+        let _ = self.apply(|node| {
+            if let RelNode::Scan(s) = node {
+                result.push(&**s);
             }
-            RelNode::Filter(f) => f.input.collect_sources(acc),
-        }
+            Ok(TreeNodeRecursion::Continue)
+        });
+        result
     }
 
     /// Recursively collects all mutable base join sources from this tree.

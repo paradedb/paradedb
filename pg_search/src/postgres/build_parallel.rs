@@ -1793,7 +1793,7 @@ mod tests {
         ))
         .unwrap();
         Spi::run(
-            "CREATE INDEX exact_cap_multiple_idx ON exact_cap_multiple USING paradedb (id, emb vector_cosine_ops) WITH (key_field = 'id', target_segment_count = 1);",
+            r#"CREATE INDEX exact_cap_multiple_idx ON exact_cap_multiple USING paradedb (id, emb vector_cosine_ops) WITH (key_field = 'id', target_segment_count = 1, vector_fields = '{"emb":{"dims":8,"quantization":false}}');"#,
         )
         .unwrap();
 
@@ -2268,7 +2268,7 @@ mod tests {
         .unwrap();
         Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
         Spi::run(
-            "CREATE INDEX partitioned_passes_idx ON partitioned_passes USING paradedb (id, tenant_id, emb vector_cosine_ops) WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 1);",
+            r#"CREATE INDEX partitioned_passes_idx ON partitioned_passes USING paradedb (id, tenant_id, emb vector_cosine_ops) WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 1, vector_fields = '{"emb":{"dims":8,"quantization":false}}');"#,
         )
         .unwrap();
 

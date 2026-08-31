@@ -26,6 +26,11 @@ IGNORED_CODEGROUPS = {
     # snippet harness fixtures.
     "documentation__filtering__external-indexes__group-001",
 }
+IGNORED_TARGETS = {
+    # These released clients cannot disable quantization for the shared vector(8) fixture.
+    "documentation__indexing__indexing-vectors__group-001": {"django", "rails"},
+    "documentation__indexing__indexing-vectors__group-003": {"django", "rails"},
+}
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent
 DOCS_ROOT = REPO_ROOT / "docs"
@@ -93,7 +98,7 @@ def process_doc(doc: Path, output_dirs: dict[str, Path]) -> None:
 
         snippets = extract_snippets(codegroup)
         for target, suffix in TARGET_SUFFIXES.items():
-            if target not in snippets:
+            if target not in snippets or target in IGNORED_TARGETS.get(group_name, set()):
                 continue
             snippet_path = output_dirs[target] / f"{group_name}.{suffix}"
             snippet_path.write_text(snippets[target])

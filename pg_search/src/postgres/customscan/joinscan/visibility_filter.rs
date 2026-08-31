@@ -1652,14 +1652,8 @@ mod tests {
 
         let rule = VisibilityFilterOptimizerRule::new();
 
-        // A reduction below each scan makes deferral beneficial; without it the
-        // rule leaves both sides eager and injects nothing.
-        let left = LogicalPlanBuilder::from(make_ctid_plan(POS_A, oid_a, Some("a"))?)
-            .filter(col(CtidColumn::new(POS_A).to_string()).gt(datafusion::logical_expr::lit(10)))?
-            .build()?;
-        let right = LogicalPlanBuilder::from(make_ctid_plan(POS_B, oid_b, Some("b"))?)
-            .filter(col(CtidColumn::new(POS_B).to_string()).gt(datafusion::logical_expr::lit(10)))?
-            .build()?;
+        let left = make_ctid_plan(POS_A, oid_a, Some("a"))?;
+        let right = make_ctid_plan(POS_B, oid_b, Some("b"))?;
 
         let plan = LogicalPlanBuilder::from(left)
             .join_on(

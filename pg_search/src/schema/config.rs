@@ -118,8 +118,8 @@ pub enum SearchFieldConfig {
 }
 
 /// SQL-facing opt-in for one vector field's residual quantization schedule.
-/// `true` selects the v1 default `[1, 4]`; an explicit object preserves the
-/// caller's layer ordering.
+/// `true` selects `[1, 4]`; an explicit object preserves the caller's layer
+/// ordering.
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum VectorQuantizationConfig {
@@ -145,8 +145,8 @@ impl VectorQuantizationConfig {
         let Some(layers) = self.layers() else {
             return Ok(());
         };
-        if !(1..=4).contains(&layers.len()) {
-            anyhow::bail!("quantization layer count {} must be in 1..=4", layers.len());
+        if !(1..=3).contains(&layers.len()) {
+            anyhow::bail!("quantization layer count {} must be in 1..=3", layers.len());
         }
         for (layer, bits) in layers.into_iter().enumerate() {
             if !(1..=4).contains(&bits) {
@@ -161,10 +161,12 @@ impl VectorQuantizationConfig {
 
 impl SearchFieldConfig {
     pub fn set_normalizer(&mut self, normalizer: Option<SearchNormalizer>) {
-        if let Some(new_normalizer) = normalizer {
+        if let Some(replacement_normalizer) = normalizer {
             match self {
                 SearchFieldConfig::Text { normalizer, .. }
-                | SearchFieldConfig::Json { normalizer, .. } => *normalizer = new_normalizer,
+                | SearchFieldConfig::Json { normalizer, .. } => {
+                    *normalizer = replacement_normalizer
+                }
                 _ => {}
             }
         }
@@ -677,14 +679,14 @@ mod tests {
 
         let explicit = SearchFieldConfig::vector_from_json(json!({
             "dims": 768,
-            "quantization": { "layers": [4, 1, 3] }
+            "quantization": { "layers": [1, 4, 3] }
         }))
         .unwrap();
-        assert_eq!(explicit.quantization_layers(), Some(vec![4, 1, 3]));
+        assert_eq!(explicit.quantization_layers(), Some(vec![1, 4, 3]));
     }
 
     #[test]
-    fn vector_quantization_rejects_invalid_layer_bounds() {
+    fn vector_quantization_validates_layer_count_width_and_order() {
         let disabled = SearchFieldConfig::vector_from_json(json!({
             "dims": 768,
             "quantization": false
@@ -694,14 +696,21 @@ mod tests {
 
         let too_many = SearchFieldConfig::vector_from_json(json!({
             "dims": 768,
-            "quantization": { "layers": [1, 1, 1, 1, 1] }
+            "quantization": { "layers": [1, 1, 1, 1] }
         }))
         .unwrap_err();
         assert!(
             too_many
                 .to_string()
-                .contains("layer count 5 must be in 1..=4")
+                .contains("layer count 4 must be in 1..=3")
         );
+
+        let grid_first = SearchFieldConfig::vector_from_json(json!({
+            "dims": 768,
+            "quantization": { "layers": [4, 1] }
+        }))
+        .unwrap();
+        assert_eq!(grid_first.quantization_layers(), Some(vec![4, 1]));
 
         let wide = SearchFieldConfig::vector_from_json(json!({
             "dims": 768,

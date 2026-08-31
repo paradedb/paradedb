@@ -1,4 +1,4 @@
--- End-to-end SQL proof for the V3 quantized vector path. The clustering
+-- End-to-end SQL proof for the quantized vector path. The clustering
 -- threshold is captured at CREATE INDEX, so a small deterministic fixture can
 -- cross the flat/IVF boundary without making the regression test enormous.
 SET client_min_messages = WARNING;
@@ -32,9 +32,9 @@ BEGIN
 END
 $$;
 
--- Relation-shape diagnostics are deterministic and run before any calibration
--- state exists. Partition parents name every child index and direct callers to
--- calibrate the physical children independently.
+-- Relation-shape diagnostics are deterministic. Partition parents name every
+-- child index and direct callers to calibrate the physical children
+-- independently.
 CREATE TABLE q_cal_parent (id integer, vec vector(64)) PARTITION BY RANGE (id);
 CREATE TABLE q_cal_parent_low PARTITION OF q_cal_parent
     FOR VALUES FROM (MINVALUE) TO (0);
@@ -97,8 +97,23 @@ WITH (
 );
 DROP TABLE q_below_floor;
 
+CREATE TABLE q_schedule_validation (id integer PRIMARY KEY, vec vector(64));
+CREATE INDEX q_too_many_layers_idx ON q_schedule_validation
+USING paradedb (id, vec vector_cosine_ops)
+WITH (
+    key_field = id,
+    vector_fields = '{"vec":{"dims":64,"quantization":{"layers":[1,1,1,1]}}}'
+);
+CREATE INDEX q_grid_first_idx ON q_schedule_validation
+USING paradedb (id, vec vector_cosine_ops)
+WITH (
+    key_field = id,
+    vector_fields = '{"vec":{"dims":64,"quantization":{"layers":[4]}}}'
+);
+DROP TABLE q_schedule_validation;
+
 -- d=768 cosine, using the SQL shorthand for the default [1,4] schedule. Forty
--- centroids keep the 25% Gate-C probe non-exhaustive despite the 16-work-unit
+-- centroids keep the 25% level-zero probe non-exhaustive despite the 16-work-unit
 -- small-segment probe floor.
 CREATE TABLE q_cosine (id integer PRIMARY KEY, vec vector(768));
 CREATE INDEX q_cosine_idx ON q_cosine
@@ -119,12 +134,12 @@ VACUUM q_cosine;
 SELECT bool_or(vector_format = 'ivf') AS cosine_has_ivf
 FROM paradedb.vector_info('q_cosine_idx', 'vec');
 
--- The gamma audit requires the fixed 100-query cross-product protocol,
+-- The exact-E audit requires the fixed 100-query protocol,
 -- reports both real-query and held-out sources, and is read-only. Calibration
--- metadata is diagnostic-only under R1, so its presence or absence never
+-- metadata is diagnostic-only, so its presence or absence never
 -- selects the quantized scorer.
 SELECT count(*)
-FROM paradedb.vector_gamma_audit(
+FROM paradedb.vector_error_audit(
     'q_cosine_idx',
     'vec',
     ARRAY(
@@ -135,7 +150,7 @@ FROM paradedb.vector_gamma_audit(
 
 WITH audit AS MATERIALIZED (
     SELECT *
-    FROM paradedb.vector_gamma_audit(
+    FROM paradedb.vector_error_audit(
         'q_cosine_idx',
         'vec',
         ARRAY(
@@ -145,46 +160,62 @@ WITH audit AS MATERIALIZED (
     )
 )
 SELECT
-    count(*) = 4 AS gamma_two_sources_two_depths,
-    array_agg(DISTINCT depth ORDER BY depth) = ARRAY[1, 2] AS gamma_depths,
+    count(*) = 4 AS exact_e_two_sources_two_depths,
+    array_agg(DISTINCT depth ORDER BY depth) = ARRAY[1, 2] AS exact_e_depths,
     array_agg(DISTINCT source ORDER BY source)
-        = ARRAY['held_out', 'real_query'] AS gamma_sources,
+        = ARRAY['held_out', 'real_query'] AS exact_e_sources,
     bool_and(
         protocol = CASE source
-            WHEN 'held_out' THEN 'H1_HELD_OUT_CROSS_PRODUCT_BQ4'
-            WHEN 'real_query' THEN 'Q1_REAL_CROSS_PRODUCT_BQ4'
+            WHEN 'held_out' THEN 'HELD_OUT_EXACT_E_BQ4'
+            WHEN 'real_query' THEN 'REAL_QUERY_EXACT_E_BQ4'
         END
-    ) AS gamma_protocols,
+    ) AS exact_e_protocols,
     bool_and(
         sample_count > 0
+        AND residual_norm_squared_sample_count > 0
         AND gamma_sample_count > 0
-        AND f16_band_error_sample_count > 0
-        AND clamp_band_error_sample_count > 0
-        AND orthogonality_sample_count > 0
+        AND corrected_error_ratio_sample_count > 0
+        AND sigma_sample_count > 0
+        AND (gamma_diagnostics->'stored'->>'sample_count')::bigint = gamma_sample_count
+        AND (gamma_diagnostics->'raw'->>'sample_count')::bigint > 0
+        AND (gamma_diagnostics->'round_trip_band_error'->>'sample_count')::bigint > 0
         AND spread >= 0
-    ) AS gamma_samples,
+    ) AS exact_e_samples,
     bool_and(
-        gamma_min <= gamma_p50
-        AND gamma_p50 <= gamma_p95
+        residual_norm_squared_mean >= 0
+        AND residual_norm_squared_p95 <= residual_norm_squared_p99
+        AND residual_norm_squared_p99 <= residual_norm_squared_max
         AND gamma_p95 <= gamma_p99
         AND gamma_p99 <= gamma_max
-        AND f16_band_error_abs_p99 <= f16_band_error_abs_max
-        AND clamp_band_error_abs_p99 <= clamp_band_error_abs_max
-        AND orthogonality_abs_p99 <= orthogonality_abs_max
-    ) AS gamma_distributions,
-    bool_and(
-        zero_count BETWEEN 0 AND gamma_sample_count
-        AND clamp_count BETWEEN 0 AND gamma_sample_count
-    ) AS gamma_counts
+        AND (gamma_diagnostics->'stored'->>'min')::double precision
+            <= (gamma_diagnostics->'stored'->>'p50')::double precision
+        AND (gamma_diagnostics->'stored'->>'p50')::double precision
+            <= (gamma_diagnostics->'stored'->>'p95')::double precision
+        AND (gamma_diagnostics->'raw'->>'min')::double precision
+            <= (gamma_diagnostics->'raw'->>'p50')::double precision
+        AND (gamma_diagnostics->'raw'->>'p50')::double precision
+            <= (gamma_diagnostics->'raw'->>'p95')::double precision
+        AND (gamma_diagnostics->>'zero_scale_count')::bigint BETWEEN 0 AND gamma_sample_count
+        AND (gamma_diagnostics->>'lower_clamp_count')::bigint BETWEEN 0 AND gamma_sample_count
+        AND (gamma_diagnostics->>'upper_clamp_count')::bigint BETWEEN 0 AND gamma_sample_count
+        AND (gamma_diagnostics->'round_trip_band_error'->>'p99_abs')::double precision
+            <= (gamma_diagnostics->'round_trip_band_error'->>'max_abs')::double precision
+        AND corrected_error_ratio_mean >= 0
+        AND corrected_error_ratio_p95 <= corrected_error_ratio_p99
+        AND corrected_error_ratio_p99 <= corrected_error_ratio_max
+        AND sigma_mean >= 0
+        AND sigma_p95 <= sigma_p99
+        AND sigma_p99 <= sigma_max
+    ) AS exact_e_distributions
 FROM audit;
 
 -- The cone audit is a separate, read-only diagnostic of the shipped
--- analytical bands: all clusters are admitted, estimates are gamma-corrected
--- with zero centering, and the fixed k=10, kappa=(2,4) protocol runs on
+-- analytical bands: all clusters are admitted, estimates use stored exact-E
+-- with zero centering, and the fixed k=10, uniform kappa=2 protocol runs on
 -- exactly 100 external queries.
 WITH cone AS MATERIALIZED (
     SELECT *
-    FROM paradedb.vector_gamma_cone_audit(
+    FROM paradedb.vector_error_cone_audit(
         'q_cosine_idx',
         'vec',
         ARRAY(
@@ -196,9 +227,9 @@ WITH cone AS MATERIALIZED (
 SELECT
     count(*) = 2 AS cone_two_depths,
     array_agg(depth ORDER BY depth) = ARRAY[1, 2] AS cone_depths,
-    array_agg(kappa ORDER BY depth) = ARRAY[2.0::real, 4.0::real] AS cone_kappas,
+    array_agg(kappa ORDER BY depth) = ARRAY[2.0::real, 2.0::real] AS cone_kappas,
     bool_and(
-        protocol = 'C1_ALL_CLUSTERS_GAMMA_CONE_K10_K2_K4'
+        protocol = 'ALL_CLUSTERS_EXACT_E_CONE_K10_KAPPA2'
         AND query_count = 100
         AND top_k = 10
     ) AS cone_protocol,
@@ -213,9 +244,9 @@ SELECT
     count(*) FILTER (WHERE final_depth) = 1 AS cone_one_final_depth
 FROM cone;
 
--- Save the level-0 oracle before diagnostic calibration. A fractional probe
--- budget makes this the unquantized-IVF baseline, not an exhaustive scan; the
--- later level-0 query must preserve its result order and exact scores.
+-- Save the level-0 oracle before diagnostic metadata is written. A fractional
+-- probe budget makes this the unquantized-IVF baseline, not an exhaustive scan;
+-- the later level-0 query must preserve its result order and exact scores.
 SET paradedb.vector_cluster_max_probe = 0.25;
 CREATE TEMP TABLE q_cosine_unquantized_ivf AS
 SELECT
@@ -230,9 +261,9 @@ FROM (
     LIMIT 10
 ) hits;
 
--- Diagnostic calibration is not a scorer prerequisite. Before any
--- vector_calibrate call, the positive-depth query must already use the
--- quantized layers rather than routed full-precision fallback.
+-- Diagnostic metadata is not a scorer prerequisite. Without it, the
+-- positive-depth query must already use the quantized layers rather than
+-- routed full-precision fallback.
 WITH plan AS (
     SELECT quant_explain(
         'SELECT id FROM q_cosine WHERE id @@@ pdb.all() '
@@ -244,9 +275,9 @@ WITH plan AS (
 )
 SELECT
     (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint > 0
-        AS uncalibrated_uses_quantized_layers,
+        AS diagnostics_absent_uses_quantized_layers,
     jsonb_path_query_first(value, '$.**.exact_scan_ns') IS NULL
-        AS uncalibrated_skips_ivf_exact
+        AS diagnostics_absent_skips_ivf_exact
 FROM segment_info;
 SET paradedb.vector_cluster_max_probe = 1.0;
 
@@ -419,7 +450,7 @@ WITH (
 INSERT INTO q_flat SELECT g, quant_fixture_vector(100, g) FROM generate_series(1, 32) g;
 
 -- Prefix depth zero disables quantized scoring but keeps the same IVF routing
--- and work budget. Use the same fractional probe as the saved uncalibrated
+-- and work budget. Use the same fractional probe as the saved unquantized-IVF
 -- baseline so order, ids, and exact scores can be compared directly.
 SET paradedb.max_scan_levels = 0;
 SET paradedb.vector_cluster_max_probe = 0.25;
@@ -441,7 +472,7 @@ SELECT
     count(*) = 10
         AND bool_and(baseline.id IS NOT DISTINCT FROM lvl0.id)
         AND bool_and(baseline.distance IS NOT DISTINCT FROM lvl0.distance)
-        AS lvl0_matches_uncalibrated_ivf
+        AS lvl0_matches_unquantized_ivf
 FROM q_cosine_unquantized_ivf baseline
 FULL JOIN q_cosine_lvl0 lvl0 USING (ordinal);
 

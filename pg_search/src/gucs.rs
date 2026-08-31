@@ -268,9 +268,10 @@ pub fn vector_fixed_probe_cost_rows() -> f64 {
 }
 
 /// Prefix of the field's built quantization schedule used by vector scans.
-/// Four means "all built layers" because V3 permits at most four.
+/// Three means "all built layers" because quantized schedules contain at most
+/// three layers.
 /// 0 disables quantized scoring; routing and the probe budget still apply.
-static VECTOR_MAX_SCAN_LEVELS: GucSetting<i32> = GucSetting::<i32>::new(4);
+static VECTOR_MAX_SCAN_LEVELS: GucSetting<i32> = GucSetting::<i32>::new(3);
 
 pub fn vector_max_scan_levels() -> usize {
     VECTOR_MAX_SCAN_LEVELS.get().max(0) as usize
@@ -535,7 +536,7 @@ pub fn init() {
         c"Uses a prefix of the quantization schedule built for the vector field. Values above the built layer count clamp to that count. 0 disables quantized scoring; routing and the probe budget still apply.",
         &VECTOR_MAX_SCAN_LEVELS,
         0,
-        4,
+        3,
         GucContext::Userset,
         GucFlags::default(),
     );

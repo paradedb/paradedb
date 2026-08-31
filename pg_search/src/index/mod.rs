@@ -34,7 +34,7 @@ use rand::{TryRng, rngs::SysRng};
 use tantivy::IndexSettings;
 use tantivy::columnar::CodecType;
 use tantivy::schema::FieldType;
-use tantivy::vector::{VectorQuantizationConfig, VectorQuantizationLayer, VectorQuantizer};
+use tantivy::vector::{VectorQuantizationConfig, VectorQuantizationLayer};
 
 /// The [`IndexSettings`] used for every tantivy index pg_search creates.
 ///
@@ -64,11 +64,7 @@ pub fn index_settings(
                 let seed = os_rng
                     .try_next_u64()
                     .context("failed to obtain an operating-system random quantization seed")?;
-                Ok(VectorQuantizationLayer {
-                    bits,
-                    quantizer: VectorQuantizer::inferred(bits),
-                    seed,
-                })
+                Ok(VectorQuantizationLayer { bits, seed })
             })
             .collect::<Result<Vec<_>>>()?;
         vector_quantization.push(VectorQuantizationConfig::materialize(

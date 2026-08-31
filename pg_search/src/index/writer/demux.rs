@@ -65,13 +65,15 @@ pub(crate) fn demux_merge(
     segment_ids: &[SegmentId],
     target_partitions: usize,
 ) -> Result<Vec<SegmentMeta>> {
-    let dims = indexrel.options().partition_by();
-    if dims.is_empty() {
+    if indexrel.options().partition_by().is_empty() {
         bail!("demux_merge requires an index with `partition_by`");
     }
     if segment_ids.is_empty() {
         return Ok(Vec::new());
     }
+
+    let schema = indexrel.schema()?;
+    let dims = routable_dims(schema.tantivy_schema(), &indexrel.options().partition_by())?;
 
     let directory = MvccSatisfies::Mergeable.directory(indexrel);
     let index = Index::open(directory.clone())?;
@@ -81,7 +83,6 @@ pub(crate) fn demux_merge(
         .map(SegmentReader::open)
         .collect::<tantivy::Result<Vec<_>>>()?;
 
-    let schema = indexrel.schema()?;
     let field_types = dims
         .iter()
         .map(|dim| schema.search_field(dim).map(|field| field.field_type()))
@@ -130,53 +131,60 @@ pub(crate) fn demux_merge(
     Ok(written)
 }
 
-/// Whether `dims` can be routed on `schema`: `Ok(false)` when there is no `partition_by` at
-/// all, and an error naming the first dimension that cannot be served. Every dimension must
-/// have a fast column to read the routes from, and must keep a box on the output (see
-/// [`stats::logical_bounds_hold`]): without the first there are no values to route on, and
-/// without the second the outputs would come back as candidates forever.
+/// The `partition_by` dimensions a demux can route on: the ones with a fast column to read
+/// the routes from, that keep a box on the output (see [`stats::logical_bounds_hold`]). The
+/// build reads raw heap values, so it can cut on any dimension; a demux reads the fast
+/// columns, so it routes on this subset, exactly the dimensions whose boxes survive either
+/// way.
 ///
-/// The build refuses an index this errors on, and `ALTER INDEX` refuses to change
-/// `partition_by`, so only an index from before those checks can carry an unroutable key.
-/// Its merges decline instead of failing the `INSERT` or `VACUUM` they run under.
-pub(crate) fn routable(schema: &Schema, dims: &[FieldName]) -> Result<bool> {
+/// An empty result is an error, since nothing could ever route such an index: the build
+/// refuses to create it, and `ALTER INDEX` refuses to change `partition_by`, so only an index
+/// from before those checks can carry one. Its merges decline instead of failing the
+/// `INSERT` or `VACUUM` they run under.
+pub(crate) fn routable_dims(schema: &Schema, dims: &[FieldName]) -> Result<Vec<FieldName>> {
     if dims.is_empty() {
-        return Ok(false);
+        return Ok(Vec::new());
     }
-    for dim in dims {
-        let Ok(field) = schema.get_field(dim.as_ref()) else {
-            bail!("`{dim}` cannot be used in `partition_by` because it is not in the index");
-        };
-        let fast = match schema.get_field_entry(field).field_type() {
-            FieldType::Str(options) => options.get_fast_field_tokenizer_name().is_some(),
-            FieldType::U64(options) | FieldType::I64(options) | FieldType::F64(options) => {
-                options.is_fast()
-            }
-            FieldType::Bool(options) => options.is_fast(),
-            FieldType::Date(options) => options.is_fast(),
-            FieldType::Bytes(options) => options.is_fast(),
-            _ => false,
-        };
-        if !fast || !stats::logical_bounds_hold(schema, field) {
-            bail!(
-                "`{dim}` cannot be used in `partition_by` because it does not have a fast column in raw order"
-            );
-        }
+    let routable = dims
+        .iter()
+        .filter(|dim| {
+            let Ok(field) = schema.get_field(dim.as_ref()) else {
+                return false;
+            };
+            let fast = match schema.get_field_entry(field).field_type() {
+                FieldType::Str(options) => options.get_fast_field_tokenizer_name().is_some(),
+                FieldType::U64(options) | FieldType::I64(options) | FieldType::F64(options) => {
+                    options.is_fast()
+                }
+                FieldType::Bool(options) => options.is_fast(),
+                FieldType::Date(options) => options.is_fast(),
+                FieldType::Bytes(options) => options.is_fast(),
+                _ => false,
+            };
+            fast && stats::logical_bounds_hold(schema, field)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if routable.is_empty() {
+        bail!(
+            "`{}` cannot be used in `partition_by` because it does not have a fast column in raw order",
+            dims[0]
+        );
     }
-    Ok(true)
+    Ok(routable)
 }
 
 /// The mergeable segments of `indexrel` that carry no box, so nothing routed them.
 ///
 /// A build stamps every segment it writes. A segment without a box came in afterwards, through
-/// an `INSERT` or a merge that could not prove one. An index that is not [`routable`] reports
+/// an `INSERT` or a merge that could not prove one. An index with no [`routable_dims`] reports
 /// no unrouted segments, so its merges stay ordinary.
 pub(crate) fn unrouted_segments(indexrel: &PgSearchRelation) -> Result<HashSet<SegmentId>> {
-    let dims = indexrel.options().partition_by();
     let index_schema = indexrel.schema()?;
-    if !routable(index_schema.tantivy_schema(), &dims)? {
-        return Ok(HashSet::default());
-    }
+    let dims = routable_dims(
+        index_schema.tantivy_schema(),
+        &indexrel.options().partition_by(),
+    )?;
     let Some(dim) = dims.first() else {
         return Ok(HashSet::default());
     };
@@ -219,10 +227,12 @@ pub(crate) unsafe fn route_index(
     target_partitions: usize,
 ) -> Result<Vec<SegmentMeta>> {
     let index_schema = indexrel.schema()?;
-    if !routable(
+    if routable_dims(
         index_schema.tantivy_schema(),
         &indexrel.options().partition_by(),
-    )? {
+    )?
+    .is_empty()
+    {
         return Ok(Vec::new());
     }
     drop(index_schema);
@@ -657,6 +667,46 @@ mod tests {
             "#,
         )
         .unwrap();
+    }
+
+    /// The build cuts on raw heap values, so it can partition on a plain text dimension; a
+    /// demux reads the fast columns, so it routes on the dimensions that have one. The
+    /// routable dimension keeps its split points either way.
+    #[pg_test]
+    fn a_rewrite_routes_on_the_dims_it_can_read() {
+        Spi::run(
+            r#"
+            CREATE TABLE demux_subset (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            SET paradedb.global_mutable_segment_rows = 0;
+            CREATE INDEX demux_subset_idx ON demux_subset USING bm25 (id, tenant_id, name)
+                WITH (key_field = 'id', partition_by = 'tenant_id, name', target_segment_count = 4,
+                      numeric_fields = '{"tenant_id": {"fast": true}}');
+            INSERT INTO demux_subset (tenant_id, name)
+            SELECT (i * 7919) % 100, 'lorem ipsum ' || i FROM generate_series(1, 4000) i;
+            "#,
+        )
+        .unwrap();
+
+        let indexrel = open_index("demux_subset_idx");
+        let written = unsafe { super::route_index(&indexrel, 4) }.unwrap();
+        assert_eq!(written.len(), 4, "one segment per partition");
+        drop(indexrel);
+
+        let indexrel = open_index("demux_subset_idx");
+        persisted_split_points(&indexrel, "tenant_id")
+            .unwrap()
+            .expect("the routable dimension keeps its split points");
+        assert!(
+            persisted_split_points(&indexrel, "name").unwrap().is_none(),
+            "a plain text dimension records none"
+        );
+        assert_eq!(
+            Spi::get_one::<i64>("SELECT count(*) FROM demux_subset WHERE id @@@ pdb.all();")
+                .unwrap()
+                .unwrap(),
+            4000,
+            "the rewrite keeps every row"
+        );
     }
 
     /// Nothing reroutes a built index when its `partition_by` changes, so the change is

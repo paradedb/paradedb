@@ -19,7 +19,7 @@ use crate::api::FieldName;
 use crate::api::version::VersionInfo;
 use crate::index::index_settings;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::writer::demux::routable;
+use crate::index::writer::demux::routable_dims;
 use crate::postgres::build_parallel::build_index;
 use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::rel::PgSearchRelation;
@@ -226,11 +226,13 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
     for partition_field in options.partition_by() {
         check_single_valued(&partition_field, "partition_by");
     }
-    // A key that a merge cannot route would leave every row that arrives after the build
-    // unrouted forever, so it is refused up front. The stored schema does not exist yet, so
-    // the check runs on the one this build will write.
+    // A `partition_by` that no merge could ever route would leave every row that arrives
+    // after the build unrouted forever, so it is refused up front; a partly routable one is
+    // fine, since the build cuts on raw heap values and a demux routes on the dimensions it
+    // can read. The stored schema does not exist yet, so the check runs on the one this build
+    // will write.
     if !options.partition_by().is_empty()
-        && let Err(e) = routable(&planned_schema(index_relation), &options.partition_by())
+        && let Err(e) = routable_dims(&planned_schema(index_relation), &options.partition_by())
     {
         panic!("{e}");
     }

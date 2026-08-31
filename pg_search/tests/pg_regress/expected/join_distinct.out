@@ -924,8 +924,8 @@ LIMIT 50;
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=50), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[id@2 as col_1, name@3 as col_2], aggr=[min(j_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                 :     VisibilityFilterExec: tables=[j]
-                 :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+                 :     VisibilityFilterExec: tables=[j, p]
+                 :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0, ctid_1]
                  :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(person_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, id@3, name@4]
                  :           CooperativeExec
                  :             PgSearchScan: table=j, segments=1, query={"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}}
@@ -1037,8 +1037,8 @@ WHERE deleted_at IS NULL
   )
 ORDER BY profile_id
 LIMIT 50;
-                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Custom Scan (ParadeDB Join Scan)
@@ -1051,12 +1051,14 @@ LIMIT 50;
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=50), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[profile_id@1 as col_1], aggr=[min(pp_0.ctid_0) as ctid_0]
-                 :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(profile_id@1, profile_id@0)]
-                 :       CooperativeExec
-                 :         PgSearchScan: table=pp, segments=1, query={"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
-                 :       CooperativeExec
-                 :         PgSearchScan: table=pp2, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
-(17 rows)
+                 :     VisibilityFilterExec: tables=[pp]
+                 :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+                 :         HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(profile_id@1, profile_id@0)]
+                 :           CooperativeExec
+                 :             PgSearchScan: table=pp, segments=1, query={"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
+                 :           CooperativeExec
+                 :             PgSearchScan: table=pp2, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
+(19 rows)
 
 SELECT DISTINCT profile_id
 FROM profiles_positions pp

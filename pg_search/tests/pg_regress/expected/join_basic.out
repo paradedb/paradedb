@@ -229,8 +229,8 @@ LEFT JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 10;
-                                                                                                        QUERY PLAN                                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -243,12 +243,13 @@ LIMIT 10;
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[p]
-           :       HashJoinExec: mode=CollectLeft, join_type=Left, on=[(supplier_id@1, id@1)], projection=[ctid_0@3, ctid_1@0, id@2]
-           :         CooperativeExec
-           :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-           :         CooperativeExec
-           :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
-(17 rows)
+           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Left, on=[(supplier_id@1, id@1)], projection=[ctid_0@3, ctid_1@0, id@2]
+           :           CooperativeExec
+           :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
+(18 rows)
 
 -- =============================================================================
 -- TEST 5: JoinScan can be disabled via GUC

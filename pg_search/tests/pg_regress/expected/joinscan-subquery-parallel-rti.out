@@ -116,9 +116,10 @@ LIMIT 10;
            :   ┌───── Stage 4 ── tasks=4, partitions=4
            :   │ SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[true]
            :   │   VisibilityFilterExec: tables=[i]
-           :   │     HashJoinExec: mode=Partitioned, join_type=LeftSemi, on=[(id@1, company_id@0)]
-           :   │       [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=1
-           :   │       [Stage 3] => NetworkShuffleExec: output_partitions=4, input_tasks=4
+           :   │     TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+           :   │       HashJoinExec: mode=Partitioned, join_type=LeftSemi, on=[(id@1, company_id@0)]
+           :   │         [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=1
+           :   │         [Stage 3] => NetworkShuffleExec: output_partitions=4, input_tasks=4
            :   └──────────────────────────────────────────────────
            :     ┌───── Stage 2 ── tasks=1, partitions=16
            :     │ RepartitionExec: partitioning=Hash([id@1], 16), input_partitions=4
@@ -144,7 +145,7 @@ LIMIT 10;
            :     │     t2: PgSearchScan: table=p, segments=30, dynamic_filters=1, query="all"
            :     │     t3: PgSearchScan: table=p, segments=30, dynamic_filters=1, query="all"
            :     └──────────────────────────────────────────────────
-(45 rows)
+(46 rows)
 
 SELECT i.id
 FROM js_rti_items i

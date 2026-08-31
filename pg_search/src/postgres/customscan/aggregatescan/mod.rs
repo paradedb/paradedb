@@ -552,8 +552,6 @@ impl CustomScan for AggregateScan {
                 plan,
                 targetlist,
                 topk,
-                join_level_predicates,
-                multi_table_predicates,
                 having_filter,
                 ..
             } => {
@@ -565,12 +563,10 @@ impl CustomScan for AggregateScan {
                     ((*cscan).custom_exprs, (*cscan).custom_scan_tlist)
                 };
                 builder.custom_state().datafusion_state = Some(scan_state::DataFusionAggState {
+                    base_plan: Some(plan.clone()),
                     plan,
                     targetlist,
                     topk,
-                    base_join_level_predicates: Some(join_level_predicates.clone()),
-                    join_level_predicates,
-                    multi_table_predicates,
                     custom_exprs,
                     custom_scan_tlist,
                     having_filter,
@@ -643,12 +639,10 @@ impl CustomScan for AggregateScan {
                 }
 
                 // Show multi-table predicates (non-@@@ cross-table filters)
-                if !df_state.multi_table_predicates.is_empty() {
-                    let preds: Vec<String> = df_state
-                        .multi_table_predicates
-                        .iter()
-                        .map(|p| p.description.clone())
-                        .collect();
+                let mt_predicates = df_state.plan.multi_table_predicates();
+                if !mt_predicates.is_empty() {
+                    let preds: Vec<String> =
+                        mt_predicates.into_iter().map(|p| p.description).collect();
                     explainer.add_text("Multi-Table Filter", preds.join(" AND "));
                 }
 
@@ -1054,7 +1048,6 @@ impl AggregateScan {
                 &df_state.plan,
                 &df_state.targetlist,
                 df_state.topk.as_ref(),
-                &df_state.join_level_predicates,
                 custom_exprs,
                 custom_scan_tlist,
                 df_state.having_filter.as_ref(),
@@ -1130,7 +1123,6 @@ impl AggregateScan {
                         &df_state.plan,
                         &df_state.targetlist,
                         df_state.topk.as_ref(),
-                        &df_state.join_level_predicates,
                         custom_exprs,
                         custom_scan_tlist,
                         df_state.having_filter.as_ref(),
@@ -1402,7 +1394,7 @@ impl AggregateScan {
         };
 
         // Extract the join tree from the parse tree
-        let (mut plan, join_level_predicates, multi_table_predicates, multi_table_clauses) =
+        let (mut plan, multi_table_clauses) =
             unsafe { extract_join_tree_from_parse(root, &sources, path_info) }
                 .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
@@ -1489,8 +1481,6 @@ impl AggregateScan {
             plan,
             targetlist,
             topk,
-            join_level_predicates,
-            multi_table_predicates,
             multi_table_clause_count,
             having_filter,
         });

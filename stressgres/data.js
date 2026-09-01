@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788279462371,
+  "lastUpdate": 1788279471656,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -301712,6 +301712,126 @@ window.BENCHMARK_DATA = {
             "value": 13.83201253871215,
             "unit": "median tps",
             "extra": "avg tps: 23.233423852174134, max tps: 135.97374665519152, count: 57454"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "59121903+RupertMaiti2005@users.noreply.github.com",
+            "name": "Rupert Maiti",
+            "username": "RupertMaiti2005"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2d86ed619b84f820524a130dfbd109e9c82e1b24",
+          "message": "fix: don't reset the shared parallel work queue on rescan (#5024) (#6112)\n\n# Ticket(s) Closed\n\n- Closes #5024\n\n## What\n\n`BaseScanState::reset()` — the leader's ReScan callback — reset the\nshared parallel segment work queue in DSM. This PR removes that reset\nand the now-unused `ParallelScanHandle::reset_work_queue`, leaving\n`ReInitializeDSMCustomScan` as the only place the queue is reset for a\nrescan, and documents that invariant. Adds a regression test.\n\n## Why\n\nParallel-aware base scans partition work by lazily checking segments out\nof a shared pool; correctness requires each segment to be claimed\nexactly once per scan cycle.\n\nOn a parallel rescan, PostgreSQL defers the leader's ReScan of a\nparallel-aware child until the leader's first `ExecProcNode` call, which\nhappens after `LaunchParallelWorkers`. Resetting the shared queue there\nraces with segment claims from freshly launched workers: an\nalready-claimed segment goes back into the pool, is claimed again, and\nevery row in it is emitted twice. On the plan shape from #5024\n(`debug_parallel_query=on`; a Gather over Parallel Custom Scans on the\ninner side of a Nested Loop, rescanned per outer row), `COUNT(*)`\nreturned exactly 2× the correct value in ~65% of runs on a v0.25.4\nrelease build.\n\nnodeGather.c documents the contract: \"ReInitializeDSM should reset only\nshared state, ReScan should reset only local state.\"\n`reinitialize_dsm_custom_scan` already performs the reset at the safe\npoint, so the ReScan-side reset was redundant when it wasn't harmful.\nThis is the custom-scan twin of the parallel index-scan race fixed in\n#3872.\n\n## Tests\n\n- New `test_parallel_rescan_does_not_double_scan` recreates the plan\nshape (asserted via EXPLAIN), computes the expected count from the plain\nPostgreSQL plan, and requires 30 consecutive runs of the `@@@` query to\nmatch. It fails 24/30 iterations against the unfixed v0.25.4 binary\n(`expected 49, got [50, 98, 97, …]`) and is deterministic with the fix.\n- The issue's exact repro script: 100/100 runs correct with the fix;\n65/100 returned 2× on v0.25.4.\n- Causal check: a 200 ms delay injected before the old reset call (a\ntiming-only change) made the unpatched build fail 30/30 runs at 4× (both\nParallel Hash Join sides double-scanned); the same build with only the\nreset removed passed 100/100.\n- Existing tests in `tests/tests/parallel.rs` (including the #3872 and\n#4381 races) and `generated_joins_small` pass; `cargo fmt` and `cargo\nclippy --all-targets -- -D warnings` are clean.\n\nMaintainer note: this PR needs two labels external contributors cannot\nset — a cherry-pick decision (`Do Not Cherry Pick` or `cherry-pick/*`)\nto satisfy the label gate, and ideally `antithesis` to exercise the fix\nunder the deterministic scheduler that found the bug.\n\nCo-authored-by: baburama <59121903+baburama@users.noreply.github.com>\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-09-01T11:40:43-04:00",
+          "tree_id": "385683a56cfe8b6074941f9ec15d187ac6b8f450",
+          "url": "https://github.com/paradedb/paradedb/commit/2d86ed619b84f820524a130dfbd109e9c82e1b24"
+        },
+        "date": 1788279467425,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 179.9913888770811,
+            "unit": "median tps",
+            "extra": "avg tps: 185.18926670642622, max tps: 219.23379738690986, count: 57424"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 305.352916421156,
+            "unit": "median tps",
+            "extra": "avg tps: 332.29624745613165, max tps: 484.52261866244686, count: 57424"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 4062.1173997303977,
+            "unit": "median tps",
+            "extra": "avg tps: 4054.21154794817, max tps: 4418.968082573358, count: 57424"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 184.49069026506544,
+            "unit": "median tps",
+            "extra": "avg tps: 190.36580625413606, max tps: 225.88726466293508, count: 57424"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3430.351636274786,
+            "unit": "median tps",
+            "extra": "avg tps: 3438.604651572009, max tps: 3527.4301753513328, count: 57424"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3411.6434392332476,
+            "unit": "median tps",
+            "extra": "avg tps: 3398.3178681299, max tps: 3456.0940099304667, count: 57424"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 157.97345202126849,
+            "unit": "median tps",
+            "extra": "avg tps: 161.57786083266828, max tps: 184.27350674923713, count: 57424"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 278.1530663288111,
+            "unit": "median tps",
+            "extra": "avg tps: 289.39178593708334, max tps: 365.2564474499262, count: 57424"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Primary - tps",
+            "value": 526.4067339266146,
+            "unit": "median tps",
+            "extra": "avg tps: 534.2432868867277, max tps: 588.8524318093579, count: 57424"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 602.6163706483381,
+            "unit": "median tps",
+            "extra": "avg tps: 611.9560794623815, max tps: 667.0841000079637, count: 57424"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1280.1603888376972,
+            "unit": "median tps",
+            "extra": "avg tps: 1280.1504519205535, max tps: 1337.794610801434, count: 57424"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 332.56263032294964,
+            "unit": "median tps",
+            "extra": "avg tps: 359.8711261024702, max tps: 534.5548971533441, count: 57424"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 550.7309885499124,
+            "unit": "median tps",
+            "extra": "avg tps: 559.4790326853549, max tps: 611.8040252714685, count: 57424"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2329.0359777956196,
+            "unit": "median tps",
+            "extra": "avg tps: 2341.109139489042, max tps: 2542.0581069508376, count: 57424"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1759.3615561329398,
+            "unit": "median tps",
+            "extra": "avg tps: 1741.3623132604034, max tps: 2060.430250369386, count: 57424"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 13.555047085631399,
+            "unit": "median tps",
+            "extra": "avg tps: 32.02952494650485, max tps: 1194.0854559197385, count: 57424"
           }
         ]
       }

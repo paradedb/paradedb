@@ -30,7 +30,7 @@ mod imp {
     use std::cell::{Cell, RefCell};
     use std::collections::BTreeMap;
     use tantivy::index::{SegmentComponent, SegmentId};
-    use tantivy::vector::{Stage, current_vector_stage};
+    use tantivy::vector::current_vector_stage;
 
     #[derive(Debug, Default, Clone, Copy, serde::Serialize)]
     struct IoCounters {
@@ -118,7 +118,7 @@ mod imp {
             let stage = if PRE_SCAN_INIT.get() {
                 Some("scan_init".to_string())
             } else {
-                stage_name(current_vector_stage())
+                current_vector_stage().name().map(Into::into)
             };
             if let Some(stage) = stage {
                 let stage_slot = current.stages.entry(stage.clone()).or_default();
@@ -132,21 +132,6 @@ mod imp {
             }
         });
         result
-    }
-
-    fn stage_name(stage: Stage) -> Option<String> {
-        match stage {
-            Stage::Other => None,
-            Stage::ScanInit => Some("scan_init".to_string()),
-            Stage::QueryPrep => Some("query_prep".to_string()),
-            Stage::Routing => Some("routing".to_string()),
-            Stage::LayerScan(layer) => Some(format!("layer{layer}_scan")),
-            Stage::Boundary(layer) => Some(format!("boundary{layer}")),
-            Stage::ExactScan => Some("exact_scan".to_string()),
-            Stage::ResultAssembly => Some("result_assembly".to_string()),
-            Stage::RerankFetch => Some("rerank_fetch".to_string()),
-            Stage::RerankScore => Some("rerank_score".to_string()),
-        }
     }
 
     fn snapshot() -> (i64, i64) {

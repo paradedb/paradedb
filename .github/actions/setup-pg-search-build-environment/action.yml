@@ -13,15 +13,15 @@ inputs:
   cache_prefix_key:
     description: "rust-cache prefix separating compatible build profiles."
     required: false
-    default: "v2-benchmarks-rust-cache"
+    default: "v3-rust-cache"
   cache_save:
     description: "Whether this run may save a new Rust cache entry."
     required: false
-    default: "true"
+    default: "false"
   cache_on_failure:
     description: "Whether to save the Rust cache when a later step fails."
     required: false
-    default: "true"
+    default: "false"
 
 runs:
   using: composite

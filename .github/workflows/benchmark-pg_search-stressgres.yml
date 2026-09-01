@@ -203,6 +203,9 @@ jobs:
         uses: ./.github/actions/setup-pg-search-build-environment
         with:
           pg_version: ${{ env.pg_version }}
+          cache_prefix_key: "v2-benchmarks-rust-cache"
+          cache_save: "true"
+          cache_on_failure: "true"
           extra_packages: >-
             lsof fontconfig pkg-config libfontconfig1-dev libopenblas-dev lld
             postgresql-${{ env.pg_version }}-pgvector

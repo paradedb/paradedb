@@ -104,6 +104,9 @@ jobs:
         uses: ./.github/actions/build-pg_search-source
         with:
           pg-version: ${{ env.pg_version }}
+          cache-prefix-key: "v2-benchmarks-rust-cache"
+          cache-save: "true"
+          cache-on-failure: "true"
 
       - name: Assemble ParadeDB image (pg_search from source)
         run: |

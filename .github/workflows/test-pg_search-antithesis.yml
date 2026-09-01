@@ -153,6 +153,8 @@ jobs:
           features: dst
           target: x86_64-unknown-linux-gnu
           target-rustflags: "-Ccodegen-units=1 -Cpasses=sancov-module -Cllvm-args=-sanitizer-coverage-level=3 -Cllvm-args=-sanitizer-coverage-trace-pc-guard -Clink-args=-Wl,--build-id"
+          cache-prefix-key: "v2-antithesis-rust-cache"
+          cache-save: "true"
 
       # Catch a broken .so before shipping to Antithesis.
       # Undefined Rust symbols (_ZN/_R) mean a broken .so; Postgres C symbols stay undefined and are fine.

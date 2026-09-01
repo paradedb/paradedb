@@ -39,6 +39,18 @@ inputs:
       they stay off cargo-pgrx and host build scripts.
     required: false
     default: ""
+  cache-prefix-key:
+    description: "rust-cache prefix separating compatible build profiles."
+    required: false
+    default: "v3-rust-cache"
+  cache-save:
+    description: "Whether this run may save a new Rust cache entry."
+    required: false
+    default: "false"
+  cache-on-failure:
+    description: "Whether to save the Rust cache when a later step fails."
+    required: false
+    default: "false"
 
 outputs:
   artifacts-dir:
@@ -52,6 +64,9 @@ runs:
       uses: ./.github/actions/setup-pg-search-build-environment
       with:
         pg_version: ${{ inputs.pg-version }}
+        cache_prefix_key: ${{ inputs.cache-prefix-key }}
+        cache_save: ${{ inputs.cache-save }}
+        cache_on_failure: ${{ inputs.cache-on-failure }}
         extra_packages: >-
           build-essential ca-certificates curl git pkg-config libssl-dev clang lld libopenblas-dev
 

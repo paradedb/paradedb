@@ -26,6 +26,9 @@ runs:
       uses: ./.github/actions/setup-pg-search-build-environment
       with:
         pg_version: ${{ inputs.pg_version }}
+        cache_prefix_key: "v2-benchmarks-rust-cache"
+        cache_save: "true"
+        cache_on_failure: "true"
         extra_packages: lld libopenblas-dev postgresql-${{ inputs.pg_version }}-pgvector
 
     - name: Compile and Install pg_search

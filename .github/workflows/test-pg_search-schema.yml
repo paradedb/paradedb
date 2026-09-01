@@ -54,8 +54,7 @@ jobs:
 
       # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
       # See test-pg_search.yml for rationale.
-      # Only save cache on non-PR events; PRs restore from the default branch.
-      # See test-pg_search.yml for rationale.
+      # Schema jobs restore the nightly-warmed cache but never save their own entry.
       - name: Set Up pg_search Toolchain
         id: toolchain
         uses: ./.github/actions/setup-pg-search-toolchain
@@ -66,15 +65,10 @@ jobs:
         uses: ./.github/actions/setup-postgres
         with:
           pg_version: ${{ matrix.pg_version }}
+          extra_packages: libopenblas-dev clang lld llvm diffutils
 
-      - name: Install OpenBLAS (superkmeans-rs BLAS backend)
-        run: |
-          sudo apt-get update && sudo apt-get install -y libopenblas-dev
-
-      - name: Install pg-schema-diff and its Required Dependencies
-        run: |
-          sudo apt install clang lld llvm diffutils
-          cargo install -j $(nproc) --git https://github.com/paradedb/pg-schema-diff.git --debug --force
+      - name: Install pg-schema-diff
+        run: cargo install -j $(nproc) --git https://github.com/paradedb/pg-schema-diff.git --debug --force
 
       - name: Initialize pgrx Environment
         run: |

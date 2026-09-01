@@ -68,7 +68,8 @@ runs:
       shell: bash
       run: |
         version="${{ steps.versions.outputs.pgrx }}"
-        if cargo pgrx --version 2>/dev/null | grep -Eq "^cargo-pgrx ${version}([[:space:]]|$)"; then
+        installed="$(cargo pgrx --version 2>/dev/null || true)"
+        if [ "${installed}" = "cargo-pgrx ${version}" ]; then
           echo "cargo-pgrx ${version} restored from rust-cache"
         else
           cargo install -j "$(nproc)" cargo-pgrx --version "${version}" --debug --locked --force

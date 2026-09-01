@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788278403237,
+  "lastUpdate": 1788278413048,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -299850,6 +299850,66 @@ window.BENCHMARK_DATA = {
             "value": 166,
             "unit": "median segment_count",
             "extra": "avg segment_count: 193.98569481142397, max segment_count: 363.0, count: 59419"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "59121903+RupertMaiti2005@users.noreply.github.com",
+            "name": "Rupert Maiti",
+            "username": "RupertMaiti2005"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2d86ed619b84f820524a130dfbd109e9c82e1b24",
+          "message": "fix: don't reset the shared parallel work queue on rescan (#5024) (#6112)\n\n# Ticket(s) Closed\n\n- Closes #5024\n\n## What\n\n`BaseScanState::reset()` — the leader's ReScan callback — reset the\nshared parallel segment work queue in DSM. This PR removes that reset\nand the now-unused `ParallelScanHandle::reset_work_queue`, leaving\n`ReInitializeDSMCustomScan` as the only place the queue is reset for a\nrescan, and documents that invariant. Adds a regression test.\n\n## Why\n\nParallel-aware base scans partition work by lazily checking segments out\nof a shared pool; correctness requires each segment to be claimed\nexactly once per scan cycle.\n\nOn a parallel rescan, PostgreSQL defers the leader's ReScan of a\nparallel-aware child until the leader's first `ExecProcNode` call, which\nhappens after `LaunchParallelWorkers`. Resetting the shared queue there\nraces with segment claims from freshly launched workers: an\nalready-claimed segment goes back into the pool, is claimed again, and\nevery row in it is emitted twice. On the plan shape from #5024\n(`debug_parallel_query=on`; a Gather over Parallel Custom Scans on the\ninner side of a Nested Loop, rescanned per outer row), `COUNT(*)`\nreturned exactly 2× the correct value in ~65% of runs on a v0.25.4\nrelease build.\n\nnodeGather.c documents the contract: \"ReInitializeDSM should reset only\nshared state, ReScan should reset only local state.\"\n`reinitialize_dsm_custom_scan` already performs the reset at the safe\npoint, so the ReScan-side reset was redundant when it wasn't harmful.\nThis is the custom-scan twin of the parallel index-scan race fixed in\n#3872.\n\n## Tests\n\n- New `test_parallel_rescan_does_not_double_scan` recreates the plan\nshape (asserted via EXPLAIN), computes the expected count from the plain\nPostgreSQL plan, and requires 30 consecutive runs of the `@@@` query to\nmatch. It fails 24/30 iterations against the unfixed v0.25.4 binary\n(`expected 49, got [50, 98, 97, …]`) and is deterministic with the fix.\n- The issue's exact repro script: 100/100 runs correct with the fix;\n65/100 returned 2× on v0.25.4.\n- Causal check: a 200 ms delay injected before the old reset call (a\ntiming-only change) made the unpatched build fail 30/30 runs at 4× (both\nParallel Hash Join sides double-scanned); the same build with only the\nreset removed passed 100/100.\n- Existing tests in `tests/tests/parallel.rs` (including the #3872 and\n#4381 races) and `generated_joins_small` pass; `cargo fmt` and `cargo\nclippy --all-targets -- -D warnings` are clean.\n\nMaintainer note: this PR needs two labels external contributors cannot\nset — a cherry-pick decision (`Do Not Cherry Pick` or `cherry-pick/*`)\nto satisfy the label gate, and ideally `antithesis` to exercise the fix\nunder the deterministic scheduler that found the bug.\n\nCo-authored-by: baburama <59121903+baburama@users.noreply.github.com>\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-09-01T11:40:43-04:00",
+          "tree_id": "385683a56cfe8b6074941f9ec15d187ac6b8f450",
+          "url": "https://github.com/paradedb/paradedb/commit/2d86ed619b84f820524a130dfbd109e9c82e1b24"
+        },
+        "date": 1788278408837,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 23.414635,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.01856391671226, max cpu: 33.4995, count: 59402"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 44.98046875,
+            "unit": "median mem",
+            "extra": "avg mem: 44.6787808728031, max mem: 45.19140625, count: 59402"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.86978,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.736884301215987, max cpu: 43.81339, count: 59402"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 102.63671875,
+            "unit": "median mem",
+            "extra": "avg mem: 101.60939709521566, max mem: 102.64453125, count: 59402"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 26812,
+            "unit": "median block_count",
+            "extra": "avg block_count: 25441.848607790984, max block_count: 29224.0, count: 59402"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 168,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 194.93520420187872, max segment_count: 361.0, count: 59402"
           }
         ]
       }

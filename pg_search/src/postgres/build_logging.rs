@@ -15,16 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Minimal, targeted `log` → Postgres NOTICE bridge for IVF build timings.
-//!
-//! tantivy's IVF build emits one `log::info!` line per vector field on the
-//! target `paradedb::ivf_build`. This forwards ONLY that target to
-//! `pgrx::notice!`, so the timings surface during `CREATE INDEX` and are
-//! captured by NOTICE-reading clients (e.g. the benchmark harness via
-//! psycopg). Every other record is rejected at `enabled()`, so this never acts
-//! as a general logger or reconfigures logging broadly. The IVF build runs
-//! synchronously in the backend during `CREATE INDEX`, so emitting via
-//! `ereport` (NOTICE) here is on the backend thread.
+//! PostgreSQL logging bridge for IVF builds.
 
 const IVF_BUILD_TARGET: &str = "paradedb::ivf_build";
 
@@ -36,9 +27,10 @@ impl log::Log for IvfBuildLogger {
     }
 
     fn log(&self, record: &log::Record) {
-        if self.enabled(record.metadata()) {
-            pgrx::notice!("{}", record.args());
+        if !self.enabled(record.metadata()) {
+            return;
         }
+        pgrx::notice!("{}", record.args());
     }
 
     fn flush(&self) {}
@@ -46,10 +38,7 @@ impl log::Log for IvfBuildLogger {
 
 static IVF_BUILD_LOGGER: IvfBuildLogger = IvfBuildLogger;
 
-/// Install the bridge. Idempotent and non-fatal: if another logger is already
-/// registered (e.g. `env_logger` under the `debug-logging` feature) we leave it
-/// in place. On success we raise the max level to Info so the targeted record
-/// is evaluated — non-matching records are still dropped at `enabled()`.
+/// Installs the targeted PostgreSQL logging bridge.
 pub fn init() {
     if log::set_logger(&IVF_BUILD_LOGGER).is_ok() {
         log::set_max_level(log::LevelFilter::Info);

@@ -40,6 +40,13 @@ mod imp {
 
     type SegmentIo = BTreeMap<String, IoCounters>;
 
+    pub struct ScanInitGuard;
+
+    #[inline(always)]
+    pub fn begin_scan_init() -> ScanInitGuard {
+        ScanInitGuard
+    }
+
     thread_local! {
         static CURRENT: RefCell<SegmentIo> = RefCell::default();
         static PER_SEGMENT: RefCell<Vec<(SegmentId, SegmentIo)>> = RefCell::default();
@@ -95,6 +102,13 @@ mod imp {
     use std::collections::BTreeMap;
     use tantivy::index::{SegmentComponent, SegmentId};
 
+    pub struct ScanInitGuard;
+
+    #[inline(always)]
+    pub fn begin_scan_init() -> ScanInitGuard {
+        ScanInitGuard
+    }
+
     #[inline(always)]
     pub fn record<R>(_component: &SegmentComponent, read: impl FnOnce() -> R) -> R {
         read()
@@ -110,4 +124,4 @@ mod imp {
     pub fn attach(_segment_info: &mut BTreeMap<SegmentId, serde_json::Value>) {}
 }
 
-pub use imp::{attach, end_segment, record, reset};
+pub use imp::{attach, begin_scan_init, end_segment, record, reset};

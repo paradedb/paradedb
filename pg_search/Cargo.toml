@@ -12,7 +12,7 @@ workspace = true
 crate-type = ["cdylib"]
 
 [features]
-default = ["pg18", "deferred_wal"]
+default = ["pg18", "deferred_wal", "io_stats"]
 pg15 = ["pgrx/pg15", "pgrx-tests/pg15"]
 pg16 = ["pgrx/pg16", "pgrx-tests/pg16"]
 pg17 = ["pgrx/pg17", "pgrx-tests/pg17"]
@@ -103,12 +103,12 @@ prost = "0.14.3"
 # SuperKMeans IVF clusterer (pure-Rust port). BLAS backend is target-specific:
 # Accelerate on macOS, OpenBLAS on Linux (already required by the build env).
 [target.'cfg(target_os = "macos")'.dependencies]
-superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "b89e83196143acd518f1d8212ec1f53474e936d4", features = [
+superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "c06dc2b6e9bd15fb5c4a0627178bebbe1fb37a64", features = [
   "accelerate",
 ] }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
-superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "b89e83196143acd518f1d8212ec1f53474e936d4", features = [
+superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "c06dc2b6e9bd15fb5c4a0627178bebbe1fb37a64", features = [
   "openblas",
 ] }
 

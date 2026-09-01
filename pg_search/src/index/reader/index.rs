@@ -22,6 +22,7 @@ use std::path::PathBuf;
 use std::ptr::NonNull;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::time::Instant;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::operator::keyset::KeySet;
@@ -113,10 +114,11 @@ pub struct TopKSearchResults {
     aggregation_results: Option<IntermediateAggregationResults>,
 }
 
-/// Docs (+ optional aggregations) from a TopK search, plus opaque per-segment
-/// JSON info harvested from the collector Fruit (e.g. vector probe stats).
+/// Top-k results, aggregations, and per-segment metrics.
 pub struct TopKSearch {
+    /// Search results and aggregations.
     pub results: TopKSearchResults,
+    /// Per-segment collector metrics.
     pub segment_info: BTreeMap<SegmentId, serde_json::Value>,
 }
 
@@ -366,6 +368,8 @@ pub struct SearchIndexReader {
     total_docs: u64,
     index_created_by_version: Option<Version>,
     segment_ordinal_by_id: HashMap<SegmentId, SegmentOrdinal>,
+    /// Query-level reader initialization time.
+    scan_init_ns: u64,
     /// The directory `underlying_index` opened over; kept to capture this reader's
     /// [`SegmentView`].
     directory: MVCCDirectory,
@@ -412,6 +416,7 @@ impl Clone for SearchIndexReader {
             total_docs: self.total_docs,
             index_created_by_version: self.index_created_by_version,
             segment_ordinal_by_id: self.segment_ordinal_by_id.clone(),
+            scan_init_ns: self.scan_init_ns,
             directory: self.directory.clone(),
             _cleanup_lock: self._cleanup_lock.clone(),
         }
@@ -566,20 +571,25 @@ impl SearchIndexReader {
         planstate: Option<NonNull<pgrx::pg_sys::PlanState>>,
         needs_tokenizer_manager: bool,
     ) -> Result<Self> {
+        let scan_init_start = Instant::now();
+        let scan_init_io = io_stats::begin_scan_init();
         // Derive the tokenizer need from the query as well as the caller's flag: a caller
         // passing `false` alongside a query that tokenizes must not silently parse wrong.
         let needs_tokenizer_manager =
             needs_tokenizer_manager || search_query_input.needs_tokenizer();
         let components =
             Self::open_index_components(index_relation, mvcc_style, needs_tokenizer_manager)?;
-        Self::from_components(
+        let mut reader = Self::from_components(
             index_relation,
             components,
             search_query_input,
             need_scores,
             expr_context,
             planstate,
-        )
+        )?;
+        drop(scan_init_io);
+        reader.scan_init_ns = scan_init_start.elapsed().as_nanos() as u64;
+        Ok(reader)
     }
 
     /// Build a reader over `manifest`'s already-open components: same searcher, same frozen
@@ -596,20 +606,25 @@ impl SearchIndexReader {
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
         needs_tokenizer_manager: bool,
     ) -> Result<Self> {
+        let scan_init_start = Instant::now();
+        let scan_init_io = io_stats::begin_scan_init();
         if needs_tokenizer_manager || search_query_input.needs_tokenizer() {
             crate::index::search::register_tokenizers(
                 index_relation,
                 &manifest.components().index,
             )?;
         }
-        Self::from_components(
+        let mut reader = Self::from_components(
             index_relation,
             manifest.components().clone(),
             search_query_input,
             need_scores,
             expr_context,
             None,
-        )
+        )?;
+        drop(scan_init_io);
+        reader.scan_init_ns = scan_init_start.elapsed().as_nanos() as u64;
+        Ok(reader)
     }
 
     /// The shared tail of [`Self::open_with_context`] and [`Self::from_manifest`].
@@ -659,7 +674,6 @@ impl SearchIndexReader {
             .enumerate()
             .map(|(ord, reader)| (reader.segment_id(), ord as SegmentOrdinal))
             .collect();
-
         Ok(Self {
             index_rel: index_relation.clone(),
             searcher,
@@ -672,6 +686,7 @@ impl SearchIndexReader {
             total_docs,
             index_created_by_version,
             segment_ordinal_by_id: segment_ord_by_id,
+            scan_init_ns: 0,
             directory,
             _cleanup_lock: cleanup_lock,
         })
@@ -683,6 +698,14 @@ impl SearchIndexReader {
             .iter()
             .map(|r| r.segment_id())
             .collect()
+    }
+
+    pub(crate) fn scan_init_ns(&self) -> u64 {
+        self.scan_init_ns
+    }
+
+    pub(crate) fn add_scan_init_ns(&mut self, elapsed_ns: u64) {
+        self.scan_init_ns = self.scan_init_ns.saturating_add(elapsed_ns);
     }
 
     /// This reader's segment view, for other readers to replay through
@@ -1046,21 +1069,7 @@ impl SearchIndexReader {
         )
     }
 
-    /// Search the Tantivy index for the Top K matching documents in specific segments.
-    ///
-    /// The documents are returned in either score or field order, in the given direction: at least
-    /// one `OrderByInfo` must be defined.
-    ///
-    /// If a TopKAuxiliaryCollector with a vischeck is provided, this method pre-filters for MVCC
-    /// visibility. Otherwise — no auxiliary collector, or one whose vischeck is `None` because
-    /// MVCC is solved lazily inside its aggregation collector — it is up to the caller to filter
-    /// the results for MVCC visibility, and re-query if necessary.
-    ///
-    /// `parallel_state_holding_shared_threshold` should only be passed if we intend to query with a shared_threshold
-    ///
-    /// Fruit-side metrics (e.g. vector probe stats) are returned as opaque
-    /// per-segment JSON in [`TopKSearch::segment_info`], not bolted onto
-    /// [`TopKSearchResults`].
+    /// Searches selected segments for the top-k documents.
     pub fn search_top_k_in_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
@@ -1237,18 +1246,18 @@ impl SearchIndexReader {
                     .resolved()
                     .expect("vector ORDER BY query vector was never resolved")
                     .to_vec();
-                // Testing knob: push the GUC's work-model open cost into
-                // tantivy so this search's probe budget reflects it.
                 tantivy::vector::set_fixed_probe_cost_rows(
                     crate::gucs::vector_fixed_probe_cost_rows(),
                 );
+                let max_scan_levels = crate::gucs::vector_max_scan_levels();
                 let collector = TopDocs::with_limit(n)
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
                     .with_adaptive_params(AdaptiveProbeParams {
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
                         ..Default::default()
-                    });
+                    })
+                    .with_max_scan_levels(max_scan_levels);
 
                 let mut erased_features = erased_features;
                 let score_index = erased_features.score_index();
@@ -1261,12 +1270,8 @@ impl SearchIndexReader {
                     tie_breaks.remove(i);
                 }
 
-                // Record SegmentIds as the (possibly lazy) iterator is consumed so
-                // we can zip them with per-segment ProbeStats from the Fruit.
                 let collected_ids = std::cell::RefCell::new(Vec::new());
                 let segment_ids = segment_ids.inspect(|id| collected_ids.borrow_mut().push(*id));
-                // Fruit is `VectorSimilarityFruit` — hits plus per-segment
-                // ProbeStats — for every tie-break shape.
                 let tie_break_count = tie_breaks.len();
                 let mut tie_breaks = tie_breaks.into_iter();
                 let mut next = || tie_breaks.next().expect("tie-break feature should exist");
@@ -1299,6 +1304,19 @@ impl SearchIndexReader {
                 };
                 let segment_ids = collected_ids.into_inner();
                 let mut segment_info = probe_stats_to_segment_info(&segment_ids, &fruit.stats);
+                if let Some(first_segment) = segment_ids.first()
+                    && let Some(serde_json::Value::Object(stats)) =
+                        segment_info.get_mut(first_segment)
+                {
+                    let segment_scan_init = stats
+                        .get("scan_init_ns")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0);
+                    stats.insert(
+                        "scan_init_ns".to_string(),
+                        segment_scan_init.saturating_add(self.scan_init_ns).into(),
+                    );
+                }
                 io_stats::attach(&mut segment_info);
                 TopKSearch::with_segment_info(
                     TopKSearchResults::new_for_score(fruit.results, aggregation_results),
@@ -1818,7 +1836,6 @@ impl SearchIndexReader {
                     feature: OrderByFeature::VectorDistance { .. },
                     ..
                 } => {
-                    // Vector distance cannot be a secondary sort key
                     unimplemented!("Vector distance ORDER BY can only be the primary sort key")
                 }
             }

@@ -1,0 +1,468 @@
+SET client_min_messages = WARNING;
+CREATE EXTENSION IF NOT EXISTS vector;
+\i common/common_setup.sql
+
+SET paradedb.vector_clustering_threshold = 64;
+SET paradedb.vector_cluster_max_probe = 1.0;
+
+CREATE FUNCTION quant_fixture_vector(d integer, n integer)
+RETURNS vector
+LANGUAGE SQL IMMUTABLE PARALLEL SAFE
+AS $$
+    SELECT (
+        '[' || string_agg((((n * 31 + i * 17) % 101) - 50)::text, ',' ORDER BY i) || ']'
+    )::vector
+    FROM generate_series(1, d) i
+$$;
+
+CREATE FUNCTION quant_isotropic_vector(d integer, n integer)
+RETURNS vector
+LANGUAGE SQL IMMUTABLE PARALLEL SAFE
+AS $$
+    SELECT (
+        '[' || string_agg(
+            (((hashtextextended(n::text || ':' || i::text, 81985529216486895) & 1048575)
+                / 524287.5) - 1.0)::text,
+            ',' ORDER BY i
+        ) || ']'
+    )::vector
+    FROM generate_series(1, d) i
+$$;
+
+CREATE FUNCTION quant_explain(query_text text)
+RETURNS jsonb
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    plan jsonb;
+BEGIN
+    EXECUTE 'EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF, FORMAT JSON) '
+        || query_text
+        INTO plan;
+    RETURN plan;
+END
+$$;
+
+CREATE TABLE q_cal_parent (id integer, vec vector(64)) PARTITION BY RANGE (id);
+CREATE TABLE q_cal_parent_low PARTITION OF q_cal_parent
+    FOR VALUES FROM (MINVALUE) TO (0);
+CREATE TABLE q_cal_parent_high PARTITION OF q_cal_parent
+    FOR VALUES FROM (0) TO (MAXVALUE);
+CREATE INDEX q_cal_parent_idx ON ONLY q_cal_parent (id);
+CREATE INDEX q_cal_parent_low_idx ON q_cal_parent_low (id);
+CREATE INDEX q_cal_parent_high_idx ON q_cal_parent_high (id);
+ALTER INDEX q_cal_parent_idx ATTACH PARTITION q_cal_parent_low_idx;
+ALTER INDEX q_cal_parent_idx ATTACH PARTITION q_cal_parent_high_idx;
+
+SELECT * FROM paradedb.vector_estimator_info(
+    'q_cal_parent_idx',
+    'vec'
+);
+SELECT * FROM paradedb.vector_estimator_info(
+    'q_cal_parent_low',
+    'vec'
+);
+SELECT * FROM paradedb.vector_estimator_info(
+    'q_cal_parent_low_idx',
+    'vec'
+);
+DROP TABLE q_cal_parent;
+
+CREATE TABLE q_cal_unquantized (id integer PRIMARY KEY, vec vector(64));
+CREATE INDEX q_cal_unquantized_idx ON q_cal_unquantized
+USING paradedb (id, vec vector_cosine_ops)
+WITH (
+    key_field = id,
+    vector_fields = '{"vec":{"quantization":false}}'
+);
+INSERT INTO q_cal_unquantized
+SELECT g, quant_fixture_vector(64, g) FROM generate_series(1, 100) g;
+VACUUM q_cal_unquantized;
+SELECT
+    bool_and(NOT quantized) AS unquantized_false,
+    bool_and(layers IS NULL) AS unquantized_layers_null,
+    bool_and(bytes_per_row IS NULL) AS unquantized_bytes_null,
+    bool_and(format IS NULL) AS unquantized_format_null
+FROM paradedb.vector_info('q_cal_unquantized_idx', 'vec');
+SELECT * FROM paradedb.vector_estimator_info(
+    'q_cal_unquantized_idx',
+    'vec'
+);
+DROP TABLE q_cal_unquantized;
+
+CREATE TABLE q_explicit_below_floor (id integer PRIMARY KEY, vec vector(63));
+CREATE INDEX q_explicit_below_floor_idx ON q_explicit_below_floor
+USING paradedb (id, vec vector_l2_ops)
+WITH (
+    key_field = id,
+    vector_fields = '{"vec":{"quantization":true}}'
+);
+DROP TABLE q_explicit_below_floor;
+
+CREATE TABLE q_default_below_floor (id integer PRIMARY KEY, vec vector(63));
+CREATE INDEX q_default_below_floor_idx ON q_default_below_floor
+USING paradedb (id, vec vector_l2_ops)
+WITH (
+    key_field = id
+);
+DROP TABLE q_default_below_floor;
+
+CREATE TABLE q_schedule_validation (id integer PRIMARY KEY, vec vector(64));
+CREATE INDEX q_too_many_layers_idx ON q_schedule_validation
+USING paradedb (id, vec vector_cosine_ops)
+WITH (
+    key_field = id,
+    vector_fields = '{"vec":{"quantization":{"layers":[1,1,1,1]}}}'
+);
+CREATE INDEX q_grid_first_idx ON q_schedule_validation
+USING paradedb (id, vec vector_cosine_ops)
+WITH (
+    key_field = id,
+    vector_fields = '{"vec":{"quantization":{"layers":[4]}}}'
+);
+DROP TABLE q_schedule_validation;
+
+CREATE TABLE q_cosine (id integer PRIMARY KEY, vec vector(768));
+CREATE INDEX q_cosine_idx ON q_cosine
+USING paradedb (id, vec vector_cosine_ops)
+WITH (
+    key_field = id,
+    centroid_ratio = 0.2,
+    target_segment_count = 1,
+    mutable_segment_rows = 0,
+    layer_sizes = '400kb',
+    background_layer_sizes = '0'
+);
+INSERT INTO q_cosine SELECT g, quant_fixture_vector(768, g) FROM generate_series(1, 100) g;
+INSERT INTO q_cosine SELECT g, quant_fixture_vector(768, g) FROM generate_series(101, 200) g;
+VACUUM q_cosine;
+
+CREATE TABLE q_estimator (id integer PRIMARY KEY, vec vector(768));
+CREATE INDEX q_estimator_idx ON q_estimator
+USING paradedb (id, vec vector_cosine_ops)
+WITH (
+    key_field = id,
+    centroid_ratio = 0.2,
+    target_segment_count = 1,
+    mutable_segment_rows = 0,
+    layer_sizes = '400kb',
+    background_layer_sizes = '0'
+);
+INSERT INTO q_estimator
+SELECT g, quant_isotropic_vector(768, g) FROM generate_series(1, 128) g;
+INSERT INTO q_estimator
+SELECT g, quant_isotropic_vector(768, g) FROM generate_series(129, 256) g;
+VACUUM q_estimator;
+
+SELECT
+    bool_or(vector_format = 'ivf') AS cosine_has_ivf,
+    bool_and(quantized) AS cosine_quantized,
+    bool_and(layers = ARRAY[1, 1]) AS cosine_layers,
+    bool_and(bytes_per_row = 212) AS cosine_bytes_per_row,
+    bool_and(format = 3) AS cosine_format
+FROM paradedb.vector_info('q_cosine_idx', 'vec');
+
+CREATE TEMP TABLE q_estimator_held_out AS
+SELECT * FROM paradedb.vector_estimator_info(
+    'q_estimator_idx',
+    'vec'
+);
+
+SELECT
+    array_agg(depth ORDER BY depth) = ARRAY[1, 2] AS held_out_depths,
+    bool_and(query_source = 'held_out') AS held_out_source,
+    bool_and(sample_rows = 256) AS held_out_sample_rows,
+    bool_and(query_count = 100) AS held_out_query_count,
+    bool_and(abs(bias) <= 0.3) AS held_out_bias_healthy,
+    bool_and(spread <= 1.15) AS held_out_spread_healthy
+FROM q_estimator_held_out;
+
+CREATE TEMP TABLE q_estimator_provided AS
+SELECT * FROM paradedb.vector_estimator_info(
+    'q_estimator_idx',
+    'vec',
+    ARRAY(
+        SELECT quant_isotropic_vector(768, g)
+        FROM generate_series(1001, 1100) g
+    )
+);
+
+SELECT
+    array_agg(depth ORDER BY depth) = ARRAY[1, 2] AS provided_depths,
+    bool_and(query_source = 'provided') AS provided_source,
+    bool_and(sample_rows = 256) AS provided_sample_rows,
+    bool_and(query_count = 100) AS provided_query_count,
+    bool_and(abs(bias) <= 0.3) AS provided_bias_healthy,
+    bool_and(spread <= 1.15) AS provided_spread_healthy
+FROM q_estimator_provided;
+
+SELECT
+    held_out.depth,
+    (abs(held_out.bias) <= 0.3) = (abs(provided.bias) <= 0.3) AS bias_health_agrees,
+    (held_out.spread <= 1.15) = (provided.spread <= 1.15) AS spread_health_agrees
+FROM q_estimator_held_out held_out
+JOIN q_estimator_provided provided USING (depth)
+ORDER BY depth;
+
+SET paradedb.vector_cluster_max_probe = 0.25;
+CREATE TEMP TABLE q_cosine_unquantized_ivf AS
+SELECT
+    row_number() OVER (ORDER BY distance, id) AS ordinal,
+    id,
+    distance
+FROM (
+    SELECT id, vec <=> quant_fixture_vector(768, 0) AS distance
+    FROM q_cosine
+    WHERE id @@@ pdb.all()
+    ORDER BY vec <=> quant_fixture_vector(768, 0), id
+    LIMIT 10
+) hits;
+
+WITH plan AS (
+    SELECT quant_explain(
+        'SELECT id FROM q_cosine WHERE id @@@ pdb.all() '
+        'ORDER BY vec <=> quant_fixture_vector(768, 0), id LIMIT 10'
+    ) AS value
+), segment_info AS (
+    SELECT (jsonb_path_query_first(value, '$.**."Segment Info"') #>> '{}')::jsonb AS value
+    FROM plan
+)
+SELECT
+    (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint > 0
+        AS diagnostics_absent_uses_quantized_layers,
+    jsonb_path_query_first(value, '$.**.exact_scan_ns') IS NULL
+        AS diagnostics_absent_skips_ivf_exact
+FROM segment_info;
+SET paradedb.vector_cluster_max_probe = 1.0;
+
+SELECT * FROM paradedb.vector_estimator_info(NULL, 'vec');
+SELECT * FROM paradedb.vector_estimator_info('q_cosine_idx', NULL);
+SELECT * FROM paradedb.vector_estimator_info('q_cosine_idx', 'missing');
+SELECT * FROM paradedb.vector_estimator_info('q_cosine_idx', 'id');
+SELECT * FROM paradedb.vector_estimator_info('q_cosine_idx', 'vec', ARRAY[]::vector[]);
+SELECT * FROM paradedb.vector_estimator_info('q_cosine_idx', 'vec', ARRAY[NULL::vector]);
+SELECT * FROM paradedb.vector_estimator_info(
+    'q_cosine_idx',
+    'vec',
+    ARRAY[quant_fixture_vector(100, 0)]
+);
+SELECT * FROM paradedb.vector_estimator_info(
+    'q_cosine_idx',
+    'vec',
+    ARRAY(
+        SELECT quant_fixture_vector(768, g)
+        FROM generate_series(0, 256) g
+    )
+);
+
+CREATE TEMP TABLE q_cosine_quantized AS
+SELECT array_agg(id) AS ids
+FROM (
+    SELECT id
+    FROM q_cosine
+    WHERE id @@@ pdb.all()
+    ORDER BY vec <=> quant_fixture_vector(768, 0), id
+    LIMIT 10
+) hits;
+
+WITH plan AS (
+    SELECT quant_explain(
+        'SELECT id FROM q_cosine WHERE id @@@ pdb.all() '
+        'ORDER BY vec <=> quant_fixture_vector(768, 0), id LIMIT 10'
+    ) AS value
+), segment_info AS (
+    SELECT (jsonb_path_query_first(value, '$.**."Segment Info"') #>> '{}')::jsonb AS value
+    FROM plan
+)
+SELECT
+    (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint > 0
+        AS layer0_populated,
+    (jsonb_path_query_first(value, '$.**.layer0_eligible') #>> '{}')::bigint
+        = (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint
+        AND (jsonb_path_query_first(value, '$.**.eligible_charged') #>> '{}')::bigint
+            = (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint
+        AS layer0_selection_accounted,
+    (jsonb_path_query_first(value, '$.**.layer0_survivors') #>> '{}')::bigint
+        < (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint
+        AS layer0_filtered,
+    (jsonb_path_query_first(value, '$.**.rerank_rows') #>> '{}')::bigint > 0
+        AS rerank_populated,
+    (jsonb_path_query_first(value, '$.**.routing_visited_count') #>> '{}')::bigint > 0
+        AS routing_flat,
+    jsonb_path_query_first(value, '$.**.bound_armed_count') IS NOT NULL
+        AS bound_flat,
+    jsonb_typeof(jsonb_path_query_first(value, '$.**.buffer_hits')) = 'number'
+        AND jsonb_typeof(jsonb_path_query_first(value, '$.**.buffer_reads')) = 'number'
+        AS io_flat,
+    (jsonb_path_query_first(value, '$.**.rerank_blocks_fetched') #>> '{}')::bigint > 0
+        AS rerank_io_flat
+FROM segment_info;
+
+WITH plan AS (
+    SELECT quant_explain(
+        'SELECT id FROM q_cosine '
+        'WHERE id @@@ paradedb.range(''id'', int4range(1, 51, ''[)'')) '
+        'ORDER BY vec <=> quant_fixture_vector(768, 0), id LIMIT 10'
+    ) AS value
+), segment_info AS (
+    SELECT (jsonb_path_query_first(value, '$.**."Segment Info"') #>> '{}')::jsonb AS value
+    FROM plan
+)
+SELECT
+    (jsonb_path_query_first(value, '$.**.layer0_eligible') #>> '{}')::bigint
+        = (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint
+        AS filtered_scores_only_eligible,
+    (jsonb_path_query_first(value, '$.**.eligible_charged') #>> '{}')::bigint
+        = (jsonb_path_query_first(value, '$.**.layer0_eligible') #>> '{}')::bigint
+        AS filtered_charges_only_eligible,
+    (jsonb_path_query_first(value, '$.**.pruned_filter') #>> '{}')::bigint > 0
+        AS filtered_prunes_at_admission,
+    (jsonb_path_query_first(value, '$.**.clusters_skipped_empty') #>> '{}')::bigint > 0
+        AS filtered_skips_empty_clusters
+FROM segment_info;
+
+CREATE TABLE q_l2 (id integer PRIMARY KEY, vec vector(768));
+CREATE INDEX q_l2_idx ON q_l2
+USING paradedb (id, vec vector_l2_ops)
+WITH (
+    key_field = id,
+    vector_fields = '{"vec":{"quantization":{"layers":[1,4]}}}',
+    target_segment_count = 1,
+    mutable_segment_rows = 0,
+    layer_sizes = '400kb',
+    background_layer_sizes = '0'
+);
+INSERT INTO q_l2 SELECT g, quant_fixture_vector(768, g) FROM generate_series(1, 100) g;
+INSERT INTO q_l2 SELECT g, quant_fixture_vector(768, g) FROM generate_series(101, 200) g;
+VACUUM q_l2;
+
+SELECT bool_or(vector_format = 'ivf') AS l2_has_ivf
+FROM paradedb.vector_info('q_l2_idx', 'vec');
+
+CREATE TEMP TABLE q_l2_quantized AS
+SELECT array_agg(id) AS ids
+FROM (
+    SELECT id
+    FROM q_l2
+    WHERE id @@@ pdb.all()
+    ORDER BY vec <-> quant_fixture_vector(768, 0), id
+    LIMIT 10
+) hits;
+
+CREATE TABLE q_odd (id integer PRIMARY KEY, vec vector(100));
+CREATE INDEX q_odd_idx ON q_odd
+USING paradedb (id, vec vector_l2_ops)
+WITH (
+    key_field = id,
+    vector_fields = '{"vec":{"quantization":{"layers":[1,4]}}}',
+    target_segment_count = 1,
+    mutable_segment_rows = 0,
+    layer_sizes = '50kb',
+    background_layer_sizes = '0'
+);
+INSERT INTO q_odd SELECT g, quant_fixture_vector(100, g) FROM generate_series(1, 100) g;
+INSERT INTO q_odd SELECT g, quant_fixture_vector(100, g) FROM generate_series(101, 200) g;
+VACUUM q_odd;
+
+SELECT bool_or(vector_format = 'ivf') AS odd_has_ivf
+FROM paradedb.vector_info('q_odd_idx', 'vec');
+
+CREATE TEMP TABLE q_odd_quantized AS
+SELECT array_agg(id) AS ids
+FROM (
+    SELECT id
+    FROM q_odd
+    WHERE id @@@ pdb.all()
+    ORDER BY vec <-> quant_fixture_vector(100, 0), id
+    LIMIT 10
+) hits;
+
+CREATE TABLE q_flat (id integer PRIMARY KEY, vec vector(100));
+CREATE INDEX q_flat_idx ON q_flat
+USING paradedb (id, vec vector_cosine_ops)
+WITH (
+    key_field = id
+);
+INSERT INTO q_flat SELECT g, quant_fixture_vector(100, g) FROM generate_series(1, 32) g;
+
+SET paradedb.max_scan_levels = 0;
+SET paradedb.vector_cluster_max_probe = 0.25;
+
+CREATE TEMP TABLE q_cosine_lvl0 AS
+SELECT
+    row_number() OVER (ORDER BY distance, id) AS ordinal,
+    id,
+    distance
+FROM (
+    SELECT id, vec <=> quant_fixture_vector(768, 0) AS distance
+    FROM q_cosine
+    WHERE id @@@ pdb.all()
+    ORDER BY vec <=> quant_fixture_vector(768, 0), id
+    LIMIT 10
+) hits;
+
+SELECT
+    count(*) = 10
+        AND bool_and(baseline.id IS NOT DISTINCT FROM lvl0.id)
+        AND bool_and(baseline.distance IS NOT DISTINCT FROM lvl0.distance)
+        AS lvl0_matches_unquantized_ivf
+FROM q_cosine_unquantized_ivf baseline
+FULL JOIN q_cosine_lvl0 lvl0 USING (ordinal);
+
+WITH plan AS (
+    SELECT quant_explain(
+        'SELECT id FROM q_cosine WHERE id @@@ pdb.all() '
+        'ORDER BY vec <=> quant_fixture_vector(768, 0), id LIMIT 10'
+    ) AS value
+), segment_info AS (
+    SELECT (jsonb_path_query_first(value, '$.**."Segment Info"') #>> '{}')::jsonb AS value
+    FROM plan
+)
+SELECT
+    (jsonb_path_query_first(value, '$.**.routing_visited_count') #>> '{}')::bigint > 0
+        AS lvl0_routing_populated,
+    (jsonb_path_query_first(value, '$.**.postings_row') #>> '{}')::bigint > 0
+        AS lvl0_postings_populated,
+    (jsonb_path_query_first(value, '$.**.candidates_scored') #>> '{}')::bigint > 0
+        AND (jsonb_path_query_first(value, '$.**.candidates_scored') #>> '{}')::bigint
+            < (jsonb_path_query_first(value, '$.**.segment_rows') #>> '{}')::bigint
+        AS lvl0_scores_nonexhaustive_rows,
+    (jsonb_path_query_first(value, '$.**.exact_scan_ns') #>> '{}')::bigint > 0
+        AS lvl0_uses_exact_scoring,
+    jsonb_path_query_first(value, '$.**.layer0_scored') IS NULL
+        AS lvl0_has_no_layer_fields
+FROM segment_info;
+
+WITH plan AS (
+    SELECT quant_explain(
+        'SELECT id FROM q_flat WHERE id @@@ pdb.all() '
+        'ORDER BY vec <=> quant_fixture_vector(100, 0), id LIMIT 10'
+    ) AS value
+), segment_info AS (
+    SELECT (jsonb_path_query_first(value, '$.**."Segment Info"') #>> '{}')::jsonb AS value
+    FROM plan
+)
+SELECT
+    (jsonb_path_query_first(value, '$.**.exact_rows_read') #>> '{}')::bigint = 32
+        AS flat_reads_every_row,
+    (jsonb_path_query_first(value, '$.**.routing_visited_count') #>> '{}')::bigint = 0
+        AND (jsonb_path_query_first(value, '$.**.postings_row') #>> '{}')::bigint = 0
+        AS flat_skips_ivf_routing,
+    (jsonb_path_query_first(value, '$.**.exact_scan_ns') #>> '{}')::bigint > 0
+        AS flat_uses_exact_scoring,
+    jsonb_path_query_first(value, '$.**.layer0_scored') IS NULL
+        AS flat_has_no_layer_fields
+FROM segment_info;
+
+RESET paradedb.max_scan_levels;
+RESET paradedb.vector_cluster_max_probe;
+RESET paradedb.vector_clustering_threshold;
+
+DROP TABLE q_cosine;
+DROP TABLE q_estimator;
+DROP TABLE q_l2;
+DROP TABLE q_odd;
+DROP TABLE q_flat;
+DROP FUNCTION quant_explain(text);
+DROP FUNCTION quant_fixture_vector(integer, integer);
+DROP FUNCTION quant_isotropic_vector(integer, integer);

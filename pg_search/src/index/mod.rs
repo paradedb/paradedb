@@ -27,26 +27,58 @@ pub mod writer;
 pub use directory::*;
 pub use search::*;
 
+use crate::api::FieldName;
 use crate::postgres::options::BM25IndexOptions;
 use crate::schema::SearchIndexSchema;
+use anyhow::{Context, Result};
+use rand::{TryRng, rngs::SysRng};
 use tantivy::IndexSettings;
 use tantivy::columnar::CodecType;
+use tantivy::schema::FieldType;
+use tantivy::vector::{VectorQuantizationConfig, VectorQuantizationLayer};
 
-/// The [`IndexSettings`] used for every tantivy index pg_search creates.
+/// Builds the Tantivy settings for a ParadeDB index.
 ///
-/// `docstore_compress_dedicated_thread` must remain `false`: a dedicated compressor thread
-/// receives process-directed signals, and pgrx's background worker signal handlers call into
-/// Postgres FFI, which panics off the main thread. Compress inline instead.
+/// # Errors
+///
+/// Returns an error when a quantized field is invalid or seed generation fails.
 pub fn index_settings(
     options: &BM25IndexOptions,
     schema: &tantivy::schema::Schema,
-) -> IndexSettings {
-    IndexSettings {
+) -> Result<IndexSettings> {
+    let mut vector_quantization = Vec::new();
+    for (_, field_entry) in schema.fields() {
+        let FieldType::Vector(vector_options) = field_entry.field_type() else {
+            continue;
+        };
+        let field_name = field_entry.name();
+        let field_config = options.field_config_or_default(&FieldName::from(field_name));
+        let Some(bits) = field_config.quantization_layers() else {
+            continue;
+        };
+        let mut os_rng = SysRng;
+        let layers = bits
+            .into_iter()
+            .map(|bits| {
+                let seed = os_rng
+                    .try_next_u64()
+                    .context("failed to obtain an operating-system random quantization seed")?;
+                Ok(VectorQuantizationLayer { bits, seed })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        vector_quantization.push(VectorQuantizationConfig::materialize(
+            field_name.to_string(),
+            vector_options,
+            layers,
+        )?);
+    }
+
+    Ok(IndexSettings {
         sort_by_field: SearchIndexSchema::build_sort_by_field(&options.sort_by(), schema),
         docstore_compress_dedicated_thread: false,
         codec_types: vec![CodecType::Bitpacked, CodecType::BlockwiseLinearV2],
         vector_clustering_threshold: crate::gucs::vector_clustering_threshold(),
-        vector_bounds_scope: options.bounds_scope(),
+        vector_quantization,
         ..IndexSettings::default()
-    }
+    })
 }

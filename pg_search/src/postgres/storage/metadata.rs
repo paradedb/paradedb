@@ -89,7 +89,8 @@ pub struct MetaPageData {
 
 /// Provides read access to the metadata page
 /// Because the metadata page does not change after it's initialized in MetaPage::open(),
-// (with the exception of the `ambulkdelete_epoch` field, see comment below)
+// (with the exceptions of `ambulkdelete_epoch` and the atomically replaced
+// `settings_start` pointer, see their methods below)
 /// we do not need to hold a share lock for the lifetime of this struct.
 pub struct MetaPage {
     data: MetaPageData,

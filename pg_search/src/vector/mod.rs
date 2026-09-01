@@ -15,16 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+//! PostgreSQL vector values, metrics, and IVF clustering.
+
 pub mod clusterer;
 pub mod metric;
 
 use pgrx::{FromDatum, pg_sys};
 
-/// Owned `Vec<f32>` extracted from a pgvector datum. pgvector's on-disk
-/// layout (after the varlena header) is `[int16 dim][int16 unused]
-/// [float4; dim]`. `from_datum` detoasts the datum, copies the floats
-/// out, and frees the detoasted copy if it differs from the original
-/// pointer.
+/// An owned pgvector value.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PgVector(pub Vec<f32>);
 

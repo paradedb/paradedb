@@ -15,35 +15,27 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Distance metric for indexed vector fields.
-//!
-//! The metric travels via the index attribute's operator class — pgvector
-//! convention. CREATE INDEX uses one of:
-//!
-//!   embedding vector_l2_ops      -- <-> L2
-//!   embedding vector_cosine_ops  -- <=> Cosine
-//!   embedding vector_ip_ops      -- <#> InnerProduct
-//!
-//! At build time we read `pg_index.indclass[i]` for each vector attribute
-//! and map the opclass name to a `VectorMetric` via
-//! `metric_from_opclass_name`. The metric is then persisted in the
-//! tantivy schema's `VectorOptions::metric`.
+//! Vector metrics and their PostgreSQL operators and operator classes.
 
 use crate::postgres::catalog::lookup_opfamily_name;
 use pgrx::{IntoDatum, direct_function_call, pg_sys};
 use serde::{Deserialize, Serialize};
 use tantivy::vector::Metric as TantivyMetric;
 
+/// A pgvector-compatible distance metric.
 #[derive(Debug, Copy, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum VectorMetric {
+    /// Euclidean distance.
     #[default]
     L2,
+    /// Cosine distance.
     Cosine,
+    /// Inner-product distance.
     InnerProduct,
 }
 
 impl VectorMetric {
-    /// Map the pgvector-facing metric to Tantivy's vector metric.
+    /// Returns the corresponding Tantivy metric.
     pub fn runtime_metric(self) -> TantivyMetric {
         match self {
             VectorMetric::L2 => TantivyMetric::L2,
@@ -52,8 +44,7 @@ impl VectorMetric {
         }
     }
 
-    /// pgvector opclass name (`vector_l2_ops`, `vector_cosine_ops`,
-    /// `vector_ip_ops`). Inverse of [`Self::from_opfamily_name`].
+    /// Returns the pgvector operator-class name.
     pub fn opclass_name(self) -> &'static str {
         match self {
             VectorMetric::L2 => "vector_l2_ops",
@@ -62,7 +53,7 @@ impl VectorMetric {
         }
     }
 
-    /// pgvector distance operator symbol (`<->`, `<=>`, `<#>`).
+    /// Returns the pgvector distance operator.
     pub fn operator(self) -> &'static str {
         match self {
             VectorMetric::L2 => "<->",
@@ -71,16 +62,7 @@ impl VectorMetric {
         }
     }
 
-    /// Map a pgvector distance operator OID (`<->`, `<=>`, `<#>`) to its
-    /// implied metric. Returns `None` when `opoid` is not one of them —
-    /// which includes the case where pgvector is not installed at all.
-    ///
-    /// The operator OIDs are resolved once and cached. Resolving them via
-    /// `regoperatorin` raises `type "vector" does not exist` when pgvector is
-    /// absent (a Postgres ereport, not catchable by `unwrap_or`), and this runs
-    /// on every custom-scan plan — so gate the lookups on the `vector` type
-    /// existing (`to_regtype` returns NULL rather than erroring); absent it, all
-    /// OIDs stay INVALID and no metric ever matches.
+    /// Resolves a pgvector distance operator OID.
     pub(crate) fn from_opoid(opoid: pg_sys::Oid) -> Option<Self> {
         use std::sync::OnceLock;
         static OP_METRICS: OnceLock<[(pg_sys::Oid, VectorMetric); 3]> = OnceLock::new();
@@ -107,13 +89,6 @@ impl VectorMetric {
             .map(|(_, metric)| *metric)
     }
 
-    /// Map a pg_opfamily name (e.g. `vector_cosine_ops`) to its implied
-    /// metric. Returns `None` for any name we don't recognise — callers
-    /// then fall back to `VectorMetric::default()` (L2).
-    ///
-    /// Opfamily and opclass names match for the three vector opclasses
-    /// we declare (CREATE OPERATOR CLASS without an explicit FAMILY
-    /// clause makes Postgres invent a same-named family).
     fn from_opfamily_name(name: &str) -> Option<Self> {
         match name {
             "vector_l2_ops" => Some(Self::L2),
@@ -123,14 +98,15 @@ impl VectorMetric {
         }
     }
 
-    /// Resolve the metric for a vector attribute by reading the
-    /// opfamily OID cached in the index relation's `rd_opfamily[]`
-    /// array and mapping the opfamily name.
+    /// Resolves the metric for an index attribute.
     ///
-    /// `attno` is the **0-based** index attribute position (matches
-    /// `IndexInfo.ii_IndexAttrNumbers[attno]`). Returns `None` if the
-    /// opfamily isn't one of our three vector opfamilies (e.g. the
-    /// user fell back to the default `anyelement_bm25_ops`).
+    /// # Arguments
+    ///
+    /// * `attno` - Zero-based index attribute position.
+    ///
+    /// # Safety
+    ///
+    /// `indexrel` must be null or point to a valid open PostgreSQL index relation.
     pub unsafe fn from_index_attr(indexrel: pg_sys::Relation, attno: usize) -> Option<Self> {
         if indexrel.is_null() {
             return None;

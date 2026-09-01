@@ -20,7 +20,7 @@ use crate::gucs;
 use crate::index::kdtree::KdTree;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::stats::partition_box;
-use crate::index::writer::demux::route_index;
+use crate::index::writer::demux::{persist_tree, route_index};
 use crate::index::writer::index::{
     DiskSpaceGuard, IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
 };
@@ -1361,6 +1361,14 @@ pub(super) fn build_index(
             partitioning.partition_count(),
             partitioning.bounds_listing()
         );
+    }
+    // The build's tree is the index's one partitioning function: every later merge routes
+    // with it. A single-partition tree holds no boundary, so it is left unstored for a later
+    // merge, over real rows, to plan a real one.
+    if let Some(partitioning) = &partitioning
+        && partitioning.partition_count() > 1
+    {
+        persist_tree(&indexrel, partitioning)?;
     }
     let partitioning_bytes = match &partitioning {
         Some(partitioning) => postcard::to_allocvec(partitioning)?,

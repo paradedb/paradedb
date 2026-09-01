@@ -85,6 +85,11 @@ pub struct MetaPageData {
     created_by_version_patch: u16,
 
     created_at: pg_sys::TimestampTz,
+
+    /// Start of the [`LinkedBytesList`] holding the index's one partitioning function, a
+    /// serialized kd-tree. Zero for an index from before the slot existed;
+    /// [`MetaPage::partitioning_bytes_or_create`] backfills it.
+    partitioning_start: pg_sys::BlockNumber,
 }
 
 /// Provides read access to the metadata page
@@ -131,6 +136,8 @@ impl MetaPage {
                 const { parse_version_component(env!("CARGO_PKG_VERSION_PATCH")) };
 
             metadata.created_at = pg_sys::GetCurrentTimestamp();
+
+            metadata.partitioning_start = LinkedBytesList::create_without_fsm(indexrel);
         }
     }
 
@@ -350,6 +357,37 @@ impl MetaPage {
             self.data.schema_start
         };
         LinkedBytesList::open(self.bman.buffer_access().rel(), blockno)
+    }
+
+    /// The storage of the index's one partitioning function. `None` for an index created
+    /// before the slot existed and never written since.
+    pub fn partitioning_bytes(&self) -> Option<LinkedBytesList> {
+        block_number_is_valid(self.data.partitioning_start).then(|| {
+            LinkedBytesList::open(
+                self.bman.buffer_access().rel(),
+                self.data.partitioning_start,
+            )
+        })
+    }
+
+    /// The same storage, created on first use for an index from before the slot existed. The
+    /// caller must hold what serializes index writers: the build, or the merge lock.
+    pub unsafe fn partitioning_bytes_or_create(
+        &mut self,
+        indexrel: &PgSearchRelation,
+    ) -> LinkedBytesList {
+        if !block_number_is_valid(self.data.partitioning_start) {
+            let start = unsafe { LinkedBytesList::create_without_fsm(indexrel) };
+            let mut buffer = self.bman.get_buffer_mut(METAPAGE);
+            let mut page = buffer.page_mut();
+            let metadata = page.contents_mut::<MetaPageData>();
+            metadata.partitioning_start = start;
+            self.data.partitioning_start = start;
+        }
+        LinkedBytesList::open(
+            self.bman.buffer_access().rel(),
+            self.data.partitioning_start,
+        )
     }
 
     pub fn settings_bytes(&self) -> LinkedBytesList {

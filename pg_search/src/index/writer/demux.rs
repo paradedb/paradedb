@@ -42,6 +42,7 @@ use crate::index::stats;
 use crate::index::stats::SegmentStats;
 use crate::index::writer::index::SearchIndexMerger;
 use crate::postgres::merge::garbage_collect_index;
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::schema::SearchFieldType;
@@ -55,15 +56,15 @@ const MAX_SAMPLE_DOCS: usize = 30_000;
 /// bounds how many partitions a route can name.
 const NO_ROUTE: u16 = u16::MAX;
 
-/// Merges `segment_ids` into one segment per partition, and returns the segments it wrote.
+/// Merges `segment_ids` into one segment per partition of `tree`, and returns the segments
+/// it wrote.
 ///
-/// The boundaries come from the values these segments hold, so they describe this merge only.
-/// A later merge plans its own, and the split points a reader collects are the union of every
-/// box in the index.
+/// Every routing path shares the index's one tree (see [`resolve_tree`]), so the split points
+/// a reader collects are that tree's own boundaries, not a union of per-merge plans.
 pub(crate) fn demux_merge(
     indexrel: &PgSearchRelation,
     segment_ids: &[SegmentId],
-    target_partitions: usize,
+    tree: &KdTree,
 ) -> Result<Vec<SegmentMeta>> {
     if indexrel.options().partition_by().is_empty() {
         bail!("demux_merge requires an index with `partition_by`");
@@ -71,9 +72,15 @@ pub(crate) fn demux_merge(
     if segment_ids.is_empty() {
         return Ok(Vec::new());
     }
+    if tree.partition_count() >= NO_ROUTE as usize {
+        bail!(
+            "a demux merge cannot address {} partitions",
+            tree.partition_count()
+        );
+    }
 
     let schema = indexrel.schema()?;
-    let dims = routable_dims(schema.tantivy_schema(), &indexrel.options().partition_by())?;
+    let dims = tree.dims();
 
     let directory = MvccSatisfies::Mergeable.directory(indexrel);
     let index = Index::open(directory.clone())?;
@@ -88,18 +95,7 @@ pub(crate) fn demux_merge(
         .map(|dim| schema.search_field(dim).map(|field| field.field_type()))
         .collect::<Vec<_>>();
 
-    let tree = KdTree::from_sample(
-        dims.clone(),
-        sample(&readers, &dims, &field_types),
-        target_partitions,
-    );
-    if tree.partition_count() >= NO_ROUTE as usize {
-        bail!(
-            "a demux merge cannot address {} partitions",
-            tree.partition_count()
-        );
-    }
-    let routes = routes(&readers, &dims, &field_types, &tree);
+    let routes = routes(&readers, schema.tantivy_schema(), dims, &field_types, tree);
 
     let mut written = Vec::new();
     for partition in 0..tree.partition_count() {
@@ -114,7 +110,7 @@ pub(crate) fn demux_merge(
             &directory,
             segment_ids,
             partition,
-            &tree,
+            tree,
             masks.unwrap(),
         )?);
     }
@@ -129,6 +125,85 @@ pub(crate) fn demux_merge(
 
     commit(&directory, &index, &sources, &written)?;
     Ok(written)
+}
+
+/// Whether a demux can read and stamp one dimension: a fast column in raw order.
+fn dim_routable(schema: &Schema, dim: &FieldName) -> bool {
+    let Ok(field) = schema.get_field(dim.as_ref()) else {
+        return false;
+    };
+    let fast = match schema.get_field_entry(field).field_type() {
+        FieldType::Str(options) => options.get_fast_field_tokenizer_name().is_some(),
+        FieldType::U64(options) | FieldType::I64(options) | FieldType::F64(options) => {
+            options.is_fast()
+        }
+        FieldType::Bool(options) => options.is_fast(),
+        FieldType::Date(options) => options.is_fast(),
+        FieldType::Bytes(options) => options.is_fast(),
+        _ => false,
+    };
+    fast && stats::logical_bounds_hold(schema, field)
+}
+
+/// The index's one partitioning function, when one was stored.
+pub(crate) fn stored_tree(indexrel: &PgSearchRelation) -> Result<Option<KdTree>> {
+    let metadata = MetaPage::open(indexrel);
+    let Some(bytes) = metadata.partitioning_bytes() else {
+        return Ok(None);
+    };
+    let raw = unsafe { bytes.read_all() };
+    if raw.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(postcard::from_bytes(&raw)?))
+}
+
+/// Stores `tree` as the index's one partitioning function, unless one is already stored: the
+/// first writer wins, and every later router reads it back. The caller must hold what
+/// serializes index writers: the build, or the merge lock.
+pub(crate) fn persist_tree(indexrel: &PgSearchRelation, tree: &KdTree) -> Result<()> {
+    let mut metadata = MetaPage::open(indexrel);
+    let bytes = unsafe { metadata.partitioning_bytes_or_create(indexrel) };
+    if bytes.is_empty() {
+        let raw = postcard::to_allocvec(tree)?;
+        unsafe {
+            bytes.writer().write(&raw)?;
+        }
+    }
+    Ok(())
+}
+
+/// The tree every routing path shares: the stored one when it exists, else one planned over
+/// `segment_ids` and stored. A tree with no boundary is not stored, so an index that starts
+/// empty, or under the size floor, takes its function from the first merge that can plan a
+/// real one. Must run under the merge lock, so exactly one tree is ever stored.
+pub(crate) fn resolve_tree(
+    indexrel: &PgSearchRelation,
+    segment_ids: &[SegmentId],
+    target_partitions: usize,
+) -> Result<KdTree> {
+    if let Some(tree) = stored_tree(indexrel)? {
+        return Ok(tree);
+    }
+    let schema = indexrel.schema()?;
+    let dims = routable_dims(schema.tantivy_schema(), &indexrel.options().partition_by())?;
+    let field_types = dims
+        .iter()
+        .map(|dim| schema.search_field(dim).map(|field| field.field_type()))
+        .collect::<Vec<_>>();
+    let directory = MvccSatisfies::Mergeable.directory(indexrel);
+    let index = Index::open(directory.clone())?;
+    let sources = sources(&index, segment_ids)?;
+    let readers = sources
+        .iter()
+        .map(SegmentReader::open)
+        .collect::<tantivy::Result<Vec<_>>>()?;
+    let points = sample(&readers, schema.tantivy_schema(), &dims, &field_types);
+    let tree = KdTree::from_sample(dims, points, target_partitions);
+    if tree.partition_count() > 1 {
+        persist_tree(indexrel, &tree)?;
+    }
+    Ok(tree)
 }
 
 /// The `partition_by` dimensions a demux can route on: the ones with a fast column to read
@@ -147,22 +222,7 @@ pub(crate) fn routable_dims(schema: &Schema, dims: &[FieldName]) -> Result<Vec<F
     }
     let routable = dims
         .iter()
-        .filter(|dim| {
-            let Ok(field) = schema.get_field(dim.as_ref()) else {
-                return false;
-            };
-            let fast = match schema.get_field_entry(field).field_type() {
-                FieldType::Str(options) => options.get_fast_field_tokenizer_name().is_some(),
-                FieldType::U64(options) | FieldType::I64(options) | FieldType::F64(options) => {
-                    options.is_fast()
-                }
-                FieldType::Bool(options) => options.is_fast(),
-                FieldType::Date(options) => options.is_fast(),
-                FieldType::Bytes(options) => options.is_fast(),
-                _ => false,
-            };
-            fast && stats::logical_bounds_hold(schema, field)
-        })
+        .filter(|dim| dim_routable(schema, dim))
         .cloned()
         .collect::<Vec<_>>();
     if routable.is_empty() {
@@ -259,7 +319,8 @@ pub(crate) unsafe fn route_index(
     let next_xid = pg_sys::ReadNextFullTransactionId();
     let mut merge_list = merge_lock.merge_list();
     let merge_entry = merge_list.add_segment_ids(segment_ids.iter(), current_xid)?;
-    let written = demux_merge(indexrel, &segment_ids, target_partitions);
+    let written = resolve_tree(indexrel, &segment_ids, target_partitions)
+        .and_then(|tree| demux_merge(indexrel, &segment_ids, &tree));
     merge_list.remove_entry(merge_entry)?;
     drop(merge_lock);
     drop(merger);
@@ -289,22 +350,30 @@ fn sources(index: &Index, segment_ids: &[SegmentId]) -> Result<Vec<Segment>> {
 /// The point `doc` routes on. A document with no value routes as `NULL`, which the tree sends
 /// to the first partition; a frozen mutable segment can hold such documents even under a
 /// `NOT NULL` column, because it materializes an unfetchable ctid as an empty document.
-fn point(ffs: &[FFType], field_types: &[Option<SearchFieldType>], doc: DocId) -> Point {
+fn point(ffs: &[Option<FFType>], field_types: &[Option<SearchFieldType>], doc: DocId) -> Point {
     ffs.iter()
         .zip(field_types)
-        .map(|(ff, field_type)| ff.value_or_null(doc, *field_type).0)
+        .map(|(ff, field_type)| match ff {
+            Some(ff) => ff.value_or_null(doc, *field_type).0,
+            // A dimension with no readable fast column: the build routed it on heap values;
+            // a demux sends it left, and every box a stamp keeps stays truthful to the path.
+            None => PdbOwnedValue::Null,
+        })
         .collect()
 }
 
-fn fast_fields(reader: &SegmentReader, dims: &[FieldName]) -> Vec<FFType> {
+fn fast_fields(reader: &SegmentReader, schema: &Schema, dims: &[FieldName]) -> Vec<Option<FFType>> {
     dims.iter()
-        .map(|dim| FFType::new(reader.fast_fields(), dim.as_ref()))
+        .map(|dim| {
+            dim_routable(schema, dim).then(|| FFType::new(reader.fast_fields(), dim.as_ref()))
+        })
         .collect()
 }
 
 /// A stride sample of the values the segments hold, for the boundaries to be planned over.
 fn sample(
     readers: &[SegmentReader],
+    schema: &Schema,
     dims: &[FieldName],
     field_types: &[Option<SearchFieldType>],
 ) -> Vec<Point> {
@@ -316,7 +385,7 @@ fn sample(
     let mut sample = Vec::with_capacity(total.min(MAX_SAMPLE_DOCS));
     let mut seen = 0usize;
     for reader in readers {
-        let ffs = fast_fields(reader, dims);
+        let ffs = fast_fields(reader, schema, dims);
         for doc in reader.doc_ids_alive() {
             if seen.is_multiple_of(stride) {
                 sample.push(point(&ffs, field_types, doc));
@@ -331,6 +400,7 @@ fn sample(
 /// bytes per document bound what a route holds in memory, however large the candidate is.
 fn routes(
     readers: &[SegmentReader],
+    schema: &Schema,
     dims: &[FieldName],
     field_types: &[Option<SearchFieldType>],
     tree: &KdTree,
@@ -338,7 +408,7 @@ fn routes(
     readers
         .iter()
         .map(|reader| {
-            let ffs = fast_fields(reader, dims);
+            let ffs = fast_fields(reader, schema, dims);
             let mut routes = vec![NO_ROUTE; reader.max_doc() as usize];
             for doc in reader.doc_ids_alive() {
                 routes[doc as usize] = tree.route(&point(&ffs, field_types, doc)) as u16;
@@ -706,6 +776,130 @@ mod tests {
                 .unwrap(),
             4000,
             "the rewrite keeps every row"
+        );
+    }
+
+    /// An index on an empty table stores no tree: there is nothing to plan over. The first
+    /// merge that can plan a real one stores it, and every later routing reuses it, so rows
+    /// far outside the first batch add no new boundaries.
+    #[pg_test]
+    fn an_empty_index_takes_its_tree_from_the_first_merge() {
+        Spi::run(
+            r#"
+            CREATE TABLE demux_grown (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            SET paradedb.global_mutable_segment_rows = 0;
+            CREATE INDEX demux_grown_idx ON demux_grown USING bm25 (id, tenant_id, name)
+                WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 4,
+                      numeric_fields = '{"tenant_id": {"fast": true}}');
+            "#,
+        )
+        .unwrap();
+
+        let indexrel = open_index("demux_grown_idx");
+        assert!(
+            super::stored_tree(&indexrel).unwrap().is_none(),
+            "an empty build has nothing to plan over"
+        );
+        drop(indexrel);
+
+        Spi::run(
+            r#"
+            INSERT INTO demux_grown (tenant_id, name)
+            SELECT (i * 7919) % 100, 'lorem ipsum ' || i FROM generate_series(1, 4000) i;
+            "#,
+        )
+        .unwrap();
+        let indexrel = open_index("demux_grown_idx");
+        let written = unsafe { super::route_index(&indexrel, 4) }.unwrap();
+        assert_eq!(written.len(), 4, "one segment per partition");
+        drop(indexrel);
+
+        let indexrel = open_index("demux_grown_idx");
+        let tree = super::stored_tree(&indexrel)
+            .unwrap()
+            .expect("the first routing stores the tree");
+        assert_eq!(tree.partition_count(), 4);
+        let before = persisted_split_points(&indexrel, "tenant_id")
+            .unwrap()
+            .expect("the routing recorded split points");
+        drop(indexrel);
+
+        Spi::run(
+            r#"
+            INSERT INTO demux_grown (tenant_id, name)
+            SELECT 1000 + (i * 31) % 100, 'dolor sit ' || i FROM generate_series(1, 2000) i;
+            "#,
+        )
+        .unwrap();
+        let indexrel = open_index("demux_grown_idx");
+        unsafe { super::route_index(&indexrel, 4) }.unwrap();
+        drop(indexrel);
+
+        let indexrel = open_index("demux_grown_idx");
+        let after = persisted_split_points(&indexrel, "tenant_id")
+            .unwrap()
+            .expect("the split points survive");
+        assert_eq!(
+            after, before,
+            "the stored tree routes new rows, so no boundary moves"
+        );
+        assert_eq!(
+            Spi::get_one::<i64>("SELECT count(*) FROM demux_grown WHERE id @@@ pdb.all();")
+                .unwrap()
+                .unwrap(),
+            6000
+        );
+    }
+
+    /// A partitioned build stores its tree, and later routings reuse it instead of planning
+    /// their own, so the boxes a merge stamps line up with the boxes the build stamped.
+    #[pg_test]
+    fn the_build_stores_the_tree_and_merges_reuse_it() {
+        Spi::run(
+            r#"
+            CREATE TABLE demux_built (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            INSERT INTO demux_built (tenant_id, name)
+            SELECT (i * 7919) % 100, 'lorem ipsum ' || i FROM generate_series(1, 4000) i;
+            SET paradedb.global_mutable_segment_rows = 0;
+            SET max_parallel_maintenance_workers = 0;
+            CREATE INDEX demux_built_idx ON demux_built USING bm25 (id, tenant_id, name)
+                WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 4,
+                      numeric_fields = '{"tenant_id": {"fast": true}}');
+            "#,
+        )
+        .unwrap();
+
+        let indexrel = open_index("demux_built_idx");
+        let tree = super::stored_tree(&indexrel)
+            .unwrap()
+            .expect("the build stores its tree");
+        assert_eq!(tree.partition_count(), 4);
+        let before = persisted_split_points(&indexrel, "tenant_id")
+            .unwrap()
+            .expect("the build recorded split points");
+        drop(indexrel);
+
+        Spi::run(
+            r#"
+            INSERT INTO demux_built (tenant_id, name)
+            SELECT 1000 + (i * 31) % 100, 'dolor sit ' || i FROM generate_series(1, 2000) i;
+            "#,
+        )
+        .unwrap();
+        let indexrel = open_index("demux_built_idx");
+        unsafe { super::route_index(&indexrel, 4) }.unwrap();
+        drop(indexrel);
+
+        let indexrel = open_index("demux_built_idx");
+        let after = persisted_split_points(&indexrel, "tenant_id")
+            .unwrap()
+            .expect("the split points survive");
+        assert_eq!(after, before, "the rewrite routes by the build's tree");
+        assert_eq!(
+            Spi::get_one::<i64>("SELECT count(*) FROM demux_built WHERE id @@@ pdb.all();")
+                .unwrap()
+                .unwrap(),
+            6000
         );
     }
 

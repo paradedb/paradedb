@@ -18,7 +18,7 @@
 use crate::gucs;
 use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::writer::demux::{demux_merge, unrouted_segments};
+use crate::index::writer::demux::{demux_merge, resolve_tree, unrouted_segments};
 use crate::index::writer::index::{Mergeable, SearchIndexMerger};
 use crate::postgres::PgSearchRelation;
 use crate::postgres::build_parallel::plan;
@@ -486,6 +486,46 @@ unsafe fn merge_index(
             .merge_list()
             .add_segment_ids(merge_policy.mergeable_segments(), current_xid)
             .expect("should be able to write current merge segment_id list");
+
+        // A `partition_by` index routes its rows only at build time, so anything that arrives
+        // later holds no partition. A merge is where the layout heals: the candidates that
+        // are entirely unrouted come out as one segment per partition instead of one. The
+        // tree is read, or stored, under the merge lock we still hold, so every merge routes
+        // by the index's one tree.
+        let routing = if gucs::enable_merge_routing() {
+            (|| {
+                let unrouted = unrouted_segments(indexrel)
+                    .map_err(|e| {
+                        pgrx::debug1!("merge_index: could not read the routed segments: {e}");
+                    })
+                    .ok()?;
+                let routed_candidates = merge_candidates
+                    .iter()
+                    .filter(|candidate| {
+                        !unrouted.is_empty() && candidate.0.iter().all(|id| unrouted.contains(id))
+                    })
+                    .flat_map(|candidate| candidate.0.iter().cloned())
+                    .collect::<Vec<_>>();
+                if routed_candidates.is_empty() {
+                    return None;
+                }
+                // The same target a build would cut, so a small heap does not come out in
+                // more partitions than a rebuild would give it.
+                let target_partitions = indexrel
+                    .heap_relation()
+                    .map(|heaprel| plan::adjusted_target_segment_count(&heaprel, indexrel))
+                    .unwrap_or_else(|| indexrel.options().target_segment_count());
+                match resolve_tree(indexrel, &routed_candidates, target_partitions) {
+                    Ok(tree) => Some((unrouted, tree)),
+                    Err(e) => {
+                        pgrx::debug1!("merge_index: could not resolve the partitioning: {e}");
+                        None
+                    }
+                }
+            })()
+        } else {
+            None
+        };
         drop(merge_lock);
 
         // we are NOT under the MergeLock at this point, which allows concurrent backends to also merge
@@ -495,24 +535,6 @@ unsafe fn merge_index(
 
         let mut merge_result: anyhow::Result<Option<SegmentMeta>> = Ok(None);
 
-        // A `partition_by` index routes its rows only at build time, so anything that arrives
-        // later holds no partition. A merge is where the layout heals: the candidates that are
-        // entirely unrouted come out as one segment per partition instead of one segment.
-        let unrouted = if gucs::enable_merge_routing() {
-            unrouted_segments(indexrel).unwrap_or_else(|e| {
-                pgrx::debug1!("merge_index: could not read the routed segments: {e}");
-                Default::default()
-            })
-        } else {
-            Default::default()
-        };
-        // The same target a build would cut, so a small heap does not come out in more
-        // partitions than a rebuild would give it.
-        let target_partitions = indexrel
-            .heap_relation()
-            .map(|heaprel| plan::adjusted_target_segment_count(&heaprel, indexrel))
-            .unwrap_or_else(|| indexrel.options().target_segment_count());
-
         for candidate in merge_candidates {
             if is_background && VacuumSignal::new(indexrel.oid()).wants_cancel() {
                 pgrx::debug1!("VACUUM waiting, exiting merge early");
@@ -521,9 +543,12 @@ unsafe fn merge_index(
 
             pgrx::debug1!("merging candidate with {} segments", candidate.0.len());
 
-            let route = !unrouted.is_empty() && candidate.0.iter().all(|id| unrouted.contains(id));
+            let route = routing
+                .as_ref()
+                .is_some_and(|(unrouted, _)| candidate.0.iter().all(|id| unrouted.contains(id)));
             merge_result = if route {
-                demux_merge(indexrel, &candidate.0, target_partitions).and_then(|written| {
+                let (_, tree) = routing.as_ref().unwrap();
+                demux_merge(indexrel, &candidate.0, tree).and_then(|written| {
                     // The demux replaced the sources itself; dropping the merger's pins on
                     // them lets the collection below recycle them.
                     unsafe { merger.drop_pins(&candidate.0) }?;

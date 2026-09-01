@@ -1242,13 +1242,15 @@ impl SearchIndexReader {
                 tantivy::vector::set_fixed_probe_cost_rows(
                     crate::gucs::vector_fixed_probe_cost_rows(),
                 );
+                let max_scan_levels = crate::gucs::vector_max_scan_levels();
                 let collector = TopDocs::with_limit(n)
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
                     .with_adaptive_params(AdaptiveProbeParams {
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
                         ..Default::default()
-                    });
+                    })
+                    .with_max_scan_levels(max_scan_levels);
 
                 let mut erased_features = erased_features;
                 let score_index = erased_features.score_index();

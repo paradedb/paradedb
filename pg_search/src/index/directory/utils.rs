@@ -504,3 +504,12 @@ pub fn load_index_schema(indexrel: &PgSearchRelation) -> tantivy::Result<Option<
     }
     Ok(serde_json::from_slice(&schema_bytes)?)
 }
+
+pub fn load_index_settings(indexrel: &PgSearchRelation) -> tantivy::Result<Option<IndexSettings>> {
+    let metapage = MetaPage::open(indexrel);
+    let settings_bytes = unsafe { metapage.settings_bytes().read_all() };
+    if settings_bytes.is_empty() {
+        return Ok(None);
+    }
+    Ok(serde_json::from_slice(&settings_bytes)?)
+}

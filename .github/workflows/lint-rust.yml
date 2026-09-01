@@ -70,15 +70,10 @@ jobs:
           save-if: false
 
       - name: Install & Configure Supported PostgreSQL Version
-        run: |
-          set -euo pipefail
-          curl --fail --silent --show-error https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-            | gpg --dearmor \
-            | sudo tee /usr/share/keyrings/postgresql-pgdg.gpg >/dev/null
-          echo "deb [signed-by=/usr/share/keyrings/postgresql-pgdg.gpg] https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo "$VERSION_CODENAME")-pgdg main" \
-            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
-          sudo apt-get update && sudo apt-get install -y lld libfontconfig1-dev libopenblas-dev postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
-          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> "$GITHUB_PATH"
+        uses: ./.github/actions/setup-postgres
+        with:
+          pg_version: ${{ matrix.pg_version }}
+          extra_packages: lld libfontconfig1-dev libopenblas-dev
 
       - name: Install pgrx
         run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug

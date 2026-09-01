@@ -418,11 +418,12 @@ impl BaseScanState {
     }
 
     pub fn reset(&mut self) {
-        if let Some(parallel) = self.parallel
-            && parallel.is_leader()
-        {
-            parallel.reset_work_queue();
-        }
+        // Process-local state only. The shared parallel work queue must NOT be reset
+        // here: ReScan runs in the leader after parallel workers are launched, and a
+        // worker may have already claimed segments from the queue. Refilling it then
+        // hands those segments out a second time, duplicating rows (#5024). The
+        // shared queue is reset in `reinitialize_dsm_custom_scan`, which PostgreSQL
+        // runs before workers are launched.
         self.telemetry.reset();
         self.virtual_tuple_count = 0;
         if self.visibility_checker.is_some() {

@@ -89,16 +89,6 @@ impl ParallelScanHandle {
             local.set_parallel_explain(explain_data);
         }
     }
-
-    /// Leader-only: reset the shared work queue for a rescan.
-    pub fn reset_work_queue(&self) {
-        debug_assert_eq!(self.role, ParallelRole::Leader);
-        unsafe {
-            let dsm = self.dsm.as_ptr();
-            let _mutex = (*dsm).acquire_mutex();
-            ParallelScanState::reset(&mut *dsm);
-        }
-    }
 }
 
 impl ParallelQueryCapable for BaseScan {
@@ -141,6 +131,13 @@ impl ParallelQueryCapable for BaseScan {
         state: &mut CustomScanStateWrapper<Self>,
         coordinate: *mut c_void,
     ) {
+        // The one place the shared segment work queue is reset for a rescan.
+        // PostgreSQL guarantees this runs while no workers are attached (see
+        // nodeGather.c: "ReInitializeDSM should reset only shared state, ReScan
+        // should reset only local state"). Resetting the queue anywhere else —
+        // in particular from the leader's ReScan callback, which runs after
+        // LaunchParallelWorkers — races with workers' segment claims and makes
+        // already-claimed segments get scanned twice (#5024).
         let pscan_state = coordinate.cast::<ParallelScanState>();
         assert!(!pscan_state.is_null(), "coordinate is null");
         unsafe {

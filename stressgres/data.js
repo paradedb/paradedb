@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788305509475,
+  "lastUpdate": 1788305517312,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -298910,6 +298910,162 @@ window.BENCHMARK_DATA = {
             "value": 17.765625,
             "unit": "median mem",
             "extra": "avg mem: 17.718158783427313, max mem: 17.88671875, count: 59233"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2dbed3a3a873f700775168e59d6c683cd2d9a32a",
+          "message": "ci: Fix benchmarker CI failure handling & cleanup duplicated actions and workflows (#6183)\n\n## Summary\n- consolidate source-building benchmark workflows on a single\n`Swatinem/rust-cache` owner for Cargo binaries and build artifacts\n- verify the cached `cargo-pgrx` version in both Benchmarker and\nStressgres, installing the pinned version only when missing or stale\n- notify `@pg_search-maintainers` in Slack when the Benchmarker workflow\nfails on a push\n\n## Root cause\n[Run\n33561565782](https://github.com/paradedb/paradedb/actions/runs/33561565782/job/100035036147)\nrestored `~/.cargo/bin/cargo-pgrx` through `Swatinem/rust-cache`, while\na second dedicated `cargo-pgrx` cache reported a miss. The subsequent\ninstall failed because the binary already existed. Removing the\noverlapping cache ownership prevents that inconsistent state.\n\nThe query benchmark workflow does not install `cargo-pgrx`; it uses a\nprepared benchmark cluster, so there is no equivalent cache path to\nchange there.\n\n## Validation\n- `git diff --check`\n- parsed all three modified YAML files with Ruby YAML",
+          "timestamp": "2026-09-01T16:13:19-07:00",
+          "tree_id": "9b4db32eb6476fe2a4f2e5a84707d9d6dee78521",
+          "url": "https://github.com/paradedb/paradedb/commit/2dbed3a3a873f700775168e59d6c683cd2d9a32a"
+        },
+        "date": 1788305513798,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 23.244553,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.8192771302062, max cpu: 36.905334, count: 59236"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 48.63671875,
+            "unit": "median mem",
+            "extra": "avg mem: 48.57471332888784, max mem: 62.28125, count: 59236"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.329070282623748, max cpu: 4.6875, count: 59236"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 17.3359375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.2902413122932, max mem: 17.3359375, count: 59236"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.745413451653613, max cpu: 9.384164, count: 59236"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 21.8046875,
+            "unit": "median mem",
+            "extra": "avg mem: 21.777665951659465, max mem: 21.8046875, count: 59236"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 14141,
+            "unit": "median pages",
+            "extra": "avg pages: 10803.622256735769, max pages: 22041.0, count: 59236"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 110.4765625,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 84.4032992764113, max relation_size:MB: 172.1953125, count: 59236"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 68,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 62.976804645823485, max segment_count: 105.0, count: 59236"
+          },
+          {
+            "name": "Insert value - Publisher - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.34934431164637, max cpu: 4.7081904, count: 59236"
+          },
+          {
+            "name": "Insert value - Publisher - mem",
+            "value": 17.3671875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.3501313205863, max mem: 17.3671875, count: 59236"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.9879574995204, max cpu: 36.905334, count: 59236"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 48.109375,
+            "unit": "median mem",
+            "extra": "avg mem: 47.815687000409376, max mem: 60.45703125, count: 59236"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 23.244553,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.68026183702138, max cpu: 36.905334, count: 59236"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 45.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 46.120932121619454, max mem: 58.28125, count: 59236"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 104.6169662475586,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 195.6825175678491, max replication_lag:MB: 861.9297943115234, count: 59236"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.98799493889741, max cpu: 37.24539, count: 59236"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 48.76953125,
+            "unit": "median mem",
+            "extra": "avg mem: 48.5879004506339, max mem: 62.859375, count: 59236"
+          },
+          {
+            "name": "Update 1..50 - Publisher - cpu",
+            "value": 9.297821,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.110630921713472, max cpu: 28.290766, count: 59236"
+          },
+          {
+            "name": "Update 1..50 - Publisher - mem",
+            "value": 17.7734375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.697435496362008, max mem: 17.91796875, count: 59236"
+          },
+          {
+            "name": "Update 51..100 - Publisher - cpu",
+            "value": 9.279845,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.968044293832087, max cpu: 32.57392, count: 59236"
+          },
+          {
+            "name": "Update 51..100 - Publisher - mem",
+            "value": 17.76953125,
+            "unit": "median mem",
+            "extra": "avg mem: 17.697801352851307, max mem: 17.89453125, count: 59236"
           }
         ]
       }

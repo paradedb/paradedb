@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788305728692,
+  "lastUpdate": 1788305736238,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -308520,6 +308520,90 @@ window.BENCHMARK_DATA = {
             "value": 581.6893168080312,
             "unit": "median tps",
             "extra": "avg tps: 589.5208405855933, max tps: 681.6121304711404, count: 55441"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2dbed3a3a873f700775168e59d6c683cd2d9a32a",
+          "message": "ci: Fix benchmarker CI failure handling & cleanup duplicated actions and workflows (#6183)\n\n## Summary\n- consolidate source-building benchmark workflows on a single\n`Swatinem/rust-cache` owner for Cargo binaries and build artifacts\n- verify the cached `cargo-pgrx` version in both Benchmarker and\nStressgres, installing the pinned version only when missing or stale\n- notify `@pg_search-maintainers` in Slack when the Benchmarker workflow\nfails on a push\n\n## Root cause\n[Run\n33561565782](https://github.com/paradedb/paradedb/actions/runs/33561565782/job/100035036147)\nrestored `~/.cargo/bin/cargo-pgrx` through `Swatinem/rust-cache`, while\na second dedicated `cargo-pgrx` cache reported a miss. The subsequent\ninstall failed because the binary already existed. Removing the\noverlapping cache ownership prevents that inconsistent state.\n\nThe query benchmark workflow does not install `cargo-pgrx`; it uses a\nprepared benchmark cluster, so there is no equivalent cache path to\nchange there.\n\n## Validation\n- `git diff --check`\n- parsed all three modified YAML files with Ruby YAML",
+          "timestamp": "2026-09-01T16:13:19-07:00",
+          "tree_id": "9b4db32eb6476fe2a4f2e5a84707d9d6dee78521",
+          "url": "https://github.com/paradedb/paradedb/commit/2dbed3a3a873f700775168e59d6c683cd2d9a32a"
+        },
+        "date": 1788305718362,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 194.0899319440944,
+            "unit": "median tps",
+            "extra": "avg tps: 196.98100628205154, max tps: 217.1094752991936, count: 55395"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 198.2293243793635,
+            "unit": "median tps",
+            "extra": "avg tps: 200.92047264703115, max tps: 224.7827766249255, count: 55395"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 176.1005975513347,
+            "unit": "median tps",
+            "extra": "avg tps: 178.10427312617193, max tps: 198.6848311915857, count: 55395"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 460.8615934000237,
+            "unit": "median tps",
+            "extra": "avg tps: 475.522840463387, max tps: 640.7683344071622, count: 55395"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 334.4913224061018,
+            "unit": "median tps",
+            "extra": "avg tps: 341.62406337910164, max tps: 431.22573405312215, count: 55395"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.822723012968474,
+            "unit": "median tps",
+            "extra": "avg tps: 14.840805050916266, max tps: 15.655177219257718, count: 55395"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Subscriber - tps",
+            "value": 658.4761110422133,
+            "unit": "median tps",
+            "extra": "avg tps: 663.4946122630307, max tps: 771.4040216153668, count: 55395"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 667.6175162267198,
+            "unit": "median tps",
+            "extra": "avg tps: 674.6212727518389, max tps: 782.6435498894808, count: 55395"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 263.95815561231524,
+            "unit": "median tps",
+            "extra": "avg tps: 268.2286468257478, max tps: 314.36883123663233, count: 55395"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 575.0563754510674,
+            "unit": "median tps",
+            "extra": "avg tps: 580.8674648815811, max tps: 640.9941923247394, count: 55395"
           }
         ]
       }

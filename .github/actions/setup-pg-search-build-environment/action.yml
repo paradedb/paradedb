@@ -1,5 +1,5 @@
 name: Set Up pg_search Build Environment
-description: Install and initialize PostgreSQL, Rust, cargo-pgrx, and the benchmark build cache
+description: Install and initialize PostgreSQL, Rust, cargo-pgrx, and a shared Rust build cache
 
 inputs:
   pg_version:
@@ -10,6 +10,18 @@ inputs:
     description: "Additional apt packages to install alongside PostgreSQL."
     required: false
     default: ""
+  cache_prefix_key:
+    description: "rust-cache prefix separating compatible build profiles."
+    required: false
+    default: "v2-benchmarks-rust-cache"
+  cache_save:
+    description: "Whether this run may save a new Rust cache entry."
+    required: false
+    default: "true"
+  cache_on_failure:
+    description: "Whether to save the Rust cache when a later step fails."
+    required: false
+    default: "true"
 
 runs:
   using: composite
@@ -24,9 +36,9 @@ runs:
       uses: ./.github/actions/setup-pg-search-toolchain
       with:
         pg_version: ${{ inputs.pg_version }}
-        cache_prefix_key: "v2-benchmarks-rust-cache"
-        cache_save: "true"
-        cache_on_failure: "true"
+        cache_prefix_key: ${{ inputs.cache_prefix_key }}
+        cache_save: ${{ inputs.cache_save }}
+        cache_on_failure: ${{ inputs.cache_on_failure }}
 
     - name: Initialize pgrx Environment
       shell: bash

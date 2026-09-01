@@ -22,7 +22,7 @@ use std::ops::Range;
 
 use crate::gucs;
 use crate::index::mvcc::{MutableSegmentBound, SegmentView, SegmentViewDocs, SegmentViewEntry};
-use crate::postgres::build::is_bm25_index;
+pub(crate) use crate::postgres::build::is_bm25_index;
 use crate::postgres::condition_variable::ConditionVariable;
 use crate::postgres::locks::Spinlock;
 use crate::postgres::rel::PgSearchRelation;
@@ -1326,6 +1326,9 @@ mod tests {
         let mut fields = Map::new();
         for name in [
             "candidates_scored",
+            "layer0_eligible",
+            "clusters_skipped_empty",
+            "eligible_charged",
             "rerank_rows",
             "scan_init_ns",
             "query_prep_ns",

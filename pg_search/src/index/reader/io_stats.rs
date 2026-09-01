@@ -27,10 +27,10 @@
 #[cfg(feature = "io_stats")]
 mod imp {
     use pgrx::pg_sys;
-    use serde_json::json;
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
     use std::collections::BTreeMap;
     use tantivy::index::{SegmentComponent, SegmentId};
+    use tantivy::vector::current_vector_stage;
 
     #[derive(Debug, Default, Clone, Copy, serde::Serialize)]
     struct IoCounters {
@@ -38,21 +38,98 @@ mod imp {
         blks_read: u64,
     }
 
-    type SegmentIo = BTreeMap<String, IoCounters>;
+    #[derive(Debug, Default)]
+    struct SegmentIo {
+        components: BTreeMap<String, IoCounters>,
+        stages: BTreeMap<String, IoCounters>,
+        scan_init_components: BTreeMap<String, IoCounters>,
+    }
+
+    impl SegmentIo {
+        fn is_empty(&self) -> bool {
+            self.components.is_empty()
+        }
+    }
 
     thread_local! {
         static CURRENT: RefCell<SegmentIo> = RefCell::default();
         static PER_SEGMENT: RefCell<Vec<(SegmentId, SegmentIo)>> = RefCell::default();
+        static PRE_SCAN_INIT: Cell<bool> = const { Cell::new(false) };
+        static PRESERVE_NEXT_RESET: Cell<bool> = const { Cell::new(false) };
+    }
+
+    pub struct ScanInitGuard {
+        hit0: i64,
+        read0: i64,
+    }
+
+    impl Drop for ScanInitGuard {
+        fn drop(&mut self) {
+            let (hit1, read1) = snapshot();
+            let total = IoCounters {
+                blks_hit: hit1.saturating_sub(self.hit0) as u64,
+                blks_read: read1.saturating_sub(self.read0) as u64,
+            };
+            CURRENT.with_borrow_mut(|current| {
+                let attributed = current.stages.get("scan_init").copied().unwrap_or_default();
+                let direct = IoCounters {
+                    blks_hit: total.blks_hit.saturating_sub(attributed.blks_hit),
+                    blks_read: total.blks_read.saturating_sub(attributed.blks_read),
+                };
+                let stage = current.stages.entry("scan_init".to_string()).or_default();
+                stage.blks_hit += direct.blks_hit;
+                stage.blks_read += direct.blks_read;
+                let component = current
+                    .scan_init_components
+                    .entry("executor".to_string())
+                    .or_default();
+                component.blks_hit += direct.blks_hit;
+                component.blks_read += direct.blks_read;
+            });
+            PRE_SCAN_INIT.set(false);
+            PRESERVE_NEXT_RESET.set(true);
+        }
+    }
+
+    /// Start the query-level reader-open window. The next collector reset is
+    /// suppressed so these counters join the first collected segment.
+    pub fn begin_scan_init() -> ScanInitGuard {
+        CURRENT.take();
+        PER_SEGMENT.take();
+        PRESERVE_NEXT_RESET.set(false);
+        PRE_SCAN_INIT.set(true);
+        let (hit0, read0) = snapshot();
+        ScanInitGuard { hit0, read0 }
     }
 
     pub fn record<R>(component: &SegmentComponent, read: impl FnOnce() -> R) -> R {
         let (hit0, read0) = snapshot();
         let result = read();
         let (hit1, read1) = snapshot();
+        let delta = IoCounters {
+            blks_hit: hit1.saturating_sub(hit0) as u64,
+            blks_read: read1.saturating_sub(read0) as u64,
+        };
         CURRENT.with_borrow_mut(|current| {
-            let slot = current.entry(component.to_string()).or_default();
-            slot.blks_hit += hit1.saturating_sub(hit0) as u64;
-            slot.blks_read += read1.saturating_sub(read0) as u64;
+            let component = component.to_string();
+            let slot = current.components.entry(component.clone()).or_default();
+            slot.blks_hit += delta.blks_hit;
+            slot.blks_read += delta.blks_read;
+            let stage = if PRE_SCAN_INIT.get() {
+                Some("scan_init".to_string())
+            } else {
+                current_vector_stage().name().map(Into::into)
+            };
+            if let Some(stage) = stage {
+                let stage_slot = current.stages.entry(stage.clone()).or_default();
+                stage_slot.blks_hit += delta.blks_hit;
+                stage_slot.blks_read += delta.blks_read;
+                if stage == "scan_init" {
+                    let component_slot = current.scan_init_components.entry(component).or_default();
+                    component_slot.blks_hit += delta.blks_hit;
+                    component_slot.blks_read += delta.blks_read;
+                }
+            }
         });
         result
     }
@@ -66,6 +143,9 @@ mod imp {
 
     /// Forget any counts from outside a segment-collection window.
     pub fn reset() {
+        if PRESERVE_NEXT_RESET.replace(false) {
+            return;
+        }
         CURRENT.take();
         PER_SEGMENT.take();
     }
@@ -84,7 +164,67 @@ mod imp {
                 continue;
             }
             if let Some(serde_json::Value::Object(map)) = segment_info.get_mut(&segment_id) {
-                map.insert("io".to_string(), json!(io));
+                let mut total = IoCounters::default();
+                for (component, counters) in io.components {
+                    total.blks_hit += counters.blks_hit;
+                    total.blks_read += counters.blks_read;
+                    let component = component
+                        .chars()
+                        .map(|character| {
+                            if character.is_ascii_alphanumeric() {
+                                character.to_ascii_lowercase()
+                            } else {
+                                '_'
+                            }
+                        })
+                        .collect::<String>();
+                    map.insert(
+                        format!("io_{component}_buffer_hits"),
+                        counters.blks_hit.into(),
+                    );
+                    map.insert(
+                        format!("io_{component}_buffer_reads"),
+                        counters.blks_read.into(),
+                    );
+                }
+                map.insert("buffer_hits".to_string(), total.blks_hit.into());
+                map.insert("buffer_reads".to_string(), total.blks_read.into());
+                map.insert(
+                    "blocks_fetched".to_string(),
+                    (total.blks_hit + total.blks_read).into(),
+                );
+                for (name, counters) in io.stages {
+                    map.insert(format!("{name}_buffer_hits"), counters.blks_hit.into());
+                    map.insert(format!("{name}_buffer_reads"), counters.blks_read.into());
+                    if name == "rerank_fetch" {
+                        map.insert("rerank_buffer_hits".to_string(), counters.blks_hit.into());
+                        map.insert("rerank_buffer_reads".to_string(), counters.blks_read.into());
+                        map.insert(
+                            "rerank_blocks_fetched".to_string(),
+                            (counters.blks_hit + counters.blks_read).into(),
+                        );
+                    }
+                }
+                for (component, counters) in io.scan_init_components {
+                    let component = component
+                        .chars()
+                        .map(|character| {
+                            if character.is_ascii_alphanumeric() {
+                                character.to_ascii_lowercase()
+                            } else {
+                                '_'
+                            }
+                        })
+                        .collect::<String>();
+                    map.insert(
+                        format!("scan_init_io_{component}_buffer_hits"),
+                        counters.blks_hit.into(),
+                    );
+                    map.insert(
+                        format!("scan_init_io_{component}_buffer_reads"),
+                        counters.blks_read.into(),
+                    );
+                }
             }
         }
     }
@@ -94,6 +234,13 @@ mod imp {
 mod imp {
     use std::collections::BTreeMap;
     use tantivy::index::{SegmentComponent, SegmentId};
+
+    pub struct ScanInitGuard;
+
+    #[inline(always)]
+    pub fn begin_scan_init() -> ScanInitGuard {
+        ScanInitGuard
+    }
 
     #[inline(always)]
     pub fn record<R>(_component: &SegmentComponent, read: impl FnOnce() -> R) -> R {
@@ -110,4 +257,4 @@ mod imp {
     pub fn attach(_segment_info: &mut BTreeMap<SegmentId, serde_json::Value>) {}
 }
 
-pub use imp::{attach, end_segment, record, reset};
+pub use imp::{attach, begin_scan_init, end_segment, record, reset};

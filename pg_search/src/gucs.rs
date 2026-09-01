@@ -249,44 +249,35 @@ static TERM_SET_BITSET_MAX_DENSITY_UNIQUE: GucSetting<f64> = GucSetting::<f64>::
 /// `tantivy::query::TermSetStrategyConfig::default()`.
 static TERM_SET_BITSET_MAX_DENSITY_MULTI: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 200.0);
 
-/// Per-segment ceiling on IVF clusters probed by a vector ORDER BY query,
-/// expressed as a fraction of the segment's own cluster count and resolved
-/// per-segment (`ceil(fraction * num_clusters)`, at least one cluster). A
-/// fraction rather than an absolute count because every segment can have a
-/// different cluster count — an absolute cap scans small segments
-/// exhaustively while barely probing large ones. Default 0.02 (2% of
-/// clusters): with the default 0.01 centroid ratio that is ~2% of ~1% of
-/// rows, in line with SPANN Fig. 2 (99% of SIFT1M queries reach perfect
-/// recall@1 within ~1% of clusters). `1.0` probes every cluster.
+/// Maximum fraction of each segment's IVF clusters probed by a vector query.
 static VECTOR_CLUSTER_MAX_PROBE: GucSetting<f64> = GucSetting::<f64>::new(0.02);
 
+/// Returns the maximum IVF probe fraction.
 pub fn vector_cluster_max_probe() -> f32 {
     VECTOR_CLUSTER_MAX_PROBE.get() as f32
 }
 
-/// Fixed per-probe cost — the IVF cluster OPEN — in rows of full work.
-/// Testing knob for calibrating the probe-budget work model; defaults to
-/// the fitted value in tantivy.
+/// Fixed IVF cluster-open cost measured in fully scored rows.
 static VECTOR_FIXED_PROBE_COST_ROWS: GucSetting<f64> =
     GucSetting::<f64>::new(tantivy::vector::DEFAULT_FIXED_PROBE_COST_ROWS);
 
+/// Returns the fixed IVF cluster-open cost.
 pub fn vector_fixed_probe_cost_rows() -> f64 {
     VECTOR_FIXED_PROBE_COST_ROWS.get()
 }
 
-/// Doc-count boundary at which a merged segment's vector storage switches
-/// from flat (exact scan) to IVF (clustered). Captured into the index's
-/// stored `IndexSettings` at CREATE INDEX time, so it applies to every merge
-/// of that index for its lifetime.
-///
-/// Default 500, overriding tantivy's 10,000: a single-segment flat-vs-IVF
-/// sweep (dim 768, default probe settings) put the latency crossover between
-/// 500 and 1,000 docs — IVF roughly ties flat at 500 docs, is 1.6x faster at
-/// 1,000, and 7x+ faster from 2,000 up, at recall@10 >= 0.99. 10,000 left
-/// mid-size segments (e.g. 100k rows split across CPU-count segments)
-/// brute-forcing their vectors.
+/// Maximum quantization layers scored; zero disables quantized scoring.
+static VECTOR_MAX_SCAN_LEVELS: GucSetting<i32> = GucSetting::<i32>::new(3);
+
+/// Returns the maximum quantization prefix depth.
+pub fn vector_max_scan_levels() -> usize {
+    VECTOR_MAX_SCAN_LEVELS.get().max(0) as usize
+}
+
+/// Minimum merged-segment row count for IVF vector storage.
 static VECTOR_CLUSTERING_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(500);
 
+/// Returns the IVF clustering threshold.
 pub fn vector_clustering_threshold() -> usize {
     VECTOR_CLUSTERING_THRESHOLD.get().max(1) as usize
 }
@@ -519,7 +510,7 @@ pub fn init() {
     GucRegistry::define_float_guc(
         c"paradedb.vector_cluster_max_probe",
         c"Per-segment IVF cluster probe ceiling, as a fraction of cluster count, for vector ORDER BY queries",
-        c"Fraction of a segment's IVF clusters probed per vector ORDER BY query, resolved per-segment as ceil(fraction * cluster_count) and floored at one cluster. A fraction rather than an absolute count so the ceiling tracks each segment's own cluster count instead of scanning small segments exhaustively and barely probing large ones. 1.0 probes every cluster. Lower values reduce latency at the cost of recall.",
+        c"Resolved per segment as ceil(fraction * cluster_count), with at least one cluster. 1.0 probes every cluster.",
         &VECTOR_CLUSTER_MAX_PROBE,
         0.000001,
         1.0,
@@ -530,10 +521,21 @@ pub fn init() {
     GucRegistry::define_float_guc(
         c"paradedb.vector_fixed_probe_cost_rows",
         c"Fixed per-probe cost (the cluster OPEN) in rows of full work, for the IVF probe budget (testing knob)",
-        c"How many rows of full work the fixed component of an IVF probe - opening the cluster - is modeled to cost in the probe-budget work model. Runtime-settable for testing and calibration only; the default is the value fitted on the reference fixture.",
+        c"Rows of work charged for opening one IVF cluster.",
         &VECTOR_FIXED_PROBE_COST_ROWS,
         0.001,
         10_000.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.max_scan_levels",
+        c"Maximum quantized vector layers scored before exact rerank",
+        c"Uses a prefix of the quantization schedule built for the vector field. Values above the built layer count clamp to that count. 0 disables quantized scoring; routing and the probe budget still apply.",
+        &VECTOR_MAX_SCAN_LEVELS,
+        0,
+        3,
         GucContext::Userset,
         GucFlags::default(),
     );

@@ -1,4 +1,4 @@
-name: Set up pg_search build environment
+name: Set Up pg_search Build Environment
 description: Install and initialize PostgreSQL, Rust, cargo-pgrx, and the benchmark build cache
 
 inputs:
@@ -14,13 +14,13 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Install PostgreSQL ${{ inputs.pg_version }} and build dependencies
+    - name: Install PostgreSQL ${{ inputs.pg_version }} and Build Dependencies
       uses: ./.github/actions/setup-postgres
       with:
         pg_version: ${{ inputs.pg_version }}
         extra_packages: ${{ inputs.extra_packages }}
 
-    - name: Set up pg_search toolchain
+    - name: Set Up pg_search Toolchain
       uses: ./.github/actions/setup-pg-search-toolchain
       with:
         pg_version: ${{ inputs.pg_version }}
@@ -28,6 +28,6 @@ runs:
         cache_save: "true"
         cache_on_failure: "true"
 
-    - name: Initialize pgrx environment
+    - name: Initialize pgrx Environment
       shell: bash
       run: cargo pgrx init "--pg${{ inputs.pg_version }}=/usr/lib/postgresql/${{ inputs.pg_version }}/bin/pg_config"

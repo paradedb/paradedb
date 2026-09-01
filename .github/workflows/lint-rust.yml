@@ -44,7 +44,7 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v7
 
-      - name: Set up pg_search toolchain
+      - name: Set Up pg_search Toolchain
         uses: ./.github/actions/setup-pg-search-toolchain
         with:
           pg_version: ${{ matrix.pg_version }}
@@ -59,7 +59,7 @@ jobs:
           pg_version: ${{ matrix.pg_version }}
           extra_packages: lld libfontconfig1-dev libopenblas-dev
 
-      - name: Initialize pgrx environment
+      - name: Initialize pgrx Environment
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
       - name: Run Rustfmt

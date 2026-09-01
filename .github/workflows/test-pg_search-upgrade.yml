@@ -94,7 +94,7 @@ jobs:
 
       # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
       # See test-pg_search.yml for rationale.
-      - name: Set up pg_search toolchain
+      - name: Set Up pg_search Toolchain
         uses: ./.github/actions/setup-pg-search-toolchain
         with:
           pg_version: ${{ matrix.pg_version }}

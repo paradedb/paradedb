@@ -56,7 +56,7 @@ jobs:
       # See test-pg_search.yml for rationale.
       # Only save cache on non-PR events; PRs restore from the default branch.
       # See test-pg_search.yml for rationale.
-      - name: Set up pg_search toolchain
+      - name: Set Up pg_search Toolchain
         id: toolchain
         uses: ./.github/actions/setup-pg-search-toolchain
         with:
@@ -76,7 +76,7 @@ jobs:
           sudo apt install clang lld llvm diffutils
           cargo install -j $(nproc) --git https://github.com/paradedb/pg-schema-diff.git --debug --force
 
-      - name: Initialize pgrx environment
+      - name: Initialize pgrx Environment
         run: |
           cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
           # Save the pgrx version for comparison later

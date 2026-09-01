@@ -1,4 +1,4 @@
-name: Set up pg_search toolchain
+name: Set Up pg_search Toolchain
 description: Install pinned Rust and cargo-pgrx with a configurable shared Rust cache
 
 inputs:
@@ -34,7 +34,7 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Extract pinned toolchain versions
+    - name: Extract Pinned Toolchain Versions
       id: versions
       shell: bash
       run: |
@@ -53,7 +53,7 @@ runs:
         cache: false
         rustflags: "" # Respect .cargo/config.toml target-cpu flags.
 
-    - name: Install Rust cache
+    - name: Install Rust Cache
       uses: Swatinem/rust-cache@v2
       with:
         prefix-key: ${{ inputs.cache_prefix_key }}

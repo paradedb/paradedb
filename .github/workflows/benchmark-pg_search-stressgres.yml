@@ -199,7 +199,7 @@ jobs:
       - name: Running for ${{ steps.pr_label.outputs.result }}
         run: echo ${{ steps.pr_label.outputs.result }}
 
-      - name: Set up pg_search build environment
+      - name: Set Up pg_search Build Environment
         uses: ./.github/actions/setup-pg-search-build-environment
         with:
           pg_version: ${{ env.pg_version }}
@@ -207,7 +207,7 @@ jobs:
             lsof fontconfig pkg-config libfontconfig1-dev libopenblas-dev lld
             postgresql-${{ env.pg_version }}-pgvector
 
-      - name: Compile and install pg_search
+      - name: Compile and Install pg_search
         run: >-
           cargo pgrx install -p pg_search --sudo --release
           --pg-config "/usr/lib/postgresql/${{ env.pg_version }}/bin/pg_config"

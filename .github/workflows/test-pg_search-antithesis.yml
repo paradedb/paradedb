@@ -259,7 +259,7 @@ jobs:
       - name: Resolve Registry Image Name From Repository
         run: echo "REPO_NAME=${GITHUB_REPOSITORY#*/}" >> "$GITHUB_ENV"
 
-      - name: Set up Docker Buildx
+      - name: Set Up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
       - name: Download Antithesis pg_search .deb

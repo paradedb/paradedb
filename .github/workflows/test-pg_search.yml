@@ -93,7 +93,7 @@ jobs:
       # entries — this prevents cache thrashing that fills the 30 GB limit and causes
       # every entry to be evicted before reuse. The nightly schedule run warms caches
       # for all PG versions on the default branch.
-      - name: Set up pg_search toolchain
+      - name: Set Up pg_search Toolchain
         id: toolchain
         uses: ./.github/actions/setup-pg-search-toolchain
         with:
@@ -120,7 +120,7 @@ jobs:
         with:
           pg_version: ${{ matrix.pg_version }}
 
-      - name: Initialize pgrx environment (system)
+      - name: Initialize pgrx Environment (System)
         if: matrix.pg_impl == 'system'
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
@@ -133,7 +133,7 @@ jobs:
           path: ~/.pgrx
           key: pgrx-pg-${{ matrix.pg_version }}-${{ steps.toolchain.outputs.pgrx_version }}-${{ runner.os }}-${{ runner.arch }}
 
-      - name: Initialize pgrx environment (pgrx download)
+      - name: Initialize pgrx Environment (pgrx Download)
         if: matrix.pg_impl == 'pgrx' && steps.cache-pgrx-pg.outputs.cache-hit != 'true'
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=download" --configure-flag="--without-readline"
 

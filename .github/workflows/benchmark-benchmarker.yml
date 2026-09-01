@@ -128,7 +128,7 @@ jobs:
           ref: ${{ inputs.benchmarker_ref || 'main' }}
           path: benchmarker
 
-      - name: Set up Go
+      - name: Set Up Go
         uses: actions/setup-go@v7
         with:
           go-version-file: benchmarker/go.mod

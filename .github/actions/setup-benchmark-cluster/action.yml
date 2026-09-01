@@ -1,4 +1,4 @@
-name: Set up benchmark cluster
+name: Set Up Benchmark Cluster
 description: >-
   Install and configure the pg_search + pgvector Postgres cluster used by both benchmark snapshot
   generation and snapshot restore. Keeping this in one place ensures the cluster that gets
@@ -22,13 +22,13 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Set up pg_search build environment
+    - name: Set Up pg_search Build Environment
       uses: ./.github/actions/setup-pg-search-build-environment
       with:
         pg_version: ${{ inputs.pg_version }}
         extra_packages: lld libopenblas-dev postgresql-${{ inputs.pg_version }}-pgvector
 
-    - name: Compile and install pg_search
+    - name: Compile and Install pg_search
       shell: bash
       run: >-
         cargo pgrx install -p pg_search --sudo --release

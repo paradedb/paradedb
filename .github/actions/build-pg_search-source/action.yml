@@ -48,7 +48,7 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Set up pg_search build environment
+    - name: Set Up pg_search Build Environment
       uses: ./.github/actions/setup-pg-search-build-environment
       with:
         pg_version: ${{ inputs.pg-version }}

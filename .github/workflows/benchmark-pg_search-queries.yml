@@ -262,7 +262,7 @@ jobs:
       - name: Running for ${{ steps.pr_label.outputs.result }}
         run: echo ${{ steps.pr_label.outputs.result }}
 
-      - name: Set up benchmark cluster
+      - name: Set Up Benchmark Cluster
         uses: ./.github/actions/setup-benchmark-cluster
         with:
           pg_version: ${{ env.pg_version }}

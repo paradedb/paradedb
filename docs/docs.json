@@ -133,7 +133,8 @@
                         "pages": [
                           "documentation/vector/overview",
                           "documentation/vector/querying",
-                          "documentation/vector/tuning"
+                          "documentation/vector/tuning",
+                          "documentation/vector/diagnosing-quantized-indexes"
                         ]
                       },
                       {

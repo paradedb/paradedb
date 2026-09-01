@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788300597499,
+  "lastUpdate": 1788300606307,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -138682,6 +138682,108 @@ window.BENCHMARK_DATA = {
             "value": 48.76953125,
             "unit": "median mem",
             "extra": "avg mem: 45.63151935981769, max mem: 51.29296875, count: 59403"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "prmma23@gmail.com",
+            "name": "Parman Mohammadalizadeh",
+            "username": "MannXo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f227735890e86e4393e5d7f88a2d5455945a5bbb",
+          "message": "feat: add thresholded visibility variant for aggregates (#6099)\n\nPart of #6074. Deliberately not using a closing keyword:\n`pdb.visibility_applied()`\nand the EXPLAIN line are left for a follow-up, so the issue should stay\nopen\nafter this merges. See \"Deferred\" below.\n\nRenames the `solve_mvcc` aggregate parameter to `visibility`, turns it\ninto a\nthree-way option, and adds the thresholded mode.\n\n## The parameter\n\n`visibility` takes one of three modes, in every user-facing position:\n\n| Mode | Behavior |\n| --- | --- |\n| `'transaction'` | Check transaction visibility. Matches vanilla\nPostgres. The default. |\n| `'raw'` | Skip the checks and aggregate raw index data. Faster,\napproximate. |\n| `'threshold'` | Check only when the query's estimated matching row\ncount is below `paradedb.visibility_threshold`. |\n\n```sql\nSELECT pdb.agg('{\"value_count\": {\"field\": \"id\"}}', 'threshold')\nFROM items\nWHERE description ||| 'running shoes';\n\nSELECT * FROM paradedb.aggregate(\n    index => 'items_search_idx',\n    query => paradedb.match('description', 'running shoes'),\n    agg => '{\"avg_price\": {\"avg\": {\"field\": \"price\"}}}',\n    visibility => 'threshold'\n);\n```\n\n`paradedb.visibility_threshold` is a new `Userset` integer GUC\ndefaulting to\n`10000`.\n\n## Where the threshold decision is made\n\nAt execution time, in `execute_aggregate`, rather than at plan time.\n\n`paradedb.aggregate()` is a UDF the planner never sees, so a plan-time\ndecision\nwould have covered the aggregate custom scan and the `OVER ()` window\npath but\nneeded a second implementation for the UDF. Resolving in\n`execute_aggregate`\ngives all three positions one code path and one meaning.\n\nThe estimate reuses the planner's own machinery: a new\n`estimate_matching_rows` in `api/operator.rs` wraps the existing\n`open_and_estimate_docs`, which is what `estimate_selectivity` already\nuses.\n`'threshold'` therefore costs one extra single-segment index open; the\ntwo\npinned modes cost nothing.\n\nTwo cases fall back to `'transaction'` rather than guessing, because an\nunknown\nrow count must not silently downgrade accuracy:\n\n- The index cannot be opened, or an expensive-to-estimate query (#4172)\nsits on\n  a heap with no `reltuples`.\n- The query carries heap filters or unsolved Postgres expressions.\nBuilding a\nTantivy query for those shapes needs an `ExprContext`, which the\nestimate open\n  does not have.\n\n## Backwards compatibility\n\n- `pdb.agg(jsonb, bool)` still exists and still means what it did.\n`true` is\n`'transaction'`, `false` is `'raw'`. No warning: the issue only asked\nfor one\n  on the UDF.\n- A new `pdb.agg(jsonb, text)` overload carries the mode. Postgres\nresolves an\nuntyped literal such as `'threshold'` to this overload rather than the\nboolean\n  one, because it prefers the string category when disambiguating.\n- The legacy strings `'always'`, `'never'`, `'enabled'` and `'disabled'`\nare\naccepted as aliases, as are the spellings Postgres itself accepts for a\n`boolean` input (`'t'`, `'yes'`, `'off'`, `'0'`, and so on), since this\nvalue\n  used to be a boolean.\n- `paradedb.aggregate()` keeps `solve_mvcc` as an optional argument\ndefaulting\n  to `NULL`. Supplying it emits a deprecation `WARNING` and maps onto\n`visibility`. Supplying both is an error rather than a precedence rule,\nsince\neither choice of winner would silently ignore something the caller asked\nfor.\n- `visibility` is appended after `bucket_limit` rather than replacing\n`solve_mvcc` in place, so positional calls written against the old\nsignature\n  still resolve. There is a regression test for exactly that.\n\nAn unrecognized mode is an error. The pre-existing `MvccVisibility`\nstring\nparser warned and fell back to the accurate mode, but nothing could\nreach it:\nSQL only ever exposed a boolean, so this changes no observable behavior.\n\n## One visible side effect in EXPLAIN\n\n`AggregateType` is serde-serialized into the `pdb.window_agg('...')`\nplaceholder\nargument, which appears verbatim in `EXPLAIN` output, so renaming the\nenum\nvariants changes query plans:\n\n```\n-\"mvcc_visibility\":\"Enabled\"     +\"mvcc_visibility\":\"Transaction\"\n-\"mvcc_visibility\":\"Disabled\"    +\"mvcc_visibility\":\"Raw\"\n```\n\nThat accounts for the expected-output churn in `agg-validate`,\n`cardinality_mvcc`, `fn_wrapped_agg`, `topk-agg-facet`,\n`window_agg_normal_scan`, `custom-agg` and `aggregate_edgecases`. It is\ncosmetic, and the struct field keeps its `mvcc_visibility` name so the\ndiff\nstays limited to the variant spellings. Say the word if you would rather\nthe\nfield were renamed too, or the serialized form pinned to the old\nspellings with\n`#[serde(rename)]` to keep plans byte-identical.\n\n## Validation\n\n`resolve_mvcc_enabled` becomes `resolve_visibility` and returns the mode\ninstead\nof a boolean. The rule is unchanged in substance: every `pdb.agg()` call\nin a\nquery must agree, and an omitted argument is indistinguishable from an\nexplicit\n`'transaction'`, so omitting one alongside an explicit `'raw'` is still\na\nconflict. `'threshold'` is a distinct mode and conflicts with a pinned\none. The\nerror message now names `visibility` and reports both offending values.\n\n## A note on the shared decoder\n\n`pdb.agg()`'s `Aggref` decoding was duplicated across\n`aggregate_type.rs`,\n`window_agg.rs` and `hook.rs`, with a fourth rejection site in\n`join_targetlist.rs` (the duplication is tracked in #3455). Adding a\nthird\noverload to four independent copies is how one of them goes stale, so\nthe\nargument decoding is now a single `visibility_from_agg_arg` in\n`api/aggregate.rs` and the OID check a single `is_agg_funcoid` /\n`agg_funcoids`. This is the minimum needed to add the overload safely,\nnot a\nwider cleanup of #3455; `hook.rs` keeps hoisting the OIDs out of its\nexpression\nwalker, since that walker visits every node.\n\n## Deferred\n\n- **`pdb.visibility_applied()` and the `EXPLAIN (VERBOSE)` visibility\nline.**\nLeft for a follow-up PR to keep this one reviewable. Happy to fold them\nin\n  here instead if you would rather see the whole thing at once.\n- **Client ORM SDKs**, as the issue already says.\n- **The `paradedb.solve_mvcc_threshold` deprecated GUC alias.**\nDeliberately\nomitted. That GUC never shipped, so there is no setting to deprecate and\nnothing a user could have set. Happy to add it if you want the name\nreserved.\n\n## Tests\n\n- `pg_search/tests/pg_regress/sql/visibility.sql`, new: all three modes\non both\n`pdb.agg()` and the UDF, `'threshold'` resolving on either side of the\nGUC,\n  every legacy alias, the deprecation warning, the positional-call\n  compatibility, and the errors for a conflicting or unrecognized mode.\n- Unit tests for the parser in `api/aggregate.rs`. Parsing is split into\na pure\n`try_from_sql_value` returning `Option`, with `from_sql_value` reporting\nthe\nerror, so the unit tests never reach `pgrx::error!`. Referencing it from\na\nplain unit test pulls Postgres's `ereport` symbols into the lib test\nbinary,\nwhich does not link on Linux. Every other file in `pg_search/src`\ncarrying\nplain `#[test]` is likewise free of those macros. The split also makes\nthe\n  rejection path unit-testable.\n- `aggregate-udf.sql` and `json_agg.sql` migrated from `solve_mvcc =>`\nto\n`visibility =>`. `issue_5944.sql` is untouched: it uses the `pdb.agg()`\n  boolean overload, which is unchanged and does not warn.\n\n## Release fragments\n\nRebased onto the fragment model from #6079, so the DDL now lives in\n`pg_search/sql/unreleased/6099.rename_solve_mvcc_to_visibility.sql`\nrather than\nin a versioned upgrade script. The two `paradedb.aggregate` statements\nare\nSchemaBot's emitted text verbatim, which for a replaced function differs\nfrom\npgrx's generated form (named parameters, `pg_catalog.int8`, `CREATE OR\nREPLACE`). A changelog fragment is included at\n`docs/changelog/unreleased/6099.features.mdx`.\n\n## Docs\n\n`aggregates/overview.mdx` gains the mode table and a \"Thresholded\nVisibility\"\nsection covering the GUC and the bucketed-aggregation caveat from the\nissue.\n`welcome/guarantees.mdx` updated. The ORM tabs in the `CodeGroup` are\nleft\nalone: their own kwargs are unchanged by this PR and still work.",
+          "timestamp": "2026-09-01T14:31:45-07:00",
+          "tree_id": "88f0318456918993f3e90946025b022c387b9a1c",
+          "url": "https://github.com/paradedb/paradedb/commit/f227735890e86e4393e5d7f88a2d5455945a5bbb"
+        },
+        "date": 1788300602079,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.058376958944232164, max background_merging: 2.0, count: 59407"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.717445,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.729500468908216, max cpu: 9.552238, count: 59407"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 19.42578125,
+            "unit": "median mem",
+            "extra": "avg mem: 19.390398345838875, max mem: 19.5234375, count: 59407"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7081904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.931562521570781, max cpu: 28.57143, count: 59407"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 46.91015625,
+            "unit": "median mem",
+            "extra": "avg mem: 46.758013312825085, max mem: 52.625, count: 59407"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 64430,
+            "unit": "median block_count",
+            "extra": "avg block_count: 64106.38301883616, max block_count: 64430.0, count: 59407"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 68,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 66.02338108303735, max segment_count: 106.0, count: 59407"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.587223,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.09733723724156, max cpu: 33.4995, count: 59407"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 83.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 79.49445824986954, max mem: 83.89453125, count: 59407"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.712813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.142377569097911, max cpu: 28.656715, count: 59407"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 52.53125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.616197309976094, max mem: 52.609375, count: 59407"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7081904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.344295741340854, max cpu: 32.973503, count: 59407"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 100.1640625,
+            "unit": "median mem",
+            "extra": "avg mem: 99.63280684515293, max mem: 104.62109375, count: 59407"
           }
         ]
       }

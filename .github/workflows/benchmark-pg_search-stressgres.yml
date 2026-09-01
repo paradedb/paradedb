@@ -14,6 +14,9 @@ on:
     paths:
       - ".github/actions/benchmark-stressgres/**"
       - ".github/actions/benchmarks-from-main/**"
+      - ".github/actions/setup-pg-search-build-environment/**"
+      - ".github/actions/setup-pg-search-toolchain/**"
+      - ".github/actions/setup-postgres/**"
       - ".github/workflows/benchmark-pg_search-stressgres.yml"
       - "stressgres/suites/**"
       - "**/*.rs"
@@ -196,51 +199,26 @@ jobs:
       - name: Running for ${{ steps.pr_label.outputs.result }}
         run: echo ${{ steps.pr_label.outputs.result }}
 
-      - name: Install Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          cache: false
-          rustflags: "" # Use .cargo/config.toml target-cpu flags
-
-      - name: Install required system tools
-        run: |
-          sudo apt-get update && sudo apt-get install -y lsof fontconfig pkg-config libfontconfig1-dev libopenblas-dev lld
-
-      - name: Install & Configure Supported PostgreSQL Version
-        uses: ./.github/actions/setup-postgres
+      - name: Set Up pg_search Build Environment
+        uses: ./.github/actions/setup-pg-search-build-environment
         with:
           pg_version: ${{ env.pg_version }}
-          extra_packages: postgresql-${{ env.pg_version }}-pgvector
+          cache_prefix_key: "v2-benchmarks-rust-cache"
+          cache_save: "true"
+          cache_on_failure: "true"
+          extra_packages: >-
+            lsof fontconfig pkg-config libfontconfig1-dev libopenblas-dev lld
+            postgresql-${{ env.pg_version }}-pgvector
 
-      # Separate prefix-key from debug workflows — benchmarks compile with --release.
-      # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
-      # See test-pg_search.yml for rationale.
-      - name: Install Rust Cache
-        uses: swatinem/rust-cache@v2
-        with:
-          prefix-key: "v2-stressgres-rust-cache"
-          shared-key: pg${{ env.pg_version }}
-          cache-targets: true
-          cache-all-crates: true
-          cache-on-failure: true
+      - name: Compile and Install pg_search
+        run: >-
+          cargo pgrx install -p pg_search --sudo --release
+          --pg-config "/usr/lib/postgresql/${{ env.pg_version }}/bin/pg_config"
+          --features=pg${{ env.pg_version }} --no-default-features
 
-      - name: Extract pgrx Version
-        id: pgrx
-        run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> "$GITHUB_OUTPUT"
-
-      - name: Install pgrx
-        run: cargo install cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug --locked
-
-      - name: Initialize pgrx environment
-        run: cargo pgrx init "--pg${{ env.pg_version }}=$(command -v pg_config)"
-
-      - name: Compile & install pg_search extension
-        run: cargo pgrx install -p pg_search --sudo --release --pg-config "$(command -v pg_config)" --features=pg${{ env.pg_version }} --no-default-features
-
-      - name: Start Postgres
+      - name: Start PostgreSQL
         working-directory: pg_search/
-        run: |
-          cargo pgrx start pg${{ env.pg_version }}
+        run: cargo pgrx start pg${{ env.pg_version }}
 
       - name: Configure PostgreSQL settings and machine settings
         working-directory: /home/runner/.pgrx/data-${{ env.pg_version }}/

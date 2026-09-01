@@ -56,7 +56,9 @@ use tokio_util::sync::CancellationToken;
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::mpp::dispatch::fragments_for_worker;
 use crate::postgres::customscan::mpp::glue::producer_worker_cap;
-use crate::postgres::customscan::mpp::interrupt::{HeldInterrupts, check_for_interrupts};
+use crate::postgres::customscan::mpp::interrupt::{
+    HeldInterrupts, cancel_pending, check_for_interrupts,
+};
 use crate::postgres::customscan::mpp::worker_fragments::FragmentRouting;
 use crate::postgres::utils::ExprContextGuard;
 use crate::scan::execution_plan::{
@@ -185,6 +187,9 @@ async fn take_set_plan_draining(
         if let std::task::Poll::Ready(result) = futures::poll!(take.as_mut()) {
             return result;
         }
+        // A leader that fails before dispatching this stage never sends the frame; its abort
+        // terminates us via SIGTERM, and nothing else in this wait loop would notice the interrupt.
+        mesh.check_interrupt()?;
         mesh.try_drain_pass()?;
         tokio::task::yield_now().await;
     }
@@ -226,7 +231,6 @@ fn spawn_fragment_execution_task(
 ) -> FragmentFuture {
     Box::pin(async move {
         let mut sinks_opt: Vec<_> = per_partition_sinks.into_iter().map(Some).collect();
-        let n_partitions = sinks_opt.len();
 
         // The cancellation token is never cancelled on this path; worker interrupts bail via
         // the cooperative drain pass.
@@ -236,7 +240,6 @@ fn spawn_fragment_execution_task(
             &mesh,
             stage_id,
             task_idx,
-            n_partitions,
             token,
             move |_request, _headers, range| {
                 let len = range.end - range.start;
@@ -328,23 +331,40 @@ pub(crate) fn run_mpp_worker(
         pgrx::error!("mpp worker: no fragments assigned (proc={this_proc})");
     }
 
+    /// Returns true if the error represents an expected session teardown, query cancellation,
+    /// or leader departure where worker exit is normal and should not log an error.
+    fn is_clean_teardown_error(err: &datafusion::common::DataFusionError) -> bool {
+        if cancel_pending() {
+            return true;
+        }
+        let msg = err.to_string();
+        msg.contains("mpp: query interrupted")
+            || msg.contains("session closed")
+            || msg.contains("transport torn down")
+    }
+
     // Each fragment's plan arrives as a `SetPlan` frame on this proc's inbox, the same
     // `SetPlanRequest` Flight ships. Collect the frames first (the take drains the inbox while
     // it waits), then decode synchronously: decode injects `parallel_state`, a raw pointer that
     // must stay off the produce futures.
     let frames: Vec<SetPlanFrame> = {
-        let collected = runtime.block_on(async {
-            let mut frames = Vec::with_capacity(fragments.len());
-            for fragment in &fragments {
-                frames.push(
-                    take_set_plan_draining(worker_mesh, fragment.stage_id, fragment.task_idx)
-                        .await?,
-                );
-            }
-            Ok::<_, datafusion::common::DataFusionError>(frames)
-        });
+        let collected = {
+            let _held = HeldInterrupts::hold();
+            runtime.block_on(async {
+                let mut frames = Vec::with_capacity(fragments.len());
+                for fragment in &fragments {
+                    frames.push(
+                        take_set_plan_draining(worker_mesh, fragment.stage_id, fragment.task_idx)
+                            .await?,
+                    );
+                }
+                Ok::<_, datafusion::common::DataFusionError>(frames)
+            })
+        };
+        check_for_interrupts();
         match collected {
             Ok(frames) => frames,
+            Err(e) if is_clean_teardown_error(&e) => return,
             Err(e) => {
                 pgrx::error!("mpp worker: plan frames did not arrive: {e}");
             }
@@ -574,7 +594,9 @@ pub(crate) fn run_mpp_worker(
     // of mid-`block_on`.
     drop(held);
     check_for_interrupts();
-    if let Err(e) = outcome {
+    if let Err(e) = outcome
+        && !is_clean_teardown_error(&e)
+    {
         pgrx::error!("mpp worker: fragment dispatch failed: {e}");
     }
 }

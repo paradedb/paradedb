@@ -183,7 +183,6 @@ use crate::postgres::customscan::joinscan::planning::{
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::mpp::glue::mpp_is_active;
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
-use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::mpp::launch::mpp_gated_by_min_rows;
 use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parallelism;
 use arrow_array::Array;
@@ -1409,16 +1408,13 @@ impl CustomScan for JoinScan {
                         .map(|source| &source.scan_info),
                 )
             {
-                state.custom_state_mut().mpp = MppLifecycle::Pending;
+                state.custom_state_mut().mpp.mark_pending();
             }
         }
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        let relaunch_mpp = matches!(
-            &state.custom_state().mpp,
-            MppLifecycle::Pending | MppLifecycle::Launched(_)
-        );
+        let relaunch_mpp = state.custom_state().mpp.is_active();
         Self::finish_mpp_execution(state);
         state.custom_state_mut().relations.clear();
         state.custom_state_mut().reset();
@@ -1427,12 +1423,13 @@ impl CustomScan for JoinScan {
                 state.custom_state().logical_plan.is_some(),
                 "MPP rescan requires logical plan bytes"
             );
-            state.custom_state_mut().mpp = MppLifecycle::Pending;
+            state.custom_state_mut().mpp.mark_pending();
         }
     }
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
         let mut launch_us = crate::postgres::customscan::mpp::glue::MppLaunchTiming::default();
+        let mut mpp_guard = state.custom_state_mut().mpp.enter_guard();
         unsafe {
             if state.custom_state().datafusion_stream.is_none() {
                 // Solve any Param/SubPlan-backed SearchQueryInputs on the leader and rebake the
@@ -1532,7 +1529,7 @@ impl CustomScan for JoinScan {
                             .expect("Failed to create execution plan")
                     };
 
-                let mpp_pending = state.custom_state_mut().mpp.take_pending();
+                let mpp_pending = mpp_guard.take_pending();
                 // Leader session context: on an MPP attempt, layer the DF-D fork's
                 // distributed-planner knobs over the Join profile so the resulting physical
                 // plan is a `DistributedExec`, with `producer_worker_cap()` acting as the
@@ -1563,7 +1560,7 @@ impl CustomScan for JoinScan {
                             launch_us.attach_us = leader.timing.attach_us;
                             launch_us.leader_setup_us = leader.timing.leader_setup_us;
                             launch_us.workers = leader.timing.workers;
-                            state.custom_state_mut().mpp = MppLifecycle::Launched(leader);
+                            mpp_guard.install_leader(leader);
                             (exec_ctx, plan)
                         }
                         None => {
@@ -1626,7 +1623,7 @@ impl CustomScan for JoinScan {
                 // Retain the executed plan so EXPLAIN ANALYZE can extract metrics. Record the
                 // launch timing only when the query actually ran distributed (workers attached);
                 // a serial fallback never reaches `Launched` and leaves `workers` at zero.
-                if state.custom_state().mpp.is_launched() {
+                if mpp_guard.is_launched() {
                     state.custom_state_mut().launch_timing = Some(launch_us);
                     state.custom_state_mut().stream_built_at = Some(std::time::Instant::now());
                 }
@@ -1670,20 +1667,18 @@ impl CustomScan for JoinScan {
 
                 match next_batch {
                     Some(Ok(batch)) => {
-                        // First distributed batch out: fold the worker decode, first scan, and
-                        // network hop into the launch timing.
-                        if let Some(built) = state.custom_state().stream_built_at {
-                            if let Some(t) = state.custom_state_mut().launch_timing.as_mut()
-                                && t.first_frame_us == 0
-                            {
-                                t.first_frame_us = built.elapsed().as_micros() as u64;
+                        if let Some(t_built) = state.custom_state().stream_built_at {
+                            if let Some(ref mut timing) = state.custom_state_mut().launch_timing {
+                                timing.first_frame_us = t_built.elapsed().as_micros() as u64;
                             }
                             state.custom_state_mut().stream_built_at = None;
                         }
                         state.custom_state_mut().current_batch = Some(batch);
                         state.custom_state_mut().batch_index = 0;
                     }
-                    Some(Err(e)) => panic!("DataFusion execution failed: {}", e),
+                    Some(Err(e)) => {
+                        pgrx::error!("DataFusion execution failed: {}", e);
+                    }
                     None => return std::ptr::null_mut(),
                 }
             }

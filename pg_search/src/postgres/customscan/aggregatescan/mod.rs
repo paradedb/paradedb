@@ -717,7 +717,7 @@ impl CustomScan for AggregateScan {
                     current_batch: None,
                     batch_row_idx: 0,
                     group_df_indices: Vec::new(),
-                    mpp: MppLifecycle::Inactive,
+                    mpp: MppLifecycle::default(),
                     launch_timing: None,
                 });
                 builder.build()
@@ -1137,7 +1137,7 @@ impl AggregateScan {
         let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() else {
             return;
         };
-        df_state.mpp = MppLifecycle::Pending;
+        df_state.mpp.mark_pending();
     }
 
     /// Plan-first MPP launch (#5667). Called with the leader's already-built physical plan:
@@ -1877,13 +1877,13 @@ impl AggregateScan {
             .as_ref()
             .is_some_and(|d| d.runtime.is_none());
 
-        // Taken up front (not inside the df_state borrow below) because the launch needs `state`
-        // for the source manifests.
-        let mpp_pending = state
+        let df_state = state
             .custom_state_mut()
             .datafusion_state
             .as_mut()
-            .is_some_and(|d| d.mpp.take_pending());
+            .expect("DataFusion state must be initialized");
+        let mut mpp_guard = df_state.mpp.enter_guard();
+        let mpp_pending = mpp_guard.take_pending();
 
         // First call: build and execute the DataFusion plan
         if first_call {
@@ -1956,7 +1956,7 @@ impl AggregateScan {
                         let mut timing = leader.timing;
                         timing.plan_us = plan_us;
                         df_state.launch_timing = Some(timing);
-                        df_state.mpp = MppLifecycle::Launched(leader);
+                        mpp_guard.install_leader(leader);
                         (exec_ctx, physical_plan)
                     }
                     None => {
@@ -2001,10 +2001,9 @@ impl AggregateScan {
             };
             let stream = {
                 let _guard = runtime.enter();
-                match physical_plan.execute(0, task_ctx) {
-                    Ok(s) => s,
-                    Err(e) => pgrx::error!("Failed to execute DataFusion aggregate plan: {}", e),
-                }
+                physical_plan.execute(0, task_ctx).unwrap_or_else(|e| {
+                    pgrx::error!("Failed to execute DataFusion aggregate plan: {e}")
+                })
             };
 
             df_state.runtime = Some(runtime);

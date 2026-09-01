@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788306639341,
+  "lastUpdate": 1788306808869,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -303212,6 +303212,126 @@ window.BENCHMARK_DATA = {
             "value": 9.721362425620699,
             "unit": "median tps",
             "extra": "avg tps: 34.19645925302909, max tps: 803.8766145861804, count: 57402"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2dbed3a3a873f700775168e59d6c683cd2d9a32a",
+          "message": "ci: Fix benchmarker CI failure handling & cleanup duplicated actions and workflows (#6183)\n\n## Summary\n- consolidate source-building benchmark workflows on a single\n`Swatinem/rust-cache` owner for Cargo binaries and build artifacts\n- verify the cached `cargo-pgrx` version in both Benchmarker and\nStressgres, installing the pinned version only when missing or stale\n- notify `@pg_search-maintainers` in Slack when the Benchmarker workflow\nfails on a push\n\n## Root cause\n[Run\n33561565782](https://github.com/paradedb/paradedb/actions/runs/33561565782/job/100035036147)\nrestored `~/.cargo/bin/cargo-pgrx` through `Swatinem/rust-cache`, while\na second dedicated `cargo-pgrx` cache reported a miss. The subsequent\ninstall failed because the binary already existed. Removing the\noverlapping cache ownership prevents that inconsistent state.\n\nThe query benchmark workflow does not install `cargo-pgrx`; it uses a\nprepared benchmark cluster, so there is no equivalent cache path to\nchange there.\n\n## Validation\n- `git diff --check`\n- parsed all three modified YAML files with Ruby YAML",
+          "timestamp": "2026-09-01T16:13:19-07:00",
+          "tree_id": "9b4db32eb6476fe2a4f2e5a84707d9d6dee78521",
+          "url": "https://github.com/paradedb/paradedb/commit/2dbed3a3a873f700775168e59d6c683cd2d9a32a"
+        },
+        "date": 1788306805150,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 177.49962275347798,
+            "unit": "median tps",
+            "extra": "avg tps: 180.71758797481507, max tps: 221.25463820904017, count: 57390"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 319.47622570662276,
+            "unit": "median tps",
+            "extra": "avg tps: 330.8940608310526, max tps: 475.8057355660408, count: 57390"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3996.0477056996006,
+            "unit": "median tps",
+            "extra": "avg tps: 3985.9281426898947, max tps: 4038.4700619632554, count: 57390"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 182.0587262894637,
+            "unit": "median tps",
+            "extra": "avg tps: 185.78468821539118, max tps: 229.0516371465765, count: 57390"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3375.3902200773637,
+            "unit": "median tps",
+            "extra": "avg tps: 3360.9729278761174, max tps: 3488.5916761287567, count: 57390"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3331.576237392408,
+            "unit": "median tps",
+            "extra": "avg tps: 3305.869232200015, max tps: 3375.0022194308076, count: 57390"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 157.4742344899593,
+            "unit": "median tps",
+            "extra": "avg tps: 159.94763279106684, max tps: 182.27879558355306, count: 57390"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 272.00962744759147,
+            "unit": "median tps",
+            "extra": "avg tps: 278.50994192295775, max tps: 373.9143164126511, count: 57390"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Primary - tps",
+            "value": 508.9159202813128,
+            "unit": "median tps",
+            "extra": "avg tps: 512.973921253448, max tps: 588.410682805159, count: 57390"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 579.8480901539727,
+            "unit": "median tps",
+            "extra": "avg tps: 585.4426094550192, max tps: 688.3974452603329, count: 57390"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1271.2499587839334,
+            "unit": "median tps",
+            "extra": "avg tps: 1271.9206534122527, max tps: 1297.4322916206668, count: 57390"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 327.92435686666005,
+            "unit": "median tps",
+            "extra": "avg tps: 343.67116118123687, max tps: 576.8570252635595, count: 57390"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 534.4729164719308,
+            "unit": "median tps",
+            "extra": "avg tps: 539.1751428731128, max tps: 630.1626029346311, count: 57390"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2343.161382420173,
+            "unit": "median tps",
+            "extra": "avg tps: 2346.859855975019, max tps: 2441.420999713071, count: 57390"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1726.2535561541554,
+            "unit": "median tps",
+            "extra": "avg tps: 1725.0784816588023, max tps: 1908.26527702745, count: 57390"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 17.40646969670919,
+            "unit": "median tps",
+            "extra": "avg tps: 18.76858520517234, max tps: 176.0680242332986, count: 57390"
           }
         ]
       }

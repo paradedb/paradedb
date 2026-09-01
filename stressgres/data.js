@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788299429703,
+  "lastUpdate": 1788299438565,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -311684,6 +311684,282 @@ window.BENCHMARK_DATA = {
             "value": 17.29296875,
             "unit": "median mem",
             "extra": "avg mem: 17.24580128045917, max mem: 17.29296875, count: 55361"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "prmma23@gmail.com",
+            "name": "Parman Mohammadalizadeh",
+            "username": "MannXo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f227735890e86e4393e5d7f88a2d5455945a5bbb",
+          "message": "feat: add thresholded visibility variant for aggregates (#6099)\n\nPart of #6074. Deliberately not using a closing keyword:\n`pdb.visibility_applied()`\nand the EXPLAIN line are left for a follow-up, so the issue should stay\nopen\nafter this merges. See \"Deferred\" below.\n\nRenames the `solve_mvcc` aggregate parameter to `visibility`, turns it\ninto a\nthree-way option, and adds the thresholded mode.\n\n## The parameter\n\n`visibility` takes one of three modes, in every user-facing position:\n\n| Mode | Behavior |\n| --- | --- |\n| `'transaction'` | Check transaction visibility. Matches vanilla\nPostgres. The default. |\n| `'raw'` | Skip the checks and aggregate raw index data. Faster,\napproximate. |\n| `'threshold'` | Check only when the query's estimated matching row\ncount is below `paradedb.visibility_threshold`. |\n\n```sql\nSELECT pdb.agg('{\"value_count\": {\"field\": \"id\"}}', 'threshold')\nFROM items\nWHERE description ||| 'running shoes';\n\nSELECT * FROM paradedb.aggregate(\n    index => 'items_search_idx',\n    query => paradedb.match('description', 'running shoes'),\n    agg => '{\"avg_price\": {\"avg\": {\"field\": \"price\"}}}',\n    visibility => 'threshold'\n);\n```\n\n`paradedb.visibility_threshold` is a new `Userset` integer GUC\ndefaulting to\n`10000`.\n\n## Where the threshold decision is made\n\nAt execution time, in `execute_aggregate`, rather than at plan time.\n\n`paradedb.aggregate()` is a UDF the planner never sees, so a plan-time\ndecision\nwould have covered the aggregate custom scan and the `OVER ()` window\npath but\nneeded a second implementation for the UDF. Resolving in\n`execute_aggregate`\ngives all three positions one code path and one meaning.\n\nThe estimate reuses the planner's own machinery: a new\n`estimate_matching_rows` in `api/operator.rs` wraps the existing\n`open_and_estimate_docs`, which is what `estimate_selectivity` already\nuses.\n`'threshold'` therefore costs one extra single-segment index open; the\ntwo\npinned modes cost nothing.\n\nTwo cases fall back to `'transaction'` rather than guessing, because an\nunknown\nrow count must not silently downgrade accuracy:\n\n- The index cannot be opened, or an expensive-to-estimate query (#4172)\nsits on\n  a heap with no `reltuples`.\n- The query carries heap filters or unsolved Postgres expressions.\nBuilding a\nTantivy query for those shapes needs an `ExprContext`, which the\nestimate open\n  does not have.\n\n## Backwards compatibility\n\n- `pdb.agg(jsonb, bool)` still exists and still means what it did.\n`true` is\n`'transaction'`, `false` is `'raw'`. No warning: the issue only asked\nfor one\n  on the UDF.\n- A new `pdb.agg(jsonb, text)` overload carries the mode. Postgres\nresolves an\nuntyped literal such as `'threshold'` to this overload rather than the\nboolean\n  one, because it prefers the string category when disambiguating.\n- The legacy strings `'always'`, `'never'`, `'enabled'` and `'disabled'`\nare\naccepted as aliases, as are the spellings Postgres itself accepts for a\n`boolean` input (`'t'`, `'yes'`, `'off'`, `'0'`, and so on), since this\nvalue\n  used to be a boolean.\n- `paradedb.aggregate()` keeps `solve_mvcc` as an optional argument\ndefaulting\n  to `NULL`. Supplying it emits a deprecation `WARNING` and maps onto\n`visibility`. Supplying both is an error rather than a precedence rule,\nsince\neither choice of winner would silently ignore something the caller asked\nfor.\n- `visibility` is appended after `bucket_limit` rather than replacing\n`solve_mvcc` in place, so positional calls written against the old\nsignature\n  still resolve. There is a regression test for exactly that.\n\nAn unrecognized mode is an error. The pre-existing `MvccVisibility`\nstring\nparser warned and fell back to the accurate mode, but nothing could\nreach it:\nSQL only ever exposed a boolean, so this changes no observable behavior.\n\n## One visible side effect in EXPLAIN\n\n`AggregateType` is serde-serialized into the `pdb.window_agg('...')`\nplaceholder\nargument, which appears verbatim in `EXPLAIN` output, so renaming the\nenum\nvariants changes query plans:\n\n```\n-\"mvcc_visibility\":\"Enabled\"     +\"mvcc_visibility\":\"Transaction\"\n-\"mvcc_visibility\":\"Disabled\"    +\"mvcc_visibility\":\"Raw\"\n```\n\nThat accounts for the expected-output churn in `agg-validate`,\n`cardinality_mvcc`, `fn_wrapped_agg`, `topk-agg-facet`,\n`window_agg_normal_scan`, `custom-agg` and `aggregate_edgecases`. It is\ncosmetic, and the struct field keeps its `mvcc_visibility` name so the\ndiff\nstays limited to the variant spellings. Say the word if you would rather\nthe\nfield were renamed too, or the serialized form pinned to the old\nspellings with\n`#[serde(rename)]` to keep plans byte-identical.\n\n## Validation\n\n`resolve_mvcc_enabled` becomes `resolve_visibility` and returns the mode\ninstead\nof a boolean. The rule is unchanged in substance: every `pdb.agg()` call\nin a\nquery must agree, and an omitted argument is indistinguishable from an\nexplicit\n`'transaction'`, so omitting one alongside an explicit `'raw'` is still\na\nconflict. `'threshold'` is a distinct mode and conflicts with a pinned\none. The\nerror message now names `visibility` and reports both offending values.\n\n## A note on the shared decoder\n\n`pdb.agg()`'s `Aggref` decoding was duplicated across\n`aggregate_type.rs`,\n`window_agg.rs` and `hook.rs`, with a fourth rejection site in\n`join_targetlist.rs` (the duplication is tracked in #3455). Adding a\nthird\noverload to four independent copies is how one of them goes stale, so\nthe\nargument decoding is now a single `visibility_from_agg_arg` in\n`api/aggregate.rs` and the OID check a single `is_agg_funcoid` /\n`agg_funcoids`. This is the minimum needed to add the overload safely,\nnot a\nwider cleanup of #3455; `hook.rs` keeps hoisting the OIDs out of its\nexpression\nwalker, since that walker visits every node.\n\n## Deferred\n\n- **`pdb.visibility_applied()` and the `EXPLAIN (VERBOSE)` visibility\nline.**\nLeft for a follow-up PR to keep this one reviewable. Happy to fold them\nin\n  here instead if you would rather see the whole thing at once.\n- **Client ORM SDKs**, as the issue already says.\n- **The `paradedb.solve_mvcc_threshold` deprecated GUC alias.**\nDeliberately\nomitted. That GUC never shipped, so there is no setting to deprecate and\nnothing a user could have set. Happy to add it if you want the name\nreserved.\n\n## Tests\n\n- `pg_search/tests/pg_regress/sql/visibility.sql`, new: all three modes\non both\n`pdb.agg()` and the UDF, `'threshold'` resolving on either side of the\nGUC,\n  every legacy alias, the deprecation warning, the positional-call\n  compatibility, and the errors for a conflicting or unrecognized mode.\n- Unit tests for the parser in `api/aggregate.rs`. Parsing is split into\na pure\n`try_from_sql_value` returning `Option`, with `from_sql_value` reporting\nthe\nerror, so the unit tests never reach `pgrx::error!`. Referencing it from\na\nplain unit test pulls Postgres's `ereport` symbols into the lib test\nbinary,\nwhich does not link on Linux. Every other file in `pg_search/src`\ncarrying\nplain `#[test]` is likewise free of those macros. The split also makes\nthe\n  rejection path unit-testable.\n- `aggregate-udf.sql` and `json_agg.sql` migrated from `solve_mvcc =>`\nto\n`visibility =>`. `issue_5944.sql` is untouched: it uses the `pdb.agg()`\n  boolean overload, which is unchanged and does not warn.\n\n## Release fragments\n\nRebased onto the fragment model from #6079, so the DDL now lives in\n`pg_search/sql/unreleased/6099.rename_solve_mvcc_to_visibility.sql`\nrather than\nin a versioned upgrade script. The two `paradedb.aggregate` statements\nare\nSchemaBot's emitted text verbatim, which for a replaced function differs\nfrom\npgrx's generated form (named parameters, `pg_catalog.int8`, `CREATE OR\nREPLACE`). A changelog fragment is included at\n`docs/changelog/unreleased/6099.features.mdx`.\n\n## Docs\n\n`aggregates/overview.mdx` gains the mode table and a \"Thresholded\nVisibility\"\nsection covering the GUC and the bucketed-aggregation caveat from the\nissue.\n`welcome/guarantees.mdx` updated. The ORM tabs in the `CodeGroup` are\nleft\nalone: their own kwargs are unchanged by this PR and still work.",
+          "timestamp": "2026-09-01T14:31:45-07:00",
+          "tree_id": "88f0318456918993f3e90946025b022c387b9a1c",
+          "url": "https://github.com/paradedb/paradedb/commit/f227735890e86e4393e5d7f88a2d5455945a5bbb"
+        },
+        "date": 1788299434426,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.394674184404879, max cpu: 14.083129, count: 55441"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 40.7109375,
+            "unit": "median mem",
+            "extra": "avg mem: 40.603813203450514, max mem: 40.796875, count: 55441"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.657933,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.417495401118634, max cpu: 4.685212, count: 55441"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 17.1796875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.143432319943724, max mem: 17.1796875, count: 55441"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.63384200210908, max cpu: 32.95733, count: 55441"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 36.5078125,
+            "unit": "median mem",
+            "extra": "avg mem: 36.41908973334265, max mem: 36.51953125, count: 55441"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.17457062537087, max cpu: 14.096916, count: 55441"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - mem",
+            "value": 36.98828125,
+            "unit": "median mem",
+            "extra": "avg mem: 36.925969090452014, max mem: 37.12890625, count: 55441"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.653417,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.727470736914271, max cpu: 9.407154, count: 55441"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 21.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.756873227282156, max mem: 21.77734375, count: 55441"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 2737,
+            "unit": "median pages",
+            "extra": "avg pages: 2854.885806533071, max pages: 5574.0, count: 55441"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 21.3828125,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 22.303795504455188, max relation_size:MB: 43.546875, count: 55441"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 64,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 53.99462491657798, max segment_count: 79.0, count: 55441"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.087801180177429, max cpu: 4.6715326, count: 55441"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 17.21484375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.20354591480132, max mem: 17.21484375, count: 55441"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.9819418647565645, max cpu: 4.6624575, count: 55441"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 17.21484375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.20460158377825, max mem: 17.21484375, count: 55441"
+          },
+          {
+            "name": "JoinScan - Subscriber - cpu",
+            "value": 9.302325,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.450460639047154, max cpu: 18.777506, count: 55441"
+          },
+          {
+            "name": "JoinScan - Subscriber - mem",
+            "value": 58.53125,
+            "unit": "median mem",
+            "extra": "avg mem: 58.53666228513194, max mem: 59.421875, count: 55441"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - cpu",
+            "value": 4.657933,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.423695500894543, max cpu: 14.096916, count: 55441"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - mem",
+            "value": 36.3203125,
+            "unit": "median mem",
+            "extra": "avg mem: 36.261086743677964, max mem: 36.51953125, count: 55441"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 4.6715326,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.452736408605487, max cpu: 14.096916, count: 55441"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 36.12890625,
+            "unit": "median mem",
+            "extra": "avg mem: 36.00141451047059, max mem: 36.16796875, count: 55441"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - cpu",
+            "value": 18.514948,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.325505129755953, max cpu: 32.030506, count: 55441"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - mem",
+            "value": 36.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 36.16161254193647, max mem: 36.4453125, count: 55441"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Subscriber - cpu",
+            "value": 4.653417,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.09510977042977, max cpu: 13.9265, count: 55441"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Subscriber - mem",
+            "value": 34.890625,
+            "unit": "median mem",
+            "extra": "avg mem: 34.85933223212514, max mem: 35.03125, count: 55441"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 4.653417,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.109418566267704, max cpu: 9.402546, count: 55441"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 34.7578125,
+            "unit": "median mem",
+            "extra": "avg mem: 34.715868488009775, max mem: 34.91796875, count: 55441"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.816340888165705, max cpu: 14.10382, count: 55441"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - mem",
+            "value": 36.0546875,
+            "unit": "median mem",
+            "extra": "avg mem: 35.98843759582259, max mem: 36.19921875, count: 55441"
+          },
+          {
+            "name": "Rotate join keys - Publisher - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.0228626292802128, max cpu: 4.6669908, count: 55441"
+          },
+          {
+            "name": "Rotate join keys - Publisher - mem",
+            "value": 17.40625,
+            "unit": "median mem",
+            "extra": "avg mem: 17.368854812999405, max mem: 17.40625, count: 55441"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.00016229496410563425, max replication_lag:MB: 0.25003814697265625, count: 55441"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 4.653417,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.086738054998103, max cpu: 13.919767, count: 55441"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 35.8125,
+            "unit": "median mem",
+            "extra": "avg mem: 35.77133440560686, max mem: 35.9453125, count: 55441"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.431466196766877, max cpu: 4.6829267, count: 55441"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 17.2734375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.259627069767863, max mem: 17.2734375, count: 55441"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.6489105,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.4046123868900375, max cpu: 4.685212, count: 55441"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 17.484375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.471565563504445, max mem: 17.484375, count: 55441"
+          },
+          {
+            "name": "Update joined rows - Publisher - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 1.734932706119144, max cpu: 4.660194, count: 55441"
+          },
+          {
+            "name": "Update joined rows - Publisher - mem",
+            "value": 17.26953125,
+            "unit": "median mem",
+            "extra": "avg mem: 17.259874940251798, max mem: 17.26953125, count: 55441"
           }
         ]
       }

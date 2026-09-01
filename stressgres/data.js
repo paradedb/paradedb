@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788305721678,
+  "lastUpdate": 1788305728692,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -301110,6 +301110,66 @@ window.BENCHMARK_DATA = {
             "value": 170,
             "unit": "median segment_count",
             "extra": "avg segment_count: 196.149237179918, max segment_count: 359.0, count: 59516"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2dbed3a3a873f700775168e59d6c683cd2d9a32a",
+          "message": "ci: Fix benchmarker CI failure handling & cleanup duplicated actions and workflows (#6183)\n\n## Summary\n- consolidate source-building benchmark workflows on a single\n`Swatinem/rust-cache` owner for Cargo binaries and build artifacts\n- verify the cached `cargo-pgrx` version in both Benchmarker and\nStressgres, installing the pinned version only when missing or stale\n- notify `@pg_search-maintainers` in Slack when the Benchmarker workflow\nfails on a push\n\n## Root cause\n[Run\n33561565782](https://github.com/paradedb/paradedb/actions/runs/33561565782/job/100035036147)\nrestored `~/.cargo/bin/cargo-pgrx` through `Swatinem/rust-cache`, while\na second dedicated `cargo-pgrx` cache reported a miss. The subsequent\ninstall failed because the binary already existed. Removing the\noverlapping cache ownership prevents that inconsistent state.\n\nThe query benchmark workflow does not install `cargo-pgrx`; it uses a\nprepared benchmark cluster, so there is no equivalent cache path to\nchange there.\n\n## Validation\n- `git diff --check`\n- parsed all three modified YAML files with Ruby YAML",
+          "timestamp": "2026-09-01T16:13:19-07:00",
+          "tree_id": "9b4db32eb6476fe2a4f2e5a84707d9d6dee78521",
+          "url": "https://github.com/paradedb/paradedb/commit/2dbed3a3a873f700775168e59d6c683cd2d9a32a"
+        },
+        "date": 1788305725855,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.870016691822855, max cpu: 33.532936, count: 59414"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 44.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 44.4312910519827, max mem: 44.7890625, count: 59414"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.90508,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.761371944528612, max cpu: 43.90244, count: 59414"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 102.61328125,
+            "unit": "median mem",
+            "extra": "avg mem: 101.52750844445333, max mem: 102.61328125, count: 59414"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 26515,
+            "unit": "median block_count",
+            "extra": "avg block_count: 25350.12973373279, max block_count: 29176.0, count: 59414"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 167,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 193.9892112970007, max segment_count: 360.0, count: 59414"
           }
         ]
       }

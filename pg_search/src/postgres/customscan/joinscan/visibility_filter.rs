@@ -253,6 +253,12 @@ fn collect_beneficial_deferred_visibility_inner<'a>(
             // preserved side's check worthwhile. The checked side's filter
             // lands below that join, so nothing reduces its rows first and it
             // stays eager unless something below already did.
+            //
+            // A Full barrier also credits itself here, though it keeps both
+            // sides' checks below it. That can wrap a scan with nothing
+            // reducing in between, where the check costs the same rows as
+            // the in-scan one plus a node. Collapsing such a wrap back into
+            // the scan is a possible refinement.
             let mut has_reduction = false;
             for (ancestor, from_child) in ancestors.iter().rev() {
                 match barrier_status(ancestor) {

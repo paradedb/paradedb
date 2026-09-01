@@ -15,7 +15,7 @@ on:
       - ".github/actions/benchmark-queries/**"
       - ".github/actions/benchmarks-from-main/**"
       - ".github/actions/setup-benchmark-cluster/**"
-      - ".github/actions/setup-pg-search-build/**"
+      - ".github/actions/setup-pg-search-build-environment/**"
       - ".github/actions/setup-pg-search-toolchain/**"
       - ".github/actions/setup-postgres/**"
       - ".github/workflows/benchmark-pg_search-queries.yml"

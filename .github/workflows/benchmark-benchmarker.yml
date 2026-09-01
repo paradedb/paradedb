@@ -17,7 +17,7 @@ on:
       - "**/*.toml"
       - ".github/workflows/benchmark-benchmarker.yml"
       - ".github/actions/build-pg_search-source/**"
-      - ".github/actions/setup-pg-search-build/**"
+      - ".github/actions/setup-pg-search-build-environment/**"
       - ".github/actions/setup-pg-search-toolchain/**"
       - ".github/actions/setup-postgres/**"
       - "docker/Dockerfile.benchmarker"

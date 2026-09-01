@@ -48,8 +48,8 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Set up pg_search build
-      uses: ./.github/actions/setup-pg-search-build
+    - name: Set up pg_search build environment
+      uses: ./.github/actions/setup-pg-search-build-environment
       with:
         pg_version: ${{ inputs.pg-version }}
         extra_packages: >-

@@ -1,5 +1,5 @@
-name: Set up pg_search build
-description: Install PostgreSQL, Rust, cargo-pgrx, and the shared benchmark build cache
+name: Set up pg_search build environment
+description: Install and initialize PostgreSQL, Rust, cargo-pgrx, and the benchmark build cache
 
 inputs:
   pg_version:

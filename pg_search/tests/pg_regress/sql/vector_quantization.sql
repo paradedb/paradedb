@@ -277,6 +277,11 @@ WITH plan AS (
 SELECT
     (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint > 0
         AS layer0_populated,
+    (jsonb_path_query_first(value, '$.**.layer0_eligible') #>> '{}')::bigint
+        = (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint
+        AND (jsonb_path_query_first(value, '$.**.eligible_charged') #>> '{}')::bigint
+            = (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint
+        AS layer0_selection_accounted,
     (jsonb_path_query_first(value, '$.**.layer0_survivors') #>> '{}')::bigint
         < (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint
         AS layer0_filtered,
@@ -291,6 +296,29 @@ SELECT
         AS io_flat,
     (jsonb_path_query_first(value, '$.**.rerank_blocks_fetched') #>> '{}')::bigint > 0
         AS rerank_io_flat
+FROM segment_info;
+
+WITH plan AS (
+    SELECT quant_explain(
+        'SELECT id FROM q_cosine '
+        'WHERE id @@@ paradedb.range(''id'', int4range(1, 51, ''[)'')) '
+        'ORDER BY vec <=> quant_fixture_vector(768, 0), id LIMIT 10'
+    ) AS value
+), segment_info AS (
+    SELECT (jsonb_path_query_first(value, '$.**."Segment Info"') #>> '{}')::jsonb AS value
+    FROM plan
+)
+SELECT
+    (jsonb_path_query_first(value, '$.**.layer0_eligible') #>> '{}')::bigint
+        = (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint
+        AS filtered_scores_only_eligible,
+    (jsonb_path_query_first(value, '$.**.eligible_charged') #>> '{}')::bigint
+        = (jsonb_path_query_first(value, '$.**.layer0_eligible') #>> '{}')::bigint
+        AS filtered_charges_only_eligible,
+    (jsonb_path_query_first(value, '$.**.pruned_filter') #>> '{}')::bigint > 0
+        AS filtered_prunes_at_admission,
+    (jsonb_path_query_first(value, '$.**.clusters_skipped_empty') #>> '{}')::bigint > 0
+        AS filtered_skips_empty_clusters
 FROM segment_info;
 
 CREATE TABLE q_l2 (id integer PRIMARY KEY, vec vector(768));

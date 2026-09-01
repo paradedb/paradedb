@@ -12,7 +12,7 @@ workspace = true
 crate-type = ["cdylib"]
 
 [features]
-default = ["pg18", "deferred_wal"]
+default = ["pg18", "deferred_wal", "io_stats"]
 pg15 = ["pgrx/pg15", "pgrx-tests/pg15"]
 pg16 = ["pgrx/pg16", "pgrx-tests/pg16"]
 pg17 = ["pgrx/pg17", "pgrx-tests/pg17"]

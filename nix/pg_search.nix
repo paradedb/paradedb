@@ -65,7 +65,7 @@ buildPgrxExtension (finalAttrs: {
   # If maintainers forget to do so, Nix will throw an error message that begins
   # like this and then provides the correct new hash:
   # error: hash mismatch in fixed-output derivation '...'
-  cargoHash = "sha256-nAP+eDnx31QndWLXbBGl4hVczkSqbWr0ddTlvkHwdks=";
+  cargoHash = "sha256-Zn8zlwo7fo/ac3HnrL+M6pP1AZEa1B63sppsvXVTYJI=";
 
   inherit cargo-pgrx postgresql;
 

@@ -463,9 +463,7 @@ pub unsafe fn extract_aggregate_targetlist(
             };
 
             // Reject pdb.agg()
-            let pdb_agg_oid = crate::api::agg_funcoid().to_u32();
-            let pdb_agg_mvcc_oid = crate::api::agg_with_solve_mvcc_funcoid().to_u32();
-            if aggfnoid == pdb_agg_oid || aggfnoid == pdb_agg_mvcc_oid {
+            if crate::api::is_agg_funcoid(aggfnoid) {
                 return Err(
                     "pdb.agg() is not supported on joins - use standard SQL aggregates (COUNT, SUM, AVG, MIN, MAX)".into()
                 );

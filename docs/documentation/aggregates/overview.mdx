@@ -247,14 +247,20 @@ await dbContext
 
 ## Performance Optimization
 
-By default, `pdb.agg` runs MVCC visibility checks to ensure that deleted or updated-away rows are not factored into the result set. This behavior is controlled by the `solve_mvcc` argument, which defaults to `true`.
+By default, `pdb.agg` runs transaction visibility checks so that deleted or updated-away rows are not factored into the result set. This behavior is controlled by the `visibility` argument, which takes one of three modes.
 
-If your table is not frequently updated or you can tolerate an approximate result, the performance of aggregate queries can be improved by disabling these visibility checks.
-To do so, set `solve_mvcc` to `false`.
+| Mode | Behavior |
+| --- | --- |
+| `'transaction'` | Check transaction visibility. Aggregate results match vanilla Postgres. This is the default. |
+| `'raw'` | Skip the checks and aggregate raw index data. Faster, and approximate whenever the index still holds entries for rows your transaction cannot see. |
+| `'threshold'` | Check transaction visibility only when the query's estimated matching row count is below `paradedb.visibility_threshold`. |
+
+If your table is not frequently updated or you can tolerate an approximate result, the performance of aggregate queries can be improved by skipping these visibility checks.
+To do so, set `visibility` to `'raw'`.
 
 <CodeGroup>
 ```sql SQL
-SELECT pdb.agg('{"value_count": {"field": "id"}}', false)
+SELECT pdb.agg('{"value_count": {"field": "id"}}', 'raw')
 FROM mock_items
 WHERE description ||| 'running shoes';
 ```
@@ -309,10 +315,32 @@ await dbContext
 
 </CodeGroup>
 
-Disabling this check can improve query times by 2-4x in some cases (at the expense of correctness).
+Skipping this check can improve query times by 2-4x in some cases, at the expense of correctness.
+
+### Thresholded Visibility
+
+An unvacuumed dead tuple skews a small result visibly and a large one barely at all, so the tradeoff above is really a function of how many rows the query matches. `visibility => 'threshold'` makes that decision per query instead of hardcoding it in your application: visibility checks run when the estimated matching row count is below `paradedb.visibility_threshold`, and the aggregate reads raw index data otherwise.
+
+```sql
+SELECT pdb.agg('{"value_count": {"field": "id"}}', 'threshold')
+FROM mock_items
+WHERE description ||| 'running shoes';
+```
+
+`paradedb.visibility_threshold` defaults to `10000` and can be set at the system, database, session, or transaction level.
+
+```sql
+SET paradedb.visibility_threshold = 50000;
+```
+
+The estimate is made for the query as a whole, so a bucketed aggregation such as `GROUP BY` or `terms` resolves to one decision for every bucket. A query matching a million rows across fifty thousand buckets aggregates every bucket from raw index data, including the low-cardinality ones.
 
 <Note>
-If a single query contains multiple `pdb.agg` calls, all of them must use the same visibility setting (either all `true` or all `false`).
+If a single query contains multiple `pdb.agg` calls, all of them must use the same `visibility` setting. Omitting the argument selects `'transaction'`, so an omitted argument alongside an explicit `'raw'` is a conflict, not a default.
+</Note>
+
+<Note>
+The `solve_mvcc` argument is deprecated in favor of `visibility`. Passing a boolean is still accepted, where `true` means `'transaction'` and `false` means `'raw'`.
 </Note>
 
 ## JSON Fields

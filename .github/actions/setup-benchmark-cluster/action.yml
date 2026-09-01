@@ -28,10 +28,17 @@ runs:
         pg_version: ${{ inputs.pg_version }}
         extra_packages: lld libopenblas-dev postgresql-${{ inputs.pg_version }}-pgvector
 
-    - name: Install pg_search from source
-      uses: ./.github/actions/install-pg-search-source
-      with:
-        pg_version: ${{ inputs.pg_version }}
+    - name: Compile and install pg_search
+      shell: bash
+      run: >-
+        cargo pgrx install -p pg_search --sudo --release
+        --pg-config "/usr/lib/postgresql/${{ inputs.pg_version }}/bin/pg_config"
+        --features=pg${{ inputs.pg_version }} --no-default-features
+
+    - name: Start PostgreSQL
+      shell: bash
+      working-directory: pg_search/
+      run: cargo pgrx start pg${{ inputs.pg_version }}
 
     - name: Configure PostgreSQL settings and machine settings
       shell: bash

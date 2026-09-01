@@ -14,7 +14,6 @@ on:
     paths:
       - ".github/actions/benchmark-queries/**"
       - ".github/actions/benchmarks-from-main/**"
-      - ".github/actions/install-pg-search-source/**"
       - ".github/actions/setup-benchmark-cluster/**"
       - ".github/actions/setup-pg-search-build/**"
       - ".github/actions/setup-pg-search-toolchain/**"

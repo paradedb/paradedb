@@ -14,7 +14,6 @@ on:
     paths:
       - ".github/actions/benchmark-stressgres/**"
       - ".github/actions/benchmarks-from-main/**"
-      - ".github/actions/install-pg-search-source/**"
       - ".github/actions/setup-pg-search-build/**"
       - ".github/actions/setup-pg-search-toolchain/**"
       - ".github/actions/setup-postgres/**"
@@ -208,10 +207,15 @@ jobs:
             lsof fontconfig pkg-config libfontconfig1-dev libopenblas-dev lld
             postgresql-${{ env.pg_version }}-pgvector
 
-      - name: Install pg_search from source
-        uses: ./.github/actions/install-pg-search-source
-        with:
-          pg_version: ${{ env.pg_version }}
+      - name: Compile and install pg_search
+        run: >-
+          cargo pgrx install -p pg_search --sudo --release
+          --pg-config "/usr/lib/postgresql/${{ env.pg_version }}/bin/pg_config"
+          --features=pg${{ env.pg_version }} --no-default-features
+
+      - name: Start PostgreSQL
+        working-directory: pg_search/
+        run: cargo pgrx start pg${{ env.pg_version }}
 
       - name: Configure PostgreSQL settings and machine settings
         working-directory: /home/runner/.pgrx/data-${{ env.pg_version }}/

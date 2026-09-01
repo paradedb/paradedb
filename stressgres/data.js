@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788305517312,
+  "lastUpdate": 1788305532902,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -155738,6 +155738,66 @@ window.BENCHMARK_DATA = {
             "value": 19.920510792565224,
             "unit": "median tps",
             "extra": "avg tps: 19.897336435250345, max tps: 34.4174224847369, count: 59295"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2dbed3a3a873f700775168e59d6c683cd2d9a32a",
+          "message": "ci: Fix benchmarker CI failure handling & cleanup duplicated actions and workflows (#6183)\n\n## Summary\n- consolidate source-building benchmark workflows on a single\n`Swatinem/rust-cache` owner for Cargo binaries and build artifacts\n- verify the cached `cargo-pgrx` version in both Benchmarker and\nStressgres, installing the pinned version only when missing or stale\n- notify `@pg_search-maintainers` in Slack when the Benchmarker workflow\nfails on a push\n\n## Root cause\n[Run\n33561565782](https://github.com/paradedb/paradedb/actions/runs/33561565782/job/100035036147)\nrestored `~/.cargo/bin/cargo-pgrx` through `Swatinem/rust-cache`, while\na second dedicated `cargo-pgrx` cache reported a miss. The subsequent\ninstall failed because the binary already existed. Removing the\noverlapping cache ownership prevents that inconsistent state.\n\nThe query benchmark workflow does not install `cargo-pgrx`; it uses a\nprepared benchmark cluster, so there is no equivalent cache path to\nchange there.\n\n## Validation\n- `git diff --check`\n- parsed all three modified YAML files with Ruby YAML",
+          "timestamp": "2026-09-01T16:13:19-07:00",
+          "tree_id": "9b4db32eb6476fe2a4f2e5a84707d9d6dee78521",
+          "url": "https://github.com/paradedb/paradedb/commit/2dbed3a3a873f700775168e59d6c683cd2d9a32a"
+        },
+        "date": 1788305529388,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 71.71764035989207,
+            "unit": "median tps",
+            "extra": "avg tps: 71.37347522657852, max tps: 77.46526480281662, count: 59305"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 509.3346548298509,
+            "unit": "median tps",
+            "extra": "avg tps: 553.8539530095185, max tps: 7025.773921524187, count: 59305"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 759.3014381444176,
+            "unit": "median tps",
+            "extra": "avg tps: 729.3948220241169, max tps: 820.193634844094, count: 59305"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 160.19557897451384,
+            "unit": "median tps",
+            "extra": "avg tps: 157.828414109262, max tps: 176.3053087691, count: 59305"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 218.65311917770657,
+            "unit": "median tps",
+            "extra": "avg tps: 290.62254506954014, max tps: 1720.9016451030325, count: 118610"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.662354318656707,
+            "unit": "median tps",
+            "extra": "avg tps: 18.53229312602479, max tps: 34.33930675876194, count: 59305"
           }
         ]
       }

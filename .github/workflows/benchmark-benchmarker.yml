@@ -17,6 +17,8 @@ on:
       - "**/*.toml"
       - ".github/workflows/benchmark-benchmarker.yml"
       - ".github/actions/build-pg_search-source/**"
+      - ".github/actions/setup-pg-search-build/**"
+      - ".github/actions/setup-postgres/**"
       - "docker/Dockerfile.benchmarker"
   pull_request:
     types: [labeled] # Opt in on a PR with the `benchmark-benchmarker` label
@@ -323,3 +325,11 @@ jobs:
             echo "::error::No benchmark metrics extracted: the k6 run produced no query samples. Check query execution / the dashboard export." >&2
             exit 1
           fi
+
+      - name: Notify Slack on Failure (push only)
+        if: failure() && github.event_name == 'push'
+        uses: paradedb/actions/slack-alert@v10
+        with:
+          webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
+          mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
+          title: "${{ github.workflow }} Failed"

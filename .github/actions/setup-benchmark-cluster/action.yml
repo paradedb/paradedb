@@ -22,51 +22,16 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Install Rust
-      uses: actions-rust-lang/setup-rust-toolchain@v1
-      with:
-        cache: false
-        rustflags: "" # Use .cargo/config.toml target-cpu flags
-
-    - name: Install & Configure Supported PostgreSQL Version
-      uses: ./.github/actions/setup-postgres
+    - name: Set up pg_search build
+      uses: ./.github/actions/setup-pg-search-build
       with:
         pg_version: ${{ inputs.pg_version }}
         extra_packages: lld libopenblas-dev postgresql-${{ inputs.pg_version }}-pgvector
 
-    # Separate prefix-key from debug workflows - benchmarks compile with --release.
-    # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
-    # See test-pg_search.yml for rationale.
-    - name: Install Rust Cache
-      uses: swatinem/rust-cache@v2
+    - name: Install pg_search from source
+      uses: ./.github/actions/install-pg-search-source
       with:
-        prefix-key: "v2-benchmarks-rust-cache"
-        shared-key: pg${{ inputs.pg_version }}
-        cache-targets: true
-        cache-all-crates: true
-        cache-on-failure: true
-
-    - name: Extract pgrx Version
-      id: pgrx
-      shell: bash
-      run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> "$GITHUB_OUTPUT"
-
-    - name: Install pgrx
-      shell: bash
-      run: cargo install cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug --locked
-
-    - name: Initialize pgrx environment
-      shell: bash
-      run: cargo pgrx init "--pg${{ inputs.pg_version }}=$(command -v pg_config)"
-
-    - name: Compile & install pg_search extension
-      shell: bash
-      run: cargo pgrx install -p pg_search --sudo --release --pg-config "$(command -v pg_config)" --features=pg${{ inputs.pg_version }} --no-default-features
-
-    - name: Start Postgres
-      shell: bash
-      working-directory: pg_search/
-      run: cargo pgrx start pg${{ inputs.pg_version }}
+        pg_version: ${{ inputs.pg_version }}
 
     - name: Configure PostgreSQL settings and machine settings
       shell: bash
@@ -103,10 +68,6 @@ runs:
         psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "CREATE EXTENSION pg_stat_statements;"
         psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET pg_stat_statements.track_planning = on;"
         psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET pg_stat_statements.track = top ;"
-
-    - name: Install pgvector
-      shell: bash
-      run: sudo apt-get update && sudo apt-get install -y postgresql-${{ inputs.pg_version }}-pgvector
 
     - name: Install pg_search
       shell: bash

@@ -1,0 +1,64 @@
+name: Set up pg_search build
+description: Install PostgreSQL, Rust, cargo-pgrx, and the shared benchmark build cache
+
+inputs:
+  pg_version:
+    description: "PostgreSQL major version to build against."
+    required: false
+    default: "18"
+  extra_packages:
+    description: "Additional apt packages to install alongside PostgreSQL."
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Install PostgreSQL ${{ inputs.pg_version }} and build dependencies
+      uses: ./.github/actions/setup-postgres
+      with:
+        pg_version: ${{ inputs.pg_version }}
+        extra_packages: ${{ inputs.extra_packages }}
+
+    - name: Extract pinned toolchain versions
+      id: versions
+      shell: bash
+      run: |
+        set -euo pipefail
+        rust=$(sed -nE 's/^channel = "([^"]+)"$/\1/p' rust-toolchain.toml)
+        pgrx=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)
+        echo "rust=$rust" >> "$GITHUB_OUTPUT"
+        echo "pgrx=$pgrx" >> "$GITHUB_OUTPUT"
+        echo "Resolved rust=$rust cargo-pgrx=$pgrx"
+
+    - name: Install Rust ${{ steps.versions.outputs.rust }}
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: ${{ steps.versions.outputs.rust }}
+        cache: false
+        rustflags: "" # Respect .cargo/config.toml target-cpu flags.
+
+    # All benchmark workflows compile pg_search in release mode and can safely
+    # share this cache. rust-cache owns both Cargo binaries and target artifacts.
+    - name: Install Rust cache
+      uses: Swatinem/rust-cache@v2
+      with:
+        prefix-key: "v2-benchmarks-rust-cache"
+        shared-key: pg${{ inputs.pg_version }}
+        cache-targets: true
+        cache-all-crates: true
+        cache-on-failure: true
+
+    - name: Install cargo-pgrx ${{ steps.versions.outputs.pgrx }}
+      shell: bash
+      run: |
+        version="${{ steps.versions.outputs.pgrx }}"
+        if cargo pgrx --version 2>/dev/null | grep -Eq "^cargo-pgrx ${version}([[:space:]]|$)"; then
+          echo "cargo-pgrx ${version} restored from rust-cache"
+        else
+          cargo install cargo-pgrx --version "${version}" --debug --locked --force
+        fi
+
+    - name: Initialize pgrx environment
+      shell: bash
+      run: cargo pgrx init "--pg${{ inputs.pg_version }}=/usr/lib/postgresql/${{ inputs.pg_version }}/bin/pg_config"

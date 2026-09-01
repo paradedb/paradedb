@@ -26,6 +26,7 @@
 
 use super::join_targetlist::AggOrderByEntry;
 use crate::index::fast_fields_helper::WhichFastField;
+use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, JoinAggregateEntry, JoinAggregateTargetList,
 };
@@ -37,9 +38,7 @@ use crate::postgres::customscan::datafusion::translator::{
     ColumnMapper, PredicateTranslator, apply_join_level_filter, build_join_df, make_col,
     make_source_col,
 };
-use crate::postgres::customscan::joinscan::build::{
-    JoinLevelSearchPredicate, JoinSource, RelNode, RelationAlias,
-};
+use crate::postgres::customscan::joinscan::build::{JoinSource, RelNode, RelationAlias};
 use crate::postgres::customscan::joinscan::scan_state::{
     SessionContextProfile, create_datafusion_session_context, register_source_table,
 };
@@ -77,25 +76,23 @@ pub async fn build_join_aggregate_plan(
     plan: &RelNode,
     targetlist: &JoinAggregateTargetList,
     topk: Option<&DataFusionTopK>,
-    join_level_predicates: &[JoinLevelSearchPredicate],
     custom_exprs: *mut pg_sys::List,
     custom_scan_tlist: *mut pg_sys::List,
     having_filter: Option<&FilterExpr>,
     ctx: &SessionContext,
     expr_context: Option<*mut pg_sys::ExprContext>,
     planstate: Option<*mut pg_sys::PlanState>,
-    is_mpp: bool,
+    mpp_manifests: Option<&[SearchIndexManifest]>,
 ) -> Result<(datafusion::logical_expr::LogicalPlan, Vec<usize>)> {
     // Step 1: Build the join DataFrame from the RelNode tree
     let df = build_relnode_df(
         ctx,
         plan,
-        join_level_predicates,
         custom_exprs,
         custom_scan_tlist,
         expr_context,
         planstate,
-        is_mpp,
+        mpp_manifests,
     )
     .await?;
 
@@ -283,20 +280,25 @@ pub async fn build_join_aggregate_plan(
 fn build_relnode_df<'a>(
     ctx: &'a SessionContext,
     node: &'a RelNode,
-    join_level_predicates: &'a [JoinLevelSearchPredicate],
     custom_exprs: *mut pg_sys::List,
     custom_scan_tlist: *mut pg_sys::List,
     expr_context: Option<*mut pg_sys::ExprContext>,
     planstate: Option<*mut pg_sys::PlanState>,
-    is_mpp: bool,
+    mpp_manifests: Option<&'a [SearchIndexManifest]>,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
         match node {
             RelNode::Scan(source) => {
                 let plan_position = source.plan_position;
-                let df =
-                    build_source_df(ctx, source, plan_position, expr_context, planstate, is_mpp)
-                        .await?;
+                let df = build_source_df(
+                    ctx,
+                    source,
+                    plan_position,
+                    expr_context,
+                    planstate,
+                    mpp_manifests,
+                )
+                .await?;
                 let alias =
                     RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
                 Ok(df.alias(&alias)?)
@@ -305,23 +307,21 @@ fn build_relnode_df<'a>(
                 let left_df = build_relnode_df(
                     ctx,
                     &join.left,
-                    join_level_predicates,
                     custom_exprs,
                     custom_scan_tlist,
                     expr_context,
                     planstate,
-                    is_mpp,
+                    mpp_manifests,
                 )
                 .await?;
                 let right_df = build_relnode_df(
                     ctx,
                     &join.right,
-                    join_level_predicates,
                     custom_exprs,
                     custom_scan_tlist,
                     expr_context,
                     planstate,
-                    is_mpp,
+                    mpp_manifests,
                 )
                 .await?;
 
@@ -331,39 +331,15 @@ fn build_relnode_df<'a>(
                 let df = build_relnode_df(
                     ctx,
                     &filter.input,
-                    join_level_predicates,
                     custom_exprs,
                     custom_scan_tlist,
                     expr_context,
                     planstate,
-                    is_mpp,
+                    mpp_manifests,
                 )
                 .await?;
 
-                let has_predicates = !join_level_predicates.is_empty() || !custom_exprs.is_null();
-
-                if !has_predicates {
-                    // No predicates to apply — pass through
-                    return Ok(df);
-                }
-
-                // Build a ctid_map: plan_position → ctid column expression.
-                // In the aggregate path, ctid columns are real (not deferred),
-                // and the ctid field is named "ctid" (from WhichFastField::Ctid)
-                // in the table provider schema. After aliasing, it's accessible
-                // as `<alias>.ctid`.
-                // The filter is evaluated after the input node has applied any
-                // Semi/Anti pruning.  Only output-visible sources are addressable
-                // in the DataFusion schema here; lifted SubPlan inner sources may
-                // reuse outer RTIs but are not projected.
                 let sources = filter.input.output_sources();
-                let ctid_map: crate::api::HashMap<pg_sys::Index, Expr> = sources
-                    .iter()
-                    .map(|s| (s.plan_position as pg_sys::Index, make_source_col(s, "ctid")))
-                    .collect();
-
-                // No deferred positions in aggregate path (no VisibilityFilterExec)
-                let deferred_positions = crate::api::HashSet::default();
 
                 // Translate custom_exprs (non-@@@ cross-table predicates) using
                 // PredicateTranslator, mirroring JoinScan's scan_state.rs:562-576.
@@ -396,9 +372,6 @@ fn build_relnode_df<'a>(
                     df,
                     &filter.predicate,
                     &translated_exprs,
-                    &ctid_map,
-                    join_level_predicates,
-                    &deferred_positions,
                     &sources,
                     /* handle_mark = */ false,
                 )
@@ -548,7 +521,7 @@ async fn build_source_df(
     plan_position: usize,
     expr_context: Option<*mut pg_sys::ExprContext>,
     planstate: Option<*mut pg_sys::PlanState>,
-    is_mpp: bool,
+    mpp_manifests: Option<&[SearchIndexManifest]>,
 ) -> Result<DataFrame> {
     let scan_info = source.scan_info.clone();
 
@@ -559,16 +532,13 @@ async fn build_source_df(
     // the Const/expression nodes retained by the first source. Generic plans
     // that parameterize predicates on both join inputs then dereference stale
     // nodes during reader construction and abort the backend.
-    let source_query = scan_info.query.clone();
+    let source_query = scan_info.mode.query().clone();
     let needs_runtime_context =
         source_query.has_postgres_expressions() || source_query.has_parameters();
     // `.or(expr_context)` can hand every source the same context, but only the
-    // EXPLAIN-only rebuild both reaches it and goes on to physical planning.
-    // There it is safe: `PgSearchTableProvider::scan()` returns "postgres
-    // expressions have not been solved: missing planstate" before it would call
+    // EXPLAIN-only rebuild reaches it. There it is safe: `PgSearchTableProvider::scan()` returns
+    // "postgres expressions have not been solved: missing planstate" before it would call
     // `solve_postgres_expressions`, so the shared context is never reset.
-    // `stash_mpp_plan_bytes` also passes `planstate: None`, but stops at the
-    // logical plan, so `scan()` never runs there.
     let source_expr_context = if needs_runtime_context {
         unsafe {
             planstate
@@ -600,7 +570,8 @@ async fn build_source_df(
             | WhichFastField::Score
             | WhichFastField::Junk(_)
             | WhichFastField::TableOid
-            | WhichFastField::DeferredCtid(_) => None,
+            | WhichFastField::DeferredCtid(_)
+            | WhichFastField::MatchTag(_) => None,
         })
         .collect();
 
@@ -611,9 +582,25 @@ async fn build_source_df(
 
     // MPP-aware provider setup. Every source gets its segments sliced across PG
     // parallel workers via `parallel_state.checkout_segment_for_source(plan_position)`
-    // when `is_mpp` is true.
-    let source_idx = if is_mpp { Some(plan_position) } else { None };
+    // when this is an MPP plan.
+    let source_idx = mpp_manifests.map(|_| plan_position);
     let mut provider = PgSearchTableProvider::new(scan_info, fields, source_idx);
+    // The leader claims segments out of the DSM pool the same manifests populate, so its own
+    // reader is built from the source's manifest. This plan never crosses the codec that
+    // injects the manifest for JoinScan, so do it here.
+    if let Some(manifests) = mpp_manifests {
+        let manifest = manifests.get(plan_position).unwrap_or_else(|| {
+            panic!(
+                "missing captured manifest for aggregate source at plan_position {plan_position}"
+            )
+        });
+        provider.set_manifest(manifest.clone());
+    }
+    if let crate::scan::ScanMode::Tagged { local_queries, .. } = &source.scan_info.mode {
+        for tq in local_queries {
+            provider.add_match_tag_column(&tq.tag_name);
+        }
+    }
     // HeapFilter queries (e.g. `=` on a column indexed via a
     // `pdb.literal(...)` cast) compile to runtime Postgres expressions
     // that can only be evaluated with a live ExprContext + PlanState.

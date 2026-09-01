@@ -8,7 +8,7 @@
 #
 # Usage:
 #   PGVER=<version> ./pg_search_test.sh [--release] [--test test_name]
-#   Example: PGVER=17.4 ./pg_search_test.sh --release --test sorting
+#   Example: PGVER=18.6 ./pg_search_test.sh --release --test sorting
 
 set -Eeuo pipefail
 
@@ -20,4 +20,4 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 source "${SCRIPT_DIR}/pg_search_common.sh" "$@"
 
 # Run the test suite with backtrace enabled and pass any non-build arguments
-RUST_BACKTRACE=1 cargo test --package tests --package tokenizers "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}"
+RUST_BACKTRACE=1 cargo test --package tests --package tokenizers ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}

@@ -21,7 +21,7 @@
 //! [`WorkerPathPolicy`] ([`decide_scan_parallelism`]).
 //!
 //! A costable scan is costed by its work, emits both a serial and a partial path, and clears
-//! PostgreSQL's native paths -- otherwise the honest scan-work cost lets PostgreSQL's own BM25 index
+//! PostgreSQL's native paths -- otherwise the honest scan-work cost lets PostgreSQL's own ParadeDB index
 //! scan (correct, but without fast-field / Block-WAND execution) undercut us. PostgreSQL then costs
 //! the Gather and picks serial vs parallel, which it can only do once it sees the upper plan (a bulk
 //! `SELECT` ships every row; a `COUNT(*)` collapses rows in a Partial Aggregate first). pg_search

@@ -1,3 +1,4 @@
 ignored:
-  - DL3003 # Use WORKDIR to switch to a directory
-  - DL3008 # Pin versions in apt-get install. Instead of `apt-get install <package>` use `apt-get install <package>=<version>`
+  - DL3008 # Only application and extension packages are pinned; Debian utility and library versions are not.
+  - DL3009 # apt-get dist-clean preserves cryptographic state while removing cached package data.
+  - DL4006 # Avoid an inherited SHELL instruction; RUN commands set their own failure behavior.

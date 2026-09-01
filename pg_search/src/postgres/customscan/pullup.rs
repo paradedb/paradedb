@@ -29,7 +29,7 @@ use pgrx::pg_sys;
 /// Resolves a PostgreSQL attribute number to a Tantivy fast field, if available.
 ///
 /// This checks if the column corresponding to `attno` in the heap relation is available
-/// as a fast field in the BM25 index. It handles:
+/// as a fast field in the ParadeDB index. It handles:
 ///
 /// - System columns (ctid, tableoid)
 /// - Regular columns (mapped via name)

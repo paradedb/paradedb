@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 use crate::api::HashSet;
 use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::SearchIndexReader;
+use crate::index::reader::index::{SearchIndexManifest, SearchIndexReader};
 use crate::postgres::ParallelScanState;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
@@ -41,7 +41,7 @@ use crate::scan::execution_plan::{PgSearchScanPlan, ScanState};
 use crate::scan::filter_pushdown::{FilterAnalyzer, combine_with_and};
 use crate::scan::info::{RowEstimate, ScanInfo};
 use crate::scan::late_materialization::DeferredField;
-use crate::scan::range_partitioning::RangePartitioningSample;
+use crate::scan::range_partitioning::RangeSplitPoints;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct VisibilitySourceMetadata {
@@ -122,7 +122,14 @@ pub struct PgSearchTableProvider {
 
     /// Explicit range partitioning configuration. When present, the provider
     /// ignores parallel state segments and yields statically partitioned streams.
-    range_sample: Option<RangePartitioningSample>,
+    range_split_points: Option<RangeSplitPoints>,
+
+    /// The manifest this source was captured with, for an MPP source: `scan()` builds its
+    /// reader from it, replaying exactly the view the DSM was populated from. Backend-local
+    /// (readers do not travel), so re-injected by the codec on deserialization, keyed by
+    /// `source_idx`.
+    #[serde(skip)]
+    manifest: Option<SearchIndexManifest>,
 }
 
 mod atomic_bool_serde {
@@ -161,11 +168,14 @@ impl Clone for PgSearchTableProvider {
                     .load(std::sync::atomic::Ordering::Relaxed),
             ),
             source_idx: self.source_idx,
-            range_sample: self.range_sample.clone(),
+            range_split_points: self.range_split_points.clone(),
+            manifest: self.manifest.clone(),
         }
     }
 }
 
+// SAFETY: pg_search runs DataFusion on a single-threaded runtime inside the backend, so the
+// process-local fields (raw pointers, the reference-counted manifest) never cross a thread.
 unsafe impl Send for PgSearchTableProvider {}
 unsafe impl Sync for PgSearchTableProvider {}
 
@@ -186,21 +196,22 @@ impl PgSearchTableProvider {
             visibility_mode: VisibilityMode::Eager,
             late_materialization_active: AtomicBool::new(false),
             source_idx,
-            range_sample: None,
+            range_split_points: None,
+            manifest: None,
         }
     }
 
-    /// Enables Range partitioning mode by supplying a distribution sample.
+    /// Enables Range partitioning mode by supplying the split points to cut on.
     ///
-    /// When a sample is provided, the table provider will produce a plan that is
+    /// When split points are provided, the table provider will produce a plan that is
     /// statically partitioned by range bounds, overriding the default `Shared`
     /// (dynamic segment checkout) partitioning mode.
-    pub fn with_range_partitioning(&mut self, range_sample: Option<RangePartitioningSample>) {
-        self.range_sample = range_sample;
+    pub fn with_range_partitioning(&mut self, range_split_points: Option<RangeSplitPoints>) {
+        self.range_split_points = range_split_points;
     }
 
-    pub fn range_sample(&self) -> Option<&RangePartitioningSample> {
-        self.range_sample.as_ref()
+    pub fn range_split_points(&self) -> Option<&RangeSplitPoints> {
+        self.range_split_points.as_ref()
     }
 
     /// Transitions the provider from Phase 1 (`Utf8View`) into Phase 2 (`Union`)
@@ -225,6 +236,10 @@ impl PgSearchTableProvider {
 
     pub(crate) fn source_idx(&self) -> Option<usize> {
         self.source_idx
+    }
+
+    pub(crate) fn set_manifest(&mut self, manifest: SearchIndexManifest) {
+        self.manifest = Some(manifest);
     }
 
     fn enable_deferred_columns(&mut self, required_early_columns: &HashSet<String>) {
@@ -283,6 +298,15 @@ impl PgSearchTableProvider {
 
     pub(crate) fn visibility_mode(&self) -> VisibilityMode {
         self.visibility_mode
+    }
+
+    pub fn add_match_tag_column(&mut self, tag_name: &str) {
+        if !self.fields.iter().any(|f| f.name() == tag_name) {
+            self.fields
+                .push(WhichFastField::MatchTag(tag_name.to_string()));
+            self.schema = OnceLock::new();
+            self.late_materialization_schema = OnceLock::new();
+        }
     }
 
     /// Returns the JoinScan source identity when visibility has been deferred.
@@ -406,16 +430,15 @@ impl PgSearchTableProvider {
         // applied at the base relation level. The filters we analyze here are join-level
         // predicates that couldn't be applied earlier - they are different predicates,
         // not duplicates.
-        FilterAnalyzer::new(&self.fields, self.scan_info.indexrelid)
+        FilterAnalyzer::new(&self.fields)
     }
 
     /// Combine the base query with any pushed-down filters.
     ///
     /// The base query comes from scan_info.query (single-table predicates from baserestrictinfo).
     /// The filters come from DataFusion's supports_filters_pushdown mechanism - these are
-    /// join-level predicates that couldn't be applied at the base relation level, including:
-    /// - SearchPredicateUDF: @@@ predicates from cross-table conditions
-    /// - Regular SQL predicates: equality, range, IN list on indexed columns
+    /// join-level predicates that couldn't be applied at the base relation level (e.g. regular
+    /// SQL predicates: equality, range, IN list on indexed columns).
     fn combine_query_with_filters(
         &self,
         base_query: SearchQueryInput,
@@ -461,19 +484,29 @@ impl PgSearchTableProvider {
             Some(ffhelper)
         };
 
-        Ok(Arc::new(PgSearchScanPlan::new(
-            state,
-            schema,
-            resolved_query,
-            None,
-            deferred,
-            ffhelper_arg,
-            self.scan_info.indexrelid.to_u32(),
-            deferred_ctid_plan_position,
-            partition_count,
-            parallel_state,
-            self.range_sample.clone(),
-        )))
+        let table_alias = self.scan_info.alias.clone().unwrap_or_else(|| {
+            match self.deferred_ctid_plan_position() {
+                Some(pos) => format!("source_{pos}"),
+                None => format!("table_{}", self.scan_info.heaprelid),
+            }
+        });
+
+        Ok(Arc::new(
+            PgSearchScanPlan::new(
+                state,
+                schema,
+                resolved_query,
+                None,
+                deferred,
+                ffhelper_arg,
+                self.scan_info.indexrelid.to_u32(),
+                deferred_ctid_plan_position,
+                partition_count,
+                parallel_state,
+                self.range_split_points.clone(),
+            )
+            .with_table_alias(table_alias),
+        ))
     }
 
     /// Creates a single-partition `PgSearchScanPlan` for lazy scans.
@@ -509,6 +542,11 @@ impl PgSearchTableProvider {
             heap_relid: heap_relid.into(),
             batch_size_hint: None,
             score_needed: self.scan_info.score_needed,
+            scan_mode: self
+                .scan_info
+                .mode
+                .clone()
+                .with_base_query(resolved_query.clone()),
         };
         let state = ScanState {
             source_idx,
@@ -614,7 +652,9 @@ impl PgSearchTableProvider {
         // rather than earlier because each process (leader and workers) independently
         // deserializes the logical plan in its own executor context. The
         // planstate and expr_context are injected by the execution codec.
-        let mut query = self.combine_query_with_filters(self.scan_info.query.clone(), filters);
+        let base_query = self.scan_info.mode.query().clone();
+        let needs_tokenizer = self.scan_info.mode.needs_tokenizer();
+        let mut query = self.combine_query_with_filters(base_query, filters);
         if query.has_postgres_expressions() || query.has_parameters() {
             let Some(planstate) = planstate else {
                 return Err(DataFusionError::Internal(
@@ -629,38 +669,40 @@ impl PgSearchTableProvider {
             query.init_postgres_expressions(planstate);
             query.solve_postgres_expressions(expr_context);
         }
-        // MVCC dispatch by `source_idx`:
+        // An MPP source builds its reader from the manifest the codec injected: no second
+        // open, and it replays exactly the view the DSM was populated from.
         //
-        // Parallel worker or leader (`source_idx` Some):
-        // Retrieve the specific frozen segment IDs for this source from `ParallelScanState`.
-        //
-        // Serial (otherwise): Snapshot.
-
-        let mvcc_style = if let Some(parallel_state) = parallel_state {
-            unsafe {
-                if pg_sys::ParallelWorkerNumber == -1 {
-                    // Leader only sees snapshot-visible segments
-                    MvccSatisfies::Snapshot
-                } else {
-                    let ids = (*parallel_state).segment_ids_for_source(
-                        self.source_idx.expect("parallel_state implies source_idx"),
-                    );
-                    MvccSatisfies::ParallelWorker(ids)
-                }
+        // Workers never reach the manifest arm. An MPP worker decodes physical plans, and
+        // plans build address-free, so `parallel_state` is still null here and arrives on the
+        // physical scan later through `stamp_parallel_state`.
+        let expr_ctx = expr_context.and_then(std::ptr::NonNull::new);
+        let needs_tokenizer = query.needs_tokenizer() || needs_tokenizer;
+        let reader = match self.manifest.as_ref() {
+            Some(manifest) => {
+                assert_eq!(
+                    unsafe { pg_sys::ParallelWorkerNumber },
+                    -1,
+                    "captured manifests are only valid while the MPP leader builds its plan"
+                );
+                SearchIndexReader::from_manifest(
+                    manifest,
+                    &index_rel,
+                    query.clone(),
+                    self.scan_info.score_needed,
+                    expr_ctx,
+                    needs_tokenizer,
+                )
             }
-        } else {
-            MvccSatisfies::Snapshot
-        };
-
-        let reader = SearchIndexReader::open_with_context(
-            &index_rel,
-            query.clone(),
-            self.scan_info.score_needed,
-            mvcc_style,
-            expr_context.and_then(std::ptr::NonNull::new),
-            None,
-            query.needs_tokenizer(),
-        )
+            None => SearchIndexReader::open_with_context(
+                &index_rel,
+                query.clone(),
+                self.scan_info.score_needed,
+                MvccSatisfies::Snapshot,
+                expr_ctx,
+                None,
+                needs_tokenizer,
+            ),
+        }
         .map_err(|e| DataFusionError::Internal(format!("Failed to open reader: {e}")))?;
 
         let ffhelper = FFHelper::with_fields(&reader, &projected_fields);
@@ -671,17 +713,13 @@ impl PgSearchTableProvider {
 
         let segment_count = reader.segment_readers().len();
         let target_partitions = state.config().target_partitions();
-        // The output partitions of the scan default to min(segments, target_partitions),
-        // or exactly `target_partitions` when range partitioning is enabled.
+        // The output partitions of the scan default to min(segments, target_partitions).
         // During distributed planning, the `pg_search_scan_desired_task_count` handler reads this partition
         // count to determine how many tasks (e.g. parallel workers) this leaf should scale out into.
-        let partition_count = if self.range_sample.is_some() {
-            // When using range partitioning, we target the session's target partitions.
-            // The actual number of bounds will be dynamically limited by the sample size
-            // when we create the plan.
-            target_partitions
-        } else {
-            std::cmp::min(segment_count, target_partitions).max(1)
+        let partition_count = match &self.range_split_points {
+            // The split points seat only so many partitions; a task past them would be empty.
+            Some(points) => points.partitions_for(target_partitions),
+            None => std::cmp::min(segment_count, target_partitions).max(1),
         };
 
         self.create_lazy_scan(

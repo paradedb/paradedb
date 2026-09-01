@@ -58,16 +58,17 @@ use crate::postgres::customscan::aggregatescan::datafusion_exec::create_aggregat
 use crate::postgres::customscan::joinscan::scan_state::{
     SessionContextProfile, create_datafusion_session_context,
 };
-use crate::postgres::customscan::mpp::dispatch::{
-    dispatch_payload_from_stages, dispatch_plan_capacity,
-};
+use crate::postgres::customscan::mpp::dispatch::dispatch_payload_from_stages;
 use crate::postgres::customscan::mpp::exec_worker::{MppWorkerInputs, run_mpp_worker};
 use crate::postgres::customscan::mpp::glue::{
     MIN_TOTAL_WORKER_COUNT, MppLeaderState, estimate_dsm_size, leader_setup, producer_worker_cap,
     worker_setup,
 };
-use crate::postgres::customscan::mpp::worker_fragments::{collect_stages, max_producer_task_count};
+use crate::postgres::customscan::mpp::worker_fragments::{
+    collect_stages, max_producer_task_count, stages_have_data_parallelism,
+};
 use crate::postgres::{ParallelScanArgs, ParallelScanState};
+use crate::scan::info::{RowEstimate, ScanInfo};
 
 /// `state_values()` order. Each index maps to a `ParallelState` TOC entry the workers look up.
 const MESH_IDX: usize = 0;
@@ -213,7 +214,7 @@ fn run_launched_worker(state_manager: ParallelStateManager, seed_ctx: fn() -> Se
     let plan_sources_count = unsafe { (*scan_ptr).source_count() };
 
     let inputs = MppWorkerInputs {
-        parallel_state: Some(scan_ptr),
+        parallel_state: scan_ptr,
         plan_sources_count,
         session: worker,
     };
@@ -238,24 +239,23 @@ pub enum MppLifecycle {
     /// teardown already reclaimed the leader state.
     #[default]
     Inactive,
-    /// Serialized logical-plan bytes retained while an MPP launch is pending. AggregateScan uses
-    /// their length for DSM sizing; JoinScan treats only the variant as the pending marker and
-    /// sizes DSM from its freshly rebound execute-time plan.
-    PlanBytes(Vec<u8>),
+    /// The scan qualified for one MPP planning and launch attempt. No plan is stored here: the
+    /// finished physical stages produce the exact dispatch payload before DSM allocation.
+    Pending,
     /// The workers are running dispatched fragments; carries the leader's mesh and finish
     /// handles until teardown.
     Launched(MppLeaderState),
 }
 
 impl MppLifecycle {
-    /// Consume the stashed plan bytes. Leaves `Inactive`, so a launch fallback reads as the
+    /// Consume the pending launch marker. Leaves `Inactive`, so a launch fallback reads as the
     /// serial path from then on.
-    pub fn take_plan_bytes(&mut self) -> Option<Vec<u8>> {
+    pub fn take_pending(&mut self) -> bool {
         match std::mem::take(self) {
-            MppLifecycle::PlanBytes(bytes) => Some(bytes),
+            MppLifecycle::Pending => true,
             other => {
                 *self = other;
-                None
+                false
             }
         }
     }
@@ -290,6 +290,56 @@ impl MppLifecycle {
     }
 }
 
+/// True when the size gate keeps MPP off: the largest source's estimated match count sits
+/// under `paradedb.mpp_min_rows`. Matches Postgres' refusal to parallelize small scans
+/// (`min_parallel_table_scan_size`): below this size the launch cost (worker spawn, plan
+/// dispatch, per-worker index opens) dominates whatever the split saves. The largest source
+/// stands for the scan: it is the bulk of the work the split divides, and the smaller sides
+/// ride along. A selective query over a large index does little scan work, so each source
+/// counts estimated matches, not index documents; an estimate substituted from the index's
+/// total document count (Postgres expressions, heap filters) is discounted by
+/// `PARAMETERIZED_SELECTIVITY`, mirroring BaseScan.
+///
+/// Shared by the launch and by the plain-EXPLAIN plan rebuilds, the same split as
+/// [`mpp_plan_has_data_parallelism`](crate::postgres::customscan::mpp::worker_fragments),
+/// so the rendered plan agrees with the executed mode (#5784).
+///
+/// `RowEstimate::Unknown` does not gate. The join estimator always produces `Known` for real
+/// sources, so `Unknown` marks a placeholder; silently serializing a big query would cost far
+/// more than a wasted launch.
+pub(crate) fn mpp_gated_by_min_rows<'a>(sources: impl IntoIterator<Item = &'a ScanInfo>) -> bool {
+    gated_by_min_rows(
+        crate::gucs::mpp_min_rows() as u64,
+        sources
+            .into_iter()
+            .map(|info| (info.estimate, info.estimate_from_total_docs)),
+    )
+}
+
+/// `(estimate, estimate_from_total_docs)` per source, not `&ScanInfo`: the plain unit tests
+/// below must not construct (and drop) pgrx-typed values, whose drop glue references server
+/// symbols a standalone test binary cannot link.
+fn gated_by_min_rows(
+    min_rows: u64,
+    sources: impl IntoIterator<Item = (RowEstimate, bool)>,
+) -> bool {
+    if min_rows == 0 {
+        return false;
+    }
+    let mut largest: u64 = 0;
+    for (estimate, from_total_docs) in sources {
+        let rows = match estimate {
+            RowEstimate::Known(n) if from_total_docs => {
+                (n as f64 * crate::PARAMETERIZED_SELECTIVITY) as u64
+            }
+            RowEstimate::Known(n) => n,
+            RowEstimate::Unknown => return false,
+        };
+        largest = largest.max(rows);
+    }
+    largest < min_rows
+}
+
 /// Plan-first MPP launch (#5667): size the worker pool from the finished physical plan, build
 /// the DSM, stamp the shared scan state into the plan, spawn exactly the needed producers, and
 /// dispatch. `None` means run serially — the plan has nothing to distribute, the DSM couldn't
@@ -299,7 +349,6 @@ impl MppLifecycle {
 /// where a silent serial fallback would hide a real bug.
 fn launch_mpp(
     physical: &std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
-    plan_bytes_len: usize,
     args: ParallelScanArgs,
     worker_entrypoint: &'static str,
 ) -> Option<MppLeaderState> {
@@ -309,28 +358,36 @@ fn launch_mpp(
 
     // Task counts were capped by `target_partitions = cap` at plan time and reflect segment
     // counts (#5657). The producer floor keeps the mesh-width invariant; see
-    // [`MIN_TOTAL_WORKER_COUNT`].
-    let max_tasks = max_producer_task_count(&stages);
-    if max_tasks < 2 {
+    // [`MIN_TOTAL_WORKER_COUNT`]. Same gate as plain EXPLAIN (#5784).
+    if !stages_have_data_parallelism(&stages) {
         // 0: nothing to distribute. 1: no data parallelism — every 1-task stage lands on
         // proc 1 (`proc_for_task`), leaving the second (floor) producer idle. Run serially.
         // This also keeps `producer_count <= max_tasks`, so every launched proc owns at
         // least one fragment of the widest stage.
         return None;
     }
+    let max_tasks = max_producer_task_count(&stages);
     let cap = producer_worker_cap();
     let producer_count = (max_tasks as u32).clamp(MIN_TOTAL_WORKER_COUNT - 1, cap);
 
+    // The finished physical stages contain all routing metadata, so build the real payload before
+    // sizing DSM. A failure is a codec bug, and no workers have been started at this point.
+    let t_payload = std::time::Instant::now();
+    let payload = match dispatch_payload_from_stages(&stages) {
+        Ok(p) => p,
+        Err(e) => pgrx::error!("mpp: dispatch payload build failed: {e}"),
+    };
+    timing.payload_us = t_payload.elapsed().as_micros() as u64;
+
     let t_prepare = std::time::Instant::now();
-    let payload_capacity = dispatch_plan_capacity(plan_bytes_len);
-    let region_bytes = match estimate_dsm_size(producer_count + 1, payload_capacity) {
+    let region_bytes = match estimate_dsm_size(producer_count + 1, payload.len()) {
         Ok(sz) => sz,
         Err(e) => {
             pgrx::warning!("mpp: estimate_dsm failed: {e}; running serially");
             return None;
         }
     };
-    let scan_size = ParallelScanState::size_of(&args.all_nsegments(), &[], false);
+    let scan_size = ParallelScanState::size_of(&args.all_nsegments(), &[], false, false);
 
     let process = MppParallelProcess {
         // SAFETY: workers can only read the region back as `u8`, and they hold on the go
@@ -351,8 +408,7 @@ fn launch_mpp(
         MPP_MQ_SIZE,
     )?;
 
-    // Populate the ParallelScanState in place while the DSM is mapped and the leader still holds
-    // the source manifests `args` borrows.
+    // Populate the ParallelScanState in place while the DSM is mapped.
     let scan_ptr = match launcher.state_manager().slice_mut::<u8>(SCAN_IDX) {
         Ok(Some(s)) => s.as_mut_ptr() as *mut ParallelScanState,
         _ => pgrx::error!("mpp: parallel scan state region missing"),
@@ -366,17 +422,6 @@ fn launch_mpp(
     // launch was attempted at all (mpp_worker_sizing).
     crate::mpp_log!("launch: spawning {producer_count} producers");
     let attach = launcher.launch()?;
-
-    // Derive the per-stage subplans from the plan the leader itself will execute. Built before
-    // `wait_for_attach` so serialization overlaps worker attachment (#5756). A failure here is
-    // a hard error: a serialization gap is a codec bug, and the parked workers die with the
-    // transaction.
-    let t_payload = std::time::Instant::now();
-    let payload = match dispatch_payload_from_stages(&stages, payload_capacity) {
-        Ok(p) => p,
-        Err(e) => pgrx::error!("mpp: dispatch payload build failed: {e}"),
-    };
-    timing.payload_us = t_payload.elapsed().as_micros() as u64;
 
     let t_attach = std::time::Instant::now();
     let finish = attach.wait_for_attach()?;
@@ -451,26 +496,68 @@ fn launch_mpp(
 /// AggregateScan launch entry: aggregate worker symbol.
 pub fn launch_mpp_aggregate(
     physical: &std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
-    plan_bytes_len: usize,
     args: ParallelScanArgs,
 ) -> Option<MppLeaderState> {
-    launch_mpp(physical, plan_bytes_len, args, "mpp_launched_worker_agg")
+    launch_mpp(physical, args, "mpp_launched_worker_agg")
 }
 
 /// JoinScan launch entry: join worker symbol.
 pub fn launch_mpp_join(
     physical: &std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
-    plan_bytes_len: usize,
     args: ParallelScanArgs,
 ) -> Option<MppLeaderState> {
-    launch_mpp(physical, plan_bytes_len, args, "mpp_launched_worker_join")
+    launch_mpp(physical, args, "mpp_launched_worker_join")
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use pgrx::pg_test;
 
     #[test]
+    fn gate_takes_the_largest_source() {
+        let dim = (RowEstimate::Known(10_000), false);
+        let fact = (RowEstimate::Known(2_000_000), false);
+        assert!(!gated_by_min_rows(500_000, [dim, fact]));
+        assert!(gated_by_min_rows(500_000, [dim]));
+    }
+
+    #[test]
+    fn total_docs_estimates_are_discounted() {
+        // A parameterized predicate stores the whole index's document count. At the BaseScan
+        // discount, 600k docs stand for 60k matches: under the default threshold.
+        assert!(gated_by_min_rows(
+            500_000,
+            [(RowEstimate::Known(600_000), true)]
+        ));
+        assert!(!gated_by_min_rows(
+            500_000,
+            [(RowEstimate::Known(600_000), false)]
+        ));
+    }
+
+    #[test]
+    fn unknown_estimates_do_not_gate() {
+        let placeholder = (RowEstimate::Unknown, false);
+        let small = (RowEstimate::Known(10), false);
+        assert!(!gated_by_min_rows(500_000, [placeholder, small]));
+    }
+
+    #[test]
+    fn zero_threshold_disables_the_gate() {
+        assert!(!gated_by_min_rows(0, [(RowEstimate::Known(1), false)]));
+    }
+
+    #[pg_test]
+    fn pending_launch_is_consumed_once() {
+        let mut lifecycle = MppLifecycle::Pending;
+
+        assert!(lifecycle.take_pending());
+        assert!(!lifecycle.take_pending());
+    }
+
+    #[pg_test]
     fn short_launch_uses_the_attached_width_when_the_mesh_is_viable() {
         assert_eq!(
             mpp_attach_outcome(5, 0),

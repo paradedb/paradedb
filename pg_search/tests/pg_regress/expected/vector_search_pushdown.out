@@ -58,7 +58,7 @@ SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
 -- mismatch: <=> falls back, planner warns
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
-WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <=> (Cosine) operator but the index attribute was built with the vector_l2_ops opclass (L2). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <-> (matching the index opclass), or rebuild the index with the vector_cosine_ops opclass on the vector column.. To disable this warning: SET paradedb.check_topk_scan = false (table: vsp)
+WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <=> (Cosine) operator but the index attribute was built with the vector_l2_ops opclass (L2). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <-> (matching the index opclass), or rebuild the index with the vector_cosine_ops opclass on the vector column.. To disable this warning: SET paradedb.planner_warnings = 'off' (table: vsp)
                                   QUERY PLAN                                  
 ------------------------------------------------------------------------------
  Limit
@@ -73,7 +73,7 @@ WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). 
 (9 rows)
 
 SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
-WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <=> (Cosine) operator but the index attribute was built with the vector_l2_ops opclass (L2). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <-> (matching the index opclass), or rebuild the index with the vector_cosine_ops opclass on the vector column.. To disable this warning: SET paradedb.check_topk_scan = false (table: vsp)
+WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <=> (Cosine) operator but the index attribute was built with the vector_l2_ops opclass (L2). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <-> (matching the index opclass), or rebuild the index with the vector_cosine_ops opclass on the vector column.. To disable this warning: SET paradedb.planner_warnings = 'off' (table: vsp)
  id 
 ----
   1
@@ -83,7 +83,7 @@ WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). 
 -- mismatch: <#> falls back, planner warns
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
-WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <#> (InnerProduct) operator but the index attribute was built with the vector_l2_ops opclass (L2). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <-> (matching the index opclass), or rebuild the index with the vector_ip_ops opclass on the vector column.. To disable this warning: SET paradedb.check_topk_scan = false (table: vsp)
+WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <#> (InnerProduct) operator but the index attribute was built with the vector_l2_ops opclass (L2). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <-> (matching the index opclass), or rebuild the index with the vector_ip_ops opclass on the vector column.. To disable this warning: SET paradedb.planner_warnings = 'off' (table: vsp)
                                   QUERY PLAN                                  
 ------------------------------------------------------------------------------
  Limit
@@ -98,7 +98,7 @@ WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). 
 (9 rows)
 
 SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
-WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <#> (InnerProduct) operator but the index attribute was built with the vector_l2_ops opclass (L2). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <-> (matching the index opclass), or rebuild the index with the vector_ip_ops opclass on the vector column.. To disable this warning: SET paradedb.check_topk_scan = false (table: vsp)
+WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <#> (InnerProduct) operator but the index attribute was built with the vector_l2_ops opclass (L2). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <-> (matching the index opclass), or rebuild the index with the vector_ip_ops opclass on the vector column.. To disable this warning: SET paradedb.planner_warnings = 'off' (table: vsp)
  id 
 ----
   1
@@ -115,7 +115,7 @@ CREATE INDEX vsp_idx ON vsp
 -- mismatch: <-> falls back, planner warns
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
-WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <-> (L2) operator but the index attribute was built with the vector_cosine_ops opclass (Cosine). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <=> (matching the index opclass), or rebuild the index with the vector_l2_ops opclass on the vector column.. To disable this warning: SET paradedb.check_topk_scan = false (table: vsp)
+WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <-> (L2) operator but the index attribute was built with the vector_cosine_ops opclass (Cosine). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <=> (matching the index opclass), or rebuild the index with the vector_l2_ops opclass on the vector column.. To disable this warning: SET paradedb.planner_warnings = 'off' (table: vsp)
                                   QUERY PLAN                                  
 ------------------------------------------------------------------------------
  Limit
@@ -130,7 +130,7 @@ WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). 
 (9 rows)
 
 SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
-WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <-> (L2) operator but the index attribute was built with the vector_cosine_ops opclass (Cosine). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <=> (matching the index opclass), or rebuild the index with the vector_l2_ops opclass on the vector column.. To disable this warning: SET paradedb.check_topk_scan = false (table: vsp)
+WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <-> (L2) operator but the index attribute was built with the vector_cosine_ops opclass (Cosine). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <=> (matching the index opclass), or rebuild the index with the vector_l2_ops opclass on the vector column.. To disable this warning: SET paradedb.planner_warnings = 'off' (table: vsp)
  id 
 ----
   1
@@ -163,7 +163,7 @@ SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
 -- mismatch: <#> falls back, planner warns
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
-WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <#> (InnerProduct) operator but the index attribute was built with the vector_cosine_ops opclass (Cosine). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <=> (matching the index opclass), or rebuild the index with the vector_ip_ops opclass on the vector column.. To disable this warning: SET paradedb.check_topk_scan = false (table: vsp)
+WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <#> (InnerProduct) operator but the index attribute was built with the vector_cosine_ops opclass (Cosine). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <=> (matching the index opclass), or rebuild the index with the vector_ip_ops opclass on the vector column.. To disable this warning: SET paradedb.planner_warnings = 'off' (table: vsp)
                                   QUERY PLAN                                  
 ------------------------------------------------------------------------------
  Limit
@@ -178,7 +178,7 @@ WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). 
 (9 rows)
 
 SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
-WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <#> (InnerProduct) operator but the index attribute was built with the vector_cosine_ops opclass (Cosine). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <=> (matching the index opclass), or rebuild the index with the vector_ip_ops opclass on the vector column.. To disable this warning: SET paradedb.check_topk_scan = false (table: vsp)
+WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <#> (InnerProduct) operator but the index attribute was built with the vector_cosine_ops opclass (Cosine). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <=> (matching the index opclass), or rebuild the index with the vector_ip_ops opclass on the vector column.. To disable this warning: SET paradedb.planner_warnings = 'off' (table: vsp)
  id 
 ----
   1
@@ -195,7 +195,7 @@ CREATE INDEX vsp_idx ON vsp
 -- mismatch: <-> falls back, planner warns
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
-WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <-> (L2) operator but the index attribute was built with the vector_ip_ops opclass (InnerProduct). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <#> (matching the index opclass), or rebuild the index with the vector_l2_ops opclass on the vector column.. To disable this warning: SET paradedb.check_topk_scan = false (table: vsp)
+WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <-> (L2) operator but the index attribute was built with the vector_ip_ops opclass (InnerProduct). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <#> (matching the index opclass), or rebuild the index with the vector_l2_ops opclass on the vector column.. To disable this warning: SET paradedb.planner_warnings = 'off' (table: vsp)
                                   QUERY PLAN                                  
 ------------------------------------------------------------------------------
  Limit
@@ -210,7 +210,7 @@ WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). 
 (9 rows)
 
 SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
-WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <-> (L2) operator but the index attribute was built with the vector_ip_ops opclass (InnerProduct). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <#> (matching the index opclass), or rebuild the index with the vector_l2_ops opclass on the vector column.. To disable this warning: SET paradedb.check_topk_scan = false (table: vsp)
+WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <-> (L2) operator but the index attribute was built with the vector_ip_ops opclass (InnerProduct). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <#> (matching the index opclass), or rebuild the index with the vector_l2_ops opclass on the vector column.. To disable this warning: SET paradedb.planner_warnings = 'off' (table: vsp)
  id 
 ----
   1
@@ -220,7 +220,7 @@ WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). 
 -- mismatch: <=> falls back, planner warns
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
-WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <=> (Cosine) operator but the index attribute was built with the vector_ip_ops opclass (InnerProduct). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <#> (matching the index opclass), or rebuild the index with the vector_cosine_ops opclass on the vector column.. To disable this warning: SET paradedb.check_topk_scan = false (table: vsp)
+WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <=> (Cosine) operator but the index attribute was built with the vector_ip_ops opclass (InnerProduct). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <#> (matching the index opclass), or rebuild the index with the vector_cosine_ops opclass on the vector column.. To disable this warning: SET paradedb.planner_warnings = 'off' (table: vsp)
                                   QUERY PLAN                                  
 ------------------------------------------------------------------------------
  Limit
@@ -235,7 +235,7 @@ WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). 
 (9 rows)
 
 SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
-WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <=> (Cosine) operator but the index attribute was built with the vector_ip_ops opclass (InnerProduct). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <#> (matching the index opclass), or rebuild the index with the vector_cosine_ops opclass on the vector column.. To disable this warning: SET paradedb.check_topk_scan = false (table: vsp)
+WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <=> (Cosine) operator but the index attribute was built with the vector_ip_ops opclass (InnerProduct). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <#> (matching the index opclass), or rebuild the index with the vector_cosine_ops opclass on the vector column.. To disable this warning: SET paradedb.planner_warnings = 'off' (table: vsp)
  id 
 ----
   1

@@ -69,7 +69,7 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY title
 LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: data_records)
+WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: data_records)
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -160,25 +160,23 @@ LIMIT 10;
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
--- TODO: Won't get Top K due to https://github.com/paradedb/paradedb/issues/2688.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, category
 FROM data_records
 WHERE title @@@ 'product'
 ORDER BY valid_period
 LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: data_records)
-                                                                          QUERY PLAN                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: valid_period
-         ->  Custom Scan (ParadeDB Base Scan) on data_records
-               Table: data_records
-               Index: records_no_fast_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
+   ->  Custom Scan (ParadeDB Base Scan) on data_records
+         Table: data_records
+         Index: records_no_fast_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: valid_period asc
+            TopK Limit: 10
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -281,18 +279,17 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY valid_period
 LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: data_records)
-                                                                          QUERY PLAN                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: valid_period
-         ->  Custom Scan (ParadeDB Base Scan) on data_records
-               Table: data_records
-               Index: records_with_fast_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
+   ->  Custom Scan (ParadeDB Base Scan) on data_records
+         Table: data_records
+         Index: records_with_fast_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: valid_period asc
+            TopK Limit: 10
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -357,7 +354,7 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY price
 LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: data_records)
+WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: data_records)
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -377,7 +374,7 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY in_stock
 LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: data_records)
+WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: data_records)
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -397,18 +394,17 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY valid_period
 LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: data_records)
-                                                                          QUERY PLAN                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: valid_period
-         ->  Custom Scan (ParadeDB Base Scan) on data_records
-               Table: data_records
-               Index: records_with_fast_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
+   ->  Custom Scan (ParadeDB Base Scan) on data_records
+         Table: data_records
+         Index: records_with_fast_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: valid_period asc
+            TopK Limit: 10
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
 -- 'Test 7: ORDER BY with no LIMIT (should use ColumnarExecState)'

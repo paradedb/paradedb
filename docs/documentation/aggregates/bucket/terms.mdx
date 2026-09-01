@@ -1,7 +1,7 @@
 ---
 title: Terms
 description: Count the number of occurrences for each value in a result set
-canonical: https://docs.paradedb.com/documentation/aggregates/bucket/terms
+canonical: https://www.paradedb.com/docs/documentation/aggregates/bucket/terms
 ---
 
 <Note>
@@ -181,3 +181,24 @@ await dbContext
 
 For performance reasons, we strongly recommend adding a `LIMIT` to the `GROUP BY`. Terms aggregations without a `LIMIT` consume more memory and
 are slower to execute. If a query does not have a limit and more than `65000` unique values are found in a field, an error will be returned.
+
+## JSON Syntax
+
+The SQL `GROUP BY` form above is the recommended way to run a terms aggregation. The same aggregation can also be
+expressed directly with `pdb.agg`, using the `terms` JSON syntax this page is named after:
+
+```sql
+SELECT pdb.agg('{"terms": {"field": "rating", "size": 5}}')
+FROM mock_items
+WHERE id @@@ pdb.all();
+```
+
+```ini Expected Response
+                                                                             agg
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": 4, "doc_count": 16}, {"key": 5, "doc_count": 12}, {"key": 3, "doc_count": 9}, {"key": 2, "doc_count": 3}, {"key": 1, "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(1 row)
+```
+
+See the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregation/bucket/struct.TermsAggregation.html)
+for all available options.

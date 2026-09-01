@@ -28,7 +28,9 @@ use std::sync::OnceLock;
 
 pub mod aggregatescan;
 pub mod basescan;
+pub(crate) mod bitmap_intersection;
 mod builders;
+pub mod collation_semantics;
 pub mod datafusion;
 pub mod dsm;
 pub mod exec;
@@ -64,8 +66,8 @@ use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::path::{plan_custom_path, reparameterize_custom_path_by_child};
 use crate::postgres::customscan::scan::create_custom_scan_state;
 pub use hook::{
-    register_join_pathlist, register_rel_pathlist, register_subplan_join_pathlist,
-    register_upper_path, register_window_aggregate_hook,
+    register_join_pathlist, register_planner_hook, register_rel_pathlist,
+    register_subplan_join_pathlist, register_upper_path,
 };
 
 // TODO: This trait should be expanded to include a `reset` method, which would become the
@@ -299,7 +301,6 @@ pub struct JoinPathlistHookArgs {
 #[derive(Debug, Clone, Copy)]
 pub struct CreateUpperPathsHookArgs {
     pub root: *mut pg_sys::PlannerInfo,
-    #[allow(dead_code)]
     pub stage: pg_sys::UpperRelationKind::Type,
     pub input_rel: *mut pg_sys::RelOptInfo,
     pub output_rel: *mut pg_sys::RelOptInfo,

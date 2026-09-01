@@ -12,6 +12,13 @@ on:
     branches:
       - main
     paths:
+      - ".github/actions/benchmark-queries/**"
+      - ".github/actions/benchmarks-from-main/**"
+      - ".github/actions/setup-benchmark-cluster/**"
+      - ".github/actions/setup-pg-search-build-environment/**"
+      - ".github/actions/setup-pg-search-toolchain/**"
+      - ".github/actions/setup-postgres/**"
+      - ".github/workflows/benchmark-pg_search-queries.yml"
       - "benchmarks/**"
       - "**/*.rs"
       - "**/*.toml"
@@ -28,7 +35,7 @@ on:
           - stackoverflow
           - cohere
       cohere_index:
-        description: "Which cohere index to benchmark (applies when dataset is cohere/all). For label-triggered runs the index comes from the label instead (benchmark-cohere-hnsw / -ivfflat / -vchord / -pg_search)."
+        description: "Which cohere index to benchmark (applies when dataset is cohere/all). For label-triggered runs the index comes from the label instead (benchmark-cohere-hnsw / -ivfflat / -vchord / -pg_search / -pgvectorscale)."
         required: false
         default: hnsw
         type: choice
@@ -37,6 +44,7 @@ on:
           - ivfflat
           - vchord
           - pg_search
+          - pgvectorscale
       commit:
         description: "A specific commit hash or tag to benchmark. Uses `main` if not specified."
         required: false
@@ -68,6 +76,11 @@ permissions:
 jobs:
   benchmark-pg_search-queries:
     name: Run Benchmark Jobs
+    # pgvectorscale sweeps query_search_list_size to its 10000 maximum on the filtered arms, and
+    # post-filter streaming at 1% selectivity makes the top of that ladder enormously more expensive
+    # per point than any other index here. Its first run died at the 360m default. A day is enough
+    # to measure it rather than truncate the sweep; every other arm keeps the default it fits in.
+    timeout-minutes: ${{ (inputs.cohere_index == 'pgvectorscale' || github.event.label.name == 'benchmark-cohere-pgvectorscale') && 1440 || 360 }}
     runs-on:
       # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
       - runs-on=${{ github.run_id }}
@@ -81,7 +94,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (
         github.event_name == 'pull_request' &&
-        contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search"]'), github.event.label.name)
+        contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search", "benchmark-cohere-pgvectorscale"]'), github.event.label.name)
       )
     env:
       pg_version: 18
@@ -96,11 +109,11 @@ jobs:
       # cohere: opt-in only -- the benchmark-cohere-{hnsw,ivfflat} PR labels, or a manual run. The
       # chosen index comes from the dispatch input or the label name (no default).
       RUN_STACKOVERFLOW: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'stackoverflow')) || (github.event_name == 'pull_request' && contains(fromJson('["benchmarks", "benchmark-stackoverflow"]'), github.event.label.name)) }}
-      RUN_COHERE: ${{ (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'cohere')) || (github.event_name == 'pull_request' && contains(fromJson('["benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search"]'), github.event.label.name)) }}
+      RUN_COHERE: ${{ (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'cohere')) || (github.event_name == 'pull_request' && contains(fromJson('["benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search", "benchmark-cohere-pgvectorscale"]'), github.event.label.name)) }}
       # Only main writes the baseline. Every other run still fetches it and diffs against it,
       # so a PR gets its comparison without being able to move the reference point.
       PUBLISH_BASELINE: ${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.publish_baseline) }}
-      COHERE_INDEX: ${{ inputs.cohere_index || (github.event.label.name == 'benchmark-cohere-ivfflat' && 'ivfflat') || (github.event.label.name == 'benchmark-cohere-vchord' && 'vchord') || (github.event.label.name == 'benchmark-cohere-pg_search' && 'pg_search') || (github.event.label.name == 'benchmark-cohere-hnsw' && 'hnsw') }}
+      COHERE_INDEX: ${{ inputs.cohere_index || (github.event.label.name == 'benchmark-cohere-ivfflat' && 'ivfflat') || (github.event.label.name == 'benchmark-cohere-vchord' && 'vchord') || (github.event.label.name == 'benchmark-cohere-pg_search' && 'pg_search') || (github.event.label.name == 'benchmark-cohere-pgvectorscale' && 'pgvectorscale') || (github.event.label.name == 'benchmark-cohere-hnsw' && 'hnsw') }}
 
     steps:
       # The job can be triggered manually by attaching the `benchmarks` label to a PR. This step
@@ -108,7 +121,7 @@ jobs:
       - name: Maybe Remove Label
         if: >-
           github.event_name == 'pull_request' &&
-          contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search"]'), github.event.label.name)
+          contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search", "benchmark-cohere-pgvectorscale"]'), github.event.label.name)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -119,7 +132,8 @@ jobs:
             --remove-label benchmark-cohere-hnsw \
             --remove-label benchmark-cohere-ivfflat \
             --remove-label benchmark-cohere-vchord \
-            --remove-label benchmark-cohere-pg_search || true
+            --remove-label benchmark-cohere-pg_search \
+            --remove-label benchmark-cohere-pgvectorscale || true
 
       - name: Determine Ref to Benchmark
         id: determine-ref
@@ -162,7 +176,7 @@ jobs:
       # always fetch the actions from main, unless we've explicitly overridden that, or triggered this via label (like you would on a PR)
       - name: Fetch the Latest Composite Actions
         if: >-
-          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search"]'), github.event.label.name)
+          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search", "benchmark-cohere-pgvectorscale"]'), github.event.label.name)
         uses: actions/checkout@v7
         with:
           repository: ${{ github.repository }}
@@ -173,18 +187,18 @@ jobs:
 
       - name: Copy latest actions into place
         if: >-
-          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search"]'), github.event.label.name)
+          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search", "benchmark-cohere-pgvectorscale"]'), github.event.label.name)
         run: cp -rv actions-temp/.github/actions .github/
 
       - name: Cleanup temporary checkout
         if: >-
-          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search"]'), github.event.label.name)
+          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search", "benchmark-cohere-pgvectorscale"]'), github.event.label.name)
         run: rm -rf actions-temp
 
       # always fetch the code from main, unless we've explicitly overridden that, or triggered this via label (like you would on a PR)
       - name: Fetch latest benchmark code, suites
         if: >-
-          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search"]'), github.event.label.name)
+          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search", "benchmark-cohere-pgvectorscale"]'), github.event.label.name)
         uses: ./.github/actions/benchmarks-from-main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -248,7 +262,7 @@ jobs:
       - name: Running for ${{ steps.pr_label.outputs.result }}
         run: echo ${{ steps.pr_label.outputs.result }}
 
-      - name: Set up benchmark cluster
+      - name: Set Up Benchmark Cluster
         uses: ./.github/actions/setup-benchmark-cluster
         with:
           pg_version: ${{ env.pg_version }}
@@ -285,7 +299,7 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
-          fail_on_error: ${{ inputs.fail_on_error || true }}
+          fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish: ${{ env.PUBLISH_BASELINE }}
 
       - name: Restore "stackoverflow" Heap Snapshot (1M)
@@ -317,7 +331,7 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
-          fail_on_error: ${{ inputs.fail_on_error || true }}
+          fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish: ${{ env.PUBLISH_BASELINE }}
 
       - name: Restore "stackoverflow" Heap Snapshot (20M)
@@ -349,7 +363,7 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
-          fail_on_error: ${{ inputs.fail_on_error || true }}
+          fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish: ${{ env.PUBLISH_BASELINE }}
 
       - name: Restore "cohere" Heap Snapshot (1M)
@@ -384,6 +398,15 @@ jobs:
           psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
             -c "CREATE EXTENSION IF NOT EXISTS vchord CASCADE;"
 
+      # pgvectorscale needs no shared_preload_libraries, so unlike vchord this only creates the
+      # extension the restored snapshot does not carry -- no restart required.
+      - name: Create vectorscale extension after restore (cohere/pgvectorscale, 1M)
+        if: ${{ env.RUN_COHERE == 'true' && env.COHERE_INDEX == 'pgvectorscale' }}
+        run: |
+          set -euo pipefail
+          psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
+            -c "CREATE EXTENSION IF NOT EXISTS vectorscale CASCADE;"
+
       - name: Benchmark "cohere" Dataset (1M)
         if: ${{ env.RUN_COHERE == 'true' }}
         uses: ./.github/actions/benchmark-queries
@@ -400,7 +423,7 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
-          fail_on_error: ${{ inputs.fail_on_error || true }}
+          fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish: ${{ env.PUBLISH_BASELINE }}
 
       - name: Restore "cohere" Heap Snapshot (10M)
@@ -431,6 +454,13 @@ jobs:
           psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
             -c "CREATE EXTENSION IF NOT EXISTS vchord CASCADE;"
 
+      - name: Create vectorscale extension after restore (cohere/pgvectorscale, 10M)
+        if: ${{ env.RUN_COHERE == 'true' && env.COHERE_INDEX == 'pgvectorscale' }}
+        run: |
+          set -euo pipefail
+          psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
+            -c "CREATE EXTENSION IF NOT EXISTS vectorscale CASCADE;"
+
       - name: Benchmark "cohere" Dataset (10M)
         if: ${{ env.RUN_COHERE == 'true' }}
         uses: ./.github/actions/benchmark-queries
@@ -447,7 +477,7 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
-          fail_on_error: ${{ inputs.fail_on_error || true }}
+          fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish: ${{ env.PUBLISH_BASELINE }}
 
       # Renders the operating points the benchmark selected. The benchmark step measures recall

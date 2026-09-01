@@ -1,7 +1,7 @@
 ---
 title: Configure your Environment
 description: Configure your environment for querying ParadeDB
-canonical: https://docs.paradedb.com/documentation/getting-started/environment
+canonical: https://www.paradedb.com/docs/documentation/getting-started/environment
 ---
 
 This guide will walk you through setting up your environment to run queries against ParadeDB. Choose your preferred tool below:
@@ -12,7 +12,7 @@ ParadeDB comes with a helpful procedure that creates a table populated with mock
 you get started. Run the following command to create this table.
 
 ```sql
-CALL paradedb.create_paradedb_test_table(
+CALL paradedb.create_bm25_test_table(
   schema_name => 'public',
   table_name => 'mock_items'
 );
@@ -67,7 +67,7 @@ To get started, create a TypeScript project with [Drizzle](https://orm.drizzle.t
 ```bash
 npm init -y
 npm pkg set type=module
-npm install drizzle-orm@1.0.0-rc.2 drizzle-kit@1.0.0-rc.2 postgres @paradedb/drizzle-paradedb@0.4.0 tsx
+npm install drizzle-orm@1.0.0-rc.4 drizzle-kit@1.0.0-rc.4 postgres @paradedb/drizzle-paradedb@0.5.0 tsx
 ```
 
 Create a `db.ts` file with your database connection and a schema for ParadeDB's built-in test table:
@@ -183,7 +183,7 @@ Create and populate `mock_items`:
 
 ```ts
 await db.execute(sql`
-  CALL paradedb.create_paradedb_test_table(
+  CALL paradedb.create_bm25_test_table(
     schema_name => 'public',
     table_name => 'mock_items'
   )
@@ -214,7 +214,7 @@ To start you'll need a [Django](https://www.djangoproject.com/) project with [Ps
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install django psycopg django-paradedb==0.12.0
+pip install django psycopg django-paradedb==0.13.0
 python3 -m django startproject myproject .
 python3 manage.py startapp myapp
 ```
@@ -317,7 +317,7 @@ from django.db import connection
 
 with connection.cursor() as cursor:
     cursor.execute("""
-        CALL paradedb.create_paradedb_test_table(
+        CALL paradedb.create_bm25_test_table(
           schema_name => 'public',
           table_name  => 'mock_items_tmp'
         );
@@ -509,7 +509,7 @@ def upgrade() -> None:
     """Upgrade schema."""
     op.execute(
         """
-        CALL paradedb.create_paradedb_test_table(
+        CALL paradedb.create_bm25_test_table(
           schema_name => 'public',
           table_name => 'mock_items'
         )
@@ -633,7 +633,7 @@ Update the generated migration to create `mock_items`:
 ```ruby db/migrate/*_create_mock_items_table.rb
 def up
   execute <<~SQL
-    CALL paradedb.create_paradedb_test_table(
+    CALL paradedb.create_bm25_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     );
@@ -885,7 +885,7 @@ Open the generated migration in `Migrations/*_CreateMockItems.cs` and add this s
 
 ```cs
 migrationBuilder.Sql("""
-    CALL paradedb.create_paradedb_test_table(
+    CALL paradedb.create_bm25_test_table(
       schema_name => 'public',
       table_name  => 'mock_items_tmp'
     );

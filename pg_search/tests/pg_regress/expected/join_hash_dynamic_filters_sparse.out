@@ -147,9 +147,9 @@ LIMIT 10;
            :     VisibilityFilterExec: tables=[t2_a, t1], metrics=[output_rows=1.10 K, output_bytes=81.2 KB, output_batches=1]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fk@1, fk_a@1)], projection=[ctid_0@0, ctid_1@2, id@4], metrics=[output_rows=1.10 K, output_bytes=192.0 KB, output_batches=1, build_mem_used=51.2 KB, array_map_created_count=0, build_input_batches=1, build_input_rows=1.10 K, input_batches=1, input_rows=1.10 K, avg_fanout=100% (1.10 K/1.10 K), probe_hit_rate=100% (1.10 K/1.10 K)]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query="all", metrics=[output_rows=1.10 K, output_bytes=17.2 KB, output_batches=1]
+           :           PgSearchScan: table=t2_a, segments=1, query="all", metrics=[output_rows=1.10 K, output_bytes=17.2 KB, output_batches=1]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, dynamic_filter_pushdown=gallop, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"doc","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=1.10 K, output_bytes=25.8 KB, output_batches=1, rows_pruned=0, rows_scanned=1.10 K]
+           :           PgSearchScan: table=t1, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"doc","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=1.10 K, output_bytes=25.8 KB, output_batches=1, dynamic_filter_pushdown_gallop=1, rows_pruned=0, rows_scanned=1.10 K]
 (15 rows)
 
 -- Block B: correctness. Run the same query with gallop disabled and
@@ -225,11 +225,11 @@ LIMIT 10;
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fk_b@2, fk@1)], projection=[ctid_0@0, ctid_1@1, id@3, ctid_2@4], metrics=[output_rows=601, output_bytes=256.0 KB, output_batches=1, build_mem_used=290.1 KB, array_map_created_count=0, build_input_batches=1, build_input_rows=1.10 K, input_batches=1, input_rows=1.10 K, avg_fanout=100% (601/601), probe_hit_rate=54.64% (601/1.10 K)]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fk@1, fk_a@1)], projection=[ctid_0@0, ctid_1@2, fk_b@4, id@5], metrics=[output_rows=1.10 K, output_bytes=256.0 KB, output_batches=1, build_mem_used=51.2 KB, array_map_created_count=0, build_input_batches=1, build_input_rows=1.10 K, input_batches=1, input_rows=1.10 K, avg_fanout=100% (1.10 K/1.10 K), probe_hit_rate=100% (1.10 K/1.10 K)]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, query="all", metrics=[output_rows=1.10 K, output_bytes=17.2 KB, output_batches=1]
+           :             PgSearchScan: table=t2_a, segments=1, query="all", metrics=[output_rows=1.10 K, output_bytes=17.2 KB, output_batches=1]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=2, dynamic_filter_pushdown=gallop, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"doc","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=1.10 K, output_bytes=34.4 KB, output_batches=1, rows_pruned=0, rows_scanned=1.10 K]
+           :             PgSearchScan: table=t1, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"doc","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=1.10 K, output_bytes=34.4 KB, output_batches=1, dynamic_filter_pushdown_gallop=1, rows_pruned=0, rows_scanned=1.10 K]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query="all", metrics=[output_rows=1.10 K, output_bytes=17.2 KB, output_batches=1, rows_pruned=0, rows_scanned=1.10 K]
+           :           PgSearchScan: table=t2_b, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=1.10 K, output_bytes=17.2 KB, output_batches=1, rows_pruned=0, rows_scanned=1.10 K]
 (18 rows)
 
 SET paradedb.term_set_gallop_enabled = OFF;
@@ -306,13 +306,13 @@ LIMIT 10;
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fk_b@3, fk@1)], projection=[ctid_0@0, ctid_1@1, fk_c@2, id@4, ctid_2@5], metrics=[output_rows=601, output_bytes=320.0 KB, output_batches=1, build_mem_used=354.1 KB, array_map_created_count=0, build_input_batches=1, build_input_rows=1.10 K, input_batches=1, input_rows=1.10 K, avg_fanout=100% (601/601), probe_hit_rate=54.64% (601/1.10 K)]
            :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fk@1, fk_a@1)], projection=[ctid_0@0, ctid_1@2, fk_c@4, fk_b@5, id@6], metrics=[output_rows=1.10 K, output_bytes=320.0 KB, output_batches=1, build_mem_used=51.2 KB, array_map_created_count=0, build_input_batches=1, build_input_rows=1.10 K, input_batches=1, input_rows=1.10 K, avg_fanout=100% (1.10 K/1.10 K), probe_hit_rate=100% (1.10 K/1.10 K)]
            :             CooperativeExec
-           :               PgSearchScan: segments=1, query="all", metrics=[output_rows=1.10 K, output_bytes=17.2 KB, output_batches=1]
+           :               PgSearchScan: table=t2_a, segments=1, query="all", metrics=[output_rows=1.10 K, output_bytes=17.2 KB, output_batches=1]
            :             CooperativeExec
-           :               PgSearchScan: segments=1, dynamic_filters=2, dynamic_filter_pushdown=gallop, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"doc","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=1.10 K, output_bytes=43.0 KB, output_batches=1, rows_pruned=0, rows_scanned=1.10 K]
+           :               PgSearchScan: table=t1, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"doc","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=1.10 K, output_bytes=43.0 KB, output_batches=1, dynamic_filter_pushdown_gallop=1, rows_pruned=0, rows_scanned=1.10 K]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=1, query="all", metrics=[output_rows=1.10 K, output_bytes=17.2 KB, output_batches=1, rows_pruned=0, rows_scanned=1.10 K]
+           :             PgSearchScan: table=t2_b, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=1.10 K, output_bytes=17.2 KB, output_batches=1, rows_pruned=0, rows_scanned=1.10 K]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query="all", metrics=[output_rows=1.09 K, output_bytes=17.1 KB, output_batches=1, rows_pruned=6, rows_scanned=1.10 K]
+           :           PgSearchScan: table=t2_c, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=1.09 K, output_bytes=17.1 KB, output_batches=1, rows_pruned=6, rows_scanned=1.10 K]
 (21 rows)
 
 SET paradedb.term_set_gallop_enabled = OFF;

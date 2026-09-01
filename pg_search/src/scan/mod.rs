@@ -26,7 +26,6 @@ pub mod late_materialization;
 pub mod physical_codec;
 pub mod pre_filter;
 pub mod range_partitioning;
-pub mod search_predicate_udf;
 pub mod segmented_topk_exec;
 pub mod segmented_topk_rule;
 pub mod table_provider;
@@ -37,7 +36,6 @@ mod udf_codec;
 pub mod visibility_ctid_resolver_rule;
 
 pub use batch_scanner::Scanner;
-pub use info::ScanInfo;
-pub use search_predicate_udf::SearchPredicateUDF;
+pub use info::{GlobalPredicateIndex, ScanInfo, ScanMode, TagIndex, TaggedQuery};
 pub use table_provider::PgSearchTableProvider;
 pub(crate) use table_provider::VisibilityMode;

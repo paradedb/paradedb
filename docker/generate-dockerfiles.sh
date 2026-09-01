@@ -15,8 +15,8 @@ set -euo pipefail
 if [[ $# -lt 1 || $# -gt 2 ]]; then
   echo "Error: PG_SEARCH_VERSION is required"
   echo "Usage: $0 <pg_search_version> [pg_majors]"
-  echo "Example: $0 0.24.0              # generate all supported PG majors"
-  echo "Example: $0 0.24.0-rc.1 \"18\"  # generate only PG 18 (e.g. beta releases)"
+  echo "Example: $0 0.25.3              # generate all supported PG majors"
+  echo "Example: $0 0.25.3-rc.1 \"18\"  # generate only PG 18 (e.g. beta releases)"
   exit 1
 fi
 
@@ -65,8 +65,9 @@ render() {
       BEGIN { include = 1 }
       /^# %%ANTITHESIS_BEGIN%%$/ { include = flavor == "antithesis"; next }
       /^# %%BARMAN_BEGIN%%$/ { include = flavor != "official"; next }
+      /^# %%OFFICIAL_BEGIN%%$/ { include = flavor == "official"; next }
       /^# %%STANDARD_BEGIN%%$/ { include = flavor != "antithesis"; next }
-      /^# %%(ANTITHESIS|BARMAN|STANDARD)_END%%$/ { include = 1; next }
+      /^# %%(ANTITHESIS|BARMAN|OFFICIAL|STANDARD)_END%%$/ { include = 1; next }
       !include { next }
       {
         gsub(/@@PG_VERSION_MAJOR@@/, pg_version)

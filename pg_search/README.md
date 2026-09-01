@@ -1,9 +1,6 @@
-<h1 align="center">
-  <img src="../docs/logo/pg_search.svg" alt="pg_search"></a>
-<br>
-</h1>
+# pg_search
 
-This README covers development of the `pg_search` extension. For installation, deployment, and usage, see the [top-level ParadeDB README](../README.md) or the [ParadeDB documentation](https://docs.paradedb.com).
+This README covers development of the `pg_search` extension. For installation, deployment, and usage, see the [ParadeDB documentation](https://www.paradedb.com/docs).
 
 `pg_search` is supported on official PostgreSQL Global Development Group Postgres versions, starting at PostgreSQL 15.
 
@@ -44,14 +41,14 @@ cargo pgrx init
 
 ### pgvector
 
-`pgvector` is needed for hybrid search integration tests. To build it against the pgrx-managed Postgres install (replace `18.3` with the version under `~/.pgrx/`):
+`pg_search` uses `pgvector`'s types to index vector fields alongside text and other fields in ParadeDB indexes, so `pgvector` must be available before `pg_search` can be created. To build it against the pgrx-managed Postgres install (replace `18.6` with the version under `~/.pgrx/`):
 
 ```bash
-git clone --branch v0.8.4 https://github.com/pgvector/pgvector.git
+git clone --branch v0.8.6 https://github.com/pgvector/pgvector.git
 cd pgvector/
 
-PG_CONFIG=~/.pgrx/18.3/pgrx-install/bin/pg_config make
-PG_CONFIG=~/.pgrx/18.3/pgrx-install/bin/pg_config make install
+PG_CONFIG=~/.pgrx/18.6/pgrx-install/bin/pg_config make
+PG_CONFIG=~/.pgrx/18.6/pgrx-install/bin/pg_config make install
 ```
 
 ## Running the Extension
@@ -92,6 +89,8 @@ After making changes to the extension code:
    CREATE EXTENSION pg_search CASCADE;
    ```
 
+3. **Schema Migrations:** If your changes introduce or modify extension SQL objects (functions, types, opclasses, etc.), you must provide an unreleased migration fragment in `pg_search/sql/unreleased/<PR_NUMBER>.<desc>.sql`. See [`CONTRIBUTING.md`](../CONTRIBUTING.md#pull-request-workflow) for details.
+
 ## Testing
 
 Unit tests live in `pg_search/src` and run with:
@@ -108,7 +107,7 @@ For the other test categories (pg regress, integration tests, client property te
 - [`tests/README.md`](../tests/README.md) — integration tests and client property tests
 - [`stressgres/README.md`](../stressgres/README.md) — Stressgres, the stress-testing tool used locally and in CI
 - [`CONTRIBUTING.md#testing`](../CONTRIBUTING.md#testing) — overview of all test categories and when to use which
-- [`test-pg_search-upgrade/README.md`](../.github/actions/test-pg_search-upgrade/README.md) - compatibility tests for extension version upgrades
+- [`test-pg_search-upgrade/README.md`](../.github/actions/test-pg_search-upgrade/README.md) — compatibility tests for extension version upgrades
 
 ## Benchmarks
 

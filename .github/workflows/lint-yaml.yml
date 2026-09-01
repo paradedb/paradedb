@@ -30,7 +30,7 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v7
 
-      - name: Set up NodeJS Environment
+      - name: Set Up NodeJS Environment
         uses: actions/setup-node@v7
 
       - name: Install Prettier

@@ -37,10 +37,10 @@ use datafusion_proto::physical_plan::{
     PhysicalPlanNodeExt, PhysicalProtoConverterExtension,
 };
 use datafusion_proto::protobuf::PhysicalPlanNode;
-use tantivy::index::SegmentId;
 
-use crate::api::{HashMap, HashSet};
+use crate::api::HashMap;
 use crate::index::fast_fields_helper::FFHelper;
+use crate::index::mvcc::SegmentView;
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::datafusion::numeric_agg;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
@@ -67,9 +67,9 @@ pub struct PgSearchPhysicalExtensionCodec {
     /// Worker's `ParallelScanState`, used to resolve the scan's MVCC segment set and to claim
     /// segments at runtime.
     parallel_state: Option<*mut ParallelScanState>,
-    /// Canonical segment ID sets for all join sources, indexed by `plan_position`. Injected into
-    /// `SearchPredicateUDF` on decode, same as the logical codec.
-    index_segment_ids: Vec<HashSet<SegmentId>>,
+    /// The leader's segment view of every join source, indexed by `plan_position`, for the
+    /// rebuilt ctid resolvers on decode.
+    index_segment_views: Vec<SegmentView>,
     /// The `ExprContext` workers use to evaluate heap filters.
     expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
 }
@@ -112,7 +112,7 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
                     payload,
                     input,
                     resolvers,
-                    &self.index_segment_ids,
+                    &self.index_segment_views,
                 )
             }
             TAG_TANTIVY_LOOKUP => {
@@ -137,7 +137,7 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
                     ffhelpers,
                     resolvers,
                     ctx,
-                    &self.index_segment_ids,
+                    &self.index_segment_views,
                     self.parallel_state,
                     proto_converter,
                 )
@@ -181,7 +181,7 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
     }
 
     fn try_decode_udf(&self, name: &str, buf: &[u8]) -> Result<Arc<ScalarUDF>> {
-        try_decode_pg_search_udf(name, buf, &self.index_segment_ids)?.ok_or_else(|| {
+        try_decode_pg_search_udf(name, buf)?.ok_or_else(|| {
             DataFusionError::NotImplemented(format!("UDF '{name}' deserialization not implemented"))
         })
     }
@@ -285,7 +285,7 @@ fn collect_ffhelpers_by_indexrelid(input: &Arc<dyn ExecutionPlan>) -> HashMap<u3
 /// The composed codec takes the first `Ok` per call, and the trait's default `try_encode_udf`
 /// returns `Ok` writing nothing, so a bare `DistributedCodec` at position 0 would shadow the
 /// pg_search UDF serialization: no `fun_definition` would ever travel, and a dispatched stage
-/// retaining a `pdb_search_predicate` / `pg_expr_*` expression would fail decode on the worker
+/// retaining a `pg_expr_*` expression would fail decode on the worker
 /// (their registry has no such functions). Position 0 still matters for everything else:
 /// `prost` skips default values, so only position 0 with an empty blob encodes to zero bytes,
 /// which is what keeps registry-resolved built-ins travelling by name. So this wrapper accepts
@@ -389,13 +389,13 @@ pub fn deserialize_physical_plan_with_runtime(
     bytes: &[u8],
     ctx: &TaskContext,
     parallel_state: Option<*mut ParallelScanState>,
-    index_segment_ids: Vec<HashSet<SegmentId>>,
+    index_segment_views: Vec<SegmentView>,
     expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
     proto_converter: &dyn PhysicalProtoConverterExtension,
 ) -> Result<Arc<dyn ExecutionPlan>> {
     let codec = combined_codec(PgSearchPhysicalExtensionCodec {
         parallel_state,
-        index_segment_ids,
+        index_segment_views,
         expr_context,
     });
     let proto = <PhysicalPlanNode as prost::Message>::decode(bytes).map_err(|e| {

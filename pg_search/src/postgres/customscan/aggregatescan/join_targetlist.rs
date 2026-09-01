@@ -22,6 +22,7 @@
 //! column and aggregate argument belongs to. This is the join-aware counterpart
 //! of [`super::targetlist::TargetList`] (which assumes a single base relation).
 
+use super::GroupingShape;
 use super::datafusion_build::{FilterExprBuildContext, JoinAggSource};
 use super::privdat::FilterExpr;
 use crate::api::SortDirection;
@@ -180,7 +181,7 @@ pub struct AggOrderByEntry {
     /// 1-based attribute number in the source relation's tuple descriptor.
     /// Load-bearing for fast-field projection.
     pub attno: pg_sys::AttrNumber,
-    /// Resolved field name (from the BM25 index schema).
+    /// Resolved field name (from the ParadeDB index schema).
     pub field_name: String,
     /// Sort direction including NULLS FIRST/LAST.
     pub direction: crate::api::SortDirection,
@@ -277,8 +278,8 @@ fn classify_aggregate_by_name(aggfnoid: u32) -> Option<AggKind> {
     }
 }
 
-/// Extract aggregate target list from `output_rel.reltarget.exprs` for a join
-/// aggregate query.
+/// Extract the aggregate target list for a join aggregate query from the
+/// grouping/DISTINCT output columns ([`GroupingShape::target_exprs`]).
 ///
 /// Iterates the target list and classifies each expression as either a GROUP BY
 /// column (`T_Var`) or an aggregate function (`T_Aggref`). For joins, `Var.varno`
@@ -302,12 +303,25 @@ pub unsafe fn extract_aggregate_targetlist(
     args: &CreateUpperPathsHookArgs,
     sources: &[JoinAggSource],
     plan: &crate::postgres::customscan::joinscan::build::RelNode,
+    shape: GroupingShape,
 ) -> Result<JoinAggregateTargetList, String> {
-    let output_rel = args.output_rel();
-    let target_exprs = PgList::<pg_sys::Expr>::from_pg((*output_rel.reltarget).exprs);
+    let target_exprs = shape.target_exprs();
     if target_exprs.is_empty() {
         return Err("target list is empty".into());
     }
+
+    // `find_one_var_and_fieldname` below resolves an expression down to the fast
+    // field it reads, which holds the column value and not the expression value.
+    // The two agree only when the expression is the identity, so a JSON container
+    // dedups on its elements and a type-changing cast hands the slot the wrong
+    // Arrow type. Postgres deduplicates the expression itself, so DISTINCT takes
+    // plain columns and nothing else.
+    let plain_columns_only = shape.is_distinct();
+    let clause = if plain_columns_only {
+        "DISTINCT"
+    } else {
+        "GROUP BY"
+    };
 
     let outer_root_id =
         crate::postgres::customscan::joinscan::build::PlannerRootId::from(args.root);
@@ -324,13 +338,13 @@ pub unsafe fn extract_aggregate_targetlist(
             let rti = (*var).varno as pg_sys::Index;
             let attno = (*var).varattno;
 
-            let source = find_source_by_rti(sources, rti, "GROUP BY column")?;
+            let source = find_source_by_rti(sources, rti, clause)?;
 
             let field_name = source.column_name(attno).ok_or_else(|| {
                 let alias =
                     RelationAlias::new(source.alias.as_deref()).display(source.rti as usize);
                 format!(
-                    "GROUP BY column {} is not columnar indexed",
+                    "{clause} column {} is not columnar indexed",
                     get_attname_safe(Some(source.relid), attno, &alias)
                 )
             })?;
@@ -370,10 +384,15 @@ pub unsafe fn extract_aggregate_targetlist(
                 output_index: idx,
                 numeric_scale,
             });
-        } else if let Some((var, field_name)) = find_one_var_and_fieldname(
-            VarContext::from_planner(args.root),
-            expr as *mut pg_sys::Node,
-        ) {
+        } else if let Some((var, field_name)) = (!plain_columns_only)
+            .then(|| {
+                find_one_var_and_fieldname(
+                    VarContext::from_planner(args.root),
+                    expr as *mut pg_sys::Node,
+                )
+            })
+            .flatten()
+        {
             // GROUP BY on a complex expression (e.g., metadata->>'category').
             // The resolver extracts the underlying Var and resolves the Tantivy
             // field name (e.g., "metadata.category") from JSON operators.
@@ -444,9 +463,7 @@ pub unsafe fn extract_aggregate_targetlist(
             };
 
             // Reject pdb.agg()
-            let pdb_agg_oid = crate::api::agg_funcoid().to_u32();
-            let pdb_agg_mvcc_oid = crate::api::agg_with_solve_mvcc_funcoid().to_u32();
-            if aggfnoid == pdb_agg_oid || aggfnoid == pdb_agg_mvcc_oid {
+            if crate::api::is_agg_funcoid(aggfnoid) {
                 return Err(
                     "pdb.agg() is not supported on joins - use standard SQL aggregates (COUNT, SUM, AVG, MIN, MAX)".into()
                 );
@@ -490,10 +507,13 @@ pub unsafe fn extract_aggregate_targetlist(
                 order_by,
                 numeric,
             });
+        } else if plain_columns_only {
+            return Err(format!(
+                "DISTINCT on an expression is not pushed down, only plain columns are (target index {idx})"
+            ));
         } else {
             return Err(format!(
-                "expression at index {} is neither a GROUP BY column (Var) nor an aggregate (Aggref)",
-                idx
+                "GROUP BY on this expression is not pushed down, only plain columns and aggregates are (target index {idx})"
             ));
         }
     }

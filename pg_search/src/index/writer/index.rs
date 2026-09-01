@@ -19,6 +19,7 @@ use crate::api::{HashMap, HashSet};
 use anyhow::Result;
 use pgrx::pg_sys;
 use std::num::NonZeroUsize;
+use std::sync::Arc;
 use tantivy::index::SegmentId;
 use tantivy::indexer::{AddOperation, IndexWriterOptions, SegmentWriter};
 use tantivy::schema::Field;
@@ -29,9 +30,10 @@ use tantivy::{
 use thiserror::Error;
 
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
+use crate::index::stats::{self, LogicalBoundsByField, StatsWriter};
 use crate::index::{index_settings, open_index, setup_tokenizers};
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::SegmentMetaEntry;
+use crate::postgres::storage::block::{STATS_EXT, SegmentMetaEntry};
 use crate::{postgres::types::TantivyValueError, schema::SearchIndexSchema};
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{IntoDatum, PgLogLevel, PgSqlErrorCode, direct_function_call, function_name};
@@ -55,6 +57,16 @@ impl PendingSegment {
             writer,
             opstamp: Default::default(),
         })
+    }
+
+    fn set_logical_bounds(&mut self, bounds: Arc<LogicalBoundsByField>) {
+        if let Some(writer) = self
+            .writer
+            .custom_plugin_writer_mut(STATS_EXT)
+            .and_then(|writer| writer.as_any_mut().downcast_mut::<StatsWriter>())
+        {
+            writer.set_logical_bounds(bounds);
+        }
     }
 
     fn add_document(&mut self, document: TantivyDocument) -> Result<()> {
@@ -209,6 +221,7 @@ pub struct SerialIndexWriter {
     new_metas: Vec<SegmentMeta>,
     schema: SearchIndexSchema,
     disk_guard: Option<DiskSpaceGuard>,
+    logical_bounds: Option<Arc<LogicalBoundsByField>>,
 }
 
 impl SerialIndexWriter {
@@ -228,6 +241,17 @@ impl SerialIndexWriter {
         if let Some(disk_guard) = self.disk_guard.as_mut() {
             disk_guard.set_remaining_segments(remaining);
         }
+    }
+
+    /// The logical box a partitioned build assigned to the rows this writer receives from here
+    /// on. Each segment it creates from now on records the box in its `.stats` component; a
+    /// segment already open keeps the box it started with, so callers set it between segments.
+    pub fn set_logical_bounds(&mut self, bounds: Option<Arc<LogicalBoundsByField>>) {
+        debug_assert!(
+            self.pending_segment.is_none(),
+            "logical bounds must be set before a segment receives documents"
+        );
+        self.logical_bounds = bounds;
     }
 
     pub fn open(
@@ -262,6 +286,7 @@ impl SerialIndexWriter {
 
         let directory = mvcc_satisfies.directory(index_relation);
         let mut index = open_index(directory)?;
+        stats::register(&mut index);
         setup_tokenizers(index_relation, &mut index)?;
         let ctid_field = schema.ctid_field();
 
@@ -275,6 +300,7 @@ impl SerialIndexWriter {
             new_metas: Default::default(),
             schema,
             disk_guard: None,
+            logical_bounds: None,
         })
     }
 
@@ -292,6 +318,8 @@ impl SerialIndexWriter {
         let tantivy_schema: tantivy::schema::Schema = schema.clone().into();
 
         let settings = index_settings(index_relation.options(), &tantivy_schema);
+        // No stats plugin here: the segment is a throwaway materialization that nothing
+        // reads statistics from, and it is rebuilt per reader.
         // No centroid index: the staged mutable segment stores its vectors
         // flat (doc-ordered) and is searched exhaustively; it clusters at
         // its first merge inside the real index.
@@ -318,6 +346,7 @@ impl SerialIndexWriter {
             new_metas: Default::default(),
             schema,
             disk_guard: None,
+            logical_bounds: None,
         })
     }
 
@@ -391,7 +420,11 @@ impl SerialIndexWriter {
     ///
     /// Otherwise, we create a MVCCDirectory-backed segment.
     fn new_segment(&mut self) -> Result<PendingSegment> {
-        PendingSegment::new(&self.index, self.config.memory_budget)
+        let mut pending = PendingSegment::new(&self.index, self.config.memory_budget)?;
+        if let Some(bounds) = &self.logical_bounds {
+            pending.set_logical_bounds(bounds.clone());
+        }
+        Ok(pending)
     }
 
     pub fn finalize_nocommit(&mut self) -> Result<Option<SegmentMeta>> {
@@ -483,7 +516,8 @@ impl SearchIndexMerger {
         mvcc_satisfies: MvccSatisfies,
     ) -> Result<SearchIndexMerger> {
         let directory = mvcc_satisfies.directory(indexrel);
-        let index = open_index(directory.clone())?;
+        let mut index = open_index(directory.clone())?;
+        stats::register(&mut index);
         Ok(Self {
             index,
             merged_segment_ids: Default::default(),

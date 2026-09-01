@@ -343,6 +343,7 @@ impl ColumnarExecState {
                 .scanner_fast_fields
                 .iter()
                 .any(|f| matches!(f, crate::index::fast_fields_helper::WhichFastField::Score)),
+            scan_mode: crate::scan::ScanMode::all(),
         };
 
         // Create PgSearchScanPlan and execute via DataFusion
@@ -369,7 +370,8 @@ impl ColumnarExecState {
             1,
             state.parallel_state(),
             None,
-        );
+        )
+        .with_table_alias(index_rel.name());
 
         let task_ctx = Arc::new(TaskContext::default());
         match plan.execute(0, task_ctx) {

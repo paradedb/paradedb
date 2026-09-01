@@ -294,6 +294,31 @@ impl Conn {
             conn.execute(query.sql, &[])?;
         }
 
+        if !job.sql_plan_contains.is_empty() {
+            let statements = job.sql();
+            anyhow::ensure!(
+                statements.len() == 1,
+                "job `{}` uses `sql_plan_contains`, but its `sql` contains {} statements; exactly one is required",
+                job.title(),
+                statements.len()
+            );
+            let explain = format!("EXPLAIN (VERBOSE) {}", statements[0].sql);
+            let plan = conn
+                .query(&explain, &[])?
+                .into_iter()
+                .map(|row| row.get::<_, String>(0))
+                .collect::<Vec<_>>()
+                .join("\n");
+            for expected in &job.sql_plan_contains {
+                anyhow::ensure!(
+                    plan.to_lowercase().contains(&expected.to_lowercase()),
+                    "plan assertion failed for job `{}`: expected `{expected}` in plan for `{}`. Actual plan:\n{plan}",
+                    job.title(),
+                    statements[0].sql
+                );
+            }
+        }
+
         Ok(conn)
     }
 }

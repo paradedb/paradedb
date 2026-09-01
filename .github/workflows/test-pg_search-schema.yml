@@ -10,6 +10,7 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - ".github/scripts/check_migration_diff.py"
+      - ".github/actions/setup-pg-search-toolchain/**"
       - ".github/workflows/test-pg_search-schema.yml"
       - "pg_search/**"
       - "!pg_search/README.md"
@@ -51,54 +52,29 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref || github.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
-      - name: Extract pgrx Version
-        id: pgrx
-        run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
-
-      - name: Install Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          cache: false
-          rustflags: "" # Use .cargo/config.toml target-cpu flags
-
       # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
       # See test-pg_search.yml for rationale.
-      # Only save cache on non-PR events; PRs restore from the default branch.
-      # See test-pg_search.yml for rationale.
-      - name: Install Rust Cache
-        uses: swatinem/rust-cache@v2
+      # Schema jobs restore the nightly-warmed cache but never save their own entry.
+      - name: Set Up pg_search Toolchain
+        id: toolchain
+        uses: ./.github/actions/setup-pg-search-toolchain
         with:
-          prefix-key: "v3-rust-cache"
-          shared-key: pg${{ matrix.pg_version }}
-          cache-targets: true
-          cache-all-crates: true
-          # We don't save the cache here to avoid thrashing. The cache is only saved on the nightly run of test-pg_search.yml
-          save-if: false
+          pg_version: ${{ matrix.pg_version }}
 
       - name: Install & Configure Supported PostgreSQL Version
-        run: |
-          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
-          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
-          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
+        uses: ./.github/actions/setup-postgres
+        with:
+          pg_version: ${{ matrix.pg_version }}
+          extra_packages: libopenblas-dev clang lld llvm diffutils
 
-      - name: Install OpenBLAS (superkmeans-rs BLAS backend)
-        run: |
-          sudo apt-get update && sudo apt-get install -y libopenblas-dev
+      - name: Install pg-schema-diff
+        run: cargo install -j $(nproc) --git https://github.com/paradedb/pg-schema-diff.git --debug --force
 
-      - name: Install pg-schema-diff and its Required Dependencies
-        run: |
-          sudo apt install clang lld llvm diffutils
-          cargo install -j $(nproc) --git https://github.com/paradedb/pg-schema-diff.git --debug --force
-
-      - name: Install pgrx
-        run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
-
-      - name: Initialize pgrx environment
+      - name: Initialize pgrx Environment
         run: |
           cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
           # Save the pgrx version for comparison later
-          echo "FIRST_PGRX_VERSION=${{ steps.pgrx.outputs.version }}" >> $GITHUB_ENV
+          echo "FIRST_PGRX_VERSION=${{ steps.toolchain.outputs.pgrx_version }}" >> $GITHUB_ENV
 
       - name: Generate Schema from this git rev
         run: cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/this.sql
@@ -164,7 +140,7 @@ jobs:
           # Switch back to the PR branch to check the migration file
           git checkout "$HEAD_REF"
 
-      - name: Check Schema Diff and Validate Migration
+      - name: Check Schema Diff and Validate Migration Fragment
         id: check_schema_diff
         run: |
           if test -s ~/diff.sql; then
@@ -180,35 +156,52 @@ jobs:
             echo
             echo "=========================================="
 
-            # Extract the version from Cargo.toml
-            CURRENT_VERSION=$(grep -m 1 '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
-            echo "Current version from Cargo.toml: $CURRENT_VERSION"
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+            shopt -s nullglob
 
-            # Find the migration file ending with the current version
-            MIGRATION_FILE=$(ls pg_search/sql/pg_search--*--${CURRENT_VERSION}.sql 2>/dev/null | head -n 1)
+            if [ -n "$PR_NUMBER" ]; then
+              MATCHING_FILES=(pg_search/sql/unreleased/"${PR_NUMBER}".*.sql)
+            else
+              # Fallback for non-PR events (workflow_dispatch, push)
+              MATCHING_FILES=(pg_search/sql/unreleased/*.sql)
+            fi
 
-            if [ -z "$MIGRATION_FILE" ]; then
-              echo "❌ ERROR: Schema changed but no migration file found ending with version $CURRENT_VERSION"
-              echo "Expected file: pg_search/sql/pg_search--<prev_version>--${CURRENT_VERSION}.sql"
-              echo "Please create a migration file with the schema changes."
+            if (( ${#MATCHING_FILES[@]} == 0 )); then
+              echo "❌ ERROR: Schema changed but no SQL migration fragment found in pg_search/sql/unreleased/"
+              if [ -n "$PR_NUMBER" ]; then
+                echo "Expected file: pg_search/sql/unreleased/${PR_NUMBER}.<short_description>.sql"
+              else
+                echo "Expected file: pg_search/sql/unreleased/<PR_NUMBER>.<short_description>.sql"
+              fi
+              echo "Please create a fragment file containing the required schema changes shown above."
               exit 1
             fi
 
-            echo "Found migration file: $MIGRATION_FILE"
+            echo "Found migration fragment(s):"
+            for f in "${MATCHING_FILES[@]}"; do
+              echo " - $f"
+            done
             echo
-            echo "Checking if migration file contains all schema changes (order-independent)..."
+
+            # Concatenate matching fragments into a temporary file for validation
+            COMBINED_FRAGMENT=$(mktemp)
+            cat "${MATCHING_FILES[@]}" > "$COMBINED_FRAGMENT"
+
+            echo "Checking if migration fragment(s) contain all schema changes (order-independent)..."
 
             # Compare schema changes independent of order, since pg-schema-diff output order is non-deterministic
-            if ! python3 .github/scripts/check_migration_diff.py ~/diff.sql "$MIGRATION_FILE" --debug; then
+            if ! python3 .github/scripts/check_migration_diff.py ~/diff.sql "$COMBINED_FRAGMENT" --debug; then
+              rm -f "$COMBINED_FRAGMENT"
               echo
-              echo "The migration file at $MIGRATION_FILE needs to be updated."
-              echo "Please ensure all the schema changes shown above are in your migration file."
+              echo "The migration fragment(s) need to be updated."
+              echo "Please ensure all the schema changes shown above are in your fragment file(s)."
               echo
               echo "ℹ️  NOTE: If you need to modify the SchemaBot-generated diff because it's incorrect,"
               echo "   please update the schema diff generation logic at:"
               echo "   https://github.com/paradedb/pg-schema-diff"
               exit 1
             fi
+            rm -f "$COMBINED_FRAGMENT"
           else
             echo "✅ No schema difference detected"
             echo "schema_diff_detected=false" >> $GITHUB_OUTPUT

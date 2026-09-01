@@ -1,0 +1,129 @@
+[[server]]
+name = "Primary"
+[server.style.Automatic]
+
+[server.setup]
+sql = """
+DROP TABLE IF EXISTS test CASCADE;
+CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
+
+CREATE TABLE test (
+    id SERIAL8 NOT NULL PRIMARY KEY,
+    message TEXT,
+    severity INTEGER
+);
+
+INSERT INTO test (message, severity)
+SELECT
+    CASE id % 3
+    WHEN 0 THEN 'drink some beer'
+    WHEN 1 THEN 'sip some wine'
+    WHEN 2 THEN 'eat some cheese'
+    END,
+    (random() * 4 + 1)::int
+FROM generate_series(1, 9000000) as id;
+
+DO $$
+DECLARE
+   dbname text := current_database();
+BEGIN
+   EXECUTE format('ALTER DATABASE %I SET paradedb.max_mergeable_segment_size = %L', dbname, '5MB');
+END $$;
+
+CREATE INDEX idxtest ON test USING paradedb (id, message, severity) WITH (key_field = 'id');
+CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool LANGUAGE plpgsql AS $$
+DECLARE
+    current_txid bigint;
+BEGIN
+    -- Get the current transaction ID
+    current_txid := txid_current();
+
+    -- Check if the values are not equal
+    IF a <> b THEN
+        RAISE EXCEPTION 'Assertion failed: % <> %. Transaction ID: %', a, b, current_txid;
+    END IF;
+
+    RETURN true;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION assert_plan_contains(
+    p_query text,
+    p_expected_text text
+) RETURNS boolean AS $$
+DECLARE
+    plan_line text;
+    full_plan text := '';
+BEGIN
+    FOR plan_line IN EXECUTE 'EXPLAIN (VERBOSE) ' || p_query LOOP
+        full_plan := full_plan || plan_line || chr(10);
+        IF plan_line ILIKE '%' || p_expected_text || '%' THEN
+            RETURN true;
+        END IF;
+    END LOOP;
+
+    RAISE EXCEPTION 'Plan assertion failed: expected "%" not found in plan for query: %. Actual plan:%',
+        p_expected_text, p_query, chr(10) || full_plan;
+END;
+$$ LANGUAGE plpgsql;
+"""
+
+[server.teardown]
+sql = """
+DROP TABLE test CASCADE;
+DROP EXTENSION pg_search CASCADE;
+"""
+[server.monitor]
+refresh_ms = 10
+title = "Monitor Index Size"
+log_columns = ["block_count", "segment_count"]
+
+# Combined query returning both columns
+sql = """
+SELECT
+    pg_relation_size('idxtest') / current_setting('block_size')::int AS block_count,
+    (
+      SELECT COUNT(*)::bigint
+      FROM paradedb.index_info('idxtest')
+    ) AS segment_count
+"""
+
+[[jobs]]
+refresh_ms = 100
+title = "Aggregate Scan"
+log_tps = true
+log_count = true
+on_connect = """
+SET enable_indexscan TO off;
+SELECT assert_plan_contains(
+    $q$ SELECT count(*) FROM test WHERE message ||| 'cheese' $q$,
+    'ParadeDB Aggregate Scan'
+);
+"""
+sql = """
+SELECT count(*) FROM test WHERE message ||| 'cheese';
+"""
+assert = "3000000"
+
+[[jobs]]
+window_height = 25
+refresh_ms = 25
+title = "Bulk Update"
+log_tps = true
+log_count = true
+sql = """
+UPDATE test
+SET severity = (severity + 1) % 5
+WHERE id < 10000;
+"""
+
+#[[jobs]]
+#log_columns = ["fsm_size", "blocks_under_management"]
+#window_height = 25
+#refresh_ms = 1000
+#title = "Monitoring"
+#log_tps = false
+#log_count = false
+#sql = """
+#SELECT count(distinct fsm_blockno) fsm_size, count(*) blocks_under_management FROM paradedb.fsm_info('idxtest');
+#"""

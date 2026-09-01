@@ -1,7 +1,7 @@
 ---
 title: DigitalOcean
 description: Deploy ParadeDB on a DigitalOcean Droplet
-canonical: https://docs.paradedb.com/deploy/cloud-platforms/digitalocean
+canonical: https://www.paradedb.com/docs/deploy/cloud-platforms/digitalocean
 ---
 
 <Note>
@@ -33,12 +33,14 @@ Once the Droplet is running, SSH into it to complete the remaining steps.
 curl -fsSL https://get.docker.com | sh
 ```
 
+import { version } from "/snippets/version.mdx";
+
 ## Install ParadeDB
 
 The `tag` query parameter pins the ParadeDB version. See the [Docker Hub page](https://hub.docker.com/r/paradedb/paradedb/tags) for available tags.
 
 ```bash
-curl -fsSL "https://paradedb.com/install.sh?tag=0.25.3-pg18" | sh
+curl -fsSL "https://paradedb.com/install.sh?tag={version}-pg18" | sh
 ```
 
 Once the install completes, note the password printed to the terminal — you will need it for the `psql` connection string below.

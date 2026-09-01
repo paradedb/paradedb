@@ -37,6 +37,7 @@ jobs:
         uses: jbergstroem/hadolint-gh-action@v1
         with:
           dockerfile: ${{ steps.dockerfiles.outputs.files }}
+          config_file: .hadolint.yaml
           error_level: 2 # Treat INFO as error
 
       - name: Verify Generated Dockerfiles Are In Sync With Template

@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::{HashMap, HashSet};
+use crate::index::kdtree::KdTree;
 use crate::index::mvcc::{MvccSatisfies, PinCushion};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
@@ -53,6 +54,33 @@ pub fn save_settings(indexrel: &PgSearchRelation, tantivy_settings: &IndexSettin
         }
     }
     Ok(())
+}
+
+/// Stores `tree` as the index's one partitioning function, unless one is already stored: the
+/// first writer wins, and every later router reads it back. The caller must hold what
+/// serializes index writers: the build, or the merge lock.
+pub fn save_partitioning(indexrel: &PgSearchRelation, tree: &KdTree) -> Result<()> {
+    let mut metadata = MetaPage::open(indexrel);
+    let bytes = unsafe { metadata.partitioning_bytes_or_create(indexrel) };
+    if bytes.is_empty() {
+        let raw = postcard::to_allocvec(tree)?;
+        unsafe {
+            bytes.writer().write(&raw)?;
+        }
+    }
+    Ok(())
+}
+
+/// The index's one partitioning function, when one was stored.
+pub fn load_partitioning(indexrel: &PgSearchRelation) -> Result<Option<KdTree>> {
+    let Some(bytes) = MetaPage::open(indexrel).partitioning_bytes() else {
+        return Ok(None);
+    };
+    let raw = unsafe { bytes.read_all() };
+    if raw.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(postcard::from_bytes(&raw)?))
 }
 
 pub unsafe fn save_new_metas(

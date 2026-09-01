@@ -17,10 +17,11 @@
 
 use crate::api::version::Version;
 use crate::gucs;
+use crate::index::directory::utils::save_partitioning;
 use crate::index::kdtree::KdTree;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::stats::partition_box;
-use crate::index::writer::demux::{persist_tree, route_index};
+use crate::index::writer::demux::route_index;
 use crate::index::writer::index::{
     DiskSpaceGuard, IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
 };
@@ -1368,7 +1369,7 @@ pub(super) fn build_index(
     if let Some(partitioning) = &partitioning
         && partitioning.partition_count() > 1
     {
-        persist_tree(&indexrel, partitioning)?;
+        save_partitioning(&indexrel, partitioning)?;
     }
     let partitioning_bytes = match &partitioning {
         Some(partitioning) => postcard::to_allocvec(partitioning)?,

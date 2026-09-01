@@ -283,25 +283,13 @@ impl FFType {
     pub fn value(&self, doc: DocId, search_field_type: Option<SearchFieldType>) -> TantivyValue {
         match self {
             FFType::Junk => TantivyValue(PdbOwnedValue::Null),
-            FFType::Text(ff) => {
-                let mut s = String::new();
-                let ord = ff
-                    .term_ords(doc)
-                    .next()
-                    .expect("term ord should be retrievable");
-                ff.ord_to_str(ord, &mut s)
-                    .expect("string should be retrievable for term ord");
-                TantivyValue(s.into())
-            }
-            FFType::Bytes(ff) => {
-                let mut bytes = Vec::new();
-                let ord = ff
-                    .term_ords(doc)
-                    .next()
-                    .expect("term ord should be retrievable");
-                ff.ord_to_bytes(ord, &mut bytes)
-                    .expect("bytes should be retrievable for term ord");
-                TantivyValue(PdbOwnedValue::Bytes(bytes))
+            FFType::Text(_) | FFType::Bytes(_) => {
+                let value = self.value_or_null(doc, search_field_type);
+                assert!(
+                    !matches!(value.0, PdbOwnedValue::Null),
+                    "term ord should be retrievable"
+                );
+                value
             }
             FFType::I64(ff) => {
                 // versions >= DATETIME_I64_STORAGE_VERSION store datetimes as I64

@@ -26,21 +26,22 @@
 //! through `INSERT` land in unrouted segments, and only a build could route them until now.
 
 use anyhow::{Result, bail};
-use tantivy::index::{Index, IndexMeta, Segment, SegmentId, SegmentMeta, SegmentReader};
+use tantivy::index::{Index, Segment, SegmentId, SegmentMeta, SegmentReader};
 use tantivy::indexer::merger::IndexMerger;
 use tantivy::schema::{FieldType, Schema};
-use tantivy::{BitSet, Directory, DocId};
+use tantivy::{BitSet, DocId};
 
 use pgrx::pg_sys;
 
 use crate::api::FieldName;
 use crate::api::HashSet;
+use crate::index::directory::utils::{load_partitioning, save_partitioning};
 use crate::index::fast_fields_helper::FFType;
 use crate::index::kdtree::{KdTree, Point};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::stats;
 use crate::index::stats::SegmentStats;
-use crate::index::writer::index::SearchIndexMerger;
+use crate::index::writer::index::{SearchIndexMerger, swap_segment_metas};
 use crate::postgres::merge::garbage_collect_index;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
@@ -122,7 +123,11 @@ pub(crate) fn demux_merge(
         bail!("a demux merge routed {routed} of {live} documents");
     }
 
-    commit(&directory, &index, &sources, &written)?;
+    swap_segment_metas(
+        &index,
+        sources.iter().map(|s| s.meta().clone()).collect(),
+        written.to_vec(),
+    )?;
     Ok(written)
 }
 
@@ -144,34 +149,6 @@ fn dim_routable(schema: &Schema, dim: &FieldName) -> bool {
     fast && stats::logical_bounds_hold(schema, field)
 }
 
-/// The index's one partitioning function, when one was stored.
-pub(crate) fn stored_tree(indexrel: &PgSearchRelation) -> Result<Option<KdTree>> {
-    let metadata = MetaPage::open(indexrel);
-    let Some(bytes) = metadata.partitioning_bytes() else {
-        return Ok(None);
-    };
-    let raw = unsafe { bytes.read_all() };
-    if raw.is_empty() {
-        return Ok(None);
-    }
-    Ok(Some(postcard::from_bytes(&raw)?))
-}
-
-/// Stores `tree` as the index's one partitioning function, unless one is already stored: the
-/// first writer wins, and every later router reads it back. The caller must hold what
-/// serializes index writers: the build, or the merge lock.
-pub(crate) fn persist_tree(indexrel: &PgSearchRelation, tree: &KdTree) -> Result<()> {
-    let mut metadata = MetaPage::open(indexrel);
-    let bytes = unsafe { metadata.partitioning_bytes_or_create(indexrel) };
-    if bytes.is_empty() {
-        let raw = postcard::to_allocvec(tree)?;
-        unsafe {
-            bytes.writer().write(&raw)?;
-        }
-    }
-    Ok(())
-}
-
 /// The tree every routing path shares: the stored one when it exists, else one planned over
 /// `segment_ids` and stored. A tree with no boundary is not stored, so an index that starts
 /// empty, or under the size floor, takes its function from the first merge that can plan a
@@ -181,7 +158,7 @@ pub(crate) fn resolve_tree(
     segment_ids: &[SegmentId],
     target_partitions: usize,
 ) -> Result<KdTree> {
-    if let Some(tree) = stored_tree(indexrel)? {
+    if let Some(tree) = load_partitioning(indexrel)? {
         return Ok(tree);
     }
     let schema = indexrel.schema()?;
@@ -200,7 +177,7 @@ pub(crate) fn resolve_tree(
     let points = sample(&readers, &dims, &field_types);
     let tree = KdTree::from_sample(dims, points, target_partitions);
     if tree.partition_count() > 1 {
-        persist_tree(indexrel, &tree)?;
+        save_partitioning(indexrel, &tree)?;
     }
     Ok(tree)
 }
@@ -465,40 +442,12 @@ fn write_partition(
     Ok(index.new_segment_meta(target.id(), num_docs))
 }
 
-/// Replaces the source segments with the ones the merge wrote, in one atomic list update.
-fn commit(
-    directory: &crate::index::directory::mvcc::MVCCDirectory,
-    index: &Index,
-    sources: &[Segment],
-    written: &[SegmentMeta],
-) -> Result<()> {
-    let meta = |segments: Vec<SegmentMeta>| IndexMeta {
-        index_settings: index.settings().clone(),
-        persisted_custom_extensions: index
-            .custom_plugins()
-            .iter()
-            .flat_map(|plugin| plugin.extensions().iter().map(|ext| ext.to_string()))
-            .collect(),
-        segments,
-        schema: index.schema(),
-        opstamp: 0,
-        payload: None,
-    };
-    // `save_metas` reads the created and deleted ids out of the difference between the two
-    // lists, so these hold the merge's inputs and outputs rather than the whole index.
-    directory.save_metas(
-        &meta(written.to_vec()),
-        &meta(sources.iter().map(|s| s.meta().clone()).collect()),
-        &mut (),
-    )?;
-    Ok(())
-}
-
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
     use pgrx::prelude::*;
 
+    use crate::index::directory::utils::load_partitioning;
     use crate::index::stats::persisted_split_points;
     use crate::postgres::rel::PgSearchRelation;
 
@@ -756,7 +705,7 @@ mod tests {
 
         let indexrel = open_index("demux_grown_idx");
         assert!(
-            super::stored_tree(&indexrel).unwrap().is_none(),
+            load_partitioning(&indexrel).unwrap().is_none(),
             "an empty build has nothing to plan over"
         );
         drop(indexrel);
@@ -774,7 +723,7 @@ mod tests {
         drop(indexrel);
 
         let indexrel = open_index("demux_grown_idx");
-        let tree = super::stored_tree(&indexrel)
+        let tree = load_partitioning(&indexrel)
             .unwrap()
             .expect("the first routing stores the tree");
         assert_eq!(tree.partition_count(), 4);
@@ -829,7 +778,7 @@ mod tests {
         .unwrap();
 
         let indexrel = open_index("demux_built_idx");
-        let tree = super::stored_tree(&indexrel)
+        let tree = load_partitioning(&indexrel)
             .unwrap()
             .expect("the build stores its tree");
         assert_eq!(tree.partition_count(), 4);

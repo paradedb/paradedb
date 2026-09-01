@@ -498,29 +498,32 @@ impl SerialIndexWriter {
         let previous_metas = self.new_metas.clone();
         let new_meta = finalized_segment.meta().clone();
         self.new_metas.push(new_meta.clone());
-        self.save_metas(self.new_metas.clone(), previous_metas)?;
+        swap_segment_metas(&self.index, previous_metas, self.new_metas.clone())?;
         Ok(new_meta)
     }
+}
 
-    fn save_metas(
-        &mut self,
-        new_metas: Vec<SegmentMeta>,
-        previous_metas: Vec<SegmentMeta>,
-    ) -> Result<()> {
-        let current_metas = self.index.load_metas()?;
-        let previous_index_meta = IndexMeta {
-            segments: previous_metas,
-            ..current_metas.clone()
-        };
-        let new_index_meta = IndexMeta {
-            segments: new_metas,
-            ..current_metas.clone()
-        };
-        self.index
-            .directory()
-            .save_metas(&new_index_meta, &previous_index_meta, &mut ())?;
-        Ok(())
-    }
+/// Publishes a segment-list swap in one atomic update. `save_metas` derives the created and
+/// the deleted entries from the difference between the two lists, so they hold the change's
+/// inputs and outputs rather than the whole index.
+pub(crate) fn swap_segment_metas(
+    index: &Index,
+    previous: Vec<SegmentMeta>,
+    new: Vec<SegmentMeta>,
+) -> Result<()> {
+    let current_metas = index.load_metas()?;
+    let previous_index_meta = IndexMeta {
+        segments: previous,
+        ..current_metas.clone()
+    };
+    let new_index_meta = IndexMeta {
+        segments: new,
+        ..current_metas
+    };
+    index
+        .directory()
+        .save_metas(&new_index_meta, &previous_index_meta, &mut ())?;
+    Ok(())
 }
 
 pub struct SearchIndexMerger {

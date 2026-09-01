@@ -33,7 +33,6 @@ use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Map;
-use tantivy::vector::BoundsScope;
 use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
 /* ADDING OPTIONS
@@ -79,7 +78,6 @@ pub(crate) const MAX_MUTABLE_SEGMENT_ROWS: usize = 10000;
 
 pub(crate) const DEFAULT_CENTROID_RATIO: f64 = 0.01;
 pub(crate) const DEFAULT_TRAINING_SAMPLES_PER_CENTROID: usize = 32;
-pub(crate) const DEFAULT_CLUSTER_REPLICATION: i32 = 1;
 
 #[pg_guard]
 extern "C-unwind" fn validate_text_fields(value: *const std::os::raw::c_char) {
@@ -197,21 +195,6 @@ extern "C-unwind" fn validate_search_tokenizer(value: *const std::os::raw::c_cha
         .unwrap_or_else(|| panic!("invalid search_tokenizer: '{s}'"));
 }
 
-/// Native posting members define stored vector bounds.
-pub(crate) const BOUNDS_SCOPE_NATIVE: &str = "native";
-
-#[pg_guard]
-extern "C-unwind" fn validate_bounds_scope(value: *const std::os::raw::c_char) {
-    if value.is_null() {
-        return;
-    }
-    let cstr = unsafe { core::ffi::CStr::from_ptr(value) };
-    let value = cstr.to_str().expect("`bounds_scope` must be valid UTF-8");
-    if value != BOUNDS_SCOPE_NATIVE {
-        panic!("invalid `bounds_scope`: {value:?}; the only supported value is 'native'");
-    }
-}
-
 #[pg_guard]
 extern "C-unwind" fn validate_layer_sizes(value: *const std::os::raw::c_char) {
     if value.is_null() {
@@ -251,7 +234,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 20;
+const NUM_REL_OPTS: usize = 18;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -365,13 +348,6 @@ pub unsafe extern "C-unwind" fn amoptions(
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
-            optname: "bounds_scope".as_pg_cstr(),
-            opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: std::mem::offset_of!(BM25IndexOptionsData, bounds_scope_offset) as i32,
-            #[cfg(feature = "pg18")]
-            isset_offset: 0,
-        },
-        pg_sys::relopt_parse_elt {
             optname: "centroid_ratio".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_REAL,
             offset: std::mem::offset_of!(BM25IndexOptionsData, centroid_ratio) as i32,
@@ -383,13 +359,6 @@ pub unsafe extern "C-unwind" fn amoptions(
             opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
             offset: std::mem::offset_of!(BM25IndexOptionsData, training_samples_per_centroid)
                 as i32,
-            #[cfg(feature = "pg18")]
-            isset_offset: 0,
-        },
-        pg_sys::relopt_parse_elt {
-            optname: "cluster_replication".as_pg_cstr(),
-            opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
-            offset: std::mem::offset_of!(BM25IndexOptionsData, cluster_replication) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
@@ -495,23 +464,9 @@ impl BM25IndexOptions {
         self.options_data().centroid_ratio()
     }
 
-    /// Returns the stored vector-bounds scope.
-    ///
-    /// # Panics
-    ///
-    /// Panics when the persisted scope is invalid.
-    pub fn bounds_scope(&self) -> BoundsScope {
-        self.options_data().bounds_scope()
-    }
-
     /// Returns the training samples used per centroid.
     pub fn training_samples_per_centroid(&self) -> usize {
         self.options_data().training_samples_per_centroid()
-    }
-
-    /// Returns the posting memberships written per vector.
-    pub fn cluster_replication(&self) -> usize {
-        self.options_data().cluster_replication()
     }
 
     pub fn key_field_name(&self) -> FieldName {
@@ -883,9 +838,7 @@ struct BM25IndexOptionsData {
     search_tokenizer_offset: i32,
     centroid_ratio: f64,
     training_samples_per_centroid: i32,
-    cluster_replication: i32,
     partition_by_offset: i32,
-    bounds_scope_offset: i32,
 }
 
 impl BM25IndexOptionsData {
@@ -930,31 +883,9 @@ impl BM25IndexOptionsData {
         self.centroid_ratio as f32
     }
 
-    /// Returns the stored vector-bounds scope.
-    ///
-    /// # Panics
-    ///
-    /// Panics when the persisted scope is invalid.
-    pub fn bounds_scope(&self) -> BoundsScope {
-        let value = self.get_str(self.bounds_scope_offset, BOUNDS_SCOPE_NATIVE.to_string());
-        match value.as_str() {
-            BOUNDS_SCOPE_NATIVE => BoundsScope::Native,
-            other => panic!("invalid stored `bounds_scope`: {other:?}"),
-        }
-    }
-
     /// Returns the training samples used per centroid.
     pub fn training_samples_per_centroid(&self) -> usize {
         self.training_samples_per_centroid.max(1) as usize
-    }
-
-    /// Returns the posting memberships written per vector.
-    pub fn cluster_replication(&self) -> usize {
-        if self.cluster_replication <= 0 {
-            1
-        } else {
-            self.cluster_replication as usize
-        }
     }
 
     pub fn key_field_name(&self) -> Option<FieldName> {
@@ -1204,15 +1135,6 @@ pub unsafe fn init() {
         Some(validate_search_tokenizer),
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
-    pg_sys::add_string_reloption(
-        RELOPT_KIND_PDB,
-        "bounds_scope".as_pg_cstr(),
-        "Which rows a cluster's stored centroid bound covers; only 'native' is supported"
-            .as_pg_cstr(),
-        BOUNDS_SCOPE_NATIVE.as_pg_cstr(),
-        Some(validate_bounds_scope),
-        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
-    );
     pg_sys::add_real_reloption(
         RELOPT_KIND_PDB,
         "centroid_ratio".as_pg_cstr(),
@@ -1229,15 +1151,6 @@ pub unsafe fn init() {
         DEFAULT_TRAINING_SAMPLES_PER_CENTROID as i32,
         1,
         100_000,
-        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
-    );
-    pg_sys::add_int_reloption(
-        RELOPT_KIND_PDB,
-        "cluster_replication".as_pg_cstr(),
-        "Cells a vector is written into: primary + up to (value - 1) next-nearest cells (1 = no replication)".as_pg_cstr(),
-        DEFAULT_CLUSTER_REPLICATION,
-        1,
-        i32::MAX,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
     pg_sys::add_string_reloption(

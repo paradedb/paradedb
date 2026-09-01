@@ -1340,7 +1340,6 @@ mod tests {
             "vectors_visited",
             "pruned_filter",
             "pruned_dead",
-            "pruned_seen",
             "postings_row",
             "postings_skipped",
             "exact_rows_read",

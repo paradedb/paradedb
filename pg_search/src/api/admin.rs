@@ -390,9 +390,7 @@ fn index_info(
 /// explicitly rather than only the first one an index happens to carry. `segno`
 /// aligns with [`index_info`]'s so the two can be joined.
 ///
-/// The cluster columns are IVF-only (`NULL` for flat segments). `*_cluster_size`
-/// and `vector_total_memberships` count posting rows, so under replication their
-/// totals exceed `vector_num_vectors`, which counts distinct docs.
+/// The cluster columns are IVF-only (`NULL` for flat segments).
 #[allow(clippy::type_complexity)]
 #[pg_extern]
 fn vector_info(
@@ -411,7 +409,7 @@ fn vector_info(
             name!(vector_max_cluster_size, Option<AnyNumeric>),
             name!(vector_avg_cluster_size, Option<f64>),
             name!(vector_empty_clusters, Option<AnyNumeric>),
-            name!(vector_total_memberships, Option<AnyNumeric>),
+            name!(vector_total_rows, Option<AnyNumeric>),
             name!(quantized, bool),
             name!(layers, Option<Vec<i32>>),
             name!(bytes_per_row, Option<i32>),
@@ -478,9 +476,7 @@ fn vector_info(
                 continue;
             };
             let cluster_stats = info.cluster_stats.as_ref();
-            // Summed here rather than read off `cluster_stats`, which only
-            // carries the average: this keeps the membership total exact.
-            let total_memberships = vector_index
+            let total_rows = vector_index
                 .cluster_sizes()
                 .map(|sizes| sizes.iter().map(|size| *size as u64).sum::<u64>());
             rows.push((
@@ -497,7 +493,7 @@ fn vector_info(
                 cluster_stats.map(|stats| stats.max_cluster_size.into()),
                 cluster_stats.map(|stats| stats.avg_cluster_size),
                 cluster_stats.map(|stats| stats.empty_clusters.into()),
-                total_memberships.map(Into::into),
+                total_rows.map(Into::into),
                 quantized,
                 layers.clone(),
                 bytes_per_row,

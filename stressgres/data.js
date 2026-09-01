@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788279453499,
+  "lastUpdate": 1788279462371,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -315772,6 +315772,108 @@ window.BENCHMARK_DATA = {
             "value": 47.556640625,
             "unit": "median mem",
             "extra": "avg mem: 46.06260804521276, max mem: 57.34765625, count: 59220"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "59121903+RupertMaiti2005@users.noreply.github.com",
+            "name": "Rupert Maiti",
+            "username": "RupertMaiti2005"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2d86ed619b84f820524a130dfbd109e9c82e1b24",
+          "message": "fix: don't reset the shared parallel work queue on rescan (#5024) (#6112)\n\n# Ticket(s) Closed\n\n- Closes #5024\n\n## What\n\n`BaseScanState::reset()` — the leader's ReScan callback — reset the\nshared parallel segment work queue in DSM. This PR removes that reset\nand the now-unused `ParallelScanHandle::reset_work_queue`, leaving\n`ReInitializeDSMCustomScan` as the only place the queue is reset for a\nrescan, and documents that invariant. Adds a regression test.\n\n## Why\n\nParallel-aware base scans partition work by lazily checking segments out\nof a shared pool; correctness requires each segment to be claimed\nexactly once per scan cycle.\n\nOn a parallel rescan, PostgreSQL defers the leader's ReScan of a\nparallel-aware child until the leader's first `ExecProcNode` call, which\nhappens after `LaunchParallelWorkers`. Resetting the shared queue there\nraces with segment claims from freshly launched workers: an\nalready-claimed segment goes back into the pool, is claimed again, and\nevery row in it is emitted twice. On the plan shape from #5024\n(`debug_parallel_query=on`; a Gather over Parallel Custom Scans on the\ninner side of a Nested Loop, rescanned per outer row), `COUNT(*)`\nreturned exactly 2× the correct value in ~65% of runs on a v0.25.4\nrelease build.\n\nnodeGather.c documents the contract: \"ReInitializeDSM should reset only\nshared state, ReScan should reset only local state.\"\n`reinitialize_dsm_custom_scan` already performs the reset at the safe\npoint, so the ReScan-side reset was redundant when it wasn't harmful.\nThis is the custom-scan twin of the parallel index-scan race fixed in\n#3872.\n\n## Tests\n\n- New `test_parallel_rescan_does_not_double_scan` recreates the plan\nshape (asserted via EXPLAIN), computes the expected count from the plain\nPostgreSQL plan, and requires 30 consecutive runs of the `@@@` query to\nmatch. It fails 24/30 iterations against the unfixed v0.25.4 binary\n(`expected 49, got [50, 98, 97, …]`) and is deterministic with the fix.\n- The issue's exact repro script: 100/100 runs correct with the fix;\n65/100 returned 2× on v0.25.4.\n- Causal check: a 200 ms delay injected before the old reset call (a\ntiming-only change) made the unpatched build fail 30/30 runs at 4× (both\nParallel Hash Join sides double-scanned); the same build with only the\nreset removed passed 100/100.\n- Existing tests in `tests/tests/parallel.rs` (including the #3872 and\n#4381 races) and `generated_joins_small` pass; `cargo fmt` and `cargo\nclippy --all-targets -- -D warnings` are clean.\n\nMaintainer note: this PR needs two labels external contributors cannot\nset — a cherry-pick decision (`Do Not Cherry Pick` or `cherry-pick/*`)\nto satisfy the label gate, and ideally `antithesis` to exercise the fix\nunder the deterministic scheduler that found the bug.\n\nCo-authored-by: baburama <59121903+baburama@users.noreply.github.com>\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-09-01T11:40:43-04:00",
+          "tree_id": "385683a56cfe8b6074941f9ec15d187ac6b8f450",
+          "url": "https://github.com/paradedb/paradedb/commit/2d86ed619b84f820524a130dfbd109e9c82e1b24"
+        },
+        "date": 1788279458667,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.6806436,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.9746712047469983, max cpu: 4.698972, count: 59216"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 17.37890625,
+            "unit": "median mem",
+            "extra": "avg mem: 17.359869811896278, max mem: 17.390625, count: 59216"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.678363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.585069888214896, max cpu: 4.7784967, count: 59216"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 17.30859375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.299581590068563, max mem: 17.30859375, count: 59216"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.361287,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.58761860446027, max cpu: 28.332514, count: 59216"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 17.6796875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.703433193731424, max mem: 17.8828125, count: 59216"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.912169008376, max document_count: 10002.0, count: 59216"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.919244798702, max document_count: 10002.0, count: 59216"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59216"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.613668,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.624919613336967, max cpu: 32.95733, count: 59216"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 47.5,
+            "unit": "median mem",
+            "extra": "avg mem: 45.927057034838555, max mem: 56.90234375, count: 59216"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.514948,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.44652177910034, max cpu: 32.941177, count: 59216"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 47.5859375,
+            "unit": "median mem",
+            "extra": "avg mem: 46.001804701220955, max mem: 56.67578125, count: 59216"
           }
         ]
       }

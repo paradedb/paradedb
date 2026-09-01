@@ -663,6 +663,24 @@ unsafe fn is_limit_pushdown_safe(
         && !classify_target_list_srf(root).is_unsafe()
 }
 
+fn finish_result_assembly_accounting(
+    state: &mut CustomScanStateWrapper<BaseScan>,
+    accounting: Option<(std::time::Instant, u64)>,
+) {
+    let Some((start, stages_before)) = accounting else {
+        return;
+    };
+    let stage_delta = state
+        .custom_state()
+        .telemetry
+        .stage_elapsed_ns()
+        .saturating_sub(stages_before);
+    state
+        .custom_state_mut()
+        .telemetry
+        .add_result_assembly_ns((start.elapsed().as_nanos() as u64).saturating_sub(stage_delta));
+}
+
 impl CustomScan for BaseScan {
     const NAME: &'static CStr = c"ParadeDB Base Scan";
 
@@ -1732,34 +1750,25 @@ impl CustomScan for BaseScan {
 
     #[allow(clippy::blocks_in_conditions)]
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
+        let result_assembly_accounting = state.custom_state().explain_stage_accounting.then(|| {
+            (
+                std::time::Instant::now(),
+                state.custom_state().telemetry.stage_elapsed_ns(),
+            )
+        });
         if state.custom_state().search_reader.is_none() {
             Self::init_search_reader(state);
         }
 
         loop {
             let exec_method = state.custom_state_mut().exec_method_mut();
-            let next_accounting = state.custom_state().explain_stage_accounting.then(|| {
-                (
-                    std::time::Instant::now(),
-                    state.custom_state().telemetry.stage_elapsed_ns(),
-                )
-            });
             let next = exec_method.next(state.custom_state_mut());
-            if let Some((next_start, stages_before_next)) = next_accounting {
-                let stage_delta = state
-                    .custom_state()
-                    .telemetry
-                    .stage_elapsed_ns()
-                    .saturating_sub(stages_before_next);
-                state.custom_state_mut().telemetry.add_result_assembly_ns(
-                    (next_start.elapsed().as_nanos() as u64).saturating_sub(stage_delta),
-                );
-            }
 
             // get the next matching document from our search results and look for it in the heap
             match next {
                 // reached the end of the SearchResults
                 ExecState::Eof => {
+                    finish_result_assembly_accounting(state, result_assembly_accounting);
                     return std::ptr::null_mut();
                 }
 
@@ -1769,18 +1778,6 @@ impl CustomScan for BaseScan {
                     score,
                     doc_address: _,
                 } => {
-                    // Tantivy's `result_assembly_ns` ends when the collector has
-                    // produced its `(score, DocAddress)` results.  The CustomScan
-                    // still has to turn each result into a PostgreSQL tuple: check
-                    // visibility, evaluate executor-only quals, and project the
-                    // output slot.  Time that delivery directly: an end-of-scan
-                    // residual cannot infer it reliably because LIMIT may stop
-                    // before EOF and nested stage timers can make a whole-scan
-                    // `elapsed - stage_sum` saturate to zero.
-                    let result_assembly_start = state
-                        .custom_state()
-                        .explain_stage_accounting
-                        .then(std::time::Instant::now);
                     unsafe {
                         let slot = match check_visibility(state, ctid, state.scanslot().cast()) {
                             // the ctid is visible
@@ -1791,12 +1788,6 @@ impl CustomScan for BaseScan {
 
                             // the ctid is not visible
                             None => {
-                                if let Some(start) = result_assembly_start {
-                                    state
-                                        .custom_state_mut()
-                                        .telemetry
-                                        .add_result_assembly_ns(start.elapsed().as_nanos() as u64);
-                                }
                                 continue;
                             }
                         };
@@ -1805,12 +1796,6 @@ impl CustomScan for BaseScan {
                         // that couldn't be pushed into the tantivy query.
                         // These are set as plan.qual in plan_custom_path.
                         if !satisfies_subplan_quals(state, slot) {
-                            if let Some(start) = result_assembly_start {
-                                state
-                                    .custom_state_mut()
-                                    .telemetry
-                                    .add_result_assembly_ns(start.elapsed().as_nanos() as u64);
-                            }
                             continue;
                         }
 
@@ -1827,12 +1812,7 @@ impl CustomScan for BaseScan {
 
                             (*(*state.projection_info()).pi_exprContext).ecxt_scantuple = slot;
                             let projected = pg_sys::ExecProject(state.projection_info());
-                            if let Some(start) = result_assembly_start {
-                                state
-                                    .custom_state_mut()
-                                    .telemetry
-                                    .add_result_assembly_ns(start.elapsed().as_nanos() as u64);
-                            }
+                            finish_result_assembly_accounting(state, result_assembly_accounting);
                             return projected;
                         } else {
                             //
@@ -1895,29 +1875,15 @@ impl CustomScan for BaseScan {
                                 );
                                 pg_sys::ExecProject(proj_info)
                             });
-                            if let Some(start) = result_assembly_start {
-                                state
-                                    .custom_state_mut()
-                                    .telemetry
-                                    .add_result_assembly_ns(start.elapsed().as_nanos() as u64);
-                            }
+                            finish_result_assembly_accounting(state, result_assembly_accounting);
                             return projected;
                         }
                     }
                 }
 
                 ExecState::Virtual { slot } => {
-                    let result_assembly_start = state
-                        .custom_state()
-                        .explain_stage_accounting
-                        .then(std::time::Instant::now);
                     state.custom_state_mut().virtual_tuple_count += 1;
-                    if let Some(start) = result_assembly_start {
-                        state
-                            .custom_state_mut()
-                            .telemetry
-                            .add_result_assembly_ns(start.elapsed().as_nanos() as u64);
-                    }
+                    finish_result_assembly_accounting(state, result_assembly_accounting);
                     return slot;
                 }
             }

@@ -118,6 +118,7 @@ impl ScanTelemetry {
                 let is_stage = matches!(
                     name.as_str(),
                     "scan_init_ns"
+                        | "non_vector_search_ns"
                         | "query_prep_ns"
                         | "routing_ns"
                         | "exact_scan_ns"
@@ -272,6 +273,23 @@ mod tests {
 
         assert_eq!(telemetry.segment_info()[&first]["layer0_scored"], 5);
         assert_eq!(telemetry.segment_info()[&second]["layer0_scored"], 8);
+    }
+
+    #[test]
+    fn stage_elapsed_includes_non_vector_search() {
+        let segment_id = SegmentId::from_bytes([1; 16]);
+        let mut telemetry = ScanTelemetry::default();
+        telemetry.accumulate_segment_info(segment_info(
+            segment_id,
+            json!({
+                "scan_init_ns": 10,
+                "non_vector_search_ns": 20,
+                "routing_ns": 30,
+                "layer0_scored": 100
+            }),
+        ));
+
+        assert_eq!(telemetry.stage_elapsed_ns(), 60);
     }
 
     #[test]

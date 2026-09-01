@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::{CTID_FIELD_NAME, FieldName, HashMap, HashSet};
+use crate::index::directory::utils::load_index_settings;
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -29,7 +30,7 @@ use crate::postgres::utils::{item_pointer_to_u64, u64_to_item_pointer};
 use crate::query::SearchQueryInput;
 use crate::query::pdb_query::pdb as pdb_query;
 use crate::schema::{IndexRecordOption, SearchFieldType};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use pgrx::JsonB;
 use pgrx::PgRelation;
 use pgrx::datum::DatumWithOid;
@@ -388,9 +389,7 @@ fn index_info(
 /// explicitly rather than only the first one an index happens to carry. `segno`
 /// aligns with [`index_info`]'s so the two can be joined.
 ///
-/// The cluster columns are IVF-only (`NULL` for flat segments). `*_cluster_size`
-/// and `vector_total_memberships` count posting rows, so under replication their
-/// totals exceed `vector_num_vectors`, which counts distinct docs.
+/// The cluster columns are IVF-only (`NULL` for flat segments).
 #[allow(clippy::type_complexity)]
 #[pg_extern]
 fn vector_info(
@@ -409,7 +408,11 @@ fn vector_info(
             name!(vector_max_cluster_size, Option<AnyNumeric>),
             name!(vector_avg_cluster_size, Option<f64>),
             name!(vector_empty_clusters, Option<AnyNumeric>),
-            name!(vector_total_memberships, Option<AnyNumeric>),
+            name!(vector_total_rows, Option<AnyNumeric>),
+            name!(quantized, bool),
+            name!(layers, Option<Vec<i32>>),
+            name!(bytes_per_row, Option<i32>),
+            name!(format, Option<i32>),
         ),
     >,
 > {
@@ -430,6 +433,7 @@ fn vector_info(
             continue;
         }
         let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
+        let settings = load_index_settings(&index)?;
         let resolved = search_reader
             .schema()
             .fields()
@@ -444,15 +448,34 @@ fn vector_info(
         let Some(vector_field) = resolved else {
             anyhow::bail!("`{field}` is not a vector field of the index");
         };
+        let quantization = settings
+            .as_ref()
+            .into_iter()
+            .flat_map(|settings| &settings.vector_quantization)
+            .find(|config| config.field == field);
+        let quantized = quantization.is_some();
+        let layers = quantization.map(|config| {
+            config
+                .layers
+                .iter()
+                .map(|layer| i32::from(layer.bits))
+                .collect()
+        });
+        let bytes_per_row = quantization
+            .map(|config| i32::try_from(config.bytes_per_row()))
+            .transpose()
+            .context("quantized bytes per row exceeds SQL integer range")?;
+        let format = quantization
+            .map(|config| i32::try_from(config.format_version))
+            .transpose()
+            .context("quantization format exceeds SQL integer range")?;
         for segment_reader in search_reader.segment_readers() {
             let vector_index = segment_reader.vector_index(vector_field)?;
             let Some(info) = vector_index.info() else {
                 continue;
             };
             let cluster_stats = info.cluster_stats.as_ref();
-            // Summed here rather than read off `cluster_stats`, which only
-            // carries the average: this keeps the membership total exact.
-            let total_memberships = vector_index
+            let total_rows = vector_index
                 .cluster_sizes()
                 .map(|sizes| sizes.iter().map(|size| *size as u64).sum::<u64>());
             rows.push((
@@ -469,7 +492,11 @@ fn vector_info(
                 cluster_stats.map(|stats| stats.max_cluster_size.into()),
                 cluster_stats.map(|stats| stats.avg_cluster_size),
                 cluster_stats.map(|stats| stats.empty_clusters.into()),
-                total_memberships.map(Into::into),
+                total_rows.map(Into::into),
+                quantized,
+                layers.clone(),
+                bytes_per_row,
+                format,
             ));
         }
     }

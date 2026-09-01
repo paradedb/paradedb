@@ -165,7 +165,8 @@
                 "pages": [
                   "reference/vector/overview",
                   "reference/vector/querying",
-                  "reference/vector/tuning"
+                  "reference/vector/tuning",
+                  "reference/vector/diagnosing-quantized-indexes"
                 ]
               },
               {

@@ -1413,6 +1413,9 @@ mod segment_info_tests {
         let mut fields = Map::new();
         for name in [
             "candidates_scored",
+            "layer0_eligible",
+            "clusters_skipped_empty",
+            "eligible_charged",
             "rerank_rows",
             "scan_init_ns",
             "query_prep_ns",

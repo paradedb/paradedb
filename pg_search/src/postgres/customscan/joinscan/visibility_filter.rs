@@ -254,11 +254,10 @@ fn collect_beneficial_deferred_visibility_inner<'a>(
             // lands below that join, so nothing reduces its rows first and it
             // stays eager unless something below already did.
             //
-            // A Full barrier also credits itself here, though it keeps both
-            // sides' checks below it. That can wrap a scan with nothing
-            // reducing in between, where the check costs the same rows as
-            // the in-scan one plus a node. Collapsing such a wrap back into
-            // the scan is a possible refinement.
+            // A Full barrier never credits itself: it keeps every check
+            // below it, so its own reduction comes after the check. Without
+            // a reduction under the barrier, the wrap would cost the same
+            // rows as the in-scan check plus a node.
             let mut has_reduction = false;
             for (ancestor, from_child) in ancestors.iter().rev() {
                 match barrier_status(ancestor) {
@@ -268,10 +267,11 @@ fn collect_beneficial_deferred_visibility_inner<'a>(
                         }
                     }
                     BarrierStatus::Partial(checked) if *from_child == checked => break,
-                    _ => {
+                    BarrierStatus::Partial(_) => {
                         has_reduction = has_reduction || is_reduction_node(ancestor);
                         break;
                     }
+                    BarrierStatus::Full => break,
                 }
             }
             if has_reduction {
@@ -1852,6 +1852,87 @@ mod tests {
     #[pg_test]
     fn right_anti_join_defers_preserved_side() -> Result<()> {
         assert_partial_barrier_join(datafusion::common::JoinType::RightAnti, 0)
+    }
+
+    /// A Full barrier holds every check below it, so with nothing reducing
+    /// under the join both scans keep their in-scan checks.
+    #[pg_test]
+    fn full_join_without_reduction_keeps_in_scan_checks() -> Result<()> {
+        let config = OptimizerContext::new();
+
+        const POS_A: usize = 0;
+        const POS_B: usize = 1;
+
+        let rule = VisibilityFilterOptimizerRule::new();
+
+        let left = make_ctid_plan(POS_A, pg_sys::Oid::from(42), Some("a"))?;
+        let right = make_ctid_plan(POS_B, pg_sys::Oid::from(43), Some("b"))?;
+
+        let plan = LogicalPlanBuilder::from(left)
+            .join_on(
+                right,
+                datafusion::common::JoinType::Full,
+                vec![
+                    col(CtidColumn::new(POS_A).to_string())
+                        .eq(col(CtidColumn::new(POS_B).to_string())),
+                ],
+            )?
+            .build()?;
+
+        let result = rule.rewrite(plan, &config)?;
+        assert!(!result.transformed);
+        assert_eq!(count_visibility_nodes(&result.data), 0);
+        Ok(())
+    }
+
+    /// A reduction under one side of a Full barrier makes deferring that
+    /// side pay; the other side keeps its in-scan check.
+    #[pg_test]
+    fn full_join_reduced_side_checks_below_join() -> Result<()> {
+        let config = OptimizerContext::new();
+
+        const POS_A: usize = 0;
+        const POS_B: usize = 1;
+        let oid_b = pg_sys::Oid::from(43);
+
+        let rule = VisibilityFilterOptimizerRule::new();
+
+        let left = make_ctid_plan(POS_A, pg_sys::Oid::from(42), Some("a"))?;
+        let right = LogicalPlanBuilder::from(make_ctid_plan(POS_B, oid_b, Some("b"))?)
+            .filter(col(CtidColumn::new(POS_B).to_string()).gt(datafusion::logical_expr::lit(10)))?
+            .build()?;
+
+        let plan = LogicalPlanBuilder::from(left)
+            .join_on(
+                right,
+                datafusion::common::JoinType::Full,
+                vec![
+                    col(CtidColumn::new(POS_A).to_string())
+                        .eq(col(CtidColumn::new(POS_B).to_string())),
+                ],
+            )?
+            .build()?;
+
+        let first = rule.rewrite(plan, &config)?;
+        assert!(first.transformed, "first pass should transform");
+        assert_eq!(count_visibility_nodes(&first.data), 1);
+
+        let LogicalPlan::Join(join) = &first.data else {
+            panic!("expected root to be Join");
+        };
+        let LogicalPlan::Extension(ext) = join.right.as_ref() else {
+            panic!("expected reduced child to be wrapped with VisibilityFilterNode");
+        };
+        let vf = ext
+            .node
+            .as_any()
+            .downcast_ref::<VisibilityFilterNode>()
+            .expect("reduced child should be VisibilityFilterNode");
+        assert_eq!(vf.plan_pos_oids, vec![(POS_B, oid_b)]);
+
+        let second = rule.rewrite(first.data.clone(), &config)?;
+        assert!(!second.transformed, "second pass should be idempotent");
+        Ok(())
     }
 
     #[pg_test]

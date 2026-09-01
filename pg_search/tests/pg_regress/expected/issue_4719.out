@@ -106,10 +106,9 @@ LIMIT 26;
            :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query="all"
            :             CooperativeExec
            :               PgSearchScan: table=x, segments=1, query={"term_set":{"terms":[{"field":"company_id","value":10},{"field":"company_id","value":20},{"field":"company_id","value":50}]}}
-           :         VisibilityFilterExec: tables=[c]
-           :           CooperativeExec
-           :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query="all"
-(23 rows)
+           :         CooperativeExec
+           :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query="all"
+(22 rows)
 
 SELECT p.id
 FROM issue_4719_people p

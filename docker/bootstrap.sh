@@ -85,7 +85,7 @@ tune() {
     echo "# Begin ParadeDB tuning recommendations"
     echo "# Parameters based on auto-detected $CPU_COUNT CPUs and ${TOTAL_RAM_MB}MB RAM"
     printf "%-45s # %s\n" "shared_buffers = '${SHARED_BUFFERS_MB}MB'" "25% of RAM, capped at 16GB"
-    printf "%-45s # %s\n" "effective_cache_size = '$(awk "BEGIN {print int($TOTAL_RAM_MB * 0.75)}")MB'" "75% of RAM"
+    printf "%-45s # %s\n" "effective_cache_size = '$(awk "BEGIN {e=int($TOTAL_RAM_MB * 0.75); print (e > 16777215 ? 16777215 : e)}")MB'" "75% of RAM, capped at 16TB"
     printf "%-45s # %s\n" "maintenance_work_mem = '$(awk "BEGIN {m=int($TOTAL_RAM_MB / 16); print (m > 2048 ? 2048 : m)}")MB'" "RAM / 16, capped at 2GB"
     printf "%-45s # %s\n" "work_mem = '${WORK_MEM_MB}MB'" "(RAM - shared_buffers) / (3 * max_connections), at least 15MB"
     printf "%-45s # %s\n" "max_parallel_workers = '$PARALLEL_WORKERS'" "CPUs * 5, capped at 1024"

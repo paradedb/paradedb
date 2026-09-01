@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788279531395,
+  "lastUpdate": 1788279539245,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -138532,6 +138532,108 @@ window.BENCHMARK_DATA = {
             "value": 45.37890625,
             "unit": "median mem",
             "extra": "avg mem: 42.9690753948387, max mem: 48.96875, count: 59423"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "59121903+RupertMaiti2005@users.noreply.github.com",
+            "name": "Rupert Maiti",
+            "username": "RupertMaiti2005"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2d86ed619b84f820524a130dfbd109e9c82e1b24",
+          "message": "fix: don't reset the shared parallel work queue on rescan (#5024) (#6112)\n\n# Ticket(s) Closed\n\n- Closes #5024\n\n## What\n\n`BaseScanState::reset()` — the leader's ReScan callback — reset the\nshared parallel segment work queue in DSM. This PR removes that reset\nand the now-unused `ParallelScanHandle::reset_work_queue`, leaving\n`ReInitializeDSMCustomScan` as the only place the queue is reset for a\nrescan, and documents that invariant. Adds a regression test.\n\n## Why\n\nParallel-aware base scans partition work by lazily checking segments out\nof a shared pool; correctness requires each segment to be claimed\nexactly once per scan cycle.\n\nOn a parallel rescan, PostgreSQL defers the leader's ReScan of a\nparallel-aware child until the leader's first `ExecProcNode` call, which\nhappens after `LaunchParallelWorkers`. Resetting the shared queue there\nraces with segment claims from freshly launched workers: an\nalready-claimed segment goes back into the pool, is claimed again, and\nevery row in it is emitted twice. On the plan shape from #5024\n(`debug_parallel_query=on`; a Gather over Parallel Custom Scans on the\ninner side of a Nested Loop, rescanned per outer row), `COUNT(*)`\nreturned exactly 2× the correct value in ~65% of runs on a v0.25.4\nrelease build.\n\nnodeGather.c documents the contract: \"ReInitializeDSM should reset only\nshared state, ReScan should reset only local state.\"\n`reinitialize_dsm_custom_scan` already performs the reset at the safe\npoint, so the ReScan-side reset was redundant when it wasn't harmful.\nThis is the custom-scan twin of the parallel index-scan race fixed in\n#3872.\n\n## Tests\n\n- New `test_parallel_rescan_does_not_double_scan` recreates the plan\nshape (asserted via EXPLAIN), computes the expected count from the plain\nPostgreSQL plan, and requires 30 consecutive runs of the `@@@` query to\nmatch. It fails 24/30 iterations against the unfixed v0.25.4 binary\n(`expected 49, got [50, 98, 97, …]`) and is deterministic with the fix.\n- The issue's exact repro script: 100/100 runs correct with the fix;\n65/100 returned 2× on v0.25.4.\n- Causal check: a 200 ms delay injected before the old reset call (a\ntiming-only change) made the unpatched build fail 30/30 runs at 4× (both\nParallel Hash Join sides double-scanned); the same build with only the\nreset removed passed 100/100.\n- Existing tests in `tests/tests/parallel.rs` (including the #3872 and\n#4381 races) and `generated_joins_small` pass; `cargo fmt` and `cargo\nclippy --all-targets -- -D warnings` are clean.\n\nMaintainer note: this PR needs two labels external contributors cannot\nset — a cherry-pick decision (`Do Not Cherry Pick` or `cherry-pick/*`)\nto satisfy the label gate, and ideally `antithesis` to exercise the fix\nunder the deterministic scheduler that found the bug.\n\nCo-authored-by: baburama <59121903+baburama@users.noreply.github.com>\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-09-01T11:40:43-04:00",
+          "tree_id": "385683a56cfe8b6074941f9ec15d187ac6b8f450",
+          "url": "https://github.com/paradedb/paradedb/commit/2d86ed619b84f820524a130dfbd109e9c82e1b24"
+        },
+        "date": 1788279535773,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08487786812113866, max background_merging: 2.0, count: 59403"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.712813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7335894994114955, max cpu: 9.653092, count: 59403"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 19.58984375,
+            "unit": "median mem",
+            "extra": "avg mem: 19.577889453184184, max mem: 19.63671875, count: 59403"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7105007,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.9795213607130195, max cpu: 9.80092, count: 59403"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 33.4140625,
+            "unit": "median mem",
+            "extra": "avg mem: 33.246443519266705, max mem: 33.4375, count: 59403"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 52482,
+            "unit": "median block_count",
+            "extra": "avg block_count: 52302.600138040165, max block_count: 52482.0, count: 59403"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 70,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 68.28330219012508, max segment_count: 105.0, count: 59403"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.564064,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.060247760092487, max cpu: 33.38301, count: 59403"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 84.03515625,
+            "unit": "median mem",
+            "extra": "avg mem: 80.37982601362725, max mem: 84.06640625, count: 59403"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.7081904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.76028837256421, max cpu: 29.090908, count: 59403"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 52.171875,
+            "unit": "median mem",
+            "extra": "avg mem: 46.27152241627106, max mem: 52.171875, count: 59403"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.703577,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.78526738976558, max cpu: 23.076923, count: 59403"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 48.76953125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.63151935981769, max mem: 51.29296875, count: 59403"
           }
         ]
       }

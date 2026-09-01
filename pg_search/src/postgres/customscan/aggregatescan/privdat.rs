@@ -192,6 +192,10 @@ pub enum PrivateData {
         /// HAVING clause filter applied after aggregation.
         #[serde(default)]
         having_filter: Option<FilterExpr>,
+        /// PostgreSQL's query-wide decision that entering parallel mode is safe.
+        /// Defaults closed when deserializing an older plan representation.
+        #[serde(default)]
+        mpp_query_safe: bool,
     },
 }
 

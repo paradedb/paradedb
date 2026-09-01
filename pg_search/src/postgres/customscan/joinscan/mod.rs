@@ -181,10 +181,10 @@ use crate::postgres::customscan::joinscan::planning::{
     distinct_collations_are_deterministic, distinct_columns_are_fast_fields,
 };
 use crate::postgres::customscan::limit_offset::LimitOffset;
-use crate::postgres::customscan::mpp::glue::mpp_is_active;
+use crate::postgres::customscan::mpp::glue::query_allows_parallel_mode;
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
-use crate::postgres::customscan::mpp::launch::mpp_gated_by_min_rows;
+use crate::postgres::customscan::mpp::launch::mpp_eligible;
 use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parallelism;
 use arrow_array::Array;
 use datafusion_distributed::shm::MppMesh;
@@ -726,7 +726,7 @@ impl JoinScan {
         let order_by_len = join_clause.order_by.len();
         let relevant_pathkeys =
             planning::count_relevant_pathkeys(root, &join_clause.plan.sources());
-        let private_data = PrivateData::new(join_clause);
+        let private_data = PrivateData::new(join_clause, query_allows_parallel_mode(&*root));
         let mut custom_path = pg_sys::CustomPath {
             path: pg_sys::Path {
                 type_: pg_sys::NodeTag::T_CustomPath,
@@ -933,7 +933,10 @@ impl JoinScan {
             None => std::ptr::null_mut(),
         };
 
-        let mut private_data = PrivateData::new(state.custom_state().join_clause.clone());
+        let mut private_data = PrivateData::new(
+            state.custom_state().join_clause.clone(),
+            state.custom_state().mpp_query_safe,
+        );
         private_data.output_columns = state.custom_state().output_columns.clone();
 
         bake_logical_plan(&mut private_data, custom_exprs, force_serial);
@@ -1151,6 +1154,7 @@ impl CustomScan for JoinScan {
         builder.custom_state().logical_plan = builder.custom_private().logical_plan.clone();
         builder.custom_state().custom_exprs_string =
             builder.custom_private().custom_exprs_string.clone();
+        builder.custom_state().mpp_query_safe = builder.custom_private().mpp_query_safe;
         builder.build()
     }
 
@@ -1338,16 +1342,10 @@ impl CustomScan for JoinScan {
                     .block_on(build_physical_plan(ctx, logical_plan))
                     .expect("Failed to create execution plan")
             };
-            let gated = mpp_gated_by_min_rows(
-                state
-                    .custom_state()
-                    .join_clause
-                    .plan
-                    .sources()
-                    .into_iter()
-                    .map(|source| &source.scan_info),
-            );
-            let physical_plan = if mpp_is_active() && !gated {
+            let physical_plan = if mpp_eligible(
+                state.custom_state().mpp_query_safe,
+                &state.custom_state().join_clause.plan,
+            ) {
                 let mpp_plan = build_with(&Self::build_mpp_session_context(None));
                 if mpp_plan_has_data_parallelism(&mpp_plan) {
                     mpp_plan
@@ -1385,18 +1383,11 @@ impl CustomScan for JoinScan {
             // DSM allocation. Only the leader runs this branch (`ParallelWorkerNumber == -1`).
             // The size gate decides here, before any MPP work: a gated query takes the plain
             // serial path and never builds the distributed plan or captures manifests.
-            if mpp_is_active()
-                && unsafe { pg_sys::ParallelWorkerNumber } == -1
+            if mpp_eligible(
+                state.custom_state().mpp_query_safe,
+                &state.custom_state().join_clause.plan,
+            ) && unsafe { pg_sys::ParallelWorkerNumber } == -1
                 && state.custom_state().logical_plan.is_some()
-                && !mpp_gated_by_min_rows(
-                    state
-                        .custom_state()
-                        .join_clause
-                        .plan
-                        .sources()
-                        .into_iter()
-                        .map(|source| &source.scan_info),
-                )
             {
                 state.custom_state_mut().mpp = MppLifecycle::Pending;
             }
@@ -1951,12 +1942,15 @@ unsafe fn build_output_projection(
 ///
 /// `force_serial`: when `true`, every source is baked with `mpp_source_idx = None`
 /// regardless of the global `mpp_is_active()` budget check. A short-launch decline must rebuild
-/// this logical metadata because choosing a serial physical planner does not rewrite it.
+/// this logical metadata because choosing a serial physical planner does not rewrite it. A
+/// parallel-unsafe statement (`private_data.mpp_query_safe == false`, #6157) is baked serially
+/// regardless of this flag.
 fn bake_logical_plan(
     private_data: &mut PrivateData,
     custom_exprs: *mut pg_sys::List,
     force_serial: bool,
 ) {
+    let force_serial = force_serial || !private_data.mpp_query_safe;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("Failed to create tokio runtime");

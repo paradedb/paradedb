@@ -50,7 +50,7 @@ When you're ready to deploy, check out our [hosting options](https://www.paraded
   - [x] [Top K](https://www.paradedb.com/docs/documentation/sorting/topk)
   - [x] [Highlighting](https://www.paradedb.com/docs/documentation/full-text/highlight)
   - [x] [Tokenizers & Token Filters](https://www.paradedb.com/docs/documentation/tokenizers/overview)
-- [ ] [Vector Search](https://www.paradedb.com/docs/documentation/vector/overview)
+- [x] [Vector Search](https://www.paradedb.com/docs/documentation/vector/overview)
 - [x] [Hybrid Search](https://www.paradedb.com/docs/documentation/hybrid/overview)
 - [x] [Filtering](https://www.paradedb.com/docs/documentation/filtering)
 - [x] [Aggregates](https://www.paradedb.com/docs/documentation/aggregates/overview)

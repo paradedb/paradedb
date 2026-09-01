@@ -738,6 +738,10 @@ enum BarrierStatus {
 /// A consumed or null-supplying side cannot check above its join: a dead row
 /// that reaches the join fabricates a semi match, suppresses an anti row, or
 /// replaces a null-extension, and its ctid never reaches the plan top anyway.
+/// Null support in the check is what lets the preserved side defer past the
+/// join, but it is not enough to move the other side's check up: the filter
+/// can skip a NULL ctid, yet it cannot re-extend the preserved row that a
+/// dead match displaced.
 ///
 /// Full Barriers include all other non-inner joins (outer, etc),
 /// aggregates, distinct, window functions, and sort-with-limit.

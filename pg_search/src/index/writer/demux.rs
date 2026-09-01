@@ -42,7 +42,6 @@ use crate::index::stats;
 use crate::index::stats::SegmentStats;
 use crate::index::writer::index::SearchIndexMerger;
 use crate::postgres::merge::garbage_collect_index;
-use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::schema::SearchFieldType;
@@ -95,7 +94,7 @@ pub(crate) fn demux_merge(
         .map(|dim| schema.search_field(dim).map(|field| field.field_type()))
         .collect::<Vec<_>>();
 
-    let routes = routes(&readers, schema.tantivy_schema(), dims, &field_types, tree);
+    let routes = routes(&readers, dims, &field_types, tree);
 
     let mut written = Vec::new();
     for partition in 0..tree.partition_count() {
@@ -198,7 +197,7 @@ pub(crate) fn resolve_tree(
         .iter()
         .map(SegmentReader::open)
         .collect::<tantivy::Result<Vec<_>>>()?;
-    let points = sample(&readers, schema.tantivy_schema(), &dims, &field_types);
+    let points = sample(&readers, &dims, &field_types);
     let tree = KdTree::from_sample(dims, points, target_partitions);
     if tree.partition_count() > 1 {
         persist_tree(indexrel, &tree)?;
@@ -206,32 +205,24 @@ pub(crate) fn resolve_tree(
     Ok(tree)
 }
 
-/// The `partition_by` dimensions a demux can route on: the ones with a fast column to read
-/// the routes from, that keep a box on the output (see [`stats::logical_bounds_hold`]). The
-/// build reads raw heap values, so it can cut on any dimension; a demux reads the fast
-/// columns, so it routes on this subset, exactly the dimensions whose boxes survive either
-/// way.
+/// The `partition_by` dimensions, checked: every one must have a fast column in raw order,
+/// because a demux reads the fast columns and stamps boxes only where the raw order holds
+/// (see [`stats::logical_bounds_hold`]). The build could cut on any single-valued field, but
+/// a dimension a merge cannot route would leave every later row unrouted forever, so the
+/// build and the demux take the same set.
 ///
-/// An empty result is an error, since nothing could ever route such an index: the build
-/// refuses to create it, and `ALTER INDEX` refuses to change `partition_by`, so only an index
-/// from before those checks can carry one. Its merges decline instead of failing the
-/// `INSERT` or `VACUUM` they run under.
+/// The build refuses an index that fails this, and `ALTER INDEX` refuses to change
+/// `partition_by`, so only an index from before those checks can fail it here; its merges
+/// decline instead of failing the `INSERT` or `VACUUM` they run under.
 pub(crate) fn routable_dims(schema: &Schema, dims: &[FieldName]) -> Result<Vec<FieldName>> {
-    if dims.is_empty() {
-        return Ok(Vec::new());
+    for dim in dims {
+        if !dim_routable(schema, dim) {
+            bail!(
+                "`{dim}` cannot be used in `partition_by` because it does not have a fast column in raw order"
+            );
+        }
     }
-    let routable = dims
-        .iter()
-        .filter(|dim| dim_routable(schema, dim))
-        .cloned()
-        .collect::<Vec<_>>();
-    if routable.is_empty() {
-        bail!(
-            "`{}` cannot be used in `partition_by` because it does not have a fast column in raw order",
-            dims[0]
-        );
-    }
-    Ok(routable)
+    Ok(dims.to_vec())
 }
 
 /// The mergeable segments of `indexrel` that carry no box, so nothing routed them.
@@ -350,30 +341,22 @@ fn sources(index: &Index, segment_ids: &[SegmentId]) -> Result<Vec<Segment>> {
 /// The point `doc` routes on. A document with no value routes as `NULL`, which the tree sends
 /// to the first partition; a frozen mutable segment can hold such documents even under a
 /// `NOT NULL` column, because it materializes an unfetchable ctid as an empty document.
-fn point(ffs: &[Option<FFType>], field_types: &[Option<SearchFieldType>], doc: DocId) -> Point {
+fn point(ffs: &[FFType], field_types: &[Option<SearchFieldType>], doc: DocId) -> Point {
     ffs.iter()
         .zip(field_types)
-        .map(|(ff, field_type)| match ff {
-            Some(ff) => ff.value_or_null(doc, *field_type).0,
-            // A dimension with no readable fast column: the build routed it on heap values;
-            // a demux sends it left, and every box a stamp keeps stays truthful to the path.
-            None => PdbOwnedValue::Null,
-        })
+        .map(|(ff, field_type)| ff.value_or_null(doc, *field_type).0)
         .collect()
 }
 
-fn fast_fields(reader: &SegmentReader, schema: &Schema, dims: &[FieldName]) -> Vec<Option<FFType>> {
+fn fast_fields(reader: &SegmentReader, dims: &[FieldName]) -> Vec<FFType> {
     dims.iter()
-        .map(|dim| {
-            dim_routable(schema, dim).then(|| FFType::new(reader.fast_fields(), dim.as_ref()))
-        })
+        .map(|dim| FFType::new(reader.fast_fields(), dim.as_ref()))
         .collect()
 }
 
 /// A stride sample of the values the segments hold, for the boundaries to be planned over.
 fn sample(
     readers: &[SegmentReader],
-    schema: &Schema,
     dims: &[FieldName],
     field_types: &[Option<SearchFieldType>],
 ) -> Vec<Point> {
@@ -385,7 +368,7 @@ fn sample(
     let mut sample = Vec::with_capacity(total.min(MAX_SAMPLE_DOCS));
     let mut seen = 0usize;
     for reader in readers {
-        let ffs = fast_fields(reader, schema, dims);
+        let ffs = fast_fields(reader, dims);
         for doc in reader.doc_ids_alive() {
             if seen.is_multiple_of(stride) {
                 sample.push(point(&ffs, field_types, doc));
@@ -400,7 +383,6 @@ fn sample(
 /// bytes per document bound what a route holds in memory, however large the candidate is.
 fn routes(
     readers: &[SegmentReader],
-    schema: &Schema,
     dims: &[FieldName],
     field_types: &[Option<SearchFieldType>],
     tree: &KdTree,
@@ -408,7 +390,7 @@ fn routes(
     readers
         .iter()
         .map(|reader| {
-            let ffs = fast_fields(reader, schema, dims);
+            let ffs = fast_fields(reader, dims);
             let mut routes = vec![NO_ROUTE; reader.max_doc() as usize];
             for doc in reader.doc_ids_alive() {
                 routes[doc as usize] = tree.route(&point(&ffs, field_types, doc)) as u16;
@@ -739,44 +721,21 @@ mod tests {
         .unwrap();
     }
 
-    /// The build cuts on raw heap values, so it can partition on a plain text dimension; a
-    /// demux reads the fast columns, so it routes on the dimensions that have one. The
-    /// routable dimension keeps its split points either way.
-    #[pg_test]
-    fn a_rewrite_routes_on_the_dims_it_can_read() {
+    /// Every `partition_by` dimension must be one a demux can read back, so a key that
+    /// mixes a routable dimension with a plain text one is refused as a whole.
+    #[pg_test(
+        error = "`name` cannot be used in `partition_by` because it does not have a fast column in raw order"
+    )]
+    fn a_partly_unroutable_key_is_rejected() {
         Spi::run(
             r#"
             CREATE TABLE demux_subset (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
-            SET paradedb.global_mutable_segment_rows = 0;
             CREATE INDEX demux_subset_idx ON demux_subset USING bm25 (id, tenant_id, name)
                 WITH (key_field = 'id', partition_by = 'tenant_id, name', target_segment_count = 4,
                       numeric_fields = '{"tenant_id": {"fast": true}}');
-            INSERT INTO demux_subset (tenant_id, name)
-            SELECT (i * 7919) % 100, 'lorem ipsum ' || i FROM generate_series(1, 4000) i;
             "#,
         )
         .unwrap();
-
-        let indexrel = open_index("demux_subset_idx");
-        let written = unsafe { super::route_index(&indexrel, 4) }.unwrap();
-        assert_eq!(written.len(), 4, "one segment per partition");
-        drop(indexrel);
-
-        let indexrel = open_index("demux_subset_idx");
-        persisted_split_points(&indexrel, "tenant_id")
-            .unwrap()
-            .expect("the routable dimension keeps its split points");
-        assert!(
-            persisted_split_points(&indexrel, "name").unwrap().is_none(),
-            "a plain text dimension records none"
-        );
-        assert_eq!(
-            Spi::get_one::<i64>("SELECT count(*) FROM demux_subset WHERE id @@@ pdb.all();")
-                .unwrap()
-                .unwrap(),
-            4000,
-            "the rewrite keeps every row"
-        );
     }
 
     /// An index on an empty table stores no tree: there is nothing to plan over. The first

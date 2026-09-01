@@ -339,7 +339,7 @@ pub enum ChildProjection {
     /// An indexed expression handled by existing fast field machinery
     IndexedExpression {
         rti: pg_sys::Index,
-        attno: pg_sys::AttrNumber,
+        field_name: String,
     },
     /// Arbitrary PG expression evaluated via PgExprUdf
     Expression {
@@ -350,8 +350,8 @@ pub enum ChildProjection {
     },
     /// An unnested column from a LATERAL unnest join
     Unnested {
-        function_rti: pg_sys::Index,
-        source_rti: pg_sys::Index,
+        function_rti: FunctionRti,
+        source_rti: SourceRti,
         field_name: String,
     },
 }
@@ -1590,6 +1590,7 @@ impl RelNode {
     pub fn join_level_expr(&self) -> Option<&JoinLevelExpr> {
         match self {
             RelNode::Filter(f) => Some(&f.predicate),
+            RelNode::Unnest(u) => u.input.join_level_expr(),
             _ => None,
         }
     }
@@ -2119,7 +2120,7 @@ pub unsafe fn lookup_base_rel_info(
 /// over an array fast field on an indexed base table.
 pub unsafe fn try_extract_lateral_unnest_from_rte(
     root: *mut pg_sys::PlannerInfo,
-    function_rti: pg_sys::Index,
+    candidate_rti: pg_sys::Index,
     rte: *mut pg_sys::RangeTblEntry,
 ) -> Option<LateralUnnestInfo> {
     if rte.is_null() || (*rte).rtekind != pg_sys::RTEKind::RTE_FUNCTION {
@@ -2142,14 +2143,14 @@ pub unsafe fn try_extract_lateral_unnest_from_rte(
     }
 
     let var = stripped as *mut pg_sys::Var;
-    let source_rti = (*var).varno as pg_sys::Index;
+    let source_rti = SourceRti((*var).varno as pg_sys::Index);
     let source_attno = (*var).varattno;
 
     if source_attno <= 0 {
         return None;
     }
 
-    let (source_relid, _alias, bm25_index) = lookup_base_rel_info(root, source_rti)?;
+    let (source_relid, _alias, bm25_index) = lookup_base_rel_info(root, source_rti.0)?;
     let bm25_index = bm25_index?;
 
     let schema = crate::schema::SearchIndexSchema::open(&bm25_index).ok()?;
@@ -2171,8 +2172,8 @@ pub unsafe fn try_extract_lateral_unnest_from_rte(
     }
 
     Some(LateralUnnestInfo {
-        function_rti: FunctionRti(function_rti),
-        source_rti: SourceRti(source_rti),
+        function_rti: FunctionRti(candidate_rti),
+        source_rti,
         source_attno,
         field_name: col_name.to_string(),
         is_left_join: false,
@@ -2182,14 +2183,14 @@ pub unsafe fn try_extract_lateral_unnest_from_rte(
 /// Convenience helper to extract lateral unnest info by RTI.
 pub unsafe fn try_extract_lateral_unnest(
     root: *mut pg_sys::PlannerInfo,
-    function_rti: pg_sys::Index,
+    candidate_rti: pg_sys::Index,
 ) -> Option<LateralUnnestInfo> {
     let rte = get_rte(
         (*root).simple_rel_array_size as usize,
         (*root).simple_rte_array,
-        function_rti,
+        candidate_rti,
     )?;
-    try_extract_lateral_unnest_from_rte(root, function_rti, rte)
+    try_extract_lateral_unnest_from_rte(root, candidate_rti, rte)
 }
 
 #[cfg(any(test, feature = "pg_test"))]

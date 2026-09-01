@@ -16,7 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::AsCStr;
-use crate::postgres::customscan::joinscan::build::{ChildProjection, JoinCSClause};
+use crate::postgres::customscan::joinscan::build::{
+    ChildProjection, FunctionRti, JoinCSClause, SourceRti,
+};
 use pgrx::PgList;
 use pgrx::pg_sys;
 use pgrx::pg_sys::AsPgCStr;
@@ -40,8 +42,8 @@ pub enum OutputColumnInfo {
     },
     /// An unnested column from a LATERAL unnest join.
     Unnested {
-        function_rti: pg_sys::Index,
-        source_rti: pg_sys::Index,
+        function_rti: FunctionRti,
+        source_rti: SourceRti,
         field_name: String,
     },
     /// A column pruned by a semi/anti join or a non-Var, non-score expression.

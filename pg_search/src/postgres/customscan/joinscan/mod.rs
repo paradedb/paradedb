@@ -437,9 +437,6 @@ unsafe fn is_limit_pushdown_safe(
     // 4. No volatile functions (these can never be absorbed).
     for rti in &absorbed_rtis {
         let rel = pg_sys::find_base_rel(root, *rti as i32);
-        if rel.is_null() {
-            continue;
-        }
         let ri_list = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
         for ri in ri_list.iter_ptr() {
             let clause = (*ri).clause as *mut pg_sys::Node;
@@ -1653,6 +1650,57 @@ impl CustomScan for JoinScan {
                         }
                     }
                 }
+
+                let plan_sources = state.custom_state().join_clause.plan.sources();
+                let output_batch_col_indices: Vec<Option<usize>> = state
+                    .custom_state()
+                    .output_columns
+                    .iter()
+                    .enumerate()
+                    .map(|(out_idx, col_info)| match col_info {
+                        privdat::OutputColumnInfo::Score { plan_position, .. } => {
+                            let col_alias = format!("col_{}", out_idx + 1);
+                            if let Ok(idx) = schema.index_of(&col_alias) {
+                                Some(idx)
+                            } else if let Some(source) = plan_sources.get(*plan_position) {
+                                let alias = RelationAlias::new(source.scan_info.alias.as_deref())
+                                    .execution(*plan_position);
+                                let score_col = format!("_score_{alias}");
+                                schema
+                                    .index_of(&score_col)
+                                    .ok()
+                                    .or_else(|| schema.index_of(privdat::SCORE_COL_NAME).ok())
+                            } else {
+                                schema.index_of(privdat::SCORE_COL_NAME).ok()
+                            }
+                        }
+                        privdat::OutputColumnInfo::Unnested {
+                            source_rti,
+                            field_name,
+                            ..
+                        } => {
+                            let col_alias = format!("col_{}", out_idx + 1);
+                            if let Ok(idx) = schema.index_of(&col_alias) {
+                                Some(idx)
+                            } else if let Some(source) =
+                                plan_sources.iter().find(|s| s.contains_rti(source_rti.0))
+                            {
+                                let alias = RelationAlias::new(source.scan_info.alias.as_deref())
+                                    .execution(source.plan_position);
+                                let unnested_col_name = format!("{}_{}", alias, field_name);
+                                schema
+                                    .index_of(&unnested_col_name)
+                                    .ok()
+                                    .or_else(|| schema.index_of(field_name).ok())
+                            } else {
+                                schema.index_of(field_name).ok()
+                            }
+                        }
+                        privdat::OutputColumnInfo::Var { .. }
+                        | privdat::OutputColumnInfo::Pruned => None,
+                    })
+                    .collect();
+                state.custom_state_mut().output_batch_col_indices = output_batch_col_indices;
                 state.custom_state_mut().runtime = Some(runtime);
                 state.custom_state_mut().datafusion_stream = Some(stream);
             }
@@ -1771,8 +1819,8 @@ unsafe fn compute_output_columns(
                 });
             } else if let Some(unnest_info) = join_clause.plan.find_lateral_unnest(rti) {
                 output_columns.push(privdat::OutputColumnInfo::Unnested {
-                    function_rti: rti,
-                    source_rti: unnest_info.source_rti.0,
+                    function_rti: unnest_info.function_rti,
+                    source_rti: unnest_info.source_rti,
                     field_name: unnest_info.field_name.clone(),
                 });
             } else {
@@ -1832,19 +1880,26 @@ unsafe fn build_output_projection(
             0
         };
 
-    // Custom scan tlist can be shorter than parse DISTINCT (parent evaluates some exprs).
-    // Then DataFusion GROUP BY can't match all pathkeys; defer DISTINCT and sort only by
-    // parse sortClause inside JoinScan.
+    // Postgres plans upper nodes (Result, Sort, Unique) to evaluate derived expressions
+    // (e.g., `col IS NULL`), requesting only the underlying base columns from CustomScan.
+    // When `scan_tlist` is shorter than `distinctClause`, DataFusion's output projection
+    // lacks slots for those extra expressions, so DataFusion cannot group by all DISTINCT
+    // keys. We defer DISTINCT to Postgres's upper Unique node and sort only by `sortClause`.
     //
     // Limitation: if distinctClause and scan tlist happen to have equal length but
     // contain different expressions, this heuristic won't fire and the non-deferred
-    // path runs.  In practice the scan tlist is a strict subset of distinctClause
-    // columns, so a length mismatch is the reliable signal for "extra" expressions.
+    // path runs. In practice scan tlist is a strict subset of distinctClause columns,
+    // so a length mismatch is the reliable signal for upper-evaluated expressions.
     let defer_distinct_to_parent =
         private_data.join_clause.has_distinct && distinct_list_len > scan_tlist_len;
 
     if defer_distinct_to_parent {
         private_data.join_clause.has_distinct = false;
+        // Pushing down LIMIT below an upper Unique/Sort node is unsound: upper Unique
+        // collapses rows (risking fewer emitted rows than LIMIT), and upper Sort breaks
+        // ties using remaining DISTINCT keys (which an early LIMIT would arbitrarily truncate).
+        // JoinScan must stream all matching rows and let Postgres's upper Limit cap the output.
+        private_data.join_clause.limit_offset = None;
         let output_rtis = private_data.join_clause.plan.output_rtis();
         let current_sources = private_data.join_clause.plan.sources();
         private_data.join_clause.order_by =
@@ -1898,8 +1953,7 @@ unsafe fn build_output_projection(
     // For ALL entries (Column, Score, Expression), use the parse-tree
     // varnos so that distinct_col_map keys are consistent with
     // extract_orderby's pathkey varnos.
-    let mut entry_by_output_idx: crate::api::HashMap<usize, &planning::ResolvedExpr> =
-        Default::default();
+    let mut distinct_expr_map: Vec<(*mut pg_sys::Node, &planning::ResolvedExpr)> = Vec::new();
     if let Some(ref entries) = distinct_entries {
         let parse_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
         let distinct_list = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause);
@@ -1910,63 +1964,126 @@ unsafe fn build_output_projection(
                 .iter_ptr()
                 .find(|te| (**te).ressortgroupref == tle_ref)
             {
-                let output_idx = ((*parse_te).resno - 1) as usize;
-                if output_idx < private_data.output_columns.len() {
-                    entry_by_output_idx.insert(output_idx, entry);
-                }
+                let parse_expr = crate::postgres::utils::strip_wrappers((*parse_te).expr.cast());
+                distinct_expr_map.push((parse_expr, entry));
             }
         }
     }
 
-    // Key `entry_by_output_idx` by each scan tlist entry's `resno`, not list position.
     let scan_target_entries: Vec<*mut pg_sys::TargetEntry> = original_entries.iter_ptr().collect();
+    let mut claimed_distinct: Vec<bool> = vec![false; distinct_expr_map.len()];
+    let mut resolved_entries: Vec<Option<&planning::ResolvedExpr>> =
+        vec![None; scan_target_entries.len()];
+
+    // Pass 1: Direct AST equality.
+    // Handles plain columns, scores, and unnested columns regardless of list ordering.
+    for (scan_idx, te) in scan_target_entries.iter().copied().enumerate() {
+        let scan_expr = crate::postgres::utils::strip_wrappers((*te).expr.cast());
+        for (dist_idx, (parse_expr, entry)) in distinct_expr_map.iter().enumerate() {
+            if !claimed_distinct[dist_idx] && pg_sys::equal(scan_expr.cast(), (*parse_expr).cast())
+            {
+                claimed_distinct[dist_idx] = true;
+                resolved_entries[scan_idx] = Some(*entry);
+                break;
+            }
+        }
+    }
+
+    // Pass 2: Input-variable matching for expressions.
+    // Maps placeholder base columns in the scan target list to the upper-level expressions
+    // that depend on them (e.g. s.name -> upper(s.name)).
+    for (scan_idx, (info, te)) in private_data
+        .output_columns
+        .iter()
+        .zip(scan_target_entries.iter().copied())
+        .enumerate()
+    {
+        if resolved_entries[scan_idx].is_some() {
+            continue;
+        }
+
+        let (var_rti, var_attno) = match info {
+            privdat::OutputColumnInfo::Var {
+                rti,
+                original_attno,
+                ..
+            } => (*rti, *original_attno),
+            _ => {
+                let scan_expr = crate::postgres::utils::strip_wrappers((*te).expr.cast());
+                if (*scan_expr).type_ == pg_sys::NodeTag::T_Var {
+                    let var = scan_expr as *mut pg_sys::Var;
+                    ((*var).varno as pg_sys::Index, (*var).varattno)
+                } else {
+                    continue;
+                }
+            }
+        };
+
+        for (dist_idx, (parse_expr, entry)) in distinct_expr_map.iter().enumerate() {
+            if claimed_distinct[dist_idx] {
+                continue;
+            }
+            let matches = match entry {
+                planning::ResolvedExpr::Expression { input_vars, .. } => input_vars
+                    .iter()
+                    .any(|v| v.rti == var_rti && v.attno == var_attno),
+                planning::ResolvedExpr::IndexedExpression { rti, .. } if *rti == var_rti => {
+                    let vars = crate::postgres::utils::expr_collect_vars(*parse_expr, true);
+                    vars.iter()
+                        .any(|v| v.rti == var_rti && v.attno == var_attno)
+                }
+                _ => false,
+            };
+            if matches {
+                claimed_distinct[dist_idx] = true;
+                resolved_entries[scan_idx] = Some(*entry);
+                break;
+            }
+        }
+    }
+
     private_data.join_clause.output_projection = Some(
         private_data
             .output_columns
             .iter()
-            .zip(scan_target_entries.iter().copied())
-            .map(|(info, te)| {
-                let output_idx = ((*te).resno - 1) as usize;
-                match entry_by_output_idx.get(&output_idx) {
-                    Some(planning::ResolvedExpr::Expression {
-                        expr_node,
-                        input_vars,
-                        result_type,
-                    }) => {
-                        let expr_string = {
-                            let node_str = pg_sys::nodeToString((*expr_node).cast());
-                            std::ffi::CStr::from_ptr(node_str)
-                                .to_string_lossy()
-                                .into_owned()
-                        };
-                        let primary_rti = input_vars.first().map_or(0, |v| v.rti);
-                        build::ChildProjection::Expression {
-                            rti: primary_rti,
-                            pg_expr_string: expr_string,
-                            input_vars: input_vars.clone(),
-                            result_type_oid: *result_type,
-                        }
+            .zip(resolved_entries)
+            .map(|(info, resolved)| match resolved {
+                Some(planning::ResolvedExpr::Expression {
+                    expr_node,
+                    input_vars,
+                    result_type,
+                }) => {
+                    let expr_string = {
+                        let node_str = pg_sys::nodeToString((*expr_node).cast());
+                        std::ffi::CStr::from_ptr(node_str)
+                            .to_string_lossy()
+                            .into_owned()
+                    };
+                    let primary_rti = input_vars.first().map_or(0, |v| v.rti);
+                    build::ChildProjection::Expression {
+                        rti: primary_rti,
+                        pg_expr_string: expr_string,
+                        input_vars: input_vars.clone(),
+                        result_type_oid: *result_type,
                     }
-                    Some(planning::ResolvedExpr::Column { rti, attno }) => {
-                        build::ChildProjection::Column {
-                            rti: *rti,
-                            attno: *attno,
-                        }
-                    }
-                    Some(planning::ResolvedExpr::Score { rti }) => {
-                        build::ChildProjection::Score { rti: *rti }
-                    }
-                    Some(planning::ResolvedExpr::IndexedExpression { rti }) => {
-                        let attno = match info {
-                            privdat::OutputColumnInfo::Var { original_attno, .. } => {
-                                *original_attno
-                            }
-                            _ => 0,
-                        };
-                        build::ChildProjection::IndexedExpression { rti: *rti, attno }
-                    }
-                    None => info.into(),
                 }
+                Some(planning::ResolvedExpr::Column { rti, attno }) => match info {
+                    privdat::OutputColumnInfo::Unnested { .. } => info.into(),
+                    _ => build::ChildProjection::Column {
+                        rti: *rti,
+                        attno: *attno,
+                    },
+                },
+                Some(planning::ResolvedExpr::Score { rti }) => {
+                    build::ChildProjection::Score { rti: *rti }
+                }
+                Some(planning::ResolvedExpr::IndexedExpression { rti, field_name }) => {
+                    build::ChildProjection::IndexedExpression {
+                        rti: *rti,
+                        field_name: field_name.clone(),
+                    }
+                }
+                None => info.into(),
             })
             .collect(),
     );
@@ -2220,7 +2337,6 @@ impl JoinScan {
         {
             return Ok(built);
         }
-
         // Silent gates: collect outer/inner sources or bail without a warning.
         let outer_collected = collect_join_sources(root, outerrel).ok_or(JoinPathDecline::Quiet)?;
         let inner_collected = collect_join_sources(root, innerrel).ok_or(JoinPathDecline::Quiet)?;
@@ -2459,11 +2575,18 @@ impl JoinScan {
                         *nulls.add(i) = true;
                         continue;
                     }
-                    let score_col = batch.column(i);
-                    let score = if let Some(score_array) = score_col
-                        .as_any()
-                        .downcast_ref::<arrow_array::Float32Array>(
-                    ) {
+                    let score_col_idx = state
+                        .custom_state()
+                        .output_batch_col_indices
+                        .get(i)
+                        .copied()
+                        .flatten();
+                    let score = if let Some(idx) = score_col_idx
+                        && let score_col = batch.column(idx)
+                        && let Some(score_array) = score_col
+                            .as_any()
+                            .downcast_ref::<arrow_array::Float32Array>()
+                    {
                         if score_array.is_null(row_idx) {
                             *nulls.add(i) = true;
                             continue;
@@ -2506,7 +2629,17 @@ impl JoinScan {
                     *nulls.add(i) = is_null;
                 }
                 privdat::OutputColumnInfo::Unnested { .. } => {
-                    let unnested_col = batch.column(i);
+                    let unnested_col_idx = state
+                        .custom_state()
+                        .output_batch_col_indices
+                        .get(i)
+                        .copied()
+                        .flatten();
+                    let Some(col_idx) = unnested_col_idx else {
+                        *nulls.add(i) = true;
+                        continue;
+                    };
+                    let unnested_col = batch.column(col_idx);
                     let expected_type = {
                         #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
                         {

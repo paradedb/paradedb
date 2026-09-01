@@ -168,6 +168,116 @@ pub unsafe fn extract_join_level_conditions(
         }
     }
 
+    // Fallback: parse-tree `(*jointree).quals` - PG sometimes leaves cross-table
+    // predicates here when outer joins (e.g., LATERAL unnest) prevent them from
+    // being pushed into joinrestrictinfo.
+    let parse = (*root).parse;
+    if !parse.is_null() && !(*parse).jointree.is_null() && !(*(*parse).jointree).quals.is_null() {
+        let mut conjuncts = Vec::new();
+        crate::postgres::customscan::qual_inspect::collect_implicit_and_conjuncts(
+            (*(*parse).jointree).quals,
+            &mut conjuncts,
+        );
+        let valid_rtis: Vec<pg_sys::Index> = sources.iter().map(|s| s.scan_info.heap_rti).collect();
+        for conjunct in conjuncts {
+            let rtis = expr_collect_rtis(conjunct);
+            // Only process cross-table predicates whose referenced RTIs are all in `sources`
+            if rtis.len() > 1 && rtis.iter().all(|rti| join_clause.plan.contains_rti(*rti)) {
+                // Check if this conjunct was already extracted as an equi-key
+                if super::build::try_extract_equi_key(conjunct.cast(), &valid_rtis).is_some() {
+                    continue;
+                }
+                // Check if this conjunct is already present in all_restrict_infos or multi_table_predicate_clauses
+                let already_present = all_restrict_infos.iter().any(|ri| {
+                    std::ptr::eq((**ri).clause.cast::<pg_sys::Node>(), conjunct)
+                        || pg_sys::equal((**ri).clause.cast(), conjunct.cast())
+                }) || multi_table_predicate_clauses.iter().any(|c| {
+                    std::ptr::eq((*c).cast::<pg_sys::Node>(), conjunct)
+                        || pg_sys::equal((*c).cast(), conjunct.cast())
+                });
+                if already_present {
+                    continue;
+                }
+
+                let has_search_op = expr_contains_any_operator(conjunct.cast(), &[search_op]);
+                if has_search_op {
+                    if let Some(expr) = transform_to_search_expr(
+                        root,
+                        conjunct.cast(),
+                        sources,
+                        &mut multi_table_predicate_clauses,
+                    ) {
+                        expr_trees.push(expr);
+                    } else {
+                        let formatted =
+                            crate::postgres::deparse::deparse_planner_expr(root, conjunct.cast())
+                                .unwrap_or_else(|| {
+                                    crate::postgres::deparse::node_to_string_without_context(
+                                        conjunct.cast(),
+                                    )
+                                });
+                        return Err(format!(
+                            "Failed to transform search predicate into expression tree: {}",
+                            formatted
+                        ));
+                    }
+                } else {
+                    if !all_vars_are_fast_fields_recursive(
+                        conjunct.cast(),
+                        sources,
+                        Some(&join_clause.plan),
+                    ) {
+                        let formatted =
+                            crate::postgres::deparse::deparse_planner_expr(root, conjunct.cast())
+                                .unwrap_or_else(|| {
+                                    crate::postgres::deparse::node_to_string_without_context(
+                                        conjunct.cast(),
+                                    )
+                                });
+                        return Err(format!(
+                            "Multi-table predicate '{}' references non-fast-field columns",
+                            formatted
+                        ));
+                    }
+
+                    if !PredicateTranslator::can_translate(
+                        Some(root),
+                        sources,
+                        conjunct.cast(),
+                        Some(&join_clause.plan),
+                    ) {
+                        let formatted =
+                            crate::postgres::deparse::deparse_planner_expr(root, conjunct.cast())
+                                .unwrap_or_else(|| {
+                                    crate::postgres::deparse::node_to_string_without_context(
+                                        conjunct.cast(),
+                                    )
+                                });
+                        return Err(format!(
+                            "Multi-table predicate '{}' cannot be executed by DataFusion (unsupported operator or type)",
+                            formatted
+                        ));
+                    }
+
+                    let pg_node_string = {
+                        let node_str = pg_sys::nodeToString(conjunct.cast());
+                        std::ffi::CStr::from_ptr(node_str)
+                            .to_string_lossy()
+                            .into_owned()
+                    };
+                    multi_table_predicate_clauses.push(conjunct.cast());
+                    expr_trees.push(JoinLevelExpr::MultiTablePredicate {
+                        predicate: Box::new(
+                            crate::postgres::customscan::joinscan::build::MultiTablePredicateInfo {
+                                pg_node_string,
+                            },
+                        ),
+                    });
+                }
+            }
+        }
+    }
+
     // Combine all expressions with AND
     if !expr_trees.is_empty() {
         let final_expr = if expr_trees.len() == 1 {

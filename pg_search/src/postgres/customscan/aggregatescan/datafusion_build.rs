@@ -193,9 +193,12 @@ unsafe fn collect_source_fields(
     let Some(bm25) = bm25_index else {
         return Vec::new();
     };
+    let Ok(schema) = bm25.schema() else {
+        return Vec::new();
+    };
     let heaprel = PgSearchRelation::open(relid);
     let tupdesc = heaprel.tuple_desc();
-    let schema = crate::schema::SearchIndexSchema::open(bm25).ok();
+    let categorized = schema.categorized_fields();
     let mut fields = Vec::new();
     for attno in 1..=tupdesc.len() {
         if let Some(field) = resolve_fast_field(attno as i32, &tupdesc, bm25) {
@@ -203,24 +206,18 @@ unsafe fn collect_source_fields(
                 attno: attno as pg_sys::AttrNumber,
                 field,
             });
-        } else if let Some(schema) = &schema {
+        } else {
             let att = tupdesc.get(attno - 1).unwrap();
             let col_name = att.name();
             if let Some(search_field) = schema.search_field(col_name)
                 && search_field.is_fast()
+                && let Some((_, data)) = categorized.iter().find(|(sf, _)| sf == &search_field)
+                && data.is_array
             {
-                let categorized = schema.categorized_fields();
-                if let Some((_, data)) = categorized.iter().find(|(sf, _)| sf == &search_field)
-                    && data.is_array
-                {
-                    fields.push(FieldInfo {
-                        attno: attno as pg_sys::AttrNumber,
-                        field: WhichFastField::Array(
-                            col_name.to_string(),
-                            search_field.field_type(),
-                        ),
-                    });
-                }
+                fields.push(FieldInfo {
+                    attno: attno as pg_sys::AttrNumber,
+                    field: WhichFastField::Array(col_name.to_string(), search_field.field_type()),
+                });
             }
         }
     }

@@ -561,23 +561,20 @@ pub fn apply_relnode_unnest(df: DataFrame, unnest: &UnnestNode) -> Result<DataFr
         })?;
     let alias =
         RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
-    let unnest_col = format!("{}.{}", alias, unnest.unnest_info.field_name);
-    let unnest_options = if unnest.unnest_info.is_left_join {
-        UnnestOptions::new().with_null_handling(NullHandling::PreserveAndExpandEmpty)
-    } else {
-        UnnestOptions::new().with_null_handling(NullHandling::Drop)
-    };
-    let df = df.unnest_columns_with_options(&[&unnest_col], unnest_options)?;
-    let select_exprs: Vec<Expr> = df
+    let unnested_col_name = format!("{}_{}", alias, unnest.unnest_info.field_name);
+
+    let select_exprs = df
         .schema()
         .iter()
         .map(|(qualifier, field)| {
-            if qualifier.is_none() && field.name() == &unnest.unnest_info.field_name {
-                Expr::Alias(datafusion::logical_expr::expr::Alias::new(
-                    Expr::Column(datafusion::common::Column::new_unqualified(field.name())),
-                    Some(datafusion::common::TableReference::from(alias.clone())),
-                    field.name().to_string(),
+            if qualifier.as_ref().map(|q| q.to_string()) == Some(alias.clone())
+                && field.name() == &unnest.unnest_info.field_name
+            {
+                Expr::Column(datafusion::common::Column::new(
+                    qualifier.cloned(),
+                    field.name(),
                 ))
+                .alias(&unnested_col_name)
             } else {
                 Expr::Column(datafusion::common::Column::new(
                     qualifier.cloned(),
@@ -585,8 +582,15 @@ pub fn apply_relnode_unnest(df: DataFrame, unnest: &UnnestNode) -> Result<DataFr
                 ))
             }
         })
-        .collect();
-    df.select(select_exprs)
+        .collect::<Vec<_>>();
+    let df = df.select(select_exprs)?;
+
+    let unnest_options = if unnest.unnest_info.is_left_join {
+        UnnestOptions::new().with_null_handling(NullHandling::PreserveAndExpandEmpty)
+    } else {
+        UnnestOptions::new().with_null_handling(NullHandling::Drop)
+    };
+    df.unnest_columns_with_options(&[&unnested_col_name], unnest_options)
 }
 
 /// Deserialize a PostgreSQL expression from its `nodeToString` representation
@@ -682,6 +686,15 @@ pub fn make_source_score_col(source: &JoinSource) -> Expr {
     make_source_col(source, SCORE_COL_NAME)
 }
 
+/// Build a DataFusion column expression for an unnested field on the given
+/// source, matching the `{alias}_{field_name}` naming convention established
+/// by `apply_relnode_unnest`.
+pub fn make_source_unnested_col(source: &JoinSource, field_name: &str) -> Expr {
+    let alias =
+        RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
+    col(format!("{}_{}", alias, field_name))
+}
+
 pub struct CombinedMapper<'a> {
     pub sources: &'a [&'a JoinSource],
     pub output_columns: &'a [OutputColumnInfo],
@@ -704,10 +717,10 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
                     source_rti,
                     field_name,
                 } => (
-                    *function_rti,
+                    function_rti.0,
                     1,
                     false,
-                    Some((*source_rti, field_name.clone())),
+                    Some((source_rti.0, field_name.clone())),
                 ),
                 OutputColumnInfo::Pruned => return None,
             }
@@ -717,7 +730,7 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
 
         if let Some((source_rti, field_name)) = unnested_info {
             let source = self.sources.iter().find(|s| s.contains_rti(source_rti))?;
-            return Some(make_source_col(source, &field_name));
+            return Some(make_source_unnested_col(source, &field_name));
         }
 
         if let Some(source) = self.sources.iter().find(|s| s.contains_rti(rti)) {
@@ -732,7 +745,15 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
 
             let mapped_attno = source.map_var(rti, attno)?;
             let col_name = source.column_name(mapped_attno)?;
-            Some(make_source_col(source, &col_name))
+            if self
+                .lateral_unnests
+                .iter()
+                .any(|u| source.contains_rti(u.source_rti.0) && u.field_name == col_name)
+            {
+                Some(make_source_unnested_col(source, &col_name))
+            } else {
+                Some(make_source_col(source, &col_name))
+            }
         } else {
             let unnest_info = self
                 .lateral_unnests
@@ -742,7 +763,7 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
                 .sources
                 .iter()
                 .find(|s| s.contains_rti(unnest_info.source_rti.0))?;
-            Some(make_source_col(s, &unnest_info.field_name))
+            Some(make_source_unnested_col(s, &unnest_info.field_name))
         }
     }
 }

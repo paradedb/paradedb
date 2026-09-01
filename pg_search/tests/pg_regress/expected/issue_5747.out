@@ -45,7 +45,7 @@ LIMIT 5;
            : │   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=5
            : │     SortExec: TopK(fetch=5), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
            : │       VisibilityFilterExec: tables=[sv, le]
-           : │         TantivyLookupExec: decode=[], resolve_ctid=[ctid_0, ctid_1]
+           : │         TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
            : │           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, series_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
            : │             CoalescePartitionsExec
            : │               [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=1, input_tasks=2

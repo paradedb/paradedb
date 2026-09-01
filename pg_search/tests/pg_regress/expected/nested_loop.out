@@ -38,7 +38,7 @@ LIMIT 10;
            : ProjectionExec: expr=[name@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1, ctid_2@5 as ctid_2]
            :   GlobalLimitExec: skip=0, fetch=10
            :     VisibilityFilterExec: tables=[users, products, orders]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0, ctid_1, ctid_2]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1, ctid_2]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(color@4, color@1)], filter=__orders_2_tag_0@1 OR __users_0_tag_0@0
            :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(name@1, name@1)], projection=[ctid_0@0, name@1, __users_0_tag_0@2, ctid_1@3, color@5]
            :             CooperativeExec

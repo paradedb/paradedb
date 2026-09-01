@@ -441,7 +441,9 @@ impl DisplayAs for TantivyLookupExec {
         if !self.ctid_columns.is_empty() {
             write!(
                 f,
-                ", resolve_ctid=[{}]",
+                // A resolved ctid is a fast-field fetch like any other
+                // column; only its consumer differs.
+                ", fetch=[{}]",
                 self.ctid_columns
                     .iter()
                     .map(|c| format!("ctid_{}", c.plan_position))

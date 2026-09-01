@@ -65,11 +65,11 @@ WARNING:  Aggregate Scan (DataFusion) not used: OR-nested subquery cannot be pus
                              :     FilterExec: mark@3 OR company_id@1 IS NULL, projection=[ctid_0@0, id@2]
                              :       HashJoinExec: mode=CollectLeft, join_type=LeftMark, on=[(company_id@1, id@0)]
                              :         VisibilityFilterExec: tables=[p]
-                             :           TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+                             :           TantivyLookupExec: decode=[], fetch=[ctid_0]
                              :             CooperativeExec
                              :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
                              :         VisibilityFilterExec: tables=[c]
-                             :           TantivyLookupExec: decode=[], resolve_ctid=[ctid_1]
+                             :           TantivyLookupExec: decode=[], fetch=[ctid_1]
                              :             CooperativeExec
                              :               PgSearchScan: table=c, segments=1, dynamic_filters=1, query="all"
 (30 rows)

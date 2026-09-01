@@ -89,7 +89,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@3 as col_1, file_id@2 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[p]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_1]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, file_id@1)], projection=[ctid_0@0, ctid_1@2, file_id@3, id@4]
            :           CooperativeExec
            :             PgSearchScan: table=f, segments=2, query="all"
@@ -157,7 +157,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, id@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST, id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[f]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_1]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@1, file_id@1)], projection=[ctid_0@2, id@4, ctid_1@0, id@1]
            :           CooperativeExec
            :             PgSearchScan: table=f, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
@@ -205,7 +205,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@3 as col_1, file_id@2 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[p]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_1]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, file_id@1)], projection=[ctid_0@0, ctid_1@2, file_id@3, id@4]
            :           CooperativeExec
            :             PgSearchScan: table=f, segments=2, query="all"
@@ -282,7 +282,7 @@ LIMIT 10;
                  : ProjectionExec: expr=[id@4 as col_1, file_id@3 as col_2, id@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
                  :   SortExec: TopK(fetch=10), expr=[id@4 ASC NULLS LAST], preserve_partitioning=[false]
                  :     VisibilityFilterExec: tables=[p]
-                 :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_1]
+                 :       TantivyLookupExec: decode=[], fetch=[ctid_1]
                  :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, file_id@1)]
                  :           CooperativeExec
                  :             PgSearchScan: table=f, segments=2, query="all"
@@ -330,7 +330,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@2 as col_1, file_id@1 as col_2, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[p]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
            :         HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(id@0, file_id@1)]
            :           CooperativeExec
            :             PgSearchScan: table=f, segments=2, query="all"
@@ -444,7 +444,7 @@ LIMIT 10;
            :   ┌───── Stage 2 ── tasks=2, partitions=8
            :   │ SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[true]
            :   │   VisibilityFilterExec: tables=[p]
-           :   │     TantivyLookupExec: decode=[], resolve_ctid=[ctid_1]
+           :   │     TantivyLookupExec: decode=[], fetch=[ctid_1]
            :   │       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, file_id@1)], projection=[ctid_0@0, ctid_1@2, file_id@3, id@4]
            :   │         CoalescePartitionsExec
            :   │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2

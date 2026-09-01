@@ -86,7 +86,7 @@ LIMIT 25;
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=25), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[c, t]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0, ctid_1]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
            :           CooperativeExec
            :             PgSearchScan: table=c, segments=1, query="all"
@@ -158,7 +158,7 @@ LIMIT 25;
            :   ┌───── Stage 2 ── tasks=3, partitions=3
            :   │ SortExec: TopK(fetch=25), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
            :   │   VisibilityFilterExec: tables=[c, t]
-           :   │     TantivyLookupExec: decode=[], resolve_ctid=[ctid_0, ctid_1]
+           :   │     TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
            :   │       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
            :   │         CoalescePartitionsExec
            :   │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
@@ -266,7 +266,7 @@ LIMIT 25;
            : │   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=25
            : │     SortExec: TopK(fetch=25), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
            : │       VisibilityFilterExec: tables=[c, t]
-           : │         TantivyLookupExec: decode=[], resolve_ctid=[ctid_0, ctid_1]
+           : │         TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
            : │           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
            : │             CoalescePartitionsExec
            : │               [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=1, input_tasks=3

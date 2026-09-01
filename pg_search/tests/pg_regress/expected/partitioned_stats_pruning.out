@@ -62,7 +62,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@3 as col_1, id@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST, id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[p, u]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0, ctid_1]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(owner_user_id@1, id@1)], projection=[ctid_0@0, id@2, ctid_1@3, id@4]
            :           CooperativeExec
            :             PgSearchScan: table=p, segments=4, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
@@ -146,7 +146,7 @@ LIMIT 10;
            :   ┌───── Stage 1 ── tasks=3, partitions=3
            :   │ SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST, id@1 ASC NULLS LAST], preserve_partitioning=[true]
            :   │   VisibilityFilterExec: tables=[p, u]
-           :   │     TantivyLookupExec: decode=[], resolve_ctid=[ctid_0, ctid_1]
+           :   │     TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
            :   │       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(owner_user_id@1, id@1)], projection=[ctid_0@0, id@2, ctid_1@3, id@4]
            :   │         DistributedLeafExec:
            :   │           t0: PgSearchScan: table=p, segments=4, partition=owner_user_id[-∞..10001), dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}

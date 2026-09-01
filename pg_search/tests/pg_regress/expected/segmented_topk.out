@@ -271,7 +271,7 @@ LIMIT 3;
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=3), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[d, f]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0, ctid_1]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
            :           CooperativeExec
            :             PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
@@ -341,7 +341,7 @@ LIMIT 3;
            :   SortExec: TopK(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     TantivyLookupExec: decode=[title]
            :       VisibilityFilterExec: tables=[d, f]
-           :         TantivyLookupExec: decode=[], resolve_ctid=[ctid_0, ctid_1]
+           :         TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
            :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4]
            :             CooperativeExec
            :               PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
@@ -558,7 +558,7 @@ WARNING:  SegmentedTopK: ORDER BY includes string columns from multiple tables, 
            :   SortExec: TopK(fetch=5), expr=[title@3 ASC NULLS LAST, category@1 DESC, id@4 ASC NULLS LAST], preserve_partitioning=[false]
            :     TantivyLookupExec: decode=[category, title]
            :       VisibilityFilterExec: tables=[d, f]
-           :         TantivyLookupExec: decode=[], resolve_ctid=[ctid_0, ctid_1]
+           :         TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
            :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, category@2, ctid_1@3, title@5, id@6]
            :             CooperativeExec
            :               PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}

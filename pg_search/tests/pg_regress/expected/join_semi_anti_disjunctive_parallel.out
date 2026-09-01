@@ -129,7 +129,7 @@ LIMIT 5000;
            :   ┌───── Stage 2 ── tasks=4, partitions=4
            :   │ SortExec: TopK(fetch=5000), expr=[id@1 DESC], preserve_partitioning=[true]
            :   │   VisibilityFilterExec: tables=[i]
-           :   │     TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+           :   │     TantivyLookupExec: decode=[], fetch=[ctid_0]
            :   │       NestedLoopJoinExec: join_type=RightAnti, filter=pattern@2 = name@0 OR pattern@2 = alt_name@1, projection=[ctid_0@0, id@3]
            :   │         CoalescePartitionsExec
            :   │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=4, input_tasks=2
@@ -255,7 +255,7 @@ LIMIT 5000;
            :   ┌───── Stage 2 ── tasks=4, partitions=4
            :   │ SortExec: TopK(fetch=5000), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[true]
            :   │   VisibilityFilterExec: tables=[i]
-           :   │     TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+           :   │     TantivyLookupExec: decode=[], fetch=[ctid_0]
            :   │       NestedLoopJoinExec: join_type=RightSemi, filter=pattern@3 = name@0 OR pattern@3 = alt_name@1 OR pattern@3 = category@2, projection=[ctid_0@0, id@4]
            :   │         CoalescePartitionsExec
            :   │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=4, input_tasks=2

@@ -81,7 +81,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[i]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
            :         NestedLoopJoinExec: join_type=RightAnti, filter=pattern@2 = name@0 OR pattern@2 = alt_name@1, projection=[ctid_0@0, id@3]
            :           CooperativeExec
            :             PgSearchScan: table=e, segments=1, query={"with_index":{"query":"all"}}
@@ -138,7 +138,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[i]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
            :         NestedLoopJoinExec: join_type=RightSemi, filter=pattern@2 = name@0 OR pattern@2 = alt_name@1, projection=[ctid_0@0, id@3]
            :           CooperativeExec
            :             PgSearchScan: table=e, segments=1, query={"with_index":{"query":"all"}}
@@ -199,7 +199,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[i]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
            :         NestedLoopJoinExec: join_type=RightAnti, filter=pattern@3 = name@0 OR pattern@3 = alt_name@1 OR pattern@3 = category@2, projection=[ctid_0@0, id@4]
            :           CooperativeExec
            :             PgSearchScan: table=e, segments=1, query={"with_index":{"query":"all"}}
@@ -295,7 +295,7 @@ LIMIT 5;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=5), expr=[id@1 DESC], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[i]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
            :         ProjectionExec: expr=[ctid_0@0 as ctid_0, id@2 as id]
            :           NestedLoopJoinExec: join_type=RightAnti, filter=pattern@1 = name@0 OR join_proj_push_down_1@2, projection=[ctid_0@0, name@1, id@2]
            :             ProjectionExec: expr=[pattern@0 as pattern, character_length(pattern@0) > 100 as join_proj_push_down_1]
@@ -352,7 +352,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[i]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
            :         NestedLoopJoinExec: join_type=RightAnti, filter=id@1 != id@0
            :           CooperativeExec
            :             PgSearchScan: table=e, segments=1, query={"with_index":{"query":"all"}}
@@ -417,7 +417,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[i]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
            :         NestedLoopJoinExec: join_type=RightAnti, filter=id@2 > id@0 OR pattern@3 = name@1, projection=[ctid_0@0, id@1]
            :           CooperativeExec
            :             PgSearchScan: table=e, segments=1, query={"with_index":{"query":"all"}}
@@ -503,7 +503,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[i]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
            :         ProjectionExec: expr=[ctid_0@0 as ctid_0, id@2 as id]
            :           NestedLoopJoinExec: join_type=RightSemi, filter=pattern@1 = name@0 OR join_proj_push_down_1@2, projection=[ctid_0@0, name@1, id@2]
            :             ProjectionExec: expr=[pattern@0 as pattern, id@1 as id, id@1 = 42 as join_proj_push_down_1]
@@ -593,7 +593,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[i]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
            :         NestedLoopJoinExec: join_type=RightAnti, filter=pattern@3 = name@0 AND id@4 > id@1 OR pattern@3 = alt_name@2, projection=[ctid_0@0, id@2]
            :           CooperativeExec
            :             PgSearchScan: table=e, segments=1, query={"with_index":{"query":"all"}}
@@ -687,7 +687,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[i]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
            :         HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(pattern@0, name@1)], projection=[ctid_0@0, id@2]
            :           CooperativeExec
            :             PgSearchScan: table=e, segments=1, query={"with_index":{"query":"all"}}
@@ -873,7 +873,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[i]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
            :         NestedLoopJoinExec: join_type=RightAnti, filter=pattern@2 = name@0 OR pattern@2 = alt_name@1, projection=[ctid_0@0, id@3]
            :           CooperativeExec
            :             PgSearchScan: table=e, segments=1, query={"with_index":{"query":"all"}}
@@ -960,7 +960,7 @@ LIMIT 5;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[i]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
            :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(pdb_eval_expr_funcexpr_44945b63(e_1.pattern)@1, pdb_eval_expr_funcexpr_53eb87a5(i_0.name)@3)], projection=[ctid_0@0, id@2]
            :           ProjectionExec: expr=[pattern@0 as pattern, pdb_eval_expr_funcexpr_44945b63(CAST(pattern@0 AS Utf8)) as pdb_eval_expr_funcexpr_44945b63(e_1.pattern)]
            :             CooperativeExec
@@ -1036,7 +1036,7 @@ LIMIT 5;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=5), expr=[id@1 DESC], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[i]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
            :         HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(CASE WHEN e_1.pattern IS NOT NULL THEN e_1.pattern ELSE Utf8View("") END@1, name@1)], projection=[ctid_0@0, id@2]
            :           ProjectionExec: expr=[pattern@0 as pattern, CASE WHEN pattern@0 IS NOT NULL THEN pattern@0 ELSE  END as CASE WHEN e_1.pattern IS NOT NULL THEN e_1.pattern ELSE Utf8View("") END]
            :             CooperativeExec
@@ -1112,7 +1112,7 @@ LIMIT 5;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=5), expr=[id@1 DESC], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[i]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
            :         ProjectionExec: expr=[ctid_0@0 as ctid_0, id@2 as id]
            :           NestedLoopJoinExec: join_type=RightAnti, filter=pattern@1 = name@0 OR join_proj_push_down_1@2, projection=[ctid_0@0, name@1, id@2]
            :             ProjectionExec: expr=[pattern@0 as pattern, pattern@0 IS NULL as join_proj_push_down_1]
@@ -1188,7 +1188,7 @@ LIMIT 5;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=5), expr=[id@1 DESC], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[i]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
            :         HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(CASE WHEN e_1.pattern IS NOT NULL THEN e_1.pattern ELSE Utf8View("") END@1, name@1)], projection=[ctid_0@0, id@2]
            :           ProjectionExec: expr=[pattern@0 as pattern, CASE WHEN pattern@0 IS NOT NULL THEN pattern@0 ELSE  END as CASE WHEN e_1.pattern IS NOT NULL THEN e_1.pattern ELSE Utf8View("") END]
            :             CooperativeExec
@@ -1265,7 +1265,7 @@ LIMIT 5;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=5), expr=[id@1 DESC], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[i]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
            :         NestedLoopJoinExec: join_type=RightAnti, filter=join_proj_push_down_1@1 > id@0, projection=[ctid_0@0, id@1]
            :           ProjectionExec: expr=[id@0 as id, id@0 * 2 as join_proj_push_down_1]
            :             CooperativeExec
@@ -1342,7 +1342,7 @@ LIMIT 5;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=5), expr=[id@1 DESC], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[i]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
            :         ProjectionExec: expr=[ctid_0@0 as ctid_0, id@2 as id]
            :           NestedLoopJoinExec: join_type=RightAnti, filter=join_proj_push_down_1@1 = name@0 OR join_proj_push_down_2@2, projection=[ctid_0@0, name@1, id@2]
            :             ProjectionExec: expr=[pattern@0 as pattern, CAST(pdb_eval_expr_funcexpr_44945b63(CAST(pattern@0 AS Utf8)) AS Utf8View) as join_proj_push_down_1, pdb_eval_expr_funcexpr_685b54ea(CAST(pattern@0 AS Utf8)) = never-matches as join_proj_push_down_2]
@@ -1426,7 +1426,7 @@ LIMIT 5;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=5), expr=[id@1 DESC], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[i]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
            :         ProjectionExec: expr=[ctid_0@0 as ctid_0, id@2 as id]
            :           NestedLoopJoinExec: join_type=RightAnti, filter=join_proj_push_down_1@2 > join_proj_push_down_2@3 OR id@1 != id@0, projection=[ctid_0@0, name@1, id@2]
            :             ProjectionExec: expr=[pattern@0 as pattern, id@1 as id, character_length(pattern@0) as join_proj_push_down_1]
@@ -1499,7 +1499,7 @@ LIMIT 5;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=5), expr=[id@1 DESC], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[i]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
            :         ProjectionExec: expr=[ctid_0@0 as ctid_0, id@2 as id]
            :           NestedLoopJoinExec: join_type=RightAnti, filter=join_proj_push_down_1@1 > join_proj_push_down_3@3 OR join_proj_push_down_2@2 = name@0, projection=[ctid_0@0, name@1, id@2]
            :             ProjectionExec: expr=[pattern@0 as pattern, character_length(pattern@0) as join_proj_push_down_1, CAST(pdb_eval_expr_funcexpr_44945b63(CAST(pattern@0 AS Utf8)) AS Utf8View) as join_proj_push_down_2]
@@ -1581,7 +1581,7 @@ LIMIT 5;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=5), expr=[id@1 DESC], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[i]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
            :         HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(pdb_eval_expr_funcexpr_685b54ea(e_1.pattern)@2, pdb_eval_expr_funcexpr_887b5ea5(i_0.name)@3)], filter=pdb_eval_expr_funcexpr_7e60c530(id@1) != pdb_eval_expr_funcexpr_64208395(id@0), projection=[ctid_0@0, id@1]
            :           ProjectionExec: expr=[id@0 as id, pattern@1 as pattern, pdb_eval_expr_funcexpr_685b54ea(CAST(pattern@1 AS Utf8)) as pdb_eval_expr_funcexpr_685b54ea(e_1.pattern)]
            :             CooperativeExec
@@ -1732,7 +1732,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@2 as col_1, name@1 as col_2, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[i]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
            :         ProjectionExec: expr=[ctid_0@0 as ctid_0, name@2 as name, id@3 as id]
            :           NestedLoopJoinExec: join_type=RightAnti, filter=id@1 = pattern_id@0 OR join_proj_push_down_1@2 = join_proj_push_down_2@3, projection=[ctid_0@0, pattern_id@1, name@2, id@3]
            :             ProjectionExec: expr=[id@0 as id, pattern@1 as pattern, pdb_eval_expr_funcexpr_52e8edc5(CAST(pattern@1 AS Utf8)) as join_proj_push_down_1]

@@ -157,7 +157,7 @@ LIMIT 48;
                  :     │ RepartitionExec: partitioning=Hash([col_1@0, col_2@1, col_3@2, col_4@3], 4), input_partitions=1
                  :     │   AggregateExec: mode=Partial, gby=[id@1 as col_1, name@2 as col_2, id@4 as col_3, id@6 as col_4], aggr=[min(u_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1, min(o_2.ctid_2) as ctid_2]
                  :     │     VisibilityFilterExec: tables=[u, p, o]
-                 :     │       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0, ctid_1, ctid_2]
+                 :     │       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1, ctid_2]
                  :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@5, age@1)], projection=[ctid_0@0, id@1, name@2, ctid_1@3, id@4, ctid_2@6, id@8]
                  :     │           CoalescePartitionsExec
                  :     │             [Stage 2] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2

@@ -55,11 +55,11 @@ ORDER BY p.id DESC LIMIT 10;
            :     FilterExec: mark@3 OR supplier_id@1 IS NULL, projection=[ctid_0@0, id@2]
            :       HashJoinExec: mode=CollectLeft, join_type=LeftMark, on=[(supplier_id@1, id@0)]
            :         VisibilityFilterExec: tables=[p]
-           :           TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+           :           TantivyLookupExec: decode=[], fetch=[ctid_0]
            :             CooperativeExec
            :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
            :         VisibilityFilterExec: tables=[s]
-           :           TantivyLookupExec: decode=[], resolve_ctid=[ctid_1]
+           :           TantivyLookupExec: decode=[], fetch=[ctid_1]
            :             CooperativeExec
            :               PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
 (22 rows)
@@ -100,7 +100,7 @@ ORDER BY p.id DESC LIMIT 10;
            : ProjectionExec: expr=[id@2 as col_1, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@2 DESC], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[s, p]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_0, ctid_1]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
            :           CooperativeExec
            :             PgSearchScan: table=s, segments=1, query="all"
@@ -184,11 +184,11 @@ ORDER BY p.id DESC LIMIT 10;
            :     FilterExec: mark@3 OR supplier_id@1 IS NULL, projection=[ctid_0@0, id@2]
            :       HashJoinExec: mode=CollectLeft, join_type=LeftMark, on=[(supplier_id@1, id@0)]
            :         VisibilityFilterExec: tables=[p]
-           :           TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+           :           TantivyLookupExec: decode=[], fetch=[ctid_0]
            :             CooperativeExec
            :               PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
            :         VisibilityFilterExec: tables=[s]
-           :           TantivyLookupExec: decode=[], resolve_ctid=[ctid_1]
+           :           TantivyLookupExec: decode=[], fetch=[ctid_1]
            :             CooperativeExec
            :               PgSearchScan: table=s, segments=2, dynamic_filters=1, query="all"
 (22 rows)

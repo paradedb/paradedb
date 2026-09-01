@@ -45,7 +45,7 @@ SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.t
            : ProjectionExec: expr=[id@3 as col_1, id@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            :   SortExec: TopK(fetch=8), expr=[id@1 ASC, id@3 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[a]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_1]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, dim_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, id@4]
            :           CooperativeExec
            :             PgSearchScan: table=b, segments=1, query="all"
@@ -85,7 +85,7 @@ SELECT a.id, paradedb.score(b.id) FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id 
            : ProjectionExec: expr=[id@3 as col_1, score@0 as col_2, ctid_0@1 as ctid_0, ctid_1@2 as ctid_1]
            :   SortExec: TopK(fetch=8), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[a]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_1]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@2, dim_id@1)], projection=[score@0, ctid_0@1, ctid_1@3, id@5]
            :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_0@1 as ctid_0, id@2 as id]
            :             CooperativeExec
@@ -127,7 +127,7 @@ SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.t
            : ProjectionExec: expr=[id@3 as col_1, id@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            :   SortExec: TopK(fetch=8), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[a]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_1]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_1]
            :         FilterExec: __a_1_tag_0@5 OR __b_0_tag_0@2, projection=[ctid_0@0, id@1, ctid_1@3, id@4]
            :           HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, dim_id@1)], projection=[ctid_0@0, id@1, __b_0_tag_0@2, ctid_1@3, id@5, __a_1_tag_0@6]
            :             CooperativeExec
@@ -169,7 +169,7 @@ SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND b.pri
            : ProjectionExec: expr=[id@3 as col_1, id@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            :   SortExec: TopK(fetch=8), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[a]
-           :       TantivyLookupExec: decode=[], resolve_ctid=[ctid_1]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, dim_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, id@4]
            :           CooperativeExec
            :             PgSearchScan: table=b, segments=1, query={"range":{"field":"price","lower_bound":{"excluded":100},"upper_bound":null}}
@@ -259,11 +259,11 @@ SELECT f.id, b.id FROM (SELECT * FROM oj_fact WHERE txt @@@ 'alpha') f FULL JOIN
            :   SortExec: TopK(fetch=12), expr=[id@3 ASC, id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=Full, on=[(id@1, dim_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, id@4]
            :       VisibilityFilterExec: tables=[b]
-           :         TantivyLookupExec: decode=[], resolve_ctid=[ctid_0]
+           :         TantivyLookupExec: decode=[], fetch=[ctid_0]
            :           CooperativeExec
            :             PgSearchScan: table=b, segments=1, query="all"
            :       VisibilityFilterExec: tables=[oj_fact]
-           :         TantivyLookupExec: decode=[], resolve_ctid=[ctid_1]
+           :         TantivyLookupExec: decode=[], fetch=[ctid_1]
            :           CooperativeExec
            :             PgSearchScan: table=oj_fact, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
 (20 rows)

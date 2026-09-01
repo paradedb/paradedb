@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Benchmark Results</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+  <!-- Zoom plugin -->
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.0" defer></script>
+  <style>
+    .chart-container canvas { min-height: 300px; }
+    .toggle-switch { display: flex; align-items: center; margin-bottom: 0.5rem; gap: 1rem; }
+    .toggle-switch input { margin-right: 0.5rem; }
+    .reset-btn { padding: 0.25rem 0.75rem; background: #4299e1; color: white; border-radius: 0.375rem; cursor: pointer; }
+  </style>
+</head>
+<body class="bg-gray-100 text-gray-800 p-6">
+  <div class="max-w-7xl mx-auto">
+    <header class="mb-10">
+      <h1 class="text-4xl font-bold">ParadeDB Benchmark Results</h1>
+      <p class="text-gray-600 mt-2">Grouped benchmark charts.</p>
+    </header>
+    <div id="charts" class="space-y-12"></div>
+  </div>
+
+  <script>
+    async function initCharts() {
+      try {
+        const res = await fetch('https://paradedb.github.io/paradedb/benchmarks/data.js');
+        const scriptText = await res.text(); eval(scriptText);
+        Chart.register(ChartZoom);
+
+        const rawData = window.BENCHMARK_DATA?.entries || {};
+        const container = document.getElementById('charts');
+        if (!Object.keys(rawData).length) {
+          container.innerHTML = '<p class="text-red-500">No data.</p>';
+          return;
+        }
+
+        const allEntries = Object.values(rawData).flat();
+        const uniqueIds = Array.from(new Set(allEntries.map(e => e.commit.id)));
+        const hashInfo = {};
+        for (const fullId of uniqueIds) {
+          const short = fullId.slice(0,7);
+          try {
+            const searchRes = await fetch(`https://api.github.com/search/issues?q=${short}+repo:paradedb/paradedb+type:pr`);
+            const data = await searchRes.json();
+            if (data.items && data.items.length) {
+              const pr = data.items[0];
+              hashInfo[short] = { label: `#${pr.number}: ${pr.title}`, url: pr.html_url };
+            } else {
+              hashInfo[short] = { label: short, url: null };
+            }
+          } catch {
+            hashInfo[short] = { label: short, url: null };
+          }
+        }
+
+        const fileGroups = {};
+        Object.entries(rawData).forEach(([category, entries]) => {
+          const parts = category.split(' ');
+          const filename = parts[1] || category;
+          fileGroups[filename] = (fileGroups[filename] || []).concat(entries);
+        });
+
+        Object.entries(fileGroups).forEach(([filename, entries]) => {
+          const section = document.createElement('section');
+          section.className = 'bg-white p-6 rounded-xl shadow-lg';
+          const heading = document.createElement('h2');
+          heading.className = 'text-2xl font-semibold mb-2';
+          heading.textContent = filename;
+          section.appendChild(heading);
+
+          const runsMap = {};
+          entries.forEach(e => {
+            const commitTs = new Date(e.commit.timestamp).getTime();
+            const runTs = e.date;
+            const hash = e.commit.id.slice(0,7);
+            runsMap[`${commitTs}|${runTs}|${hash}`] = { commitTs, runTs, hash };
+          });
+          const runs = Object.values(runsMap).sort((a,b) => a.commitTs - b.commitTs || a.runTs - b.runTs);
+          const fullLabels = runs.map(r => hashInfo[r.hash]?.label || r.hash);
+          const labels = fullLabels.map(l => l.length>25?l.slice(0,25)+'…':l);
+          const runUrls = runs.map(r => hashInfo[r.hash]?.url);
+
+          const benchData = {};
+          entries.forEach(e => {
+            const commitTs = new Date(e.commit.timestamp).getTime();
+            const runTs = e.date;
+            const key = `${commitTs}|${runTs}|${e.commit.id.slice(0,7)}`;
+            e.benches.forEach(b => {
+              const prefix = b.name.includes(' -') ? b.name.split(' -')[0] : b.name;
+              benchData[prefix] = benchData[prefix] || {};
+              benchData[prefix][b.name] = benchData[prefix][b.name] || { unit: b.unit, values: {} };
+              benchData[prefix][b.name].values[key] = b.value;
+            });
+          });
+
+          const prefixes = Object.keys(benchData).sort();
+
+          prefixes.forEach(prefix => {
+            const group = benchData[prefix];
+            const yLabel = Object.values(group)[0]?.unit || '';
+
+            const wrapper = document.createElement('div');
+            wrapper.className = 'chart-container';
+            const toggles = document.createElement('div'); toggles.className = 'toggle-switch';
+            toggles.innerHTML = `
+              <label><input type="checkbox" class="norm-toggle"/><span>Normalize to First Value</span></label>
+              <label><input type="checkbox" class="yzero-toggle" checked/><span>Y Axis from Zero</span></label>
+            `;
+            wrapper.appendChild(toggles);
+            const canvas = document.createElement('canvas');
+            wrapper.appendChild(canvas);
+            const btnRow = document.createElement('div'); btnRow.className='flex justify-start mt-2';
+            const resetBtn = document.createElement('button'); resetBtn.textContent='Zoom Out'; resetBtn.className='reset-btn';
+            btnRow.appendChild(resetBtn); wrapper.appendChild(btnRow);
+            const space = document.createElement('div'); space.style.marginBottom='1rem'; wrapper.appendChild(space);
+
+            section.appendChild(wrapper);
+
+            const datasets = Object.entries(group).map(([name, info]) => {
+              const original = runs.map(r => info.values[`${r.commitTs}|${r.runTs}|${r.hash}`] ?? null);
+              return { label: name, data: original.slice(), original, fill:false, tension:0.4, borderWidth:2 };
+            });
+
+            const shortestName = datasets.map(d=>d.label).sort((a,b)=>a.length-b.length)[0];
+            const showLegend = datasets.length > 1;
+
+            const chart = new Chart(canvas.getContext('2d'),{
+              type:'line',
+              data:{ labels, datasets },
+              options:{
+                responsive:true,
+                scales:{ x:{ ticks:{maxRotation:33,minRotation:33} }, y:{ title:{display:true,text:yLabel}, beginAtZero:true } },
+                plugins:{
+                  legend: {
+                    display: showLegend,
+                    onClick: (e, legendItem, legend) => {
+                      const ci = legend.chart;
+                      const index = legendItem.datasetIndex;
+                      const meta = ci.getDatasetMeta(index);
+                      meta.hidden = meta.hidden === null ? !ci.data.datasets[index].hidden : null;
+                      ci.update();
+                    }
+                  },
+                  title:{ display:true, text: shortestName, font:{ size:20 } },
+                  tooltip:{ mode:'index', intersect:false,
+                    callbacks:{
+                      title: items => fullLabels[items[0].dataIndex],
+                      label: ctx => {
+                        const idx = ctx.dataIndex;
+                        const original = ctx.dataset.original[idx];
+                        if (original == null) return '';
+                        const normOn = toggles.querySelector('.norm-toggle').checked;
+                        if (normOn) {
+                          const first = ctx.dataset.original[0];
+                          if (!first) return '';
+                          const percent = (original / first) * 100;
+                          const delta = percent - 100;
+                          const roundedDelta = Math.round(delta);
+                          return roundedDelta > 0 ? `+${roundedDelta}%` : roundedDelta < 0 ? `${roundedDelta}%` : '0%';
+                        } else {
+                          return original.toString();
+                        }
+                      }
+                    }
+                  },
+                  zoom:{ zoom:{ drag:{enabled:true} } }
+                },
+                onClick:(evt,el)=>{ if(el.length){ const url=runUrls[el[0].index]; if(url) window.open(url,'_blank'); }}
+              }
+            });
+
+            toggles.querySelector('.norm-toggle').addEventListener('change',e=>{
+              const normOn = e.target.checked;
+              chart.data.datasets.forEach(ds=>{
+                const first = ds.original[0];
+                ds.data = normOn && first
+                  ? ds.original.map(v=>v!=null?v/first:null)
+                  : ds.original.slice();
+              });
+              if(normOn) {
+                const vals = chart.data.datasets.flatMap(ds => ds.data.filter(v=>v!=null));
+                const min = Math.min(...vals);
+                const max = Math.max(...vals);
+                const range = Math.max(1-min, max-1);
+                chart.options.scales.y.min = 1 - range;
+                chart.options.scales.y.max = 1 + range;
+                chart.options.scales.y.beginAtZero = false;
+              } else {
+                const yZeroOn = toggles.querySelector('.yzero-toggle').checked;
+                chart.options.scales.y.beginAtZero = yZeroOn;
+                chart.options.scales.y.min = yZeroOn ? 0 : undefined;
+                chart.options.scales.y.max = undefined;
+              }
+              chart.resetZoom();
+              chart.update();
+            });
+
+            toggles.querySelector('.yzero-toggle').addEventListener('change',e=>{
+              if(!toggles.querySelector('.norm-toggle').checked) {
+                chart.options.scales.y.beginAtZero = e.target.checked;
+              }
+              chart.resetZoom(); chart.update();
+            });
+            resetBtn.addEventListener('click',()=>chart.resetZoom());
+            canvas.addEventListener('mousedown',()=>{chart.options.plugins.tooltip.enabled=false;chart.update('none');});
+            canvas.addEventListener('mouseup',()=>{chart.options.plugins.tooltip.enabled=true;chart.update('none');});
+          });
+
+          container.appendChild(section);
+        });
+      } catch (err) {
+        console.error(err);
+        document.getElementById('charts').innerHTML = '<p class="text-red-500">Failed to load benchmark data.</p>';
+      }
+    }
+    document.addEventListener('DOMContentLoaded', initCharts);
+  </script>
+</body>
+</html>

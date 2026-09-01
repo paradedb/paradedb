@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Benchmark Results</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+    <script>
+        const REPO_SLUG = 'paradedb/paradedb';
+        const TOKEN_KEY = "paradedb:gh_pat:v0";
+        let token = localStorage.getItem(TOKEN_KEY);
+        if (!token) {
+            token = prompt('Paste a GitHub token with read access to paradedb/paradedb:');
+            if (token) {
+                localStorage.setItem(TOKEN_KEY, token);
+            }
+        }
+
+        const H = {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28'
+        };
+
+        // Simple JSON localStorage helpers and cache keys
+        const CACHE_PREFIX = 'paradedb:cache:';
+        const TAGS_RELEASE_CACHE_KEY = `${CACHE_PREFIX}tags_release_map:v1`;
+
+        function getJSON(key) {
+            try {
+                const raw = localStorage.getItem(key);
+                if (!raw) return null;
+                return JSON.parse(raw);
+            } catch (e) {
+                console.warn('Failed to parse cache for', key, e);
+                return null;
+            }
+        }
+
+        function setJSON(key, value) {
+            try {
+                localStorage.setItem(key, JSON.stringify(value));
+            } catch (e) {
+                // Best-effort; ignore quota errors
+                console.warn('Failed to write cache for', key, e);
+            }
+        }
+
+        async function fetch_data() {
+            try {
+                const res = await fetch('data.js');
+                const scriptText = await res.text();
+                const jsonStr = scriptText.replace('window.BENCHMARK_DATA = ', '');
+                const data = JSON.parse(jsonStr);
+
+                return Object.entries(data?.entries || {}).flatMap(([key, entries]) => {
+                    const filename = (key.split(' ')[1] || key).replace('.json', '.toml');
+
+                    return entries.flatMap(entry => {
+                        const {commit, tool, benches} = entry;
+                        const style = tool?.includes('BiggerIsBetter') ? 'BiggerIsBetter' :
+                            tool?.includes('SmallerIsBetter') ? 'SmallerIsBetter' : '';
+
+                        return benches.map(bench => {
+                            const extraMap = bench.extra ? Object.fromEntries(
+                                bench.extra.split(',').map(pair => {
+                                    const [k, v] = pair.split(':').map(s => s.trim());
+                                    return [k, v];
+                                })
+                            ) : {};
+
+                            const [bench_name, bench_server, bench_metric] = bench.name.split(' - ');
+
+                            return {
+                                name: filename,
+                                commit_id: commit.id,
+                                author: commit.author?.name || '',
+                                message: commit.message,
+                                commit_timestamp: commit.timestamp,
+                                url: commit.url,
+                                style,
+                                bench_name,
+                                bench_server,
+                                bench_metric,
+                                bench_value: bench.value,
+                                bench_unit: bench.unit,
+                                bench_extra: extraMap
+                            };
+                        });
+                    });
+                });
+            } catch (error) {
+                console.error('Error fetching or processing data.js:', error);
+                return [];
+            }
+        }
+
+        async function enrich_with_github(dataPoints) {
+            const now = Date.now();
+            const ONE_DAY = 24 * 60 * 60 * 1000;
+            let cache = getJSON(TAGS_RELEASE_CACHE_KEY);
+            let tagMapObj = cache && cache.expiresAt && cache.expiresAt > now ? cache.data : null;
+
+            try {
+                if (!tagMapObj) {
+                    const [tagsResp, releasesResp] = await Promise.all([
+                        fetch(`https://api.github.com/repos/${REPO_SLUG}/git/refs/tags`, {headers: H}),
+                        fetch(`https://api.github.com/repos/${REPO_SLUG}/releases`, {headers: H})
+                    ]);
+
+                    if (!tagsResp.ok || !releasesResp.ok) {
+                        throw new Error('Failed to fetch GitHub data');
+                    }
+
+                    const [tags, releases] = await Promise.all([tagsResp.json(), releasesResp.json()]);
+
+                    if (!Array.isArray(tags) || !Array.isArray(releases)) {
+                        throw new TypeError('Invalid response format from GitHub API');
+                    }
+
+                    const annotated = tags.filter(t => t?.object?.type === 'tag');
+                    const resolutions = await Promise.all(annotated.map(async t => {
+                        try {
+                            const tagResp = await fetch(t.object.url, {headers: H});
+                            if (!tagResp.ok) throw new Error(`Failed to fetch tag: ${t.ref}`);
+                            const tagObj = await tagResp.json();
+                            return {ref: t.ref, sha: tagObj?.object?.sha || t.object.sha};
+                        } catch (e) {
+                            console.warn(`Failed to resolve tag ${t.ref}:`, e);
+                            return {ref: t.ref, sha: t.object.sha};
+                        }
+                    }));
+
+                    const resolutionMap = new Map(resolutions.map(r => [r.ref, r.sha]));
+                    const result = {};
+
+                    for (const t of tags) {
+                        if (!t?.ref || !t?.object?.sha) continue;
+
+                        const tagName = t.ref.replace('refs/tags/', '');
+                        const sha = t.object.type === 'tag' ? (resolutionMap.get(t.ref) || t.object.sha) : t.object.sha;
+                        const release = releases.find(r => r.tag_name === tagName);
+                        const ts = release?.published_at ? new Date(release.published_at).getTime() : null;
+
+                        if (!result[sha]) {
+                            result[sha] = [];
+                        }
+                        result[sha].push({name: tagName, timestamp: ts});
+                    }
+
+                    tagMapObj = result;
+                    setJSON(TAGS_RELEASE_CACHE_KEY, {expiresAt: now + ONE_DAY, data: tagMapObj});
+                }
+
+                return dataPoints.map(point => {
+                    if (!point?.commit_id) return point;
+
+                    const tagsInfo = tagMapObj[point.commit_id] || [];
+                    return {
+                        ...point,
+                        github_info: {
+                            tags: tagsInfo.map(t => ({ name: t.name, timestamp: t.timestamp })),
+                            branches: [],
+                            pull_request: null
+                        }
+                    };
+                });
+            } catch (error) {
+                console.error('Error enriching data points:', error);
+                return dataPoints;
+            }
+        }
+
+        async function enrich_missing_github_info(enriched_data_points) {
+            const uniqueCommits = [...new Set(enriched_data_points.map(p => p.commit_id))];
+            const prInfoCache = {};
+
+            for (const commitId of uniqueCommits) {
+                const cacheKey = `v1_pr_info:${commitId}`;
+                const cached = localStorage.getItem(cacheKey);
+
+                if (cached) {
+                    prInfoCache[commitId] = JSON.parse(cached);
+                    continue;
+                }
+
+                try {
+                    console.log(`Fetching PR info for commit ${commitId}`);
+                    const [prResponse, commitResponse] = await Promise.all([
+                        fetch(
+                            `https://api.github.com/repos/${REPO_SLUG}/commits/${commitId}/pulls`,
+                            {headers: H}
+                        ),
+                        fetch(
+                            `https://api.github.com/repos/${REPO_SLUG}/commits/${commitId}`,
+                            {headers: H}
+                        )
+                    ]);
+
+                    let base_branch = null;
+                    if (commitResponse.ok) {
+                        const commitData = await commitResponse.json();
+                        base_branch = commitData.commit?.message?.match(/\(#\d+\) from ([^/]+\/[^\s]+)/)?.[1] || null;
+                    }
+
+                    if (!prResponse.ok) {
+                        console.warn(`Failed to fetch PR info for commit ${commitId}`);
+                        const prInfo = {
+                            number: commitId.substring(0, 8),
+                            name: commitId,
+                            base_branch: base_branch
+                        };
+                        prInfoCache[commitId] = prInfo;
+                        continue;
+                    }
+
+                    const prs = await prResponse.json();
+                    console.log(prs);
+                    if (!prs || prs.length === 0) {
+                        const prInfo = {
+                            number: commitId.substring(0, 8),
+                            name: commitId,
+                            base_branch: base_branch
+                        };
+                        prInfoCache[commitId] = prInfo;
+                    } else if (prs && prs.length > 0) {
+                        // use the last PR in the list for the commit.  this would be the first PR that contains the commit
+                        const prIndex = prs.length-1;
+                        const prInfo = {
+                            number: prs[prIndex].number,
+                            name: prs[prIndex].title,
+                            base_branch: prs[prIndex].base?.ref || base_branch
+                        };
+                        prInfoCache[commitId] = prInfo;
+                        localStorage.setItem(cacheKey, JSON.stringify(prInfo));
+                    }
+                } catch (error) {
+                    console.error(`Error fetching PR info for commit ${commitId}:`, error);
+                }
+            }
+
+            return enriched_data_points.map(point => ({
+                ...point,
+                github_info: {
+                    ...point.github_info,
+                    pull_request: prInfoCache[point.commit_id] || null
+                }
+            }));
+        }
+
+        function organizeDataForCharts(data_points) {
+            // Use plain objects/arrays to preserve the input order deterministically
+            const chartGroups = [];
+            const indexes = {}
+
+            for (const point of data_points) {
+                if (indexes[point.name] === undefined) {
+                    indexes[point.name] = chartGroups.length;
+                }
+                let idx = indexes[point.name];
+
+                if (!chartGroups[idx]) {
+                    chartGroups[idx] = [point.name, {}];
+                }
+                const metrics = chartGroups[idx][1];
+
+                if (!metrics[point.bench_metric]) {
+                    metrics[point.bench_metric] = {};
+                }
+                const series = metrics[point.bench_metric];
+
+                const seriesKey = `${point.bench_name} - ${point.bench_server}`;
+                if (!series[seriesKey]) {
+                    series[seriesKey] = [];
+                }
+                const points = series[seriesKey];
+
+                if (!point.github_info) {
+                    point.github_info = {
+                        tags: [],
+                        branches: [],
+                        pull_request: null
+                    };
+                }
+
+                const short_label = point.github_info?.tags?.[0]?.name ||
+                    (point.github_info?.pull_request ?
+                        `PR #${point.github_info.pull_request.number}: ${point.github_info.pull_request.name.substring(0, 20)}${point.github_info.pull_request.name.length > 20 ? '...' : ''}` :
+                        point.commit_id.substring(0, 7));
+
+                const full_label = point.github_info?.tags?.[0]?.name ||
+                    (point.github_info?.pull_request ?
+                        `PR #${point.github_info.pull_request.number}: ${point.github_info.pull_request.name}` :
+                        point.commit_id.substring(0, 7));
+
+                const prevValue = points.length > 0 ? points[points.length - 1].y : null;
+                const firstValue = points.length > 0 ? points[0].y : null;
+                const percentChangePrev = prevValue ? ((point.bench_value - prevValue) / prevValue * 100).toFixed(2) : null;
+                const percentChangeFirst = firstValue ? ((point.bench_value - firstValue) / firstValue * 100).toFixed(2) : null;
+
+                points.push({
+                    x: points.length,
+                    y: point.bench_value,
+                    short_label,
+                    full_label,
+                    commitId: point.commit_id,
+                    style: point.style,
+                    timestamp: point.commit_timestamp,
+                    percentChangePrev,
+                    percentChangeFirst,
+                    bench_extra: point.bench_extra,
+                    base_branch: point.github_info?.pull_request?.base_branch,
+                    unit: point.bench_unit
+                });
+            }
+
+            return chartGroups;
+        }
+
+        function draw_charts(data_points) {
+            const chartGroups = organizeDataForCharts(data_points);
+            const container = document.getElementById('chartContainer');
+            const navContainer = document.getElementById('navContainer');
+
+            let chartIndex = 0;
+
+            for (var i=0; i<chartGroups.length; i++) {
+                const group = chartGroups[i];
+                const name = group[0];
+                const metrics = group[1];
+                for (const metric of Object.keys(metrics)) {
+                    const series = metrics[metric];
+
+                    const canvas = document.createElement('canvas');
+                    canvas.style.height = '400px';
+                    canvas.style.marginBottom = '2rem';
+                    canvas.id = `chart-${chartIndex}`;
+                    container.appendChild(canvas);
+
+                    const groupKey = name;
+                    let group = navContainer.querySelector(`[data-group="${groupKey}"]`);
+                    if (!group) {
+                        group = document.createElement('div');
+                        group.className = 'flex flex-wrap gap-4';
+                        group.dataset.group = groupKey;
+                        const groupLabel = document.createElement('div');
+                        groupLabel.className = 'w-full font-bold text-lg';
+                        groupLabel.textContent = name;
+                        group.appendChild(groupLabel);
+                        navContainer.appendChild(group);
+                    }
+                    const navLink = document.createElement('a');
+                    navLink.href = `#chart-${chartIndex}`;
+                    navLink.className = 'px-4 py-2 bg-gray-100 rounded hover:bg-gray-200 text-sm font-medium';
+                    navLink.textContent = metric;
+                    group.appendChild(navLink);
+
+                    chartIndex++;
+
+                    const seriesKeys = Object.keys(series);
+                    const datasets = seriesKeys.map((seriesKey, index) => {
+                        const points = series[seriesKey];
+                        const color = `hsl(${index * 127.5 % 360}, 64%, 72%)`;
+                        return {
+                            label: seriesKey,
+                            data: points,
+                            borderColor: color,
+                            backgroundColor: color,
+                            pointBackgroundColor: color,
+                            pointRadius: 5,
+                            tension: 0.3,
+                            fill: false
+                        };
+                    });
+
+                    new Chart(canvas, {
+                        type: 'line',
+                        data: {
+                            datasets
+                        },
+                        options: {
+                            responsive: true,
+                            plugins: {
+                                title: {
+                                    display: true,
+                                    text: `${name} - ${metric}`,
+                                    align: 'start',
+                                    font: {
+                                        size: 24,
+                                        weight: 'bold'
+                                    },
+                                    padding: {
+                                        bottom: 20
+                                    }
+                                },
+                                tooltip: {
+                                    callbacks: {
+                                        title: () => '',
+                                        label: function (context) {
+                                            const point = context.raw;
+                                            const lines = [
+                                                context.dataset.label,
+                                                point.full_label,
+                                                'Commit: ' + point.commitId,
+                                                `Branch: ${point.base_branch || 'unknown'}`,
+                                                `Time: ${new Date(point.timestamp).toLocaleString()}`,
+                                                `Value: ${point.y} ${point.unit}`
+                                            ];
+                                            if (point.percentChangePrev !== null) {
+                                                lines.push(`Change from previous: ${point.percentChangePrev}%`);
+                                            }
+                                            if (point.percentChangeFirst !== null) {
+                                                lines.push(`Change from first: ${point.percentChangeFirst}%`);
+                                            }
+                                            if (point.bench_extra) {
+                                                for (const [key, value] of Object.entries(point.bench_extra)) {
+                                                    lines.push(`${key}: ${value}`);
+                                                }
+                                            }
+                                            return lines;
+                                        }
+                                    }
+                                },
+                                zoom: {
+                                    zoom: {
+                                        wheel: {
+                                            enabled: true,
+                                        },
+                                        pinch: {
+                                            enabled: true
+                                        },
+                                        mode: 'xy',
+                                    },
+                                    pan: {
+                                        enabled: true,
+                                        mode: 'xy',
+                                    }
+                                },
+                                legend: {
+                                    onClick: function (evt, legendItem, legend) {
+                                        const chart = legend.chart;
+                                        const index = legendItem.datasetIndex;
+                                        const meta = chart.getDatasetMeta(index);
+                                        meta.hidden = !meta.hidden;
+                                        chart.update();
+                                    }
+                                }
+                            },
+                            scales: {
+                                x: {
+                                    type: 'linear',
+                                    min: 0,
+                                    max: datasets[0].data.length === 1 ? 1 : datasets[0].data.length-1,
+                                    ticks: {
+                                        callback: function (value, index) {
+                                            const dataset = this.chart.data.datasets[0];
+                                            return dataset.data[value]?.short_label || '';
+                                        },
+                                        minRotation: 33,
+                                        maxRotation: 33,
+                                        stepSize: 1,
+                                    }
+                                },
+                                y: {
+                                    title: {
+                                        display: true,
+                                        text: datasets[0].data[0]?.unit || ''
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+        }
+
+        function downloadJSON(data, filename) {
+            const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        async function fetchWorkflows() {
+            try {
+                try {
+                    const response = await fetch(`https://api.github.com/repos/${REPO_SLUG}/actions/runs?status=in_progress`, {
+                        headers: H
+                    });
+                    if (!response.ok) throw new Error('Failed to fetch workflows');
+                    const data = await response.json();
+                    const filteredRuns = data.workflow_runs.filter(run =>
+                        run.status !== 'completed' &&
+                        (run.name.toLowerCase().includes('benchmark') ||
+                            run.display_title.toLowerCase().includes('benchmark') || run.display_title.toLowerCase().includes('build and deployment'))
+                    );
+
+                    const runsWithJobs = await Promise.all(filteredRuns.map(async run => {
+                        try {
+                            const jobsResponse = await fetch(`https://api.github.com/repos/${REPO_SLUG}/actions/runs/${run.id}/jobs`, {
+                                headers: H
+                            });
+                            if (!jobsResponse.ok) return run;
+                            const jobsData = await jobsResponse.json();
+                            return {...run, jobs: jobsData.jobs};
+                        } catch (error) {
+                            console.error('Error fetching jobs for workflow:', error);
+                            return run;
+                        }
+                    }));
+
+                    return runsWithJobs;
+                } catch (error) {
+                    console.error('Error fetching workflows:', error);
+                    return [];
+                }
+            } catch (error) {
+                console.error('Error fetching workflows:', error);
+                return [];
+            }
+        }
+
+        async function updateWorkflowStatus() {
+            try {
+                const workflows = await fetchWorkflows();
+                const statusDiv = document.getElementById('workflowStatus');
+                if (!statusDiv) return;
+
+                if (workflows.length === 0) {
+                    statusDiv.innerHTML = '<p class="text-gray-500">No active benchmark workflows</p>';
+                    return;
+                }
+
+                statusDiv.innerHTML = workflows.map(workflow => `
+                    <div class="mb-4 p-2 border rounded">
+                        <div class="font-medium">${workflow.name}</div>
+                        <div class="text-xs text-gray-600">
+                            Started: ${new Date(workflow.created_at).toLocaleString()}
+                            ${workflow.jobs ? workflow.jobs.map(job => `
+                                <br>
+                                <span class="font-medium">Current step:</span> ${job.steps ?
+                    job.steps.find(step => step.status === 'in_progress')?.name ||
+                    job.steps[job.steps.length - 1]?.name || 'Unknown'
+                    : 'Unknown'}
+                            `).join('') : ''}
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Error updating workflow status:', error);
+                const statusDiv = document.getElementById('workflowStatus');
+                if (statusDiv) {
+                    statusDiv.innerHTML = '<p class="text-red-500">Error loading workflow status</p>';
+                }
+            }
+        }
+
+        let selectedBranches = new Set();
+        let allDataPoints = [];
+
+        function updateCharts() {
+            const filteredPoints = selectedBranches.size === 0
+                ? allDataPoints
+                : allDataPoints.filter(point =>
+                    selectedBranches.has(point.github_info?.pull_request?.base_branch));
+
+            console.log('Filtered data points:', filteredPoints);
+
+            document.getElementById('chartContainer').innerHTML = '';
+            document.getElementById('navContainer').innerHTML = '<div class="flex flex-col gap-2"></div>';
+            draw_charts(filteredPoints);
+        }
+
+        function updateBranchFilters(data_points) {
+            const branches = new Set();
+            data_points.forEach(point => {
+                const branch = point.github_info?.pull_request?.base_branch;
+                if (branch) branches.add(branch);
+            });
+
+            const container = document.getElementById('branchFilters');
+            container.innerHTML = Array.from(branches).sort().map(branch => `
+                <div class="flex items-center">
+                    <input type="checkbox" id="branch-${branch}" value="${branch}" class="mr-2">
+                    <label for="branch-${branch}">${branch}</label>
+                </div>
+            `).join('');
+
+            container.addEventListener('change', (e) => {
+                if (e.target.type === 'checkbox') {
+                    if (e.target.checked) {
+                        selectedBranches.add(e.target.value);
+                    } else {
+                        selectedBranches.delete(e.target.value);
+                    }
+                    updateCharts();
+                }
+            });
+        }
+
+        async function initUI() {
+            const data_points = await fetch_data();
+            const enriched_data_points = await enrich_with_github(data_points);
+            const fully_enriched_data_points = await enrich_missing_github_info(enriched_data_points);
+            allDataPoints = fully_enriched_data_points;
+            updateBranchFilters(fully_enriched_data_points);
+            // Multi-level sort: by tag name (semver-compatible), then by timestamp, then by bench_metric with 'tps' priority
+            fully_enriched_data_points.sort((a, b) => {
+                // Sort by tag name as semver-compatible versions
+                const aTag = a.github_info?.tags?.[0]?.name?.replace(/^v/, '') || '';
+                const bTag = b.github_info?.tags?.[0]?.name?.replace(/^v/, '') || '';
+                if (aTag && bTag) {
+                    const semverCompare = aTag.localeCompare(bTag, undefined, {numeric: true, sensitivity: 'base'});
+                    if (semverCompare !== 0) return semverCompare;
+                }
+
+                // Sort by commit timestamp
+                const aTime = new Date(a.commit_timestamp);
+                const bTime = new Date(b.commit_timestamp);
+                if (aTime !== bTime) return aTime - bTime;
+
+                // Stable sort by bench_metric with 'tps' priority
+                if (a.bench_metric === b.bench_metric) return 0;
+                if (a.bench_metric === 'tps') return -1;
+                if (b.bench_metric === 'tps') return 1;
+                return a.bench_metric.localeCompare(b.bench_metric);
+            });
+
+            console.log(fully_enriched_data_points);
+            draw_charts(fully_enriched_data_points);
+
+            // Add click handler for download button
+            document.getElementById('downloadButton').addEventListener('click', () => {
+                downloadJSON(fully_enriched_data_points, 'benchmark-data.json');
+            });
+
+            // Initial workflow status update
+            await updateWorkflowStatus();
+
+            // Set up auto-refresh
+            setInterval(updateWorkflowStatus, 10000);
+
+        }
+
+        document.addEventListener('DOMContentLoaded', initUI);
+    </script>
+</head>
+<body>
+<div class="fixed top-0 left-0 h-full w-64 bg-white border-r border-gray-200 shadow-sm z-50 overflow-y-auto transition-all duration-300">
+    <div class="px-4 py-6">
+        <button id="downloadButton" class="w-full mb-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+            Download Data
+        </button>
+        <div class="mb-6">
+            <h3 class="font-bold mb-2">Active Benchmark Workflows</h3>
+            <div id="workflowStatus" class="text-sm"></div>
+        </div>
+        <div class="mb-6">
+            <h3 class="font-bold mb-2">Filter by Branch</h3>
+            <div id="branchFilters" class="text-sm space-y-2"></div>
+        </div>
+
+        <div id="navContainer" class="flex flex-col gap-4">
+            <div class="flex flex-col gap-2"></div>
+        </div>
+    </div>
+</div>
+<div class="ml-64 transition-all duration-300">
+    <div class="container p-8">
+        <div id="chartContainer" class="grid grid-cols-1 gap-16 mb-8"></div>
+    </div>
+</div>
+</body>
+</html>

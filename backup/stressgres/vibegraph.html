@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Benchmark Results</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+  <!-- Zoom plugin -->
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.0" defer></script>
+  <style>
+    .chart-container canvas { min-height: 300px; }
+    .toggle-switch { display: flex; align-items: center; margin-bottom: 0.5rem; gap: 1rem; }
+    .toggle-switch input { margin-right: 0.5rem; }
+    .reset-btn { padding: 0.25rem 0.75rem; background: #4299e1; color: white; border-radius: 0.375rem; cursor: pointer; }
+  </style>
+</head>
+<body class="bg-gray-100 text-gray-800 p-6">
+  <div class="max-w-7xl mx-auto">
+    <header class="mb-10">
+      <h1 class="text-4xl font-bold">ParadeDB Stressgres Benchmark Results</h1>
+      <p class="text-gray-600 mt-2">Organized by config file and metric.</p>
+    </header>
+    <div id="charts" class="space-y-12"></div>
+  </div>
+
+  <script>
+    async function initCharts() {
+      try {
+        // Load data.js
+        const res = await fetch('https://paradedb.github.io/paradedb/stressgres/data.js');
+        const scriptText = await res.text(); eval(scriptText);
+        Chart.register(ChartZoom);
+
+        const rawData = window.BENCHMARK_DATA?.entries || {};
+        const container = document.getElementById('charts');
+        if (!Object.keys(rawData).length) {
+          container.innerHTML = '<p class="text-red-500">No data.</p>';
+          return;
+        }
+
+        // Resolve unique commit PR info
+        const allEntries = Object.values(rawData).flat();
+        const uniqueIds = [...new Set(allEntries.map(e => e.commit.id))];
+        const hashInfo = {};
+        for (const fullId of uniqueIds) {
+          const short = fullId.slice(0,7);
+          try {
+            const resp = await fetch(`https://api.github.com/search/issues?q=${short}+repo:paradedb/paradedb+type:pr`);
+            const d = await resp.json();
+            if (d.items && d.items.length) {
+              const pr = d.items[0];
+              hashInfo[short] = { label: `#${pr.number}: ${pr.title}`, url: pr.html_url };
+            } else hashInfo[short] = { label: short, url: null };
+          } catch {
+            hashInfo[short] = { label: short, url: null };
+          }
+        }
+
+        // Group entries by filename
+        const fileGroups = {};
+        Object.entries(rawData).forEach(([cat, ents]) => {
+          const parts = cat.split(' ');
+          const filename = parts[1] || cat;
+          fileGroups[filename] = (fileGroups[filename]||[]).concat(ents);
+        });
+
+        // Process each file group
+        Object.entries(fileGroups).forEach(([filename, entries]) => {
+          const section = document.createElement('section'); section.className = 'bg-white p-6 rounded-xl shadow-lg';
+          const fh = document.createElement('h2'); fh.className='text-2xl font-semibold mb-4'; fh.textContent=filename; section.appendChild(fh);
+
+          // Group by metric
+          const metricGroups = {};
+          entries.forEach(ent => {
+            const ct = new Date(ent.commit.timestamp).getTime();
+            ent.benches.forEach(b => {
+              const metric = b.name.split(' - ').pop();
+              metricGroups[metric] = metricGroups[metric]||[];
+              metricGroups[metric].push({
+                name: b.name, unit: b.unit, commitTs: ct, runTs: ent.date,
+                fullId: ent.commit.id, hash: ent.commit.id.slice(0,7), value: b.value
+              });
+            });
+          });
+
+          Object.entries(metricGroups).forEach(([metric, benchData]) => {
+            // Prepare time runs
+            const runKeys = [...new Set(benchData.map(d=>`${d.commitTs}|${d.runTs}|${d.hash}`))];
+            const runs = runKeys.map(k=>{ const [c,r,h]=k.split('|'); return {commitTs:+c,runTs:+r,hash:h}; })
+                             .sort((a,b)=>a.commitTs-b.commitTs||a.runTs-b.runTs);
+            const fullLabels = runs.map(r=>hashInfo[r.hash]?.label||r.hash);
+            const labels = fullLabels.map(l=>l.length>25?l.slice(0,25)+'…':l);
+            const runUrls = runs.map(r=>hashInfo[r.hash]?.url);
+
+            // Build series data
+            const seriesMap = {};
+            benchData.forEach(d=>{
+              seriesMap[d.name] = seriesMap[d.name]||[];
+              const idx = runs.findIndex(r=>r.commitTs===d.commitTs&&r.runTs===d.runTs&&r.hash===d.hash);
+              seriesMap[d.name][idx]=d.value;
+            });
+            let datasets = Object.entries(seriesMap).map(([nm,data])=>({
+              label:nm, data, original:data.slice(), fill:false, tension:0.4, borderWidth:2
+            }));
+
+            // Outlier split logic (N=2)
+            const maxVals = datasets.map(ds=>Math.max(...ds.original.filter(v=>v!=null)));
+            const mean = maxVals.reduce((s,v)=>s+v,0)/maxVals.length;
+            const std = Math.sqrt(maxVals.map(v=>(v-mean)**2).reduce((s,v)=>s+v,0)/maxVals.length);
+            const normal = datasets.filter((_,i)=>maxVals[i]<=mean+2*std);
+            const outliers = datasets.filter((_,i)=>maxVals[i]> mean+2*std);
+            const groups = outliers.length>0
+              ? [{title:'Normal series',data:normal},{title:'Outliers',data:outliers}]
+              : [{title:metric,data:datasets}];
+
+            groups.forEach(group=>{
+              // Section sub-heading
+              const gh = document.createElement('h3'); gh.className='text-xl font-semibold mt-6 mb-2';
+              gh.textContent = group.title===metric ? metric : `${metric} (${group.title})`;
+              section.appendChild(gh);
+
+              // Chart wrapper
+              const cw = document.createElement('div'); cw.className='mb-8 chart-container';
+              cw.innerHTML = `
+                <div class="toggle-switch">
+                  <label><input type="checkbox" class="norm-toggle"/><span>Normalize to First Value</span></label>
+                  <label><input type="checkbox" checked class="yzero-toggle"/><span>Y Axis from Zero</span></label>
+                </div>
+              `;
+              const canvas = document.createElement('canvas'); cw.appendChild(canvas);
+              const btnWrap = document.createElement('div'); btnWrap.className='flex justify-start mt-2';
+              const resetBtn = document.createElement('button'); resetBtn.className='reset-btn'; resetBtn.textContent='Zoom Out';
+              btnWrap.appendChild(resetBtn); cw.appendChild(btnWrap);
+              section.appendChild(cw);
+
+              // Render chart
+              const yLabel = benchData[0]?.unit||'';
+              const showLegend = group.data.length > 1;
+              const chartOptions = {
+                responsive:true,
+                scales:{ x:{ticks:{maxRotation:33,minRotation:33}}, y:{beginAtZero:true,title:{display:true,text:yLabel}} },
+                plugins:{
+                  legend:{
+                    display: showLegend,
+                    onClick:(e, legendItem, legend)=>{
+                      const ci = legend.chart;
+                      const index = legendItem.datasetIndex;
+                      const meta = ci.getDatasetMeta(index);
+                      meta.hidden = meta.hidden === null ? !ci.data.datasets[index].hidden : null;
+                      ci.update();
+                    }
+                  },
+                  title:{
+                    display: !showLegend,
+                    text: group.data[0].label,
+                    font:{ size: 16 }
+                  },
+                  tooltip:{mode:'index',intersect:false,callbacks:{
+                    title:items=>fullLabels[items[0].dataIndex],
+                    label:ctx=>{
+                      const ds=ctx.dataset, idx=ctx.dataIndex;
+                      const raw=ds.original[idx];
+                      if(ctx.chart.normalized && ds.original[0]){
+                        const delta=(raw-ds.original[0])/ds.original[0]*100;
+                        const sign=delta>=0?'+':'';
+                        return `${ds.label}: ${sign}${delta.toFixed(0)}%`;
+                      }
+                      return `${ds.label}: ${ctx.parsed.y}`;
+                    }
+                  }},
+                  zoom:{zoom:{drag:{enabled:true}}}
+                },
+                onClick:(_, elems)=>{ if(elems.length){ const idx=elems[0].index; const url=runUrls[idx]; if(url)window.open(url); }}
+              };
+
+              const chart = new Chart(canvas.getContext('2d'),{
+                type:'line', data:{labels, datasets:group.data}, options:chartOptions
+              });
+              chart.normalized=false;
+
+              // Toggles
+              cw.querySelector('.norm-toggle').addEventListener('change',e=>{
+                const norm=e.target.checked; chart.resetZoom(); chart.normalized=norm;
+                chart.data.datasets.forEach(ds=>{
+                  ds.data = norm&&ds.original[0] ? ds.original.map(v=>v!=null?v/ds.original[0]:null) : ds.original.slice();
+                }); chart.update();
+              });
+              cw.querySelector('.yzero-toggle').addEventListener('change',e=>{
+                chart.options.scales.y.beginAtZero=e.target.checked; chart.resetZoom(); chart.update();
+              });
+              resetBtn.addEventListener('click',()=>chart.resetZoom());
+              canvas.addEventListener('mousedown',()=>{chart.options.plugins.tooltip.enabled=false;chart.update('none');});
+              canvas.addEventListener('mouseup',()=>{chart.options.plugins.tooltip.enabled=true;chart.update('none');});
+            });
+          });
+
+          container.appendChild(section);
+        });
+      } catch(err) {
+        console.error(err);
+        document.getElementById('charts').innerHTML = '<p class="text-red-500">Failed to load benchmark data.</p>';
+      }
+    }
+    document.addEventListener('DOMContentLoaded', initCharts);
+  </script>
+</body>
+</html>

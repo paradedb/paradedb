@@ -30,6 +30,16 @@ use crate::schema::SearchIndexSchema;
 use tantivy::IndexSettings;
 use tantivy::columnar::CodecType;
 
+pub(crate) type IvfRouter = tantivy::vector::LazyStackedIvf;
+
+pub(crate) fn open_index<T: Into<Box<dyn tantivy::Directory>>>(
+    directory: T,
+) -> tantivy::Result<tantivy::Index> {
+    let mut index = tantivy::Index::open(directory)?;
+    index.set_ivf_router::<IvfRouter>()?;
+    Ok(index)
+}
+
 /// The [`IndexSettings`] used for every tantivy index pg_search creates.
 ///
 /// `docstore_compress_dedicated_thread` must remain `false`: a dedicated compressor thread

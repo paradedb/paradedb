@@ -41,6 +41,7 @@ use crate::api::{HashMap, HashSet, Varno};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
+use crate::index::open_index;
 use crate::index::reader::index::{MAX_TOPK_FEATURES, SearchIndexReader};
 use crate::postgres::customscan::basescan::exec_methods::{
     ExecState, fast_fields, normal::NormalScanExecState,
@@ -96,7 +97,6 @@ use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use pgrx::{FromDatum, IntoDatum, PgList, PgMemoryContexts, pg_sys};
-use tantivy::Index;
 use tantivy::snippet::SnippetGenerator;
 
 #[derive(Default)]
@@ -765,7 +765,7 @@ impl CustomScan for BaseScan {
             let segment_count = {
                 let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
                 let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
-                Index::open(directory).expect("custom_scan: should be able to open index");
+                open_index(directory).expect("custom_scan: should be able to open index");
                 segment_count.load(Ordering::Relaxed)
             };
             let schema = bm25_index

@@ -406,7 +406,7 @@ impl SearchIndexReader {
         let cleanup_lock = Arc::new(MetaPage::open(index_relation).cleanup_lock_pinned());
 
         let directory = mvcc_style.directory(index_relation);
-        let mut index = Index::open(directory.clone())?;
+        let mut index = crate::index::open_index(directory.clone())?;
         let total_segment_count = directory
             .total_segment_count()
             .load(std::sync::atomic::Ordering::Relaxed);

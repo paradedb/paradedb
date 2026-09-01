@@ -29,7 +29,7 @@ use tantivy::{
 use thiserror::Error;
 
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
-use crate::index::{index_settings, setup_tokenizers};
+use crate::index::{index_settings, open_index, setup_tokenizers};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::{postgres::types::TantivyValueError, schema::SearchIndexSchema};
@@ -261,7 +261,7 @@ impl SerialIndexWriter {
         }
 
         let directory = mvcc_satisfies.directory(index_relation);
-        let mut index = Index::open(directory)?;
+        let mut index = open_index(directory)?;
         setup_tokenizers(index_relation, &mut index)?;
         let ctid_field = schema.ctid_field();
 
@@ -483,7 +483,7 @@ impl SearchIndexMerger {
         mvcc_satisfies: MvccSatisfies,
     ) -> Result<SearchIndexMerger> {
         let directory = mvcc_satisfies.directory(indexrel);
-        let index = Index::open(directory.clone())?;
+        let index = open_index(directory.clone())?;
         Ok(Self {
             index,
             merged_segment_ids: Default::default(),

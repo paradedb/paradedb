@@ -469,7 +469,9 @@ fn create_index(
     };
     let mut index_builder = Index::builder().schema(schema).settings(settings);
     if let Some(centroid_producer) = centroid_producer {
-        index_builder = index_builder.centroid_producer(centroid_producer);
+        index_builder = index_builder
+            .centroid_producer(centroid_producer)
+            .ivf_router::<crate::index::IvfRouter>()?;
     }
     let _ = index_builder.create(directory)?;
     Ok(())

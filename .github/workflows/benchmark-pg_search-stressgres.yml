@@ -16,6 +16,7 @@ on:
       - ".github/actions/benchmarks-from-main/**"
       - ".github/actions/install-pg-search-source/**"
       - ".github/actions/setup-pg-search-build/**"
+      - ".github/actions/setup-pg-search-toolchain/**"
       - ".github/actions/setup-postgres/**"
       - ".github/workflows/benchmark-pg_search-stressgres.yml"
       - "stressgres/suites/**"

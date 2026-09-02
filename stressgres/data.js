@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788371212991,
+  "lastUpdate": 1788371222716,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -301076,6 +301076,162 @@ window.BENCHMARK_DATA = {
             "value": 17.640625,
             "unit": "median mem",
             "extra": "avg mem: 17.53352621813097, max mem: 17.73046875, count: 59266"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d052f7d8476ff147ab65f17ac4304bf746870119",
+          "message": "feat: match ScalarArrayOpExpr clauses against the index (#6171)\n\n# Ticket(s) Closed\n\n- Closes #6091\n\n## What\n\n`IndexClause::from_clause` dispatched only `OpExpr` and `FuncExpr`, so\n`col = ANY(ARRAY[...])` stayed a heap filter even when a btree could\nanswer it. Adds a `from_saop` arm.\n\n## Why\n\nFollow-up to #6088. The array membership is exactly what the index\nanswers, so the bitmap rejects non-matching rows before the heap fetch\nand the filter drops to a recheck.\n\n## How\n\n`from_saop` mirrors core's `match_saopclause_to_indexcol`: `ANY` only,\nindex key as the left operand, a pseudoconstant array on the right, then\nthe collation and opfamily gates. `ALL` is refused because one index\nscan cannot answer a conjunction over every element, and there is no\ncommuted form to try since the array can only be the right operand.\n\nThose gates and the `IndexClause` construction were previously written\nout once per branch in `from_opexpr`. A preparatory commit extracts them\ninto `direct_match_ok` and `direct`, which both existing branches and\nthe new arm now share.\n\n## Tests\n\nThe `TODO ScalarArrayOpExpr` shape moves into the supported section: it\nharvests `providers_specialty` and its filter becomes a recheck, with\n`saop_count` unchanged at 400. `ALL` is added as a refusal alongside it.\n\n`cargo pgrx regress pg18` 333/333.",
+          "timestamp": "2026-09-02T10:27:19-07:00",
+          "tree_id": "eca0fd8b6f3370b1c6f5c522c3ae4b6f96f38110",
+          "url": "https://github.com/paradedb/paradedb/commit/d052f7d8476ff147ab65f17ac4304bf746870119"
+        },
+        "date": 1788371217520,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 23.199614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.74893713974699, max cpu: 34.177216, count: 59257"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 48.62109375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.80006930879474, max mem: 63.421875, count: 59257"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.698972,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.0443114079496345, max cpu: 4.7105007, count: 59257"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 17.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.201954450001686, max mem: 17.24609375, count: 59257"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.6624575,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.707095701798687, max cpu: 9.370424, count: 59257"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 21.51953125,
+            "unit": "median mem",
+            "extra": "avg mem: 21.49494844754628, max mem: 21.51953125, count: 59257"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 13016,
+            "unit": "median pages",
+            "extra": "avg pages: 11446.474576843242, max pages: 22347.0, count: 59257"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 101.6875,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 89.42558289526976, max relation_size:MB: 174.5859375, count: 59257"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 54,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 51.88749008555951, max segment_count: 120.0, count: 59257"
+          },
+          {
+            "name": "Insert value - Publisher - cpu",
+            "value": 4.6309695,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.5810202122990593, max cpu: 4.692082, count: 59257"
+          },
+          {
+            "name": "Insert value - Publisher - mem",
+            "value": 17.27734375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.267956343765295, max mem: 17.27734375, count: 59257"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.926748312531398, max cpu: 34.177216, count: 59257"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 48.1171875,
+            "unit": "median mem",
+            "extra": "avg mem: 47.88577503238014, max mem: 63.79296875, count: 59257"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 23.199614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.67508465502929, max cpu: 37.97468, count: 59257"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 46.5546875,
+            "unit": "median mem",
+            "extra": "avg mem: 46.143867628508026, max mem: 57.16015625, count: 59257"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 111.159423828125,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 204.97587228435734, max replication_lag:MB: 956.3922348022461, count: 59257"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.939734281174594, max cpu: 34.177216, count: 59257"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 47.90234375,
+            "unit": "median mem",
+            "extra": "avg mem: 47.92205588580252, max mem: 63.2265625, count: 59257"
+          },
+          {
+            "name": "Update 1..50 - Publisher - cpu",
+            "value": 9.275363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.93024986304596, max cpu: 28.304668, count: 59257"
+          },
+          {
+            "name": "Update 1..50 - Publisher - mem",
+            "value": 17.640625,
+            "unit": "median mem",
+            "extra": "avg mem: 17.563664880836864, max mem: 17.796875, count: 59257"
+          },
+          {
+            "name": "Update 51..100 - Publisher - cpu",
+            "value": 9.2708845,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.8036885008458, max cpu: 28.304668, count: 59257"
+          },
+          {
+            "name": "Update 51..100 - Publisher - mem",
+            "value": 17.6875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.577790387633527, max mem: 17.8125, count: 59257"
           }
         ]
       }

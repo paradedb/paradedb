@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788387028386,
+  "lastUpdate": 1788387038980,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -306962,6 +306962,126 @@ window.BENCHMARK_DATA = {
             "value": 12.594103686310378,
             "unit": "median tps",
             "extra": "avg tps: 28.375672152282817, max tps: 762.8684463878942, count: 57391"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "51e683ece89fde7e42ca0c50e4fbad43a2cfe408",
+          "message": "refactor: resolve ctids in TantivyLookupExec, not VisibilityFilterExec (#6140)\n\nThis PR moves ctid resolution out of `VisibilityFilterExec` and into\n`TantivyLookupExec`.\n\nStacked on #6139. It is the second step Stu mentioned for the takeover\nof #6119: split column loading out of the visibility filter so\n`TantivyLookupExec` owns fetching columns (the ctid included) and\n`VisibilityFilterExec` only consumes and mutates the ctid.\n\n## What\n\n- `TantivyLookupExec` can resolve a `ctid_<plan_position>` column from\npacked doc-addresses to real ctids. A ctid-resolving lookup is inserted\ndirectly below every `VisibilityFilterExec`, and below a\n`SegmentedTopKExec` that absorbs one. The plan now shows\n`TantivyLookupExec: decode=[], resolve_ctid=[ctid_0, ctid_1]` under the\nfilter.\n- `VisibilityFilterExec` and the absorbed-visibility path in\n`SegmentedTopKExec` no longer resolve ctids. They check visibility and\nHOT-correct the already-real ctids.\n- The MPP dispatch machinery moved with it: the lookup's dispatch\npayload carries its ctid columns and resolver indexes, and its decode\nrebuilds a resolver from the index segment view when the source sits\nbehind a network boundary.\n\n## Why\n\n`VisibilityFilterExec` was doing two jobs: fetching the ctid column and\nchecking visibility. Separating them makes each node do one thing and\nsets up the follow-up where `TantivyLookupExec` owns all column\nfetching.\n\n## Tests\n\nExisting test.\n\n## CI benchmarks\n\nNo change in benchmark results as expected.\n\nPlease note that `SegmentedTopKExec`'s absorbed-visibility data keeps\nits own ctid resolvers: the absorption takes the lookup's input, so only\nthe K winners pay resolution, and the exec resolves them itself.",
+          "timestamp": "2026-09-02T14:32:52-07:00",
+          "tree_id": "52d24649a4d011b6bd1b09e366e3151a2cb7ecc5",
+          "url": "https://github.com/paradedb/paradedb/commit/51e683ece89fde7e42ca0c50e4fbad43a2cfe408"
+        },
+        "date": 1788387018417,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 171.69800390799819,
+            "unit": "median tps",
+            "extra": "avg tps: 176.09480144169578, max tps: 217.19172915473334, count: 57451"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 287.7844077103434,
+            "unit": "median tps",
+            "extra": "avg tps: 309.5571784748417, max tps: 500.70719022957536, count: 57451"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 4095.9070179405953,
+            "unit": "median tps",
+            "extra": "avg tps: 4083.086869138719, max tps: 4257.852344599699, count: 57451"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 175.09543830617682,
+            "unit": "median tps",
+            "extra": "avg tps: 180.0222207068285, max tps: 226.02983304821387, count: 57451"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3377.8079848264792,
+            "unit": "median tps",
+            "extra": "avg tps: 3347.455093610153, max tps: 3572.1079098078476, count: 57451"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3402.837386557456,
+            "unit": "median tps",
+            "extra": "avg tps: 3384.205687711823, max tps: 3471.400828117132, count: 57451"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 154.0055610223416,
+            "unit": "median tps",
+            "extra": "avg tps: 156.77751467189, max tps: 186.23859263854317, count: 57451"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 259.0420047067863,
+            "unit": "median tps",
+            "extra": "avg tps: 269.52116659483005, max tps: 380.0038276046554, count: 57451"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Primary - tps",
+            "value": 500.9041392143208,
+            "unit": "median tps",
+            "extra": "avg tps: 509.85673212250117, max tps: 595.4492454855497, count: 57451"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 579.6147289073151,
+            "unit": "median tps",
+            "extra": "avg tps: 590.7217606671558, max tps: 705.2659553769103, count: 57451"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1275.8585199080146,
+            "unit": "median tps",
+            "extra": "avg tps: 1276.4997417668853, max tps: 1295.1994198599596, count: 57451"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 301.48780050909295,
+            "unit": "median tps",
+            "extra": "avg tps: 323.5371727779295, max tps: 584.5073458580623, count: 57451"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 528.4384377399618,
+            "unit": "median tps",
+            "extra": "avg tps: 538.9100148404067, max tps: 632.0881634873551, count: 57451"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2352.9028668977817,
+            "unit": "median tps",
+            "extra": "avg tps: 2355.797775750065, max tps: 2496.042903122856, count: 57451"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1758.6318621626647,
+            "unit": "median tps",
+            "extra": "avg tps: 1768.662340361276, max tps: 1879.1068699791872, count: 57451"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.30145103714936,
+            "unit": "median tps",
+            "extra": "avg tps: 25.476223923477537, max tps: 132.11253134039526, count: 57451"
           }
         ]
       }

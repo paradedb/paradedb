@@ -259,12 +259,22 @@ fn try_inject_below_lookup(
                 // to be checked inside the join, so they won't be absorbed here.
                 let (absorbed_visibility, stk_input) =
                     if let Some(vis_exec) = lookup_child.downcast_ref::<VisibilityFilterExec>() {
+                        // The VF's child is a ctid-resolving TantivyLookupExec. Bypass it and let
+                        // the STK resolve ctids at candidate time, so a large join output does not
+                        // pay one fast-field read per row before the Top-K prune.
+                        let vf_child = Arc::clone(vis_exec.children()[0]);
+                        let stk_input = match vf_child.downcast_ref::<TantivyLookupExec>() {
+                            Some(lookup) if !lookup.ctid_columns().is_empty() => {
+                                Arc::clone(lookup.children()[0])
+                            }
+                            _ => vf_child,
+                        };
                         (
                             Some(Arc::new(AbsorbedVisibilityData::new(
                                 vis_exec.plan_pos_oids().to_vec(),
                                 vis_exec.table_names().to_vec(),
                             ))),
-                            Arc::clone(vis_exec.children()[0]),
+                            stk_input,
                         )
                     } else {
                         (None, Arc::clone(lookup_child))

@@ -130,8 +130,8 @@ JOIN categories c ON i.category_id = c.id
 WHERE i.content @@@ 'wireless'
 ORDER BY i.id
 LIMIT 10;
-                                                                                                                QUERY PLAN                                                                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id, c.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -144,12 +144,13 @@ LIMIT 10;
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[c, i]
-           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
-           :         CooperativeExec
-           :           PgSearchScan: table=c, segments=1, visibility=deferred, query="all"
-           :         CooperativeExec
-           :           PgSearchScan: table=i, segments=1, dynamic_filters=2, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
+           :           CooperativeExec
+           :             PgSearchScan: table=c, segments=1, query="all"
+           :           CooperativeExec
+           :             PgSearchScan: table=i, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 SELECT i.id, c.name
 FROM items i

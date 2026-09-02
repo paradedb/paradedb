@@ -72,6 +72,8 @@ jobs:
       pg_version: 18
 
     steps:
+      - uses: runs-on/action@v2
+
       # The job can be triggered manually by attaching the `benchmarks` label to a PR. This step
       # removes the label once the job has started, so it can be applied again if needed.
       - name: Maybe Remove Label

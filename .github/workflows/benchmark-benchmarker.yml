@@ -65,6 +65,8 @@ jobs:
       IMAGE_TAG: paradedb-source:ci
 
     steps:
+      - uses: runs-on/action@v2
+
       # The label triggers this run; remove it so it can be re-applied to re-run.
       - name: Maybe Remove Label
         if: github.event_name == 'pull_request' && github.event.label.name == 'benchmark-benchmarker'
@@ -199,14 +201,9 @@ jobs:
         if: failure()
         run: docker logs paradedb || true
 
-      # runs-on's s3-cache proxies ACTIONS_RESULTS_URL; upload-artifact POSTs
-      # there and fails, so pin it back to GitHub's receiver (see test-pg_search.yml).
       - name: Upload dashboards
         if: always()
         continue-on-error: true # Best effort: the gh-pages HTML + comment are the real deliverables.
-        env:
-          ACTIONS_RESULTS_URL: https://results-receiver.actions.githubusercontent.com/
-          ACTIONS_CACHE_SERVICE_V2: ""
         uses: actions/upload-artifact@v7
         with:
           name: benchmarker-dashboards-${{ steps.commit_info.outputs.short_commit }}

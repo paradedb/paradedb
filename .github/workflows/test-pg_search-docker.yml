@@ -70,6 +70,8 @@ jobs:
             platform: linux/arm64
 
     steps:
+      - uses: runs-on/action@v2
+
       - name: Checkout Git Repository
         uses: actions/checkout@v7
         with:
@@ -448,6 +450,8 @@ jobs:
             deb_sha_arg: PG_SEARCH_DEB_ARM64_SHA256
 
     steps:
+      - uses: runs-on/action@v2
+
       - name: Checkout Git Repository
         uses: actions/checkout@v7
         with:

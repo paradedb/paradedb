@@ -1,0 +1,5 @@
+---
+header: features
+---
+
+`pdb.agg()` now runs over joins and on single tables whose group count is past the Tantivy bucket cap, with `terms` (`size`, `min_doc_count`, `missing`, `order`), `sum`, `avg`, `min`, `max`, `value_count`, `cardinality`, and nested `aggs`. Buckets with equal counts now come back in key order on every path, and a NULL bucket over a numeric field reads as `null` instead of an extreme number.

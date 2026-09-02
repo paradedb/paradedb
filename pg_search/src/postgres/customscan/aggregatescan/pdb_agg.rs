@@ -18,29 +18,42 @@
 //! `pdb.agg()` on the DataFusion aggregate backend.
 //!
 //! The Tantivy backend hands the JSON spec to Tantivy's collectors as-is. DataFusion has
-//! no equivalent, so the spec is lowered here: every `terms` level becomes one grouping
-//! set of a single `Aggregate`, metrics become aggregate expressions, and the nested
-//! result JSON is assembled from the flat grouped rows after execution. The output
-//! mirrors Tantivy's result shape so a query reads the same on either backend.
+//! no collectors, so the spec is lowered here: every `terms` level becomes one grouping
+//! set of a single `Aggregate`, and each metric becomes the aggregate expressions that
+//! feed Tantivy's intermediate result for it. After execution the flat grouped rows are
+//! folded back into Tantivy's intermediate results, and Tantivy finalizes them: bucket
+//! order, `size`, `min_doc_count`, `sum_other_doc_count`, and the result shape are its
+//! own, so a query reads the same on either backend.
 
-use crate::api::{HashMap, MvccVisibility};
-use crate::postgres::customscan::datafusion::numeric_agg::decode_avg_blob;
-use crate::postgres::datetime::PostgresDateTime;
+use crate::aggregate::{NULL_SENTINEL_MAX, scrub_missing_sentinel_value};
+use crate::api::{HashMap, HashSet, MvccVisibility};
+use crate::postgres::customscan::aggregatescan::json_rewrite::rewrite_aggregate_result_json_timestamps_with;
+use crate::postgres::customscan::datafusion::cardinality_agg::decode_sketch;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::is_pgoid_datetime_type;
 use crate::schema::SearchFieldType;
 use arrow_array::cast::AsArray;
 use arrow_array::{Array, ArrayRef, Int64Array, RecordBatch, UInt64Array, new_null_array};
 use arrow_schema::{DataType, Schema, SchemaRef};
-use datafusion::common::Result;
+use datafusion::common::{DataFusionError, Result};
 use decimal_bytes::Decimal;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
-use std::cmp::Ordering;
 use std::sync::Arc;
+use tantivy::aggregation::AggregationLimitsGuard;
 use tantivy::aggregation::Key;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants, Aggregations};
-use tantivy::aggregation::bucket::{CustomOrder, Order, OrderTarget};
+use tantivy::aggregation::bucket::{CustomOrder, OrderTarget};
+use tantivy::aggregation::intermediate_agg_result::{
+    IntermediateAggregationResult, IntermediateAggregationResults, IntermediateBucketResult,
+    IntermediateKey, IntermediateMetricResult, IntermediateTermBucketEntry,
+    IntermediateTermBucketResult,
+};
+use tantivy::aggregation::metric::{
+    CardinalityCollector, IntermediateAverage, IntermediateCount, IntermediateMax, IntermediateMin,
+    IntermediateStats, IntermediateSum,
+};
+use tantivy::columnar::ColumnType;
 
 /// A fast field referenced by a `pdb.agg()` spec, resolved to its join source.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,6 +72,22 @@ impl PdbAggFieldRef {
     /// as timestamps, the way the Tantivy backend rewrites them.
     pub fn is_datetime(&self) -> bool {
         is_pgoid_datetime_type(self.field_type.typeoid())
+    }
+
+    /// The Tantivy column type of the field's fast field, which salts the
+    /// cardinality sketch and picks the sentinel for a NULL bucket. A JSON
+    /// sub-field only reaches this backend when it holds text.
+    pub fn column_type(&self) -> ColumnType {
+        match self.field_type {
+            SearchFieldType::I64(_) | SearchFieldType::Date(_) | SearchFieldType::Numeric64(..) => {
+                ColumnType::I64
+            }
+            SearchFieldType::U64(_) => ColumnType::U64,
+            SearchFieldType::F64(_) => ColumnType::F64,
+            SearchFieldType::Bool(_) => ColumnType::Bool,
+            SearchFieldType::NumericBytes(..) => ColumnType::Bytes,
+            _ => ColumnType::Str,
+        }
     }
 }
 
@@ -107,6 +136,8 @@ pub fn check_field_usage(
     Ok(())
 }
 
+/// The metric aggregations this backend runs, by the Tantivy intermediate each
+/// one finalizes through.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PdbMetricKind {
     Sum,
@@ -117,72 +148,81 @@ pub enum PdbMetricKind {
     Cardinality,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum PdbOrderTarget {
+/// A DataFusion aggregate that feeds one part of a metric's intermediate: the
+/// value count and one of the stats, or the cardinality sketch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PdbStat {
     Count,
-    Key,
-    SubAggregation(String),
+    Sum,
+    Min,
+    Max,
+    Cardinality,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PdbTermsOrder {
-    pub target: PdbOrderTarget,
-    pub asc: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PdbTermsAgg {
-    pub field: PdbAggFieldRef,
-    pub size: u32,
-    pub min_doc_count: u64,
-    pub order: PdbTermsOrder,
-    pub missing: Option<Key>,
-    pub show_doc_count_error: bool,
-    pub sub_aggs: Vec<(String, PdbAggNode)>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PdbMetricAgg {
-    pub kind: PdbMetricKind,
-    pub field: PdbAggFieldRef,
-    pub missing: Option<Key>,
-    /// `sum` reports `null` rather than `0` on an empty input when the spec asks for it.
-    pub none_if_no_match: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum PdbAggNode {
-    Terms(PdbTermsAgg),
-    Metric(PdbMetricAgg),
-}
-
-impl PdbAggNode {
-    fn has_terms(&self) -> bool {
+impl PdbMetricKind {
+    /// The stat beside the value count, when the metric needs one.
+    fn value_stat(self) -> Option<PdbStat> {
         match self {
-            PdbAggNode::Terms(_) => true,
-            PdbAggNode::Metric(_) => false,
+            PdbMetricKind::Sum | PdbMetricKind::Avg => Some(PdbStat::Sum),
+            PdbMetricKind::Min => Some(PdbStat::Min),
+            PdbMetricKind::Max => Some(PdbStat::Max),
+            PdbMetricKind::ValueCount => None,
+            PdbMetricKind::Cardinality => Some(PdbStat::Cardinality),
         }
     }
 
-    fn for_each_field(&self, f: &mut impl FnMut(&PdbAggFieldRef)) {
-        match self {
-            PdbAggNode::Terms(terms) => {
-                f(&terms.field);
-                for (_, sub) in &terms.sub_aggs {
-                    sub.for_each_field(f);
-                }
-            }
-            PdbAggNode::Metric(metric) => f(&metric.field),
-        }
+    fn counts_values(self) -> bool {
+        self != PdbMetricKind::Cardinality
     }
 }
 
-/// One `pdb.agg()` call, lowered for DataFusion.
+/// A metric aggregation of the spec: its kind, field, and `missing` literal.
+/// `None` for a bucket aggregation or one this backend does not run.
+fn metric_of(agg: &AggregationVariants) -> Option<(PdbMetricKind, &str, Option<Key>)> {
+    Some(match agg {
+        AggregationVariants::Sum(m) => (
+            PdbMetricKind::Sum,
+            m.field.as_str(),
+            m.missing.map(Key::F64),
+        ),
+        AggregationVariants::Average(m) => (
+            PdbMetricKind::Avg,
+            m.field.as_str(),
+            m.missing.map(Key::F64),
+        ),
+        AggregationVariants::Min(m) => (
+            PdbMetricKind::Min,
+            m.field.as_str(),
+            m.missing.map(Key::F64),
+        ),
+        AggregationVariants::Max(m) => (
+            PdbMetricKind::Max,
+            m.field.as_str(),
+            m.missing.map(Key::F64),
+        ),
+        AggregationVariants::Count(m) => (
+            PdbMetricKind::ValueCount,
+            m.field.as_str(),
+            m.missing.map(Key::F64),
+        ),
+        AggregationVariants::Cardinality(m) => (
+            PdbMetricKind::Cardinality,
+            m.field.as_str(),
+            m.missing.clone(),
+        ),
+        _ => return None,
+    })
+}
+
+/// One `pdb.agg()` call, checked for DataFusion. The spec stays in Tantivy's own
+/// request form, which is what finalizes the result; `fields` maps every field
+/// name in it, as written, to its join source.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PdbAggRequest {
-    pub root: PdbAggNode,
+    pub agg: Aggregation,
+    pub fields: HashMap<String, PdbAggFieldRef>,
     pub visibility: MvccVisibility,
-    /// The spec as written, for EXPLAIN.
+    /// The spec as written, for EXPLAIN and for the result rewrites keyed on it.
     pub agg_json: serde_json::Value,
 }
 
@@ -194,9 +234,11 @@ impl PdbAggRequest {
     ) -> Result<Self, String> {
         let agg: Aggregation = serde_json::from_value(agg_json.clone())
             .map_err(|e| format!("invalid pdb.agg specification: {e}"))?;
-        let root = lower_node(&agg, resolver)?;
+        let mut fields = HashMap::default();
+        check_node(&agg, resolver, &mut fields)?;
         Ok(Self {
-            root,
+            agg,
+            fields,
             visibility,
             agg_json,
         })
@@ -204,11 +246,17 @@ impl PdbAggRequest {
 
     /// True when the spec groups, which turns the plan into grouping sets.
     pub fn has_terms(&self) -> bool {
-        self.root.has_terms()
+        matches!(self.agg.agg, AggregationVariants::Terms(_))
     }
 
-    pub fn for_each_field(&self, mut f: impl FnMut(&PdbAggFieldRef)) {
-        self.root.for_each_field(&mut f);
+    pub fn for_each_field(&self, f: impl FnMut(&PdbAggFieldRef)) {
+        self.fields.values().for_each(f);
+    }
+
+    fn field(&self, name: &str) -> &PdbAggFieldRef {
+        self.fields
+            .get(name)
+            .unwrap_or_else(|| panic!("BUG: pdb.agg field '{name}' was not resolved"))
     }
 }
 
@@ -237,9 +285,9 @@ fn variant_name(agg: &AggregationVariants) -> &'static str {
 /// `missing` stands in for the field's own values, so it has to be one of them.
 /// A number on a text field renders as its text. A string on a numeric field has
 /// no value to take, and Tantivy's request has no boolean literal.
-fn check_missing(field: &PdbAggFieldRef, missing: Option<Key>) -> Result<Option<Key>, String> {
+fn check_missing(field: &PdbAggFieldRef, missing: Option<&Key>) -> Result<(), String> {
     let Some(missing) = missing else {
-        return Ok(None);
+        return Ok(());
     };
     let name = &field.field_name;
     match (&field.field_type, missing) {
@@ -259,40 +307,27 @@ fn check_missing(field: &PdbAggFieldRef, missing: Option<Key>) -> Result<Option<
         ) => Err(format!(
             "`missing` for numeric field '{name}' must be a number"
         )),
-        // A timestamp column takes its literal as whole microseconds.
-        (_, Key::F64(v)) if field.is_datetime() => Ok(Some(Key::I64(v as i64))),
-        (_, missing) => Ok(Some(missing)),
+        _ => Ok(()),
     }
 }
 
-fn lower_node(agg: &Aggregation, resolver: &dyn PdbAggFieldResolver) -> Result<PdbAggNode, String> {
-    let metric = |kind: PdbMetricKind,
-                  field: &str,
-                  missing: Option<Key>,
-                  none_if_no_match: bool|
-     -> Result<PdbAggNode, String> {
-        if !agg.sub_aggregation.is_empty() {
-            return Err(format!(
-                "`{}` is a metric aggregation and cannot have sub-aggregations",
-                variant_name(&agg.agg)
-            ));
-        }
-        let usage = match kind {
-            PdbMetricKind::Sum | PdbMetricKind::Avg | PdbMetricKind::Min | PdbMetricKind::Max => {
-                PdbAggFieldUsage::NumericMetric
-            }
-            PdbMetricKind::ValueCount | PdbMetricKind::Cardinality => PdbAggFieldUsage::AnyMetric,
-        };
-        let field = resolver.resolve(field, usage)?;
-        let missing = check_missing(&field, missing)?;
-        Ok(PdbAggNode::Metric(PdbMetricAgg {
-            kind,
-            field,
-            missing,
-            none_if_no_match,
-        }))
-    };
+fn resolve_field(
+    resolver: &dyn PdbAggFieldResolver,
+    fields: &mut HashMap<String, PdbAggFieldRef>,
+    name: &str,
+    usage: PdbAggFieldUsage,
+) -> Result<PdbAggFieldRef, String> {
+    let field = resolver.resolve(name, usage)?;
+    fields.insert(name.to_string(), field.clone());
+    Ok(field)
+}
 
+/// Resolve every field of the spec and turn down what this backend cannot run.
+fn check_node(
+    agg: &Aggregation,
+    resolver: &dyn PdbAggFieldResolver,
+    fields: &mut HashMap<String, PdbAggFieldRef>,
+) -> Result<(), String> {
     match &agg.agg {
         AggregationVariants::Terms(terms) => {
             if terms.include.is_some() || terms.exclude.is_some() {
@@ -303,96 +338,61 @@ fn lower_node(agg: &Aggregation, resolver: &dyn PdbAggFieldResolver) -> Result<P
             if terms.min_doc_count == Some(0) {
                 return Err("terms `min_doc_count: 0` is not supported over joins".into());
             }
-            let field = resolver.resolve(&terms.field, PdbAggFieldUsage::TermsKey)?;
-            let missing = check_missing(&field, terms.missing.clone())?;
-            let order = terms.order.clone().unwrap_or_default();
-            // Tantivy only reports the error bound under the default ordering.
-            let show_doc_count_error = terms
-                .show_term_doc_count_error
-                .unwrap_or(order == CustomOrder::default());
-            let sub_aggs = lower_sub_aggs(&agg.sub_aggregation, resolver)?;
-            let target = match &order.target {
-                OrderTarget::Count => PdbOrderTarget::Count,
-                OrderTarget::Key => PdbOrderTarget::Key,
-                OrderTarget::SubAggregation(name) => {
-                    // Tantivy accepts `name.property` for multi-value metrics; only
-                    // single-value metrics are supported here, so the property is
-                    // irrelevant.
-                    let agg_name = name.split_once('.').map(|(n, _)| n).unwrap_or(name);
-                    match sub_aggs.iter().find(|(n, _)| n == agg_name) {
-                        Some((_, PdbAggNode::Metric(_))) => {}
-                        Some(_) => {
-                            return Err(format!(
-                                "terms order target '{agg_name}' must be a metric sub-aggregation"
-                            ));
-                        }
-                        None => {
-                            return Err(format!(
-                                "terms order references unknown sub-aggregation '{agg_name}'"
-                            ));
-                        }
+            let field = resolve_field(resolver, fields, &terms.field, PdbAggFieldUsage::TermsKey)?;
+            check_missing(&field, terms.missing.as_ref())?;
+            for sub in agg.sub_aggregation.values() {
+                check_node(sub, resolver, fields)?;
+            }
+            if let Some(CustomOrder {
+                target: OrderTarget::SubAggregation(name),
+                ..
+            }) = &terms.order
+            {
+                // Tantivy accepts `name.property` for multi-value metrics; only
+                // single-value metrics run here, so the property is irrelevant.
+                let agg_name = name.split_once('.').map(|(n, _)| n).unwrap_or(name);
+                match agg.sub_aggregation.get(agg_name) {
+                    Some(sub) if metric_of(&sub.agg).is_some() => {}
+                    Some(_) => {
+                        return Err(format!(
+                            "terms order target '{agg_name}' must be a metric sub-aggregation"
+                        ));
                     }
-                    PdbOrderTarget::SubAggregation(agg_name.to_string())
+                    None => {
+                        return Err(format!(
+                            "terms order references unknown sub-aggregation '{agg_name}'"
+                        ));
+                    }
+                }
+            }
+            Ok(())
+        }
+        other => {
+            let Some((kind, name, missing)) = metric_of(other) else {
+                return Err(format!(
+                    "`{}` aggregations are not supported over joins",
+                    variant_name(other)
+                ));
+            };
+            if !agg.sub_aggregation.is_empty() {
+                return Err(format!(
+                    "`{}` is a metric aggregation and cannot have sub-aggregations",
+                    variant_name(other)
+                ));
+            }
+            let usage = match kind {
+                PdbMetricKind::Sum
+                | PdbMetricKind::Avg
+                | PdbMetricKind::Min
+                | PdbMetricKind::Max => PdbAggFieldUsage::NumericMetric,
+                PdbMetricKind::ValueCount | PdbMetricKind::Cardinality => {
+                    PdbAggFieldUsage::AnyMetric
                 }
             };
-            Ok(PdbAggNode::Terms(PdbTermsAgg {
-                field,
-                size: terms.size.unwrap_or(10),
-                min_doc_count: terms.min_doc_count.unwrap_or(1),
-                order: PdbTermsOrder {
-                    target,
-                    asc: order.order == Order::Asc,
-                },
-                missing,
-                show_doc_count_error,
-                sub_aggs,
-            }))
+            let field = resolve_field(resolver, fields, name, usage)?;
+            check_missing(&field, missing.as_ref())
         }
-        AggregationVariants::Sum(m) => metric(
-            PdbMetricKind::Sum,
-            &m.field,
-            m.missing.map(Key::F64),
-            m.none_if_no_match.unwrap_or(false),
-        ),
-        AggregationVariants::Average(m) => {
-            metric(PdbMetricKind::Avg, &m.field, m.missing.map(Key::F64), false)
-        }
-        AggregationVariants::Min(m) => {
-            metric(PdbMetricKind::Min, &m.field, m.missing.map(Key::F64), false)
-        }
-        AggregationVariants::Max(m) => {
-            metric(PdbMetricKind::Max, &m.field, m.missing.map(Key::F64), false)
-        }
-        AggregationVariants::Count(m) => metric(
-            PdbMetricKind::ValueCount,
-            &m.field,
-            m.missing.map(Key::F64),
-            false,
-        ),
-        AggregationVariants::Cardinality(m) => metric(
-            PdbMetricKind::Cardinality,
-            &m.field,
-            m.missing.clone(),
-            false,
-        ),
-        other => Err(format!(
-            "`{}` aggregations are not supported over joins",
-            variant_name(other)
-        )),
     }
-}
-
-fn lower_sub_aggs(
-    aggs: &Aggregations,
-    resolver: &dyn PdbAggFieldResolver,
-) -> Result<Vec<(String, PdbAggNode)>, String> {
-    // The request map is unordered; sort so column naming is stable across plans.
-    let mut names: Vec<&String> = aggs.keys().collect();
-    names.sort();
-    names
-        .into_iter()
-        .map(|name| Ok((name.clone(), lower_node(&aggs[name], resolver)?)))
-        .collect()
 }
 
 /// A grouping key interned across every `terms` node of a query.
@@ -402,18 +402,18 @@ pub struct PdbKeySpec {
     pub missing: Option<Key>,
 }
 
-/// An aggregate expression interned across every metric node of a query. `kind`
+/// An aggregate expression interned across every metric node of a query. `stat`
 /// is `None` for the bucket doc count.
 #[derive(Debug, Clone)]
 pub struct PdbMetricSpec {
-    pub kind: Option<PdbMetricKind>,
+    pub stat: Option<PdbStat>,
     pub field: Option<PdbAggFieldRef>,
     pub missing: Option<Key>,
     /// Target-list index of the `pdb.agg()` entry whose `FILTER` applies, if any.
     pub entry_filter: Option<usize>,
 }
 
-/// Column bindings of one lowered node into the DataFusion output.
+/// Column bindings of one spec node into the DataFusion output.
 #[derive(Debug, Clone)]
 pub enum PdbAggNodeLayout {
     Terms {
@@ -424,18 +424,26 @@ pub enum PdbAggNodeLayout {
         key_cols: Vec<usize>,
         doc_count_col: usize,
         field: PdbAggFieldRef,
-        size: u32,
-        min_doc_count: u64,
-        order: PdbTermsOrder,
-        show_doc_count_error: bool,
         sub: Vec<(String, PdbAggNodeLayout)>,
     },
     Metric {
-        value_col: usize,
         kind: PdbMetricKind,
         field: PdbAggFieldRef,
-        none_if_no_match: bool,
+        /// The value count; every metric but `cardinality` has one.
+        count_col: Option<usize>,
+        /// The metric's own stat: sum, min, max, or the cardinality sketch.
+        value_col: Option<usize>,
     },
+}
+
+/// One lowered `pdb.agg()` entry: its layout plus the request and what the
+/// result rewrites need.
+#[derive(Debug, Clone)]
+pub struct PdbAggEntryLayout {
+    pub root: PdbAggNodeLayout,
+    agg: Aggregation,
+    agg_json: serde_json::Value,
+    datetime_fields: HashSet<String>,
 }
 
 /// The grouping-set plan for every `pdb.agg()` in a query, plus where each piece
@@ -449,16 +457,16 @@ pub struct PdbAggPlan {
     /// Per level, positions into `[SQL group keys ++ keys]`. Level 0 is the SQL level.
     pub levels: Vec<Vec<usize>>,
     /// Per `pdb.agg()` entry, in target-list order.
-    pub entries: Vec<PdbAggNodeLayout>,
+    pub entries: Vec<PdbAggEntryLayout>,
     num_outer_group_cols: usize,
     num_std_aggs: usize,
     num_terms_nodes: usize,
 }
 
-/// Identity of an interned metric: kind, `(plan_position, field_name)`, the
+/// Identity of an interned metric: stat, `(plan_position, field_name)`, the
 /// `missing` literal, and the entry whose `FILTER` applies.
 type MetricId = (
-    Option<PdbMetricKind>,
+    Option<PdbStat>,
     Option<(usize, String)>,
     Option<Key>,
     Option<usize>,
@@ -492,13 +500,13 @@ impl PlanBuilder {
 
     fn intern_metric(
         &mut self,
-        kind: Option<PdbMetricKind>,
+        stat: Option<PdbStat>,
         field: Option<&PdbAggFieldRef>,
         missing: &Option<Key>,
         entry_filter: Option<usize>,
     ) -> usize {
         let id = (
-            kind,
+            stat,
             field.map(|f| (f.plan_position, f.field_name.clone())),
             missing.clone(),
             entry_filter,
@@ -508,7 +516,7 @@ impl PlanBuilder {
         }
         let idx = self.plan.metrics.len();
         self.plan.metrics.push(PdbMetricSpec {
-            kind,
+            stat,
             field: field.cloned(),
             missing: missing.clone(),
             entry_filter,
@@ -531,49 +539,58 @@ impl PlanBuilder {
 
     fn lower(
         &mut self,
-        node: &PdbAggNode,
+        agg: &Aggregation,
+        request: &PdbAggRequest,
         parent_positions: &[usize],
         entry_filter: Option<usize>,
     ) -> PdbAggNodeLayout {
-        match node {
-            PdbAggNode::Terms(terms) => {
-                let key_idx = self.intern_key(&terms.field, &terms.missing);
+        match &agg.agg {
+            AggregationVariants::Terms(terms) => {
+                let field = request.field(&terms.field);
+                let key_idx = self.intern_key(field, &terms.missing);
                 let mut positions = parent_positions.to_vec();
                 positions.push(self.plan.num_outer_group_cols + key_idx);
                 let level = self.intern_level(&positions);
                 let doc_count_idx = self.intern_metric(None, None, &None, entry_filter);
                 let node_id = self.plan.num_terms_nodes;
                 self.plan.num_terms_nodes += 1;
-                let sub = terms
-                    .sub_aggs
-                    .iter()
-                    .map(|(name, sub)| (name.clone(), self.lower(sub, &positions, entry_filter)))
+                // The request map is unordered; sort so column naming is stable
+                // across plans.
+                let mut names: Vec<&String> = agg.sub_aggregation.keys().collect();
+                names.sort();
+                let sub = names
+                    .into_iter()
+                    .map(|name| {
+                        let sub = &agg.sub_aggregation[name];
+                        (
+                            name.clone(),
+                            self.lower(sub, request, &positions, entry_filter),
+                        )
+                    })
                     .collect();
                 PdbAggNodeLayout::Terms {
                     node_id,
                     level,
                     key_cols: positions,
                     doc_count_col: doc_count_idx,
-                    field: terms.field.clone(),
-                    size: terms.size,
-                    min_doc_count: terms.min_doc_count,
-                    order: terms.order.clone(),
-                    show_doc_count_error: terms.show_doc_count_error,
+                    field: field.clone(),
                     sub,
                 }
             }
-            PdbAggNode::Metric(metric) => {
-                let value_idx = self.intern_metric(
-                    Some(metric.kind),
-                    Some(&metric.field),
-                    &metric.missing,
-                    entry_filter,
-                );
+            other => {
+                let (kind, name, missing) = metric_of(other).expect("checked by lowering");
+                let field = request.field(name);
+                let count_col = kind.counts_values().then(|| {
+                    self.intern_metric(Some(PdbStat::Count), Some(field), &missing, entry_filter)
+                });
+                let value_col = kind.value_stat().map(|stat| {
+                    self.intern_metric(Some(stat), Some(field), &missing, entry_filter)
+                });
                 PdbAggNodeLayout::Metric {
-                    value_col: value_idx,
-                    kind: metric.kind,
-                    field: metric.field.clone(),
-                    none_if_no_match: metric.none_if_no_match,
+                    kind,
+                    field: field.clone(),
+                    count_col,
+                    value_col,
                 }
             }
         }
@@ -605,12 +622,23 @@ impl PdbAggPlan {
         let root_positions: Vec<usize> = (0..num_outer_group_cols).collect();
         builder.intern_level(&root_positions);
         for &(agg_idx, request, has_filter) in entries {
-            let layout = builder.lower(
-                &request.root,
+            let root = builder.lower(
+                &request.agg,
+                request,
                 &root_positions,
                 has_filter.then_some(agg_idx),
             );
-            builder.plan.entries.push(layout);
+            builder.plan.entries.push(PdbAggEntryLayout {
+                root,
+                agg: request.agg.clone(),
+                agg_json: request.agg_json.clone(),
+                datetime_fields: request
+                    .fields
+                    .iter()
+                    .filter(|(_, field)| field.is_datetime())
+                    .map(|(name, _)| name.clone())
+                    .collect(),
+            });
         }
         // Key and metric indices were interned relative to their own lists; rebase
         // them onto the final output columns now that every list is complete.
@@ -618,7 +646,10 @@ impl PdbAggPlan {
         let entries = std::mem::take(&mut plan.entries);
         plan.entries = entries
             .into_iter()
-            .map(|layout| plan.rebase(layout))
+            .map(|entry| PdbAggEntryLayout {
+                root: plan.rebase(entry.root),
+                ..entry
+            })
             .collect();
         plan
     }
@@ -631,10 +662,6 @@ impl PdbAggPlan {
                 key_cols,
                 doc_count_col,
                 field,
-                size,
-                min_doc_count,
-                order,
-                show_doc_count_error,
                 sub,
             } => PdbAggNodeLayout::Terms {
                 node_id,
@@ -642,25 +669,21 @@ impl PdbAggPlan {
                 key_cols: key_cols.into_iter().map(|p| self.group_col(p)).collect(),
                 doc_count_col: self.metric_col(doc_count_col),
                 field,
-                size,
-                min_doc_count,
-                order,
-                show_doc_count_error,
                 sub: sub
                     .into_iter()
                     .map(|(name, sub)| (name, self.rebase(sub)))
                     .collect(),
             },
             PdbAggNodeLayout::Metric {
+                kind,
+                field,
+                count_col,
                 value_col,
-                kind,
-                field,
-                none_if_no_match,
             } => PdbAggNodeLayout::Metric {
-                value_col: self.metric_col(value_col),
                 kind,
                 field,
-                none_if_no_match,
+                count_col: count_col.map(|col| self.metric_col(col)),
+                value_col: value_col.map(|col| self.metric_col(col)),
             },
         }
     }
@@ -734,7 +757,7 @@ fn decode_numeric(value: PdbOwnedValue, field: &PdbAggFieldRef) -> PdbOwnedValue
     }
 }
 
-/// A value as the number Tantivy reports for it: a timestamp as its
+/// A value as the number Tantivy collects for it: a timestamp as its
 /// microseconds, a boolean as 0 or 1.
 fn value_f64(value: &PdbOwnedValue) -> Option<f64> {
     match value {
@@ -747,34 +770,26 @@ fn value_f64(value: &PdbOwnedValue) -> Option<f64> {
     }
 }
 
-/// Bucket order on keys. NULL sorts after every value, where the Tantivy
-/// backend's default `missing` sentinel lands.
-fn compare_keys(a: &PdbOwnedValue, b: &PdbOwnedValue) -> Ordering {
-    match (a, b) {
-        (PdbOwnedValue::Null, PdbOwnedValue::Null) => Ordering::Equal,
-        (PdbOwnedValue::Null, _) => Ordering::Greater,
-        (_, PdbOwnedValue::Null) => Ordering::Less,
-        _ => a.total_cmp(b),
-    }
-}
-
-/// The JSON `key` of a bucket, plus `key_as_string` when Tantivy emits one.
-fn bucket_key_json(key: &PdbOwnedValue) -> (serde_json::Value, Option<String>) {
-    match key {
-        PdbOwnedValue::Str(s) => (serde_json::Value::String(s.clone()), None),
-        PdbOwnedValue::I64(v) => (serde_json::Value::from(*v), None),
-        PdbOwnedValue::U64(v) => (serde_json::Value::from(*v), None),
-        PdbOwnedValue::F64(v) => (
-            serde_json::Number::from_f64(*v)
-                .map(serde_json::Value::Number)
-                .unwrap_or(serde_json::Value::Null),
-            None,
-        ),
-        PdbOwnedValue::Bool(b) => (serde_json::Value::from(u64::from(*b)), Some(b.to_string())),
-        // Rendered the way the Tantivy backend rewrites a datetime key.
-        PdbOwnedValue::Date(d) => (serde_json::Value::String(d.to_string()), None),
-        // NULL keys form the `null` bucket; NUMERIC keys were decoded before this.
-        _ => (serde_json::Value::Null, None),
+/// Tantivy's key for a bucket. A NULL bucket takes the sentinel the Tantivy
+/// backend puts on `missing` for the column type, scrubbed to `null` after
+/// serialization. The sentinel has to share the variant of the real keys, since
+/// Tantivy orders keys of different variants by variant; a NUMERIC key decodes
+/// to `F64`. A datetime keeps its microseconds for the timestamp rewrite.
+fn intermediate_key(key: PdbOwnedValue, field: &PdbAggFieldRef) -> IntermediateKey {
+    match decode_numeric(key, field) {
+        PdbOwnedValue::Str(s) => IntermediateKey::Str(s),
+        PdbOwnedValue::I64(v) => IntermediateKey::I64(v),
+        PdbOwnedValue::U64(v) => IntermediateKey::U64(v),
+        PdbOwnedValue::F64(v) => IntermediateKey::F64(v),
+        PdbOwnedValue::Bool(b) => IntermediateKey::Bool(b),
+        PdbOwnedValue::Date(d) => IntermediateKey::I64(d.into_inner()),
+        _ if field.field_type.is_numeric() => IntermediateKey::F64(f64::MAX),
+        _ => match field.column_type() {
+            ColumnType::I64 => IntermediateKey::I64(i64::MAX),
+            ColumnType::U64 => IntermediateKey::U64(u64::MAX),
+            ColumnType::F64 => IntermediateKey::F64(f64::MAX),
+            _ => IntermediateKey::Str(NULL_SENTINEL_MAX.to_string()),
+        },
     }
 }
 
@@ -791,48 +806,17 @@ fn decimal_bytes_to_f64(bytes: &[u8]) -> Option<f64> {
     Decimal::from_bytes(bytes).ok()?.to_string().parse().ok()
 }
 
-/// A metric value as the number Tantivy would report. NUMERIC results arrive in
-/// their storage encoding: sums and averages as decimal-bytes blobs from the
-/// decimal accumulators, minimums and maximums as the column's own storage.
-fn metric_f64(
-    col: &ArrayRef,
-    row: usize,
-    kind: PdbMetricKind,
-    field: &PdbAggFieldRef,
-) -> Option<f64> {
+/// A stat value as the number Tantivy collects. A NUMERIC sum arrives as a
+/// decimal-bytes blob from the decimal accumulator, a NUMERIC minimum or
+/// maximum as the column's own storage.
+fn stat_f64(col: &ArrayRef, row: usize, field: &PdbAggFieldRef) -> Option<f64> {
     if col.is_null(row) {
         return None;
     }
-    let numeric = matches!(
-        field.field_type,
-        SearchFieldType::Numeric64(..) | SearchFieldType::NumericBytes(..)
-    );
-    match kind {
-        PdbMetricKind::Sum if numeric => decimal_bytes_to_f64(bytes_at(col, row)),
-        PdbMetricKind::Avg if numeric => {
-            let (count, sum) = decode_avg_blob(bytes_at(col, row)).ok()?;
-            if count == 0 {
-                return None;
-            }
-            decimal_bytes_to_f64(sum).map(|sum| sum / count as f64)
-        }
-        PdbMetricKind::Min | PdbMetricKind::Max if numeric => {
-            value_f64(&decode_numeric(value_at(col, row), field))
-        }
-        _ => f64_at(col, row),
+    if field.field_type.is_numeric() && matches!(col.data_type(), DataType::Binary) {
+        return decimal_bytes_to_f64(bytes_at(col, row));
     }
-}
-
-/// `None` outside the timestamp range, which a `sum` over a datetime column
-/// reaches quickly.
-fn pg_micros_to_string(micros: i64) -> Option<String> {
-    PostgresDateTime::try_from_raw(micros)
-        .ok()
-        .map(|timestamp| timestamp.to_string())
-}
-
-fn f64_at(col: &ArrayRef, row: usize) -> Option<f64> {
-    value_f64(&value_at(col, row))
+    value_f64(&decode_numeric(value_at(col, row), field))
 }
 
 fn u64_at(col: &ArrayRef, row: usize) -> u64 {
@@ -852,12 +836,6 @@ pub struct AssembledPdbAggRows {
     pub json: Vec<Vec<serde_json::Value>>,
 }
 
-struct Bucket {
-    key: PdbOwnedValue,
-    doc_count: u64,
-    subs: Vec<(String, serde_json::Value)>,
-}
-
 /// Rows of one terms node grouped by their parent bucket.
 type NodeIndex = HashMap<Vec<PdbOwnedValue>, Vec<(PdbOwnedValue, usize)>>;
 
@@ -866,183 +844,161 @@ struct Assembler<'a> {
     indexes: Vec<NodeIndex>,
 }
 
+/// The name the single aggregation of an entry gets in Tantivy's request and
+/// result maps.
+const ENTRY_NAME: &str = "agg";
+
 impl Assembler<'_> {
-    fn emit(
+    /// Fold the rows under `prefix` into Tantivy's intermediate result for `node`.
+    /// `row` is the row of the parent bucket, or of the SQL group for a root
+    /// node; `None` for a synthesized empty root.
+    fn intermediate(
         &self,
         node: &PdbAggNodeLayout,
         prefix: &[PdbOwnedValue],
         row: Option<usize>,
-    ) -> serde_json::Value {
+    ) -> Result<IntermediateAggregationResult> {
         match node {
             PdbAggNodeLayout::Metric {
-                value_col,
                 kind,
                 field,
-                none_if_no_match,
+                count_col,
+                value_col,
             } => {
-                let value = row
-                    .and_then(|row| metric_f64(self.batch.column(*value_col), row, *kind, field));
-                metric_json(*kind, field, value, *none_if_no_match)
+                let count = match (count_col, row) {
+                    (Some(col), Some(row)) => u64_at(self.batch.column(*col), row),
+                    _ => 0,
+                };
+                let value = match (value_col, row) {
+                    (Some(col), Some(row)) => stat_f64(self.batch.column(*col), row, field),
+                    _ => None,
+                };
+                let stats = |sum: f64, min: f64, max: f64| {
+                    IntermediateStats::from_parts(count, sum, min, max)
+                };
+                let metric =
+                    match kind {
+                        PdbMetricKind::Sum => {
+                            IntermediateMetricResult::Sum(IntermediateSum::from_stats(stats(
+                                value.unwrap_or(0.0),
+                                f64::MAX,
+                                f64::MIN,
+                            )))
+                        }
+                        PdbMetricKind::Avg => {
+                            IntermediateMetricResult::Average(IntermediateAverage::from_stats(
+                                stats(value.unwrap_or(0.0), f64::MAX, f64::MIN),
+                            ))
+                        }
+                        PdbMetricKind::Min => {
+                            IntermediateMetricResult::Min(IntermediateMin::from_stats(stats(
+                                0.0,
+                                value.unwrap_or(f64::MAX),
+                                f64::MIN,
+                            )))
+                        }
+                        PdbMetricKind::Max => {
+                            IntermediateMetricResult::Max(IntermediateMax::from_stats(stats(
+                                0.0,
+                                f64::MAX,
+                                value.unwrap_or(f64::MIN),
+                            )))
+                        }
+                        PdbMetricKind::ValueCount => IntermediateMetricResult::Count(
+                            IntermediateCount::from_stats(stats(0.0, f64::MAX, f64::MIN)),
+                        ),
+                        PdbMetricKind::Cardinality => {
+                            let collector = match (value_col, row) {
+                                (Some(col), Some(row)) if !self.batch.column(*col).is_null(row) => {
+                                    decode_sketch(bytes_at(self.batch.column(*col), row))?
+                                }
+                                _ => CardinalityCollector::default(),
+                            };
+                            IntermediateMetricResult::Cardinality(collector)
+                        }
+                    };
+                Ok(IntermediateAggregationResult::Metric(metric))
             }
             PdbAggNodeLayout::Terms {
                 node_id,
                 key_cols,
                 doc_count_col,
                 field,
-                size,
-                min_doc_count,
-                order,
-                show_doc_count_error,
                 sub,
                 ..
             } => {
-                // Rows without the field form a `null` bucket. The Tantivy backend
-                // gives them one too, through a `missing` sentinel it adds to every
-                // `terms`, so the two backends group the same way. Only the key
-                // differs: the sentinel is rendered as `null` for text and leaks
-                // as an extreme value for numbers.
+                // Rows without the field form a NULL bucket, the way the Tantivy
+                // backend's `missing` sentinel gives them one.
                 let children = self.indexes[*node_id].get(prefix);
-                let mut buckets: Vec<Bucket> = children
-                    .into_iter()
-                    .flatten()
-                    .map(|(key, child_row)| {
-                        let doc_count = u64_at(self.batch.column(*doc_count_col), *child_row);
-                        (key, *child_row, doc_count)
-                    })
-                    // Judged before the sub-aggregations are built, since a dropped
-                    // bucket's subtree is never read.
-                    .filter(|(_, _, doc_count)| *doc_count >= *min_doc_count)
-                    .map(|(key, child_row, doc_count)| {
-                        // Children are keyed on the stored value; the bucket carries
-                        // the value it stands for, which is what sorts and renders.
-                        let mut child_prefix = Vec::with_capacity(key_cols.len());
-                        child_prefix.extend_from_slice(prefix);
-                        child_prefix.push(key.clone());
-                        let subs = sub
-                            .iter()
-                            .map(|(name, node)| {
-                                (
-                                    name.clone(),
-                                    self.emit(node, &child_prefix, Some(child_row)),
-                                )
-                            })
-                            .collect();
-                        Bucket {
-                            key: decode_numeric(key.clone(), field),
-                            doc_count,
-                            subs,
-                        }
-                    })
-                    .collect();
-
-                sort_buckets(&mut buckets, order);
-
-                let size = *size as usize;
-                let sum_other_doc_count: u64 = buckets
-                    .get(size..)
-                    .map(|dropped| dropped.iter().map(|b| b.doc_count).sum())
-                    .unwrap_or(0);
-                buckets.truncate(size);
-
-                let buckets: Vec<serde_json::Value> = buckets
-                    .into_iter()
-                    .map(|bucket| {
-                        let mut obj = serde_json::Map::new();
-                        let (key, key_as_string) = bucket_key_json(&bucket.key);
-                        obj.insert("key".into(), key);
-                        if let Some(key_as_string) = key_as_string {
-                            obj.insert("key_as_string".into(), key_as_string.into());
-                        }
-                        obj.insert("doc_count".into(), bucket.doc_count.into());
-                        for (name, value) in bucket.subs {
-                            obj.insert(name, value);
-                        }
-                        serde_json::Value::Object(obj)
-                    })
-                    .collect();
-
-                let mut obj = serde_json::Map::new();
-                obj.insert("buckets".into(), buckets.into());
-                obj.insert("sum_other_doc_count".into(), sum_other_doc_count.into());
-                if *show_doc_count_error {
-                    // Every bucket is exact, so the bound is always zero.
-                    obj.insert("doc_count_error_upper_bound".into(), 0u64.into());
+                let mut entries = HashMap::default();
+                for (key, child_row) in children.into_iter().flatten() {
+                    // Children are keyed on the stored value; the bucket carries
+                    // the value it stands for.
+                    let mut child_prefix = Vec::with_capacity(key_cols.len());
+                    child_prefix.extend_from_slice(prefix);
+                    child_prefix.push(key.clone());
+                    let mut sub_aggregation = IntermediateAggregationResults::default();
+                    for (name, node) in sub {
+                        sub_aggregation
+                            .push(
+                                name.clone(),
+                                self.intermediate(node, &child_prefix, Some(*child_row))?,
+                            )
+                            .map_err(|e| DataFusionError::External(Box::new(e)))?;
+                    }
+                    entries.insert(
+                        intermediate_key(key.clone(), field),
+                        IntermediateTermBucketEntry {
+                            doc_count: u64_at(self.batch.column(*doc_count_col), *child_row),
+                            sub_aggregation,
+                        },
+                    );
                 }
-                serde_json::Value::Object(obj)
+                // Every bucket is exact, so the error bound is zero.
+                Ok(IntermediateAggregationResult::Bucket(
+                    IntermediateBucketResult::Terms {
+                        buckets: IntermediateTermBucketResult::new(entries, 0, 0),
+                    },
+                ))
             }
         }
     }
-}
 
-/// What a metric reports over no input: counts and sums read 0, the rest `null`,
-/// like Tantivy. `sum` alone can opt into `null`.
-fn metric_value(kind: PdbMetricKind, value: Option<f64>, none_if_no_match: bool) -> Option<f64> {
-    match (kind, value) {
-        (PdbMetricKind::Sum, None) if !none_if_no_match => Some(0.0),
-        (PdbMetricKind::ValueCount | PdbMetricKind::Cardinality, None) => Some(0.0),
-        (_, value) => value,
-    }
-}
-
-fn metric_json(
-    kind: PdbMetricKind,
-    field: &PdbAggFieldRef,
-    value: Option<f64>,
-    none_if_no_match: bool,
-) -> serde_json::Value {
-    let value = metric_value(kind, value, none_if_no_match);
-    let mut obj = serde_json::Map::new();
-    let json_value = value
-        .and_then(serde_json::Number::from_f64)
-        .map(serde_json::Value::Number)
-        .unwrap_or(serde_json::Value::Null);
-    obj.insert("value".into(), json_value);
-    if field.is_datetime()
-        && matches!(
-            kind,
-            PdbMetricKind::Sum | PdbMetricKind::Avg | PdbMetricKind::Min | PdbMetricKind::Max
-        )
-        && let Some(key_as_string) = value.and_then(|value| pg_micros_to_string(value as i64))
-    {
-        obj.insert("key_as_string".into(), key_as_string.into());
-    }
-    serde_json::Value::Object(obj)
-}
-
-/// Tantivy orders by the requested target only; ties are left in collection
-/// order. Ties break on the key here so the output is stable.
-fn sort_buckets(buckets: &mut [Bucket], order: &PdbTermsOrder) {
-    let by_key = |a: &Bucket, b: &Bucket| compare_keys(&a.key, &b.key);
-    match &order.target {
-        PdbOrderTarget::Key => {
-            buckets.sort_by(|a, b| {
-                let ord = by_key(a, b);
-                if order.asc { ord } else { ord.reverse() }
-            });
-        }
-        PdbOrderTarget::Count => {
-            buckets.sort_by(|a, b| {
-                let ord = a.doc_count.cmp(&b.doc_count);
-                let ord = if order.asc { ord } else { ord.reverse() };
-                ord.then_with(|| by_key(a, b))
-            });
-        }
-        PdbOrderTarget::SubAggregation(name) => {
-            let value_of = |bucket: &Bucket| -> f64 {
-                bucket
-                    .subs
-                    .iter()
-                    .find(|(n, _)| n == name)
-                    .and_then(|(_, v)| v.get("value"))
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(f64::MIN)
-            };
-            buckets.sort_by(|a, b| {
-                let ord = value_of(a).total_cmp(&value_of(b));
-                let ord = if order.asc { ord } else { ord.reverse() };
-                ord.then_with(|| by_key(a, b))
-            });
-        }
+    /// The `pdb.agg()` document of one entry for one SQL group: Tantivy finalizes
+    /// the intermediate result, then the rewrites the Tantivy backend applies to
+    /// its own output run over the JSON.
+    fn render(
+        &self,
+        entry: &PdbAggEntryLayout,
+        prefix: &[PdbOwnedValue],
+        row: Option<usize>,
+    ) -> Result<serde_json::Value> {
+        let mut intermediate = IntermediateAggregationResults::default();
+        intermediate
+            .push(
+                ENTRY_NAME.to_string(),
+                self.intermediate(&entry.root, prefix, row)?,
+            )
+            .map_err(|e| DataFusionError::External(Box::new(e)))?;
+        let request: Aggregations = [(ENTRY_NAME.to_string(), entry.agg.clone())]
+            .into_iter()
+            .collect();
+        // This backend has no bucket cap; the leader materialized every group.
+        let limits = AggregationLimitsGuard::new(None, Some(u32::MAX));
+        let results = intermediate
+            .into_final_result(request, limits)
+            .map_err(|e| DataFusionError::External(Box::new(e)))?;
+        let mut json =
+            serde_json::to_value(results).map_err(|e| DataFusionError::External(Box::new(e)))?;
+        let mut json = json
+            .get_mut(ENTRY_NAME)
+            .map(serde_json::Value::take)
+            .unwrap_or(serde_json::Value::Null);
+        rewrite_aggregate_result_json_timestamps_with(&mut json, &entry.agg_json, &|name| {
+            entry.datetime_fields.contains(name)
+        });
+        scrub_missing_sentinel_value(&mut json);
+        Ok(json)
     }
 }
 
@@ -1100,7 +1056,7 @@ pub fn assemble_pdb_agg_rows(
 
     let mut terms_nodes = Vec::new();
     for entry in &plan.entries {
-        collect_terms_nodes(entry, &mut terms_nodes);
+        collect_terms_nodes(&entry.root, &mut terms_nodes);
     }
     let mut indexes: Vec<NodeIndex> = vec![HashMap::default(); plan.num_terms_nodes];
     for node in terms_nodes {
@@ -1148,8 +1104,8 @@ pub fn assemble_pdb_agg_rows(
         let json = vec![
             plan.entries
                 .iter()
-                .map(|entry| assembler.emit(entry, &[], None))
-                .collect(),
+                .map(|entry| assembler.render(entry, &[], None))
+                .collect::<Result<Vec<_>>>()?,
         ];
         let fields: Vec<_> = schema
             .fields()
@@ -1182,10 +1138,10 @@ pub fn assemble_pdb_agg_rows(
                 .collect();
             plan.entries
                 .iter()
-                .map(|entry| assembler.emit(entry, &prefix, Some(row)))
-                .collect()
+                .map(|entry| assembler.render(entry, &prefix, Some(row)))
+                .collect::<Result<Vec<_>>>()
         })
-        .collect();
+        .collect::<Result<Vec<_>>>()?;
 
     let indices = UInt64Array::from(root_rows.iter().map(|&r| r as u64).collect::<Vec<_>>());
     let root_batch =
@@ -1196,45 +1152,26 @@ pub fn assemble_pdb_agg_rows(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
-    fn field(plan_position: usize, name: &str) -> PdbAggFieldRef {
+    fn field(name: &str) -> PdbAggFieldRef {
         PdbAggFieldRef {
-            plan_position,
+            plan_position: 0,
             attno: 1,
             field_name: name.to_string(),
             field_type: SearchFieldType::I64(pg_sys::INT8OID),
         }
     }
 
-    fn terms(name: &str, sub_aggs: Vec<(String, PdbAggNode)>) -> PdbAggNode {
-        PdbAggNode::Terms(PdbTermsAgg {
-            field: field(0, name),
-            size: 10,
-            min_doc_count: 1,
-            order: PdbTermsOrder {
-                target: PdbOrderTarget::Count,
-                asc: false,
-            },
-            missing: None,
-            show_doc_count_error: true,
-            sub_aggs,
-        })
-    }
-
-    fn sum(name: &str) -> PdbAggNode {
-        PdbAggNode::Metric(PdbMetricAgg {
-            kind: PdbMetricKind::Sum,
-            field: field(0, name),
-            missing: None,
-            none_if_no_match: false,
-        })
-    }
-
-    fn request(root: PdbAggNode) -> PdbAggRequest {
+    fn request(spec: serde_json::Value, fields: &[&str]) -> PdbAggRequest {
         PdbAggRequest {
-            root,
+            agg: serde_json::from_value(spec.clone()).expect("a valid spec"),
+            fields: fields
+                .iter()
+                .map(|name| (name.to_string(), field(name)))
+                .collect(),
             visibility: MvccVisibility::default(),
-            agg_json: serde_json::Value::Null,
+            agg_json: spec,
         }
     }
 
@@ -1242,13 +1179,16 @@ mod tests {
     /// group exprs are `[g, k0 (a), k1 (b)]`, levels are `{g}`, `{g, a}`,
     /// `{g, a, b}`.
     fn nested_plan() -> PdbAggPlan {
-        let spec = request(terms(
-            "a",
-            vec![
-                ("inner".into(), terms("b", vec![("s".into(), sum("v"))])),
-                ("total".into(), sum("v")),
-            ],
-        ));
+        let spec = request(
+            json!({
+                "terms": {"field": "a"},
+                "aggs": {
+                    "inner": {"terms": {"field": "b"}, "aggs": {"s": {"sum": {"field": "v"}}}},
+                    "total": {"sum": {"field": "v"}}
+                }
+            }),
+            &["a", "b", "v"],
+        );
         PdbAggPlan::build(&[(1, &spec, false)], 1, 1)
     }
 
@@ -1273,7 +1213,7 @@ mod tests {
         assert_eq!(plan.key_col(1), 4);
         assert_eq!(plan.metric_col(0), 5);
 
-        let PdbAggNodeLayout::Terms { key_cols, sub, .. } = &plan.entries[0] else {
+        let PdbAggNodeLayout::Terms { key_cols, sub, .. } = &plan.entries[0].root else {
             panic!("root is a terms node");
         };
         assert_eq!(key_cols, &[0, 3]);
@@ -1284,94 +1224,73 @@ mod tests {
     }
 
     #[test]
-    fn metrics_are_shared_across_nodes_but_not_across_filters() {
-        let spec = request(terms("a", vec![("s".into(), sum("v"))]));
-        let filtered = request(sum("v"));
+    fn stats_are_shared_across_nodes_but_not_across_filters() {
+        let spec = request(
+            json!({
+                "terms": {"field": "a"},
+                "aggs": {"s": {"sum": {"field": "v"}}, "m": {"avg": {"field": "v"}}}
+            }),
+            &["a", "v"],
+        );
+        let filtered = request(json!({"sum": {"field": "v"}}), &["v"]);
         let plan = PdbAggPlan::build(&[(0, &spec, false), (1, &filtered, true)], 0, 0);
-        // doc count, unfiltered sum(v), filtered sum(v)
-        assert_eq!(plan.metrics.len(), 3);
-        assert_eq!(plan.metrics[1].entry_filter, None);
-        assert_eq!(plan.metrics[2].entry_filter, Some(1));
+        // The doc count, then count(v) and sum(v) shared by sum and avg, then the
+        // filtered count(v) and sum(v).
+        let stats: Vec<_> = plan
+            .metrics
+            .iter()
+            .map(|m| (m.stat, m.entry_filter))
+            .collect();
+        assert_eq!(
+            stats,
+            vec![
+                (None, None),
+                (Some(PdbStat::Count), None),
+                (Some(PdbStat::Sum), None),
+                (Some(PdbStat::Count), Some(1)),
+                (Some(PdbStat::Sum), Some(1)),
+            ]
+        );
     }
 
     #[test]
     fn metrics_without_terms_need_no_grouping_sets() {
-        let spec = request(sum("v"));
+        let spec = request(json!({"sum": {"field": "v"}}), &["v"]);
         let plan = PdbAggPlan::build(&[(0, &spec, false)], 1, 0);
         assert!(!plan.has_grouping_sets());
         assert_eq!(plan.grouping_id_col(), None);
         assert_eq!(plan.metric_col(0), 1);
     }
 
-    // `metric_json` renders datetimes through Postgres, which the lib test binary
-    // cannot link on Linux, so the value rule is tested on its own.
     #[test]
-    fn empty_metrics_render_like_tantivy() {
-        let value = |kind, none_if_no_match| metric_value(kind, None, none_if_no_match);
-        assert_eq!(value(PdbMetricKind::Sum, false), Some(0.0));
-        assert_eq!(value(PdbMetricKind::Sum, true), None);
-        assert_eq!(value(PdbMetricKind::ValueCount, false), Some(0.0));
-        assert_eq!(value(PdbMetricKind::Cardinality, false), Some(0.0));
-        assert_eq!(value(PdbMetricKind::Avg, false), None);
-        assert_eq!(
-            metric_value(PdbMetricKind::Min, Some(3.0), false),
-            Some(3.0)
-        );
-    }
-
-    #[test]
-    fn null_keys_sort_last() {
-        let bucket = |key: PdbOwnedValue| Bucket {
-            key,
-            doc_count: 1,
-            subs: Vec::new(),
+    fn null_keys_take_the_column_sentinel() {
+        let text = PdbAggFieldRef {
+            field_type: SearchFieldType::Text(pg_sys::TEXTOID),
+            ..field("t")
         };
-        let mut buckets = vec![
-            bucket(PdbOwnedValue::Null),
-            bucket(PdbOwnedValue::I64(2)),
-            bucket(PdbOwnedValue::I64(1)),
-        ];
-        sort_buckets(
-            &mut buckets,
-            &PdbTermsOrder {
-                target: PdbOrderTarget::Key,
-                asc: true,
-            },
-        );
-        let keys: Vec<_> = buckets.iter().map(|b| b.key.clone()).collect();
         assert_eq!(
-            keys,
-            vec![
-                PdbOwnedValue::I64(1),
-                PdbOwnedValue::I64(2),
-                PdbOwnedValue::Null
-            ]
+            intermediate_key(PdbOwnedValue::Null, &text),
+            IntermediateKey::Str(NULL_SENTINEL_MAX.to_string())
         );
-    }
-
-    #[test]
-    fn bucket_ties_break_on_the_key() {
-        let bucket = |key: &str, doc_count| Bucket {
-            key: PdbOwnedValue::Str(key.into()),
-            doc_count,
-            subs: Vec::new(),
+        assert_eq!(
+            intermediate_key(PdbOwnedValue::Null, &field("n")),
+            IntermediateKey::I64(i64::MAX)
+        );
+        let numeric = PdbAggFieldRef {
+            field_type: SearchFieldType::Numeric64(pg_sys::NUMERICOID, 2),
+            ..field("p")
         };
-        let mut buckets = vec![bucket("b", 2), bucket("c", 1), bucket("a", 2)];
-        sort_buckets(
-            &mut buckets,
-            &PdbTermsOrder {
-                target: PdbOrderTarget::Count,
-                asc: false,
-            },
-        );
-        let keys: Vec<_> = buckets.iter().map(|b| b.key.clone()).collect();
         assert_eq!(
-            keys,
-            vec![
-                PdbOwnedValue::Str("a".into()),
-                PdbOwnedValue::Str("b".into()),
-                PdbOwnedValue::Str("c".into())
-            ]
+            intermediate_key(PdbOwnedValue::Null, &numeric),
+            IntermediateKey::F64(f64::MAX)
+        );
+        assert_eq!(
+            intermediate_key(PdbOwnedValue::I64(149999), &numeric),
+            IntermediateKey::F64(1499.99)
+        );
+        assert_eq!(
+            intermediate_key(PdbOwnedValue::Bool(true), &field("b")),
+            IntermediateKey::Bool(true)
         );
     }
 }

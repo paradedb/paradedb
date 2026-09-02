@@ -123,17 +123,17 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"tags": {"terms": {"field": "tag_name", "size": 2}, "aggs": {"w": {"sum": {"field": "weight"}}}}, "uniq_brands": {"cardinality": {"field": "brand"}}, "avg_price": {"avg": {"field": "price"}}}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard';
-                                                                                                                                                  QUERY PLAN                                                                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: pdb.agg_fn('pdb.agg'::text)
    Backend: DataFusion
    Indexes: pa_products_idx (p), pa_tags_idx (t)
    Aggregates: pdb.agg({"aggs":{"tags":{"aggs":{"w":{"sum":{"field":"weight"}}},"terms":{"size":2,"field":"tag_name"}},"avg_price":{"avg":{"field":"price"}},"uniq_brands":{"cardinality":{"field":"brand"}}},"terms":{"field":"category"}})
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[__grouping_id@2 as __grouping_id, __pdb_k0@0 as __pdb_k0, __pdb_k1@1 as __pdb_k1, __pdb_m0@3 as __pdb_m0, __pdb_m1@4 as __pdb_m1, __pdb_m2@5 as __pdb_m2, __pdb_m3@6 as __pdb_m3]
-     :   AggregateExec: mode=Final, gby=[__pdb_k0@0 as __pdb_k0, __pdb_k1@1 as __pdb_k1, __grouping_id@2 as __grouping_id], aggr=[count(1) as __pdb_m0, avg(p_0.price) as __pdb_m1, sum(t_1.weight) as __pdb_m2, approx_distinct(p_0.brand) as __pdb_m3]
-     :     AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0, NULL as __pdb_k1), (category@0 as __pdb_k0, NULL as __pdb_k1), (category@0 as __pdb_k0, tag_name@3 as __pdb_k1)], aggr=[count(1) as __pdb_m0, avg(p_0.price) as __pdb_m1, sum(t_1.weight) as __pdb_m2, approx_distinct(p_0.brand) as __pdb_m3]
+     : ProjectionExec: expr=[__grouping_id@2 as __grouping_id, __pdb_k0@0 as __pdb_k0, __pdb_k1@1 as __pdb_k1, __pdb_m0@3 as __pdb_m0, __pdb_m1@4 as __pdb_m1, __pdb_m2@5 as __pdb_m2, __pdb_m3@6 as __pdb_m3, __pdb_m4@7 as __pdb_m4, __pdb_m5@8 as __pdb_m5]
+     :   AggregateExec: mode=Final, gby=[__pdb_k0@0 as __pdb_k0, __pdb_k1@1 as __pdb_k1, __grouping_id@2 as __grouping_id], aggr=[count(1) as __pdb_m0, count(p_0.price) as __pdb_m1, sum(p_0.price) as __pdb_m2, count(t_1.weight) as __pdb_m3, sum(t_1.weight) as __pdb_m4, tantivy_cardinality(p_0.brand, 4) as __pdb_m5]
+     :     AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0, NULL as __pdb_k1), (category@0 as __pdb_k0, NULL as __pdb_k1), (category@0 as __pdb_k0, tag_name@3 as __pdb_k1)], aggr=[count(1) as __pdb_m0, count(p_0.price) as __pdb_m1, sum(p_0.price) as __pdb_m2, count(t_1.weight) as __pdb_m3, sum(t_1.weight) as __pdb_m4, tantivy_cardinality(p_0.brand, 4) as __pdb_m5]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, brand@2, price@3, tag_name@5, weight@6]
      :         CooperativeExec
      :           PgSearchScan: table=p, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR keyboard","lenient":null,"conjunction_mode":null}}}}
@@ -628,8 +628,8 @@ FROM pa_products
 WHERE description @@@ 'laptop OR shoes'
 GROUP BY category
 ORDER BY category;
-                                                                                                       QUERY PLAN                                                                                                       
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                           QUERY PLAN                                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: category, (pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'::jsonb)), (pdb.agg('{"sum": {"field": "price"}}'::jsonb)), (count(*))
    Sort Key: pa_products.category
@@ -640,9 +640,9 @@ ORDER BY category;
          Group By: category
          Aggregates: pdb.agg({"terms":{"field":"brand","order":{"_key":"asc"}}}), pdb.agg({"sum":{"field":"price"}}), COUNT(*)
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[category@0 as category, __common_expr_1@3 as agg_2, __grouping_id@2 as __grouping_id, __pdb_k0@1 as __pdb_k0, __common_expr_1@3 as __pdb_m0, __pdb_m1@4 as __pdb_m1]
-           :   AggregateExec: mode=Final, gby=[category@0 as category, __pdb_k0@1 as __pdb_k0, __grouping_id@2 as __grouping_id], aggr=[count(1) as __common_expr_1, sum(pa_products_0.price) as __pdb_m1]
-           :     AggregateExec: mode=Partial, gby=[(category@0 as category, NULL as __pdb_k0), (category@0 as category, brand@1 as __pdb_k0)], aggr=[count(1) as __common_expr_1, sum(pa_products_0.price) as __pdb_m1]
+           : ProjectionExec: expr=[category@0 as category, __common_expr_1@3 as agg_2, __grouping_id@2 as __grouping_id, __pdb_k0@1 as __pdb_k0, __common_expr_1@3 as __pdb_m0, __pdb_m1@4 as __pdb_m1, __pdb_m2@5 as __pdb_m2]
+           :   AggregateExec: mode=Final, gby=[category@0 as category, __pdb_k0@1 as __pdb_k0, __grouping_id@2 as __grouping_id], aggr=[count(1) as __common_expr_1, count(pa_products_0.price) as __pdb_m1, sum(pa_products_0.price) as __pdb_m2]
+           :     AggregateExec: mode=Partial, gby=[(category@0 as category, NULL as __pdb_k0), (category@0 as category, brand@1 as __pdb_k0)], aggr=[count(1) as __common_expr_1, count(pa_products_0.price) as __pdb_m1, sum(pa_products_0.price) as __pdb_m2]
            :       CooperativeExec
            :         PgSearchScan: table=pa_products, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
@@ -710,8 +710,8 @@ FROM pa_products
 WHERE description @@@ 'laptop OR shoes'
 GROUP BY category
 ORDER BY category;
-                                                                                                              QUERY PLAN                                                                                                              
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                    QUERY PLAN                                                                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: category, (pdb.agg('{"sum": {"field": "price_num"}}'::jsonb)), (pdb.agg('{"terms": {"field": "price_num", "order": {"_key": "asc"}}}'::jsonb))
    Sort Key: pa_products.category
@@ -722,9 +722,9 @@ ORDER BY category;
          Group By: category
          Aggregates: pdb.agg({"sum":{"field":"price_num"}}), pdb.agg({"terms":{"field":"price_num","order":{"_key":"asc"}}})
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[category@0 as category, __grouping_id@2 as __grouping_id, __pdb_k0@1 as __pdb_k0, __pdb_m0@3 as __pdb_m0, __pdb_m1@4 as __pdb_m1]
-           :   AggregateExec: mode=Final, gby=[category@0 as category, __pdb_k0@1 as __pdb_k0, __grouping_id@2 as __grouping_id], aggr=[numeric64_sum(pa_products_0.price_num, 2) as __pdb_m0, count(1) as __pdb_m1]
-           :     AggregateExec: mode=Partial, gby=[(category@0 as category, NULL as __pdb_k0), (category@0 as category, price_num@1 as __pdb_k0)], aggr=[numeric64_sum(pa_products_0.price_num, 2) as __pdb_m0, count(1) as __pdb_m1]
+           : ProjectionExec: expr=[category@0 as category, __grouping_id@2 as __grouping_id, __pdb_k0@1 as __pdb_k0, __pdb_m0@3 as __pdb_m0, __pdb_m1@4 as __pdb_m1, __pdb_m2@5 as __pdb_m2]
+           :   AggregateExec: mode=Final, gby=[category@0 as category, __pdb_k0@1 as __pdb_k0, __grouping_id@2 as __grouping_id], aggr=[count(pa_products_0.price_num) as __pdb_m0, numeric64_sum(pa_products_0.price_num, 2) as __pdb_m1, count(1) as __pdb_m2]
+           :     AggregateExec: mode=Partial, gby=[(category@0 as category, NULL as __pdb_k0), (category@0 as category, price_num@1 as __pdb_k0)], aggr=[count(pa_products_0.price_num) as __pdb_m0, numeric64_sum(pa_products_0.price_num, 2) as __pdb_m1, count(1) as __pdb_m2]
            :       CooperativeExec
            :         PgSearchScan: table=pa_products, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
@@ -755,8 +755,8 @@ FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard'
 GROUP BY p.category
 ORDER BY p.category;
-                                                                                                                        QUERY PLAN                                                                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                           QUERY PLAN                                                                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: p.category, (count(*)), (pdb.agg('{"aggs": {"s": {"sum": {"field": "weight"}}, "u": {"cardinality": {"field": "weight"}}}, "terms": {"field": "tag_name"}}'::jsonb))
    Sort Key: p.category
@@ -767,9 +767,9 @@ ORDER BY p.category;
          Group By: category
          Aggregates: COUNT(*), pdb.agg({"aggs":{"s":{"sum":{"field":"weight"}},"u":{"cardinality":{"field":"weight"}}},"terms":{"field":"tag_name"}})
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[category@0 as category, __common_expr_1@3 as agg_0, __grouping_id@2 as __grouping_id, __pdb_k0@1 as __pdb_k0, __common_expr_1@3 as __pdb_m0, __pdb_m1@4 as __pdb_m1, __pdb_m2@5 as __pdb_m2]
-           :   AggregateExec: mode=Final, gby=[category@0 as category, __pdb_k0@1 as __pdb_k0, __grouping_id@2 as __grouping_id], aggr=[count(1) as __common_expr_1, sum(t_1.weight) as __pdb_m1, approx_distinct(t_1.weight) as __pdb_m2]
-           :     AggregateExec: mode=Partial, gby=[(category@0 as category, NULL as __pdb_k0), (category@0 as category, tag_name@1 as __pdb_k0)], aggr=[count(1) as __common_expr_1, sum(t_1.weight) as __pdb_m1, approx_distinct(t_1.weight) as __pdb_m2]
+           : ProjectionExec: expr=[category@0 as category, __common_expr_1@3 as agg_0, __grouping_id@2 as __grouping_id, __pdb_k0@1 as __pdb_k0, __common_expr_1@3 as __pdb_m0, __pdb_m1@4 as __pdb_m1, __pdb_m2@5 as __pdb_m2, __pdb_m3@6 as __pdb_m3]
+           :   AggregateExec: mode=Final, gby=[category@0 as category, __pdb_k0@1 as __pdb_k0, __grouping_id@2 as __grouping_id], aggr=[count(1) as __common_expr_1, count(t_1.weight) as __pdb_m1, sum(t_1.weight) as __pdb_m2, tantivy_cardinality(t_1.weight, 0) as __pdb_m3]
+           :     AggregateExec: mode=Partial, gby=[(category@0 as category, NULL as __pdb_k0), (category@0 as category, tag_name@1 as __pdb_k0)], aggr=[count(1) as __common_expr_1, count(t_1.weight) as __pdb_m1, sum(t_1.weight) as __pdb_m2, tantivy_cardinality(t_1.weight, 0) as __pdb_m3]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3, weight@4]
            :         CooperativeExec
            :           PgSearchScan: table=p, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR keyboard","lenient":null,"conjunction_mode":null}}}}

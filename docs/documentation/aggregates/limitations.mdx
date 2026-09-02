@@ -126,7 +126,7 @@ A `pdb.agg()` field name must belong to exactly one indexed table in the join. W
 
 `pdb.agg()` over a NUMERIC field runs on this path as well, on a single table or over a join, while a `missing` value is not accepted for such a field.
 
-A few `pdb.agg()` shapes run on a single table but not over a join: metric aggregations over JSON sub-fields, such as `{"sum": {"field": "metadata.qty"}}`, `terms` on an array field or on a JSON sub-field that holds numbers, and `min_doc_count: 0`, which lists every term of the column. Among buckets with equal counts the order is not defined, so a `size` cutoff between them can keep any of them.
+A few `pdb.agg()` shapes run on a single table but not over a join: metric aggregations over JSON sub-fields, such as `{"sum": {"field": "metadata.qty"}}`, `terms` on an array field or on a JSON sub-field that holds numbers, and `min_doc_count: 0`, which lists every term of the column.
 
 For aggregates over joins, ParadeDB falls back to native Postgres execution when any of the following are true:
 

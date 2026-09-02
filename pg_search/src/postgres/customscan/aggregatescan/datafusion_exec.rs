@@ -26,7 +26,7 @@
 
 use super::join_targetlist::{AggOrderByEntry, GroupingTransform};
 use super::pdb_agg::{
-    PdbAggFieldRef, PdbAggPlan, PdbAggRequest, PdbKeySpec, PdbMetricKind, PdbMetricSpec,
+    PdbAggFieldRef, PdbAggPlan, PdbAggRequest, PdbKeySpec, PdbMetricSpec, PdbStat,
 };
 use crate::api::HashMap;
 use crate::index::fast_fields_helper::WhichFastField;
@@ -35,6 +35,7 @@ use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, JoinAggregateEntry, JoinAggregateTargetList,
 };
 use crate::postgres::customscan::aggregatescan::privdat::{CompareOp, DataFusionTopK, FilterExpr};
+use crate::postgres::customscan::datafusion::cardinality_agg::tantivy_cardinality_udaf;
 use crate::postgres::customscan::datafusion::numeric_agg::{
     numeric_bytes_avg_udaf, numeric_bytes_sum_udaf, numeric64_avg_udaf, numeric64_sum_udaf,
 };
@@ -52,9 +53,8 @@ use crate::postgres::customscan::joinscan::scan_state::{
 use crate::scan::PgSearchTableProvider;
 use crate::schema::SearchFieldType;
 use arrow_schema::DataType;
-use datafusion::common::{DataFusionError, Result};
+use datafusion::common::{DataFusionError, Result, ScalarValue};
 use datafusion::functions::core::expr_fn::coalesce;
-use datafusion::functions_aggregate::approx_distinct::approx_distinct;
 use datafusion::functions_aggregate::array_agg::array_agg_udaf;
 use datafusion::functions_aggregate::count::count_udaf;
 use datafusion::functions_aggregate::expr_fn::{
@@ -425,6 +425,8 @@ fn pdb_missing_lit(missing: &Key, field: &PdbAggFieldRef) -> Expr {
         Key::Str(s) => lit(s.clone()),
         Key::I64(v) => lit(*v),
         Key::U64(v) => lit(*v),
+        // A timestamp column takes its literal as whole microseconds.
+        Key::F64(v) if field.is_datetime() => lit(*v as i64),
         Key::F64(v) => lit(*v),
     };
     Expr::Cast(Cast::new(
@@ -446,15 +448,15 @@ fn pdb_metric_expr(
     plan: &RelNode,
     pdb_filters: &HashMap<usize, Expr>,
 ) -> Result<Expr> {
-    let expr = match (metric.kind, &metric.field) {
+    let expr = match (metric.stat, &metric.field) {
         (None, _) => count(lit(1)),
-        (Some(kind), Some(field)) => {
+        (Some(stat), Some(field)) => {
             let mut column = make_plan_position_col(plan, field.plan_position, &field.field_name);
             if let Some(missing) = &metric.missing {
                 column = coalesce(vec![column, pdb_missing_lit(missing, field)]);
             }
-            // Sums and averages run in f64 like Tantivy's, which also keeps an
-            // integer sum from overflowing. Timestamps have no direct f64 cast.
+            // A sum runs in f64 like Tantivy's, which also keeps an integer sum
+            // from overflowing. Timestamps have no direct f64 cast.
             let as_f64 = |column: Expr| {
                 let column = if field.is_datetime() {
                     Expr::Cast(Cast::new(Box::new(column), DataType::Int64))
@@ -463,29 +465,27 @@ fn pdb_metric_expr(
                 };
                 Expr::Cast(Cast::new(Box::new(column), DataType::Float64))
             };
-            let numeric = field.field_type.is_numeric();
-            match kind {
-                // NUMERIC takes the decimal accumulators the SQL aggregates use; the
-                // assembler decodes their blobs.
-                PdbMetricKind::Sum if numeric => numeric_sum(column, &field.field_type),
-                PdbMetricKind::Avg if numeric => numeric_avg(column, &field.field_type),
-                PdbMetricKind::Sum => sum(as_f64(column)),
-                PdbMetricKind::Avg => avg(as_f64(column)),
-                PdbMetricKind::Min => min(column),
-                PdbMetricKind::Max => max(column),
-                PdbMetricKind::ValueCount => count(column),
-                // The HLL has no float accumulator, so a float field counts exactly.
-                PdbMetricKind::Cardinality
-                    if matches!(field.field_type, SearchFieldType::F64(_)) =>
-                {
-                    with_distinct(count(column))
+            match stat {
+                PdbStat::Count => count(column),
+                // NUMERIC takes the decimal accumulator the SQL aggregates use; the
+                // assembler decodes its blob.
+                PdbStat::Sum if field.field_type.is_numeric() => {
+                    numeric_sum(column, &field.field_type)
                 }
-                PdbMetricKind::Cardinality => approx_distinct(column),
+                PdbStat::Sum => sum(as_f64(column)),
+                PdbStat::Min => min(column),
+                PdbStat::Max => max(column),
+                // Tantivy's own sketch, salted by the column type the way a
+                // segment collection is.
+                PdbStat::Cardinality => tantivy_cardinality_udaf().call(vec![
+                    column,
+                    lit(ScalarValue::UInt8(Some(field.column_type().to_code()))),
+                ]),
             }
         }
-        (Some(kind), None) => {
+        (Some(stat), None) => {
             return Err(DataFusionError::Internal(format!(
-                "pdb.agg metric {kind:?} has no field"
+                "pdb.agg stat {stat:?} has no field"
             )));
         }
     };

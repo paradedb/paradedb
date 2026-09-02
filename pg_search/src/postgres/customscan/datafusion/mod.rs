@@ -26,9 +26,20 @@
 //! Future phases of the dedup work will move the shared session-builder helpers
 //! and the `RelNode` family of relation-tree types into this module as well.
 
+use datafusion::logical_expr::AggregateUDF;
+use std::sync::Arc;
+
+pub mod cardinality_agg;
 pub mod explain;
 mod expr_translators;
 pub mod memory;
 pub mod numeric_agg;
 pub mod timestamp_to_date;
 pub mod translator;
+
+/// Resolve a pg_search aggregate UDAF by name, for the plan codecs. These
+/// functions are not in any session registry, so serialized plans (parallel
+/// and MPP dispatch) decode them through here.
+pub fn udaf_by_name(name: &str) -> Option<Arc<AggregateUDF>> {
+    numeric_agg::udaf_by_name(name).or_else(|| cardinality_agg::udaf_by_name(name))
+}

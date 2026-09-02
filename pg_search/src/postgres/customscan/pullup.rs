@@ -92,7 +92,7 @@ pub unsafe fn resolve_fast_field(
                         && let Some(field_type) =
                             field_type_for_pullup(search_field.field_type(), data.is_array)
                     {
-                        return Some(WhichFastField::Named(att.name().to_string(), field_type));
+                        return Some(WhichFastField::eager(att.name(), field_type));
                     }
                 }
             }
@@ -148,10 +148,7 @@ pub fn resolve_fast_field_by_name(
                 search_field.field_type(),
             ))
         } else {
-            Some(WhichFastField::Named(
-                field_name.to_string(),
-                search_field.field_type(),
-            ))
+            Some(WhichFastField::eager(field_name, search_field.field_type()))
         }
     } else {
         None

@@ -87,8 +87,8 @@ ORDER BY p.id
 LIMIT 5;
 WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: p, s)
 WARNING:  JoinScan not used: join keys must be fast fields (tables: c, p, s)
-                                                                                   QUERY PLAN                                                                                    
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                         QUERY PLAN                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name, c.name
    ->  Sort

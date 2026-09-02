@@ -224,10 +224,10 @@ LIMIT 10;
                  :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, documentId@2)], projection=[score@0, ctid_0@1, id@2, score@3, ctid_2@4, id@6]
                  :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_0@1 as ctid_0, id@2 as id]
                  :             CooperativeExec
-                 :               PgSearchScan: table=documents, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"postgres","lenient":null,"conjunction_mode":null}}}}
+                 :               PgSearchScan: table=documents, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"postgres","lenient":null,"conjunction_mode":null}}}}
                  :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_2@1 as ctid_2, documentId@2 as documentId, id@3 as id]
                  :             CooperativeExec
-                 :               PgSearchScan: table=files, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"index","lenient":null,"conjunction_mode":null}}}}
+                 :               PgSearchScan: table=files, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"index","lenient":null,"conjunction_mode":null}}}}
                  :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, fileId@2 as fileId]
                  :           CooperativeExec
                  :             PgSearchScan: table=pages, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"vector","lenient":null,"conjunction_mode":null}}}}
@@ -362,10 +362,10 @@ LIMIT 10;
                  :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, documentId@2)], projection=[score@0, ctid_0@1, id@2, score@3, ctid_2@4, id@6]
                  :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_0@1 as ctid_0, id@2 as id]
                  :             CooperativeExec
-                 :               PgSearchScan: table=documents, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"postgres","lenient":null,"conjunction_mode":null}}}}
+                 :               PgSearchScan: table=documents, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"postgres","lenient":null,"conjunction_mode":null}}}}
                  :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_2@1 as ctid_2, documentId@2 as documentId, id@3 as id]
                  :             CooperativeExec
-                 :               PgSearchScan: table=files, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"index","lenient":null,"conjunction_mode":null}}}}
+                 :               PgSearchScan: table=files, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"index","lenient":null,"conjunction_mode":null}}}}
                  :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, fileId@2 as fileId, id@3 as id]
                  :           CooperativeExec
                  :             PgSearchScan: table=pages, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"vector","lenient":null,"conjunction_mode":null}}}}
@@ -439,10 +439,10 @@ LIMIT 10;
                  :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, documentId@2)], projection=[score@0, ctid_0@1, id@2, __documents_0_tag_0@3, score@4, ctid_2@5, id@7, __files_2_tag_0@8]
                  :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_0@1 as ctid_0, id@2 as id, __documents_0_tag_0@3 as __documents_0_tag_0]
                  :             CooperativeExec
-                 :               PgSearchScan: table=documents, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
+                 :               PgSearchScan: table=documents, segments=1, dynamic_filters=1, visibility=deferred, tag_0={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
                  :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_2@1 as ctid_2, documentId@2 as documentId, id@3 as id, __files_2_tag_0@4 as __files_2_tag_0]
                  :             CooperativeExec
-                 :               PgSearchScan: table=files, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
+                 :               PgSearchScan: table=files, segments=1, dynamic_filters=1, visibility=deferred, tag_0={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
                  :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, fileId@2 as fileId, id@3 as id, __pages_1_tag_0@4 as __pages_1_tag_0]
                  :           CooperativeExec
                  :             PgSearchScan: table=pages, segments=1, dynamic_filters=1, visibility=deferred, tag_0={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
@@ -509,7 +509,7 @@ LIMIT 10;
            :           CooperativeExec
            :             PgSearchScan: table=documents, segments=1, visibility=deferred, tag_0={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
            :           CooperativeExec
-           :             PgSearchScan: table=files, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=files, segments=1, dynamic_filters=1, visibility=deferred, tag_0={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
            :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, fileId@2 as fileId, id@3 as id, __pages_1_tag_0@4 as __pages_1_tag_0]
            :           CooperativeExec
            :             PgSearchScan: table=pages, segments=1, dynamic_filters=1, visibility=deferred, tag_0={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
@@ -647,7 +647,7 @@ LIMIT 10;
                  :             CooperativeExec
                  :               PgSearchScan: table=documents, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"postgres","lenient":null,"conjunction_mode":null}}}}
                  :           CooperativeExec
-                 :             PgSearchScan: table=files, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"index","lenient":null,"conjunction_mode":null}}}}
+                 :             PgSearchScan: table=files, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"index","lenient":null,"conjunction_mode":null}}}}
                  :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, fileId@2 as fileId, id@3 as id]
                  :           CooperativeExec
                  :             PgSearchScan: table=pages, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"vector","lenient":null,"conjunction_mode":null}}}}
@@ -717,10 +717,10 @@ LIMIT 10;
                  :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, documentId@2)], projection=[score@0, ctid_0@1, id@2, score@3, ctid_2@4, id@6]
                  :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_0@1 as ctid_0, id@2 as id]
                  :             CooperativeExec
-                 :               PgSearchScan: table=documents, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"postgres OR search","lenient":null,"conjunction_mode":null}}}}
+                 :               PgSearchScan: table=documents, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"postgres OR search","lenient":null,"conjunction_mode":null}}}}
                  :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_2@1 as ctid_2, documentId@2 as documentId, id@3 as id]
                  :             CooperativeExec
-                 :               PgSearchScan: table=files, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"index","lenient":null,"conjunction_mode":null}}}}
+                 :               PgSearchScan: table=files, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"index","lenient":null,"conjunction_mode":null}}}}
                  :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, fileId@2 as fileId, id@3 as id]
                  :           CooperativeExec
                  :             PgSearchScan: table=pages, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"vector","lenient":null,"conjunction_mode":null}}}}

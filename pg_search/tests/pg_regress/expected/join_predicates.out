@@ -801,8 +801,8 @@ WHERE p.description @@@ 'wireless'
   AND p.category_id > s.id  -- category_id is NOT in the BM25 index
 LIMIT 10;
 WARNING:  JoinScan not used: failed to extract join-level conditions (ensure all referenced columns are fast fields) (tables: p, s)
-                                                                             QUERY PLAN                                                                              
----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                QUERY PLAN                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
    ->  Hash Join

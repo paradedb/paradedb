@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788387019950,
+  "lastUpdate": 1788387028386,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -323490,6 +323490,96 @@ window.BENCHMARK_DATA = {
             "value": 44.7734375,
             "unit": "median mem",
             "extra": "avg mem: 44.984205443359706, max mem: 52.11328125, count: 58770"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "51e683ece89fde7e42ca0c50e4fbad43a2cfe408",
+          "message": "refactor: resolve ctids in TantivyLookupExec, not VisibilityFilterExec (#6140)\n\nThis PR moves ctid resolution out of `VisibilityFilterExec` and into\n`TantivyLookupExec`.\n\nStacked on #6139. It is the second step Stu mentioned for the takeover\nof #6119: split column loading out of the visibility filter so\n`TantivyLookupExec` owns fetching columns (the ctid included) and\n`VisibilityFilterExec` only consumes and mutates the ctid.\n\n## What\n\n- `TantivyLookupExec` can resolve a `ctid_<plan_position>` column from\npacked doc-addresses to real ctids. A ctid-resolving lookup is inserted\ndirectly below every `VisibilityFilterExec`, and below a\n`SegmentedTopKExec` that absorbs one. The plan now shows\n`TantivyLookupExec: decode=[], resolve_ctid=[ctid_0, ctid_1]` under the\nfilter.\n- `VisibilityFilterExec` and the absorbed-visibility path in\n`SegmentedTopKExec` no longer resolve ctids. They check visibility and\nHOT-correct the already-real ctids.\n- The MPP dispatch machinery moved with it: the lookup's dispatch\npayload carries its ctid columns and resolver indexes, and its decode\nrebuilds a resolver from the index segment view when the source sits\nbehind a network boundary.\n\n## Why\n\n`VisibilityFilterExec` was doing two jobs: fetching the ctid column and\nchecking visibility. Separating them makes each node do one thing and\nsets up the follow-up where `TantivyLookupExec` owns all column\nfetching.\n\n## Tests\n\nExisting test.\n\n## CI benchmarks\n\nNo change in benchmark results as expected.\n\nPlease note that `SegmentedTopKExec`'s absorbed-visibility data keeps\nits own ctid resolvers: the absorption takes the lookup's input, so only\nthe K winners pay resolution, and the exec resolves them itself.",
+          "timestamp": "2026-09-02T14:32:52-07:00",
+          "tree_id": "52d24649a4d011b6bd1b09e366e3151a2cb7ecc5",
+          "url": "https://github.com/paradedb/paradedb/commit/51e683ece89fde7e42ca0c50e4fbad43a2cfe408"
+        },
+        "date": 1788387024196,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 64.21875,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 64.95798238714526, max partition_index_size:MB: 103.4140625, count: 58881"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.517885,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.326001356239285, max cpu: 33.250866, count: 58881"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 45.62890625,
+            "unit": "median mem",
+            "extra": "avg mem: 45.80614535302135, max mem: 53.36328125, count: 58881"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.622047,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.990197126580348, max cpu: 38.114143, count: 58881"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 55.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 55.67777295254412, max mem: 68.35546875, count: 58881"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.486166,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.711389733282186, max cpu: 33.23442, count: 58881"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 54.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.39588673818804, max mem: 67.53125, count: 58881"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.622047,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.91707627883995, max cpu: 42.87841, count: 58881"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 52.99609375,
+            "unit": "median mem",
+            "extra": "avg mem: 52.32648523876548, max mem: 61.41015625, count: 58881"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.517885,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.208027755751687, max cpu: 33.23442, count: 58881"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 45.0234375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.79278226422785, max mem: 52.85546875, count: 58881"
           }
         ]
       }

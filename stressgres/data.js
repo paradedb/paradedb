@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788372279038,
+  "lastUpdate": 1788372287696,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -325450,6 +325450,108 @@ window.BENCHMARK_DATA = {
             "value": 47.1328125,
             "unit": "median mem",
             "extra": "avg mem: 45.710716070418435, max mem: 56.078125, count: 59221"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d052f7d8476ff147ab65f17ac4304bf746870119",
+          "message": "feat: match ScalarArrayOpExpr clauses against the index (#6171)\n\n# Ticket(s) Closed\n\n- Closes #6091\n\n## What\n\n`IndexClause::from_clause` dispatched only `OpExpr` and `FuncExpr`, so\n`col = ANY(ARRAY[...])` stayed a heap filter even when a btree could\nanswer it. Adds a `from_saop` arm.\n\n## Why\n\nFollow-up to #6088. The array membership is exactly what the index\nanswers, so the bitmap rejects non-matching rows before the heap fetch\nand the filter drops to a recheck.\n\n## How\n\n`from_saop` mirrors core's `match_saopclause_to_indexcol`: `ANY` only,\nindex key as the left operand, a pseudoconstant array on the right, then\nthe collation and opfamily gates. `ALL` is refused because one index\nscan cannot answer a conjunction over every element, and there is no\ncommuted form to try since the array can only be the right operand.\n\nThose gates and the `IndexClause` construction were previously written\nout once per branch in `from_opexpr`. A preparatory commit extracts them\ninto `direct_match_ok` and `direct`, which both existing branches and\nthe new arm now share.\n\n## Tests\n\nThe `TODO ScalarArrayOpExpr` shape moves into the supported section: it\nharvests `providers_specialty` and its filter becomes a recheck, with\n`saop_count` unchanged at 400. `ALL` is added as a refusal alongside it.\n\n`cargo pgrx regress pg18` 333/333.",
+          "timestamp": "2026-09-02T10:27:19-07:00",
+          "tree_id": "eca0fd8b6f3370b1c6f5c522c3ae4b6f96f38110",
+          "url": "https://github.com/paradedb/paradedb/commit/d052f7d8476ff147ab65f17ac4304bf746870119"
+        },
+        "date": 1788372283758,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.678363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.43450745224681, max cpu: 4.6966734, count: 59220"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 17.21484375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.206285355454238, max mem: 17.21484375, count: 59220"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.6829267,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.245279643933268, max cpu: 4.764268, count: 59220"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 17.140625,
+            "unit": "median mem",
+            "extra": "avg mem: 17.131379812563324, max mem: 17.140625, count: 59220"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.356726,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.529354109166611, max cpu: 28.472567, count: 59220"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 17.515625,
+            "unit": "median mem",
+            "extra": "avg mem: 17.542149967810705, max mem: 17.71875, count: 59220"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.925734549139, max document_count: 10002.0, count: 59220"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.918676122932, max document_count: 10002.0, count: 59220"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59220"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.658894,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.965338848345432, max cpu: 33.3996, count: 59220"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 46.93359375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.34878142413881, max mem: 55.88671875, count: 59220"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.613668,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.792431086246854, max cpu: 33.07087, count: 59220"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 47.08203125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.538858282674774, max mem: 56.32421875, count: 59220"
           }
         ]
       }

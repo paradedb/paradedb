@@ -120,11 +120,11 @@ The following join shapes are supported:
 | Per-aggregate `FILTER (WHERE ...)` | Yes |
 | `ORDER BY ... LIMIT K` | Pushed down as TopK when there is a single `ORDER BY` column targeting an aggregate, a group column, or `MIN(col)` / `MAX(col)` |
 | `ORDER BY` inside `STRING_AGG` / `ARRAY_AGG` | Yes (produces deterministic element ordering) |
-| `pdb.agg()` | `terms` (with `size`, `min_doc_count`, `missing`, and `order` by `_count`, `_key`, or a metric sub-aggregation), `sum`, `avg`, `min`, `max`, `value_count`, `cardinality`, and nested `aggs` built from these. The `visibility` argument is honored. |
+| `pdb.agg()` | `terms` (with `size`, `min_doc_count` of 1 or more, `missing`, and `order` by `_count`, `_key`, or a metric sub-aggregation), `sum`, `avg`, `min`, `max`, `value_count`, `cardinality`, and nested `aggs` built from these. The `visibility` argument is honored; over a join, `threshold` makes one decision for every table, judged on the largest table's estimate. |
 
 A `pdb.agg()` field name must belong to exactly one indexed table in the join. When the same field name exists in several tables, qualify it with the table alias, as in `"field": "p.category"`.
 
-Two details differ from the single-table Tantivy backend. Metric aggregations over JSON sub-fields, such as `{"sum": {"field": "metadata.qty"}}`, are not supported over joins; `terms` on a JSON sub-field is. Buckets with equal counts sort by key here, while Tantivy leaves them in collection order, so a `size` cutoff can keep different buckets on the two backends.
+A few details differ from the single-table Tantivy backend. Metric aggregations over JSON sub-fields, such as `{"sum": {"field": "metadata.qty"}}`, are not supported over joins; `terms` on a text-valued JSON sub-field is. `min_doc_count: 0`, which on Tantivy lists every term of the column, is not supported over joins. Buckets with equal counts sort by key here, while Tantivy leaves them in collection order, so a `size` cutoff can keep different buckets on the two backends.
 
 For aggregates over joins, ParadeDB falls back to native Postgres execution when any of the following are true:
 

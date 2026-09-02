@@ -678,76 +678,109 @@ struct JoinAggFieldResolver<'a> {
 }
 
 impl JoinAggFieldResolver<'_> {
-    /// The field as `source`'s index knows it, or `None` when the index has no such
-    /// fast field. Resolution goes through the index schema, since a spec names
-    /// index fields and those can be aliases of a column. The gates match the
-    /// GROUP BY column resolver: expression-indexed and array columns are turned
-    /// down, and a JSON column is only reachable through a dotted sub-field.
+    /// The field as `source`'s index knows it. `Ok(None)` when the index has no
+    /// such fast field, `Err` when it has one the backend cannot read, so the
+    /// user learns why rather than being told the field does not exist.
+    /// Resolution goes through the index schema, since a spec names index
+    /// fields and those can be aliases of a column. The gates match the GROUP BY
+    /// column resolver: expression-indexed and array columns are turned down,
+    /// and a JSON column is only reachable through a dotted sub-field.
     fn lookup(
         &self,
         source: &JoinAggSource,
         field: &str,
-    ) -> Option<(pg_sys::AttrNumber, SearchFieldType)> {
-        let schema = source.bm25_index.as_ref()?.schema().ok()?;
+    ) -> Result<Option<(pg_sys::AttrNumber, SearchFieldType)>, String> {
+        let Some(schema) = source.bm25_index.as_ref().and_then(|i| i.schema().ok()) else {
+            return Ok(None);
+        };
         let root = FieldName::from(field).root();
-        let search_field = schema.search_field(&root)?;
+        let Some(search_field) = schema.search_field(&root) else {
+            return Ok(None);
+        };
         if !search_field.is_fast() {
-            return None;
+            return Ok(None);
         }
         let categorized = schema.categorized_fields();
-        let (_, data) = categorized.iter().find(|(sf, _)| *sf == search_field)?;
+        let Some((_, data)) = categorized.iter().find(|(sf, _)| *sf == search_field) else {
+            return Ok(None);
+        };
         let FieldSource::Heap { attno } = data.source else {
-            return None;
+            return Err(format!(
+                "Aggregation field '{field}' is an expression index, which cannot be read \
+                 back as a column"
+            ));
         };
         if data.is_array {
-            return None;
+            return Err(format!(
+                "Aggregation field '{field}' is an array, which the DataFusion backend cannot \
+                 aggregate"
+            ));
         }
         let field_type = if field == root {
-            field_type_for_pullup(search_field.field_type(), false)?
+            match field_type_for_pullup(search_field.field_type(), false) {
+                Some(field_type) => field_type,
+                None if data.is_json => {
+                    return Err(format!(
+                        "Aggregation field '{field}' is a JSON column; name a sub-field, as in \
+                         '{field}.key'"
+                    ));
+                }
+                None => return Ok(None),
+            }
         } else {
             search_field.field_type()
         };
-        Some((attno as pg_sys::AttrNumber + 1, field_type))
+        Ok(Some((attno as pg_sys::AttrNumber + 1, field_type)))
     }
 
+    /// The sources that carry `field`, and the reasons the others turned it down.
     fn candidates(
         &self,
         field: &str,
-    ) -> Vec<(&JoinAggSource, pg_sys::AttrNumber, SearchFieldType)> {
-        self.sources
-            .iter()
-            .filter_map(|source| {
-                self.lookup(source, field)
-                    .map(|(attno, field_type)| (source, attno, field_type))
-            })
-            .collect()
+    ) -> (
+        Vec<(&JoinAggSource, pg_sys::AttrNumber, SearchFieldType)>,
+        Vec<String>,
+    ) {
+        let mut matches = Vec::new();
+        let mut reasons = Vec::new();
+        for source in self.sources {
+            match self.lookup(source, field) {
+                Ok(Some((attno, field_type))) => matches.push((source, attno, field_type)),
+                Ok(None) => {}
+                Err(reason) => reasons.push(reason),
+            }
+        }
+        (matches, reasons)
     }
 }
 
 impl PdbAggFieldResolver for JoinAggFieldResolver<'_> {
     fn resolve(&self, field: &str, usage: PdbAggFieldUsage) -> Result<PdbAggFieldRef, String> {
         let (source, attno, field_type, field_name) = {
-            let mut candidates = self.candidates(field);
+            let (mut candidates, mut reasons) = self.candidates(field);
             let mut field_name = field.to_string();
             if candidates.is_empty()
                 && let Some((prefix, rest)) = field.split_once('.')
             {
-                candidates = self
-                    .candidates(rest)
+                let (qualified, qualified_reasons) = self.candidates(rest);
+                candidates = qualified
                     .into_iter()
                     .filter(|(source, _, _)| {
                         RelationAlias::new(source.alias.as_deref()).display(source.rti as usize)
                             == prefix
                     })
                     .collect();
+                reasons.extend(qualified_reasons);
                 field_name = rest.to_string();
             }
             match candidates.len() {
                 0 => {
-                    return Err(format!(
-                        "Aggregation references invalid field '{field}'. The field must be a fast \
-                         field of an indexed table in the query."
-                    ));
+                    return Err(reasons.into_iter().next().unwrap_or_else(|| {
+                        format!(
+                            "Aggregation references invalid field '{field}'. The field must be a \
+                             fast field of an indexed table in the query."
+                        )
+                    }));
                 }
                 1 => {
                     let (source, attno, field_type) = candidates.remove(0);

@@ -148,8 +148,9 @@ GROUP BY p.category
 ORDER BY COUNT(*) DESC, p.category
 LIMIT 2;
 
--- Test 1.9: a NULL key gets its own bucket, like the Tantivy backend's
--- `missing` sentinel gives it one
+-- Test 1.9: a NULL key gets its own bucket. The Tantivy backend gives it one
+-- too through its `missing` sentinel, rendered as `null` for text keys and
+-- leaked as an extreme value for numeric ones.
 SELECT pdb.agg('{"terms": {"field": "rating", "order": {"_key": "asc"}}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes';
@@ -176,7 +177,27 @@ SELECT pdb.agg('{"terms": {"field": "cat_kw", "order": {"_key": "asc"}}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes';
 
--- Test 1.13: terms on the GROUP BY column itself, and two GROUP BY columns
+-- Test 1.13: `min_doc_count: 0` has no grouped-scan equivalent, and `size: 0`
+-- keeps no buckets
+SELECT pdb.agg('{"terms": {"field": "tag_name", "min_doc_count": 0}}')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop';
+
+SELECT pdb.agg('{"terms": {"field": "tag_name", "size": 0}}')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop';
+
+-- Test 1.14: a self-join resolves each side through its alias
+SELECT pdb.agg('{"terms": {"field": "a.category"}}'), pdb.agg('{"cardinality": {"field": "b.brand"}}')
+FROM pa_products a JOIN pa_products b ON a.category = b.category
+WHERE a.description @@@ 'laptop';
+
+-- Test 1.15: a LEFT JOIN's unmatched side lands in the NULL bucket
+SELECT pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}')
+FROM pa_products p LEFT JOIN pa_tags t ON p.id = t.product_id AND t.weight > 5
+WHERE p.description @@@ 'laptop OR shoes';
+
+-- Test 1.16: terms on the GROUP BY column itself, and two GROUP BY columns
 SELECT p.category, pdb.agg('{"terms": {"field": "category"}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
@@ -263,7 +284,24 @@ FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
 ROLLBACK;
 
--- Test 3.5: conflicting visibility settings are rejected
+-- Test 3.5: `threshold` is one decision for the whole join, judged on the
+-- largest table's estimate
+BEGIN;
+DELETE FROM pa_tags WHERE tag_name = 'gaming';
+DELETE FROM pa_products WHERE brand = 'HP';
+SET LOCAL paradedb.visibility_threshold TO 10;
+SELECT pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}'::jsonb, 'threshold'),
+       pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'::jsonb, 'threshold')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop';
+SET LOCAL paradedb.visibility_threshold TO 1000;
+SELECT pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}'::jsonb, 'threshold'),
+       pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'::jsonb, 'threshold')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop';
+ROLLBACK;
+
+-- Test 3.6: conflicting visibility settings are rejected
 SELECT pdb.agg('{"sum": {"field": "weight"}}'::jsonb, 'raw'), pdb.agg('{"sum": {"field": "price"}}'::jsonb)
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';

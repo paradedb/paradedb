@@ -243,11 +243,13 @@ impl PdbAggRequest {
                 field: &str,
                 _usage: PdbAggFieldUsage,
             ) -> Result<PdbAggFieldRef, String> {
+                // Text takes any `missing` literal, so no spec is turned down for a
+                // type this stand-in cannot know.
                 Ok(PdbAggFieldRef {
                     plan_position: 0,
                     attno: 0,
                     field_name: field.to_string(),
-                    field_type: SearchFieldType::F64(pg_sys::FLOAT8OID),
+                    field_type: SearchFieldType::Text(pg_sys::TEXTOID),
                 })
             }
         }
@@ -352,6 +354,13 @@ fn lower_node(agg: &Aggregation, resolver: &dyn PdbAggFieldResolver) -> Result<P
                 return Err(
                     "terms `include` and `exclude` are not supported on the DataFusion backend"
                         .into(),
+                );
+            }
+            // Tantivy answers `min_doc_count: 0` with every term of the column
+            // dictionary. A grouped scan only sees the terms of matched rows.
+            if terms.min_doc_count == Some(0) {
+                return Err(
+                    "terms `min_doc_count: 0` is not supported on the DataFusion backend".into(),
                 );
             }
             let field = resolver.resolve(&terms.field, PdbAggFieldUsage::TermsKey)?;
@@ -942,12 +951,21 @@ impl Assembler<'_> {
             } => {
                 // Rows without the field form a `null` bucket. The Tantivy backend
                 // gives them one too, through a `missing` sentinel it adds to every
-                // `terms`, so the two backends group the same way.
+                // `terms`, so the two backends group the same way. Only the key
+                // differs: the sentinel is rendered as `null` for text and leaks
+                // as an extreme value for numbers.
                 let children = self.indexes[*node_id].get(prefix);
                 let mut buckets: Vec<Bucket> = children
                     .into_iter()
                     .flatten()
                     .map(|(key, child_row)| {
+                        let doc_count = u64_at(self.batch.column(*doc_count_col), *child_row);
+                        (key, *child_row, doc_count)
+                    })
+                    // Judged before the sub-aggregations are built, since a dropped
+                    // bucket's subtree is never read.
+                    .filter(|(_, _, doc_count)| *doc_count >= *min_doc_count)
+                    .map(|(key, child_row, doc_count)| {
                         let mut child_prefix = Vec::with_capacity(key_cols.len());
                         child_prefix.extend_from_slice(prefix);
                         child_prefix.push(key.clone());
@@ -956,17 +974,16 @@ impl Assembler<'_> {
                             .map(|(name, node)| {
                                 (
                                     name.clone(),
-                                    self.emit(node, &child_prefix, Some(*child_row)),
+                                    self.emit(node, &child_prefix, Some(child_row)),
                                 )
                             })
                             .collect();
                         Bucket {
                             key: key.clone(),
-                            doc_count: u64_at(self.batch.column(*doc_count_col), *child_row),
+                            doc_count,
                             subs,
                         }
                     })
-                    .filter(|bucket| bucket.doc_count >= *min_doc_count)
                     .collect();
 
                 sort_buckets(&mut buckets, order);

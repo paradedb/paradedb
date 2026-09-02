@@ -150,6 +150,8 @@ impl VisibilityChecker {
 
     /// Stop checking the heap: every ctid passes as-is. `check_visibility = false`
     /// selects it, mirroring the `solve_mvcc` decision of the Tantivy backend.
+    /// Only `check_one` and `check_batch` honor it; the tuple-fetching helpers
+    /// always check.
     pub fn with_check_visibility(mut self, check_visibility: bool) -> Self {
         self.skip_checks = !check_visibility;
         self

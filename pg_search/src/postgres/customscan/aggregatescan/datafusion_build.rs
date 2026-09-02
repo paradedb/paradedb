@@ -1319,7 +1319,8 @@ unsafe fn require_fast_field(
 /// scan info. A dotted name is a JSON sub-field: it shares the parent column's
 /// attno but is stored under its own name, so the name lookup runs first. The
 /// attno lookup then covers plain columns, and the name lookup runs once more
-/// as a backup before declaring failure.
+/// as a backup before declaring failure. `describe` names the column for the
+/// error, the same contract as [`require_fast_field`].
 unsafe fn require_named_fast_field(
     source: &mut JoinSource,
     tupdesc: &pgrx::PgTupleDesc<'_>,
@@ -1342,7 +1343,7 @@ unsafe fn require_named_fast_field(
         source.scan_info.add_field_by_name(attno, field);
         return Ok(());
     }
-    Err(describe())
+    Err(format!("{} is not a fast field", describe()))
 }
 
 /// Populate the `fields` on each `JoinSource` in the `RelNode` tree based on
@@ -1411,10 +1412,7 @@ pub unsafe fn populate_required_fields(
                 continue;
             }
             require_named_fast_field(source, &tupdesc, indexrel, gc.attno, &gc.field_name, || {
-                format!(
-                    "GROUP BY column '{}' (attno={}) is not a fast field",
-                    gc.field_name, gc.attno,
-                )
+                format!("GROUP BY column '{}' (attno={})", gc.field_name, gc.attno)
             })?;
         }
 

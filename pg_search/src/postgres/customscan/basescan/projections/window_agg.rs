@@ -73,12 +73,13 @@ use crate::api::{is_agg_funcoid, visibility_from_agg_arg};
 use crate::nodecast;
 use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::aggregatescan::aggregate_type::{
-    AggregateType, create_aggregate_from_oid, parse_coalesce_expression,
+    AggregateType, create_aggregate_from_oid, parse_coalesce_missing_value,
 };
 use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
+use crate::postgres::customscan::opexpr::UnwrapFromExpr;
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
-use crate::postgres::var::{VarContext, fieldname_from_var};
+use crate::postgres::var::{VarContext, fieldname_from_var, find_one_var_and_fieldname};
 use crate::query::{PostgresExpression, SearchQueryInput};
 use pgrx::{PgList, pg_sys};
 use serde::{Deserialize, Serialize};
@@ -404,7 +405,7 @@ unsafe fn extract_field_name_from_aggregate_arg(
 ) -> Option<(FieldName, Option<f64>)> {
     let var_context = VarContext::from_query(parse);
     if let Some(coalesce_node) = nodecast!(CoalesceExpr, T_CoalesceExpr, arg_node) {
-        return parse_coalesce_expression(coalesce_node, var_context, None).ok();
+        return extract_field_name_from_coalesce_arg(coalesce_node, var_context);
     }
 
     let var = nodecast!(Var, T_Var, arg_node)?;
@@ -414,6 +415,25 @@ unsafe fn extract_field_name_from_aggregate_arg(
     }
 
     Some((fieldname_from_var(heaprelid, var, varattno)?, None))
+}
+
+unsafe fn extract_field_name_from_coalesce_arg(
+    coalesce_node: *mut pg_sys::CoalesceExpr,
+    context: VarContext,
+) -> Option<(FieldName, Option<f64>)> {
+    let args = PgList::<pg_sys::Node>::from_pg((*coalesce_node).args);
+    let first_arg = args.get_ptr(0)?;
+    let field =
+        if let Some(var) = <*mut pg_sys::Var>::unwrap_from_expr(first_arg as *mut pg_sys::Expr) {
+            let (heaprelid, varattno) = context.var_relation(var);
+            fieldname_from_var(heaprelid, var, varattno)?
+        } else if let Some((_var, field_name)) = find_one_var_and_fieldname(context, first_arg) {
+            field_name
+        } else {
+            return None;
+        };
+    let missing = parse_coalesce_missing_value(&args).ok()?;
+    Some((field, missing))
 }
 
 /// Convert a FILTER clause expression to SearchQueryInput by serializing it for later conversion

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788365835772,
+  "lastUpdate": 1788370429524,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -1997,6 +1997,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.151,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "236c5131f72436f93b1d802c19b958f9e2de10b4",
+          "message": "perf: defer visibility and late materialization in more join plans (#6139)\n\nThis PR re-lands the deferred visibility and late-materialization work\nfrom #6119, adds a kill-switch so aggregates stay on the eager path for\nnow, and dedups the optimizer rules.\n\n## Why\n\n#6119 lets a scan defer its visibility check (and string decode) to a\n`VisibilityFilterExec` above a join, so rows dropped by the join, a\nfilter, or a LIMIT never pay the check. That helps when an intermediate\nnode reduces rows. For aggregate-on-join it did not: the benchmark heaps\nare ~100% all-visible, so the eager in-scan check is cheap, and\ndeferring only moves the ctid fetch past the `HashJoin` where it loses\nthe scan's ctid-sorted locality. Deferral there was a loss.\n\nSo aggregates keep the eager, in-scan path until selective late\nmaterialization can decide per-source when deferral pays. #6155 explored\na plan-time cost gate for it and was closed with the findings; the\nselective design needs statistics-driven or run-time decisions.\n\n## What\n\n- `paradedb.enable_aggregate_late_materialization` (default `false`)\ngates deferral for the aggregate-on-join path. With it off, aggregate\nplans check visibility in the scan, as before #6119. The join and TopK\npaths keep #6119's behavior.\n- The visibility and late-materialization optimizer rules shared their\nprovider downcast, reduction-node test, and beneficial-ancestor walk\ninto `pg_search_provider_from_scan`, `is_reduction_node`, and\n`has_reduction_before_stop`.\n- The beneficial walk no longer credits a Full barrier itself. A Full\nbarrier keeps every check below it, so its own reduction comes after the\ncheck. A scan under a mark or full join with nothing reducing in between\nkeeps its in-scan check instead of a `VisibilityFilterExec` wrap that\nfilters the same rows. The visibility rule's ctid-projection forcing\nmoved into two helper functions so the `transform_up` closure becomes as\nits two steps: activate the scan, then carry the ctid up through\nrow-preserving nodes.\n\n## Tests\n\n- `enable_aggregate_late_materialization` off reverts the aggregate\nexpected plans to eager; the join, TopK, and distinct expected files are\nunchanged from #6119.\n- Two unit tests pin the Full-join contract (no wrap without a reduction\nbelow the join, wrap on the reduced side only). `issue_4531`,\n`issue_4667`, `issue_4719`, and `join_outer_edge` drop the wraps that\nsat directly above their scans.\n\n## CI benchmarks\n\nThe Queries benchmark on the current head is neutral against main\n([run](https://github.com/paradedb/paradedb/actions/runs/33470217899),\n[main\nbaseline](https://github.com/paradedb/paradedb/actions/runs/33218525532)).\nNothing moved beyond noise: the largest tight-interval delta\n(`bucket-expr-filter`, 1.06 at 20m) is a single-table `GroupAggregate`\nthis PR does not touch, and `join_conjunctive_score_sort` (1.07 at 20m)\nhas overlapping confidence intervals and is flat at 100k and 1m.\n\nThe follow-up that decouples ctid fetching from the visibility check\n(moving column loading into `TantivyLookupExec`) will stack on this\nbranch.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-09-02T12:54:54-04:00",
+          "tree_id": "9ac244769e7a89e857852a22e3f0883b7975d35e",
+          "url": "https://github.com/paradedb/paradedb/commit/236c5131f72436f93b1d802c19b958f9e2de10b4"
+        },
+        "date": 1788370424727,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6337319564978618,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.542,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.924,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.968,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.173,
             "unit": "ms"
           }
         ]

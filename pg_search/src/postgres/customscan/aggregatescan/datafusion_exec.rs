@@ -24,7 +24,7 @@
 //! materialization, no SegmentedTopK — aggregates run entirely on fast fields
 //! and the result is aggregate rows, not individual tuples.
 
-use super::join_targetlist::AggOrderByEntry;
+use super::join_targetlist::{AggOrderByEntry, GroupingTransform};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
@@ -34,6 +34,7 @@ use crate::postgres::customscan::aggregatescan::privdat::{CompareOp, DataFusionT
 use crate::postgres::customscan::datafusion::numeric_agg::{
     numeric_bytes_avg_udaf, numeric_bytes_sum_udaf, numeric64_avg_udaf, numeric64_sum_udaf,
 };
+use crate::postgres::customscan::datafusion::timestamp_to_date::timestamp_to_date_udf;
 use crate::postgres::customscan::datafusion::translator::{
     ColumnMapper, PredicateTranslator, apply_join_level_filter, build_join_df, make_col,
     make_source_col,
@@ -105,22 +106,29 @@ pub async fn build_join_aggregate_plan(
     let mut group_df_indices = Vec::with_capacity(targetlist.group_columns.len());
 
     for gc in &targetlist.group_columns {
-        // Dedup key by (plan_position, field_name): plan_position is the
+        // Dedup key by (plan_position, field_name, transform): plan_position is the
         // unique source identity; field_name distinguishes columns within
-        // a source. Keying by rti would collapse rti-aliased sources from
+        // a source, transform distinguishes different transformations of the same column.
+        // Keying by rti would collapse rti-aliased sources from
         // sub-PlannerInfos into one DataFusion column.
-        let entry = field_to_df_idx.entry((gc.plan_position, gc.field_name.clone()));
+        let entry = field_to_df_idx.entry((gc.plan_position, gc.field_name.clone(), gc.transform));
         let df_idx = match entry {
             std::collections::hash_map::Entry::Vacant(v) => {
                 let df_idx = group_exprs.len();
                 v.insert(df_idx);
-                group_exprs.push(make_plan_position_col(
-                    plan,
-                    gc.plan_position,
-                    &gc.field_name,
-                ));
+                let column = make_plan_position_col(plan, gc.plan_position, &gc.field_name);
+
+                let group_expr = match gc.transform {
+                    GroupingTransform::Identity => column,
+                    GroupingTransform::TimestampToDate => {
+                        timestamp_to_date_udf().call(vec![column])
+                    }
+                };
+
+                group_exprs.push(group_expr);
                 df_idx
             }
+
             std::collections::hash_map::Entry::Occupied(o) => *o.get(),
         };
         group_df_indices.push(df_idx);

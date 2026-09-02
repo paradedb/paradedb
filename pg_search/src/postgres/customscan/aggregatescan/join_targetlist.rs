@@ -28,10 +28,9 @@ use super::pdb_agg::{
     PdbAggFieldRef, PdbAggFieldResolver, PdbAggFieldUsage, PdbAggRequest, check_field_usage,
 };
 use super::privdat::FilterExpr;
-use crate::api::{FieldName, SortDirection, visibility_from_agg_arg};
+use crate::api::{FieldName, SortDirection, pdb_agg_spec};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
-use crate::nodecast;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::customscan::datafusion::explain::get_attname_safe;
 use crate::postgres::customscan::joinscan::build::{PlannerRootId, RelNode, RelationAlias};
@@ -41,6 +40,7 @@ use crate::postgres::utils::FieldSource;
 use crate::postgres::var::{VarContext, find_one_aggref, find_one_var_and_fieldname};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchFieldType;
+use pgrx::PgList;
 use pgrx::pg_sys;
 use pgrx::pg_sys::{
     F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_,
@@ -50,7 +50,6 @@ use pgrx::pg_sys::{
     F_MIN_TIME, F_MIN_TIMESTAMP, F_MIN_TIMESTAMPTZ, F_MIN_TIMETZ, F_SUM_FLOAT4, F_SUM_FLOAT8,
     F_SUM_INT2, F_SUM_INT4, F_SUM_INT8, F_SUM_NUMERIC,
 };
-use pgrx::{FromDatum, PgList};
 use tantivy::columnar::ColumnType;
 
 /// Look up a join source by RTI, returning a uniform error message that
@@ -686,16 +685,10 @@ unsafe fn lower_pdb_agg(
     outer_root_id: PlannerRootId,
 ) -> Result<PdbAggRequest, String> {
     let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
-    let spec = args
-        .get_ptr(0)
-        .and_then(|arg| nodecast!(Const, T_Const, (*arg).expr))
-        .and_then(|konst| pgrx::JsonB::from_datum((*konst).constvalue, (*konst).constisnull))
-        .ok_or("pdb.agg argument must be a constant for aggregate pushdown")?
-        .0;
-    let visibility = visibility_from_agg_arg(
-        (*aggref).aggfnoid.to_u32(),
-        args.get_ptr(1).map(|arg| (*arg).expr as *mut pg_sys::Node),
-    );
+    let arg_expr = |i: usize| args.get_ptr(i).map(|arg| (*arg).expr as *mut pg_sys::Node);
+    let (spec, visibility) = arg_expr(0)
+        .and_then(|spec_arg| pdb_agg_spec((*aggref).aggfnoid.to_u32(), spec_arg, arg_expr(1)))
+        .ok_or("pdb.agg argument must be a constant for aggregate pushdown")?;
     let resolver = JoinAggFieldResolver {
         sources,
         plan,
@@ -735,14 +728,11 @@ impl JoinAggFieldResolver<'_> {
             return Ok(None);
         };
         let root = FieldName::from(field).root();
-        let Some(search_field) = schema.search_field(&root) else {
-            return Ok(None);
-        };
-        if !search_field.is_fast() {
-            return Ok(None);
-        }
         let categorized = schema.categorized_fields();
-        let Some((_, data)) = categorized.iter().find(|(sf, _)| *sf == search_field) else {
+        let Some((search_field, data)) = categorized
+            .iter()
+            .find(|(sf, _)| sf.field_name().as_ref() == root && sf.is_fast())
+        else {
             return Ok(None);
         };
         let FieldSource::Heap { attno } = data.source else {

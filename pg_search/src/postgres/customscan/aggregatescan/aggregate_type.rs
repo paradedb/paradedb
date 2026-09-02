@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::{FieldName, HashSet, MvccVisibility, is_agg_funcoid, visibility_from_agg_arg};
+use crate::api::{FieldName, HashSet, MvccVisibility, is_agg_funcoid, pdb_agg_spec};
 use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
@@ -145,30 +145,15 @@ impl AggregateType {
 
         // Check for pdb.agg() custom aggregate (any overload)
         if is_agg_funcoid(aggfnoid) {
-            // Extract JSON argument (first arg)
+            // Without the spec the scan declines, and Postgres runs the
+            // aggregate itself.
             let arg = args.get_ptr(0).expect("pdb.agg missing argument");
-            let expr = (*arg).expr;
-            let json_value = if let Some(const_node) = nodecast!(Const, T_Const, expr) {
-                let json_datum = (*const_node).constvalue;
-                pgrx::JsonB::from_datum(json_datum, false)
-                    .expect("invalid JSON in pdb.agg")
-                    .0
-            } else {
-                // Parameterized pdb.agg() can't be lowered into the aggregate
-                // pushdown plan because we need the JSON spec at planning time
-                // to validate fields and choose a strategy. Return Err so the
-                // AggregateScan path declines and PG falls back to standard
-                // aggregate processing — same behaviour as a query without
-                // pdb.agg() pushdown.
-                return Err("pdb.agg argument must be a constant for aggregate pushdown".into());
-            };
-
-            // Decode the visibility argument (second arg) of the two-arg overloads;
-            // the one-arg overload has none and takes the default.
-            let mvcc_visibility = visibility_from_agg_arg(
+            let (json_value, mvcc_visibility) = pdb_agg_spec(
                 aggfnoid,
+                (*arg).expr as *mut pg_sys::Node,
                 args.get_ptr(1).map(|arg| (*arg).expr as *mut pg_sys::Node),
-            );
+            )
+            .ok_or("pdb.agg argument must be a constant for aggregate pushdown")?;
 
             // Check if any existing fields in the custom aggregate are NUMERIC
             // NUMERIC fields do not support aggregate pushdown

@@ -26,7 +26,7 @@
 
 use super::join_targetlist::{AggOrderByEntry, GroupingTransform};
 use super::pdb_agg::{
-    PdbAggFieldRef, PdbAggPlan, PdbAggRequest, PdbKey, PdbKeySpec, PdbMetricKind, PdbMetricSpec,
+    PdbAggFieldRef, PdbAggPlan, PdbAggRequest, PdbKeySpec, PdbMetricKind, PdbMetricSpec,
 };
 use crate::api::HashMap;
 use crate::index::fast_fields_helper::WhichFastField;
@@ -69,6 +69,7 @@ use datafusion::logical_expr::{
 use datafusion::prelude::{DataFrame, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
 use pgrx::pg_sys;
+use tantivy::aggregation::Key;
 
 /// Creates a DataFusion [`SessionContext`] for aggregate-on-join workloads.
 pub fn create_aggregate_session_context() -> SessionContext {
@@ -199,23 +200,13 @@ pub async fn build_join_aggregate_plan(
                         None,   // null_treatment
                     )))
                 }
-                // NUMERIC SUM/AVG route to scaled-Int64 or decimal-bytes UDAFs.
-                // The Numeric64 UDAFs take the scale as a plan literal so it
-                // survives plan serialization for parallel and MPP execution;
-                // decimal-bytes values are self-describing.
-                AggKind::Sum => agg_field_col(agg, plan).map(|col| match agg.numeric {
+                AggKind::Sum => agg_field_col(agg, plan).map(|col| match &agg.numeric {
                     None => sum(col),
-                    Some(SearchFieldType::Numeric64(_, scale)) => {
-                        numeric64_sum_udaf().call(vec![col, lit(scale as i32)])
-                    }
-                    Some(_) => numeric_bytes_sum_udaf().call(vec![col]),
+                    Some(field_type) => numeric_sum(col, field_type),
                 }),
-                AggKind::Avg => agg_field_col(agg, plan).map(|col| match agg.numeric {
+                AggKind::Avg => agg_field_col(agg, plan).map(|col| match &agg.numeric {
                     None => avg(col),
-                    Some(SearchFieldType::Numeric64(_, scale)) => {
-                        numeric64_avg_udaf().call(vec![col, lit(scale as i32)])
-                    }
-                    Some(_) => numeric_bytes_avg_udaf().call(vec![col]),
+                    Some(field_type) => numeric_avg(col, field_type),
                 }),
                 AggKind::Min => agg_field_col(agg, plan).map(min),
                 AggKind::Max => agg_field_col(agg, plan).map(max),
@@ -420,12 +411,12 @@ fn apply_pdb_aggregate(
 
 /// The `missing` literal in the column's own Arrow type, so `coalesce` neither
 /// widens the key column nor fails on a text column with a numeric literal.
-fn pdb_missing_lit(missing: &PdbKey, field: &PdbAggFieldRef) -> Expr {
+fn pdb_missing_lit(missing: &Key, field: &PdbAggFieldRef) -> Expr {
     let literal = match missing {
-        PdbKey::Str(s) => lit(s.clone()),
-        PdbKey::I64(v) => lit(*v),
-        PdbKey::U64(v) => lit(*v),
-        PdbKey::F64(v) => lit(*v),
+        Key::Str(s) => lit(s.clone()),
+        Key::I64(v) => lit(*v),
+        Key::U64(v) => lit(*v),
+        Key::F64(v) => lit(*v),
     };
     Expr::Cast(Cast::new(
         Box::new(literal),
@@ -463,27 +454,14 @@ fn pdb_metric_expr(
                 };
                 Expr::Cast(Cast::new(Box::new(column), DataType::Float64))
             };
+            let numeric = field.field_type.is_numeric();
             match kind {
                 // NUMERIC takes the decimal accumulators the SQL aggregates use; the
                 // assembler decodes their blobs.
-                PdbMetricKind::Sum => match field.field_type {
-                    SearchFieldType::Numeric64(_, scale) => {
-                        numeric64_sum_udaf().call(vec![column, lit(scale as i32)])
-                    }
-                    SearchFieldType::NumericBytes(..) => {
-                        numeric_bytes_sum_udaf().call(vec![column])
-                    }
-                    _ => sum(as_f64(column)),
-                },
-                PdbMetricKind::Avg => match field.field_type {
-                    SearchFieldType::Numeric64(_, scale) => {
-                        numeric64_avg_udaf().call(vec![column, lit(scale as i32)])
-                    }
-                    SearchFieldType::NumericBytes(..) => {
-                        numeric_bytes_avg_udaf().call(vec![column])
-                    }
-                    _ => avg(as_f64(column)),
-                },
+                PdbMetricKind::Sum if numeric => numeric_sum(column, &field.field_type),
+                PdbMetricKind::Avg if numeric => numeric_avg(column, &field.field_type),
+                PdbMetricKind::Sum => sum(as_f64(column)),
+                PdbMetricKind::Avg => avg(as_f64(column)),
                 PdbMetricKind::Min => min(column),
                 PdbMetricKind::Max => max(column),
                 PdbMetricKind::ValueCount => count(column),
@@ -491,14 +469,7 @@ fn pdb_metric_expr(
                 PdbMetricKind::Cardinality
                     if matches!(field.field_type, SearchFieldType::F64(_)) =>
                 {
-                    Expr::AggregateFunction(AggregateFunction::new_udf(
-                        count_udaf(),
-                        vec![column],
-                        true,
-                        None,
-                        vec![],
-                        None,
-                    ))
+                    with_distinct(count(column))
                 }
                 PdbMetricKind::Cardinality => approx_distinct(column),
             }
@@ -515,6 +486,29 @@ fn pdb_metric_expr(
             None => expr,
         },
     )
+}
+
+/// `SUM` over a NUMERIC column: the scaled-Int64 or the decimal-bytes accumulator,
+/// by storage. The `Numeric64` UDAFs take the scale as a plan literal so it
+/// survives plan serialization for parallel and MPP execution; decimal-bytes
+/// values are self-describing.
+fn numeric_sum(col: Expr, field_type: &SearchFieldType) -> Expr {
+    match field_type {
+        SearchFieldType::Numeric64(_, scale) => {
+            numeric64_sum_udaf().call(vec![col, lit(*scale as i32)])
+        }
+        _ => numeric_bytes_sum_udaf().call(vec![col]),
+    }
+}
+
+/// `AVG` over a NUMERIC column; see [`numeric_sum`].
+fn numeric_avg(col: Expr, field_type: &SearchFieldType) -> Expr {
+    match field_type {
+        SearchFieldType::Numeric64(_, scale) => {
+            numeric64_avg_udaf().call(vec![col, lit(*scale as i32)])
+        }
+        _ => numeric_bytes_avg_udaf().call(vec![col]),
+    }
 }
 
 /// Recursively lower a [`RelNode`] tree into a DataFusion [`DataFrame`].

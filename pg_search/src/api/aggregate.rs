@@ -56,7 +56,7 @@
 
 use std::error::Error;
 
-use pgrx::{Json, JsonB, PgRelation, default, pg_extern};
+use pgrx::{FromDatum, Json, JsonB, PgRelation, default, pg_extern};
 use serde::{Deserialize, Serialize};
 
 use crate::aggregate::{AggregateRequest, execute_aggregate};
@@ -426,6 +426,23 @@ pub unsafe fn visibility_from_agg_arg(
     }
 }
 
+/// The spec and visibility of a `pdb.agg()` call, or `None` when the spec is not
+/// a non-null constant. Field validation and the plan shape both need the spec at
+/// plan time, so a parameter cannot stand in for it.
+///
+/// # Safety
+/// The caller must ensure `spec_arg` and `visibility_arg`, when present, are valid
+/// `Node` pointers.
+pub unsafe fn pdb_agg_spec(
+    aggfnoid: u32,
+    spec_arg: *mut pgrx::pg_sys::Node,
+    visibility_arg: Option<*mut pgrx::pg_sys::Node>,
+) -> Option<(serde_json::Value, MvccVisibility)> {
+    let const_node = nodecast!(Const, T_Const, spec_arg)?;
+    let spec = JsonB::from_datum((*const_node).constvalue, (*const_node).constisnull)?.0;
+    Some((spec, visibility_from_agg_arg(aggfnoid, visibility_arg)))
+}
+
 /// Extract solve_mvcc boolean from a Const node.
 /// Returns true (MVCC enabled) if the value can't be extracted or is null.
 ///
@@ -515,12 +532,21 @@ impl MvccVisibility {
         })
     }
 
-    /// [`Self::resolve_filtering`] for a query that scans several indexes. One
-    /// decision covers all of them: a per-source decision could hide a deleted
-    /// row on one side of a join and show it on the other. The largest source's
-    /// estimate stands for the query, since that is where a heap check costs and
-    /// where a dead tuple hides best. A source that cannot be estimated keeps the
-    /// check on for everyone.
+    /// Resolve to whether visibility checking actually runs for an execution
+    /// that scans the given indexes. One decision covers all of them: a
+    /// per-source decision could hide a deleted row on one side of a join and
+    /// show it on the other.
+    ///
+    /// `Threshold` estimates each query's matching row count, which costs one
+    /// extra single-segment index open per source. The largest estimate stands
+    /// for the query, since that is where a heap check costs and where a dead
+    /// tuple hides best. Anything that cannot be estimated falls back to
+    /// checking: an unknown row count must not silently downgrade accuracy.
+    ///
+    /// The estimate opens the index without an expression context, so a query
+    /// carrying heap filters or unsolved Postgres expressions is not estimated at
+    /// all. Building a Tantivy query for those shapes requires the context, and
+    /// the accurate side of the branch is the safe place to land.
     pub fn resolve_filtering_for_sources<'a>(
         &self,
         sources: impl IntoIterator<Item = (&'a PgSearchRelation, &'a SearchQueryInput)>,
@@ -576,28 +602,9 @@ impl MvccVisibility {
         }
     }
 
-    /// Resolve to whether visibility checking actually runs for this execution.
-    ///
-    /// `Threshold` estimates the query's matching row count, which costs one extra
-    /// single-segment index open. Anything we cannot estimate falls back to
-    /// checking: an unknown row count must not silently downgrade accuracy.
-    ///
-    /// The estimate opens the index without an expression context, so a query
-    /// carrying heap filters or unsolved Postgres expressions is not estimated at
-    /// all. Building a Tantivy query for those shapes requires the context, and
-    /// the accurate side of the branch is the safe place to land.
+    /// [`Self::resolve_filtering_for_sources`] for a single index.
     pub fn resolve_filtering(&self, indexrel: &PgSearchRelation, query: &SearchQueryInput) -> bool {
-        match self {
-            MvccVisibility::Transaction => true,
-            MvccVisibility::Raw => false,
-            MvccVisibility::Threshold => {
-                if query.has_heap_filters() || query.has_postgres_expressions() {
-                    return true;
-                }
-                estimate_matching_rows(indexrel, query.clone())
-                    .is_none_or(|rows| rows < gucs::visibility_threshold())
-            }
-        }
+        self.resolve_filtering_for_sources(std::iter::once((indexrel, query)))
     }
 }
 

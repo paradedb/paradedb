@@ -26,7 +26,7 @@
 use crate::api::{HashMap, MvccVisibility};
 use crate::postgres::customscan::datafusion::numeric_agg::decode_avg_blob;
 use crate::postgres::datetime::PostgresDateTime;
-use crate::postgres::types::is_datetime_type;
+use crate::postgres::types::is_pgoid_datetime_type;
 use crate::schema::SearchFieldType;
 use arrow_array::cast::AsArray;
 use arrow_array::types::{
@@ -60,11 +60,7 @@ impl PdbAggFieldRef {
     /// Datetime columns reach DataFusion as PG-epoch microseconds and are rendered
     /// as timestamps, the way the Tantivy backend rewrites them.
     pub fn is_datetime(&self) -> bool {
-        match self.field_type {
-            SearchFieldType::Date(_) => true,
-            SearchFieldType::I64(oid) => is_datetime_type(oid),
-            _ => false,
-        }
+        is_pgoid_datetime_type(self.field_type.typeoid())
     }
 }
 
@@ -77,12 +73,12 @@ pub enum PdbAggFieldUsage {
 }
 
 /// Maps a spec field name to a join source. Implemented by the planner, which owns
-/// the sources; a permissive stand-in is used for the shape check.
+/// the sources.
 pub trait PdbAggFieldResolver {
     fn resolve(&self, field: &str, usage: PdbAggFieldUsage) -> Result<PdbAggFieldRef, String>;
 }
 
-/// Type gate shared by every resolver: the types DataFusion's grouping or metric
+/// Type gate for a resolved field: the types DataFusion's grouping or metric
 /// accumulators cannot take. NUMERIC passes; its storage is grouped as-is and
 /// summed through the decimal accumulators the SQL aggregates use.
 pub fn check_field_usage(
@@ -90,10 +86,7 @@ pub fn check_field_usage(
     field_type: &SearchFieldType,
     usage: PdbAggFieldUsage,
 ) -> Result<(), String> {
-    if matches!(
-        field_type,
-        SearchFieldType::Range(_) | SearchFieldType::Vector(..)
-    ) {
+    if matches!(field_type, SearchFieldType::Vector(..)) {
         return Err(format!(
             "field '{field}' has a type that cannot be aggregated"
         ));
@@ -114,26 +107,6 @@ pub fn check_field_usage(
         ));
     }
     Ok(())
-}
-
-/// A literal from the spec, such as a `missing` value.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum PdbKey {
-    Str(String),
-    I64(i64),
-    U64(u64),
-    F64(f64),
-}
-
-impl From<&Key> for PdbKey {
-    fn from(key: &Key) -> Self {
-        match key {
-            Key::Str(s) => PdbKey::Str(s.clone()),
-            Key::I64(v) => PdbKey::I64(*v),
-            Key::U64(v) => PdbKey::U64(*v),
-            Key::F64(v) => PdbKey::F64(*v),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -165,7 +138,7 @@ pub struct PdbTermsAgg {
     pub size: u32,
     pub min_doc_count: u64,
     pub order: PdbTermsOrder,
-    pub missing: Option<PdbKey>,
+    pub missing: Option<Key>,
     pub show_doc_count_error: bool,
     pub sub_aggs: Vec<(String, PdbAggNode)>,
 }
@@ -174,7 +147,7 @@ pub struct PdbTermsAgg {
 pub struct PdbMetricAgg {
     pub kind: PdbMetricKind,
     pub field: PdbAggFieldRef,
-    pub missing: Option<PdbKey>,
+    pub missing: Option<Key>,
     /// `sum` reports `null` rather than `0` on an empty input when the spec asks for it.
     pub none_if_no_match: bool,
 }
@@ -266,10 +239,7 @@ fn variant_name(agg: &AggregationVariants) -> &'static str {
 /// `missing` stands in for the field's own values, so it has to be one of them.
 /// A number on a text field renders as its text. A string on a numeric field has
 /// no value to take, and Tantivy's request has no boolean literal.
-fn check_missing(
-    field: &PdbAggFieldRef,
-    missing: Option<PdbKey>,
-) -> Result<Option<PdbKey>, String> {
+fn check_missing(field: &PdbAggFieldRef, missing: Option<Key>) -> Result<Option<Key>, String> {
     let Some(missing) = missing else {
         return Ok(None);
     };
@@ -287,12 +257,12 @@ fn check_missing(
             | SearchFieldType::U64(_)
             | SearchFieldType::F64(_)
             | SearchFieldType::Date(_),
-            PdbKey::Str(_),
+            Key::Str(_),
         ) => Err(format!(
             "`missing` for numeric field '{name}' must be a number"
         )),
         // A timestamp column takes its literal as whole microseconds.
-        (_, PdbKey::F64(v)) if field.is_datetime() => Ok(Some(PdbKey::I64(v as i64))),
+        (_, Key::F64(v)) if field.is_datetime() => Ok(Some(Key::I64(v as i64))),
         (_, missing) => Ok(Some(missing)),
     }
 }
@@ -300,7 +270,7 @@ fn check_missing(
 fn lower_node(agg: &Aggregation, resolver: &dyn PdbAggFieldResolver) -> Result<PdbAggNode, String> {
     let metric = |kind: PdbMetricKind,
                   field: &str,
-                  missing: Option<PdbKey>,
+                  missing: Option<Key>,
                   none_if_no_match: bool|
      -> Result<PdbAggNode, String> {
         if !agg.sub_aggregation.is_empty() {
@@ -336,7 +306,7 @@ fn lower_node(agg: &Aggregation, resolver: &dyn PdbAggFieldResolver) -> Result<P
                 return Err("terms `min_doc_count: 0` is not supported over joins".into());
             }
             let field = resolver.resolve(&terms.field, PdbAggFieldUsage::TermsKey)?;
-            let missing = check_missing(&field, terms.missing.as_ref().map(PdbKey::from))?;
+            let missing = check_missing(&field, terms.missing.clone())?;
             let order = terms.order.clone().unwrap_or_default();
             // Tantivy only reports the error bound under the default ordering.
             let show_doc_count_error = terms
@@ -383,37 +353,28 @@ fn lower_node(agg: &Aggregation, resolver: &dyn PdbAggFieldResolver) -> Result<P
         AggregationVariants::Sum(m) => metric(
             PdbMetricKind::Sum,
             &m.field,
-            m.missing.map(PdbKey::F64),
+            m.missing.map(Key::F64),
             m.none_if_no_match.unwrap_or(false),
         ),
-        AggregationVariants::Average(m) => metric(
-            PdbMetricKind::Avg,
-            &m.field,
-            m.missing.map(PdbKey::F64),
-            false,
-        ),
-        AggregationVariants::Min(m) => metric(
-            PdbMetricKind::Min,
-            &m.field,
-            m.missing.map(PdbKey::F64),
-            false,
-        ),
-        AggregationVariants::Max(m) => metric(
-            PdbMetricKind::Max,
-            &m.field,
-            m.missing.map(PdbKey::F64),
-            false,
-        ),
+        AggregationVariants::Average(m) => {
+            metric(PdbMetricKind::Avg, &m.field, m.missing.map(Key::F64), false)
+        }
+        AggregationVariants::Min(m) => {
+            metric(PdbMetricKind::Min, &m.field, m.missing.map(Key::F64), false)
+        }
+        AggregationVariants::Max(m) => {
+            metric(PdbMetricKind::Max, &m.field, m.missing.map(Key::F64), false)
+        }
         AggregationVariants::Count(m) => metric(
             PdbMetricKind::ValueCount,
             &m.field,
-            m.missing.map(PdbKey::F64),
+            m.missing.map(Key::F64),
             false,
         ),
         AggregationVariants::Cardinality(m) => metric(
             PdbMetricKind::Cardinality,
             &m.field,
-            m.missing.as_ref().map(PdbKey::from),
+            m.missing.clone(),
             false,
         ),
         other => Err(format!(
@@ -440,7 +401,7 @@ fn lower_sub_aggs(
 #[derive(Debug, Clone)]
 pub struct PdbKeySpec {
     pub field: PdbAggFieldRef,
-    pub missing: Option<PdbKey>,
+    pub missing: Option<Key>,
 }
 
 /// An aggregate expression interned across every metric node of a query. `kind`
@@ -449,7 +410,7 @@ pub struct PdbKeySpec {
 pub struct PdbMetricSpec {
     pub kind: Option<PdbMetricKind>,
     pub field: Option<PdbAggFieldRef>,
-    pub missing: Option<PdbKey>,
+    pub missing: Option<Key>,
     /// Target-list index of the `pdb.agg()` entry whose `FILTER` applies, if any.
     pub entry_filter: Option<usize>,
 }
@@ -497,27 +458,27 @@ pub struct PdbAggPlan {
 }
 
 /// Identity of an interned metric: kind, `(plan_position, field_name)`, the
-/// `missing` literal as JSON, and the entry whose `FILTER` applies.
+/// `missing` literal, and the entry whose `FILTER` applies.
 type MetricId = (
     Option<PdbMetricKind>,
     Option<(usize, String)>,
-    String,
+    Option<Key>,
     Option<usize>,
 );
 
 struct PlanBuilder {
     plan: PdbAggPlan,
-    key_ids: HashMap<(usize, String, String), usize>,
+    key_ids: HashMap<(usize, String, Option<Key>), usize>,
     metric_ids: HashMap<MetricId, usize>,
     level_ids: HashMap<Vec<usize>, usize>,
 }
 
 impl PlanBuilder {
-    fn intern_key(&mut self, field: &PdbAggFieldRef, missing: &Option<PdbKey>) -> usize {
+    fn intern_key(&mut self, field: &PdbAggFieldRef, missing: &Option<Key>) -> usize {
         let id = (
             field.plan_position,
             field.field_name.clone(),
-            serde_json::to_string(missing).unwrap_or_default(),
+            missing.clone(),
         );
         if let Some(&idx) = self.key_ids.get(&id) {
             return idx;
@@ -535,13 +496,13 @@ impl PlanBuilder {
         &mut self,
         kind: Option<PdbMetricKind>,
         field: Option<&PdbAggFieldRef>,
-        missing: &Option<PdbKey>,
+        missing: &Option<Key>,
         entry_filter: Option<usize>,
     ) -> usize {
         let id = (
             kind,
             field.map(|f| (f.plan_position, f.field_name.clone())),
-            serde_json::to_string(missing).unwrap_or_default(),
+            missing.clone(),
             entry_filter,
         );
         if let Some(&idx) = self.metric_ids.get(&id) {

@@ -679,7 +679,8 @@ unsafe fn parse_aggregate_field(
 ) -> Result<(String, Option<f64>), String> {
     let context = VarContext::from_planner(root);
     if let Some(coalesce_node) = nodecast!(CoalesceExpr, T_CoalesceExpr, (*first_arg).expr) {
-        parse_coalesce_aggregate_field(coalesce_node, heaprelid, context)
+        let (field, missing) = parse_coalesce_expression(coalesce_node, context)?;
+        Ok((field.into_inner(), missing))
     } else if let Some(var) = nodecast!(Var, T_Var, (*first_arg).expr) {
         let field = fieldname_from_var(heaprelid, var, (*var).varattno)
             .ok_or("could not map variable to field name (may not be in the index)")?
@@ -694,38 +695,11 @@ unsafe fn parse_aggregate_field(
     }
 }
 
-unsafe fn parse_coalesce_aggregate_field(
-    coalesce_node: *mut pg_sys::CoalesceExpr,
-    heaprelid: pg_sys::Oid,
-    context: VarContext,
-) -> Result<(String, Option<f64>), String> {
-    let args = PgList::<pg_sys::Node>::from_pg((*coalesce_node).args);
-    let first_arg = args
-        .get_ptr(0)
-        .ok_or("COALESCE expression missing first argument")?;
-
-    let field = if let Some(var) =
-        <*mut pg_sys::Var>::unwrap_from_expr(first_arg as *mut pg_sys::Expr)
-    {
-        fieldname_from_var(heaprelid, var, (*var).varattno)
-            .ok_or("could not map COALESCE variable to field name (may not be in the index)")?
-            .into_inner()
-    } else if let Some((_var, field_name)) = find_one_var_and_fieldname(context, first_arg) {
-        field_name.into_inner()
-    } else {
-        return Err(
-            "first argument of COALESCE must resolve to a variable or JSON field reference".into(),
-        );
-    };
-
-    let missing = parse_coalesce_missing_value(&args)?;
-    Ok((field, missing))
-}
-
-/// Parse COALESCE expression to extract variable and missing value
+/// Parse COALESCE expression to extract field name and missing value
 pub unsafe fn parse_coalesce_expression(
     coalesce_node: *mut pg_sys::CoalesceExpr,
-) -> Result<(*mut pg_sys::Var, Option<f64>), String> {
+    context: VarContext,
+) -> Result<(FieldName, Option<f64>), String> {
     let args = PgList::<pg_sys::Node>::from_pg((*coalesce_node).args);
     if args.is_empty() {
         return Err("COALESCE expression has no arguments".into());
@@ -736,12 +710,23 @@ pub unsafe fn parse_coalesce_expression(
     let first_arg = args
         .get_ptr(0)
         .ok_or("COALESCE expression missing first argument")?;
-    let var = <*mut pg_sys::Var>::unwrap_from_expr(first_arg as *mut pg_sys::Expr)
-        .ok_or("first argument of COALESCE must resolve to a variable")?;
+    let field = if let Some(var) =
+        <*mut pg_sys::Var>::unwrap_from_expr(first_arg as *mut pg_sys::Expr)
+    {
+        let (heaprelid, varattno) = context.var_relation(var);
+        fieldname_from_var(heaprelid, var, varattno)
+            .ok_or("could not map COALESCE variable to field name (may not be in the index)")?
+    } else if let Some((_var, field_name)) = find_one_var_and_fieldname(context, first_arg) {
+        field_name
+    } else {
+        return Err(
+            "first argument of COALESCE must resolve to a variable or JSON field reference".into(),
+        );
+    };
 
     let missing = parse_coalesce_missing_value(&args)?;
 
-    Ok((var, missing))
+    Ok((field, missing))
 }
 
 unsafe fn parse_coalesce_missing_value(args: &PgList<pg_sys::Node>) -> Result<Option<f64>, String> {

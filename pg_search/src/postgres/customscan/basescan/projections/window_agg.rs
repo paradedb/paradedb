@@ -402,24 +402,18 @@ unsafe fn extract_field_name_from_aggregate_arg(
     parse: *mut pg_sys::Query,
     arg_node: *mut pg_sys::Node,
 ) -> Option<(FieldName, Option<f64>)> {
-    let (var, missing) =
-        if let Some(coalesce_node) = nodecast!(CoalesceExpr, T_CoalesceExpr, arg_node) {
-            parse_coalesce_expression(coalesce_node).ok()?
-        } else {
-            let var = nodecast!(Var, T_Var, arg_node)?;
-            (var, None)
-        };
-
-    // Get heaprelid from the rtable using VarContext
     let var_context = VarContext::from_query(parse);
-    let (heaprelid, varattno) = var_context.var_relation(var);
+    if let Some(coalesce_node) = nodecast!(CoalesceExpr, T_CoalesceExpr, arg_node) {
+        return parse_coalesce_expression(coalesce_node, var_context).ok();
+    }
 
+    let var = nodecast!(Var, T_Var, arg_node)?;
+    let (heaprelid, varattno) = var_context.var_relation(var);
     if heaprelid == pg_sys::InvalidOid {
         return None;
     }
 
-    let field = fieldname_from_var(heaprelid, var, varattno)?;
-    Some((field, missing))
+    Some((fieldname_from_var(heaprelid, var, varattno)?, None))
 }
 
 /// Convert a FILTER clause expression to SearchQueryInput by serializing it for later conversion

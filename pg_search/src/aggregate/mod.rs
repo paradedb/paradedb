@@ -23,8 +23,8 @@ use std::ptr::NonNull;
 use crate::aggregate::exec::AggregationExec;
 use crate::aggregate::interrupt_collector::InterruptableCollector;
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
-use crate::api::HashSet;
 use crate::api::version::VersionInfo;
+use crate::api::{HashSet, MvccVisibility};
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::index::reader::index::SearchIndexReader;
 use crate::launch_parallel_process;
@@ -428,13 +428,19 @@ pub fn execute_aggregate(
     index: &PgSearchRelation,
     query: SearchQueryInput,
     mut agg_req: AggregateRequest,
-    solve_mvcc: bool,
+    visibility: MvccVisibility,
     memory_limit: u64,
     bucket_limit: u32,
     expr_context: *mut pg_sys::ExprContext,
     planstate: *mut pg_sys::PlanState,
     mut bitmap_exec: Option<&mut BitmapExec>,
 ) -> Result<AggregationResults, Box<dyn Error>> {
+    // Resolve `visibility` to a single decision for this execution before anything
+    // branches on it. `threshold` estimates the query's matching row count here
+    // rather than at plan time so that the `paradedb.aggregate()` UDF, which the
+    // planner never sees, resolves the same way as the custom scan paths.
+    let solve_mvcc = visibility.resolve_filtering(index, &query);
+
     if index.created_by_version().stores_datetimes_in_i64() {
         // We need to rewrite date_histogram requests to regular histogram requests because we are
         // no longer storing dates in tantivy's DateTime.

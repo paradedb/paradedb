@@ -28,6 +28,9 @@ use std::sync::Arc;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::logical_expr::ScalarUDF;
 
+use crate::postgres::customscan::datafusion::timestamp_to_date::{
+    TIMESTAMP_TO_DATE_UDF_NAME, timestamp_to_date_udf,
+};
 use crate::postgres::customscan::pg_expr_udf::{PG_EXPR_UDF_PREFIX, PgExprUdf};
 
 /// Whether `name` identifies a scalar UDF that `pg_search` owns the encoding for.
@@ -35,7 +38,7 @@ use crate::postgres::customscan::pg_expr_udf::{PG_EXPR_UDF_PREFIX, PgExprUdf};
 /// This is the single definition of that predicate; the decode/encode helpers
 /// below and the composed physical codec all agree by construction.
 pub(crate) fn is_pg_search_udf(name: &str) -> bool {
-    name.starts_with(PG_EXPR_UDF_PREFIX)
+    name.starts_with(PG_EXPR_UDF_PREFIX) || name == TIMESTAMP_TO_DATE_UDF_NAME
 }
 
 /// Decode a `pg_search` scalar UDF.
@@ -50,6 +53,10 @@ pub(crate) fn try_decode_pg_search_udf(name: &str, buf: &[u8]) -> Result<Option<
         })?;
         udf.fixup_after_deserialize();
         return Ok(Some(Arc::new(ScalarUDF::new_from_impl(udf))));
+    }
+
+    if name == TIMESTAMP_TO_DATE_UDF_NAME {
+        return Ok(Some(timestamp_to_date_udf()));
     }
 
     Ok(None)
@@ -71,6 +78,10 @@ pub(crate) fn try_encode_pg_search_udf(node: &ScalarUDF, buf: &mut Vec<u8>) -> R
             DataFusionError::Internal(format!("Failed to serialize PgExprUdf: {e}"))
         })?;
         buf.extend_from_slice(&bytes);
+        return Ok(true);
+    }
+
+    if name == TIMESTAMP_TO_DATE_UDF_NAME {
         return Ok(true);
     }
 

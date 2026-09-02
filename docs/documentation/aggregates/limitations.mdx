@@ -93,6 +93,18 @@ await dbContext
 If your query does not contain a ParadeDB operator, a way to "force" aggregate pushdown is to append the [all query](/documentation/query-builder/compound/all) to the query's
 `WHERE` clause.
 
+## Date Grouping
+
+`GROUP BY DATE(created_at)` and `GROUP BY created_at::date` support aggregate pushdown when `created_at` is a bare `timestamp without time zone` column that is [columnar indexed](/documentation/indexing/columnar). The usual aggregate pushdown requirements still apply, including a ParadeDB operator in the query.
+
+The result matches Postgres for the full timestamp range, including `infinity`, `-infinity` and `NULL`. Date grouping can be combined with other grouping columns and per-aggregate `FILTER` clauses.
+
+The following forms still fall back to native Postgres execution:
+
+- `DATE(timestamptz_column)`, because the result depends on the session `TimeZone`.
+- `DATE(text_column::timestamp)` and other non-bare timestamp expressions.
+- Other scalar grouping functions, such as `date_trunc(...)` and `lower(...)`.
+
 ## Join Support
 
 Aggregate pushdown works across joins as well as single tables. When every participating table has a ParadeDB index, ParadeDB computes the result directly from the index's columnar storage, without scanning the underlying table rows. The custom aggregate scan is enabled by default; to turn it off, run `SET paradedb.enable_aggregate_custom_scan TO off;`.
@@ -103,7 +115,7 @@ The following join shapes are supported:
 | --- | --- |
 | Number of tables | Two or more (arbitrary join trees) |
 | Aggregate functions | `COUNT`, `COUNT(DISTINCT ...)`, `SUM`, `SUM(DISTINCT ...)`, `AVG`, `AVG(DISTINCT ...)`, `MIN`, `MAX`, `STDDEV`, `STDDEV_POP`, `VARIANCE`, `VAR_POP`, `BOOL_AND`, `BOOL_OR`, `ARRAY_AGG`, `STRING_AGG` |
-| `GROUP BY` | Columns from any table in the join, including JSON sub-fields via `metadata->>'key'` |
+| `GROUP BY` | Columns from any table in the join, including JSON sub-fields via `metadata->>'key'` and the supported `DATE(timestamp)` form described above |
 | `HAVING` clause | Comparisons against aggregate results and group columns |
 | Per-aggregate `FILTER (WHERE ...)` | Yes |
 | `ORDER BY ... LIMIT K` | Pushed down as TopK when there is a single `ORDER BY` column targeting an aggregate, a group column, or `MIN(col)` / `MAX(col)` |

@@ -29,12 +29,12 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v7
 
-      - name: Set up Python Environment
+      - name: Set Up Python Environment
         uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
-      - name: Set up uv
+      - name: Set Up uv
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true

@@ -17,7 +17,7 @@
 
 use crate::api::SortDirection;
 use crate::api::version::Version;
-use crate::api::{FieldName, HashSet, OrderByFeature};
+use crate::api::{FieldName, HashSet, MvccVisibility, OrderByFeature};
 use crate::gucs;
 use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
@@ -154,8 +154,8 @@ pub trait CollectAggregations {
 
 impl CollectAggregations for AggregateCSClause {
     fn collect(&self) -> Result<Aggregations> {
-        // Validate that no contradicting solve_mvcc settings exist among custom aggregates
-        self.mvcc_enabled();
+        // Validate that no contradicting visibility settings exist among custom aggregates
+        self.visibility();
 
         // Validate that all fields referenced in custom aggregates exist in the index schema
         if self.indexrelid != pg_sys::InvalidOid {
@@ -328,10 +328,10 @@ impl AggregateCSClause {
         self.index_created_by_version
     }
 
-    /// Determines if MVCC filtering should be enabled for this aggregate scan.
-    /// Also validates that there are no contradicting solve_mvcc settings among custom aggregates.
-    pub fn mvcc_enabled(&self) -> bool {
-        AggregateType::resolve_mvcc_enabled(self.aggregates())
+    /// The query-level visibility setting for this aggregate scan.
+    /// Also validates that there are no contradicting settings among custom aggregates.
+    pub fn visibility(&self) -> MvccVisibility {
+        AggregateType::resolve_visibility(self.aggregates())
     }
 
     /// True when this clause is a single doc-count aggregate with no GROUP BY,

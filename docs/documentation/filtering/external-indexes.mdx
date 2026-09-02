@@ -173,7 +173,6 @@ The most common reasons are:
 
 - The filter appears under `OR` or `NOT`. Only `AND` is currently supported.
 - More than one external index could help. ParadeDB currently chooses the best single external index instead of combining several.
-- The filter uses SQL's `= ANY (...)` array form.
 - The candidate set from the external index is expected to be too large, or the filter is not selective enough to justify the extra work.
 
 If your query still checks the filter row by row, please [open a GitHub issue](https://github.com/paradedb/paradedb/issues/new) with the query, index definitions, and `EXPLAIN` output.

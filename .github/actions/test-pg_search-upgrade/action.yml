@@ -36,7 +36,7 @@ runs:
       shell: bash
       run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ inputs.prior_pgrx_version }} --force --debug
 
-    - name: Initialize pgrx environment for ParadeDB ${{ inputs.prior_pg_search_version }}
+    - name: Initialize pgrx Environment for ParadeDB ${{ inputs.prior_pg_search_version }}
       shell: bash
       run: cargo pgrx init "--pg${{ inputs.pg_version }}=/usr/lib/postgresql/${{ inputs.pg_version }}/bin/pg_config"
 
@@ -119,7 +119,7 @@ runs:
       shell: bash
       run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --force --debug
 
-    - name: Initialize pgrx environment for ParadeDB
+    - name: Initialize pgrx Environment for ParadeDB
       shell: bash
       run: cargo pgrx init "--pg${{ inputs.pg_version }}=/usr/lib/postgresql/${{ inputs.pg_version }}/bin/pg_config"
 

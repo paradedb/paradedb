@@ -58,6 +58,8 @@ static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true)
 /// Allows the user to toggle range co-partitioning for joins.
 static ENABLE_RANGE_PARTITIONED_JOIN: GucSetting<bool> = GucSetting::<bool>::new(false);
 
+static ENABLE_AGGREGATE_LATE_MATERIALIZATION: GucSetting<bool> = GucSetting::<bool>::new(false);
+
 /// Allows the user to toggle the use of the custom scan without use of the `@@@` operator. The
 /// default is `false`.
 static ENABLE_CUSTOM_SCAN_WITHOUT_OPERATOR: GucSetting<bool> = GucSetting::<bool>::new(false);
@@ -83,6 +85,13 @@ static MAX_TOPK_CHUNK_SIZE: GucSetting<i32> = GucSetting::<i32>::new(100_000);
 
 /// The maximum number of buckets that can be returned by a TermsAggregation
 static MAX_TERM_AGG_BUCKETS: GucSetting<i32> = GucSetting::<i32>::new(DEFAULT_BUCKET_LIMIT as i32);
+
+/// Estimated matching row count below which `visibility => 'threshold'` applies
+/// transaction visibility checking. At or above it, the aggregate reads raw index
+/// data. Small result sets are where an unvacuumed dead tuple visibly skews the
+/// answer, so those keep the checks; large ones trade a negligible error margin
+/// for the scan.
+static VISIBILITY_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(10_000);
 
 /// The maximum response size in bytes for a window aggregate.
 static MAX_WINDOW_AGGREGATE_RESPONSE_BYTES: GucSetting<i32> = GucSetting::<i32>::new(1_048_576);
@@ -358,6 +367,15 @@ pub fn init() {
     );
 
     GucRegistry::define_bool_guc(
+        c"paradedb.enable_aggregate_late_materialization",
+        c"Defer visibility checks above aggregate-on-join plans",
+        c"When enabled, an aggregate over a join may defer a source's visibility check to a VisibilityFilter below the aggregate instead of checking eagerly in the scan. Off until selective late materialization can decide when deferral pays. Default is false.",
+        &ENABLE_AGGREGATE_LATE_MATERIALIZATION,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
         c"paradedb.enable_custom_scan_without_operator",
         c"Enable ParadeDB's custom scan to run without the `@@@` operator",
         c"Enable ParadeDB's custom scan to run even when the `@@@` operator has not been used in a query, as long as the entire WHERE clause is able to be pushed down",
@@ -467,6 +485,17 @@ pub fn init() {
         &MAX_TERM_AGG_BUCKETS,
         1,
         DEFAULT_BUCKET_LIMIT as i32,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.visibility_threshold",
+        c"Estimated matching row count below which `visibility => 'threshold'` applies transaction visibility checking",
+        c"An aggregate using `visibility => 'threshold'` applies MVCC visibility checking when the query's estimated matching row count is strictly less than this, and reads raw index data otherwise. Has no effect on `visibility => 'transaction'` or `visibility => 'raw'`.",
+        &VISIBILITY_THRESHOLD,
+        0,
+        i32::MAX,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -778,6 +807,10 @@ pub fn enable_range_partitioned_join() -> bool {
     ENABLE_RANGE_PARTITIONED_JOIN.get()
 }
 
+pub fn enable_aggregate_late_materialization() -> bool {
+    ENABLE_AGGREGATE_LATE_MATERIALIZATION.get()
+}
+
 pub fn enable_custom_scan_without_operator() -> bool {
     ENABLE_CUSTOM_SCAN_WITHOUT_OPERATOR.get()
 }
@@ -898,6 +931,10 @@ pub fn limit_fetch_multiplier() -> f64 {
 
 pub fn expensive_query_cost_factor() -> f64 {
     EXPENSIVE_QUERY_COST_FACTOR.get()
+}
+
+pub fn visibility_threshold() -> u64 {
+    VISIBILITY_THRESHOLD.get().max(0) as u64
 }
 
 pub fn max_term_agg_buckets() -> i32 {

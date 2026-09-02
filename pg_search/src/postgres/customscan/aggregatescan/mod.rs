@@ -52,10 +52,10 @@ use datafusion_distributed::{DistributedExt, DistributedTaskContext};
 
 use datafusion_distributed::shm::MppMesh;
 
-use crate::postgres::customscan::mpp::glue::mpp_is_active;
+use crate::postgres::customscan::mpp::glue::query_allows_parallel_mode;
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
-use crate::postgres::customscan::mpp::launch::mpp_gated_by_min_rows;
+use crate::postgres::customscan::mpp::launch::mpp_eligible;
 use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parallelism;
 
 use crate::PARAMETERIZED_SELECTIVITY;
@@ -80,7 +80,9 @@ use crate::postgres::customscan::aggregatescan::exec::{
     AggregateResult, AggregationResultsRow, aggregation_results_iter,
 };
 use crate::postgres::customscan::aggregatescan::groupby::GroupByClause;
-use crate::postgres::customscan::aggregatescan::join_targetlist::extract_aggregate_targetlist;
+use crate::postgres::customscan::aggregatescan::join_targetlist::{
+    GroupingTransform, extract_aggregate_targetlist,
+};
 use crate::postgres::customscan::aggregatescan::privdat::PrivateData;
 use crate::postgres::customscan::aggregatescan::scan_state::{
     AggregateScanState, ExecutionState, WrappedAggregateProjection,
@@ -520,6 +522,14 @@ impl CustomScan for AggregateScan {
                             // NUMERIC field therefore keeps declining until the spec
                             // gains a DataFusion translation.
                             || (!has_paradedb_agg && builder.args().has_numeric_aggregate())
+                            // Route DATE grouping to DataFusion for exact integer day conversion
+                            // and explicit handling of PostgreSQL infinities. Tantivy histograms
+                            // use f64 arithmetic, which can round timestamps near midnight into
+                            // the wrong day.
+                            //
+                            // This only selects the backend to consider: the extractor still
+                            // rejects DATE(timestamptz) and non-bare timestamp expressions.
+                            || (!has_paradedb_agg && builder.args().has_date_group())
                     };
                 if use_datafusion {
                     if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg_recursive {
@@ -693,9 +703,8 @@ impl CustomScan for AggregateScan {
                 plan,
                 targetlist,
                 topk,
-                join_level_predicates,
-                multi_table_predicates,
                 having_filter,
+                parallel_mode_ok,
                 ..
             } => {
                 // Replace Aggrefs for DataFusion path too
@@ -706,12 +715,10 @@ impl CustomScan for AggregateScan {
                     ((*cscan).custom_exprs, (*cscan).custom_scan_tlist)
                 };
                 builder.custom_state().datafusion_state = Some(scan_state::DataFusionAggState {
+                    base_plan: Some(plan.clone()),
                     plan,
                     targetlist,
                     topk,
-                    base_join_level_predicates: Some(join_level_predicates.clone()),
-                    join_level_predicates,
-                    multi_table_predicates,
                     custom_exprs,
                     custom_scan_tlist,
                     having_filter,
@@ -722,6 +729,7 @@ impl CustomScan for AggregateScan {
                     batch_row_idx: 0,
                     group_df_indices: Vec::new(),
                     mpp: MppLifecycle::Inactive,
+                    parallel_mode_ok,
                     launch_timing: None,
                 });
                 builder.build()
@@ -776,7 +784,12 @@ impl CustomScan for AggregateScan {
                         .targetlist
                         .group_columns
                         .iter()
-                        .map(|gc| gc.field_name.clone())
+                        .map(|gc| match gc.transform {
+                            GroupingTransform::Identity => gc.field_name.clone(),
+                            GroupingTransform::TimestampToDate => {
+                                format!("date({})", gc.field_name)
+                            }
+                        })
                         .collect();
                     groups.sort();
                     groups.dedup();
@@ -784,12 +797,10 @@ impl CustomScan for AggregateScan {
                 }
 
                 // Show multi-table predicates (non-@@@ cross-table filters)
-                if !df_state.multi_table_predicates.is_empty() {
-                    let preds: Vec<String> = df_state
-                        .multi_table_predicates
-                        .iter()
-                        .map(|p| p.description.clone())
-                        .collect();
+                let mt_predicates = df_state.plan.multi_table_predicates();
+                if !mt_predicates.is_empty() {
+                    let preds: Vec<String> =
+                        mt_predicates.into_iter().map(|p| p.description).collect();
                     explainer.add_text("Multi-Table Filter", preds.join(" AND "));
                 }
 
@@ -879,7 +890,6 @@ impl CustomScan for AggregateScan {
             // physical plan is built once, on first execution; its finished stages provide the
             // exact dispatch-payload size. Plain EXPLAIN never executes and must not prepare MPP.
             if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) == 0
-                && mpp_is_active()
                 && unsafe { pg_sys::ParallelWorkerNumber } == -1
             {
                 Self::prepare_mpp(state);
@@ -1141,12 +1151,12 @@ impl AggregateScan {
     /// Planning remains lazy: the finished physical stages provide the exact dispatch payload
     /// before DSM allocation, so begin never needs a throwaway logical plan.
     fn prepare_mpp(state: &mut CustomScanStateWrapper<Self>) {
-        // The size gate decides here, before any MPP work: a gated query keeps
+        // The eligibility gate decides here, before any MPP work: an ineligible query keeps
         // `MppLifecycle::Inactive`, so exec plans serially and no manifest is pinned.
         let Some(df_state) = state.custom_state().datafusion_state.as_ref() else {
             return;
         };
-        if mpp_gated_by_min_rows(df_state.plan.sources().into_iter().map(|s| &s.scan_info)) {
+        if !mpp_eligible(df_state.parallel_mode_ok, &df_state.plan) {
             return;
         }
         Self::ensure_source_manifests(state);
@@ -1206,7 +1216,6 @@ impl AggregateScan {
                 &df_state.plan,
                 &df_state.targetlist,
                 df_state.topk.as_ref(),
-                &df_state.join_level_predicates,
                 custom_exprs,
                 custom_scan_tlist,
                 df_state.having_filter.as_ref(),
@@ -1244,7 +1253,7 @@ impl AggregateScan {
     /// and contains execution metrics. We merge in MPP worker metrics if applicable.
     ///
     /// In plain EXPLAIN, execution hasn't happened, so we must rebuild the physical plan.
-    /// When `mpp_is_active()` we first rebuild against `producer_worker_cap()` (`mesh = None`)
+    /// When `mpp_eligible()` we first rebuild against `producer_worker_cap()` (`mesh = None`)
     /// so the distributed planner can emit a `DistributedExec` for display. If task
     /// discovery says launch will not run (#5784 / `max_producer_task_count < 2`), rebuild
     /// serially so the printed shape matches execution.
@@ -1282,7 +1291,6 @@ impl AggregateScan {
                         &df_state.plan,
                         &df_state.targetlist,
                         df_state.topk.as_ref(),
-                        &df_state.join_level_predicates,
                         custom_exprs,
                         custom_scan_tlist,
                         df_state.having_filter.as_ref(),
@@ -1295,9 +1303,7 @@ impl AggregateScan {
                     build_physical_plan(ctx, logical).await
                 })
             };
-            let gated =
-                mpp_gated_by_min_rows(df_state.plan.sources().into_iter().map(|s| &s.scan_info));
-            let plan_result = if mpp_is_active() && !gated {
+            let plan_result = if mpp_eligible(df_state.parallel_mode_ok, &df_state.plan) {
                 // EXPLAIN-time: skip the shm_mq transport install (no execution, no `open()` call).
                 // Plan against the cap first; fall back to serial when launch would not run (#5784).
                 match build_with(&Self::build_mpp_session_context(None)) {
@@ -1575,7 +1581,7 @@ impl AggregateScan {
         };
 
         // Extract the join tree from the parse tree
-        let (mut plan, join_level_predicates, multi_table_predicates, multi_table_clauses) =
+        let (mut plan, multi_table_clauses) =
             unsafe { extract_join_tree_from_parse(root, &sources, path_info) }
                 .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
@@ -1665,16 +1671,17 @@ impl AggregateScan {
             .set_pathtarget(shape.reltarget())
             .set_rows(shape.rows());
 
+        let parallel_mode_ok = query_allows_parallel_mode(builder.args().root());
+
         // Build the custom path with DataFusion private data
         let multi_table_clause_count = multi_table_clauses.len();
         let mut custom_path = builder.build(PrivateData::DataFusion {
             plan,
             targetlist,
             topk,
-            join_level_predicates,
-            multi_table_predicates,
             multi_table_clause_count,
             having_filter,
+            parallel_mode_ok,
         });
 
         // Append raw PG Expr pointers to custom_private after the serialized

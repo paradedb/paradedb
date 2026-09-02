@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use tests::fixtures::querygen::crossrelgen::arb_cross_rel_expr;
 use tests::fixtures::querygen::groupbygen::arb_group_by;
 use tests::fixtures::querygen::joingen::{JoinType, arb_joins, arb_semi_joins};
 use tests::fixtures::querygen::numericgen::arb_numeric_expr;
@@ -47,6 +46,7 @@ fn qgen_proptest_config() -> proptest::test_runner::Config {
         // No shrinking: Antithesis controls the entropy stream and fault schedule, so a replay
         // sees a different history and the minimized input is meaningless.
         config.max_shrink_iters = 0;
+        config.source_file = Some("tests/tests/qgen.rs");
     }
     config
 }
@@ -259,7 +259,7 @@ async fn generated_joins_small(database: Db) {
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
 
     proptest!(qgen_proptest_config(), |(
-        (join, where_expr) in arb_joins_and_wheres(
+        (join, where_expr, cross_rel) in arb_joins_and_wheres(
             any::<JoinType>(),
             tables,
             &columns_named(vec!["id", "name", "color", "age"]),
@@ -270,72 +270,22 @@ async fn generated_joins_small(database: Db) {
 
         let from = format!("SELECT COUNT(*) {join_clause} ");
 
+        let (where_pg, where_bm25) = match &cross_rel {
+            Some(cr) => (
+                format!("({}) AND ({})", where_expr.to_sql(" = "), cr.to_sql()),
+                format!("({}) AND ({})", where_expr.to_sql("@@@"), cr.to_sql()),
+            ),
+            None => (where_expr.to_sql(" = "), where_expr.to_sql("@@@")),
+        };
+
         qgen_oracle!("qgen: generated_joins_small - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
-            &format!("{from} WHERE {}", where_expr.to_sql(" = ")),
-            &format!("{from} WHERE {}", where_expr.to_sql("@@@")),
+            &format!("{from} WHERE {where_pg}"),
+            &format!("{from} WHERE {where_bm25}"),
             &gucs,
             &pool,
             &setup_sql,
             |query, conn| Ok(query.fetch_one_result::<(i64,)>(conn)?.0),
         ))?;
-    });
-}
-
-///
-/// Tests only the smallest JoinType against larger tables, with a target list, and a limit.
-///
-/// TODO: This test is currently ignored because the generator can still produce nested loop join
-/// plans that blow up combinatorially and make the run take exponential time:
-/// https://github.com/paradedb/paradedb/issues/2733
-///
-#[ignore]
-#[rstest]
-#[tokio::test]
-async fn generated_joins_large_limit(database: Db) {
-    let pool = MutexObjectPool::<PgConnection>::new(
-        move || block_on(async { database.connection().await }),
-        |_| {},
-    );
-
-    let tables_and_sizes = [("users", 10000), ("products", 10000), ("orders", 10000)];
-    let tables = tables_and_sizes
-        .iter()
-        .map(|(table, _)| table)
-        .collect::<Vec<_>>();
-    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
-
-    proptest!(qgen_proptest_config(), |(
-        (join, where_expr) in arb_joins_and_wheres(
-            Just(JoinType::Inner),
-            tables,
-            &columns_named(vec!["id", "name", "color", "age"]),
-        ),
-        target_list in proptest::sample::subsequence(vec!["id", "name", "color", "age"], 1..=4),
-        gucs in any::<PgGucs>(),
-    )| {
-        let join_clause = join.to_sql();
-        let used_tables = join.used_tables();
-
-        let target_list =
-            target_list
-                .into_iter()
-                .map(|column| format!("{}.{column}", used_tables[0]))
-                .collect::<Vec<_>>()
-                .join(", ");
-
-        let from = format!("SELECT {target_list} {join_clause} ");
-
-        // This test is #[ignore]d, so it never runs. Emit no Antithesis property for it: a cataloged
-        // `Always` that is never reached would otherwise show as a permanently-failing property.
-        compare_outcome_retrying(
-            &format!("{from} WHERE {} LIMIT 10;", where_expr.to_sql(" = ")),
-            &format!("{from} WHERE {} LIMIT 10;", where_expr.to_sql("@@@")),
-            &gucs,
-            &pool,
-            &setup_sql,
-            |query, conn| Ok(query.fetch_dynamic_result(conn)?.len()),
-        )
-        .into_test_result()?;
     });
 }
 
@@ -628,9 +578,8 @@ async fn generated_subquery(database: Db) {
 /// 3. A LIMIT clause
 ///
 /// This test randomly combines:
-/// - 2 or 3 table joins
-/// - BM25 predicates on outer table only, or on both outer and inner tables
-/// - Optional HeapConditions (cross-relation predicates like a.price > b.price)
+/// - 2 or 3 table joins and arbitrary boolean WHERE trees (AND, OR, NOT) across tables
+/// - Optional cross-relation predicates (like a.age > b.age)
 /// - Optional DISTINCT keyword (deduplication of result rows)
 /// - Score-based ordering vs regular column ordering (currently skipped, see prop_assume!)
 ///
@@ -649,27 +598,15 @@ async fn generated_joinscan(database: Db) {
     let all_tables: Vec<&str> = tables_and_sizes.iter().map(|(table, _)| *table).collect();
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
 
-    // Text columns for BM25 WHERE clauses
-    let text_columns = columns_named(vec!["name"]);
-    // Numeric columns for join keys and cross-relation predicates
-    let join_key_columns = vec!["id", "age", "uuid"];
-    // Columns for cross relation expressions.
-    // Note: NUMERIC columns (price, big_numeric) are excluded because cross-type
-    // comparisons (e.g., NUMERIC < INT) require type coercion that the JoinScan
-    // cannot evaluate correctly in DataFusion (different underlying scales/representations).
-    // NumericBytes fast field projection is tested separately in fast_fields.rs.
-    let numeric_columns = ["age"];
+    // Columns for join keys and WHERE clauses
+    let where_and_join_columns = columns_named(vec!["id", "name", "color", "age", "uuid"]);
 
     proptest!(qgen_proptest_config(), |(
-        num_tables in 2..=3usize,
-        // Outer table BM25 predicate (always present)
-        outer_bm25 in arb_wheres(vec![all_tables[0]], &text_columns),
-        // Inner table BM25 predicate (optional)
-        include_inner_bm25 in proptest::bool::ANY,
-        inner_bm25 in arb_wheres(vec![all_tables[1]], &text_columns),
-        // HeapCondition (cross-relation predicate)
-        include_heap_condition in proptest::bool::ANY,
-        heap_condition in arb_cross_rel_expr(all_tables[0], all_tables[1], numeric_columns.to_vec()),
+        (join_expr, where_expr, heap_condition) in arb_joins_and_wheres(
+            Just(JoinType::Inner),
+            all_tables.clone(),
+            &where_and_join_columns,
+        ),
         // Optional DISTINCT keyword
         include_distinct in proptest::bool::ANY,
         // Indexed expression ORDER BY (e.g. ORDER BY upper(category))
@@ -682,40 +619,11 @@ async fn generated_joinscan(database: Db) {
         // which JoinScan doesn't support yet. Skip this combination.
         prop_assume!(!(include_distinct && include_expr_ordering));
 
-        // Build join with selected number of tables
-        let tables_for_join: Vec<&str> = all_tables[..num_tables].to_vec();
-
-        // Generate join expression
-        let join = arb_joins(
-            Just(JoinType::Inner),
-            tables_for_join.clone(),
-            join_key_columns.clone(),
-        );
-
-        // We need to sample from the strategy - use a fixed seed approach
-        let join_expr = {
-            use proptest::strategy::ValueTree;
-            use proptest::test_runner::TestRunner;
-            let mut runner = TestRunner::new(qgen_proptest_config());
-            join.new_tree(&mut runner).unwrap().current()
-        };
-
         let join_clause = join_expr.to_sql();
         let used_tables = join_expr.used_tables();
 
         // Select columns from the first table
-        // When HeapCondition is used, include the referenced columns in target list
-        // (JoinScan requires columns to be projected to evaluate HeapConditions)
-        let mut target_cols = if include_heap_condition {
-            format!(
-                "{}.id, {}.name, {}.{}, {}.{}",
-                used_tables[0], used_tables[0],
-                used_tables[0], heap_condition.left_col,
-                used_tables[1], heap_condition.right_col
-            )
-        } else {
-            format!("{}.id, {}.name", used_tables[0], used_tables[0])
-        };
+        let mut target_cols = format!("{}.id, {}.name", used_tables[0], used_tables[0]);
 
         if include_distinct {
             for table in &used_tables[1..] {
@@ -730,18 +638,12 @@ async fn generated_joinscan(database: Db) {
         let from = format!("SELECT {distinct_kw}{target_cols} {join_clause}");
 
         // Build WHERE clause parts for BM25 query
-        let mut bm25_where_parts = vec![outer_bm25.to_sql("@@@")];
-        let mut pg_where_parts = vec![outer_bm25.to_sql(" = ")];
-
-        // Optionally add inner table BM25 predicate
-        if include_inner_bm25 && num_tables >= 2 {
-            bm25_where_parts.push(inner_bm25.to_sql("@@@"));
-            pg_where_parts.push(inner_bm25.to_sql(" = "));
-        }
+        let mut bm25_where_parts = vec![where_expr.to_sql("@@@")];
+        let mut pg_where_parts = vec![where_expr.to_sql(" = ")];
 
         // Optionally add HeapCondition (same for both queries since it's a regular comparison)
-        if include_heap_condition {
-            let heap_sql = heap_condition.to_sql();
+        if let Some(heap_cond) = &heap_condition {
+            let heap_sql = heap_cond.to_sql();
             bm25_where_parts.push(heap_sql.clone());
             pg_where_parts.push(heap_sql);
         }

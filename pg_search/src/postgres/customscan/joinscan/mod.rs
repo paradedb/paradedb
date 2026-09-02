@@ -164,8 +164,8 @@ use crate::postgres::customscan::pullup::resolve_fast_field;
 use crate::postgres::utils::expr_contains_any_operator;
 
 use self::scan_state::{
-    JoinScanState, SessionContextProfile, build_joinscan_logical_plan, build_physical_plan,
-    build_task_context, create_datafusion_session_context,
+    JoinScanState, build_joinscan_logical_plan, build_physical_plan, build_task_context,
+    create_datafusion_session_context,
 };
 use crate::api::HashSet;
 use crate::api::OrderByFeature;
@@ -181,10 +181,10 @@ use crate::postgres::customscan::joinscan::planning::{
     distinct_collations_are_deterministic, distinct_columns_are_fast_fields,
 };
 use crate::postgres::customscan::limit_offset::LimitOffset;
-use crate::postgres::customscan::mpp::glue::mpp_is_active;
+use crate::postgres::customscan::mpp::glue::query_allows_parallel_mode;
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
-use crate::postgres::customscan::mpp::launch::mpp_gated_by_min_rows;
+use crate::postgres::customscan::mpp::launch::mpp_eligible;
 use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parallelism;
 use arrow_array::Array;
 use datafusion_distributed::shm::MppMesh;
@@ -512,10 +512,12 @@ pub unsafe fn try_create_subplan_join_paths(
     }
 
     // Try to extract SubPlan-based joins from baserestrictinfo.
-    let (plan, join_keys) = match collect_join_sources_base_rel(root, rel, rti) {
+    let collected = match collect_join_sources_base_rel(root, rel, rti) {
         Some(res) => res,
         None => return Vec::new(),
     };
+    let plan = collected.plan;
+    let join_keys = collected.join_keys;
 
     // Only proceed if the plan actually contains a join (from SubPlan extraction).
     if !plan.has_semi_or_anti() {
@@ -726,7 +728,7 @@ impl JoinScan {
         let order_by_len = join_clause.order_by.len();
         let relevant_pathkeys =
             planning::count_relevant_pathkeys(root, &join_clause.plan.sources());
-        let private_data = PrivateData::new(join_clause);
+        let private_data = PrivateData::new(join_clause, query_allows_parallel_mode(&*root));
         let mut custom_path = pg_sys::CustomPath {
             path: pg_sys::Path {
                 type_: pg_sys::NodeTag::T_CustomPath,
@@ -852,7 +854,7 @@ impl JoinScan {
         mesh: Option<Arc<MppMesh>>,
     ) -> datafusion::prelude::SessionContext {
         crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context(
-            create_datafusion_session_context(SessionContextProfile::Join),
+            create_datafusion_session_context(),
             mesh,
         )
     }
@@ -933,7 +935,10 @@ impl JoinScan {
             None => std::ptr::null_mut(),
         };
 
-        let mut private_data = PrivateData::new(state.custom_state().join_clause.clone());
+        let mut private_data = PrivateData::new(
+            state.custom_state().join_clause.clone(),
+            state.custom_state().parallel_mode_ok,
+        );
         private_data.output_columns = state.custom_state().output_columns.clone();
 
         bake_logical_plan(&mut private_data, custom_exprs, force_serial);
@@ -1072,22 +1077,31 @@ impl CustomScan for JoinScan {
             // join condition evaluation manually during execution using the original Var
             // references.
 
-            // Extract the column mappings from the UPDATED targetlist (before we add restrictlist
-            // Vars). The updated targetlist has the SELECT's output columns plus any missing
-            // search operators, which is what ps_ResultTupleSlot is based on. We store this
-            // mapping in PrivateData so build_result_tuple can use it during execution.
-            let mut private_data = PrivateData::from(node.custom_private);
-
-            private_data.output_columns =
-                compute_output_columns(&private_data.join_clause, tlist_ptr, root);
-
-            let updated_entries = PgList::<pg_sys::TargetEntry>::from_pg(tlist_ptr);
-            build_output_projection(&mut private_data, &updated_entries, root);
-
             // Add heap condition clauses to custom_exprs so they get transformed by
             // set_customscan_references. The Vars in these expressions will be converted to
             // INDEX_VAR references into custom_scan_tlist.
             node.custom_exprs = splice_path_private_into_list(node.custom_exprs, best_path);
+
+            // Ensure all Vars referenced in custom_exprs (heap condition clauses)
+            // are present in custom_scan_tlist so setrefs can create INDEX_VAR references.
+            let path_private_full = PgList::<pg_sys::Node>::from_pg((*best_path).custom_private);
+            let mut scan_tlist = PgList::<pg_sys::TargetEntry>::from_pg(node.custom_scan_tlist);
+            for i in 1..path_private_full.len() {
+                if let Some(node_ptr) = path_private_full.get_ptr(i) {
+                    crate::postgres::utils::add_vars_to_tlist(node_ptr, &mut scan_tlist);
+                }
+            }
+            node.custom_scan_tlist = scan_tlist.into_pg();
+
+            // Extract the column mappings from custom_scan_tlist (including any added
+            // custom_exprs Vars) so INDEX_VAR references can be resolved.
+            let mut private_data = PrivateData::from(node.custom_private);
+
+            private_data.output_columns =
+                compute_output_columns(&private_data.join_clause, node.custom_scan_tlist, root);
+
+            let updated_entries = PgList::<pg_sys::TargetEntry>::from_pg(tlist_ptr);
+            build_output_projection(&mut private_data, &updated_entries, root);
             // Snapshot custom_exprs before setrefs rewrites it, for MPP re-baking.
             // Needed for any of: maybe_solve_and_rebake (resolves Param/PostgresExpression
             // nodes) or rebake_for_mpp_fallback (serial replan on a short-launch decline,
@@ -1151,6 +1165,7 @@ impl CustomScan for JoinScan {
         builder.custom_state().logical_plan = builder.custom_private().logical_plan.clone();
         builder.custom_state().custom_exprs_string =
             builder.custom_private().custom_exprs_string.clone();
+        builder.custom_state().parallel_mode_ok = builder.custom_private().parallel_mode_ok;
         builder.build()
     }
 
@@ -1338,28 +1353,18 @@ impl CustomScan for JoinScan {
                     .block_on(build_physical_plan(ctx, logical_plan))
                     .expect("Failed to create execution plan")
             };
-            let gated = mpp_gated_by_min_rows(
-                state
-                    .custom_state()
-                    .join_clause
-                    .plan
-                    .sources()
-                    .into_iter()
-                    .map(|source| &source.scan_info),
-            );
-            let physical_plan = if mpp_is_active() && !gated {
+            let physical_plan = if mpp_eligible(
+                state.custom_state().parallel_mode_ok,
+                &state.custom_state().join_clause.plan,
+            ) {
                 let mpp_plan = build_with(&Self::build_mpp_session_context(None));
                 if mpp_plan_has_data_parallelism(&mpp_plan) {
                     mpp_plan
                 } else {
-                    build_with(&create_datafusion_session_context(
-                        SessionContextProfile::Join,
-                    ))
+                    build_with(&create_datafusion_session_context())
                 }
             } else {
-                build_with(&create_datafusion_session_context(
-                    SessionContextProfile::Join,
-                ))
+                build_with(&create_datafusion_session_context())
             };
             explain_physical_plan(&physical_plan, explainer);
         }
@@ -1385,18 +1390,11 @@ impl CustomScan for JoinScan {
             // DSM allocation. Only the leader runs this branch (`ParallelWorkerNumber == -1`).
             // The size gate decides here, before any MPP work: a gated query takes the plain
             // serial path and never builds the distributed plan or captures manifests.
-            if mpp_is_active()
-                && unsafe { pg_sys::ParallelWorkerNumber } == -1
+            if mpp_eligible(
+                state.custom_state().parallel_mode_ok,
+                &state.custom_state().join_clause.plan,
+            ) && unsafe { pg_sys::ParallelWorkerNumber } == -1
                 && state.custom_state().logical_plan.is_some()
-                && !mpp_gated_by_min_rows(
-                    state
-                        .custom_state()
-                        .join_clause
-                        .plan
-                        .sources()
-                        .into_iter()
-                        .map(|source| &source.scan_info),
-                )
             {
                 state.custom_state_mut().mpp = MppLifecycle::Pending;
             }
@@ -1530,7 +1528,7 @@ impl CustomScan for JoinScan {
                 let plan_ctx = if mpp_pending {
                     Self::build_mpp_session_context(None)
                 } else {
-                    create_datafusion_session_context(SessionContextProfile::Join)
+                    create_datafusion_session_context()
                 };
                 let t_plan = std::time::Instant::now();
                 let plan = build_plan(&plan_ctx);
@@ -1559,8 +1557,7 @@ impl CustomScan for JoinScan {
                             // Short-launch decline: rebuild the logical plan with serial provider
                             // metadata. Merely changing SessionContext would replan the existing
                             // MPP-shaped logical providers without rewriting their source fields.
-                            let serial_ctx =
-                                create_datafusion_session_context(SessionContextProfile::Join);
+                            let serial_ctx = create_datafusion_session_context();
                             let fallback_bytes = Self::rebake_for_mpp_fallback(state);
                             let logical_plan = deserialize_logical_plan_with_runtime(
                                 &fallback_bytes,
@@ -1951,12 +1948,15 @@ unsafe fn build_output_projection(
 ///
 /// `force_serial`: when `true`, every source is baked with `mpp_source_idx = None`
 /// regardless of the global `mpp_is_active()` budget check. A short-launch decline must rebuild
-/// this logical metadata because choosing a serial physical planner does not rewrite it.
+/// this logical metadata because choosing a serial physical planner does not rewrite it. A
+/// parallel-unsafe statement (`private_data.parallel_mode_ok == false`, #6157) is baked serially
+/// regardless of this flag.
 fn bake_logical_plan(
     private_data: &mut PrivateData,
     custom_exprs: *mut pg_sys::List,
     force_serial: bool,
 ) {
+    let force_serial = force_serial || !private_data.parallel_mode_ok;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("Failed to create tokio runtime");
@@ -2062,11 +2062,18 @@ impl JoinScan {
         }
 
         // Silent gates: collect outer/inner sources or bail without a warning.
-        let (outer_node, mut join_keys) =
-            collect_join_sources(root, outerrel).ok_or(JoinPathDecline::Quiet)?;
-        let (inner_node, inner_keys) =
-            collect_join_sources(root, innerrel).ok_or(JoinPathDecline::Quiet)?;
-        join_keys.extend(inner_keys);
+        let outer_collected = collect_join_sources(root, outerrel).ok_or(JoinPathDecline::Quiet)?;
+        let inner_collected = collect_join_sources(root, innerrel).ok_or(JoinPathDecline::Quiet)?;
+
+        let left_sources_count = outer_collected.plan.sources().len();
+        let inner_node = inner_collected
+            .plan
+            .offset_plan_positions(left_sources_count);
+
+        let mut join_keys = outer_collected.join_keys;
+        join_keys.extend(inner_collected.join_keys);
+
+        let outer_node = outer_collected.plan;
 
         let aliases: Vec<String> = {
             let mut all_sources = outer_node.sources();
@@ -2087,12 +2094,14 @@ impl JoinScan {
         };
 
         // The minimum requirement for considering the join scan is that a
-        // search predicate is used — either in a source or in a join-level
+        // search predicate is used — either in a source, a sub-join plan, or in a join-level
         // condition. Below this gate, every Err carries a planner warning.
         {
             let mut all_sources = outer_node.sources();
             all_sources.extend(inner_node.sources());
             if !all_sources.iter().any(|s| s.scan_info.has_search_predicate)
+                && !outer_node.has_search_predicate()
+                && !inner_node.has_search_predicate()
                 && !join_conditions.has_search_predicate
             {
                 return Err(JoinPathDecline::Quiet);
@@ -2265,6 +2274,9 @@ impl JoinScan {
         let (mut join_clause, limit_offset) =
             Self::validate_and_build_clause(root, &plan, &join_keys, has_distinct).map_err(warn)?;
 
+        let mut multi_table_clauses = outer_collected.multi_table_clauses;
+        multi_table_clauses.extend(inner_collected.multi_table_clauses);
+
         // --- Join-level predicate extraction (join-hook specific) ---
         // This builds an expression tree that can reference:
         // - Predicate nodes: Tantivy search queries
@@ -2274,7 +2286,7 @@ impl JoinScan {
         // `JoinNode.filter` (above) are filtered out of `remaining_other_conditions`
         // so they are not re-processed here as MultiTablePredicates.
         let current_sources = join_clause.plan.sources();
-        let (join_clause_updated, multi_table_clauses) = extract_join_level_conditions(
+        let (join_clause_updated, new_multi_table_clauses) = extract_join_level_conditions(
             root,
             extra,
             &current_sources,
@@ -2287,16 +2299,12 @@ impl JoinScan {
             ))
         })?;
         join_clause = join_clause_updated;
+        multi_table_clauses.extend(new_multi_table_clauses);
 
-        // Post-extraction check: need at least one side predicate OR join-level predicates.
+        // Post-extraction check: need at least one search predicate in the plan.
         // This is a silent gate — the join is no longer interesting once predicates have
         // been pulled out.
-        let current_sources_after_cond = join_clause.plan.sources();
-        let has_side_predicate = current_sources_after_cond
-            .iter()
-            .any(|s| s.has_search_predicate());
-        let has_join_level_predicates = !join_clause.join_level_predicates.is_empty();
-        if !has_side_predicate && !has_join_level_predicates {
+        if !join_clause.plan.has_search_predicate() {
             return Err(JoinPathDecline::Quiet);
         }
 

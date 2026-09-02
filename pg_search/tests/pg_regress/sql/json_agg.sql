@@ -89,7 +89,7 @@ SELECT * FROM paradedb.aggregate(
     index=>'json_test_idx',
     query=>paradedb.exists('metadata_json.value'),
     agg=>'{"buckets": { "terms": { "field": "metadata_json.value" }}}',
-    solve_mvcc=>true
+    visibility=>'transaction'
 ) ORDER BY 1;
 
 -- Test 5: JSON projection without filter (should still work)

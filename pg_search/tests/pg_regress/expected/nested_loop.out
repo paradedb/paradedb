@@ -1,10 +1,8 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET max_parallel_workers_per_gather = 0;
--- This test demonstrates an extremely expensive nested-loop join plan
--- as described in https://github.com/paradedb/paradedb/issues/2733.
--- TODO: The test cannot be scaled up to 10k rows per-table as shown
--- in the original repro because the nested-loop plan runs in exponential time.
--- We keep a minimal amount of data to reproduce the plan structure.
+-- This test verifies that complex multi-table disjunctions in join queries
+-- are planned using ParadeDB Join Scan rather than falling back to
+-- nested-loop join plans.
 DROP TABLE IF EXISTS users CASCADE;
 CREATE TABLE users (id SERIAL8 PRIMARY KEY, name TEXT, color VARCHAR, age VARCHAR);
 CREATE INDEX idxusers ON users USING paradedb (id, name, color, age) WITH (key_field = 'id', text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }');
@@ -43,11 +41,11 @@ LIMIT 10;
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(color@4, color@1)], filter=__orders_2_tag_0@1 OR __users_0_tag_0@0
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(name@1, name@1)], projection=[ctid_0@0, name@1, __users_0_tag_0@2, ctid_1@3, color@5]
            :           CooperativeExec
-           :             PgSearchScan: table=users, segments=1, tag_0={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"3","lenient":null,"conjunction_mode":null}}}}]}}
+           :             PgSearchScan: table=users, segments=1, visibility=deferred, tag_0={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"3","lenient":null,"conjunction_mode":null}}}}]}}
            :           CooperativeExec
-           :             PgSearchScan: table=products, segments=1, dynamic_filters=1, query="all"
+           :             PgSearchScan: table=products, segments=1, dynamic_filters=1, visibility=deferred, query="all"
            :         CooperativeExec
-           :           PgSearchScan: table=orders, segments=1, dynamic_filters=1, tag_0={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"3","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}}]}}
+           :           PgSearchScan: table=orders, segments=1, dynamic_filters=1, visibility=deferred, tag_0={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"3","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}}]}}
 (18 rows)
 
 SELECT users.name, users.color, users.age

@@ -24,7 +24,7 @@
 //! materialization, no SegmentedTopK — aggregates run entirely on fast fields
 //! and the result is aggregate rows, not individual tuples.
 
-use super::join_targetlist::AggOrderByEntry;
+use super::join_targetlist::{AggOrderByEntry, GroupingTransform};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
@@ -34,15 +34,16 @@ use crate::postgres::customscan::aggregatescan::privdat::{CompareOp, DataFusionT
 use crate::postgres::customscan::datafusion::numeric_agg::{
     numeric_bytes_avg_udaf, numeric_bytes_sum_udaf, numeric64_avg_udaf, numeric64_sum_udaf,
 };
+use crate::postgres::customscan::datafusion::timestamp_to_date::timestamp_to_date_udf;
 use crate::postgres::customscan::datafusion::translator::{
     ColumnMapper, PredicateTranslator, apply_join_level_filter, build_join_df, make_col,
     make_source_col,
 };
-use crate::postgres::customscan::joinscan::build::{
-    JoinLevelSearchPredicate, JoinSource, RelNode, RelationAlias,
-};
+use crate::postgres::customscan::joinscan::CtidColumn;
+use crate::postgres::customscan::joinscan::build::{JoinSource, RelNode, RelationAlias};
+use crate::postgres::customscan::joinscan::privdat::SCORE_COL_NAME;
 use crate::postgres::customscan::joinscan::scan_state::{
-    SessionContextProfile, create_datafusion_session_context, register_source_table,
+    create_datafusion_session_context, register_source_table,
 };
 use crate::scan::PgSearchTableProvider;
 use crate::schema::SearchFieldType;
@@ -61,14 +62,8 @@ use futures::future::{FutureExt, LocalBoxFuture};
 use pgrx::pg_sys;
 
 /// Creates a DataFusion [`SessionContext`] for aggregate-on-join workloads.
-///
-/// Thin wrapper around the shared
-/// [`create_datafusion_session_context`] with the
-/// [`SessionContextProfile::Aggregate`] profile. Kept as a named function so
-/// the call sites in `aggregatescan/mod.rs` remain stable; if more aggregate-
-/// specific session setup ever appears, this is the place to put it.
 pub fn create_aggregate_session_context() -> SessionContext {
-    create_datafusion_session_context(SessionContextProfile::Aggregate)
+    create_datafusion_session_context()
 }
 
 /// Build the complete DataFusion logical plan for an aggregate-on-join query:
@@ -78,7 +73,6 @@ pub async fn build_join_aggregate_plan(
     plan: &RelNode,
     targetlist: &JoinAggregateTargetList,
     topk: Option<&DataFusionTopK>,
-    join_level_predicates: &[JoinLevelSearchPredicate],
     custom_exprs: *mut pg_sys::List,
     custom_scan_tlist: *mut pg_sys::List,
     having_filter: Option<&FilterExpr>,
@@ -91,7 +85,7 @@ pub async fn build_join_aggregate_plan(
     let df = build_relnode_df(
         ctx,
         plan,
-        join_level_predicates,
+        plan,
         custom_exprs,
         custom_scan_tlist,
         expr_context,
@@ -109,22 +103,29 @@ pub async fn build_join_aggregate_plan(
     let mut group_df_indices = Vec::with_capacity(targetlist.group_columns.len());
 
     for gc in &targetlist.group_columns {
-        // Dedup key by (plan_position, field_name): plan_position is the
+        // Dedup key by (plan_position, field_name, transform): plan_position is the
         // unique source identity; field_name distinguishes columns within
-        // a source. Keying by rti would collapse rti-aliased sources from
+        // a source, transform distinguishes different transformations of the same column.
+        // Keying by rti would collapse rti-aliased sources from
         // sub-PlannerInfos into one DataFusion column.
-        let entry = field_to_df_idx.entry((gc.plan_position, gc.field_name.clone()));
+        let entry = field_to_df_idx.entry((gc.plan_position, gc.field_name.clone(), gc.transform));
         let df_idx = match entry {
             std::collections::hash_map::Entry::Vacant(v) => {
                 let df_idx = group_exprs.len();
                 v.insert(df_idx);
-                group_exprs.push(make_plan_position_col(
-                    plan,
-                    gc.plan_position,
-                    &gc.field_name,
-                ));
+                let column = make_plan_position_col(plan, gc.plan_position, &gc.field_name);
+
+                let group_expr = match gc.transform {
+                    GroupingTransform::Identity => column,
+                    GroupingTransform::TimestampToDate => {
+                        timestamp_to_date_udf().call(vec![column])
+                    }
+                };
+
+                group_exprs.push(group_expr);
                 df_idx
             }
+
             std::collections::hash_map::Entry::Occupied(o) => *o.get(),
         };
         group_df_indices.push(df_idx);
@@ -276,7 +277,6 @@ pub async fn build_join_aggregate_plan(
 /// Recursively lower a [`RelNode`] tree into a DataFusion [`DataFrame`].
 ///
 /// Unlike JoinScan's `build_relnode_df`, this version:
-/// - Does NOT include CTID columns (no heap fetch needed for aggregates)
 /// - Does NOT handle LIMIT, ORDER BY, DISTINCT, or output projection
 ///   (those are handled by the aggregate layer above)
 /// - Is single-threaded (no partitioning logic)
@@ -284,7 +284,7 @@ pub async fn build_join_aggregate_plan(
 fn build_relnode_df<'a>(
     ctx: &'a SessionContext,
     node: &'a RelNode,
-    join_level_predicates: &'a [JoinLevelSearchPredicate],
+    top_level_plan: &'a RelNode,
     custom_exprs: *mut pg_sys::List,
     custom_scan_tlist: *mut pg_sys::List,
     expr_context: Option<*mut pg_sys::ExprContext>,
@@ -298,6 +298,7 @@ fn build_relnode_df<'a>(
                 let df = build_source_df(
                     ctx,
                     source,
+                    top_level_plan,
                     plan_position,
                     expr_context,
                     planstate,
@@ -312,7 +313,7 @@ fn build_relnode_df<'a>(
                 let left_df = build_relnode_df(
                     ctx,
                     &join.left,
-                    join_level_predicates,
+                    top_level_plan,
                     custom_exprs,
                     custom_scan_tlist,
                     expr_context,
@@ -323,7 +324,7 @@ fn build_relnode_df<'a>(
                 let right_df = build_relnode_df(
                     ctx,
                     &join.right,
-                    join_level_predicates,
+                    top_level_plan,
                     custom_exprs,
                     custom_scan_tlist,
                     expr_context,
@@ -338,7 +339,7 @@ fn build_relnode_df<'a>(
                 let df = build_relnode_df(
                     ctx,
                     &filter.input,
-                    join_level_predicates,
+                    top_level_plan,
                     custom_exprs,
                     custom_scan_tlist,
                     expr_context,
@@ -346,13 +347,6 @@ fn build_relnode_df<'a>(
                     mpp_manifests,
                 )
                 .await?;
-
-                let has_predicates = !join_level_predicates.is_empty() || !custom_exprs.is_null();
-
-                if !has_predicates {
-                    // No predicates to apply — pass through
-                    return Ok(df);
-                }
 
                 let sources = filter.input.output_sources();
 
@@ -525,20 +519,23 @@ impl FilterExpr {
 }
 
 /// Build a DataFusion [`DataFrame`] for a single scan source.
-///
-/// Unlike JoinScan's `build_source_df`, this version:
-/// - Does NOT include CTID or Score columns
-/// - Is always single-threaded (no partitioning)
-/// - Does NOT set up late materialization
 async fn build_source_df(
     ctx: &SessionContext,
     source: &JoinSource,
+    plan: &RelNode,
     plan_position: usize,
     expr_context: Option<*mut pg_sys::ExprContext>,
     planstate: Option<*mut pg_sys::PlanState>,
     mpp_manifests: Option<&[SearchIndexManifest]>,
 ) -> Result<DataFrame> {
     let scan_info = source.scan_info.clone();
+    let alias = RelationAlias::new(scan_info.alias.as_deref()).execution(plan_position);
+    let fields: Vec<WhichFastField> = source
+        .scan_info
+        .fields
+        .iter()
+        .map(|f| f.field.clone())
+        .collect();
 
     // Each source that solves runtime PostgreSQL expressions needs its own
     // per-tuple memory context. SearchQueryInput::solve_postgres_expressions()
@@ -570,36 +567,11 @@ async fn build_source_df(
         expr_context
     };
 
-    let alias = RelationAlias::new(scan_info.alias.as_deref()).execution(plan_position);
-
-    // Use all fast fields from the source (the provider exposes them to DataFusion).
-    // Include Named fields plus Ctid as a sentinel — DataFusion needs at least one
-    // column to produce RecordBatches with row counts (important for COUNT(*)).
-    let mut fields: Vec<WhichFastField> = source
-        .scan_info
-        .fields
-        .iter()
-        .filter_map(|f| match &f.field {
-            WhichFastField::Named(..) | WhichFastField::Deferred(..) => Some(f.field.clone()),
-            WhichFastField::Ctid
-            | WhichFastField::Score
-            | WhichFastField::Junk(_)
-            | WhichFastField::TableOid
-            | WhichFastField::DeferredCtid(_)
-            | WhichFastField::MatchTag(_) => None,
-        })
-        .collect();
-
-    // Always include Ctid so the provider schema is never empty
-    if fields.is_empty() || !fields.iter().any(|f| matches!(f, WhichFastField::Ctid)) {
-        fields.push(WhichFastField::Ctid);
-    }
-
     // MPP-aware provider setup. Every source gets its segments sliced across PG
     // parallel workers via `parallel_state.checkout_segment_for_source(plan_position)`
     // when this is an MPP plan.
     let source_idx = mpp_manifests.map(|_| plan_position);
-    let mut provider = PgSearchTableProvider::new(scan_info, fields, source_idx);
+    let mut provider = PgSearchTableProvider::new(scan_info, fields.clone(), source_idx);
     // The leader claims segments out of the DSM pool the same manifests populate, so its own
     // reader is built from the source's manifest. This plan never crosses the codec that
     // injects the manifest for JoinScan, so do it here.
@@ -625,17 +597,54 @@ async fn build_source_df(
     // agg-on-join path match JoinScan and Base Scan.
     provider.set_expr_context(source_expr_context);
     provider.set_planstate(planstate);
+
+    // Deferring an aggregate source's visibility trades an in-scan check for a
+    // post-join one. On the current cost model that only pays for specific
+    // shapes, so it stays off until selective late materialization can pick
+    // them. With it off the source keeps eager, in-scan visibility.
+    if crate::gucs::enable_aggregate_late_materialization() {
+        let mut required_early: crate::api::HashSet<String> = Default::default();
+        for jk in plan.join_keys() {
+            if source.contains_rti(jk.outer_rti)
+                && let Some(col) = source.column_name(jk.outer_attno)
+            {
+                required_early.insert(col);
+            }
+            if source.contains_rti(jk.inner_rti)
+                && let Some(col) = source.column_name(jk.inner_attno)
+            {
+                required_early.insert(col);
+            }
+        }
+        for (rti, attno) in plan.filter_input_vars() {
+            if source.contains_rti(rti)
+                && let Some(col) = source.column_name(attno)
+            {
+                required_early.insert(col);
+            }
+        }
+
+        provider.configure_deferred_outputs(
+            &required_early,
+            crate::scan::VisibilityMode::Deferred { plan_position },
+        );
+    }
+
     let df = register_source_table(ctx, alias.as_str(), provider).await?;
 
-    // Select all fields from the provider schema using their qualified names.
-    // This mirrors JoinScan's pattern and ensures column names are accessible
-    // via make_col(alias, field_name) in join keys and aggregate expressions.
-    let exprs: Vec<Expr> = df
-        .schema()
-        .fields()
-        .iter()
-        .map(|f| make_col(alias.as_str(), f.name()))
-        .collect();
+    // Select fields AND ensure CTID and Score are aliased consistently with JoinScan
+    let mut exprs = Vec::new();
+    for df_field in df.schema().fields().iter() {
+        let name = df_field.name();
+        let expr = match fields.iter().find(|w| w.name() == *name) {
+            Some(WhichFastField::Ctid) => {
+                make_col(alias.as_str(), name).alias(CtidColumn::new(plan_position).to_string())
+            }
+            Some(WhichFastField::Score) => make_col(alias.as_str(), name).alias(SCORE_COL_NAME),
+            _ => make_col(alias.as_str(), name),
+        };
+        exprs.push(expr);
+    }
 
     if exprs.is_empty() {
         // No fields at all — this can happen for COUNT(*) where no columns are

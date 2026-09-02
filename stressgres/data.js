@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788372316956,
+  "lastUpdate": 1788372327190,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -306062,6 +306062,126 @@ window.BENCHMARK_DATA = {
             "value": 16.270854944600988,
             "unit": "median tps",
             "extra": "avg tps: 25.815554803082044, max tps: 754.7978726776756, count: 57442"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d052f7d8476ff147ab65f17ac4304bf746870119",
+          "message": "feat: match ScalarArrayOpExpr clauses against the index (#6171)\n\n# Ticket(s) Closed\n\n- Closes #6091\n\n## What\n\n`IndexClause::from_clause` dispatched only `OpExpr` and `FuncExpr`, so\n`col = ANY(ARRAY[...])` stayed a heap filter even when a btree could\nanswer it. Adds a `from_saop` arm.\n\n## Why\n\nFollow-up to #6088. The array membership is exactly what the index\nanswers, so the bitmap rejects non-matching rows before the heap fetch\nand the filter drops to a recheck.\n\n## How\n\n`from_saop` mirrors core's `match_saopclause_to_indexcol`: `ANY` only,\nindex key as the left operand, a pseudoconstant array on the right, then\nthe collation and opfamily gates. `ALL` is refused because one index\nscan cannot answer a conjunction over every element, and there is no\ncommuted form to try since the array can only be the right operand.\n\nThose gates and the `IndexClause` construction were previously written\nout once per branch in `from_opexpr`. A preparatory commit extracts them\ninto `direct_match_ok` and `direct`, which both existing branches and\nthe new arm now share.\n\n## Tests\n\nThe `TODO ScalarArrayOpExpr` shape moves into the supported section: it\nharvests `providers_specialty` and its filter becomes a recheck, with\n`saop_count` unchanged at 400. `ALL` is added as a refusal alongside it.\n\n`cargo pgrx regress pg18` 333/333.",
+          "timestamp": "2026-09-02T10:27:19-07:00",
+          "tree_id": "eca0fd8b6f3370b1c6f5c522c3ae4b6f96f38110",
+          "url": "https://github.com/paradedb/paradedb/commit/d052f7d8476ff147ab65f17ac4304bf746870119"
+        },
+        "date": 1788372307938,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 193.29888349059237,
+            "unit": "median tps",
+            "extra": "avg tps: 191.59855062528658, max tps: 215.7627566198263, count: 57391"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 388.7830111690497,
+            "unit": "median tps",
+            "extra": "avg tps: 378.36703725595277, max tps: 517.8879865013851, count: 57391"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3981.213003322396,
+            "unit": "median tps",
+            "extra": "avg tps: 3975.2526308922797, max tps: 4633.482649776341, count: 57391"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 200.23793156137214,
+            "unit": "median tps",
+            "extra": "avg tps: 198.2926305619449, max tps: 233.0166830790858, count: 57391"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3399.125067678602,
+            "unit": "median tps",
+            "extra": "avg tps: 3392.569438395244, max tps: 3539.7298690547727, count: 57391"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3370.8436921625153,
+            "unit": "median tps",
+            "extra": "avg tps: 3349.884903490553, max tps: 3384.785181960332, count: 57391"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 168.89792663417705,
+            "unit": "median tps",
+            "extra": "avg tps: 167.12917447597854, max tps: 184.75993906151294, count: 57391"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 304.8018169872821,
+            "unit": "median tps",
+            "extra": "avg tps: 300.85725226804306, max tps: 375.0901607080151, count: 57391"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Primary - tps",
+            "value": 530.6530089981285,
+            "unit": "median tps",
+            "extra": "avg tps: 526.7851044460587, max tps: 557.4130064909049, count: 57391"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 608.7456932496793,
+            "unit": "median tps",
+            "extra": "avg tps: 604.3039229472494, max tps: 675.8066997059688, count: 57391"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1278.8191609491985,
+            "unit": "median tps",
+            "extra": "avg tps: 1278.6996891317715, max tps: 1338.7492047714316, count: 57391"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 399.97577075682904,
+            "unit": "median tps",
+            "extra": "avg tps: 392.4423150535921, max tps: 574.848633372823, count: 57391"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 558.7368569726983,
+            "unit": "median tps",
+            "extra": "avg tps: 555.2506375109817, max tps: 622.0681282877482, count: 57391"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2323.655595447428,
+            "unit": "median tps",
+            "extra": "avg tps: 2326.9123082611886, max tps: 2465.386223954304, count: 57391"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1752.995508693873,
+            "unit": "median tps",
+            "extra": "avg tps: 1748.9620427268137, max tps: 2115.218233713001, count: 57391"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 12.594103686310378,
+            "unit": "median tps",
+            "extra": "avg tps: 28.375672152282817, max tps: 762.8684463878942, count: 57391"
           }
         ]
       }

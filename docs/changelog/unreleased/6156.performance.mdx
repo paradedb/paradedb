@@ -2,4 +2,4 @@
 header: performance
 ---
 
-Aggregate-on-join plans decode string columns after the join instead of in the scan, independently of whether the visibility check is deferred. Columns that a join key or a filter needs, and columns from the null-supplying side of an outer join, are still decoded in the scan. `EXPLAIN` lists the deferred columns in `decode=[...]` on the `TantivyLookupExec` above the join.
+Aggregate-on-join plans decode string columns after the join rather than in the scan, whether or not the visibility check is deferred. Join key and filter columns, and columns from the null-supplying side of an outer join, still decode in the scan. `EXPLAIN` lists the deferred columns under `decode=[...]` on the `TantivyLookupExec` above the join.

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788372287696,
+  "lastUpdate": 1788372308200,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -319912,6 +319912,60 @@ window.BENCHMARK_DATA = {
             "value": 36.81922275277768,
             "unit": "median tps",
             "extra": "avg tps: 57.84146737156156, max tps: 543.4691538230564, count: 58768"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d052f7d8476ff147ab65f17ac4304bf746870119",
+          "message": "feat: match ScalarArrayOpExpr clauses against the index (#6171)\n\n# Ticket(s) Closed\n\n- Closes #6091\n\n## What\n\n`IndexClause::from_clause` dispatched only `OpExpr` and `FuncExpr`, so\n`col = ANY(ARRAY[...])` stayed a heap filter even when a btree could\nanswer it. Adds a `from_saop` arm.\n\n## Why\n\nFollow-up to #6088. The array membership is exactly what the index\nanswers, so the bitmap rejects non-matching rows before the heap fetch\nand the filter drops to a recheck.\n\n## How\n\n`from_saop` mirrors core's `match_saopclause_to_indexcol`: `ANY` only,\nindex key as the left operand, a pseudoconstant array on the right, then\nthe collation and opfamily gates. `ALL` is refused because one index\nscan cannot answer a conjunction over every element, and there is no\ncommuted form to try since the array can only be the right operand.\n\nThose gates and the `IndexClause` construction were previously written\nout once per branch in `from_opexpr`. A preparatory commit extracts them\ninto `direct_match_ok` and `direct`, which both existing branches and\nthe new arm now share.\n\n## Tests\n\nThe `TODO ScalarArrayOpExpr` shape moves into the supported section: it\nharvests `providers_specialty` and its filter becomes a recheck, with\n`saop_count` unchanged at 400. `ALL` is added as a refusal alongside it.\n\n`cargo pgrx regress pg18` 333/333.",
+          "timestamp": "2026-09-02T10:27:19-07:00",
+          "tree_id": "eca0fd8b6f3370b1c6f5c522c3ae4b6f96f38110",
+          "url": "https://github.com/paradedb/paradedb/commit/d052f7d8476ff147ab65f17ac4304bf746870119"
+        },
+        "date": 1788372290661,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 33.59580073641237,
+            "unit": "median tps",
+            "extra": "avg tps: 52.5556814674051, max tps: 535.506314992041, count: 58770"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 17.57080928957239,
+            "unit": "median tps",
+            "extra": "avg tps: 28.255970109042615, max tps: 352.171738071418, count: 58770"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 83.9720737438299,
+            "unit": "median tps",
+            "extra": "avg tps: 145.1320508251876, max tps: 1193.7609763581, count: 58770"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 18.273386941112616,
+            "unit": "median tps",
+            "extra": "avg tps: 28.32396855653863, max tps: 274.5966160264512, count: 58770"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 35.107999148579864,
+            "unit": "median tps",
+            "extra": "avg tps: 55.48556454889972, max tps: 541.8703746495157, count: 58770"
           }
         ]
       }

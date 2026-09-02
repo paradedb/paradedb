@@ -129,9 +129,7 @@ impl FFHelper {
     pub fn column(&self, segment_ord: SegmentOrdinal, field: FFIndex) -> &FFType {
         self.caches()[segment_ord as usize].columns[field].get_or_init(|| {
             match &self.inner().columns[field] {
-                WhichFastField::Named(name, _)
-                | WhichFastField::Array(name, _)
-                | WhichFastField::Deferred(name, _) => {
+                WhichFastField::Named { name, .. } | WhichFastField::Array(name, _) => {
                     FFType::new(self.fast_fields(segment_ord), name)
                 }
                 WhichFastField::Ctid
@@ -456,6 +454,17 @@ impl FFType {
     }
 }
 
+/// How a named fast field's values are delivered by the scan.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash)]
+pub enum FieldDelivery {
+    /// Values are fetched and decoded during the initial scan.
+    Eager,
+    /// The scan emits the deferred union encoding (doc addresses or term
+    /// ordinals); values are decoded above the scan, after row-reducing
+    /// operators have run. See `crate::scan::deferred_encode`.
+    Deferred,
+}
+
 /// A request for a specific fast field, used *before* the column is open.
 ///
 /// This enum allows consumers to specify which columns to retrieve and their expected types.
@@ -472,9 +481,12 @@ pub enum WhichFastField {
     Ctid,
     TableOid,
     Score,
-    Named(String, SearchFieldType),
+    Named {
+        name: String,
+        field_type: SearchFieldType,
+        delivery: FieldDelivery,
+    },
     Array(String, SearchFieldType),
-    Deferred(String, SearchFieldType),
     /// Packed DocAddress ctid for deferred visibility (joinscan path only).
     /// The String is the ctid column alias (e.g. "ctid_0").
     DeferredCtid(String),
@@ -495,7 +507,7 @@ impl<S: AsRef<str>> From<(S, SearchFieldType)> for WhichFastField {
                         other.trim_start_matches("junk(").trim_end_matches(")"),
                     ))
                 } else {
-                    WhichFastField::Named(String::from(other), value.1)
+                    WhichFastField::eager(other, value.1)
                 }
             }
         }
@@ -509,9 +521,8 @@ impl WhichFastField {
             WhichFastField::Ctid => "ctid".into(),
             WhichFastField::TableOid => "tableoid".into(),
             WhichFastField::Score => "pdb.score()".into(),
-            WhichFastField::Named(s, _) => s.clone(),
+            WhichFastField::Named { name, .. } => name.clone(),
             WhichFastField::Array(s, _) => s.clone(),
-            WhichFastField::Deferred(s, _) => s.clone(),
             WhichFastField::DeferredCtid(alias) => alias.clone(),
             WhichFastField::MatchTag(alias) => alias.clone(),
         }
@@ -520,9 +531,8 @@ impl WhichFastField {
     /// Returns the SearchFieldType if this is a Named or Array fast field, None otherwise.
     pub fn field_type(&self) -> Option<&SearchFieldType> {
         match self {
-            WhichFastField::Named(_, field_type) => Some(field_type),
+            WhichFastField::Named { field_type, .. } => Some(field_type),
             WhichFastField::Array(_, field_type) => Some(field_type),
-            WhichFastField::Deferred(_, field_type) => Some(field_type),
             WhichFastField::DeferredCtid(_) | WhichFastField::MatchTag(_) => None,
             _ => None,
         }
@@ -535,16 +545,30 @@ impl WhichFastField {
             WhichFastField::Ctid => DataType::UInt64,
             WhichFastField::TableOid => DataType::UInt32,
             WhichFastField::Score => DataType::Float32,
-            WhichFastField::Named(_, field_type) => field_type.arrow_data_type(),
+            WhichFastField::Named {
+                delivery: FieldDelivery::Eager,
+                field_type,
+                ..
+            } => field_type.arrow_data_type(),
             WhichFastField::Array(_, field_type) => DataType::List(Arc::new(
                 arrow_schema::Field::new("item", field_type.arrow_data_type(), true),
             )),
             WhichFastField::Junk(_) => DataType::Null,
-            WhichFastField::Deferred(_, _field_type) => {
-                crate::scan::deferred_encode::deferred_union_data_type()
-            }
+            WhichFastField::Named {
+                delivery: FieldDelivery::Deferred,
+                ..
+            } => crate::scan::deferred_encode::deferred_union_data_type(),
             WhichFastField::DeferredCtid(_) => DataType::UInt64,
             WhichFastField::MatchTag(_) => DataType::Boolean,
+        }
+    }
+
+    /// A named fast field fetched and decoded during the initial scan.
+    pub fn eager(name: impl Into<String>, field_type: SearchFieldType) -> Self {
+        WhichFastField::Named {
+            name: name.into(),
+            field_type,
+            delivery: FieldDelivery::Eager,
         }
     }
 }
@@ -899,8 +923,8 @@ mod tests {
 
         let helper = FFHelper::with_fields(
             &reader,
-            &[WhichFastField::Named(
-                "id".to_string(),
+            &[WhichFastField::eager(
+                "id",
                 SearchFieldType::I64(pg_sys::INT8OID),
             )],
         );

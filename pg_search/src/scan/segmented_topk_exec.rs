@@ -2124,11 +2124,11 @@ mod tests {
         assert_eq!(reader.total_segment_count(), 4);
 
         let fields = vec![
-            WhichFastField::Named(
+            WhichFastField::eager(
                 "sort_col".to_string(),
                 SearchFieldType::Text(pgrx::pg_sys::TEXTOID),
             ),
-            WhichFastField::Named(
+            WhichFastField::eager(
                 "id".to_string(),
                 SearchFieldType::I64(pgrx::pg_sys::INT4OID),
             ),

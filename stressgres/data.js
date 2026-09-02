@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788385889773,
+  "lastUpdate": 1788385897792,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -191364,6 +191364,126 @@ window.BENCHMARK_DATA = {
             "value": 27.8828125,
             "unit": "median mem",
             "extra": "avg mem: 28.188327882159832, max mem: 28.76953125, count: 59324"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "51e683ece89fde7e42ca0c50e4fbad43a2cfe408",
+          "message": "refactor: resolve ctids in TantivyLookupExec, not VisibilityFilterExec (#6140)\n\nThis PR moves ctid resolution out of `VisibilityFilterExec` and into\n`TantivyLookupExec`.\n\nStacked on #6139. It is the second step Stu mentioned for the takeover\nof #6119: split column loading out of the visibility filter so\n`TantivyLookupExec` owns fetching columns (the ctid included) and\n`VisibilityFilterExec` only consumes and mutates the ctid.\n\n## What\n\n- `TantivyLookupExec` can resolve a `ctid_<plan_position>` column from\npacked doc-addresses to real ctids. A ctid-resolving lookup is inserted\ndirectly below every `VisibilityFilterExec`, and below a\n`SegmentedTopKExec` that absorbs one. The plan now shows\n`TantivyLookupExec: decode=[], resolve_ctid=[ctid_0, ctid_1]` under the\nfilter.\n- `VisibilityFilterExec` and the absorbed-visibility path in\n`SegmentedTopKExec` no longer resolve ctids. They check visibility and\nHOT-correct the already-real ctids.\n- The MPP dispatch machinery moved with it: the lookup's dispatch\npayload carries its ctid columns and resolver indexes, and its decode\nrebuilds a resolver from the index segment view when the source sits\nbehind a network boundary.\n\n## Why\n\n`VisibilityFilterExec` was doing two jobs: fetching the ctid column and\nchecking visibility. Separating them makes each node do one thing and\nsets up the follow-up where `TantivyLookupExec` owns all column\nfetching.\n\n## Tests\n\nExisting test.\n\n## CI benchmarks\n\nNo change in benchmark results as expected.\n\nPlease note that `SegmentedTopKExec`'s absorbed-visibility data keeps\nits own ctid resolvers: the absorption takes the lookup's input, so only\nthe K winners pay resolution, and the exec resolves them itself.",
+          "timestamp": "2026-09-02T14:32:52-07:00",
+          "tree_id": "52d24649a4d011b6bd1b09e366e3151a2cb7ecc5",
+          "url": "https://github.com/paradedb/paradedb/commit/51e683ece89fde7e42ca0c50e4fbad43a2cfe408"
+        },
+        "date": 1788385894209,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 14.069371,
+            "unit": "median cpu",
+            "extra": "avg cpu: 15.059865051425806, max cpu: 37.536655, count: 59303"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 42.27734375,
+            "unit": "median mem",
+            "extra": "avg mem: 42.26480005227391, max mem: 42.27734375, count: 59303"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6806436,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.597270986084258, max cpu: 37.628616, count: 59303"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 20.75,
+            "unit": "median mem",
+            "extra": "avg mem: 20.72558427429894, max mem: 20.75, count: 59303"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.692082,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.946404076827975, max cpu: 18.75916, count: 59303"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 43.05859375,
+            "unit": "median mem",
+            "extra": "avg mem: 43.04354813679325, max mem: 43.05859375, count: 59303"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 18895,
+            "unit": "median block_count",
+            "extra": "avg block_count: 18972.07144663845, max block_count: 36436.0, count: 59303"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 1.4019011705982405, max cpu: 4.729064, count: 59303"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 21.44140625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.431600741109218, max mem: 21.44140625, count: 59303"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 27.310152943358684, max segment_count: 38.0, count: 59303"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.37958,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.242045481754328, max cpu: 23.904383, count: 59303"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 41.49609375,
+            "unit": "median mem",
+            "extra": "avg mem: 41.497763076910104, max mem: 41.50390625, count: 59303"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.114957976227794, max cpu: 37.628616, count: 118606"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 43.84375,
+            "unit": "median mem",
+            "extra": "avg mem: 42.948433521491324, max mem: 44.7578125, count: 118606"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.425626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.758077715189316, max cpu: 19.094978, count: 59303"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 27.99609375,
+            "unit": "median mem",
+            "extra": "avg mem: 27.972724358906802, max mem: 28.546875, count: 59303"
           }
         ]
       }

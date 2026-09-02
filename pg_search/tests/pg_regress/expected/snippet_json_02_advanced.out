@@ -169,7 +169,7 @@ WHERE (a.id @@@ paradedb.parse('metadata.age:55'))
     AND (a.id @@@ paradedb.parse('metadata.text:author') OR b.id @@@ paradedb.parse('metadata.content:test'))
 ORDER BY a.id, b.id, r.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b, r)
-ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
+ERROR:  pdb.score() / pdb.snippet() require a ParadeDB search operator (@@@, |||, &&&, ===, or ###) in the WHERE clause. If this query already has one, please report it at https://github.com/paradedb/paradedb/issues/new/choose
 \i common/snippet_json_advanced_cleanup.sql
 DROP TABLE IF EXISTS authors;
 DROP TABLE IF EXISTS books;

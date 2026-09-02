@@ -571,6 +571,17 @@ impl WhichFastField {
             delivery: FieldDelivery::Eager,
         }
     }
+
+    /// Whether this is a named fast field with eager delivery.
+    pub fn is_eager_named(&self) -> bool {
+        matches!(
+            self,
+            WhichFastField::Named {
+                delivery: FieldDelivery::Eager,
+                ..
+            }
+        )
+    }
 }
 
 /// Build an Arrow schema from a list of fast fields.

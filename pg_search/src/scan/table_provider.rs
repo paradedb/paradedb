@@ -417,6 +417,24 @@ impl PgSearchTableProvider {
         deferred
     }
 
+    /// The fields as the SQL planner sees them: every named column eager,
+    /// whatever physical delivery the scan will use.
+    fn eager_view(&self) -> Vec<WhichFastField> {
+        self.fields
+            .iter()
+            .map(|wff| {
+                if let WhichFastField::Named {
+                    name, field_type, ..
+                } = wff
+                {
+                    WhichFastField::eager(name.clone(), *field_type)
+                } else {
+                    wff.clone()
+                }
+            })
+            .collect()
+    }
+
     fn get_schema(&self) -> SchemaRef {
         if self.late_materialization_active.load(Ordering::Relaxed) {
             self.late_materialization_schema
@@ -425,21 +443,7 @@ impl PgSearchTableProvider {
         } else {
             self.schema
                 .get_or_init(|| {
-                    let logical_fields: Vec<_> = self
-                        .fields
-                        .iter()
-                        .map(|wff| {
-                            if let WhichFastField::Named {
-                                name, field_type, ..
-                            } = wff
-                            {
-                                WhichFastField::eager(name.clone(), *field_type)
-                            } else {
-                                wff.clone()
-                            }
-                        })
-                        .collect();
-                    crate::index::fast_fields_helper::build_arrow_schema(&logical_fields)
+                    crate::index::fast_fields_helper::build_arrow_schema(&self.eager_view())
                 })
                 .clone()
         }
@@ -452,19 +456,7 @@ impl PgSearchTableProvider {
         let active_fields: Vec<_> = if self.late_materialization_active.load(Ordering::Relaxed) {
             self.fields.clone()
         } else {
-            self.fields
-                .iter()
-                .map(|wff| {
-                    if let WhichFastField::Named {
-                        name, field_type, ..
-                    } = wff
-                    {
-                        WhichFastField::eager(name.clone(), *field_type)
-                    } else {
-                        wff.clone()
-                    }
-                })
-                .collect()
+            self.eager_view()
         };
 
         let schema = self.get_schema();

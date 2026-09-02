@@ -557,13 +557,7 @@ impl Scanner {
 
         // Pre-fetch any Named or Array columns that weren't already fetched by pre-filters.
         for (ff_index, which_ff) in self.which_fast_fields.iter().enumerate() {
-            if matches!(
-                which_ff,
-                WhichFastField::Named {
-                    delivery: FieldDelivery::Eager,
-                    ..
-                } | WhichFastField::Array(_, _)
-            ) {
+            if which_ff.is_eager_named() || matches!(which_ff, WhichFastField::Array(_, _)) {
                 ensure_column_fetched(
                     &mut memoized_columns,
                     &self.which_fast_fields,

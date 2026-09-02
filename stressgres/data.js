@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788387087946,
+  "lastUpdate": 1788387096098,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -139582,6 +139582,108 @@ window.BENCHMARK_DATA = {
             "value": 52.2265625,
             "unit": "median mem",
             "extra": "avg mem: 51.52487862737302, max mem: 52.2265625, count: 59418"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "51e683ece89fde7e42ca0c50e4fbad43a2cfe408",
+          "message": "refactor: resolve ctids in TantivyLookupExec, not VisibilityFilterExec (#6140)\n\nThis PR moves ctid resolution out of `VisibilityFilterExec` and into\n`TantivyLookupExec`.\n\nStacked on #6139. It is the second step Stu mentioned for the takeover\nof #6119: split column loading out of the visibility filter so\n`TantivyLookupExec` owns fetching columns (the ctid included) and\n`VisibilityFilterExec` only consumes and mutates the ctid.\n\n## What\n\n- `TantivyLookupExec` can resolve a `ctid_<plan_position>` column from\npacked doc-addresses to real ctids. A ctid-resolving lookup is inserted\ndirectly below every `VisibilityFilterExec`, and below a\n`SegmentedTopKExec` that absorbs one. The plan now shows\n`TantivyLookupExec: decode=[], resolve_ctid=[ctid_0, ctid_1]` under the\nfilter.\n- `VisibilityFilterExec` and the absorbed-visibility path in\n`SegmentedTopKExec` no longer resolve ctids. They check visibility and\nHOT-correct the already-real ctids.\n- The MPP dispatch machinery moved with it: the lookup's dispatch\npayload carries its ctid columns and resolver indexes, and its decode\nrebuilds a resolver from the index segment view when the source sits\nbehind a network boundary.\n\n## Why\n\n`VisibilityFilterExec` was doing two jobs: fetching the ctid column and\nchecking visibility. Separating them makes each node do one thing and\nsets up the follow-up where `TantivyLookupExec` owns all column\nfetching.\n\n## Tests\n\nExisting test.\n\n## CI benchmarks\n\nNo change in benchmark results as expected.\n\nPlease note that `SegmentedTopKExec`'s absorbed-visibility data keeps\nits own ctid resolvers: the absorption takes the lookup's input, so only\nthe K winners pay resolution, and the exec resolves them itself.",
+          "timestamp": "2026-09-02T14:32:52-07:00",
+          "tree_id": "52d24649a4d011b6bd1b09e366e3151a2cb7ecc5",
+          "url": "https://github.com/paradedb/paradedb/commit/51e683ece89fde7e42ca0c50e4fbad43a2cfe408"
+        },
+        "date": 1788387092444,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.05908586045572347, max background_merging: 2.0, count: 59422"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.7151275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.732341401638183, max cpu: 9.741248, count: 59422"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 19.48828125,
+            "unit": "median mem",
+            "extra": "avg mem: 19.481039548168187, max mem: 19.640625, count: 59422"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.717445,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.917750046425989, max cpu: 23.54095, count: 59422"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 34.0859375,
+            "unit": "median mem",
+            "extra": "avg mem: 37.293812752957656, max mem: 51.19921875, count: 59422"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 64390,
+            "unit": "median block_count",
+            "extra": "avg block_count: 64070.40506882973, max block_count: 64390.0, count: 59422"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 67,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 65.17782976002154, max segment_count: 106.0, count: 59422"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.610426,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.08179967936779, max cpu: 33.667336, count: 59422"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 83.66796875,
+            "unit": "median mem",
+            "extra": "avg mem: 79.60347217255394, max mem: 83.921875, count: 59422"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.7081904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.651758821301766, max cpu: 28.235296, count: 59422"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 33.53125,
+            "unit": "median mem",
+            "extra": "avg mem: 36.93091955105012, max mem: 49.63671875, count: 59422"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.3096231769714395, max cpu: 32.796486, count: 59422"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 100.02734375,
+            "unit": "median mem",
+            "extra": "avg mem: 99.49785452725843, max mem: 104.47265625, count: 59422"
           }
         ]
       }

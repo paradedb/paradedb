@@ -243,6 +243,21 @@ WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category, p.in_stock
 ORDER BY p.category, p.in_stock;
 
+-- Test 1.19: a GROUP BY DATE() key is a call rather than a column, so the
+-- output is read back by position
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DATE(p.created_at) AS day, COUNT(*), pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY DATE(p.created_at)
+ORDER BY day;
+
+SELECT DATE(p.created_at) AS day, COUNT(*), pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY DATE(p.created_at)
+ORDER BY day;
+
 -- =====================================================================
 -- SECTION 2: empty inputs
 -- =====================================================================

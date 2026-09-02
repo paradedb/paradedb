@@ -361,10 +361,7 @@ fn apply_pdb_aggregate(
         })
         .collect::<Result<_>>()?;
 
-    let std_agg_names: Vec<String> = agg_exprs
-        .iter()
-        .map(|e| e.schema_name().to_string())
-        .collect();
+    let num_std_aggs = agg_exprs.len();
     let mut all_group_exprs = group_exprs.clone();
     all_group_exprs.extend(key_exprs);
     let grouping = if pdb_plan.has_grouping_sets() {
@@ -399,13 +396,25 @@ fn apply_pdb_aggregate(
         df = df.filter(guarded)?;
     }
 
-    let mut select = group_exprs;
-    select.extend(std_agg_names.into_iter().map(col));
-    if pdb_plan.has_grouping_sets() {
-        select.push(col(Aggregate::INTERNAL_GROUPING_ID));
-    }
-    select.extend((0..pdb_plan.keys.len()).map(|i| col(format!("__pdb_k{i}"))));
-    select.extend((0..pdb_plan.metrics.len()).map(|j| col(format!("__pdb_m{j}"))));
+    // The aggregate lays its output out as group expressions, `__grouping_id`
+    // when there are grouping sets, then aggregates. Read it back by position:
+    // a group key can be a call rather than a column, so it cannot be named
+    // again here, and the CSE pass renames aggregates later.
+    let output: Vec<Expr> = df
+        .schema()
+        .columns()
+        .into_iter()
+        .map(Expr::Column)
+        .collect();
+    let num_group = group_exprs.len();
+    let num_keys = pdb_plan.keys.len();
+    let aggs_start = output.len() - num_std_aggs - pdb_plan.metrics.len();
+    let mut select = Vec::with_capacity(output.len());
+    select.extend_from_slice(&output[..num_group]);
+    select.extend_from_slice(&output[aggs_start..aggs_start + num_std_aggs]);
+    select.extend_from_slice(&output[num_group + num_keys..aggs_start]);
+    select.extend_from_slice(&output[num_group..num_group + num_keys]);
+    select.extend_from_slice(&output[aggs_start + num_std_aggs..]);
     df.select(select)
 }
 

@@ -397,6 +397,52 @@ ORDER BY p.category, p.in_stock;
  Toys        | t        | {"buckets": [{"key": "kids", "doc_count": 1}, {"key": "tech", "doc_count": 1}], "sum_other_doc_count": 0}
 (5 rows)
 
+-- Test 1.19: a GROUP BY DATE() key is a call rather than a column, so the
+-- output is read back by position
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DATE(p.created_at) AS day, COUNT(*), pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY DATE(p.created_at)
+ORDER BY day;
+                                                                                                                         QUERY PLAN                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: (date(p.created_at)), (count(*)), (pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}'::jsonb))
+   Sort Key: (date(p.created_at))
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: (date(p.created_at)), (count(*)), (pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}'::jsonb))
+         Backend: DataFusion
+         Indexes: pa_products_idx (p), pa_tags_idx (t)
+         Group By: date(created_at)
+         Aggregates: COUNT(*), pdb.agg({"terms":{"field":"tag_name","order":{"_key":"asc"}}})
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[pdb_timestamp_to_date(p_0.created_at)@0 as pdb_timestamp_to_date(p_0.created_at), __common_expr_2@3 as agg_0, __grouping_id@2 as __grouping_id, __pdb_k0@1 as __pdb_k0, __common_expr_2@3 as __pdb_m0]
+           :   AggregateExec: mode=Final, gby=[pdb_timestamp_to_date(p_0.created_at)@0 as pdb_timestamp_to_date(p_0.created_at), __pdb_k0@1 as __pdb_k0, __grouping_id@2 as __grouping_id], aggr=[count(1) as __common_expr_2]
+           :     AggregateExec: mode=Partial, gby=[(__common_expr_1@0 as pdb_timestamp_to_date(p_0.created_at), NULL as __pdb_k0), (__common_expr_1@0 as pdb_timestamp_to_date(p_0.created_at), tag_name@1 as __pdb_k0)], aggr=[count(1) as __common_expr_2]
+           :       ProjectionExec: expr=[pdb_timestamp_to_date(created_at@0) as __common_expr_1, tag_name@1 as tag_name]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[created_at@1, tag_name@3]
+           :           CooperativeExec
+           :             PgSearchScan: table=p, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: table=t, segments=2, dynamic_filters=1, query="all"
+(19 rows)
+
+SELECT DATE(p.created_at) AS day, COUNT(*), pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY DATE(p.created_at)
+ORDER BY day;
+    day     | count |                                                       agg                                                       
+------------+-------+-----------------------------------------------------------------------------------------------------------------
+ 01-01-2024 |     2 | {"buckets": [{"key": "computer", "doc_count": 1}, {"key": "tech", "doc_count": 1}], "sum_other_doc_count": 0}
+ 01-02-2024 |     2 | {"buckets": [{"key": "gaming", "doc_count": 1}, {"key": "tech", "doc_count": 1}], "sum_other_doc_count": 0}
+ 01-03-2024 |     2 | {"buckets": [{"key": "budget", "doc_count": 1}, {"key": "tech", "doc_count": 1}], "sum_other_doc_count": 0}
+ 01-05-2024 |     2 | {"buckets": [{"key": "fitness", "doc_count": 1}, {"key": "running", "doc_count": 1}], "sum_other_doc_count": 0}
+ 01-06-2024 |     1 | {"buckets": [{"key": "fitness", "doc_count": 1}], "sum_other_doc_count": 0}
+ 01-08-2024 |     2 | {"buckets": [{"key": "kids", "doc_count": 1}, {"key": "tech", "doc_count": 1}], "sum_other_doc_count": 0}
+(6 rows)
+
 -- =====================================================================
 -- SECTION 2: empty inputs
 -- =====================================================================

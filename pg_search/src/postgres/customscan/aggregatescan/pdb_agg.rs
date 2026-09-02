@@ -30,8 +30,8 @@ use crate::postgres::types::is_pgoid_datetime_type;
 use crate::schema::SearchFieldType;
 use arrow_array::cast::AsArray;
 use arrow_array::types::{
-    Float32Type, Float64Type, Int8Type, Int16Type, Int32Type, Int64Type, TimestampMicrosecondType,
-    UInt8Type, UInt16Type, UInt32Type, UInt64Type,
+    Date32Type, Float32Type, Float64Type, Int8Type, Int16Type, Int32Type, Int64Type,
+    TimestampMicrosecondType, UInt8Type, UInt16Type, UInt32Type, UInt64Type,
 };
 use arrow_array::{Array, ArrayRef, Int64Array, RecordBatch, UInt64Array, new_null_array};
 use arrow_schema::{DataType, Schema, SchemaRef, TimeUnit};
@@ -755,6 +755,9 @@ impl KeyValue {
             DataType::Timestamp(TimeUnit::Microsecond, _) => {
                 KeyValue::I64(col.as_primitive::<TimestampMicrosecondType>().value(row))
             }
+            // A `GROUP BY DATE()` key. SQL group keys are only hashed, never
+            // rendered, so the day number is enough.
+            DataType::Date32 => KeyValue::I64(col.as_primitive::<Date32Type>().value(row) as i64),
             DataType::Binary | DataType::LargeBinary | DataType::BinaryView => {
                 KeyValue::Bytes(bytes_at(col, row).to_vec())
             }

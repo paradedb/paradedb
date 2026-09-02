@@ -15,10 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::{
-    FieldName, HashSet, MvccVisibility, agg_funcoid, agg_with_solve_mvcc_funcoid,
-    extract_solve_mvcc_from_const,
-};
+use crate::api::{FieldName, HashSet, MvccVisibility, is_agg_funcoid, visibility_from_agg_arg};
 use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
@@ -146,11 +143,8 @@ impl AggregateType {
         };
         let filter_query = filter_expr.map(|qual| SearchQueryInput::from(&qual));
 
-        // Check for pdb.agg() custom aggregate (both overloads)
-        let agg_oid = agg_funcoid().to_u32();
-        let agg_with_mvcc_oid = agg_with_solve_mvcc_funcoid().to_u32();
-
-        if aggfnoid == agg_oid || aggfnoid == agg_with_mvcc_oid {
+        // Check for pdb.agg() custom aggregate (any overload)
+        if is_agg_funcoid(aggfnoid) {
             // Extract JSON argument (first arg)
             let arg = args.get_ptr(0).expect("pdb.agg missing argument");
             let expr = (*arg).expr;
@@ -169,21 +163,12 @@ impl AggregateType {
                 return Err("pdb.agg argument must be a constant for aggregate pushdown".into());
             };
 
-            // Extract solve_mvcc bool argument (second arg) if using the two-arg overload
-            let solve_mvcc = if aggfnoid == agg_with_mvcc_oid {
-                args.get_ptr(1)
-                    .and_then(|mvcc_arg| nodecast!(Const, T_Const, (*mvcc_arg).expr))
-                    .map(|const_node| extract_solve_mvcc_from_const(const_node))
-                    .unwrap_or(true)
-            } else {
-                true // Single-arg overload: default to solve_mvcc = true
-            };
-
-            let mvcc_visibility = if solve_mvcc {
-                MvccVisibility::Enabled
-            } else {
-                MvccVisibility::Disabled
-            };
+            // Decode the visibility argument (second arg) of the two-arg overloads;
+            // the one-arg overload has none and takes the default.
+            let mvcc_visibility = visibility_from_agg_arg(
+                aggfnoid,
+                args.get_ptr(1).map(|arg| (*arg).expr as *mut pg_sys::Node),
+            );
 
             // Check if any existing fields in the custom aggregate are NUMERIC
             // NUMERIC fields do not support aggregate pushdown
@@ -346,9 +331,9 @@ impl AggregateType {
         }
     }
 
-    /// Get the MVCC visibility setting for this aggregate.
-    /// Only Custom aggregates (pdb.agg) can have non-default MVCC settings.
-    /// All standard SQL aggregates (COUNT, SUM, etc.) use the default (Enabled).
+    /// Get the visibility setting for this aggregate.
+    /// Only Custom aggregates (pdb.agg) can have a non-default setting.
+    /// All standard SQL aggregates (COUNT, SUM, etc.) use the default (Transaction).
     pub fn mvcc_visibility(&self) -> MvccVisibility {
         match self {
             AggregateType::Custom {
@@ -359,35 +344,38 @@ impl AggregateType {
         }
     }
 
-    /// Determines if MVCC filtering should be enabled for a group of aggregates.
-    /// Validates that there are no contradicting solve_mvcc settings among custom aggregates.
-    pub fn resolve_mvcc_enabled<'a>(aggregates: impl Iterator<Item = &'a AggregateType>) -> bool {
-        let custom_mvcc_settings: Vec<MvccVisibility> = aggregates
-            .filter_map(|agg_type| {
-                if let AggregateType::Custom {
-                    mvcc_visibility, ..
-                } = agg_type
-                {
-                    Some(*mvcc_visibility)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        if !custom_mvcc_settings.is_empty() {
-            let has_enabled = custom_mvcc_settings.contains(&MvccVisibility::Enabled);
-            let has_disabled = custom_mvcc_settings.contains(&MvccVisibility::Disabled);
-            if has_enabled && has_disabled {
-                pgrx::error!(
-                    "pdb.agg() calls have contradicting solve_mvcc settings. \
-                     All pdb.agg() calls in a query must use the same solve_mvcc value. \
-                     Either use solve_mvcc=true (or omit) for all, or solve_mvcc=false for all."
-                );
+    /// Determines the single query-level visibility setting for a group of aggregates.
+    ///
+    /// A query resolves to exactly one visibility decision, so every `pdb.agg()` call in
+    /// it has to agree. Two different settings are an error even when one of them came
+    /// from an omitted argument, since an omitted argument is indistinguishable from an
+    /// explicit `'transaction'` by the time we see it.
+    pub fn resolve_visibility<'a>(
+        aggregates: impl Iterator<Item = &'a AggregateType>,
+    ) -> MvccVisibility {
+        let mut resolved: Option<MvccVisibility> = None;
+        for visibility in aggregates.filter_map(|agg_type| match agg_type {
+            AggregateType::Custom {
+                mvcc_visibility, ..
+            } => Some(*mvcc_visibility),
+            // Standard SQL aggregates carry no setting of their own.
+            _ => None,
+        }) {
+            match resolved {
+                None => resolved = Some(visibility),
+                Some(previous) if previous == visibility => {}
+                Some(previous) => pgrx::error!(
+                    "pdb.agg() calls have contradicting visibility settings: \
+                     '{}' and '{}'. All pdb.agg() calls in a query must use the same \
+                     visibility value, and omitting the argument selects '{}'.",
+                    previous.as_sql_value(),
+                    visibility.as_sql_value(),
+                    MvccVisibility::default().as_sql_value()
+                ),
             }
         }
 
-        !custom_mvcc_settings.contains(&MvccVisibility::Disabled)
+        resolved.unwrap_or_default()
     }
 
     pub fn result_type_oid(&self) -> pg_sys::Oid {

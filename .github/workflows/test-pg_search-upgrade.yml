@@ -10,6 +10,7 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - ".github/actions/test-pg_search-upgrade/**"
+      - ".github/actions/setup-pg-search-toolchain/**"
       - ".github/workflows/test-pg_search-upgrade.yml"
       - "pg_search/**"
       - "!pg_search/README.md"
@@ -45,24 +46,22 @@ jobs:
         id: compute
         run: |
           set -euo pipefail
-          CURRENT=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
-          TAGS=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$')
-          SORTED=$(printf "%s\nv%s\n" "$TAGS" "$CURRENT" | sort -V -u)
-          PRIOR=$(echo "$SORTED" | awk -v cur="v$CURRENT" 'prev != "" && $0 == cur { print prev; exit } { prev = $0 }')
-          if [ -z "$PRIOR" ]; then
-            echo "Could not determine prior version for current=$CURRENT" >&2
+          TAGS=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V)
+          LATEST_TAG=$(echo "$TAGS" | tail -n 1)
+          if [ -z "$LATEST_TAG" ]; then
+            echo "Could not determine latest tag" >&2
             exit 1
           fi
-          PRIOR_PGRX=$(git show "$PRIOR:Cargo.toml" | sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' | head -1)
-          if [ -z "$PRIOR_PGRX" ]; then
-            echo "Could not determine pgrx version at $PRIOR" >&2
+          LATEST_PGRX=$(git show "$LATEST_TAG:Cargo.toml" | sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' | head -1)
+          if [ -z "$LATEST_PGRX" ]; then
+            echo "Could not determine pgrx version at $LATEST_TAG" >&2
             exit 1
           fi
-          echo "Resolved prior=$PRIOR pgrx=$PRIOR_PGRX (current=$CURRENT)"
+          echo "Resolved latest tag=$LATEST_TAG pgrx=$LATEST_PGRX"
 
           # v0.21.0 is the first pg_search version with Postgres 18 support.
-          # Dedup in case the dynamic prior happens to also be v0.21.0.
-          MATRIX=$(jq -nc --arg p "$PRIOR" --arg pgrx "$PRIOR_PGRX" '[
+          # Dedup in case the latest tag happens to also be v0.21.0.
+          MATRIX=$(jq -nc --arg p "$LATEST_TAG" --arg pgrx "$LATEST_PGRX" '[
             { "pg_search_version": "v0.21.0", "pgrx_version": "0.16.1" },
             { "pg_search_version": $p, "pgrx_version": $pgrx }
           ] | unique_by(.pg_search_version)')
@@ -93,38 +92,24 @@ jobs:
         with:
           fetch-depth: 0 # Fetch the entire history (required to checkout tags)
 
-      - name: Install Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          cache: false
-          rustflags: "" # Use .cargo/config.toml target-cpu flags
-
       # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
       # See test-pg_search.yml for rationale.
-      - name: Install Rust Cache
-        uses: swatinem/rust-cache@v2
+      - name: Set Up pg_search Toolchain
+        uses: ./.github/actions/setup-pg-search-toolchain
         with:
-          prefix-key: "v3-rust-cache"
-          shared-key: pg${{ matrix.pg_version }}
-          cache-targets: true
-          cache-all-crates: true
-          # We don't save the cache here to avoid thrashing. The cache is only saved on the nightly run of test-pg_search.yml
-          save-if: false
+          pg_version: ${{ matrix.pg_version }}
+          # The upgrade action intentionally installs the prior and current
+          # cargo-pgrx versions itself as it switches source revisions.
+          install_cargo_pgrx: "false"
 
       - name: Install required system tools
         run: |
           sudo apt-get update && sudo apt-get install -y lsof libopenblas-dev lld
 
       - name: Install & Configure Supported PostgreSQL Version
-        run: |
-          set -euo pipefail
-          curl --fail --silent --show-error https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-            | gpg --dearmor \
-            | sudo tee /usr/share/keyrings/postgresql-pgdg.gpg >/dev/null
-          echo "deb [signed-by=/usr/share/keyrings/postgresql-pgdg.gpg] https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo "$VERSION_CODENAME")-pgdg main" \
-            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
-          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
-          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> "$GITHUB_PATH"
+        uses: ./.github/actions/setup-postgres
+        with:
+          pg_version: ${{ matrix.pg_version }}
 
       # Needed for hybrid search unit tests
       - name: Install pgvector

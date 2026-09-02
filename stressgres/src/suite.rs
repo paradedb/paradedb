@@ -258,6 +258,10 @@ pub struct Job {
     pub title: Option<String>,
     pub on_connect: Option<String>,
     pub sql: String,
+    /// Text which must occur in the verbose plan for `sql` before the job starts.
+    /// A string is accepted for the common case; an array can assert multiple plan nodes.
+    #[serde(default, deserialize_with = "deserialize_string_or_vec")]
+    pub sql_plan_contains: Vec<String>,
     pub assert: Option<String>,
     pub window_height: Option<usize>,
     pub cancel_keycode: Option<char>,
@@ -303,12 +307,30 @@ where
     Ok(destinations)
 }
 
+fn deserialize_string_or_vec<'de, D>(d: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrVec {
+        String(String),
+        Vec(Vec<String>),
+    }
+
+    Ok(match StringOrVec::deserialize(d)? {
+        StringOrVec::String(value) => vec![value],
+        StringOrVec::Vec(values) => values,
+    })
+}
+
 impl Default for Job {
     fn default() -> Self {
         Self {
             title: None,
             on_connect: None,
             sql: "".to_string(),
+            sql_plan_contains: vec![],
             assert: None,
             window_height: None,
             cancel_keycode: None,
@@ -330,6 +352,32 @@ impl Job {
         } else {
             self.destinations.clone()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Job;
+
+    #[test]
+    fn sql_plan_contains_accepts_a_string_or_array() {
+        let one: Job = toml::from_str(
+            r#"
+            sql = "SELECT 1"
+            sql_plan_contains = "Result"
+            "#,
+        )
+        .unwrap();
+        assert_eq!(one.sql_plan_contains, ["Result"]);
+
+        let many: Job = toml::from_str(
+            r#"
+            sql = "SELECT 1"
+            sql_plan_contains = ["Result", "Output"]
+            "#,
+        )
+        .unwrap();
+        assert_eq!(many.sql_plan_contains, ["Result", "Output"]);
     }
 }
 

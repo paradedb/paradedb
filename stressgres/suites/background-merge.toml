@@ -4,9 +4,8 @@ name = "Primary"
 
 [server.setup]
 sql = """
-DROP EXTENSION IF EXISTS pg_search CASCADE;
 DROP TABLE IF EXISTS test CASCADE;
-CREATE EXTENSION pg_search CASCADE;
+CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
 
 CREATE TABLE test (
     id SERIAL8 NOT NULL PRIMARY KEY,
@@ -29,15 +28,33 @@ CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool LANGUAGE plpg
 DECLARE
     current_txid bigint;
 BEGIN
-    -- Get the current transaction ID
     current_txid := txid_current();
-    -- Check if the values are not equal
     IF a <> b THEN
         RAISE EXCEPTION 'Assertion failed: % <> %. Transaction ID: %', a, b, current_txid;
     END IF;
     RETURN true;
 END;
 $$;
+
+CREATE OR REPLACE FUNCTION assert_plan_contains(
+    p_query text,
+    p_expected_text text
+) RETURNS boolean AS $$
+DECLARE
+    plan_line text;
+    full_plan text := '';
+BEGIN
+    FOR plan_line IN EXECUTE 'EXPLAIN (VERBOSE) ' || p_query LOOP
+        full_plan := full_plan || plan_line || chr(10);
+        IF plan_line ILIKE '%' || p_expected_text || '%' THEN
+            RETURN true;
+        END IF;
+    END LOOP;
+
+    RAISE EXCEPTION 'Plan assertion failed: expected "%" not found in plan for query: %. Actual plan:%',
+        p_expected_text, p_query, chr(10) || full_plan;
+END;
+$$ LANGUAGE plpgsql;
 
 DO $$
 DECLARE
@@ -56,7 +73,6 @@ DROP EXTENSION pg_search CASCADE;
 refresh_ms = 100
 title = "Watch Segment Count"
 
-# Combined query returning both columns
 sql = """
 SELECT segno, num_docs, num_deleted, pg_size_pretty(byte_size) FROM paradedb.index_info('idxtest') ORDER BY num_docs DESC;
 """
@@ -66,7 +82,6 @@ refresh_ms = 100
 title = "Monitor Segment Count"
 log_columns = ["block_count", "segment_count"]
 log_tps = false
-# Combined query returning both columns
 sql = """
 SELECT
     pg_relation_size('idxtest') / current_setting('block_size')::int AS block_count,
@@ -78,10 +93,30 @@ SELECT
 
 [[jobs]]
 refresh_ms = 5
-title = "Custom scan"
+title = "Unordered Top K Base Scan"
 log_tps = true
+on_connect = """
+SELECT assert_plan_contains(
+    $q$ SELECT id, message, severity FROM test WHERE message ||| 'drink' LIMIT 100 $q$,
+    'TopKScanExecState'
+);
+"""
 sql = """
-SELECT assert(COUNT(*), 333333) FROM test WHERE message @@@ 'drink';
+SELECT id, message, severity FROM test WHERE message ||| 'drink' LIMIT 100;
+"""
+
+[[jobs]]
+refresh_ms = 5
+title = "Aggregate Scan"
+log_tps = true
+on_connect = """
+SELECT assert_plan_contains(
+    $q$ SELECT COUNT(*) FROM test WHERE message ||| 'drink' $q$,
+    'ParadeDB Aggregate Scan'
+);
+"""
+sql = """
+SELECT assert(COUNT(*), 333333) FROM test WHERE message ||| 'drink';
 """
 
 [[jobs]]

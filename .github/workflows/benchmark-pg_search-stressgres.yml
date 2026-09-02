@@ -14,6 +14,9 @@ on:
     paths:
       - ".github/actions/benchmark-stressgres/**"
       - ".github/actions/benchmarks-from-main/**"
+      - ".github/actions/setup-pg-search-build-environment/**"
+      - ".github/actions/setup-pg-search-toolchain/**"
+      - ".github/actions/setup-postgres/**"
       - ".github/workflows/benchmark-pg_search-stressgres.yml"
       - "stressgres/suites/**"
       - "**/*.rs"
@@ -42,7 +45,20 @@ permissions:
 
 jobs:
   benchmark-pg_search-stressgres:
-    name: Run Stressgres Benchmark Jobs
+    name: Stressgres (${{ matrix.suite }})
+    strategy:
+      fail-fast: false
+      max-parallel: 4 # Avoid exhausting regional capacity for the large bare-metal benchmark runners
+      matrix:
+        suite:
+          - background-merge.toml
+          - bulk-update-merge-pressure.toml
+          - logical-replication-fsm-merge-race.toml
+          - logical-replication-mixed-workload.toml
+          - logical-replication-multi-subscriber.toml
+          - partitioned-table.toml
+          - single-node-planner-paths.toml
+          - wide-table.toml
     runs-on:
       # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
       - runs-on=${{ github.run_id }}
@@ -183,56 +199,26 @@ jobs:
       - name: Running for ${{ steps.pr_label.outputs.result }}
         run: echo ${{ steps.pr_label.outputs.result }}
 
-      - name: Install Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Set Up pg_search Build Environment
+        uses: ./.github/actions/setup-pg-search-build-environment
         with:
-          cache: false
-          rustflags: "" # Use .cargo/config.toml target-cpu flags
+          pg_version: ${{ env.pg_version }}
+          cache_prefix_key: "v2-benchmarks-rust-cache"
+          cache_save: "true"
+          cache_on_failure: "true"
+          extra_packages: >-
+            lsof fontconfig pkg-config libfontconfig1-dev libopenblas-dev lld
+            postgresql-${{ env.pg_version }}-pgvector
 
-      - name: Install required system tools
-        run: |
-          sudo apt-get update && sudo apt-get install -y lsof fontconfig pkg-config libfontconfig1-dev libopenblas-dev lld
+      - name: Compile and Install pg_search
+        run: >-
+          cargo pgrx install -p pg_search --sudo --release
+          --pg-config "/usr/lib/postgresql/${{ env.pg_version }}/bin/pg_config"
+          --features=pg${{ env.pg_version }} --no-default-features
 
-      - name: Install & Configure Supported PostgreSQL Version
-        run: |
-          set -euo pipefail
-          curl --fail --silent --show-error https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-            | gpg --dearmor \
-            | sudo tee /usr/share/keyrings/postgresql-pgdg.gpg >/dev/null
-          echo "deb [signed-by=/usr/share/keyrings/postgresql-pgdg.gpg] https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo "$VERSION_CODENAME")-pgdg main" \
-            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
-          sudo apt-get update && sudo apt-get install -y postgresql-${{ env.pg_version }} postgresql-server-dev-${{ env.pg_version }} postgresql-${{ env.pg_version }}-pgvector
-          echo "/usr/lib/postgresql/${{ env.pg_version }}/bin" >> "$GITHUB_PATH"
-
-      # Separate prefix-key from debug workflows — benchmarks compile with --release.
-      # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
-      # See test-pg_search.yml for rationale.
-      - name: Install Rust Cache
-        uses: swatinem/rust-cache@v2
-        with:
-          prefix-key: "v2-stressgres-rust-cache"
-          shared-key: pg${{ env.pg_version }}
-          cache-targets: true
-          cache-all-crates: true
-          cache-on-failure: true
-
-      - name: Extract pgrx Version
-        id: pgrx
-        run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> "$GITHUB_OUTPUT"
-
-      - name: Install pgrx
-        run: cargo install cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug --locked
-
-      - name: Initialize pgrx environment
-        run: cargo pgrx init "--pg${{ env.pg_version }}=$(command -v pg_config)"
-
-      - name: Compile & install pg_search extension
-        run: cargo pgrx install -p pg_search --sudo --release --pg-config "$(command -v pg_config)" --features=pg${{ env.pg_version }} --no-default-features
-
-      - name: Start Postgres
+      - name: Start PostgreSQL
         working-directory: pg_search/
-        run: |
-          cargo pgrx start pg${{ env.pg_version }}
+        run: cargo pgrx start pg${{ env.pg_version }}
 
       - name: Configure PostgreSQL settings and machine settings
         working-directory: /home/runner/.pgrx/data-${{ env.pg_version }}/
@@ -272,66 +258,11 @@ jobs:
         working-directory: stressgres/
         run: CARGO_TARGET_DIR=../target/ cargo install --path .
 
-      # Runs default to 10 minutes, but can be configured to run for longer with the `duration` input.
-      - name: Benchmark single-server.toml
+      # Each suite is its own matrix job, so a failure never skips later topologies.
+      - name: Benchmark ${{ matrix.suite }}
         uses: ./.github/actions/benchmark-stressgres
         with:
-          test_file: single-server.toml
-          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
-          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
-
-      - name: Benchmark bulk-updates.toml
-        uses: ./.github/actions/benchmark-stressgres
-        with:
-          test_file: bulk-updates.toml
-          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
-          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
-
-      - name: Benchmark wide-table.toml
-        uses: ./.github/actions/benchmark-stressgres
-        with:
-          test_file: wide-table.toml
-          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
-          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
-
-      - name: Benchmark background-merge.toml
-        uses: ./.github/actions/benchmark-stressgres
-        with:
-          test_file: background-merge.toml
-          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
-          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
-
-      - name: Benchmark logical-replication.toml
-        uses: ./.github/actions/benchmark-stressgres
-        with:
-          test_file: logical-replication.toml
-          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
-          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
-
-      - name: Benchmark logical-replication-merge.toml
-        uses: ./.github/actions/benchmark-stressgres
-        with:
-          test_file: logical-replication-merge.toml
+          test_file: ${{ matrix.suite }}
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
@@ -346,3 +277,14 @@ jobs:
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
           mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
           title: "${{ github.workflow }} Failed"
+
+  benchmark-pg_search-stressgres-result:
+    name: Run Stressgres Benchmark Jobs
+    if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && (github.event.label.name == 'benchmarks' || github.event.label.name == 'benchmark-stressgres')))
+    needs: benchmark-pg_search-stressgres
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every Stressgres suite to pass
+        env:
+          MATRIX_RESULT: ${{ needs.benchmark-pg_search-stressgres.result }}
+        run: test "$MATRIX_RESULT" = success

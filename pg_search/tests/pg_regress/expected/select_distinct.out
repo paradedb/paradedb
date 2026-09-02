@@ -286,9 +286,9 @@ WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column dist_products.na
  Office Laptop
 (3 rows)
 
--- With paradedb.check_aggregate_scan = false the decline warning must be
+-- With paradedb.planner_warnings = 'off' the decline warning must be
 -- suppressed; the query still runs correctly via native PG.
-SET paradedb.check_aggregate_scan = false;
+SET paradedb.planner_warnings = 'off';
 SELECT DISTINCT name
 FROM dist_products
 WHERE name @@@ 'laptop'
@@ -300,7 +300,7 @@ ORDER BY name;
  Office Laptop
 (3 rows)
 
-RESET paradedb.check_aggregate_scan;
+RESET paradedb.planner_warnings;
 -- =============================================================================
 -- TEST 6: DISTINCT ON - must fall back gracefully (DISTINCT ON is not supported)
 -- DISTINCT ON is not a plain GROUP BY and cannot be modelled as an aggregate.
@@ -336,9 +336,9 @@ WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT ON is not supported (ta
  Electronics | Gaming Laptop
 (2 rows)
 
--- With paradedb.check_aggregate_scan = false the decline warning must be
+-- With paradedb.planner_warnings = 'off' the decline warning must be
 -- suppressed; the query still runs correctly via native PG.
-SET paradedb.check_aggregate_scan = false;
+SET paradedb.planner_warnings = 'off';
 SELECT DISTINCT ON (category) category, name
 FROM dist_products
 WHERE name @@@ 'laptop OR keyboard'
@@ -349,7 +349,7 @@ ORDER BY category, name;
  Electronics | Gaming Laptop
 (2 rows)
 
-RESET paradedb.check_aggregate_scan;
+RESET paradedb.planner_warnings;
 -- =============================================================================
 -- TEST 7: DISTINCT with empty result set
 -- WHERE clause matches nothing; DISTINCT must return zero rows.
@@ -983,8 +983,8 @@ WHERE dp.name @@@ 'laptop OR jacket OR shoes'
 ORDER BY dp.category
 LIMIT 10;
 WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to volatile functions (tables: dp, dr)
-                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: dp.category
@@ -999,7 +999,7 @@ WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to volatile functions 
                  :       CooperativeExec
                  :         PgSearchScan: table=dr, segments=1, dynamic_filters=1, query="all"
                  :       CooperativeExec
-                 :         PgSearchScan: table=dp, segments=1, dynamic_filters=2, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(((id)::double precision + random()) > '0'::double precision)"}]}}]}}
+                 :         PgSearchScan: table=dp, segments=1, dynamic_filters=2, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(((id)::double precision + random()) > '0'::double precision)"}]}}]}}
 (15 rows)
 
 SELECT DISTINCT dp.category

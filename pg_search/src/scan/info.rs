@@ -198,7 +198,7 @@ pub struct ScanInfo {
     pub heap_rti: pg_sys::Index,
     /// The OID of the heap table.
     pub heaprelid: pg_sys::Oid,
-    /// The OID of the BM25 index (if this scan has one).
+    /// The OID of the ParadeDB index (if this scan has one).
     pub indexrelid: pg_sys::Oid,
     /// Whether this scan has a search predicate (uses @@@ operator).
     pub has_search_predicate: bool,
@@ -213,7 +213,7 @@ pub struct ScanInfo {
     /// The fields that need to be extracted from the index.
     /// Populated during planning via `collect_required_fields`.
     pub fields: Vec<FieldInfo>,
-    /// The partitioning configuration of the BM25 index, if it was created with `partition_by`.
+    /// The partitioning configuration of the ParadeDB index, if it was created with `partition_by`.
     pub partition_by: Vec<FieldName>,
     /// Estimated number of rows matching the query.
     /// Used to decide which table to partition in parallel joins.

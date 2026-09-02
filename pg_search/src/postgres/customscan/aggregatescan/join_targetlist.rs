@@ -181,7 +181,7 @@ pub struct AggOrderByEntry {
     /// 1-based attribute number in the source relation's tuple descriptor.
     /// Load-bearing for fast-field projection.
     pub attno: pg_sys::AttrNumber,
-    /// Resolved field name (from the BM25 index schema).
+    /// Resolved field name (from the ParadeDB index schema).
     pub field_name: String,
     /// Sort direction including NULLS FIRST/LAST.
     pub direction: crate::api::SortDirection,
@@ -463,9 +463,7 @@ pub unsafe fn extract_aggregate_targetlist(
             };
 
             // Reject pdb.agg()
-            let pdb_agg_oid = crate::api::agg_funcoid().to_u32();
-            let pdb_agg_mvcc_oid = crate::api::agg_with_solve_mvcc_funcoid().to_u32();
-            if aggfnoid == pdb_agg_oid || aggfnoid == pdb_agg_mvcc_oid {
+            if crate::api::is_agg_funcoid(aggfnoid) {
                 return Err(
                     "pdb.agg() is not supported on joins - use standard SQL aggregates (COUNT, SUM, AVG, MIN, MAX)".into()
                 );

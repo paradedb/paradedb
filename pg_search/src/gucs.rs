@@ -25,15 +25,28 @@ use std::num::NonZeroUsize;
 use tantivy::aggregation::DEFAULT_BUCKET_LIMIT;
 
 use crate::postgres::options::MAX_MUTABLE_SEGMENT_ROWS;
+use crate::postgres::options::MAX_TARGET_SEGMENT_COUNT;
+
+#[derive(pgrx::PostgresGucEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum PlannerWarnings {
+    Off,
+    #[default]
+    Warning,
+    Error,
+}
 
 /// Allows the user to toggle the use of our "ParadeDB Base Scan".
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Allows the user to toggle bitmap intersection with non-ParadeDB indexes.
+static ENABLE_BITMAP_INTERSECTION: GucSetting<bool> = GucSetting::<bool>::new(true);
+
 /// Allows the user to toggle the use of our "ParadeDB Aggregate Scan".
 static ENABLE_AGGREGATE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-/// Validate aggregate scan eligibility
-static CHECK_AGGREGATE_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
+/// Controls the behavior of ParadeDB planner warnings when an optimized scan cannot be used
+static PLANNER_WARNINGS: GucSetting<PlannerWarnings> =
+    GucSetting::<PlannerWarnings>::new(PlannerWarnings::Warning);
 
 /// Allows the user to toggle the use of our "ParadeDB Join Scan".
 static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
@@ -66,6 +79,13 @@ static MAX_TOPK_CHUNK_SIZE: GucSetting<i32> = GucSetting::<i32>::new(100_000);
 
 /// The maximum number of buckets that can be returned by a TermsAggregation
 static MAX_TERM_AGG_BUCKETS: GucSetting<i32> = GucSetting::<i32>::new(DEFAULT_BUCKET_LIMIT as i32);
+
+/// Estimated matching row count below which `visibility => 'threshold'` applies
+/// transaction visibility checking. At or above it, the aggregate reads raw index
+/// data. Small result sets are where an unvacuumed dead tuple visibly skews the
+/// answer, so those keep the checks; large ones trade a negligible error margin
+/// for the scan.
+static VISIBILITY_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(10_000);
 
 /// The maximum response size in bytes for a window aggregate.
 static MAX_WINDOW_AGGREGATE_RESPONSE_BYTES: GucSetting<i32> = GucSetting::<i32>::new(1_048_576);
@@ -102,9 +122,6 @@ static GLOBAL_TARGET_SEGMENT_COUNT: GucSetting<i32> = GucSetting::<i32>::new(0);
 static GLOBAL_ENABLE_BACKGROUND_MERGING: GucSetting<bool> = GucSetting::<bool>::new(true);
 static GLOBAL_MUTABLE_SEGMENT_ROWS: GucSetting<i32> = GucSetting::<i32>::new(-1);
 static EXPLAIN_RECURSIVE_ESTIMATES: GucSetting<bool> = GucSetting::<bool>::new(false);
-
-/// Validate Top K scan eligibility for LIMIT queries
-static CHECK_TOPK_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// When true, queries with expensive scorer construction (fuzzy, regex, range)
 /// use a cheap heuristic for selectivity estimation instead of building a full Tantivy scorer.
@@ -297,12 +314,21 @@ pub fn init() {
     );
 
     GucRegistry::define_bool_guc(
-        c"paradedb.check_aggregate_scan",
-        c"Validate Aggregate scan eligibility",
-        c"When enabled, logs a warning if a query expected to use the aggregate scan cannot. \
-          This helps detect performance issues during development where queries expected \
-          to use the aggregate scan fall back to slower execution methods.",
-        &CHECK_AGGREGATE_SCAN,
+        c"paradedb.enable_bitmap_intersection",
+        c"Enable intersecting ParadeDB scans with bitmaps from other indexes",
+        c"When enabled (default), a ParadeDB scan whose query carries heap-filter predicates covered by another index (btree, GiST, GIN) builds that index's bitmap and prunes documents against it before touching the heap.",
+        &ENABLE_BITMAP_INTERSECTION,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_enum_guc(
+        c"paradedb.planner_warnings",
+        c"Controls the behavior of ParadeDB planner warnings when an optimized scan cannot be used",
+        c"When set to 'warning' (default), logs a warning if a query expected to use an optimized \
+          scan (BaseScan / Top K, AggregateScan, or JoinScan) cannot. When set to 'error', raises \
+          an error instead. When set to 'off', suppresses checks and warnings.",
+        &PLANNER_WARNINGS,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -319,7 +345,7 @@ pub fn init() {
     GucRegistry::define_bool_guc(
         c"paradedb.enable_range_partitioned_join",
         c"Allows the user to enable or disable range co-partitioned joins",
-        c"When enabled, DataFusion optimizer rules sample and co-partition inner joins across tables. Note that participating tables must also have a partition_by index option defined. Default is false.",
+        c"When enabled, DataFusion optimizer rules co-partition inner joins across tables on the split points a partitioned build recorded. Both tables must define partition_by on the join key. An index created empty records no split points until it is reindexed. Default is false.",
         &ENABLE_RANGE_PARTITIONED_JOIN,
         GucContext::Userset,
         GucFlags::default(),
@@ -440,6 +466,17 @@ pub fn init() {
     );
 
     GucRegistry::define_int_guc(
+        c"paradedb.visibility_threshold",
+        c"Estimated matching row count below which `visibility => 'threshold'` applies transaction visibility checking",
+        c"An aggregate using `visibility => 'threshold'` applies MVCC visibility checking when the query's estimated matching row count is strictly less than this, and reads raw index data otherwise. Has no effect on `visibility => 'transaction'` or `visibility => 'raw'`.",
+        &VISIBILITY_THRESHOLD,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
         c"paradedb.max_window_aggregate_response_bytes",
         c"Maximum response size in bytes for a window aggregate.",
         c"The maximum response size in bytes for a window aggregate during a parallel scan. If this is exceeded, the query will be cancelled.",
@@ -456,7 +493,7 @@ pub fn init() {
         c"Setting this to a non-zero value ignores the `target_segment_count` property on all indexes in favor of this value",
         &GLOBAL_TARGET_SEGMENT_COUNT,
         0,
-        8192,
+        MAX_TARGET_SEGMENT_COUNT,
         GucContext::Sighup,
         GucFlags::default(),
     );
@@ -528,17 +565,6 @@ pub fn init() {
         c"for testing, ensures the same handling of null aggregates as Postgres",
         c"Meant for internal testing usage",
         &ADD_DOC_COUNT_TO_AGGS,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
-    GucRegistry::define_bool_guc(
-        c"paradedb.check_topk_scan",
-        c"Validate Top K scan eligibility for LIMIT queries",
-        c"When enabled, logs a warning if a query with LIMIT cannot use the Top K scan. \
-          This helps detect performance issues during development where queries expected \
-          to use the Top K optimization fall back to slower execution methods.",
-        &CHECK_TOPK_SCAN,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -736,8 +762,12 @@ pub fn enable_aggregate_custom_scan() -> bool {
     ENABLE_AGGREGATE_CUSTOM_SCAN.get()
 }
 
-pub fn check_aggregate_scan() -> bool {
-    CHECK_AGGREGATE_SCAN.get()
+pub fn enable_bitmap_intersection() -> bool {
+    ENABLE_BITMAP_INTERSECTION.get()
+}
+
+pub fn planner_warnings() -> PlannerWarnings {
+    PLANNER_WARNINGS.get()
 }
 
 pub fn enable_join_custom_scan() -> bool {
@@ -793,7 +823,7 @@ pub fn global_enable_background_merging() -> bool {
 }
 
 // NB:  MEMORY_BUDGET_NUM_BYTES_MIN comes from [`tantivy::index_writer::MEMORY_BUDGET_NUM_BYTES_MIN`], which is not publicly exposed
-mod limits {
+pub(crate) mod limits {
     const MARGIN_IN_BYTES: usize = 1_000_000;
     // Size of the margin for the `memory_arena`. A segment is closed when the remaining memory
     // in the `memory_arena` goes below MARGIN_IN_BYTES.
@@ -870,6 +900,10 @@ pub fn expensive_query_cost_factor() -> f64 {
     EXPENSIVE_QUERY_COST_FACTOR.get()
 }
 
+pub fn visibility_threshold() -> u64 {
+    VISIBILITY_THRESHOLD.get().max(0) as u64
+}
+
 pub fn max_term_agg_buckets() -> i32 {
     let v = MAX_TERM_AGG_BUCKETS.get();
     if v <= 0 {
@@ -897,10 +931,6 @@ pub fn global_mutable_segment_rows() -> Option<usize> {
 
 pub fn explain_recursive_estimates() -> bool {
     EXPLAIN_RECURSIVE_ESTIMATES.get()
-}
-
-pub fn check_topk_scan() -> bool {
-    CHECK_TOPK_SCAN.get()
 }
 
 pub fn enable_heuristic_selectivity() -> bool {

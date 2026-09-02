@@ -15,7 +15,7 @@
   "navigation": {
     "versions": [
       {
-        "version": "v0.25.4",
+        "version": "v0.25.6",
         "anchors": [
           {
             "anchor": "Documentation",
@@ -42,12 +42,6 @@
                       "documentation/getting-started/environment",
                       "documentation/getting-started/queries",
                       "documentation/getting-started/load"
-                    ]
-                  },
-                  {
-                    "group": "Migration",
-                    "pages": [
-                      "documentation/migration/elasticsearch-feature-comparison"
                     ]
                   },
                   {
@@ -150,7 +144,14 @@
                         ]
                       },
                       "documentation/sorting/topk",
-                      "documentation/filtering",
+                      {
+                        "group": "Filtering",
+                        "pages": [
+                          "documentation/filtering/overview",
+                          "documentation/filtering/indexed",
+                          "documentation/filtering/external-indexes"
+                        ]
+                      },
                       {
                         "group": "Aggregates",
                         "pages": [
@@ -206,104 +207,6 @@
             ]
           },
           {
-            "anchor": "Legacy Docs",
-            "icon": "hourglass",
-            "groups": [
-              {
-                "group": "Legacy Docs",
-                "pages": [
-                  {
-                    "group": "Indexing",
-                    "pages": [
-                      "legacy/indexing/create-index",
-                      "legacy/indexing/inspect-index"
-                    ]
-                  },
-                  {
-                    "group": "Field Configuration",
-                    "pages": [
-                      "legacy/indexing/field-options",
-                      "legacy/indexing/tokenizers",
-                      "legacy/indexing/token-filters",
-                      "legacy/indexing/fast-fields",
-                      "legacy/indexing/record"
-                    ]
-                  },
-                  {
-                    "group": "Full Text Search",
-                    "pages": [
-                      "legacy/full-text/overview",
-                      "legacy/full-text/boolean",
-                      "legacy/full-text/phrase",
-                      "legacy/full-text/filtering",
-                      "legacy/full-text/pagination",
-                      "legacy/full-text/scoring",
-                      "legacy/full-text/highlighting",
-                      "legacy/full-text/sorting",
-                      "legacy/full-text/boosting"
-                    ]
-                  },
-                  {
-                    "group": "Query Builder",
-                    "pages": [
-                      "legacy/advanced/overview",
-                      {
-                        "group": "Full Text Queries",
-                        "pages": ["legacy/advanced/full-text/match"]
-                      },
-                      {
-                        "group": "Term-Level Queries",
-                        "pages": [
-                          "legacy/advanced/term/exists",
-                          "legacy/advanced/term/fuzzy-term",
-                          "legacy/advanced/term/range",
-                          "legacy/advanced/term/range-term",
-                          "legacy/advanced/term/regex",
-                          "legacy/advanced/term/term",
-                          "legacy/advanced/term/term-set"
-                        ]
-                      },
-                      {
-                        "group": "Phrase-Level Queries",
-                        "pages": [
-                          "legacy/advanced/phrase/phrase",
-                          "legacy/advanced/phrase/phrase-prefix"
-                        ]
-                      },
-                      {
-                        "group": "JSON Queries",
-                        "pages": [
-                          "legacy/advanced/json/overview",
-                          "legacy/advanced/json/arrays",
-                          "legacy/advanced/json/range"
-                        ]
-                      },
-                      {
-                        "group": "Compound Queries",
-                        "pages": [
-                          "legacy/advanced/compound/overview",
-                          "legacy/advanced/compound/all",
-                          "legacy/advanced/compound/boolean",
-                          "legacy/advanced/compound/boost",
-                          "legacy/advanced/compound/const",
-                          "legacy/advanced/compound/disjunction-max",
-                          "legacy/advanced/compound/empty",
-                          "legacy/advanced/compound/parse"
-                        ]
-                      },
-                      {
-                        "group": "Specialized Queries",
-                        "pages": [
-                          "legacy/advanced/specialized/more-like-this"
-                        ]
-                      }
-                    ]
-                  }
-                ]
-              }
-            ]
-          },
-          {
             "anchor": "Deploy",
             "icon": "server",
             "groups": [
@@ -324,8 +227,8 @@
                     "pages": [
                       "deploy/cloud-platforms/railway",
                       "deploy/cloud-platforms/render",
-                      "deploy/cloud-platforms/digitalocean",
                       "deploy/cloud-platforms/fly",
+                      "deploy/cloud-platforms/digitalocean",
                       "deploy/cloud-platforms/dokku"
                     ]
                   },
@@ -345,7 +248,10 @@
                   "deploy/citus",
                   {
                     "group": "Continuous Integration",
-                    "pages": ["deploy/ci/github-actions", "deploy/ci/gitlab-ci"]
+                    "pages": [
+                      "deploy/ci/github-actions",
+                      "deploy/ci/gitlab-ci"
+                    ]
                   }
                 ]
               }
@@ -358,6 +264,8 @@
               {
                 "group": "Changelog",
                 "pages": [
+                  "changelog/0.25.6",
+                  "changelog/0.25.5",
                   "changelog/0.25.4",
                   "changelog/0.25.3",
                   "changelog/0.25.2",

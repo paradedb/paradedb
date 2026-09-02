@@ -97,5 +97,10 @@ await dbContext
 (1 row)
 ```
 
+<Note>
+  The `6-*` bucket was not requested: the range aggregation automatically
+  appends an unbounded bucket for values above the last range.
+</Note>
+
 See the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregation/bucket/struct.RangeAggregation.html)
 for all available options.

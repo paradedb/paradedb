@@ -26,7 +26,7 @@
 
 use super::join_targetlist::AggOrderByEntry;
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::index::mvcc::SegmentView;
+use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, JoinAggregateEntry, JoinAggregateTargetList,
 };
@@ -38,9 +38,7 @@ use crate::postgres::customscan::datafusion::translator::{
     ColumnMapper, PredicateTranslator, apply_join_level_filter, build_join_df, make_col,
     make_source_col,
 };
-use crate::postgres::customscan::joinscan::build::{
-    JoinLevelSearchPredicate, JoinSource, RelNode, RelationAlias,
-};
+use crate::postgres::customscan::joinscan::build::{JoinSource, RelNode, RelationAlias};
 use crate::postgres::customscan::joinscan::scan_state::{
     SessionContextProfile, create_datafusion_session_context, register_source_table,
 };
@@ -78,25 +76,23 @@ pub async fn build_join_aggregate_plan(
     plan: &RelNode,
     targetlist: &JoinAggregateTargetList,
     topk: Option<&DataFusionTopK>,
-    join_level_predicates: &[JoinLevelSearchPredicate],
     custom_exprs: *mut pg_sys::List,
     custom_scan_tlist: *mut pg_sys::List,
     having_filter: Option<&FilterExpr>,
     ctx: &SessionContext,
     expr_context: Option<*mut pg_sys::ExprContext>,
     planstate: Option<*mut pg_sys::PlanState>,
-    mpp_views: Option<&[SegmentView]>,
+    mpp_manifests: Option<&[SearchIndexManifest]>,
 ) -> Result<(datafusion::logical_expr::LogicalPlan, Vec<usize>)> {
     // Step 1: Build the join DataFrame from the RelNode tree
     let df = build_relnode_df(
         ctx,
         plan,
-        join_level_predicates,
         custom_exprs,
         custom_scan_tlist,
         expr_context,
         planstate,
-        mpp_views,
+        mpp_manifests,
     )
     .await?;
 
@@ -284,12 +280,11 @@ pub async fn build_join_aggregate_plan(
 fn build_relnode_df<'a>(
     ctx: &'a SessionContext,
     node: &'a RelNode,
-    join_level_predicates: &'a [JoinLevelSearchPredicate],
     custom_exprs: *mut pg_sys::List,
     custom_scan_tlist: *mut pg_sys::List,
     expr_context: Option<*mut pg_sys::ExprContext>,
     planstate: Option<*mut pg_sys::PlanState>,
-    mpp_views: Option<&'a [SegmentView]>,
+    mpp_manifests: Option<&'a [SearchIndexManifest]>,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
         match node {
@@ -301,7 +296,7 @@ fn build_relnode_df<'a>(
                     plan_position,
                     expr_context,
                     planstate,
-                    mpp_views,
+                    mpp_manifests,
                 )
                 .await?;
                 let alias =
@@ -312,23 +307,21 @@ fn build_relnode_df<'a>(
                 let left_df = build_relnode_df(
                     ctx,
                     &join.left,
-                    join_level_predicates,
                     custom_exprs,
                     custom_scan_tlist,
                     expr_context,
                     planstate,
-                    mpp_views,
+                    mpp_manifests,
                 )
                 .await?;
                 let right_df = build_relnode_df(
                     ctx,
                     &join.right,
-                    join_level_predicates,
                     custom_exprs,
                     custom_scan_tlist,
                     expr_context,
                     planstate,
-                    mpp_views,
+                    mpp_manifests,
                 )
                 .await?;
 
@@ -338,21 +331,13 @@ fn build_relnode_df<'a>(
                 let df = build_relnode_df(
                     ctx,
                     &filter.input,
-                    join_level_predicates,
                     custom_exprs,
                     custom_scan_tlist,
                     expr_context,
                     planstate,
-                    mpp_views,
+                    mpp_manifests,
                 )
                 .await?;
-
-                let has_predicates = !join_level_predicates.is_empty() || !custom_exprs.is_null();
-
-                if !has_predicates {
-                    // No predicates to apply — pass through
-                    return Ok(df);
-                }
 
                 let sources = filter.input.output_sources();
 
@@ -536,7 +521,7 @@ async fn build_source_df(
     plan_position: usize,
     expr_context: Option<*mut pg_sys::ExprContext>,
     planstate: Option<*mut pg_sys::PlanState>,
-    mpp_views: Option<&[SegmentView]>,
+    mpp_manifests: Option<&[SearchIndexManifest]>,
 ) -> Result<DataFrame> {
     let scan_info = source.scan_info.clone();
 
@@ -598,16 +583,18 @@ async fn build_source_df(
     // MPP-aware provider setup. Every source gets its segments sliced across PG
     // parallel workers via `parallel_state.checkout_segment_for_source(plan_position)`
     // when this is an MPP plan.
-    let source_idx = mpp_views.map(|_| plan_position);
+    let source_idx = mpp_manifests.map(|_| plan_position);
     let mut provider = PgSearchTableProvider::new(scan_info, fields, source_idx);
     // The leader claims segments out of the DSM pool the same manifests populate, so its own
-    // reader has to replay the same view. This plan never crosses the codec that injects the
-    // view for JoinScan, so do it here.
-    if let Some(views) = mpp_views {
-        let view = views.get(plan_position).unwrap_or_else(|| {
-            panic!("missing segment view for aggregate source at plan_position {plan_position}")
+    // reader is built from the source's manifest. This plan never crosses the codec that
+    // injects the manifest for JoinScan, so do it here.
+    if let Some(manifests) = mpp_manifests {
+        let manifest = manifests.get(plan_position).unwrap_or_else(|| {
+            panic!(
+                "missing captured manifest for aggregate source at plan_position {plan_position}"
+            )
         });
-        provider.set_segment_view(view.clone());
+        provider.set_manifest(manifest.clone());
     }
     if let crate::scan::ScanMode::Tagged { local_queries, .. } = &source.scan_info.mode {
         for tq in local_queries {

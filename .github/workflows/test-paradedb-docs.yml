@@ -113,8 +113,8 @@ jobs:
           echo "Checking that each file has title, description, and canonical URL..."
           missing_meta=0
           for file in $(find . -name "*.mdx" \
-            ! -path "./legacy/*" \
             ! -path "./changelog/*" \
+            ! -path "./snippets/*" \
             ! -path "./welcome/support.mdx"); do
 
             title=$(grep -E "^title:" "$file" || true)
@@ -153,7 +153,7 @@ jobs:
       - name: Install pgrx
         run: cargo install -j $(nproc) --locked cargo-pgrx --version "${{ steps.pgrx.outputs.version }}" --debug
 
-      - name: Initialize pgrx environment
+      - name: Initialize pgrx Environment
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=download" --configure-flag="--without-readline"
 
       - name: Add pgrx PostgreSQL binaries to PATH

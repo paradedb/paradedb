@@ -45,21 +45,19 @@ When you're ready to deploy, check out our [hosting options](https://www.paraded
 
 [ParadeDB](https://paradedb.com) upgrades Postgres with a custom index for fast full-text and vector search, BM25 scoring, filtering, and aggregations. Your application data and search engine live in one database, with no second system to deploy and nothing to sync.
 
-Vectors are currently indexed using the [pgvector](https://github.com/pgvector/pgvector) extension, but native vector support is coming to our search index soon.
-
 - [x] [Full-Text Search](https://www.paradedb.com/docs/documentation/full-text/overview)
   - [x] [BM25 Scoring](https://www.paradedb.com/docs/documentation/sorting/score)
   - [x] [Top K](https://www.paradedb.com/docs/documentation/sorting/topk)
   - [x] [Highlighting](https://www.paradedb.com/docs/documentation/full-text/highlight)
   - [x] [Tokenizers & Token Filters](https://www.paradedb.com/docs/documentation/tokenizers/overview)
+- [x] [Vector Search](https://www.paradedb.com/docs/documentation/vector/overview)
+- [x] [Hybrid Search](https://www.paradedb.com/docs/documentation/hybrid/overview)
 - [x] [Filtering](https://www.paradedb.com/docs/documentation/filtering)
 - [x] [Aggregates](https://www.paradedb.com/docs/documentation/aggregates/overview)
   - [x] [Columnar Storage](https://www.paradedb.com/docs/documentation/indexing/columnar)
   - [x] [Bucket & Metrics](https://www.paradedb.com/docs/documentation/aggregates/overview)
   - [x] [Facets](https://www.paradedb.com/docs/documentation/aggregates/facets)
 - [x] [JOINs](https://www.paradedb.com/docs/documentation/joins/overview)
-- [ ] Native Vector Search (coming soon)
-- [ ] Native Hybrid Search (coming soon)
 
 Star and watch this repository to follow along. See our [current projects](https://github.com/paradedb/paradedb/projects?query=is%3Aopen) and [long-term roadmap](https://www.paradedb.com/docs/welcome/roadmap).
 
@@ -68,7 +66,7 @@ Star and watch this repository to follow along. See our [current projects](https
 ParadeDB integrates battle-tested Rust libraries for search and analytics inside Postgres, contributing upstream whenever possible. Our primary dependencies are:
 
 - [pgrx](https://github.com/pgcentralfoundation/pgrx) — bridges Postgres and Rust
-- [Tantivy](https://github.com/quickwit-oss/tantivy) — powers full-text search
+- [Tantivy](https://github.com/quickwit-oss/tantivy) — powers full-text and vector search
 - [Apache DataFusion](https://github.com/apache/datafusion) — handles OLAP processing
 
 For a deeper dive, see our [architecture docs](https://www.paradedb.com/docs/welcome/architecture) or [CMU Database Group talk](https://db.cs.cmu.edu/events/building-blocks-paradedb-philippe-noel/).
@@ -96,8 +94,8 @@ ParadeDB integrates with the tools you already use, with more on the way.
 
 - [Railway](https://www.paradedb.com/docs/deploy/cloud-platforms/railway)
 - [Render](https://www.paradedb.com/docs/deploy/cloud-platforms/render)
-- [DigitalOcean](https://www.paradedb.com/docs/deploy/cloud-platforms/digitalocean)
 - [Fly.io](https://www.paradedb.com/docs/deploy/cloud-platforms/fly)
+- [DigitalOcean](https://www.paradedb.com/docs/deploy/cloud-platforms/digitalocean)
 - [Dokku](https://www.paradedb.com/docs/deploy/cloud-platforms/dokku)
 - More coming (Heroku, and others)
 

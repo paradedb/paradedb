@@ -650,7 +650,7 @@ where
 /// 1. The query has both ORDER BY and LIMIT clauses.
 /// 2. There are not too many sort columns.
 /// 3. All sort columns belong to the same relation.
-/// 4. That relation has a BM25 index.
+/// 4. That relation has a ParadeDB index.
 /// 5. All sort columns are sortable in the index (fast fields).
 ///
 /// This function must be kept in sync with [`extract_pathkey_styles_with_sortability_check`]

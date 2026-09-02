@@ -26,25 +26,21 @@ use datafusion::optimizer::{OptimizerConfig, OptimizerRule, optimizer::ApplyOrde
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::joins::{HashJoinExec, PartitionMode};
+use datafusion::physical_plan::repartition::RepartitionExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties, Partitioning};
-use tantivy::SegmentReader;
 
 use crate::api::FieldName;
-use crate::index::fast_fields_helper::FFType;
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::SearchIndexReader;
+use crate::index::stats::persisted_split_points;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
-use crate::query::SearchQueryInput;
-
-use crate::scan::range_partitioning::RangePartitioningSample;
+use crate::scan::range_partitioning::RangeSplitPoints;
 use crate::scan::table_provider::PgSearchTableProvider;
 
 /// Optimizer rule that coordinates range partitioning across a join.
 ///
 /// It detects when both sides of an equi-join are partitioned on matching column types,
-/// accesses the existing partition sample from one side, and injects that synchronized sample
+/// takes the split points a partitioned build stamped on either side, and injects them
 /// into the `PgSearchTableProvider`s of both sides. This guarantees that both sides of
 /// the join produce identical partition boundaries during MPP execution.
 #[derive(Debug, Default)]
@@ -248,20 +244,20 @@ where
     }
 }
 
-fn apply_sample_to_scan(
+fn apply_split_points_to_scan(
     mut scan: TableScan,
-    sample: &RangePartitioningSample,
+    points: &RangeSplitPoints,
 ) -> Result<Transformed<LogicalPlan>> {
     let Some(provider) = pg_search_provider_from_scan(&scan) else {
         return Ok(Transformed::no(LogicalPlan::TableScan(scan)));
     };
 
-    if provider.range_sample() == Some(sample) {
+    if provider.range_split_points() == Some(points) {
         return Ok(Transformed::no(LogicalPlan::TableScan(scan)));
     }
 
     let mut new_provider = provider.clone();
-    new_provider.with_range_partitioning(Some(sample.clone()));
+    new_provider.with_range_partitioning(Some(points.clone()));
 
     let new_source = Arc::new(DefaultTableSource::new(Arc::new(new_provider)))
         as Arc<dyn datafusion::logical_expr::TableSource>;
@@ -302,29 +298,29 @@ impl OptimizerRule for RangePartitioningRule {
                             Some((r_provider, r_field_name)),
                         ) = (l_res, r_res)
                         {
-                            let sample = merged_sample(
+                            let points = merged_split_points(
                                 l_provider,
                                 &l_field_name,
                                 r_provider,
                                 &r_field_name,
                             )?;
 
-                            if let Some(mut shared_sample) = sample {
-                                shared_sample.partition_by = l_field_name;
+                            if let Some(mut shared_points) = points {
+                                shared_points.partition_by = l_field_name;
                                 let left_res = map_scan_for_column(
                                     Arc::unwrap_or_clone(join.left.clone()),
                                     l_col,
-                                    &mut |scan| apply_sample_to_scan(scan, &shared_sample),
+                                    &mut |scan| apply_split_points_to_scan(scan, &shared_points),
                                 )?;
                                 if left_res.transformed {
                                     join.left = Arc::new(left_res.data);
                                 }
 
-                                shared_sample.partition_by = r_field_name;
+                                shared_points.partition_by = r_field_name;
                                 let right_res = map_scan_for_column(
                                     Arc::unwrap_or_clone(join.right.clone()),
                                     r_col,
-                                    &mut |scan| apply_sample_to_scan(scan, &shared_sample),
+                                    &mut |scan| apply_split_points_to_scan(scan, &shared_points),
                                 )?;
                                 if right_res.transformed {
                                     join.right = Arc::new(right_res.data);
@@ -357,23 +353,20 @@ fn named_field_arrow_type(
     })
 }
 
-/// Sorts points ascending so that `RangePartitioningSample::build` produces
-/// sequential ranges.
-fn sort_sample_points(points: &mut [PdbOwnedValue]) {
-    points.sort_unstable_by(PdbOwnedValue::total_cmp);
-}
-
-/// Samples both sides of the join and merges the two distributions, so the split
-/// points reflect the combined key space rather than one side's skew.
+/// The split points both sides of the join cut on.
 ///
-/// Returns `None` when the two key columns expose different arrow types: a shared
-/// sample could not describe both sides faithfully.
-fn merged_sample(
+/// Returns `None` when neither side has any, or when the two key columns expose different
+/// arrow types and one set could not describe both sides faithfully. Any split points
+/// partition a side correctly, and its segments are placed by their own statistics, so one
+/// side's points serve both: the larger side's, since that is the scan alignment saves the
+/// most on. A union of both sides' points would turn every nearly shared edge into a sliver
+/// partition.
+fn merged_split_points(
     l_provider: &PgSearchTableProvider,
     l_field: &FieldName,
     r_provider: &PgSearchTableProvider,
     r_field: &FieldName,
-) -> Result<Option<RangePartitioningSample>> {
+) -> Result<Option<RangeSplitPoints>> {
     let (Some(l_type), Some(r_type)) = (
         named_field_arrow_type(l_provider, l_field),
         named_field_arrow_type(r_provider, r_field),
@@ -384,79 +377,51 @@ fn merged_sample(
         return Ok(None);
     }
 
-    let mut sample = sample_fast_field(l_provider, l_field)?;
-    let r_sample = sample_fast_field(r_provider, r_field)?;
-    sample.sample_points.extend(r_sample.sample_points);
-    sort_sample_points(&mut sample.sample_points);
-    Ok(Some(sample))
+    let points = match (
+        side_split_points(l_provider, l_field)?,
+        side_split_points(r_provider, r_field)?,
+    ) {
+        (Some(l_points), Some(r_points)) => {
+            let l_rows = l_provider.scan_info.estimate.as_planner_estimate();
+            let r_rows = r_provider.scan_info.estimate.as_planner_estimate();
+            if r_rows > l_rows { r_points } else { l_points }
+        }
+        (Some(points), None) | (None, Some(points)) => points,
+        (None, None) => return Ok(None),
+    };
+    Ok(Some(RangeSplitPoints {
+        partition_by: l_field.clone(),
+        points,
+    }))
 }
 
-fn sample_fast_field(
+/// The split points a partitioned build stamped on the side's segments, sorted ascending, or
+/// `None` for an index without any.
+fn side_split_points(
     provider: &PgSearchTableProvider,
     partition_by: &FieldName,
-) -> Result<RangePartitioningSample> {
+) -> Result<Option<Vec<PdbOwnedValue>>> {
     let index_rel = PgSearchRelation::open(provider.scan_info.indexrelid);
-    // TODO: Reading the index during planning adds latency to DataFusion logical planning.
-    // This is a temporary situation for M1. In M2, we will migrate this sampling to
-    // something that happens prior to CREATE INDEX, or switch to using pg_statistic.
-    let reader = SearchIndexReader::open(
-        &index_rel,
-        SearchQueryInput::All,
-        false,
-        MvccSatisfies::LargestSegment,
-    )
-    .map_err(|e| DataFusionError::Internal(format!("Failed to open index for sampling: {e}")))?;
+    persisted_split_points(&index_rel, partition_by.as_ref())
+        .map_err(|e| DataFusionError::Internal(format!("Failed to read segment statistics: {e}")))
+}
 
-    let segment_readers = reader.segment_readers();
-    if segment_readers.is_empty() {
-        return Ok(RangePartitioningSample {
-            partition_by: partition_by.clone(),
-            sample_points: vec![],
-        });
+/// The input of a round-robin `RepartitionExec` over a range-partitioned plan, or `plan`
+/// itself.
+fn peel_round_robin(plan: Arc<dyn ExecutionPlan>) -> Arc<dyn ExecutionPlan> {
+    let Some(repartition) = plan.downcast_ref::<RepartitionExec>() else {
+        return plan;
+    };
+    let lifts_range = matches!(repartition.partitioning(), Partitioning::RoundRobinBatch(_))
+        && matches!(
+            repartition.input().output_partitioning(),
+            Partitioning::Range(_)
+        );
+    if lifts_range {
+        Arc::clone(repartition.input())
+    } else {
+        plan
     }
-
-    let largest_segment: &SegmentReader =
-        segment_readers.iter().max_by_key(|s| s.max_doc()).unwrap();
-
-    let max_doc = largest_segment.max_doc();
-    if max_doc == 0 {
-        return Ok(RangePartitioningSample {
-            partition_by: partition_by.clone(),
-            sample_points: vec![],
-        });
-    }
-
-    // TODO: Validate that all partition_by columns are fast fields at `CREATE INDEX` time.
-    let ff_type = FFType::new(largest_segment.fast_fields(), partition_by.as_ref());
-
-    let search_field_type = provider.fields.iter().find_map(|f| {
-        if let WhichFastField::Named(name, sft) = f
-            && name == partition_by.as_ref()
-        {
-            return Some(*sft);
-        }
-        None
-    });
-
-    let target_samples = std::cmp::min(512, max_doc as usize);
-    let step = (max_doc as f64) / (target_samples as f64);
-
-    let sample_doc_ids: Vec<u32> = (0..target_samples)
-        .map(|i| (i as f64 * step) as u32)
-        .collect();
-
-    let mut sample_points = Vec::with_capacity(sample_doc_ids.len());
-    for doc_id in sample_doc_ids {
-        let val = ff_type.value(doc_id, search_field_type);
-        sample_points.push(val.0);
-    }
-
-    sort_sample_points(&mut sample_points);
-
-    Ok(RangePartitioningSample {
-        partition_by: partition_by.clone(),
-        sample_points,
-    })
 }
 
 /// Physical optimizer rule that converts a `CollectLeft` inner hash join to
@@ -517,7 +482,12 @@ impl PhysicalOptimizerRule for RangeCoPartitionedJoinRule {
                 Some(coalesce) if coalesce.fetch().is_none() => Arc::clone(coalesce.input()),
                 _ => Arc::clone(join.left()),
             };
-            let right = Arc::clone(join.right());
+            // A range-partitioned scan seats only as many partitions as it has split points.
+            // When the session asks for more, EnforceDistribution lifts the scan with a
+            // round-robin repartition, which throws the range layout away. Peel it too: a
+            // co-partitioned join on fewer tasks beats a broadcast on more.
+            let left = peel_round_robin(left);
+            let right = peel_round_robin(Arc::clone(join.right()));
 
             let range_partitioned = |input: &Arc<dyn ExecutionPlan>| {
                 matches!(input.output_partitioning(), Partitioning::Range(_))

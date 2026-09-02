@@ -40,8 +40,8 @@ AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c))
 ORDER BY id DESC
 LIMIT 26;
 WARNING:  Aggregate Scan (DataFusion) not used: OR-nested subquery cannot be pushed into the aggregate scan (table: p)
-                                                                                                                                                   QUERY PLAN                                                                                                                                                   
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                   QUERY PLAN                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.full_name, ((p.full_name IS NULL)), p.linkedin_followers, ((p.linkedin_followers IS NULL)), p.seniority_slug, ((p.seniority_slug IS NULL))
    ->  Sort
@@ -66,7 +66,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: OR-nested subquery cannot be pus
                              :       HashJoinExec: mode=CollectLeft, join_type=LeftMark, on=[(company_id@1, id@0)]
                              :         VisibilityFilterExec: tables=[p]
                              :           CooperativeExec
-                             :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
+                             :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
                              :         CooperativeExec
                              :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query="all"
 (27 rows)
@@ -104,8 +104,8 @@ AND p.seniority_slug IN ('manager', 'director')
 AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c));
 WARNING:  Aggregate Scan (DataFusion) not used: OR-nested subquery cannot be pushed into the aggregate scan (table: p)
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: c, p)
-                                                                                                                       QUERY PLAN                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Unique
    Output: p.id, ((p.full_name IS NULL))
    ->  Sort
@@ -119,7 +119,7 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: c,
                Worker Selection: Row-capped
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
+               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"always_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
                SubPlan 1
                  ->  Seq Scan on public.companies c
                        Output: c.id

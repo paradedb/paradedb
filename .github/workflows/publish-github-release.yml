@@ -1,8 +1,11 @@
 # workflows/publish-github-release.yml
 #
 # Publish GitHub Release
-# Publish a ParadeDB GitHub Release, which triggers the entire release process. This workflow
-# is always triggered manually via the GitHub Actions UI and deploys the branch that it is being run from.
+# Orchestrates fragment assembly, version syncing, and publishes a ParadeDB GitHub Release.
+# This workflow is triggered manually via the GitHub Actions UI and deploys the branch that it is being run from.
+#
+# Conditionals checking for `paradedb/paradedb` ensure that mutable steps (e.g., artifact assembly,
+# version bumps, and commits) only run on the community repository. See RELEASE.md for details.
 
 name: Publish GitHub Release
 
@@ -10,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The version to release, in semver format (e.g. 0.22.0). This must match the version in Cargo.toml."
+        description: "The version to release, in semver format (e.g. 0.22.0)."
         type: string
         required: true
         default: ""
@@ -19,11 +22,6 @@ on:
         type: boolean
         required: false
         default: false
-      confirmation:
-        description: "I confirm that the version was incremented, the SQL upgrade script was written, and the docs and changelog were updated. Defaults to false."
-        type: boolean
-        required: true
-        default: false
 
 concurrency:
   group: publish-github-release-${{ github.head_ref || github.ref }}
@@ -31,6 +29,7 @@ concurrency:
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   publish-github-release:
@@ -38,26 +37,25 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Confirm the Pre-Release Checklist Was Completed
-        run: |
-          echo "Confirmation: ${{ github.event.inputs.confirmation }}"
-          if [[ "${{ github.event.inputs.confirmation }}" == "true" ]]; then
-            echo "Thank you for confirming that the version was incremented, the SQL upgrade script was written, and the docs and changelog were updated."
-          else
-            echo "Confirmation failed! Please confirm that the version was incremented, the SQL upgrade script was written, and the docs and changelog were updated."
-            exit 1
-          fi
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
 
       - name: Checkout Git Repository
         uses: actions/checkout@v7
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
 
-      # We confirm that if the release type is beta, the version in Cargo.toml matches with "-rc.X", and that the
-      # version provided matches the version in Cargo.toml. If the user forgot to increment the version, they will
-      # need to do it in a PR, which will trigger the workflow test_pg_search-upgrade.yml, ensuring that the upgrade is tested.
-      - name: Validate Cargo.toml Version Matches Release Type
+      - name: Validate Inputs and Setup
+        id: validate
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          echo "start_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
           echo "Checking for existing release..."
           if gh release view v${{ github.event.inputs.version }} > /dev/null 2>&1; then
             echo "Release v${{ github.event.inputs.version }} already exists. All releases must be unique."
@@ -66,119 +64,210 @@ jobs:
           echo "Release check passed!"
 
           if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
-            echo "Validating that the version in Cargo.toml contains "-rc.X"..."
+            echo "Validating that the version contains '-rc.X'..."
             if [[ "${{ github.event.inputs.version }}" != *"-rc."* ]]; then
-              echo "Version (${{ github.event.inputs.version }}) does not contain "-rc.X" but is marked as a beta release."
+              echo "Version (${{ github.event.inputs.version }}) does not contain '-rc.X' but is marked as a beta release."
               exit 1
             fi
+            echo "Beta release: skipping branch prefix checks (can be run from any branch/commit)."
           else
-            echo "Validating that the version in Cargo.toml does not contain "-rc.X"..."
+            echo "Validating that the version does not contain '-rc.X'..."
             if [[ "${{ github.event.inputs.version }}" == *"-rc."* ]]; then
-              echo "Version (${{ github.event.inputs.version }}) contains "-rc.X" but is not marked as a beta release."
+              echo "Version (${{ github.event.inputs.version }}) contains '-rc.X' but is not marked as a beta release."
+              exit 1
+            fi
+
+            if [[ "${{ github.ref_name }}" == "main" ]]; then
+              echo "Validating that the version is a minor release on the main branch..."
+              if [[ ! "${{ github.event.inputs.version }}" =~ ^[0-9]+\.[0-9]+\.0$ ]]; then
+                echo "On releases of the 'main' branch, releases must be minor (patch = 0)."
+                echo "Provided version '${{ github.event.inputs.version }}' is not a minor release."
+                exit 1
+              fi
+            elif [[ "${{ github.ref_name }}" =~ ^([0-9]+\.[0-9]+)\.x$ ]]; then
+              BRANCH_PREFIX="${BASH_REMATCH[1]}"
+              echo "Validating that version matches stable branch '${BRANCH_PREFIX}.x'..."
+              if [[ ! "${{ github.event.inputs.version }}" =~ ^${BRANCH_PREFIX}\.[0-9]+$ ]]; then
+                echo "❌ Error: On stable branch '${{ github.ref_name }}', version must match '${BRANCH_PREFIX}.<patch>'."
+                echo "Provided version '${{ github.event.inputs.version }}' does not match."
+                exit 1
+              fi
+            else
+              echo "❌ Error: Full releases must be triggered from 'main' or a stable branch ('<major>.<minor>.x')."
+              echo "Current ref '${{ github.ref_name }}' is not a valid release branch."
               exit 1
             fi
           fi
+          echo "Input validation passed!"
 
-          CARGO_VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
-          echo "Validating that the version in Cargo.toml matches the upcoming version..."
-          if [[ "${{ github.event.inputs.version }}" != "$CARGO_VERSION" ]]; then
-            echo "Version in top-level Cargo.toml ($CARGO_VERSION) does not match upcoming version (${{ github.event.inputs.version }})."
-            exit 1
-          fi
-          if [[ "${{ github.ref_name }}" == "main" ]]; then
-            echo "Validating that the version is a minor release on the main branch..."
-            if [[ ! "${{ github.event.inputs.version }}" =~ ^[0-9]+\.[0-9]+\.0(-rc\.[0-9]+)?$ ]]; then
-              echo "On releases of the 'main' branch, releases must be minor (patch = 0)."
-              echo "Provided version '${{ github.event.inputs.version }}' is not a minor release."
-              exit 1
-            fi
-          fi
-          echo "Version check passed!"
+      - name: Install Rust
+        if: github.repository == 'paradedb/paradedb'
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
+          rustflags: ""
 
-      - name: Validate the SQL Upgrade Script Exists
-        working-directory: pg_search/sql/
+      - name: Install Determinate Nix
+        if: github.repository == 'paradedb/paradedb'
+        uses: DeterminateSystems/determinate-nix-action@main
+
+      - name: Assemble Release Artifacts
+        if: github.repository == 'paradedb/paradedb'
         run: |
-          set -euo pipefail
-
-          target_version="${{ github.event.inputs.version }}"
-          echo "Original target version: ${target_version}"
-
-          # Strip prerelease suffixes like -rc.1, -beta.2, etc.
-          stripped_version="${target_version%%-*}"
-
-          echo "Normalized target version (without prerelease tag): ${stripped_version}"
-          echo "Looking for SQL upgrade scripts targeting version: ${stripped_version}"
-
-          # Enable nullglob so an empty glob expands to nothing
-          shopt -s nullglob
-
-          matches=(pg_search--*--"${stripped_version}".sql)
-
-          if (( ${#matches[@]} == 0 )); then
-            echo "❌ No SQL upgrade script found for version ${stripped_version} in $(pwd)."
-            echo "Expected at least one file named: pg_search--<past-version>--${stripped_version}.sql"
-            exit 1
+          FLAGS=""
+          if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
+            FLAGS="--preserve-fragments --beta"
           fi
+          ./scripts/release.sh all "${{ github.event.inputs.version }}" $FLAGS
 
-          echo "✅ Found SQL upgrade script(s):"
-          for f in "${matches[@]}"; do
-            echo " - ${f}"
-          done
+      - name: Update Cargo Version, Lockfile, and Nix Hash
+        if: github.repository == 'paradedb/paradedb'
+        run: |
+          ./scripts/release.sh set-version "${{ github.event.inputs.version }}"
 
       - name: Determine if Release Should be Marked as Latest
         id: release_latest
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Beta releases should never be the latest release
+          FLAGS=""
           if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
-            echo "is_latest=false" >> $GITHUB_OUTPUT
-            exit 0
+            FLAGS="--beta"
           fi
+          IS_LATEST=$(./scripts/release.sh is-latest "${{ github.event.inputs.version }}" $FLAGS)
+          echo "is_latest=${IS_LATEST}"
+          echo "is_latest=${IS_LATEST}" >> $GITHUB_OUTPUT
 
-          current_tag_version="${{ github.event.inputs.version }}"
-          latest_tag_version=$(gh release list --jq '.[] | select(.isLatest == true) | .name' --json=name,isLatest | sed 's/^v//')
-          echo "Current latest release is $latest_tag_version"
-          echo "Current version to be released is $current_tag_version"
+      - name: Prepare Approval Details
+        if: github.event.inputs.beta != 'true'
+        id: approval_details
+        run: |
+          ./scripts/release.sh approval-body "${{ github.event.inputs.version }}" \
+            --branch "${{ github.ref_name }}" \
+            --output-file /tmp/approval-body.md
+          {
+            echo "issue_body<<EOF"
+            cat /tmp/approval-body.md
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          cat /tmp/approval-body.md >> "$GITHUB_STEP_SUMMARY"
 
-          echo ""
-          echo "Install semver CLI via npm to compare versions..."
-          npm install semver
-
-          echo ""
-          echo "Comparing versions to determine if the current version is the latest..."
-          if npx semver -r ">$latest_tag_version" "$current_tag_version"; then
-            echo "is_latest=true"
-            echo "is_latest=true" >> $GITHUB_OUTPUT
-          else
-            echo "is_latest=false"
-            echo "is_latest=false" >> $GITHUB_OUTPUT
-          fi
-
-      # Create the tag ref ourselves, using the GitHub App token, BEFORE
-      # calling softprops/action-gh-release. Since v2.5.0, that action publishes releases
-      # via a draft-first flow where the tag ref is created as a side effect of the
-      # publish API call, which does not emit a cascading `push` event — so our downstream
-      # `publish-*` workflows (triggered on `push: tags: v*`) never fire. Pushing the tag
-      # ref directly with the app token here ensures the push event is attributed to the app and
-      # cascades to the downstream workflows. The subsequent release-creation step then
-      # attaches the release to the already-existing tag.
-      - name: Generate GitHub App Token
-        id: app-token
-        uses: actions/create-github-app-token@v3.2.0
+      - name: Manual Approval Before Release
+        if: github.event.inputs.beta != 'true'
+        uses: trstringer/manual-approval@v1
         with:
-          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
-          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+          secret: ${{ steps.app-token.outputs.token }}
+          approvers: pg_search-maintainers
+          minimum-approvals: 1
+          issue-title: "Release v${{ github.event.inputs.version }}?"
+          issue-body: ${{ steps.approval_details.outputs.issue_body }}
 
-      - name: Create Tag
+      - name: Commit Release Artifacts
+        if: github.repository == 'paradedb/paradedb'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
+          git config user.name "paradedb-github-app[bot]"
+          git config user.email "282009505+paradedb-github-app[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: Prepare \`${{ github.event.inputs.version }}\`."
+          RELEASE_SHA=$(git rev-parse HEAD)
+
+          if [[ "${{ github.event.inputs.beta }}" != "true" ]]; then
+            # Verify remote branch has not advanced before pushing release commit
+            git fetch origin ${{ github.ref_name }}
+            REMOTE_SHA=$(git rev-parse origin/${{ github.ref_name }})
+            START_SHA="${{ steps.validate.outputs.start_sha }}"
+            if [[ "$REMOTE_SHA" != "$START_SHA" ]]; then
+              echo "❌ Error: Remote branch '${{ github.ref_name }}' has advanced ($START_SHA -> $REMOTE_SHA) since this release workflow started."
+              echo "New commits/fragments may have landed on the branch. Aborting release so all changes can be cleanly included."
+              exit 1
+            fi
+            git push origin HEAD:${{ github.ref_name }}
+          else
+            echo "Beta release: skipping push of release commit to branch '${{ github.ref_name }}'."
+          fi
+
+      - name: Create Tag
+        run: |
+          TAG="v${{ github.event.inputs.version }}"
+          echo "Creating and pushing tag ${TAG}..."
+          git tag "$TAG"
+          git push origin "$TAG"
+
+      - name: Sync Release Artifacts to Main
+        if: github.repository == 'paradedb/paradedb' && github.ref_name != 'main' && github.event.inputs.beta != 'true'
+        run: |
+          RELEASE_VERSION="${{ github.event.inputs.version }}"
+          CLEAN_VERSION="${RELEASE_VERSION%%-*}"
+          IS_LATEST="${{ steps.release_latest.outputs.is_latest }}"
+
+          # Record newly created release files and consumed fragment paths from the release commit
+          NEW_SQL="pg_search/sql/pg_search--*--${CLEAN_VERSION}.sql"
+          NEW_CHANGELOG="docs/changelog/${CLEAN_VERSION}.mdx"
+          DOCS_SNIPPET="docs/snippets/version.mdx"
+          DELETED_FRAGMENTS=$(git diff HEAD~1 --diff-filter=D --name-only -- 'pg_search/sql/unreleased/' 'docs/changelog/unreleased/')
+
+          echo "Switching to main branch to sync release artifacts..."
+          git fetch origin main:main
+          git checkout main
+
+          echo "Checking out assembled release files from the release commit..."
+          if [[ "$IS_LATEST" == "true" ]]; then
+            git checkout "${{ github.ref_name }}" -- ${NEW_SQL} ${NEW_CHANGELOG} ${DOCS_SNIPPET}
+          else
+            git checkout "${{ github.ref_name }}" -- ${NEW_SQL} ${NEW_CHANGELOG}
+          fi
+
+          if [[ -n "$DELETED_FRAGMENTS" ]]; then
+            echo "Removing consumed fragments from main..."
+            echo "$DELETED_FRAGMENTS" | while read -r fragment; do
+              if [[ -f "$fragment" ]]; then
+                echo " - Removing $fragment"
+                rm -f "$fragment"
+              fi
+            done
+          fi
+
+          echo "Registering ${CLEAN_VERSION} in docs/docs.json on main (is_latest=${IS_LATEST})..."
+          if [[ "$IS_LATEST" == "true" ]]; then
+            ./scripts/release.sh changelog "${CLEAN_VERSION}" --register-only --is-latest
+          else
+            ./scripts/release.sh changelog "${CLEAN_VERSION}" --register-only --no-is-latest
+          fi
+
+          git config user.name "paradedb-github-app[bot]"
+          git config user.email "282009505+paradedb-github-app[bot]@users.noreply.github.com"
+          git add -A
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: Sync \`${RELEASE_VERSION}\` release artifacts to main."
+            git push origin main
+            echo "✅ Successfully synced release artifacts to main."
+          else
+            echo "No changes needed on main."
+          fi
+
+          # Switch back to the release branch for tagging and release creation
+          git checkout "${{ github.ref_name }}"
+
+      - name: Create Stable Branch
+        if: github.ref_name == 'main' && github.event.inputs.beta != 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          MAJOR_MINOR=$(echo "$VERSION" | awk -F. '{print $1"."$2}')
+          STABLE_BRANCH="${MAJOR_MINOR}.x"
           sha=$(git rev-parse HEAD)
-          echo "Creating tag v${{ github.event.inputs.version }} pointing at $sha"
-          gh api -X POST "repos/${{ github.repository }}/git/refs" \
-            -f ref="refs/tags/v${{ github.event.inputs.version }}" \
-            -f sha="$sha"
+
+          echo "Checking if stable branch refs/heads/${STABLE_BRANCH} exists..."
+          if ! gh api "repos/${{ github.repository }}/git/ref/heads/${STABLE_BRANCH}" > /dev/null 2>&1; then
+            echo "Creating stable branch refs/heads/${STABLE_BRANCH} pointing at $sha"
+            gh api -X POST "repos/${{ github.repository }}/git/refs" \
+              -f ref="refs/heads/${STABLE_BRANCH}" \
+              -f sha="$sha"
+            echo "✅ Created stable branch ${STABLE_BRANCH}"
+          else
+            echo "ℹ️ Stable branch ${STABLE_BRANCH} already exists."
+          fi
 
       # The tag_name will have "-rc.X" suffix and be marked as a prerelease for beta releases,
       # and no suffix and marked as a full release for prod releases. The tag has already been

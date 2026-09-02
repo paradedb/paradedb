@@ -7,35 +7,46 @@ Stressgres is a stress-testing tool for ParadeDB and standard PostgreSQL, featur
 - Run the interactive UI against a suite:
 
 ```bash
-cargo run -p stressgres -- ui stressgres/suites/vanilla-postgres.toml
+cargo run -p stressgres -- ui stressgres/suites/single-node-planner-paths.toml
 ```
 
 - Run headless mode with logging:
 
 ```bash
-cargo run -p stressgres -- headless stressgres/suites/vanilla-postgres.toml --runtime=300000 --log-file=logs/test.log
+cargo run -p stressgres -- headless stressgres/suites/single-node-planner-paths.toml --runtime=300000 --log-file=logs/test.log
 ```
 
 - Run headless mode tolerating transient database faults (e.g. under Antithesis)
 
 ```bash
-cargo run -p stressgres -- headless stressgres/suites/vanilla-postgres.toml --runtime=300000 --reconnect-grace=30000
+cargo run -p stressgres -- headless stressgres/suites/single-node-planner-paths.toml --runtime=300000 --reconnect-grace=30000
 ```
 
 - Run a suite against a throwaway Postgres cluster built from a given `pg_config`:
 
 ```bash
-cargo run -p stressgres -- auto /path/to/pg_config stressgres/suites/vanilla-postgres.toml /tmp/stressgres-data --runtime 300000
+cargo run -p stressgres -- auto /path/to/pg_config stressgres/suites/single-node-planner-paths.toml /tmp/stressgres-data --runtime 300000
 ```
 
-Suites are TOML files in `stressgres/suites/`. The `vanilla-postgres.toml` suite exercises baseline Postgres features and works with any PostgreSQL-compatible server.
+Suites are TOML files in `stressgres/suites/`. Each suite describes a planner workload or PostgreSQL topology exercised by Stressgres.
+
+A job can verify its query plan once whenever Stressgres opens a connection. Use a
+string for one required fragment or an array when several nodes must be present;
+the checks are case-insensitive and run after `on_connect` settings:
+
+```toml
+[[jobs]]
+on_connect = "SET max_parallel_workers_per_gather = 0"
+sql = "SELECT id FROM test WHERE message ||| 'beer' LIMIT 10"
+sql_plan_contains = ["TopKScanExecState", "Custom Scan"]
+```
 
 ## Docker
 
 To run Stressgres from within Docker, use:
 
 ```bash
-docker run --rm paradedb/stressgres:latest /symbols/stressgres headless stressgres/suites/vanilla-postgres.toml
+docker run --rm paradedb/stressgres:latest /symbols/stressgres headless stressgres/suites/single-node-planner-paths.toml
 ```
 
 The source, including all suites, is included in the Docker image. The image prebuilds Stressgres at `/symbols/stressgres` and can run in air-gapped environments like Antithesis.

@@ -26,19 +26,17 @@
 use crate::api::{HashMap, MvccVisibility};
 use crate::postgres::customscan::datafusion::numeric_agg::decode_avg_blob;
 use crate::postgres::datetime::PostgresDateTime;
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::is_pgoid_datetime_type;
 use crate::schema::SearchFieldType;
 use arrow_array::cast::AsArray;
-use arrow_array::types::{
-    Date32Type, Float32Type, Float64Type, Int8Type, Int16Type, Int32Type, Int64Type,
-    TimestampMicrosecondType, UInt8Type, UInt16Type, UInt32Type, UInt64Type,
-};
 use arrow_array::{Array, ArrayRef, Int64Array, RecordBatch, UInt64Array, new_null_array};
-use arrow_schema::{DataType, Schema, SchemaRef, TimeUnit};
+use arrow_schema::{DataType, Schema, SchemaRef};
 use datafusion::common::Result;
 use decimal_bytes::Decimal;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::sync::Arc;
 use tantivy::aggregation::Key;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants, Aggregations};
@@ -714,124 +712,69 @@ impl PdbAggPlan {
     }
 }
 
-/// A bucket key or SQL group value read back from Arrow. `F64` holds the bit
-/// pattern so the value can be hashed.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-enum KeyValue {
-    Null,
-    Str(String),
-    I64(i64),
-    U64(u64),
-    F64(u64),
-    Bool(bool),
-    /// Decimal-bytes storage of a NUMERIC column, kept raw for hashing.
-    Bytes(Vec<u8>),
+/// A bucket key, SQL group value, or metric read back from Arrow.
+fn value_at(col: &ArrayRef, row: usize) -> PdbOwnedValue {
+    PdbOwnedValue::from_arrow(col.as_ref(), row)
+        .unwrap_or_else(|| panic!("BUG: unsupported pdb.agg value type {}", col.data_type()))
 }
 
-impl KeyValue {
-    fn read(col: &ArrayRef, row: usize) -> KeyValue {
-        if col.is_null(row) {
-            return KeyValue::Null;
+/// The value a NUMERIC key or metric stands for, as a number. Other values pass
+/// through.
+fn decode_numeric(value: PdbOwnedValue, field: &PdbAggFieldRef) -> PdbOwnedValue {
+    match (&field.field_type, &value) {
+        (SearchFieldType::Numeric64(_, scale), PdbOwnedValue::I64(v)) => {
+            PdbOwnedValue::F64(*v as f64 / 10f64.powi(*scale as i32))
         }
-        match col.data_type() {
-            DataType::Utf8 => KeyValue::Str(col.as_string::<i32>().value(row).to_string()),
-            DataType::LargeUtf8 => KeyValue::Str(col.as_string::<i64>().value(row).to_string()),
-            DataType::Utf8View => KeyValue::Str(col.as_string_view().value(row).to_string()),
-            DataType::Int8 => KeyValue::I64(col.as_primitive::<Int8Type>().value(row) as i64),
-            DataType::Int16 => KeyValue::I64(col.as_primitive::<Int16Type>().value(row) as i64),
-            DataType::Int32 => KeyValue::I64(col.as_primitive::<Int32Type>().value(row) as i64),
-            DataType::Int64 => KeyValue::I64(col.as_primitive::<Int64Type>().value(row)),
-            DataType::UInt8 => KeyValue::U64(col.as_primitive::<UInt8Type>().value(row) as u64),
-            DataType::UInt16 => KeyValue::U64(col.as_primitive::<UInt16Type>().value(row) as u64),
-            DataType::UInt32 => KeyValue::U64(col.as_primitive::<UInt32Type>().value(row) as u64),
-            DataType::UInt64 => KeyValue::U64(col.as_primitive::<UInt64Type>().value(row)),
-            DataType::Float32 => {
-                KeyValue::F64((col.as_primitive::<Float32Type>().value(row) as f64).to_bits())
-            }
-            DataType::Float64 => {
-                KeyValue::F64(col.as_primitive::<Float64Type>().value(row).to_bits())
-            }
-            DataType::Boolean => KeyValue::Bool(col.as_boolean().value(row)),
-            DataType::Timestamp(TimeUnit::Microsecond, _) => {
-                KeyValue::I64(col.as_primitive::<TimestampMicrosecondType>().value(row))
-            }
-            // A `GROUP BY DATE()` key. SQL group keys are only hashed, never
-            // rendered, so the day number is enough.
-            DataType::Date32 => KeyValue::I64(col.as_primitive::<Date32Type>().value(row) as i64),
-            DataType::Binary | DataType::LargeBinary | DataType::BinaryView => {
-                KeyValue::Bytes(bytes_at(col, row).to_vec())
-            }
-            other => panic!("BUG: unsupported pdb.agg group key type {other}"),
+        (SearchFieldType::NumericBytes(..), PdbOwnedValue::Bytes(bytes)) => {
+            decimal_bytes_to_f64(bytes)
+                .map(PdbOwnedValue::F64)
+                .unwrap_or(PdbOwnedValue::Null)
         }
+        _ => value,
     }
+}
 
-    /// The value a NUMERIC key stands for, as a number. Other keys pass through.
-    fn decode_numeric(self, field: &PdbAggFieldRef) -> KeyValue {
-        match (&field.field_type, &self) {
-            (SearchFieldType::Numeric64(_, scale), KeyValue::I64(v)) => {
-                KeyValue::F64((*v as f64 / 10f64.powi(*scale as i32)).to_bits())
-            }
-            (SearchFieldType::NumericBytes(..), KeyValue::Bytes(bytes)) => {
-                decimal_bytes_to_f64(bytes)
-                    .map(|v| KeyValue::F64(v.to_bits()))
-                    .unwrap_or(KeyValue::Null)
-            }
-            _ => self,
-        }
+/// A value as the number Tantivy reports for it: a timestamp as its
+/// microseconds, a boolean as 0 or 1.
+fn value_f64(value: &PdbOwnedValue) -> Option<f64> {
+    match value {
+        PdbOwnedValue::I64(v) => Some(*v as f64),
+        PdbOwnedValue::U64(v) => Some(*v as f64),
+        PdbOwnedValue::F64(v) => Some(*v),
+        PdbOwnedValue::Bool(b) => Some(f64::from(u8::from(*b))),
+        PdbOwnedValue::Date(d) => Some(d.into_inner() as f64),
+        _ => None,
     }
+}
 
-    fn as_f64(&self) -> Option<f64> {
-        match self {
-            KeyValue::Null => None,
-            KeyValue::Str(_) | KeyValue::Bytes(_) => None,
-            KeyValue::I64(v) => Some(*v as f64),
-            KeyValue::U64(v) => Some(*v as f64),
-            KeyValue::F64(bits) => Some(f64::from_bits(*bits)),
-            KeyValue::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
-        }
+/// Bucket order on keys. NULL sorts after every value, where the Tantivy
+/// backend's default `missing` sentinel lands.
+fn compare_keys(a: &PdbOwnedValue, b: &PdbOwnedValue) -> Ordering {
+    match (a, b) {
+        (PdbOwnedValue::Null, PdbOwnedValue::Null) => Ordering::Equal,
+        (PdbOwnedValue::Null, _) => Ordering::Greater,
+        (_, PdbOwnedValue::Null) => Ordering::Less,
+        _ => a.total_cmp(b),
     }
+}
 
-    /// NULL sorts after every value, where the Tantivy backend's default
-    /// `missing` sentinel lands.
-    fn compare(&self, other: &KeyValue) -> std::cmp::Ordering {
-        match (self, other) {
-            (KeyValue::Null, KeyValue::Null) => std::cmp::Ordering::Equal,
-            (KeyValue::Null, _) => std::cmp::Ordering::Greater,
-            (_, KeyValue::Null) => std::cmp::Ordering::Less,
-            (KeyValue::Str(a), KeyValue::Str(b)) => a.cmp(b),
-            (a, b) => a
-                .as_f64()
-                .unwrap_or(f64::MIN)
-                .total_cmp(&b.as_f64().unwrap_or(f64::MIN)),
-        }
-    }
-
-    /// The JSON `key` of a bucket, plus `key_as_string` when Tantivy emits one.
-    fn to_bucket_key(&self, field: &PdbAggFieldRef) -> (serde_json::Value, Option<String>) {
-        match self {
-            KeyValue::Null => (serde_json::Value::Null, None),
-            KeyValue::Str(s) => (serde_json::Value::String(s.clone()), None),
-            KeyValue::I64(v) if field.is_datetime() => (
-                pg_micros_to_string(*v)
-                    .map(serde_json::Value::String)
-                    .unwrap_or_else(|| serde_json::Value::from(*v)),
-                None,
-            ),
-            KeyValue::I64(v) => (serde_json::Value::from(*v), None),
-            KeyValue::U64(v) => (serde_json::Value::from(*v), None),
-            KeyValue::F64(bits) => (
-                serde_json::Number::from_f64(f64::from_bits(*bits))
-                    .map(serde_json::Value::Number)
-                    .unwrap_or(serde_json::Value::Null),
-                None,
-            ),
-            KeyValue::Bool(b) => (
-                serde_json::Value::from(u64::from(*b)),
-                Some(if *b { "true" } else { "false" }.to_string()),
-            ),
-            // NUMERIC keys are decoded before they reach here.
-            KeyValue::Bytes(_) => (serde_json::Value::Null, None),
-        }
+/// The JSON `key` of a bucket, plus `key_as_string` when Tantivy emits one.
+fn bucket_key_json(key: &PdbOwnedValue) -> (serde_json::Value, Option<String>) {
+    match key {
+        PdbOwnedValue::Str(s) => (serde_json::Value::String(s.clone()), None),
+        PdbOwnedValue::I64(v) => (serde_json::Value::from(*v), None),
+        PdbOwnedValue::U64(v) => (serde_json::Value::from(*v), None),
+        PdbOwnedValue::F64(v) => (
+            serde_json::Number::from_f64(*v)
+                .map(serde_json::Value::Number)
+                .unwrap_or(serde_json::Value::Null),
+            None,
+        ),
+        PdbOwnedValue::Bool(b) => (serde_json::Value::from(u64::from(*b)), Some(b.to_string())),
+        // Rendered the way the Tantivy backend rewrites a datetime key.
+        PdbOwnedValue::Date(d) => (serde_json::Value::String(d.to_string()), None),
+        // NULL keys form the `null` bucket; NUMERIC keys were decoded before this.
+        _ => (serde_json::Value::Null, None),
     }
 }
 
@@ -874,7 +817,7 @@ fn metric_f64(
             decimal_bytes_to_f64(sum).map(|sum| sum / count as f64)
         }
         PdbMetricKind::Min | PdbMetricKind::Max if numeric => {
-            KeyValue::read(col, row).decode_numeric(field).as_f64()
+            value_f64(&decode_numeric(value_at(col, row), field))
         }
         _ => f64_at(col, row),
     }
@@ -889,14 +832,14 @@ fn pg_micros_to_string(micros: i64) -> Option<String> {
 }
 
 fn f64_at(col: &ArrayRef, row: usize) -> Option<f64> {
-    KeyValue::read(col, row).as_f64()
+    value_f64(&value_at(col, row))
 }
 
 fn u64_at(col: &ArrayRef, row: usize) -> u64 {
-    match KeyValue::read(col, row) {
-        KeyValue::I64(v) => v.max(0) as u64,
-        KeyValue::U64(v) => v,
-        KeyValue::F64(bits) => f64::from_bits(bits) as u64,
+    match value_at(col, row) {
+        PdbOwnedValue::I64(v) => v.max(0) as u64,
+        PdbOwnedValue::U64(v) => v,
+        PdbOwnedValue::F64(v) => v as u64,
         _ => 0,
     }
 }
@@ -910,13 +853,13 @@ pub struct AssembledPdbAggRows {
 }
 
 struct Bucket {
-    key: KeyValue,
+    key: PdbOwnedValue,
     doc_count: u64,
     subs: Vec<(String, serde_json::Value)>,
 }
 
 /// Rows of one terms node grouped by their parent bucket.
-type NodeIndex = HashMap<Vec<KeyValue>, Vec<(KeyValue, usize)>>;
+type NodeIndex = HashMap<Vec<PdbOwnedValue>, Vec<(PdbOwnedValue, usize)>>;
 
 struct Assembler<'a> {
     batch: &'a RecordBatch,
@@ -927,7 +870,7 @@ impl Assembler<'_> {
     fn emit(
         &self,
         node: &PdbAggNodeLayout,
-        prefix: &[KeyValue],
+        prefix: &[PdbOwnedValue],
         row: Option<usize>,
     ) -> serde_json::Value {
         match node {
@@ -985,7 +928,7 @@ impl Assembler<'_> {
                             })
                             .collect();
                         Bucket {
-                            key: key.clone().decode_numeric(field),
+                            key: decode_numeric(key.clone(), field),
                             doc_count,
                             subs,
                         }
@@ -1005,7 +948,7 @@ impl Assembler<'_> {
                     .into_iter()
                     .map(|bucket| {
                         let mut obj = serde_json::Map::new();
-                        let (key, key_as_string) = bucket.key.to_bucket_key(field);
+                        let (key, key_as_string) = bucket_key_json(&bucket.key);
                         obj.insert("key".into(), key);
                         if let Some(key_as_string) = key_as_string {
                             obj.insert("key_as_string".into(), key_as_string.into());
@@ -1069,7 +1012,7 @@ fn metric_json(
 /// Tantivy orders by the requested target only; ties are left in collection
 /// order. Ties break on the key here so the output is stable.
 fn sort_buckets(buckets: &mut [Bucket], order: &PdbTermsOrder) {
-    let by_key = |a: &Bucket, b: &Bucket| a.key.compare(&b.key);
+    let by_key = |a: &Bucket, b: &Bucket| compare_keys(&a.key, &b.key);
     match &order.target {
         PdbOrderTarget::Key => {
             buckets.sort_by(|a, b| {
@@ -1105,9 +1048,9 @@ fn sort_buckets(buckets: &mut [Bucket], order: &PdbTermsOrder) {
 
 fn grouping_ids(col: &ArrayRef) -> Vec<u64> {
     (0..col.len())
-        .map(|row| match KeyValue::read(col, row) {
-            KeyValue::U64(v) => v,
-            KeyValue::I64(v) => v as u64,
+        .map(|row| match value_at(col, row) {
+            PdbOwnedValue::U64(v) => v,
+            PdbOwnedValue::I64(v) => v as u64,
             other => panic!("BUG: unexpected __grouping_id value {other:?}"),
         })
         .collect()
@@ -1175,11 +1118,11 @@ pub fn assemble_pdb_agg_rows(
             if row_level != level {
                 continue;
             }
-            let prefix: Vec<KeyValue> = prefix_cols
+            let prefix: Vec<PdbOwnedValue> = prefix_cols
                 .iter()
-                .map(|&col| KeyValue::read(batch.column(col), row))
+                .map(|&col| value_at(batch.column(col), row))
                 .collect();
-            let key = KeyValue::read(batch.column(own_col[0]), row);
+            let key = value_at(batch.column(own_col[0]), row);
             indexes[*node_id]
                 .entry(prefix)
                 .or_default()
@@ -1234,8 +1177,8 @@ pub fn assemble_pdb_agg_rows(
     let json = root_rows
         .iter()
         .map(|&row| {
-            let prefix: Vec<KeyValue> = (0..plan.num_outer_group_cols)
-                .map(|col| KeyValue::read(batch.column(col), row))
+            let prefix: Vec<PdbOwnedValue> = (0..plan.num_outer_group_cols)
+                .map(|col| value_at(batch.column(col), row))
                 .collect();
             plan.entries
                 .iter()
@@ -1378,15 +1321,15 @@ mod tests {
 
     #[test]
     fn null_keys_sort_last() {
-        let bucket = |key: KeyValue| Bucket {
+        let bucket = |key: PdbOwnedValue| Bucket {
             key,
             doc_count: 1,
             subs: Vec::new(),
         };
         let mut buckets = vec![
-            bucket(KeyValue::Null),
-            bucket(KeyValue::I64(2)),
-            bucket(KeyValue::I64(1)),
+            bucket(PdbOwnedValue::Null),
+            bucket(PdbOwnedValue::I64(2)),
+            bucket(PdbOwnedValue::I64(1)),
         ];
         sort_buckets(
             &mut buckets,
@@ -1398,14 +1341,18 @@ mod tests {
         let keys: Vec<_> = buckets.iter().map(|b| b.key.clone()).collect();
         assert_eq!(
             keys,
-            vec![KeyValue::I64(1), KeyValue::I64(2), KeyValue::Null]
+            vec![
+                PdbOwnedValue::I64(1),
+                PdbOwnedValue::I64(2),
+                PdbOwnedValue::Null
+            ]
         );
     }
 
     #[test]
     fn bucket_ties_break_on_the_key() {
         let bucket = |key: &str, doc_count| Bucket {
-            key: KeyValue::Str(key.into()),
+            key: PdbOwnedValue::Str(key.into()),
             doc_count,
             subs: Vec::new(),
         };
@@ -1421,9 +1368,9 @@ mod tests {
         assert_eq!(
             keys,
             vec![
-                KeyValue::Str("a".into()),
-                KeyValue::Str("b".into()),
-                KeyValue::Str("c".into())
+                PdbOwnedValue::Str("a".into()),
+                PdbOwnedValue::Str("b".into()),
+                PdbOwnedValue::Str("c".into())
             ]
         );
     }

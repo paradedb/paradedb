@@ -30,7 +30,7 @@ use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 
 use crate::api::{HashSet, MvccVisibility};
-use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, WhichFastField};
+use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, FieldDelivery, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{SearchIndexManifest, SearchIndexReader};
 use crate::postgres::ParallelScanState;
@@ -293,7 +293,12 @@ impl PgSearchTableProvider {
     fn enable_deferred_columns(&mut self, required_early_columns: &HashSet<String>) {
         self.deferred_fetch_at_scan = !crate::gucs::defer_column_fetch();
         for wff in self.fields.iter_mut() {
-            if let WhichFastField::Named(name, field_type) = wff {
+            if let WhichFastField::Named {
+                name,
+                field_type,
+                delivery,
+            } = wff
+            {
                 let is_string_or_bytes = matches!(
                     field_type.arrow_data_type(),
                     arrow_schema::DataType::Utf8View
@@ -302,9 +307,7 @@ impl PgSearchTableProvider {
                         | arrow_schema::DataType::LargeBinary
                 );
                 if is_string_or_bytes && !required_early_columns.contains(name.as_str()) {
-                    let cloned_name = name.clone();
-                    let cloned_type = *field_type;
-                    *wff = WhichFastField::Deferred(cloned_name, cloned_type);
+                    *delivery = FieldDelivery::Deferred;
                 }
             }
         }
@@ -392,7 +395,12 @@ impl PgSearchTableProvider {
     pub fn deferred_fields(&self) -> Vec<DeferredField> {
         let mut deferred = Vec::new();
         for (ff_index, wff) in self.fields.iter().enumerate() {
-            if let WhichFastField::Deferred(name, field_type) = wff {
+            if let WhichFastField::Named {
+                name,
+                field_type,
+                delivery: FieldDelivery::Deferred,
+            } = wff
+            {
                 let is_bytes = matches!(
                     field_type.arrow_data_type(),
                     arrow_schema::DataType::BinaryView | arrow_schema::DataType::LargeBinary
@@ -430,11 +438,15 @@ impl PgSearchTableProvider {
                     let logical_fields: Vec<_> = self
                         .fields
                         .iter()
-                        .map(|wff| match wff {
-                            WhichFastField::Deferred(name, ty) => {
-                                WhichFastField::Named(name.clone(), *ty)
+                        .map(|wff| {
+                            if let WhichFastField::Named {
+                                name, field_type, ..
+                            } = wff
+                            {
+                                WhichFastField::eager(name.clone(), *field_type)
+                            } else {
+                                wff.clone()
                             }
-                            _ => wff.clone(),
                         })
                         .collect();
                     crate::index::fast_fields_helper::build_arrow_schema(&logical_fields)
@@ -447,17 +459,23 @@ impl PgSearchTableProvider {
         &self,
         projection: Option<&Vec<usize>>,
     ) -> Result<(Vec<WhichFastField>, SchemaRef)> {
-        let is_late_active = self.late_materialization_active.load(Ordering::Relaxed);
-        let active_fields: Vec<_> = self
-            .fields
-            .iter()
-            .map(|wff| match wff {
-                WhichFastField::Deferred(name, ty) if !is_late_active => {
-                    WhichFastField::Named(name.clone(), *ty)
-                }
-                _ => wff.clone(),
-            })
-            .collect();
+        let active_fields: Vec<_> = if self.late_materialization_active.load(Ordering::Relaxed) {
+            self.fields.clone()
+        } else {
+            self.fields
+                .iter()
+                .map(|wff| {
+                    if let WhichFastField::Named {
+                        name, field_type, ..
+                    } = wff
+                    {
+                        WhichFastField::eager(name.clone(), *field_type)
+                    } else {
+                        wff.clone()
+                    }
+                })
+                .collect()
+        };
 
         let schema = self.get_schema();
         match projection {
@@ -710,8 +728,11 @@ impl PgSearchTableProvider {
             self.fields
                 .iter()
                 .map(|wff| {
-                    if let WhichFastField::Deferred(name, ty) = wff {
-                        WhichFastField::Named(name.clone(), *ty)
+                    if let WhichFastField::Named {
+                        name, field_type, ..
+                    } = wff
+                    {
+                        WhichFastField::eager(name.clone(), *field_type)
                     } else {
                         wff.clone()
                     }

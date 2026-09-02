@@ -30,7 +30,7 @@ use datafusion::physical_plan::repartition::RepartitionExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties, Partitioning};
 
 use crate::api::FieldName;
-use crate::index::fast_fields_helper::WhichFastField;
+use crate::index::fast_fields_helper::{FieldDelivery, WhichFastField};
 use crate::index::stats::persisted_split_points;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
@@ -348,7 +348,11 @@ fn named_field_arrow_type(
     field: &FieldName,
 ) -> Option<arrow_schema::DataType> {
     provider.fields.iter().find_map(|f| match f {
-        WhichFastField::Named(name, sft) if name == field.as_ref() => Some(sft.arrow_data_type()),
+        WhichFastField::Named {
+            name,
+            field_type,
+            delivery: FieldDelivery::Eager,
+        } if name == field.as_ref() => Some(field_type.arrow_data_type()),
         _ => None,
     })
 }

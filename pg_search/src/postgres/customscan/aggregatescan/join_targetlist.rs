@@ -24,14 +24,21 @@
 
 use super::GroupingShape;
 use super::datafusion_build::{FilterExprBuildContext, JoinAggSource};
+use super::pdb_agg::{
+    PdbAggFieldRef, PdbAggFieldResolver, PdbAggFieldUsage, PdbAggRequest, check_field_usage,
+};
 use super::privdat::FilterExpr;
-use crate::api::SortDirection;
+use crate::api::{FieldName, SortDirection, visibility_from_agg_arg};
+use crate::nodecast;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::customscan::datafusion::explain::get_attname_safe;
-use crate::postgres::customscan::joinscan::build::RelationAlias;
+use crate::postgres::customscan::joinscan::build::{PlannerRootId, RelNode, RelationAlias};
+use crate::postgres::customscan::pullup::{
+    get_attno_by_name, resolve_fast_field, resolve_fast_field_by_name,
+};
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::var::{VarContext, find_one_aggref, find_one_var_and_fieldname};
 use crate::schema::SearchFieldType;
-use pgrx::PgList;
 use pgrx::pg_sys;
 use pgrx::pg_sys::{
     F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_,
@@ -41,6 +48,7 @@ use pgrx::pg_sys::{
     F_MIN_TIME, F_MIN_TIMESTAMP, F_MIN_TIMESTAMPTZ, F_MIN_TIMETZ, F_SUM_FLOAT4, F_SUM_FLOAT8,
     F_SUM_INT2, F_SUM_INT4, F_SUM_INT8, F_SUM_NUMERIC,
 };
+use pgrx::{FromDatum, PgList};
 
 /// Look up a join source by RTI, returning a uniform error message that
 /// names the calling context (e.g. "GROUP BY column", "aggregate argument").
@@ -79,6 +87,8 @@ pub enum AggKind {
     ArrayAgg,
     /// STRING_AGG(col, separator) - stores the separator string.
     StringAgg(String),
+    /// `pdb.agg(jsonb)`, lowered to grouping sets and metric expressions.
+    PdbAgg(Box<PdbAggRequest>),
 }
 
 impl std::fmt::Display for AggKind {
@@ -99,6 +109,7 @@ impl std::fmt::Display for AggKind {
             AggKind::BoolOr => write!(f, "BOOL_OR"),
             AggKind::ArrayAgg => write!(f, "ARRAY_AGG"),
             AggKind::StringAgg(_) => write!(f, "STRING_AGG"),
+            AggKind::PdbAgg(request) => write!(f, "pdb.agg({})", request.agg_json),
         }
     }
 }
@@ -248,9 +259,31 @@ pub struct JoinAggregateTargetList {
     pub aggregates: Vec<JoinAggregateEntry>,
 }
 
+impl JoinAggregateTargetList {
+    /// The lowered `pdb.agg()` calls, in target-list order.
+    pub fn pdb_agg_requests(&self) -> impl Iterator<Item = &PdbAggRequest> {
+        self.aggregates
+            .iter()
+            .filter_map(|agg| match &agg.agg_kind {
+                AggKind::PdbAgg(request) => Some(request.as_ref()),
+                _ => None,
+            })
+    }
+
+    /// Every fast field a `pdb.agg()` spec reads.
+    pub fn pdb_agg_field_refs(&self) -> Vec<PdbAggFieldRef> {
+        let mut refs = Vec::new();
+        for request in self.pdb_agg_requests() {
+            request.for_each_field(|field| refs.push(field.clone()));
+        }
+        refs
+    }
+}
+
 /// Classify an aggregate function OID into an [`AggKind`].
 ///
-/// Returns `None` for unsupported or unknown OIDs (including `pdb.agg()`).
+/// Returns `None` for unsupported or unknown OIDs. `pdb.agg()` is handled before
+/// this is reached.
 fn classify_aggregate_oid(aggfnoid: u32, aggstar: bool, has_distinct: bool) -> Option<AggKind> {
     if aggfnoid == F_COUNT_ && aggstar {
         return Some(AggKind::CountStar);
@@ -357,7 +390,7 @@ unsafe fn extract_timestamp_to_date_var(
 /// Returns an error if:
 /// - An expression is neither a `Var` nor an `Aggref`
 /// - An aggregate uses DISTINCT (`aggdistinct` is set)
-/// - An aggregate is `pdb.agg()` (not supported on joins)
+/// - A `pdb.agg()` spec cannot be lowered (see [`lower_pdb_agg`])
 /// - An aggregate OID is unknown/unsupported
 /// - A `Var` references a table not in `sources`
 /// - A field name cannot be resolved
@@ -533,11 +566,23 @@ pub unsafe fn extract_aggregate_targetlist(
                 )
             };
 
-            // Reject pdb.agg()
             if crate::api::is_agg_funcoid(aggfnoid) {
-                return Err(
-                    "pdb.agg() is not supported on joins - use standard SQL aggregates (COUNT, SUM, AVG, MIN, MAX)".into()
-                );
+                if has_distinct {
+                    return Err("pdb.agg() does not accept DISTINCT".into());
+                }
+                let request = lower_pdb_agg(aggref, sources, plan, outer_root_id)?;
+                aggregates.push(JoinAggregateEntry {
+                    func_oid: aggfnoid,
+                    agg_kind: AggKind::PdbAgg(Box::new(request)),
+                    field_refs: Vec::new(),
+                    output_index: idx,
+                    result_type_oid: (*aggref).aggtype,
+                    filter,
+                    distinct: false,
+                    order_by: Vec::new(),
+                    numeric: None,
+                });
+                continue;
             }
 
             let mut agg_kind = classify_aggregate_oid(aggfnoid, (*aggref).aggstar, has_distinct)
@@ -593,6 +638,145 @@ pub unsafe fn extract_aggregate_targetlist(
         group_columns,
         aggregates,
     })
+}
+
+/// Lower a `pdb.agg()` call into its DataFusion request. The spec must be a
+/// constant: field validation and the grouping-set layout both need it at plan
+/// time, the same as on the Tantivy backend.
+unsafe fn lower_pdb_agg(
+    aggref: *mut pg_sys::Aggref,
+    sources: &[JoinAggSource],
+    plan: &RelNode,
+    outer_root_id: PlannerRootId,
+) -> Result<PdbAggRequest, String> {
+    let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
+    let spec = args
+        .get_ptr(0)
+        .and_then(|arg| nodecast!(Const, T_Const, (*arg).expr))
+        .and_then(|konst| pgrx::JsonB::from_datum((*konst).constvalue, (*konst).constisnull))
+        .ok_or("pdb.agg argument must be a constant for aggregate pushdown")?
+        .0;
+    let visibility = visibility_from_agg_arg(
+        (*aggref).aggfnoid.to_u32(),
+        args.get_ptr(1).map(|arg| (*arg).expr as *mut pg_sys::Node),
+    );
+    let resolver = JoinAggFieldResolver {
+        sources,
+        plan,
+        outer_root_id,
+    };
+    PdbAggRequest::lower(spec, visibility, &resolver)
+}
+
+/// Resolves the field names of a `pdb.agg()` spec against the join sources.
+///
+/// A bare name must match exactly one indexed table. `alias.field` picks the
+/// table when the same field name exists in several; the bare lookup runs first
+/// because an index field name can itself contain a dot (a JSON sub-field).
+struct JoinAggFieldResolver<'a> {
+    sources: &'a [JoinAggSource],
+    plan: &'a RelNode,
+    outer_root_id: PlannerRootId,
+}
+
+impl JoinAggFieldResolver<'_> {
+    /// The field as `source` knows it, or `None` when the index has no such fast
+    /// field. Goes through the same resolvers as GROUP BY columns so arrays and
+    /// non-fast columns are turned down the same way.
+    unsafe fn lookup(
+        &self,
+        source: &JoinAggSource,
+        field: &str,
+    ) -> Option<(pg_sys::AttrNumber, SearchFieldType)> {
+        let indexrel = source.bm25_index.as_ref()?;
+        let root = FieldName::from(field).root();
+        let heaprel = PgSearchRelation::open(source.relid);
+        let tupdesc = heaprel.tuple_desc();
+        let attno = source
+            .fields
+            .iter()
+            .find(|f| f.field.name() == root)
+            .map(|f| f.attno)
+            .or_else(|| get_attno_by_name(&root, &tupdesc))?;
+        let resolved = if field == root {
+            resolve_fast_field(attno as i32, &tupdesc, indexrel)
+                .filter(|resolved| resolved.name() == field)
+        } else {
+            resolve_fast_field_by_name(field, indexrel)
+        }?;
+        let field_type = *resolved.field_type()?;
+        Some((attno, field_type))
+    }
+
+    unsafe fn candidates(
+        &self,
+        field: &str,
+    ) -> Vec<(&JoinAggSource, pg_sys::AttrNumber, SearchFieldType)> {
+        self.sources
+            .iter()
+            .filter_map(|source| {
+                self.lookup(source, field)
+                    .map(|(attno, field_type)| (source, attno, field_type))
+            })
+            .collect()
+    }
+}
+
+impl PdbAggFieldResolver for JoinAggFieldResolver<'_> {
+    fn resolve(&self, field: &str, usage: PdbAggFieldUsage) -> Result<PdbAggFieldRef, String> {
+        let (source, attno, field_type, field_name) = unsafe {
+            let mut candidates = self.candidates(field);
+            let mut field_name = field.to_string();
+            if candidates.is_empty()
+                && let Some((prefix, rest)) = field.split_once('.')
+            {
+                candidates = self
+                    .candidates(rest)
+                    .into_iter()
+                    .filter(|(source, _, _)| {
+                        RelationAlias::new(source.alias.as_deref()).display(source.rti as usize)
+                            == prefix
+                    })
+                    .collect();
+                field_name = rest.to_string();
+            }
+            match candidates.len() {
+                0 => {
+                    return Err(format!(
+                        "Aggregation references invalid field '{field}'. The field must be a fast \
+                         field of an indexed table in the query."
+                    ));
+                }
+                1 => {
+                    let (source, attno, field_type) = candidates.remove(0);
+                    (source, attno, field_type, field_name)
+                }
+                _ => {
+                    return Err(format!(
+                        "Aggregation field '{field}' exists in more than one table. Qualify it \
+                         with the table alias, as in 'alias.{field}'."
+                    ));
+                }
+            }
+        };
+        check_field_usage(field, &field_type, usage)?;
+        let plan_position = self
+            .plan
+            .plan_position(self.outer_root_id, source.rti, attno)
+            .ok_or_else(|| {
+                format!(
+                    "pdb.agg field '{field}' (RTI={}, attno={attno}) does not resolve to a unique \
+                     output-visible source in the plan tree",
+                    source.rti
+                )
+            })?;
+        Ok(PdbAggFieldRef {
+            plan_position,
+            attno,
+            field_name,
+            field_type,
+        })
+    }
 }
 
 /// Extract the separator string from a STRING_AGG's second argument.

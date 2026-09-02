@@ -1315,9 +1315,40 @@ unsafe fn require_fast_field(
     }
 }
 
+/// Resolve a column known by its index field name and add it to `source`'s
+/// scan info. A dotted name is a JSON sub-field: it shares the parent column's
+/// attno but is stored under its own name, so the name lookup runs first. The
+/// attno lookup then covers plain columns, and the name lookup runs once more
+/// as a backup before declaring failure.
+unsafe fn require_named_fast_field(
+    source: &mut JoinSource,
+    tupdesc: &pgrx::PgTupleDesc<'_>,
+    indexrel: &PgSearchRelation,
+    attno: pg_sys::AttrNumber,
+    field_name: &str,
+    describe: impl FnOnce() -> String,
+) -> Result<(), String> {
+    if field_name.contains('.')
+        && let Some(field) = resolve_fast_field_by_name(field_name, indexrel)
+    {
+        source.scan_info.add_field_by_name(attno, field);
+        return Ok(());
+    }
+    if let Some(field) = resolve_fast_field(attno as i32, tupdesc, indexrel) {
+        source.scan_info.add_field(attno, field);
+        return Ok(());
+    }
+    if let Some(field) = resolve_fast_field_by_name(field_name, indexrel) {
+        source.scan_info.add_field_by_name(attno, field);
+        return Ok(());
+    }
+    Err(describe())
+}
+
 /// Populate the `fields` on each `JoinSource` in the `RelNode` tree based on
-/// columns referenced in the target list (GROUP BY + aggregate arguments) and
-/// join keys. Without this, `PgSearchTableProvider` exposes an empty schema.
+/// columns referenced in the target list (GROUP BY + aggregate arguments), the
+/// fields `pdb.agg()` specs read, and join keys. Without this,
+/// `PgSearchTableProvider` exposes an empty schema.
 pub unsafe fn populate_required_fields(
     plan: &mut RelNode,
     targetlist: &super::join_targetlist::JoinAggregateTargetList,
@@ -1379,34 +1410,28 @@ pub unsafe fn populate_required_fields(
             if source.plan_position != gc.plan_position {
                 continue;
             }
-
-            let mut resolved_field = None;
-            // For dotted names (JSON sub-fields), try resolving by name first.
-            // This is more specific than attno-based resolution which might
-            // find the parent JSON column if it's also indexed as text.
-            if gc.field_name.contains('.')
-                && let Some(field) = resolve_fast_field_by_name(&gc.field_name, indexrel)
-            {
-                source.scan_info.add_field_by_name(gc.attno, field.clone());
-                resolved_field = Some(field);
-            }
-
-            if resolved_field.is_none() {
-                if let Some(field) = resolve_fast_field(gc.attno as i32, &tupdesc, indexrel) {
-                    source.scan_info.add_field(gc.attno, field.clone());
-                    resolved_field = Some(field);
-                } else if let Some(field) = resolve_fast_field_by_name(&gc.field_name, indexrel) {
-                    source.scan_info.add_field_by_name(gc.attno, field.clone());
-                    resolved_field = Some(field);
-                }
-            }
-
-            if resolved_field.is_none() {
-                return Err(format!(
+            require_named_fast_field(source, &tupdesc, indexrel, gc.attno, &gc.field_name, || {
+                format!(
                     "GROUP BY column '{}' (attno={}) is not a fast field",
                     gc.field_name, gc.attno,
-                ));
+                )
+            })?;
+        }
+
+        // `pdb.agg()` fields, which name index fields directly and so take the
+        // same by-name fallback as GROUP BY columns.
+        for field in targetlist.pdb_agg_field_refs() {
+            if source.plan_position != field.plan_position {
+                continue;
             }
+            require_named_fast_field(
+                source,
+                &tupdesc,
+                indexrel,
+                field.attno,
+                &field.field_name,
+                || format!("pdb.agg field '{}' is not a fast field", field.field_name),
+            )?;
         }
 
         // Aggregate arguments - match by plan_position.

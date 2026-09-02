@@ -1,5 +1,6 @@
 -- Regression test for GitHub issue #4751:
 -- Join pushdown not applied when ORDER BY contains IS NULL expression.
+-- Result parity for both NULL predicates is covered by generated_joinscan.
 
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
@@ -51,40 +52,11 @@ WHERE c.id @@@ paradedb.all()
 ORDER BY c.name IS NULL ASC, c.name ASC, c.id ASC
 LIMIT 26;
 
-SELECT c.id
-FROM test_companies AS c
-JOIN test_people AS p ON p.company_id = c.id
-WHERE c.id @@@ paradedb.all()
-ORDER BY c.name IS NULL ASC, c.name ASC, c.id ASC
-LIMIT 26;
-
 -- =============================================================================
--- TEST 2: Verify results match fallback (non-JoinScan) path
+-- TEST 2: ORDER BY col IS NOT NULL should also get join pushdown
 -- =============================================================================
-
-SET paradedb.enable_join_custom_scan = off;
-
-SELECT c.id
-FROM test_companies AS c
-JOIN test_people AS p ON p.company_id = c.id
-WHERE c.id @@@ paradedb.all()
-ORDER BY c.name IS NULL ASC, c.name ASC, c.id ASC
-LIMIT 26;
-
--- =============================================================================
--- TEST 3: ORDER BY col IS NOT NULL should also get join pushdown
--- =============================================================================
-
-SET paradedb.enable_join_custom_scan = on;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT c.id
-FROM test_companies AS c
-JOIN test_people AS p ON p.company_id = c.id
-WHERE c.id @@@ paradedb.all()
-ORDER BY c.name IS NOT NULL ASC, c.name ASC, c.id ASC
-LIMIT 26;
-
 SELECT c.id
 FROM test_companies AS c
 JOIN test_people AS p ON p.company_id = c.id

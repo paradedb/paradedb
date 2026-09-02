@@ -581,7 +581,7 @@ async fn generated_subquery(database: Db) {
 /// - 2 or 3 table joins and arbitrary boolean WHERE trees (AND, OR, NOT) across tables
 /// - Optional cross-relation predicates (like a.age > b.age)
 /// - Optional DISTINCT keyword (deduplication of result rows)
-/// - Score-based ordering vs regular column ordering (currently skipped, see prop_assume!)
+/// - Indexed expression and NULL-predicate ordering vs regular column ordering
 ///
 /// This verifies that JoinScan produces the same results as PostgreSQL's
 /// native join implementation across all these variations.
@@ -611,13 +611,15 @@ async fn generated_joinscan(database: Db) {
         include_distinct in proptest::bool::ANY,
         // Indexed expression ORDER BY (e.g. ORDER BY upper(category))
         include_expr_ordering in proptest::bool::ANY,
+        // Optional nullable-column predicate ordering (ORDER BY quantity IS [NOT] NULL)
+        null_ordering_is_not in proptest::option::of(proptest::bool::ANY),
         // Result limit
         limit in 1..=50usize,
         mut gucs in any::<PgGucs>(),
     )| {
         // DISTINCT + expression ORDER BY requires projecting the expression in SELECT,
-        // which JoinScan doesn't support yet. Skip this combination.
-        prop_assume!(!(include_distinct && include_expr_ordering));
+        // which JoinScan doesn't support yet. Skip these combinations.
+        prop_assume!(!(include_distinct && (include_expr_ordering || null_ordering_is_not.is_some())));
 
         let join_clause = join_expr.to_sql();
         let used_tables = join_expr.used_tables();
@@ -657,6 +659,11 @@ async fn generated_joinscan(database: Db) {
         let mut order_parts = Vec::new();
         if include_expr_ordering {
             order_parts.push(format!("upper({}.category)", used_tables[0]));
+        }
+        if let Some(is_not) = null_ordering_is_not {
+            let predicate = if is_not { "IS NOT NULL" } else { "IS NULL" };
+            order_parts.push(format!("{}.quantity {predicate}", used_tables[0]));
+            order_parts.push(format!("{}.quantity", used_tables[0]));
         }
         order_parts.push(format!("{}.id", used_tables[0]));
         // Only add inner table tiebreakers when NOT using expression ordering,

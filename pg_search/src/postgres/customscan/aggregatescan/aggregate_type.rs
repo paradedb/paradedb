@@ -208,7 +208,13 @@ impl AggregateType {
         }
 
         let first_arg = args.get_ptr(0).ok_or("aggregate missing argument")?;
-        let (field, missing) = parse_aggregate_field(first_arg, root, bm25_index, heap_rti)?;
+        let (field, missing) = ParsedAggregateField::parse_for_index(
+            (*first_arg).expr.cast(),
+            VarContext::from_planner(root),
+            bm25_index,
+            heap_rti,
+        )?;
+        let field = field.into_inner();
 
         // Check if aggregate pushdown is supported for this field type on the
         // Tantivy backend. NUMERIC fields are not supported here; standard SQL
@@ -689,12 +695,38 @@ impl ParsedAggregateField {
         let field = args
             .get_ptr(0)
             .ok_or("COALESCE expression missing first argument")?;
-        let missing = parse_coalesce_missing_value(&args)?;
+        let missing = Self::parse_coalesce_missing_value(&args)?;
 
         Ok(Self::Coalesce { field, missing })
     }
 
-    pub(crate) fn expression(&self) -> *mut pg_sys::Node {
+    unsafe fn parse_for_index(
+        expr: *mut pg_sys::Node,
+        context: VarContext,
+        bm25_index: &PgSearchRelation,
+        heap_rti: pg_sys::Index,
+    ) -> Result<(FieldName, Option<f64>), String> {
+        let aggregate_field = Self::parse(expr)?;
+        let field_expr = aggregate_field.expression();
+
+        let field = if let Ok(schema) = bm25_index.schema()
+            && let Some(fast_field) = find_matching_fast_field(
+                field_expr,
+                &bm25_index.index_expressions(),
+                schema,
+                heap_rti,
+            ) {
+            FieldName::from(fast_field.name())
+        } else {
+            aggregate_field.field_name(context).ok_or(
+                "argument to aggregate function is neither a direct column reference nor a COALESCE expression",
+            )?
+        };
+
+        Ok((field, aggregate_field.missing()))
+    }
+
+    fn expression(&self) -> *mut pg_sys::Node {
         match self {
             Self::Direct(field) | Self::Coalesce { field, .. } => *field,
         }
@@ -720,58 +752,31 @@ impl ParsedAggregateField {
             Self::Coalesce { missing, .. } => *missing,
         }
     }
-}
 
-/// Parse field name and missing value from aggregate argument
-unsafe fn parse_aggregate_field(
-    first_arg: *mut pg_sys::TargetEntry,
-    root: *mut pg_sys::PlannerInfo,
-    bm25_index: &PgSearchRelation,
-    heap_rti: pg_sys::Index,
-) -> Result<(String, Option<f64>), String> {
-    let context = VarContext::from_planner(root);
-    let aggregate_field = ParsedAggregateField::parse((*first_arg).expr.cast())?;
-    let field_expr = aggregate_field.expression();
+    unsafe fn parse_coalesce_missing_value(
+        args: &PgList<pg_sys::Node>,
+    ) -> Result<Option<f64>, String> {
+        let second_arg = args
+            .get_ptr(1)
+            .ok_or("COALESCE expression missing second argument")?;
+        let const_node = ConstNode::unwrap_from_expr(second_arg as *mut pg_sys::Expr)
+            .ok_or("second argument of COALESCE must resolve to a constant")?;
 
-    let field = if let Ok(schema) = bm25_index.schema()
-        && let Some(fast_field) = find_matching_fast_field(
-            field_expr,
-            &bm25_index.index_expressions(),
-            schema,
-            heap_rti,
-        ) {
-        FieldName::from(fast_field.name())
-    } else {
-        aggregate_field.field_name(context).ok_or(
-            "argument to aggregate function is neither a direct column reference nor a COALESCE expression",
-        )?
-    };
+        let missing = match TantivyValue::try_from(const_node) {
+            Ok(TantivyValue(PdbOwnedValue::U64(missing))) => missing.to_f64_lossless(),
+            Ok(TantivyValue(PdbOwnedValue::I64(missing))) => missing.to_f64_lossless(),
+            Ok(TantivyValue(PdbOwnedValue::F64(missing))) => Some(missing),
+            Ok(TantivyValue(PdbOwnedValue::Null)) => None,
+            Ok(TantivyValue(PdbOwnedValue::Str(s))) => s
+                .parse::<f64>()
+                .ok()
+                .map(Some)
+                .ok_or("unsupported constant type in COALESCE default value")?,
+            _ => return Err("unsupported constant type in COALESCE default value".into()),
+        };
 
-    Ok((field.into_inner(), aggregate_field.missing()))
-}
-
-unsafe fn parse_coalesce_missing_value(args: &PgList<pg_sys::Node>) -> Result<Option<f64>, String> {
-    let second_arg = args
-        .get_ptr(1)
-        .ok_or("COALESCE expression missing second argument")?;
-    let const_node = ConstNode::unwrap_from_expr(second_arg as *mut pg_sys::Expr)
-        .ok_or("second argument of COALESCE must resolve to a constant")?;
-
-    let missing = match TantivyValue::try_from(const_node) {
-        Ok(TantivyValue(PdbOwnedValue::U64(missing))) => missing.to_f64_lossless(),
-        Ok(TantivyValue(PdbOwnedValue::I64(missing))) => missing.to_f64_lossless(),
-        Ok(TantivyValue(PdbOwnedValue::F64(missing))) => Some(missing),
-        Ok(TantivyValue(PdbOwnedValue::Null)) => None,
-        // Handle string values from NUMERIC - parse to f64 for missing value
-        Ok(TantivyValue(PdbOwnedValue::Str(s))) => s
-            .parse::<f64>()
-            .ok()
-            .map(Some)
-            .ok_or("unsupported constant type in COALESCE default value")?,
-        _ => return Err("unsupported constant type in COALESCE default value".into()),
-    };
-
-    Ok(missing)
+        Ok(missing)
+    }
 }
 
 /// Create appropriate AggregateType from function OID

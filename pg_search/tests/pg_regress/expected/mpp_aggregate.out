@@ -74,8 +74,8 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section';
-                                                                                       QUERY PLAN                                                                                       
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: pdb.agg_fn('COUNT(*)'::text)
    Backend: DataFusion
@@ -85,9 +85,9 @@ WHERE f.content @@@ 'Section';
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[]
      :     CooperativeExec
-     :       PgSearchScan: table=f, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+     :       PgSearchScan: table=f, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
-     :       PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
+     :       PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
 (12 rows)
 
 SELECT COUNT(*)
@@ -106,8 +106,8 @@ WHERE f.content @@@ 'Section'
 GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
-                                                                                                        QUERY PLAN                                                                                                         
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                 QUERY PLAN                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.title, (count(*)), (sum(p.size_bytes))
    ->  Sort
@@ -125,9 +125,9 @@ LIMIT 5;
                  :     TantivyLookupExec: decode=[title]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, size_bytes@3]
                  :         CooperativeExec
-                 :           PgSearchScan: table=f, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+                 :           PgSearchScan: table=f, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
                  :         CooperativeExec
-                 :           PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
+                 :           PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
 (20 rows)
 
 SELECT f.title, COUNT(*), SUM(p.size_bytes)
@@ -153,8 +153,8 @@ SELECT DISTINCT f.title
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section';
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: f, p)
-                                                                                        QUERY PLAN                                                                                        
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                 QUERY PLAN                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: f.title
    Backend: DataFusion
@@ -165,9 +165,9 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: f,
      :   TantivyLookupExec: decode=[title]
      :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1]
      :       CooperativeExec
-     :         PgSearchScan: table=f, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+     :         PgSearchScan: table=f, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :       CooperativeExec
-     :         PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
+     :         PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
 (13 rows)
 
 SELECT COUNT(*) FROM (
@@ -210,8 +210,8 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section';
-                                                                                           QUERY PLAN                                                                                           
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: pdb.agg_fn('COUNT(*)'::text)
    Backend: DataFusion
@@ -230,14 +230,14 @@ WHERE f.content @@@ 'Section';
      :   │       [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
      :   │     RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
      :   │       DistributedLeafExec:
-     :   │         t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
-     :   │         t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
+     :   │         t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
+     :   │         t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
      :   └──────────────────────────────────────────────────
      :     ┌───── Stage 1 ── tasks=2, partitions=4
      :     │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
      :     │   DistributedLeafExec:
-     :     │     t0: PgSearchScan: table=f, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
-     :     │     t1: PgSearchScan: table=f, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+     :     │     t0: PgSearchScan: table=f, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+     :     │     t1: PgSearchScan: table=f, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :     └──────────────────────────────────────────────────
 (27 rows)
 
@@ -256,8 +256,8 @@ WHERE f.content @@@ 'Section'
 GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
-                                                                                                           QUERY PLAN                                                                                                            
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                    QUERY PLAN                                                                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.title, (count(*)), (sum(p.size_bytes))
    ->  Sort
@@ -288,14 +288,14 @@ LIMIT 5;
                  :     │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
                  :     │         RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
                  :     │           DistributedLeafExec:
-                 :     │             t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
-                 :     │             t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
+                 :     │             t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
+                 :     │             t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
                  :     └──────────────────────────────────────────────────
                  :       ┌───── Stage 1 ── tasks=2, partitions=4
                  :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
                  :       │   DistributedLeafExec:
-                 :       │     t0: PgSearchScan: table=f, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
-                 :       │     t1: PgSearchScan: table=f, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+                 :       │     t0: PgSearchScan: table=f, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+                 :       │     t1: PgSearchScan: table=f, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
                  :       └──────────────────────────────────────────────────
 (39 rows)
 
@@ -321,8 +321,8 @@ SELECT DISTINCT f.title
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section';
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: f, p)
-                                                                                            QUERY PLAN                                                                                            
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                     QUERY PLAN                                                                                                     
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: f.title
    Backend: DataFusion
@@ -346,14 +346,14 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: f,
      :     │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
      :     │         RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
      :     │           DistributedLeafExec:
-     :     │             t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
-     :     │             t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
+     :     │             t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
+     :     │             t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
      :     └──────────────────────────────────────────────────
      :       ┌───── Stage 1 ── tasks=2, partitions=4
      :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
      :       │   DistributedLeafExec:
-     :       │     t0: PgSearchScan: table=f, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
-     :       │     t1: PgSearchScan: table=f, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+     :       │     t0: PgSearchScan: table=f, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+     :       │     t1: PgSearchScan: table=f, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :       └──────────────────────────────────────────────────
 (32 rows)
 

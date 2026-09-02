@@ -85,8 +85,8 @@ JOIN mt_tags t ON p.id = t.product_id
 JOIN mt_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category;
-                                                                                                    QUERY PLAN                                                                                                    
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                             QUERY PLAN                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: mt_products_idx (p), mt_tags_idx (t), mt_reviews_idx (r)
@@ -98,11 +98,11 @@ GROUP BY p.category;
      :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, rating@3]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[id@0, category@1]
      :         CooperativeExec
-     :           PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=t, segments=1, dynamic_filters=1, query="all"
+     :           PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
      :       CooperativeExec
-     :         PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+     :         PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (16 rows)
 
 SELECT p.category, COUNT(*), SUM(r.rating), AVG(r.rating)
@@ -148,8 +148,8 @@ JOIN mt_reviews r ON p.id = r.product_id
 JOIN mt_suppliers s ON p.id = s.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category;
-                                                                                                     QUERY PLAN                                                                                                     
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                              QUERY PLAN                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: mt_products_idx (p), mt_tags_idx (t), mt_reviews_idx (r), mt_suppliers_idx (s)
@@ -160,15 +160,15 @@ GROUP BY p.category;
      :   TantivyLookupExec: decode=[category]
      :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(product_id@0, id@0), (product_id@0, product_id@2)], projection=[category@2, rating@4]
      :       CooperativeExec
-     :         PgSearchScan: table=s, segments=1, query="all"
+     :         PgSearchScan: table=s, segments=1, visibility=eager, query="all"
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0), (product_id@2, product_id@0)], projection=[id@0, category@1, product_id@2, rating@4]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)]
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
      :           CooperativeExec
-     :             PgSearchScan: table=t, segments=1, dynamic_filters=1, query="all"
+     :             PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
      :         CooperativeExec
-     :           PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+     :           PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (19 rows)
 
 SELECT p.category, COUNT(*), SUM(r.rating)

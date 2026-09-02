@@ -249,11 +249,3 @@ modelBuilder.Entity<MockItem>()
 ```
 
 </CodeGroup>
-
-<Note>
-  The adapters expose differently shaped APIs for this — Django nests a
-  `json_keys` dict inside the field config, SQLAlchemy wraps the column with
-  `expr.json_text`, and Rails and EF Core take the `->>` expression as a string
-  — but all of them generate the same index expression:
-  `(metadata->>'color')::pdb.ngram(2,3)`.
-</Note>

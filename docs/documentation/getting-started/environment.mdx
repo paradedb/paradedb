@@ -12,7 +12,7 @@ ParadeDB comes with a helpful procedure that creates a table populated with mock
 you get started. Run the following command to create this table.
 
 ```sql
-CALL paradedb.create_paradedb_test_table(
+CALL paradedb.create_bm25_test_table(
   schema_name => 'public',
   table_name => 'mock_items'
 );
@@ -183,7 +183,7 @@ Create and populate `mock_items`:
 
 ```ts
 await db.execute(sql`
-  CALL paradedb.create_paradedb_test_table(
+  CALL paradedb.create_bm25_test_table(
     schema_name => 'public',
     table_name => 'mock_items'
   )
@@ -317,7 +317,7 @@ from django.db import connection
 
 with connection.cursor() as cursor:
     cursor.execute("""
-        CALL paradedb.create_paradedb_test_table(
+        CALL paradedb.create_bm25_test_table(
           schema_name => 'public',
           table_name  => 'mock_items_tmp'
         );
@@ -509,7 +509,7 @@ def upgrade() -> None:
     """Upgrade schema."""
     op.execute(
         """
-        CALL paradedb.create_paradedb_test_table(
+        CALL paradedb.create_bm25_test_table(
           schema_name => 'public',
           table_name => 'mock_items'
         )
@@ -633,7 +633,7 @@ Update the generated migration to create `mock_items`:
 ```ruby db/migrate/*_create_mock_items_table.rb
 def up
   execute <<~SQL
-    CALL paradedb.create_paradedb_test_table(
+    CALL paradedb.create_bm25_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     );
@@ -885,7 +885,7 @@ Open the generated migration in `Migrations/*_CreateMockItems.cs` and add this s
 
 ```cs
 migrationBuilder.Sql("""
-    CALL paradedb.create_paradedb_test_table(
+    CALL paradedb.create_bm25_test_table(
       schema_name => 'public',
       table_name  => 'mock_items_tmp'
     );

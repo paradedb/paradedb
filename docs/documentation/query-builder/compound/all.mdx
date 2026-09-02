@@ -106,8 +106,6 @@ with Session(engine) as session:
 MockItem.where.not(rating: nil).order(:rating).limit(5)
 
 # Top K executed by ParadeDB
-# match_all with no arguments generates pdb.all();
-# match_all("text") is the &&& conjunction instead
 MockItem.search(:id)
         .match_all
         .where.not(rating: nil)

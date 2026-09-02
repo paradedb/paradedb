@@ -170,7 +170,7 @@ While BM25 scores will be returned as long as `description` is indexed, includin
 First, let's create a second table called `orders` that can be joined with `mock_items`:
 
 ```sql
-CALL paradedb.create_paradedb_test_table(
+CALL paradedb.create_bm25_test_table(
   schema_name => 'public',
   table_name => 'orders',
   table_type => 'Orders'

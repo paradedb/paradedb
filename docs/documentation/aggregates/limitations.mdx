@@ -95,7 +95,7 @@ If your query does not contain a ParadeDB operator, a way to "force" aggregate p
 
 ## Date Grouping
 
-`GROUP BY DATE(created_at)` and `GROUP BY created_at::date` support aggregate pushdown when `created_at` is a bare `timestamp without time zone` column indexed as a fast field. The usual aggregate pushdown requirements still apply, including a ParadeDB operator in the query.
+`GROUP BY DATE(created_at)` and `GROUP BY created_at::date` support aggregate pushdown when `created_at` is a bare `timestamp without time zone` column that is [columnar indexed](/documentation/indexing/columnar). The usual aggregate pushdown requirements still apply, including a ParadeDB operator in the query.
 
 The result matches Postgres for the full timestamp range, including `infinity`, `-infinity` and `NULL`. Date grouping can be combined with other grouping columns and per-aggregate `FILTER` clauses.
 

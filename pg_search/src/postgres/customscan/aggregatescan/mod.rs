@@ -80,7 +80,9 @@ use crate::postgres::customscan::aggregatescan::exec::{
     AggregateResult, AggregationResultsRow, aggregation_results_iter,
 };
 use crate::postgres::customscan::aggregatescan::groupby::GroupByClause;
-use crate::postgres::customscan::aggregatescan::join_targetlist::extract_aggregate_targetlist;
+use crate::postgres::customscan::aggregatescan::join_targetlist::{
+    GroupingTransform, extract_aggregate_targetlist,
+};
 use crate::postgres::customscan::aggregatescan::privdat::PrivateData;
 use crate::postgres::customscan::aggregatescan::scan_state::{
     AggregateScanState, ExecutionState, WrappedAggregateProjection,
@@ -520,6 +522,14 @@ impl CustomScan for AggregateScan {
                             // NUMERIC field therefore keeps declining until the spec
                             // gains a DataFusion translation.
                             || (!has_paradedb_agg && builder.args().has_numeric_aggregate())
+                            // Route DATE grouping to DataFusion for exact integer day conversion
+                            // and explicit handling of PostgreSQL infinities. Tantivy histograms
+                            // use f64 arithmetic, which can round timestamps near midnight into
+                            // the wrong day.
+                            //
+                            // This only selects the backend to consider: the extractor still
+                            // rejects DATE(timestamptz) and non-bare timestamp expressions.
+                            || (!has_paradedb_agg && builder.args().has_date_group())
                     };
                 if use_datafusion {
                     if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg_recursive {
@@ -774,7 +784,12 @@ impl CustomScan for AggregateScan {
                         .targetlist
                         .group_columns
                         .iter()
-                        .map(|gc| gc.field_name.clone())
+                        .map(|gc| match gc.transform {
+                            GroupingTransform::Identity => gc.field_name.clone(),
+                            GroupingTransform::TimestampToDate => {
+                                format!("date({})", gc.field_name)
+                            }
+                        })
                         .collect();
                     groups.sort();
                     groups.dedup();

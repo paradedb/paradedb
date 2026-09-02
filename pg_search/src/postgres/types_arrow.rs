@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::catalog::{facet_encoded_str_to_ltree_text, is_citext_oid, is_ltree_oid};
-use crate::postgres::datetime::PostgresDateTime;
+use crate::postgres::datetime::{PG_EPOCH_DIFF_FROM_UNIX_EPOCH_DAYS, PostgresDateTime};
 
 use anyhow::{Context, anyhow};
 use arrow_array::Array;
@@ -379,13 +379,27 @@ pub fn arrow_array_to_datum(
         DataType::Date32 => {
             let arr = array.as_primitive::<arrow_array::types::Date32Type>();
             let days = arr.value(index);
-            let micros = (days as i64)
-                .checked_mul(86_400_000_000)
-                .context("Overflow calculating micros from Date32")?;
-            if let Some(res) = try_convert_timestamp_pg_micros_to_datum(micros, &oid) {
-                res?
-            } else {
-                return Err(anyhow!("Unsupported OID for Date32 Arrow type: {oid:?}"));
+
+            let date = match days {
+                i32::MAX => datum::Date::positive_infinity(),
+                i32::MIN => datum::Date::negative_infinity(),
+                _ => {
+                    let pg_days = days
+                        .checked_sub(PG_EPOCH_DIFF_FROM_UNIX_EPOCH_DAYS)
+                        .context(
+                            "Overflow converting Date32 Unix-epoch days to PostgreSQL-epoch days",
+                        )?;
+
+                    datum::Date::try_from(pg_days).map_err(|err| {
+                        anyhow!("Arrow Date32 to PostgreSQL date conversion failed: {err}")
+                    })?
+                }
+            };
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::DATEOID) => date.into_datum(),
+                _ => {
+                    return Err(anyhow!("Unsupported OID for Date32 Arrow type: {oid:?}"));
+                }
             }
         }
         DataType::Date64 => {
@@ -653,9 +667,9 @@ mod tests {
         TimestampMicrosecondBuilder, TimestampNanosecondBuilder, UInt64Builder,
     };
     use arrow_array::*;
-    use pgrx::Spi;
     use pgrx::datum::{Date, Time, TimeWithTimeZone, Timestamp, TimestampWithTimeZone};
     use pgrx::pg_test;
+    use pgrx::{FromDatum, Spi};
     use proptest::prelude::*;
 
     fn create_string_view_array(s: &str) -> Arc<dyn Array> {
@@ -1256,6 +1270,33 @@ mod tests {
             result.is_some(),
             "Date32 should produce a datum for DATEOID"
         );
+
+        let datum = result.expect("Date32 should produce a DATE datum");
+
+        let date =
+            unsafe { Date::from_datum(datum, false).expect("Failed to convert datum to Date") };
+
+        assert_eq!(date.to_unix_epoch_days(), days);
+    }
+
+    #[pgrx::pg_test]
+    fn test_date32_infinity_projection() {
+        let project = |days: i32| {
+            let arr: Arc<dyn Array> = Arc::new(arrow_array::Date32Array::from(vec![days]));
+
+            let datum = arrow_value_to_datum(&arr, 0, pg_sys::DATEOID)
+                .expect("Date32 infinity should produce a DATE datum");
+
+            unsafe {
+                Date::from_datum(datum, false).expect("Datum should contain a PostgreSQL Date")
+            }
+        };
+
+        let positive_infinity = project(i32::MAX);
+        assert!(positive_infinity.is_infinity());
+
+        let negative_infinity = project(i32::MIN);
+        assert!(negative_infinity.is_neg_infinity());
     }
 
     #[pgrx::pg_test]

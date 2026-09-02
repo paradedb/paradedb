@@ -685,18 +685,80 @@ fn materialize_deferred_column(
         DataFusionError::Execution("expected dense union with offsets in deferred column".into())
     })?;
 
+    let doc_address_child = union_array
+        .child(0)
+        .as_any()
+        .downcast_ref::<UInt64Array>()
+        .ok_or_else(|| {
+            DataFusionError::Execution(
+                "expected UInt64Array for doc_address child in deferred union".into(),
+            )
+        })?;
+
+    let term_ord_child = union_array
+        .child(1)
+        .as_any()
+        .downcast_ref::<StructArray>()
+        .ok_or_else(|| {
+            DataFusionError::Execution(
+                "expected StructArray for term_ord child in deferred union".into(),
+            )
+        })?;
+    let seg_ord_array = term_ord_child
+        .column(0)
+        .as_any()
+        .downcast_ref::<UInt32Array>()
+        .ok_or_else(|| {
+            DataFusionError::Execution("expected UInt32Array for seg_ord column".into())
+        })?;
+
     let mut state_0_rows: Vec<usize> = Vec::new();
     let mut state_1_rows: Vec<usize> = Vec::new();
+    let mut null_rows: Vec<usize> = Vec::new();
+
     for row in 0..num_rows {
+        if union_array.is_null(row) {
+            null_rows.push(row);
+            continue;
+        }
+        let ci = offsets[row] as usize;
         match type_ids[row] {
-            0 => state_0_rows.push(row),
-            1 => state_1_rows.push(row),
+            0 => {
+                if doc_address_child.is_null(ci) {
+                    null_rows.push(row);
+                } else {
+                    state_0_rows.push(row);
+                }
+            }
+            1 => {
+                if term_ord_child.is_null(ci) || seg_ord_array.is_null(ci) {
+                    null_rows.push(row);
+                } else {
+                    state_1_rows.push(row);
+                }
+            }
             _ => unreachable!("Invalid Union State"),
         }
     }
 
     let mut segment_arrays: Vec<ArrayRef> = Vec::new();
     let mut indices: Vec<(usize, usize)> = vec![(0, 0); num_rows];
+
+    if !null_rows.is_empty() {
+        let null_array = new_null_array(
+            &if matches!(ffcolumn, DeferredColumnKind::Bytes { .. }) {
+                DataType::BinaryView
+            } else {
+                DataType::Utf8View
+            },
+            1,
+        );
+        segment_arrays.push(null_array);
+        let null_array_idx = segment_arrays.len() - 1;
+        for row in null_rows {
+            indices[row] = (null_array_idx, 0);
+        }
+    }
 
     // Step 1. Resolve State 0 (packed doc addresses) and State 1 (pre-resolved term
     // ordinals) into a unified collection of term ordinals grouped by segment
@@ -725,7 +787,7 @@ fn materialize_deferred_column(
     if segment_arrays.is_empty() {
         // All rows were somehow unhandled — return a null array of the right type.
         return Ok(new_null_array(
-            &if matches!(ffcolumn, DeferredColumnKind::Bytes { ff_index: _ }) {
+            &if matches!(ffcolumn, DeferredColumnKind::Bytes { .. }) {
                 DataType::BinaryView
             } else {
                 DataType::Utf8View

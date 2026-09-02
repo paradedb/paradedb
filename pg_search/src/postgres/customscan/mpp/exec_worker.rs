@@ -21,8 +21,7 @@
 //! leader's dispatch blob from DSM, decode this proc's per-stage physical subplans (the leader
 //! built and sliced the plan once, so workers don't re-plan), and run each fragment via
 //! [`datafusion_distributed::shm::run_worker_fragment`] + `FuturesUnordered`. The only
-//! customscan-specific pieces are the seed `SessionContext` (different `SessionContextProfile`)
-//! and where the inputs come from in per-scan state.
+//! customscan-specific pieces are the seed `SessionContext` and where the inputs come from in per-scan state.
 //!
 //! This module isolates the shape-agnostic logic. Per-scan
 //! `crate::postgres::customscan::mpp::host::MppWorkerHost` impls (in
@@ -85,8 +84,7 @@ pub(crate) struct MppWorkerInputs {
 /// estimator chain, and target_partitions so the dispatched stage numbers line up with the
 /// leader's consumer plan.
 ///
-/// `seed` is the customscan's serial session context (`create_aggregate_session_context()` for
-/// AggregateScan, `create_datafusion_session_context(SessionContextProfile::Join)` for JoinScan).
+/// `seed` is the customscan's serial session context (`create_datafusion_session_context()`).
 /// The function copies its config and layers the distributed-planner knobs on top.
 pub(crate) fn build_mpp_session_context(
     seed: SessionContext,

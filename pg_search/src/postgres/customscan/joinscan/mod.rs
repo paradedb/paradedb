@@ -165,7 +165,7 @@ use crate::postgres::utils::expr_contains_any_operator;
 
 use self::scan_state::{
     build_joinscan_logical_plan, build_physical_plan, build_task_context,
-    create_datafusion_session_context, JoinScanState, SessionContextProfile,
+    create_datafusion_session_context, JoinScanState,
 };
 use crate::api::HashSet;
 use crate::api::OrderByFeature;
@@ -846,7 +846,7 @@ impl JoinScan {
         mesh: Option<Arc<MppMesh>>,
     ) -> datafusion::prelude::SessionContext {
         crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context(
-            create_datafusion_session_context(SessionContextProfile::Join),
+            create_datafusion_session_context(),
             mesh,
         )
     }
@@ -1353,14 +1353,10 @@ impl CustomScan for JoinScan {
                 if mpp_plan_has_data_parallelism(&mpp_plan) {
                     mpp_plan
                 } else {
-                    build_with(&create_datafusion_session_context(
-                        SessionContextProfile::Join,
-                    ))
+                    build_with(&create_datafusion_session_context())
                 }
             } else {
-                build_with(&create_datafusion_session_context(
-                    SessionContextProfile::Join,
-                ))
+                build_with(&create_datafusion_session_context())
             };
             explain_physical_plan(&physical_plan, explainer);
         }
@@ -1524,7 +1520,7 @@ impl CustomScan for JoinScan {
                 let plan_ctx = if mpp_pending {
                     Self::build_mpp_session_context(None)
                 } else {
-                    create_datafusion_session_context(SessionContextProfile::Join)
+                    create_datafusion_session_context()
                 };
                 let t_plan = std::time::Instant::now();
                 let plan = build_plan(&plan_ctx);
@@ -1553,8 +1549,7 @@ impl CustomScan for JoinScan {
                             // Short-launch decline: rebuild the logical plan with serial provider
                             // metadata. Merely changing SessionContext would replan the existing
                             // MPP-shaped logical providers without rewriting their source fields.
-                            let serial_ctx =
-                                create_datafusion_session_context(SessionContextProfile::Join);
+                            let serial_ctx = create_datafusion_session_context();
                             let fallback_bytes = Self::rebake_for_mpp_fallback(state);
                             let logical_plan = deserialize_logical_plan_with_runtime(
                                 &fallback_bytes,

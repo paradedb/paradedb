@@ -31,8 +31,8 @@ WHERE le.id @@@ paradedb.term('user_id', 'u1')
   AND sv.id @@@ paradedb.term('state', 'merged')
 ORDER BY le.id
 LIMIT 5;
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                      QUERY PLAN                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit  (cost=10.00..11.00 rows=5 width=8)
    ->  Custom Scan (ParadeDB Join Scan)  (cost=10.00..11.00 rows=5 width=8)
          Relation Tree: sv INNER le
@@ -50,13 +50,13 @@ LIMIT 5;
            : │             [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=1, input_tasks=2
            : │           RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
            : │             DistributedLeafExec:
-           : │               t0: PgSearchScan: table=le, segments=1, dynamic_filters=2, query={"with_index":{"query":{"term":{"field":"user_id","value":"u1"}}}}
+           : │               t0: PgSearchScan: table=le, segments=1, dynamic_filters=2, visibility=deferred, query={"with_index":{"query":{"term":{"field":"user_id","value":"u1"}}}}
            : └──────────────────────────────────────────────────
            :   ┌───── Stage 1 ── tasks=2, partitions=2
            :   │ BroadcastExec: input_partitions=1, consumer_tasks=1, output_partitions=1
            :   │   DistributedLeafExec:
-           :   │     t0: PgSearchScan: table=sv, segments=2, query={"with_index":{"query":{"term":{"field":"state","value":"merged"}}}}
-           :   │     t1: PgSearchScan: table=sv, segments=2, query={"with_index":{"query":{"term":{"field":"state","value":"merged"}}}}
+           :   │     t0: PgSearchScan: table=sv, segments=2, visibility=deferred, query={"with_index":{"query":{"term":{"field":"state","value":"merged"}}}}
+           :   │     t1: PgSearchScan: table=sv, segments=2, visibility=deferred, query={"with_index":{"query":{"term":{"field":"state","value":"merged"}}}}
            :   └──────────────────────────────────────────────────
 (25 rows)
 

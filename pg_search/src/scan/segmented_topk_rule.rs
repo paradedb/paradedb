@@ -393,9 +393,10 @@ fn try_inject_below_lookup(
             }
         }
 
-        // Recurse into single-child intermediate nodes (ProjectionExec, CoalescePartitionsExec, VisibilityFilterExec, etc.)
-        // Do not recurse into multi-child join nodes (HashJoinExec) where TantivyLookupExec is below the join.
-        if child.children().len() == 1 {
+        // Recurse into single-child intermediate nodes that support limit pushdown
+        // (ProjectionExec, CoalescePartitionsExec, SortPreservingMergeExec, CooperativeExec, etc.)
+        // Do not recurse into multi-child join nodes (HashJoinExec) or non-transparent barriers (AggregateExec).
+        if child.children().len() == 1 && child.supports_limit_pushdown() {
             if let Some(rewritten) =
                 try_inject_below_lookup(child, sort_exprs.clone(), k, parent_filter.clone())?
             {

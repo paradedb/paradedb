@@ -290,36 +290,48 @@ fn try_inject_below_lookup(
                             crate::scan::segmented_topk_exec::DeferredSortColumn {
                                 sort_col_idx: physical_idx,
                                 canonical: field.canonical.clone(),
+                                plan_position: field.plan_position,
                                 rebuild: field.rebuild.clone(),
                             },
                         );
                     }
                 }
 
-                // If the sort requires deferred columns from multiple different indexes (tables),
-                // we cannot push the threshold down, because a single segment scanner cannot evaluate
-                // the threshold across multiple tables (it only sees its own base table).
-                // E.g. `ORDER BY f.title ASC, d.category DESC` is a multi-dimensional bound that
-                // spans across the HashJoin. We must gracefully fall back to a standard SortExec.
-                // TODO: Add support for SegmentedTopK executing the TopK, but without pushing down
-                // thresholds: see https://github.com/paradedb/paradedb/issues/4347
-                let first_indexrelid = deferred_columns.first().map(|d| d.canonical.indexrelid);
-                if let Some(id) = first_indexrelid
-                    && deferred_columns
-                        .iter()
-                        .any(|d| d.canonical.indexrelid != id)
+                // If the sort requires deferred columns from multiple join sources,
+                // we cannot push the threshold down: a single segment scanner cannot
+                // evaluate a bound that spans two aliases (even when they share an
+                // index, as in a self-join). Fall back to SortExec after lookup.
+                // E.g. `ORDER BY a.name, b.name` on `sj a JOIN sj b` (#6023).
+                let first_key = deferred_columns.first().map(|d| d.helper_key());
+                if let Some(key) = first_key
+                    && deferred_columns.iter().any(|d| d.helper_key() != key)
                 {
-                    pgrx::warning!(
-                        "SegmentedTopK: ORDER BY includes string columns from multiple tables, which is not currently supported. Falling back to default execution."
-                    );
+                    // Distinct indexes were already a user-visible fallback. A self-join
+                    // shares one index, so keep that path on debug to avoid log noise (#6023).
+                    if deferred_columns
+                        .iter()
+                        .any(|d| d.canonical.indexrelid != key.1)
+                    {
+                        pgrx::warning!(
+                            "SegmentedTopK: ORDER BY includes string columns from multiple tables, which is not currently supported. Falling back to default execution."
+                        );
+                    } else {
+                        pgrx::debug2!(
+                            "SegmentedTopK: ORDER BY includes string columns from multiple join sources, which is not currently supported. Falling back to default execution."
+                        );
+                    }
                     return Ok(None);
                 }
 
-                let target_indexrelid = first_indexrelid.unwrap_or(0);
-                let ffhelper = match lookup.ffhelper(target_indexrelid) {
-                    Some(helper) => Arc::clone(helper),
-                    None => return Ok(None),
-                };
+                let mut ffhelpers = crate::api::HashMap::default();
+                for deferred in &deferred_columns {
+                    match lookup.ffhelper(deferred.plan_position, deferred.canonical.indexrelid) {
+                        Some(helper) => {
+                            ffhelpers.insert(deferred.helper_key(), Arc::clone(helper));
+                        }
+                        None => return Ok(None),
+                    }
+                }
 
                 // Rewrite sort expressions: replace each Column's index with the
                 // resolved physical index so that SegmentedTopKExec operates on the
@@ -368,7 +380,7 @@ fn try_inject_below_lookup(
                     Arc::clone(lookup_child),
                     rewritten_lex_ordering,
                     deferred_columns.clone(),
-                    Arc::clone(&ffhelper),
+                    ffhelpers,
                     k,
                     absorbed_visibility,
                     parent_filter.clone(),

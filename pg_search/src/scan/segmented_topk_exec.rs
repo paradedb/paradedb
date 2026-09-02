@@ -81,6 +81,7 @@ use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::deferred_encode::unpack_doc_address;
 use crate::scan::execution_plan::UnsafeSendStream;
+use crate::scan::late_materialization::FFHelperKey;
 use crate::scan::tantivy_lookup_exec::{LookupRebuildContext, open_rebuilt_ffhelper, rebuild_mvcc};
 use arrow_array::{
     Array, ArrayRef, BooleanArray, RecordBatch, StructArray, UInt32Array, UInt64Array, UnionArray,
@@ -134,10 +135,20 @@ type VisibilityRecipe = Option<(Vec<(usize, pg_sys::Oid)>, Vec<String>, Vec<(usi
 pub struct DeferredSortColumn {
     pub sort_col_idx: usize,
     pub canonical: CanonicalColumn,
+    /// JoinScan source identity. Distinguishes self-join aliases that share
+    /// `canonical.indexrelid` so each sort key keeps its own `FFHelper` (#6023).
+    #[serde(default)]
+    pub plan_position: Option<usize>,
     /// How a dispatched fragment rebuilds the fast-field helper when the column's scan is not
     /// in its decoded subtree (the top-k above a network boundary).
     #[serde(default)]
     pub rebuild: Option<crate::scan::late_materialization::DeferredLookupRebuild>,
+}
+
+impl DeferredSortColumn {
+    pub fn helper_key(&self) -> FFHelperKey {
+        (self.plan_position, self.canonical.indexrelid)
+    }
 }
 
 /// One wired ctid resolver: the index it reads and the fast-field helper over its segments.
@@ -203,8 +214,9 @@ pub struct SegmentedTopKExec {
     sort_exprs: LexOrdering,
     /// The deferred string/bytes columns that are part of the Top K order.
     deferred_columns: Vec<DeferredSortColumn>,
-    /// FFHelper for Tantivy fast field access (shared with TantivyLookupExec).
-    ffhelper: Arc<FFHelper>,
+    /// Per-scan FFHelpers, keyed by `(plan_position, indexrelid)` so a self-join
+    /// keeps one helper per alias (shared with TantivyLookupExec).
+    ffhelpers: HashMap<FFHelperKey, Arc<FFHelper>>,
     /// Maximum rows to keep per segment.
     k: usize,
     /// Dynamic filter pushed down through DataFusion's standard filter pushdown
@@ -245,7 +257,7 @@ impl SegmentedTopKExec {
         input: Arc<dyn ExecutionPlan>,
         sort_exprs: LexOrdering,
         deferred_columns: Vec<DeferredSortColumn>,
-        ffhelper: Arc<FFHelper>,
+        ffhelpers: HashMap<FFHelperKey, Arc<FFHelper>>,
         k: usize,
         visibility_data: Option<Arc<AbsorbedVisibilityData>>,
         parent_filter: Option<Arc<dyn PhysicalExpr>>,
@@ -278,7 +290,7 @@ impl SegmentedTopKExec {
             input,
             sort_exprs,
             deferred_columns,
-            ffhelper,
+            ffhelpers,
             k,
             dynamic_filter,
             visibility_data,
@@ -307,7 +319,7 @@ impl SegmentedTopKExec {
     fn create_mat_row_converter(
         sort_exprs: &LexOrdering,
         deferred_columns: &[DeferredSortColumn],
-        ffhelper: &FFHelper,
+        ffhelpers: &HashMap<FFHelperKey, Arc<FFHelper>>,
         schema: &arrow_schema::Schema,
     ) -> Result<RowConverter> {
         let materialized_sort_fields: Vec<SortField> = sort_exprs
@@ -322,9 +334,11 @@ impl SegmentedTopKExec {
                             .find(|d| d.sort_col_idx == c.index())
                     });
                 let data_type = if let Some(deferred) = is_deferred {
-                    let col = ffhelper.column(0, deferred.canonical.ff_index);
-                    match col {
-                        FFType::Bytes(_) => arrow_schema::DataType::BinaryView,
+                    match ffhelpers
+                        .get(&deferred.helper_key())
+                        .map(|h| h.column(0, deferred.canonical.ff_index))
+                    {
+                        Some(FFType::Bytes(_)) => arrow_schema::DataType::BinaryView,
                         _ => arrow_schema::DataType::Utf8View,
                     }
                 } else {
@@ -339,8 +353,23 @@ impl SegmentedTopKExec {
         Ok(RowConverter::new(materialized_sort_fields)?)
     }
 
-    /// Serialize for leader dispatch. The `ffhelper` is live and doesn't travel; the worker
-    /// pulls it from the scan in its decoded subtree. The `dynamic_filter` ships as an
+    fn ffhelper_for<'a>(
+        ffhelpers: &'a HashMap<FFHelperKey, Arc<FFHelper>>,
+        deferred: &DeferredSortColumn,
+    ) -> Result<&'a FFHelper> {
+        ffhelpers
+            .get(&deferred.helper_key())
+            .map(Arc::as_ref)
+            .ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "SegmentedTopKExec: missing FFHelper for plan_position {:?} indexrelid {}",
+                    deferred.plan_position, deferred.canonical.indexrelid
+                ))
+            })
+    }
+
+    /// Serialize for leader dispatch. The `ffhelpers` are live and don't travel; the worker
+    /// pulls them from the scans in its decoded subtree. The `dynamic_filter` ships as an
     /// identity-stamped proto expression so that decoding through the fragment's
     /// deduplicating proto converter re-shares one instance with the same filter shipped
     /// by the scan below (see #5766), keeping the worker's top-k threshold wired to its
@@ -404,7 +433,7 @@ impl SegmentedTopKExec {
     pub(crate) fn decode_for_dispatch(
         buf: &[u8],
         input: Arc<dyn ExecutionPlan>,
-        ffhelpers: HashMap<u32, Arc<FFHelper>>,
+        ffhelpers: HashMap<FFHelperKey, Arc<FFHelper>>,
         ctid_resolvers: Vec<(usize, u32, Arc<FFHelper>)>,
         ctx: &TaskContext,
         index_segment_views: &[SegmentView],
@@ -420,36 +449,38 @@ impl SegmentedTopKExec {
         ) = serde_json::from_slice(buf).map_err(|e| {
             DataFusionError::Internal(format!("SegmentedTopKExec dispatch: deserialize: {e}"))
         })?;
-        // The deferred sort columns all resolve against one index (the sorted relation), and
-        // `ff_index` is relative to that index's fast-field list. A join leaves the other
-        // index's scan in the same subtree, so pick the helper by `indexrelid` instead of
-        // grabbing whichever scan comes first. When that scan is behind a network boundary
-        // (no helper in the subtree), rebuild one over the same segment view the scan's
-        // reader opens, so segment ordering matches the ordinals the producers packed.
-        let ffhelper = match deferred_columns.first() {
-            Some(first) => match ffhelpers.get(&first.canonical.indexrelid).cloned() {
-                Some(helper) => helper,
-                None => {
-                    let entries: Vec<_> = deferred_columns
-                        .iter()
-                        .filter_map(|d| d.rebuild.as_ref().map(|rb| (d.canonical.ff_index, rb)))
-                        .collect();
-                    let (_, first_rb) = entries.first().ok_or_else(|| {
-                        DataFusionError::Internal(format!(
-                            "SegmentedTopKExec dispatch: no ffhelper for indexrelid {} and no \
-                             rebuild info",
-                            first.canonical.indexrelid
-                        ))
-                    })?;
-                    let mvcc = rebuild_mvcc(LookupRebuildContext { parallel_state }, first_rb)?;
-                    open_rebuilt_ffhelper(first.canonical.indexrelid, &entries, mvcc)?
-                }
-            },
-            None => ffhelpers
-                .into_values()
-                .next()
-                .unwrap_or_else(|| Arc::new(FFHelper::empty())),
-        };
+        // Each deferred sort column resolves against its own scan's field list. A self-join
+        // shares `indexrelid` across aliases, so pick the helper by `(plan_position, indexrelid)`.
+        // When that scan is behind a network boundary, rebuild one helper per alias over the
+        // same segment view the scan's reader opens.
+        let mut resolved_ffhelpers: HashMap<FFHelperKey, Arc<FFHelper>> = HashMap::default();
+        for deferred in &deferred_columns {
+            let key = deferred.helper_key();
+            if resolved_ffhelpers.contains_key(&key) {
+                continue;
+            }
+            if let Some(helper) = ffhelpers.get(&key) {
+                resolved_ffhelpers.insert(key, Arc::clone(helper));
+                continue;
+            }
+            let entries: Vec<_> = deferred_columns
+                .iter()
+                .filter(|d| d.helper_key() == key)
+                .filter_map(|d| d.rebuild.as_ref().map(|rb| (d.canonical.ff_index, rb)))
+                .collect();
+            let (_, first_rb) = entries.first().ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "SegmentedTopKExec dispatch: no ffhelper for plan_position {:?} \
+                     indexrelid {} and no rebuild info",
+                    deferred.plan_position, deferred.canonical.indexrelid
+                ))
+            })?;
+            let mvcc = rebuild_mvcc(LookupRebuildContext { parallel_state }, first_rb)?;
+            resolved_ffhelpers.insert(
+                key,
+                open_rebuilt_ffhelper(deferred.canonical.indexrelid, &entries, mvcc)?,
+            );
+        }
         let sort_proto = sort_bytes
             .iter()
             .map(|b| {
@@ -532,7 +563,7 @@ impl SegmentedTopKExec {
             input,
             sort_exprs,
             deferred_columns,
-            ffhelper,
+            resolved_ffhelpers,
             k,
             visibility_data,
             // Reuse the shipped filter so it stays identity-shared with the scans below.
@@ -596,7 +627,7 @@ impl ExecutionPlan for SegmentedTopKExec {
             children.remove(0),
             self.sort_exprs.clone(),
             self.deferred_columns.clone(),
-            Arc::clone(&self.ffhelper),
+            self.ffhelpers.clone(),
             self.k,
             self.visibility_data.clone(),
             Some(Arc::clone(&self.dynamic_filter)),
@@ -655,7 +686,7 @@ impl ExecutionPlan for SegmentedTopKExec {
         let mat_row_converter = Self::create_mat_row_converter(
             &self.sort_exprs,
             &self.deferred_columns,
-            &self.ffhelper,
+            &self.ffhelpers,
             self.properties.eq_properties.schema(),
         )?;
 
@@ -716,7 +747,7 @@ impl ExecutionPlan for SegmentedTopKExec {
         let mut state = SegmentedTopKState {
             sort_exprs: self.sort_exprs.clone(),
             deferred_columns: self.deferred_columns.clone(),
-            ffhelper: Arc::clone(&self.ffhelper),
+            ffhelpers: self.ffhelpers.clone(),
             k: self.k,
             schema: self.properties.eq_properties.schema().clone(),
             row_converter,
@@ -843,7 +874,7 @@ struct SegmentBuf {
 struct SegmentedTopKState {
     sort_exprs: LexOrdering,
     deferred_columns: Vec<DeferredSortColumn>,
-    ffhelper: Arc<FFHelper>,
+    ffhelpers: HashMap<FFHelperKey, Arc<FFHelper>>,
     k: usize,
     schema: SchemaRef,
     row_converter: RowConverter,
@@ -1021,8 +1052,9 @@ impl SegmentedTopKState {
         let mut deferred_ords: HashMap<usize, Vec<Option<TermOrdinal>>> = HashMap::default();
 
         for deferred_col in &self.deferred_columns {
+            let ffhelper = SegmentedTopKExec::ffhelper_for(&self.ffhelpers, deferred_col)?;
             let global_term_ords = Self::extract_deferred_ordinals(
-                &self.ffhelper,
+                ffhelper,
                 batch,
                 deferred_col,
                 num_rows,
@@ -1465,7 +1497,8 @@ impl SegmentedTopKState {
                         )
                     })?
                     .value(0);
-                let col = self.ffhelper.column(seg_ord, deferred.canonical.ff_index);
+                let col = SegmentedTopKExec::ffhelper_for(&self.ffhelpers, deferred)?
+                    .column(seg_ord, deferred.canonical.ff_index);
                 match col {
                     FFType::Text(str_col) => {
                         let mut s = String::new();
@@ -1815,8 +1848,12 @@ impl SegmentedTopKState {
                             .find(|d| d.sort_col_idx == c.index())
                     });
                 let mat_type = if let Some(deferred) = deferred {
-                    match self.ffhelper.column(0, deferred.canonical.ff_index) {
-                        FFType::Bytes(_) => arrow_schema::DataType::BinaryView,
+                    match self
+                        .ffhelpers
+                        .get(&deferred.helper_key())
+                        .map(|h| h.column(0, deferred.canonical.ff_index))
+                    {
+                        Some(FFType::Bytes(_)) => arrow_schema::DataType::BinaryView,
                         _ => arrow_schema::DataType::Utf8View,
                     }
                 } else {
@@ -1887,7 +1924,8 @@ impl SegmentedTopKState {
                             .map(|a| a.value(ord_pos));
                         if let Some(term_ord) = term_ord {
                             let ff_col =
-                                self.ffhelper.column(*seg_ord, deferred.canonical.ff_index);
+                                SegmentedTopKExec::ffhelper_for(&self.ffhelpers, deferred)?
+                                    .column(*seg_ord, deferred.canonical.ff_index);
                             match ff_col {
                                 FFType::Text(str_col) => {
                                     let mut s = String::new();
@@ -2213,15 +2251,18 @@ mod tests {
                         indexrelid: index_oid.to_u32(),
                         ff_index: 0,
                     },
+                    plan_position: None,
                     rebuild: None,
                 }
             ];
 
+            let mut ffhelpers = crate::api::HashMap::default();
+            ffhelpers.insert((None, index_oid.to_u32()), ffhelper.clone());
             let topk_exec = SegmentedTopKExec::new(
                 memory_exec,
                 sort_exprs,
                 deferred_columns,
-                ffhelper.clone(),
+                ffhelpers,
                 10,
                 None,
                 None,

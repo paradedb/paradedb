@@ -176,7 +176,8 @@ pub fn field_type_for_pullup(
         // JSON/JSONB are excluded because fast fields do not contain the
         // full content of the JSON in a way that we can easily render:
         // rather, the individual fields are exploded out into dynamic columns.
-        SearchFieldType::Json(_) => None,
+        SearchFieldType::Json(_)
+        | SearchFieldType::Tokenized(_, _, pg_sys::JSONOID | pg_sys::JSONBOID) => None,
         // Range types are not yet supported for pullup
         SearchFieldType::Range(_) => None,
         // All other types can be pulled up directly

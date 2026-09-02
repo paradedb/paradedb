@@ -24,7 +24,7 @@ use crate::postgres::customscan::opexpr::UnwrapFromExpr;
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::{ConstNode, TantivyValue};
-use crate::postgres::var::fieldname_from_var;
+use crate::postgres::var::{VarContext, fieldname_from_var, find_one_var_and_fieldname};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 use pgrx::PgList;
@@ -208,7 +208,7 @@ impl AggregateType {
         }
 
         let first_arg = args.get_ptr(0).ok_or("aggregate missing argument")?;
-        let (field, missing) = parse_aggregate_field(first_arg, heaprelid)?;
+        let (field, missing) = parse_aggregate_field(first_arg, heaprelid, root)?;
 
         // Check if aggregate pushdown is supported for this field type on the
         // Tantivy backend. NUMERIC fields are not supported here; standard SQL
@@ -675,20 +675,50 @@ impl F64Lossless for i64 {
 unsafe fn parse_aggregate_field(
     first_arg: *mut pg_sys::TargetEntry,
     heaprelid: pg_sys::Oid,
+    root: *mut pg_sys::PlannerInfo,
 ) -> Result<(String, Option<f64>), String> {
-    let (var, missing) = if let Some(coalesce_node) =
-        nodecast!(CoalesceExpr, T_CoalesceExpr, (*first_arg).expr)
-    {
-        parse_coalesce_expression(coalesce_node)?
+    let context = VarContext::from_planner(root);
+    if let Some(coalesce_node) = nodecast!(CoalesceExpr, T_CoalesceExpr, (*first_arg).expr) {
+        parse_coalesce_aggregate_field(coalesce_node, heaprelid, context)
     } else if let Some(var) = nodecast!(Var, T_Var, (*first_arg).expr) {
-        (var, None)
+        let field = fieldname_from_var(heaprelid, var, (*var).varattno)
+            .ok_or("could not map variable to field name (may not be in the index)")?
+            .into_inner();
+        Ok((field, None))
+    } else if let Some((_var, field_name)) =
+        find_one_var_and_fieldname(context, (*first_arg).expr.cast())
+    {
+        Ok((field_name.into_inner(), None))
     } else {
-        return Err("argument to aggregate function is neither a direct column reference nor a COALESCE expression".into());
+        Err("argument to aggregate function is neither a direct column reference nor a COALESCE expression".into())
+    }
+}
+
+unsafe fn parse_coalesce_aggregate_field(
+    coalesce_node: *mut pg_sys::CoalesceExpr,
+    heaprelid: pg_sys::Oid,
+    context: VarContext,
+) -> Result<(String, Option<f64>), String> {
+    let args = PgList::<pg_sys::Node>::from_pg((*coalesce_node).args);
+    let first_arg = args
+        .get_ptr(0)
+        .ok_or("COALESCE expression missing first argument")?;
+
+    let field = if let Some(var) =
+        <*mut pg_sys::Var>::unwrap_from_expr(first_arg as *mut pg_sys::Expr)
+    {
+        fieldname_from_var(heaprelid, var, (*var).varattno)
+            .ok_or("could not map COALESCE variable to field name (may not be in the index)")?
+            .into_inner()
+    } else if let Some((_var, field_name)) = find_one_var_and_fieldname(context, first_arg) {
+        field_name.into_inner()
+    } else {
+        return Err(
+            "first argument of COALESCE must resolve to a variable or JSON field reference".into(),
+        );
     };
 
-    let field = fieldname_from_var(heaprelid, var, (*var).varattno)
-        .ok_or("could not map variable to field name (may not be in the index)")?
-        .into_inner();
+    let missing = parse_coalesce_missing_value(&args)?;
     Ok((field, missing))
 }
 
@@ -709,7 +739,12 @@ pub unsafe fn parse_coalesce_expression(
     let var = <*mut pg_sys::Var>::unwrap_from_expr(first_arg as *mut pg_sys::Expr)
         .ok_or("first argument of COALESCE must resolve to a variable")?;
 
-    // Second argument (the default value) might also be wrapped in type coercion
+    let missing = parse_coalesce_missing_value(&args)?;
+
+    Ok((var, missing))
+}
+
+unsafe fn parse_coalesce_missing_value(args: &PgList<pg_sys::Node>) -> Result<Option<f64>, String> {
     let second_arg = args
         .get_ptr(1)
         .ok_or("COALESCE expression missing second argument")?;
@@ -722,11 +757,15 @@ pub unsafe fn parse_coalesce_expression(
         Ok(TantivyValue(PdbOwnedValue::F64(missing))) => Some(missing),
         Ok(TantivyValue(PdbOwnedValue::Null)) => None,
         // Handle string values from NUMERIC - parse to f64 for missing value
-        Ok(TantivyValue(PdbOwnedValue::Str(s))) => s.parse::<f64>().ok(),
+        Ok(TantivyValue(PdbOwnedValue::Str(s))) => s
+            .parse::<f64>()
+            .ok()
+            .map(Some)
+            .ok_or("unsupported constant type in COALESCE default value")?,
         _ => return Err("unsupported constant type in COALESCE default value".into()),
     };
 
-    Ok((var, missing))
+    Ok(missing)
 }
 
 /// Create appropriate AggregateType from function OID

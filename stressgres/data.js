@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788372351142,
+  "lastUpdate": 1788372363090,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -139282,6 +139282,108 @@ window.BENCHMARK_DATA = {
             "value": 48.9453125,
             "unit": "median mem",
             "extra": "avg mem: 45.90291277066929, max mem: 51.265625, count: 59436"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d052f7d8476ff147ab65f17ac4304bf746870119",
+          "message": "feat: match ScalarArrayOpExpr clauses against the index (#6171)\n\n# Ticket(s) Closed\n\n- Closes #6091\n\n## What\n\n`IndexClause::from_clause` dispatched only `OpExpr` and `FuncExpr`, so\n`col = ANY(ARRAY[...])` stayed a heap filter even when a btree could\nanswer it. Adds a `from_saop` arm.\n\n## Why\n\nFollow-up to #6088. The array membership is exactly what the index\nanswers, so the bitmap rejects non-matching rows before the heap fetch\nand the filter drops to a recheck.\n\n## How\n\n`from_saop` mirrors core's `match_saopclause_to_indexcol`: `ANY` only,\nindex key as the left operand, a pseudoconstant array on the right, then\nthe collation and opfamily gates. `ALL` is refused because one index\nscan cannot answer a conjunction over every element, and there is no\ncommuted form to try since the array can only be the right operand.\n\nThose gates and the `IndexClause` construction were previously written\nout once per branch in `from_opexpr`. A preparatory commit extracts them\ninto `direct_match_ok` and `direct`, which both existing branches and\nthe new arm now share.\n\n## Tests\n\nThe `TODO ScalarArrayOpExpr` shape moves into the supported section: it\nharvests `providers_specialty` and its filter becomes a recheck, with\n`saop_count` unchanged at 400. `ALL` is added as a refusal alongside it.\n\n`cargo pgrx regress pg18` 333/333.",
+          "timestamp": "2026-09-02T10:27:19-07:00",
+          "tree_id": "eca0fd8b6f3370b1c6f5c522c3ae4b6f96f38110",
+          "url": "https://github.com/paradedb/paradedb/commit/d052f7d8476ff147ab65f17ac4304bf746870119"
+        },
+        "date": 1788372356681,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.05944926950784353, max background_merging: 2.0, count: 59412"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.712813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.759400088731795, max cpu: 9.6823, count: 59412"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 19.59765625,
+            "unit": "median mem",
+            "extra": "avg mem: 19.596529254927457, max mem: 19.6015625, count: 59412"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7105007,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.01409259805517, max cpu: 23.529411, count: 59412"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 33.71875,
+            "unit": "median mem",
+            "extra": "avg mem: 39.401704937554705, max mem: 51.9765625, count: 59412"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 64408,
+            "unit": "median block_count",
+            "extra": "avg block_count: 64084.28519491012, max block_count: 64408.0, count: 59412"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 68,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 66.21645458829866, max segment_count: 106.0, count: 59412"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.54095,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.92685880246719, max cpu: 33.3996, count: 59412"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 83.5390625,
+            "unit": "median mem",
+            "extra": "avg mem: 79.44424139115415, max mem: 83.76953125, count: 59412"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.703577,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.72781882925192, max cpu: 9.421001, count: 59412"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 33.2890625,
+            "unit": "median mem",
+            "extra": "avg mem: 33.276078617324785, max mem: 33.37109375, count: 59412"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7058825,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.337841293263765, max cpu: 28.528973, count: 59412"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 99.8671875,
+            "unit": "median mem",
+            "extra": "avg mem: 99.32789869365617, max mem: 104.33203125, count: 59412"
           }
         ]
       }

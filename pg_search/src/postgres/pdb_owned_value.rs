@@ -269,6 +269,25 @@ impl PdbOwnedValue {
         }
     }
 
+    /// Converts a DataFusion execution [`ScalarValue`] (Arrow column representation)
+    /// into a [`PdbOwnedValue`] ready for Tantivy term construction.
+    ///
+    /// Unlike [`Self::from_scalar`], which treats `Int64` as a logical SQL value and
+    /// may apply `Numeric64` scale, this path assumes values already match the field's
+    /// Arrow encoding. Hash-join dynamic `InList` members are built from join-key
+    /// arrays, so `Numeric64` arrives as an already-scaled `Int64`.
+    pub fn from_execution_scalar(
+        scalar: &ScalarValue,
+        field_type: &SearchFieldType,
+    ) -> Option<Self> {
+        match (scalar, field_type) {
+            (ScalarValue::Int64(Some(v)), SearchFieldType::Numeric64(_, _)) => {
+                Some(PdbOwnedValue::I64(*v))
+            }
+            _ => Self::from_scalar(scalar, field_type),
+        }
+    }
+
     /// Converts this [`PdbOwnedValue`] into a DataFusion [`ScalarValue`] representation matching
     /// the column's Arrow [`DataType`].
     ///
@@ -523,6 +542,7 @@ impl TryFrom<serde_json::Value> for PdbOwnedValue {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pgrx::pg_sys;
     use std::cmp::Ordering;
     use std::net::Ipv6Addr;
 
@@ -645,6 +665,64 @@ mod tests {
                 .plain_display()
                 .to_string()
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn from_execution_scalar_preserves_already_scaled_numeric64() {
+        // 104.25 stored as Int64(10425) for numeric(..., 2). Execution values
+        // must not be scaled again; logical from_scalar still multiplies.
+        let field = SearchFieldType::Numeric64(pg_sys::InvalidOid, 2);
+        let execution = ScalarValue::Int64(Some(10_425));
+
+        assert_eq!(
+            PdbOwnedValue::from_execution_scalar(&execution, &field),
+            Some(PdbOwnedValue::I64(10_425))
+        );
+        assert_eq!(
+            PdbOwnedValue::from_scalar(&execution, &field),
+            Some(PdbOwnedValue::I64(1_042_500))
+        );
+    }
+
+    #[test]
+    fn from_execution_scalar_delegates_non_numeric64() {
+        let field = SearchFieldType::I64(pg_sys::InvalidOid);
+        let value = ScalarValue::Int64(Some(42));
+        assert_eq!(
+            PdbOwnedValue::from_execution_scalar(&value, &field),
+            PdbOwnedValue::from_scalar(&value, &field)
+        );
+
+        let numeric = SearchFieldType::Numeric64(pg_sys::InvalidOid, 2);
+        let logical_float = ScalarValue::Float64(Some(104.25));
+        assert_eq!(
+            PdbOwnedValue::from_execution_scalar(&logical_float, &numeric),
+            PdbOwnedValue::from_scalar(&logical_float, &numeric)
+        );
+        assert_eq!(
+            PdbOwnedValue::from_execution_scalar(&logical_float, &numeric),
+            Some(PdbOwnedValue::I64(10_425))
+        );
+    }
+
+    #[test]
+    fn from_execution_scalar_handles_negative_and_zero_scale() {
+        let scale2 = SearchFieldType::Numeric64(pg_sys::InvalidOid, 2);
+        assert_eq!(
+            PdbOwnedValue::from_execution_scalar(&ScalarValue::Int64(Some(-10_425)), &scale2),
+            Some(PdbOwnedValue::I64(-10_425))
+        );
+
+        let scale0 = SearchFieldType::Numeric64(pg_sys::InvalidOid, 0);
+        assert_eq!(
+            PdbOwnedValue::from_execution_scalar(&ScalarValue::Int64(Some(104)), &scale0),
+            Some(PdbOwnedValue::I64(104))
+        );
+        // scale 0: from_scalar multiplier is 1, so both paths agree.
+        assert_eq!(
+            PdbOwnedValue::from_execution_scalar(&ScalarValue::Int64(Some(104)), &scale0),
+            PdbOwnedValue::from_scalar(&ScalarValue::Int64(Some(104)), &scale0)
         );
     }
 }

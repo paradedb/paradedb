@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788385897792,
+  "lastUpdate": 1788385908436,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -313530,6 +313530,90 @@ window.BENCHMARK_DATA = {
             "value": 595.2121109661215,
             "unit": "median tps",
             "extra": "avg tps: 593.3193228346922, max tps: 644.1973054144207, count: 55365"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "51e683ece89fde7e42ca0c50e4fbad43a2cfe408",
+          "message": "refactor: resolve ctids in TantivyLookupExec, not VisibilityFilterExec (#6140)\n\nThis PR moves ctid resolution out of `VisibilityFilterExec` and into\n`TantivyLookupExec`.\n\nStacked on #6139. It is the second step Stu mentioned for the takeover\nof #6119: split column loading out of the visibility filter so\n`TantivyLookupExec` owns fetching columns (the ctid included) and\n`VisibilityFilterExec` only consumes and mutates the ctid.\n\n## What\n\n- `TantivyLookupExec` can resolve a `ctid_<plan_position>` column from\npacked doc-addresses to real ctids. A ctid-resolving lookup is inserted\ndirectly below every `VisibilityFilterExec`, and below a\n`SegmentedTopKExec` that absorbs one. The plan now shows\n`TantivyLookupExec: decode=[], resolve_ctid=[ctid_0, ctid_1]` under the\nfilter.\n- `VisibilityFilterExec` and the absorbed-visibility path in\n`SegmentedTopKExec` no longer resolve ctids. They check visibility and\nHOT-correct the already-real ctids.\n- The MPP dispatch machinery moved with it: the lookup's dispatch\npayload carries its ctid columns and resolver indexes, and its decode\nrebuilds a resolver from the index segment view when the source sits\nbehind a network boundary.\n\n## Why\n\n`VisibilityFilterExec` was doing two jobs: fetching the ctid column and\nchecking visibility. Separating them makes each node do one thing and\nsets up the follow-up where `TantivyLookupExec` owns all column\nfetching.\n\n## Tests\n\nExisting test.\n\n## CI benchmarks\n\nNo change in benchmark results as expected.\n\nPlease note that `SegmentedTopKExec`'s absorbed-visibility data keeps\nits own ctid resolvers: the absorption takes the lookup's input, so only\nthe K winners pay resolution, and the exec resolves them itself.",
+          "timestamp": "2026-09-02T14:32:52-07:00",
+          "tree_id": "52d24649a4d011b6bd1b09e366e3151a2cb7ecc5",
+          "url": "https://github.com/paradedb/paradedb/commit/51e683ece89fde7e42ca0c50e4fbad43a2cfe408"
+        },
+        "date": 1788385888744,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 203.92656605421658,
+            "unit": "median tps",
+            "extra": "avg tps: 204.0937769589196, max tps: 221.78250513840956, count: 55417"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 207.792957774313,
+            "unit": "median tps",
+            "extra": "avg tps: 207.90051460839754, max tps: 239.92267510292956, count: 55417"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 180.1642029360821,
+            "unit": "median tps",
+            "extra": "avg tps: 180.28377151855435, max tps: 195.91247591578335, count: 55417"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 494.07772257919675,
+            "unit": "median tps",
+            "extra": "avg tps: 495.12550833372796, max tps: 710.9837762102879, count: 55417"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 351.93020601319864,
+            "unit": "median tps",
+            "extra": "avg tps: 352.3817070180636, max tps: 444.1275347746308, count: 55417"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.875100155441276,
+            "unit": "median tps",
+            "extra": "avg tps: 14.88346966436796, max tps: 16.01211986174151, count: 55417"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Subscriber - tps",
+            "value": 651.0922206508494,
+            "unit": "median tps",
+            "extra": "avg tps: 652.194092060204, max tps: 777.7097697486042, count: 55417"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 661.5198459325244,
+            "unit": "median tps",
+            "extra": "avg tps: 660.5382243061654, max tps: 792.7061936498071, count: 55417"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 277.7574875728059,
+            "unit": "median tps",
+            "extra": "avg tps: 278.19575697894913, max tps: 323.2292458761972, count: 55417"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 574.6138907034452,
+            "unit": "median tps",
+            "extra": "avg tps: 573.5844022931818, max tps: 656.6031124635476, count: 55417"
           }
         ]
       }

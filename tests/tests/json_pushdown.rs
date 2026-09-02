@@ -26,7 +26,7 @@ use std::fmt::Debug;
 use tests::fixtures::*;
 
 use tests::fixtures::querygen::opexprgen::Operator;
-use tests::fixtures::querygen::{PgGucs, compare};
+use tests::fixtures::querygen::{PgGucs, SetupScript, compare};
 
 #[derive(Debug, Clone, Arbitrary)]
 pub enum TokenizerType {
@@ -482,7 +482,7 @@ impl JsonExpr {
     }
 }
 
-fn json_pushdown_setup(conn: &mut PgConnection, index_config: &IndexConfig) -> String {
+fn json_pushdown_setup(conn: &mut PgConnection, index_config: &IndexConfig) -> SetupScript {
     "CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;".execute(conn);
     "SET log_error_verbosity TO VERBOSE;".execute(conn);
     "SET log_min_duration_statement TO 1000;".execute(conn);
@@ -547,7 +547,7 @@ ANALYZE json_pushdown_test;
     );
 
     setup_sql.clone().execute(conn);
-    setup_sql
+    SetupScript::new(setup_sql, vec!["json_pushdown_test".to_string()])
 }
 
 #[rstest]

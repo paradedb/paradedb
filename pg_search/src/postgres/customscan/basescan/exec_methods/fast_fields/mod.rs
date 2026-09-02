@@ -24,7 +24,7 @@ pub mod columnar;
 use crate::api::HashSet;
 use crate::api::operator::row_expr_from_indexed_expr;
 use crate::gucs;
-use crate::index::fast_fields_helper::{FieldDelivery, WhichFastField};
+use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
 use crate::postgres::composite::get_composite_type_fields;
 use crate::postgres::customscan::basescan::BaseScan;
@@ -370,15 +370,7 @@ fn fast_field_capable_prereqs(privdata: &PrivateData) -> bool {
     // Count columns that we have fast fields for (excluding system/junk fields)
     let fast_field_column_count = which_fast_fields
         .iter()
-        .filter(|ff| {
-            matches!(
-                ff,
-                WhichFastField::Named {
-                    delivery: FieldDelivery::Eager,
-                    ..
-                }
-            )
-        })
+        .filter(|ff| ff.is_eager_named())
         .count();
 
     // If we're missing any columns, we can't use fast field execution
@@ -404,15 +396,7 @@ pub fn is_columnar_capable(privdata: &PrivateData) -> bool {
     let which_fast_fields = privdata.planned_which_fast_fields().as_ref().unwrap();
     let named_field_count = which_fast_fields
         .iter()
-        .filter(|wff| {
-            matches!(
-                wff,
-                WhichFastField::Named {
-                    delivery: FieldDelivery::Eager,
-                    ..
-                }
-            )
-        })
+        .filter(|wff| wff.is_eager_named())
         .count();
 
     0 < named_field_count && named_field_count < gucs::columnar_exec_column_threshold()
@@ -443,15 +427,7 @@ pub fn explain(state: &CustomScanStateWrapper<BaseScan>, explainer: &mut Explain
         // Get all fast fields used, sorted for deterministic output
         let mut fields: Vec<_> = which_fast_fields
             .iter()
-            .filter(|ff| {
-                matches!(
-                    ff,
-                    WhichFastField::Named {
-                        delivery: FieldDelivery::Eager,
-                        ..
-                    }
-                )
-            })
+            .filter(|ff| ff.is_eager_named())
             .map(|ff| ff.name())
             .collect();
         fields.sort();

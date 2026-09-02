@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788369199789,
+  "lastUpdate": 1788369207994,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -190704,6 +190704,126 @@ window.BENCHMARK_DATA = {
             "value": 28.25390625,
             "unit": "median mem",
             "extra": "avg mem: 28.373043911429004, max mem: 29.19921875, count: 59314"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "236c5131f72436f93b1d802c19b958f9e2de10b4",
+          "message": "perf: defer visibility and late materialization in more join plans (#6139)\n\nThis PR re-lands the deferred visibility and late-materialization work\nfrom #6119, adds a kill-switch so aggregates stay on the eager path for\nnow, and dedups the optimizer rules.\n\n## Why\n\n#6119 lets a scan defer its visibility check (and string decode) to a\n`VisibilityFilterExec` above a join, so rows dropped by the join, a\nfilter, or a LIMIT never pay the check. That helps when an intermediate\nnode reduces rows. For aggregate-on-join it did not: the benchmark heaps\nare ~100% all-visible, so the eager in-scan check is cheap, and\ndeferring only moves the ctid fetch past the `HashJoin` where it loses\nthe scan's ctid-sorted locality. Deferral there was a loss.\n\nSo aggregates keep the eager, in-scan path until selective late\nmaterialization can decide per-source when deferral pays. #6155 explored\na plan-time cost gate for it and was closed with the findings; the\nselective design needs statistics-driven or run-time decisions.\n\n## What\n\n- `paradedb.enable_aggregate_late_materialization` (default `false`)\ngates deferral for the aggregate-on-join path. With it off, aggregate\nplans check visibility in the scan, as before #6119. The join and TopK\npaths keep #6119's behavior.\n- The visibility and late-materialization optimizer rules shared their\nprovider downcast, reduction-node test, and beneficial-ancestor walk\ninto `pg_search_provider_from_scan`, `is_reduction_node`, and\n`has_reduction_before_stop`.\n- The beneficial walk no longer credits a Full barrier itself. A Full\nbarrier keeps every check below it, so its own reduction comes after the\ncheck. A scan under a mark or full join with nothing reducing in between\nkeeps its in-scan check instead of a `VisibilityFilterExec` wrap that\nfilters the same rows. The visibility rule's ctid-projection forcing\nmoved into two helper functions so the `transform_up` closure becomes as\nits two steps: activate the scan, then carry the ctid up through\nrow-preserving nodes.\n\n## Tests\n\n- `enable_aggregate_late_materialization` off reverts the aggregate\nexpected plans to eager; the join, TopK, and distinct expected files are\nunchanged from #6119.\n- Two unit tests pin the Full-join contract (no wrap without a reduction\nbelow the join, wrap on the reduced side only). `issue_4531`,\n`issue_4667`, `issue_4719`, and `join_outer_edge` drop the wraps that\nsat directly above their scans.\n\n## CI benchmarks\n\nThe Queries benchmark on the current head is neutral against main\n([run](https://github.com/paradedb/paradedb/actions/runs/33470217899),\n[main\nbaseline](https://github.com/paradedb/paradedb/actions/runs/33218525532)).\nNothing moved beyond noise: the largest tight-interval delta\n(`bucket-expr-filter`, 1.06 at 20m) is a single-table `GroupAggregate`\nthis PR does not touch, and `join_conjunctive_score_sort` (1.07 at 20m)\nhas overlapping confidence intervals and is flat at 100k and 1m.\n\nThe follow-up that decouples ctid fetching from the visibility check\n(moving column loading into `TantivyLookupExec`) will stack on this\nbranch.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-09-02T12:54:54-04:00",
+          "tree_id": "9ac244769e7a89e857852a22e3f0883b7975d35e",
+          "url": "https://github.com/paradedb/paradedb/commit/236c5131f72436f93b1d802c19b958f9e2de10b4"
+        },
+        "date": 1788369204343,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 14.028252,
+            "unit": "median cpu",
+            "extra": "avg cpu: 14.965728075420548, max cpu: 37.888504, count: 59329"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 41.80078125,
+            "unit": "median mem",
+            "extra": "avg mem: 41.79895760030929, max mem: 41.82421875, count: 59329"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.573693718567061, max cpu: 28.152493, count: 59329"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 20.609375,
+            "unit": "median mem",
+            "extra": "avg mem: 20.598351920540544, max mem: 20.609375, count: 59329"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.676084,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.7532633291483615, max cpu: 23.380419, count: 59329"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 43.01953125,
+            "unit": "median mem",
+            "extra": "avg mem: 42.969317808323076, max mem: 43.01953125, count: 59329"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 18878,
+            "unit": "median block_count",
+            "extra": "avg block_count: 18923.376224106254, max block_count: 36330.0, count: 59329"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.5388164495587344, max cpu: 4.7058825, count: 59329"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 21.30078125,
+            "unit": "median mem",
+            "extra": "avg mem: 21.30039944104064, max mem: 21.30078125, count: 59329"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 27.27526167641457, max segment_count: 37.0, count: 59329"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.356726,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.228949513975426, max cpu: 23.928215, count: 59329"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 41.16796875,
+            "unit": "median mem",
+            "extra": "avg mem: 41.16463057168501, max mem: 41.17578125, count: 59329"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.169055,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.004516936546253, max cpu: 28.263002, count: 118658"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 43.6015625,
+            "unit": "median mem",
+            "extra": "avg mem: 42.72764741947446, max mem: 45.42578125, count: 118658"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.361287,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.395667826681779, max cpu: 23.44895, count: 59329"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 27.921875,
+            "unit": "median mem",
+            "extra": "avg mem: 27.935820014242612, max mem: 28.49609375, count: 59329"
           }
         ]
       }

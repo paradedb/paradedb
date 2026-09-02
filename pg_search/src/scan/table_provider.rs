@@ -23,7 +23,7 @@ use arrow_schema::SchemaRef;
 use async_trait::async_trait;
 use datafusion::catalog::{Session, TableProvider};
 use datafusion::common::stats::{ColumnStatistics, Precision};
-use datafusion::common::{DataFusionError, Result, Statistics};
+use datafusion::common::{Constraint, Constraints, DataFusionError, Result, Statistics};
 use datafusion::logical_expr::{Expr, TableProviderFilterPushDown, TableType};
 use datafusion::physical_plan::ExecutionPlan;
 use pgrx::pg_sys;
@@ -76,6 +76,12 @@ pub struct PgSearchTableProvider {
     schema: OnceLock<SchemaRef>,
     #[serde(skip)]
     late_materialization_schema: OnceLock<SchemaRef>,
+    /// Cached table-level constraints. `TableProvider::constraints` hands back a
+    /// reference, so the value has to outlive the call. Invalidated by
+    /// `configure_deferred_outputs`, which is the only thing that can change the
+    /// answer after construction.
+    #[serde(skip)]
+    constraints: OnceLock<Option<Constraints>>,
     /// Parallel state is skipped during serialization because it's a raw pointer
     /// to shared memory that is only valid in the current process. It is
     /// re-injected by the execution codec during deserialization if
@@ -159,6 +165,7 @@ impl Clone for PgSearchTableProvider {
             fields: self.fields.clone(),
             schema: self.schema.clone(),
             late_materialization_schema: self.late_materialization_schema.clone(),
+            constraints: self.constraints.clone(),
             parallel_state: self.parallel_state,
             expr_context: self.expr_context,
             planstate: self.planstate,
@@ -190,6 +197,7 @@ impl PgSearchTableProvider {
             fields,
             schema: OnceLock::new(),
             late_materialization_schema: OnceLock::new(),
+            constraints: OnceLock::new(),
             parallel_state: None,
             expr_context: None,
             planstate: None,
@@ -294,6 +302,9 @@ impl PgSearchTableProvider {
         if let VisibilityMode::Deferred { plan_position } = visibility_mode {
             self.enable_deferred_visibility(plan_position);
         }
+        // Deferring visibility changes whether the key field is unique in this
+        // scan's own output, so drop anything `constraints()` may have cached.
+        self.constraints = OnceLock::new();
     }
 
     pub(crate) fn visibility_mode(&self) -> VisibilityMode {
@@ -572,6 +583,58 @@ impl PgSearchTableProvider {
 impl TableProvider for PgSearchTableProvider {
     fn schema(&self) -> SchemaRef {
         self.get_schema()
+    }
+
+    /// Declares the BM25 `key_field` as unique so DataFusion carries a non-empty
+    /// `FunctionalDependencies` through plans built over this scan.
+    ///
+    /// Two conditions gate the declaration:
+    ///
+    /// * **Eager visibility only.** Under [`VisibilityMode::Deferred`] the scan skips
+    ///   per-row visibility checks and `VisibilityFilterExec` prunes above us, so this
+    ///   node can legitimately emit several index documents (old and new versions of
+    ///   the same row) sharing one key value. An UPDATE leaves the superseded doc in
+    ///   a snapshot-visible segment; `batch_scanner::next` is what drops it, via
+    ///   `VisibilityChecker`, and the deferred path skips exactly that step.
+    ///   Uniqueness only holds once `VisibilityFilterExec` has run, and DataFusion is
+    ///   entitled to act on whatever we declare here.
+    ///
+    ///   Note this currently excludes JoinScan entirely: `scan_state.rs` configures
+    ///   every source with `VisibilityMode::Deferred` unconditionally. Covering that
+    ///   path means declaring the constraint on `VisibilityFilterNode`'s output
+    ///   rather than on the scan; see the PR discussion.
+    ///
+    /// * **The key must be a materialized column.** We locate it by index into
+    ///   `self.fields`, which `build_arrow_schema` maps 1:1 onto the Arrow schema. The
+    ///   position is therefore valid for both the logical and late-materialization
+    ///   schemas and does not depend on which one `get_schema` happens to return at
+    ///   call time. Matching the `WhichFastField` variant rather than a schema field
+    ///   name also keeps a `Junk`/`Score`/`Ctid` column from matching by accident.
+    ///
+    /// Indices are against the unprojected schema: `TableScan` applies the projection
+    /// itself via `project_functional_dependencies`.
+    fn constraints(&self) -> Option<&Constraints> {
+        self.constraints
+            .get_or_init(|| {
+                if !matches!(self.visibility_mode, VisibilityMode::Eager) {
+                    return None;
+                }
+
+                let index_rel = PgSearchRelation::open(self.scan_info.indexrelid);
+                let key_name = index_rel.schema().ok()?.key_field_name().root();
+
+                let position = self.fields.iter().position(|wff| match wff {
+                    WhichFastField::Named(name, _) | WhichFastField::Deferred(name, _) => {
+                        name == &key_name
+                    }
+                    _ => false,
+                })?;
+
+                Some(Constraints::new_unverified(vec![Constraint::Unique(vec![
+                    position,
+                ])]))
+            })
+            .as_ref()
     }
 
     fn table_type(&self) -> TableType {

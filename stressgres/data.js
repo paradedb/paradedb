@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788307548269,
+  "lastUpdate": 1788307556586,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -138832,6 +138832,108 @@ window.BENCHMARK_DATA = {
             "value": 100.1640625,
             "unit": "median mem",
             "extra": "avg mem: 99.63280684515293, max mem: 104.62109375, count: 59407"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2dbed3a3a873f700775168e59d6c683cd2d9a32a",
+          "message": "ci: Fix benchmarker CI failure handling & cleanup duplicated actions and workflows (#6183)\n\n## Summary\n- consolidate source-building benchmark workflows on a single\n`Swatinem/rust-cache` owner for Cargo binaries and build artifacts\n- verify the cached `cargo-pgrx` version in both Benchmarker and\nStressgres, installing the pinned version only when missing or stale\n- notify `@pg_search-maintainers` in Slack when the Benchmarker workflow\nfails on a push\n\n## Root cause\n[Run\n33561565782](https://github.com/paradedb/paradedb/actions/runs/33561565782/job/100035036147)\nrestored `~/.cargo/bin/cargo-pgrx` through `Swatinem/rust-cache`, while\na second dedicated `cargo-pgrx` cache reported a miss. The subsequent\ninstall failed because the binary already existed. Removing the\noverlapping cache ownership prevents that inconsistent state.\n\nThe query benchmark workflow does not install `cargo-pgrx`; it uses a\nprepared benchmark cluster, so there is no equivalent cache path to\nchange there.\n\n## Validation\n- `git diff --check`\n- parsed all three modified YAML files with Ruby YAML",
+          "timestamp": "2026-09-01T16:13:19-07:00",
+          "tree_id": "9b4db32eb6476fe2a4f2e5a84707d9d6dee78521",
+          "url": "https://github.com/paradedb/paradedb/commit/2dbed3a3a873f700775168e59d6c683cd2d9a32a"
+        },
+        "date": 1788307553020,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.059773094532722865, max background_merging: 2.0, count: 59408"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.7081904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.85679293949251, max cpu: 9.657948, count: 59408"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 19.4296875,
+            "unit": "median mem",
+            "extra": "avg mem: 19.42890135798209, max mem: 19.484375, count: 59408"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7058825,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.910504792510314, max cpu: 23.66864, count: 59408"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 47.25390625,
+            "unit": "median mem",
+            "extra": "avg mem: 44.32379806276091, max mem: 51.05859375, count: 59408"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 64400,
+            "unit": "median block_count",
+            "extra": "avg block_count: 64076.15260570967, max block_count: 64400.0, count: 59408"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 68,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 66.27247172098033, max segment_count: 106.0, count: 59408"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.54095,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.012571033457206, max cpu: 34.042553, count: 59408"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 83.875,
+            "unit": "median mem",
+            "extra": "avg mem: 79.71476990946084, max mem: 84.01171875, count: 59408"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.7081904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.091664778040624, max cpu: 28.670979, count: 59408"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 33.47265625,
+            "unit": "median mem",
+            "extra": "avg mem: 39.310335150568946, max mem: 52.06640625, count: 59408"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7105007,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.284143114062577, max cpu: 33.20158, count: 59408"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 99.55859375,
+            "unit": "median mem",
+            "extra": "avg mem: 99.03480861426492, max mem: 104.01953125, count: 59408"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788371187964,
+  "lastUpdate": 1788371196479,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -312414,6 +312414,90 @@ window.BENCHMARK_DATA = {
             "value": 573.5905546084687,
             "unit": "median tps",
             "extra": "avg tps: 582.6342440027552, max tps: 684.2215465899667, count: 55354"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d052f7d8476ff147ab65f17ac4304bf746870119",
+          "message": "feat: match ScalarArrayOpExpr clauses against the index (#6171)\n\n# Ticket(s) Closed\n\n- Closes #6091\n\n## What\n\n`IndexClause::from_clause` dispatched only `OpExpr` and `FuncExpr`, so\n`col = ANY(ARRAY[...])` stayed a heap filter even when a btree could\nanswer it. Adds a `from_saop` arm.\n\n## Why\n\nFollow-up to #6088. The array membership is exactly what the index\nanswers, so the bitmap rejects non-matching rows before the heap fetch\nand the filter drops to a recheck.\n\n## How\n\n`from_saop` mirrors core's `match_saopclause_to_indexcol`: `ANY` only,\nindex key as the left operand, a pseudoconstant array on the right, then\nthe collation and opfamily gates. `ALL` is refused because one index\nscan cannot answer a conjunction over every element, and there is no\ncommuted form to try since the array can only be the right operand.\n\nThose gates and the `IndexClause` construction were previously written\nout once per branch in `from_opexpr`. A preparatory commit extracts them\ninto `direct_match_ok` and `direct`, which both existing branches and\nthe new arm now share.\n\n## Tests\n\nThe `TODO ScalarArrayOpExpr` shape moves into the supported section: it\nharvests `providers_specialty` and its filter becomes a recheck, with\n`saop_count` unchanged at 400. `ALL` is added as a refusal alongside it.\n\n`cargo pgrx regress pg18` 333/333.",
+          "timestamp": "2026-09-02T10:27:19-07:00",
+          "tree_id": "eca0fd8b6f3370b1c6f5c522c3ae4b6f96f38110",
+          "url": "https://github.com/paradedb/paradedb/commit/d052f7d8476ff147ab65f17ac4304bf746870119"
+        },
+        "date": 1788371159527,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 201.78722726158395,
+            "unit": "median tps",
+            "extra": "avg tps: 200.88479741294793, max tps: 215.41440294023934, count: 55365"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 205.88459385376117,
+            "unit": "median tps",
+            "extra": "avg tps: 204.67074745640596, max tps: 218.95480701334833, count: 55365"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 177.49270217947003,
+            "unit": "median tps",
+            "extra": "avg tps: 177.90628100564584, max tps: 194.7945443502375, count: 55365"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 506.2452341951084,
+            "unit": "median tps",
+            "extra": "avg tps: 502.5476098910429, max tps: 651.8593265054625, count: 55365"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 356.68069901294524,
+            "unit": "median tps",
+            "extra": "avg tps: 354.98356618542664, max tps: 419.96163608458204, count: 55365"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.846566697415193,
+            "unit": "median tps",
+            "extra": "avg tps: 14.857501479733232, max tps: 16.035055710513877, count: 55365"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Subscriber - tps",
+            "value": 683.3641581747542,
+            "unit": "median tps",
+            "extra": "avg tps: 682.3834821866193, max tps: 797.2427693893717, count: 55365"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 692.5090155977523,
+            "unit": "median tps",
+            "extra": "avg tps: 692.9521637107301, max tps: 805.1348372730896, count: 55365"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 279.7379452238165,
+            "unit": "median tps",
+            "extra": "avg tps: 278.58889977420927, max tps: 324.45426848961847, count: 55365"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 595.2121109661215,
+            "unit": "median tps",
+            "extra": "avg tps: 593.3193228346922, max tps: 644.1973054144207, count: 55365"
           }
         ]
       }

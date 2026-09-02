@@ -19,7 +19,8 @@ CREATE TABLE pa_products (
     price FLOAT,
     rating INTEGER,
     created_at TIMESTAMP,
-    in_stock BOOLEAN
+    in_stock BOOLEAN,
+    metadata JSONB
 );
 CREATE TABLE pa_tags (
     id SERIAL PRIMARY KEY,
@@ -29,12 +30,13 @@ CREATE TABLE pa_tags (
 );
 
 CREATE INDEX pa_products_idx ON pa_products
-USING paradedb (id, description, category, brand, price, rating, created_at, in_stock)
+USING paradedb (id, description, category, brand, price, rating, created_at, in_stock, metadata)
 WITH (
     key_field = 'id',
     text_fields = '{"description": {}, "category": {"fast": true}, "brand": {"fast": true}, "cat_kw": {"column": "category", "fast": true, "tokenizer": {"type": "keyword"}}}',
     numeric_fields = '{"price": {"fast": true}, "rating": {"fast": true}}',
-    boolean_fields = '{"in_stock": {"fast": true}}'
+    boolean_fields = '{"in_stock": {"fast": true}}',
+    json_fields = '{"metadata": {"fast": true}}'
 );
 
 CREATE INDEX pa_tags_idx ON pa_tags
@@ -49,16 +51,16 @@ WITH (
 -- section needs to spread work across producers.
 SET paradedb.global_mutable_segment_rows = 0;
 
-INSERT INTO pa_products (description, category, brand, price, rating, created_at, in_stock) VALUES
-    ('Laptop with fast processor', 'Electronics', 'Apple', 1299.99, 5, '2024-01-01 10:00:00', true),
-    ('Gaming laptop with RGB', 'Electronics', 'Dell', 1499.99, 5, '2024-01-02 10:00:00', false),
-    ('Budget laptop', 'Electronics', 'HP', 499.99, 3, '2024-01-03 10:00:00', true),
-    ('Wireless keyboard', 'Electronics', 'Logitech', 79.99, 4, '2024-01-04 10:00:00', true);
-INSERT INTO pa_products (description, category, brand, price, rating, created_at, in_stock) VALUES
-    ('Running shoes', 'Sports', 'Nike', 89.99, 5, '2024-01-05 10:00:00', true),
-    ('Basketball shoes', 'Sports', 'Adidas', 119.99, 4, '2024-01-06 10:00:00', false),
-    ('Winter jacket', 'Clothing', 'North Face', 199.99, 4, '2024-01-07 10:00:00', true),
-    ('Toy laptop', 'Toys', 'Fisher Price', 29.99, NULL, '2024-01-08 10:00:00', true);
+INSERT INTO pa_products (description, category, brand, price, rating, created_at, in_stock, metadata) VALUES
+    ('Laptop with fast processor', 'Electronics', 'Apple', 1299.99, 5, '2024-01-01 10:00:00', true, '{"color": "silver", "qty": 3}'),
+    ('Gaming laptop with RGB', 'Electronics', 'Dell', 1499.99, 5, '2024-01-02 10:00:00', false, '{"color": "black", "qty": 1}'),
+    ('Budget laptop', 'Electronics', 'HP', 499.99, 3, '2024-01-03 10:00:00', true, '{"color": "black", "qty": 7}'),
+    ('Wireless keyboard', 'Electronics', 'Logitech', 79.99, 4, '2024-01-04 10:00:00', true, '{"color": "black", "qty": 9}');
+INSERT INTO pa_products (description, category, brand, price, rating, created_at, in_stock, metadata) VALUES
+    ('Running shoes', 'Sports', 'Nike', 89.99, 5, '2024-01-05 10:00:00', true, '{"color": "red", "qty": 2}'),
+    ('Basketball shoes', 'Sports', 'Adidas', 119.99, 4, '2024-01-06 10:00:00', false, '{"color": "red", "qty": 1}'),
+    ('Winter jacket', 'Clothing', 'North Face', 199.99, 4, '2024-01-07 10:00:00', true, '{"color": "blue", "qty": 4}'),
+    ('Toy laptop', 'Toys', 'Fisher Price', 29.99, NULL, '2024-01-08 10:00:00', true, NULL);
 
 INSERT INTO pa_tags (product_id, tag_name, weight) VALUES
     (1, 'tech', 10), (1, 'computer', 5),
@@ -197,7 +199,24 @@ SELECT pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}')
 FROM pa_products p LEFT JOIN pa_tags t ON p.id = t.product_id AND t.weight > 5
 WHERE p.description @@@ 'laptop OR shoes';
 
--- Test 1.16: terms on the GROUP BY column itself, and two GROUP BY columns
+-- Test 1.16: terms on a text-valued JSON sub-field, alone and under a JSON
+-- GROUP BY expression
+SELECT pdb.agg('{"terms": {"field": "metadata.color", "order": {"_key": "asc"}}}')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes';
+
+SELECT p.metadata->>'color' AS color, pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.metadata->>'color'
+ORDER BY color;
+
+-- A JSON sub-field holding numbers is turned down at plan time
+SELECT pdb.agg('{"terms": {"field": "metadata.qty"}}')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes';
+
+-- Test 1.17: terms on the GROUP BY column itself, and two GROUP BY columns
 SELECT p.category, pdb.agg('{"terms": {"field": "category"}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
@@ -341,9 +360,23 @@ WHERE description @@@ 'laptop OR shoes'
 GROUP BY category
 ORDER BY category;
 
--- Test 4.3: a spec DataFusion cannot lower stays on Tantivy
+-- Test 4.3: a spec that does not lower stays on the single-table path, whether
+-- the aggregation kind or a field is the reason
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT category, pdb.agg('{"range": {"field": "price", "ranges": [{"to": 100}]}}')
+FROM pa_products
+WHERE description @@@ 'laptop OR shoes'
+GROUP BY category
+ORDER BY category;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category, pdb.agg('{"sum": {"field": "metadata.qty"}}')
+FROM pa_products
+WHERE description @@@ 'laptop OR shoes'
+GROUP BY category
+ORDER BY category;
+
+SELECT category, pdb.agg('{"sum": {"field": "metadata.qty"}}')
 FROM pa_products
 WHERE description @@@ 'laptop OR shoes'
 GROUP BY category

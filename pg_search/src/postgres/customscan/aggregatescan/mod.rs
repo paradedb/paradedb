@@ -60,14 +60,13 @@ use crate::postgres::customscan::mpp::launch::mpp_eligible;
 use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parallelism;
 
 use crate::PARAMETERIZED_SELECTIVITY;
-use crate::api::{MvccVisibility, SortDirection, agg_funcoid, is_agg_funcoid};
+use crate::api::{MvccVisibility, SortDirection, agg_funcoid};
 use crate::gucs;
 
 use crate::aggregate::{NULL_SENTINEL_MAX, NULL_SENTINEL_MIN};
 use crate::customscan::aggregatescan::build::AggregateCSClause;
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::index::reader::index::SearchIndexManifest;
-use crate::nodecast;
 use crate::postgres::ParallelScanArgs;
 use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::aggregatescan::datafusion_build::{
@@ -82,9 +81,9 @@ use crate::postgres::customscan::aggregatescan::exec::{
 };
 use crate::postgres::customscan::aggregatescan::groupby::GroupByClause;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
-    AggKind, GroupingTransform, extract_aggregate_targetlist,
+    AggKind, GroupingTransform, extract_aggregate_targetlist, pdb_agg_specs_lower,
 };
-use crate::postgres::customscan::aggregatescan::pdb_agg::{PdbAggRequest, assemble_pdb_agg_rows};
+use crate::postgres::customscan::aggregatescan::pdb_agg::assemble_pdb_agg_rows;
 use crate::postgres::customscan::aggregatescan::privdat::PrivateData;
 use crate::postgres::customscan::aggregatescan::scan_state::{
     AggregateScanState, ExecutionState, WrappedAggregateProjection,
@@ -117,11 +116,10 @@ use crate::postgres::types::{TantivyValue, is_datetime_type};
 use crate::postgres::utils::{
     ExprContextGuard, add_vars_to_tlist, is_unnest_func, make_text_const,
 };
-use crate::postgres::var::find_one_aggref;
 use crate::query::SearchQueryInput;
 use arrow_array::cast::AsArray;
 use arrow_array::{BooleanArray, RecordBatch};
-use pgrx::{FromDatum, PgList, PgMemoryContexts, PgTupleDesc, pg_sys};
+use pgrx::{PgList, PgMemoryContexts, PgTupleDesc, pg_sys};
 use std::ffi::CStr;
 
 #[derive(Default)]
@@ -538,7 +536,7 @@ impl CustomScan for AggregateScan {
                 // bucket-cap overflow at execution time instead.
                 let use_datafusion = use_datafusion
                     && (!has_paradedb_agg
-                        || unsafe { pdb_agg_specs_supported_on_datafusion(shape) });
+                        || unsafe { pdb_agg_specs_lower(builder.args().root, input_rel, shape) });
                 if use_datafusion {
                     if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg_recursive {
                         return Vec::new();
@@ -2821,25 +2819,6 @@ unsafe fn get_aggregate_name(aggref: *mut pg_sys::Aggref) -> String {
     } else {
         name_str.to_uppercase()
     }
-}
-
-/// Whether every `pdb.agg()` in the grouping output is a spec the DataFusion
-/// backend can lower. Judged from the JSON alone; a non-constant spec counts
-/// as unsupported and is left for the Tantivy backend to report.
-unsafe fn pdb_agg_specs_supported_on_datafusion(shape: GroupingShape) -> bool {
-    shape.target_exprs().iter_ptr().all(|expr| {
-        let Some(aggref) = find_one_aggref(expr as *mut pg_sys::Node) else {
-            return true;
-        };
-        if !is_agg_funcoid((*aggref).aggfnoid.to_u32()) {
-            return true;
-        }
-        let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
-        args.get_ptr(0)
-            .and_then(|arg| nodecast!(Const, T_Const, (*arg).expr))
-            .and_then(|konst| pgrx::JsonB::from_datum((*konst).constvalue, (*konst).constisnull))
-            .is_some_and(|spec| PdbAggRequest::check_shape(&spec.0).is_ok())
-    })
 }
 
 /// Check if the query (or any subquery/CTE within it) will trigger TopK pushdown.

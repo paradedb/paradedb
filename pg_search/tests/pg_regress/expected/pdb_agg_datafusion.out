@@ -21,7 +21,8 @@ CREATE TABLE pa_products (
     price FLOAT,
     rating INTEGER,
     created_at TIMESTAMP,
-    in_stock BOOLEAN
+    in_stock BOOLEAN,
+    metadata JSONB
 );
 CREATE TABLE pa_tags (
     id SERIAL PRIMARY KEY,
@@ -30,12 +31,13 @@ CREATE TABLE pa_tags (
     weight INTEGER
 );
 CREATE INDEX pa_products_idx ON pa_products
-USING paradedb (id, description, category, brand, price, rating, created_at, in_stock)
+USING paradedb (id, description, category, brand, price, rating, created_at, in_stock, metadata)
 WITH (
     key_field = 'id',
     text_fields = '{"description": {}, "category": {"fast": true}, "brand": {"fast": true}, "cat_kw": {"column": "category", "fast": true, "tokenizer": {"type": "keyword"}}}',
     numeric_fields = '{"price": {"fast": true}, "rating": {"fast": true}}',
-    boolean_fields = '{"in_stock": {"fast": true}}'
+    boolean_fields = '{"in_stock": {"fast": true}}',
+    json_fields = '{"metadata": {"fast": true}}'
 );
 CREATE INDEX pa_tags_idx ON pa_tags
 USING paradedb (id, product_id, tag_name, weight)
@@ -47,16 +49,16 @@ WITH (
 -- Two batches per table so each index has several segments, which the MPP
 -- section needs to spread work across producers.
 SET paradedb.global_mutable_segment_rows = 0;
-INSERT INTO pa_products (description, category, brand, price, rating, created_at, in_stock) VALUES
-    ('Laptop with fast processor', 'Electronics', 'Apple', 1299.99, 5, '2024-01-01 10:00:00', true),
-    ('Gaming laptop with RGB', 'Electronics', 'Dell', 1499.99, 5, '2024-01-02 10:00:00', false),
-    ('Budget laptop', 'Electronics', 'HP', 499.99, 3, '2024-01-03 10:00:00', true),
-    ('Wireless keyboard', 'Electronics', 'Logitech', 79.99, 4, '2024-01-04 10:00:00', true);
-INSERT INTO pa_products (description, category, brand, price, rating, created_at, in_stock) VALUES
-    ('Running shoes', 'Sports', 'Nike', 89.99, 5, '2024-01-05 10:00:00', true),
-    ('Basketball shoes', 'Sports', 'Adidas', 119.99, 4, '2024-01-06 10:00:00', false),
-    ('Winter jacket', 'Clothing', 'North Face', 199.99, 4, '2024-01-07 10:00:00', true),
-    ('Toy laptop', 'Toys', 'Fisher Price', 29.99, NULL, '2024-01-08 10:00:00', true);
+INSERT INTO pa_products (description, category, brand, price, rating, created_at, in_stock, metadata) VALUES
+    ('Laptop with fast processor', 'Electronics', 'Apple', 1299.99, 5, '2024-01-01 10:00:00', true, '{"color": "silver", "qty": 3}'),
+    ('Gaming laptop with RGB', 'Electronics', 'Dell', 1499.99, 5, '2024-01-02 10:00:00', false, '{"color": "black", "qty": 1}'),
+    ('Budget laptop', 'Electronics', 'HP', 499.99, 3, '2024-01-03 10:00:00', true, '{"color": "black", "qty": 7}'),
+    ('Wireless keyboard', 'Electronics', 'Logitech', 79.99, 4, '2024-01-04 10:00:00', true, '{"color": "black", "qty": 9}');
+INSERT INTO pa_products (description, category, brand, price, rating, created_at, in_stock, metadata) VALUES
+    ('Running shoes', 'Sports', 'Nike', 89.99, 5, '2024-01-05 10:00:00', true, '{"color": "red", "qty": 2}'),
+    ('Basketball shoes', 'Sports', 'Adidas', 119.99, 4, '2024-01-06 10:00:00', false, '{"color": "red", "qty": 1}'),
+    ('Winter jacket', 'Clothing', 'North Face', 199.99, 4, '2024-01-07 10:00:00', true, '{"color": "blue", "qty": 4}'),
+    ('Toy laptop', 'Toys', 'Fisher Price', 29.99, NULL, '2024-01-08 10:00:00', true, NULL);
 INSERT INTO pa_tags (product_id, tag_name, weight) VALUES
     (1, 'tech', 10), (1, 'computer', 5),
     (2, 'tech', 10), (2, 'gaming', 7),
@@ -292,7 +294,7 @@ WHERE p.description @@@ 'laptop OR shoes';
 SELECT pdb.agg('{"terms": {"field": "tag_name", "min_doc_count": 0}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
-ERROR:  Cannot execute pdb.agg: terms `min_doc_count: 0` is not supported on the DataFusion backend
+ERROR:  Cannot execute pdb.agg: terms `min_doc_count: 0` is not supported over joins
 SELECT pdb.agg('{"terms": {"field": "tag_name", "size": 0}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
@@ -319,7 +321,35 @@ WHERE p.description @@@ 'laptop OR shoes';
  {"buckets": [{"key": "gaming", "doc_count": 1}, {"key": "running", "doc_count": 1}, {"key": "tech", "doc_count": 3}, {"key": null, "doc_count": 2}], "sum_other_doc_count": 0}
 (1 row)
 
--- Test 1.16: terms on the GROUP BY column itself, and two GROUP BY columns
+-- Test 1.16: terms on a text-valued JSON sub-field, alone and under a JSON
+-- GROUP BY expression
+SELECT pdb.agg('{"terms": {"field": "metadata.color", "order": {"_key": "asc"}}}')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes';
+                                                                                     agg                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": "black", "doc_count": 4}, {"key": "red", "doc_count": 3}, {"key": "silver", "doc_count": 2}, {"key": null, "doc_count": 2}], "sum_other_doc_count": 0}
+(1 row)
+
+SELECT p.metadata->>'color' AS color, pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.metadata->>'color'
+ORDER BY color;
+ color  |                                                                      agg                                                                       
+--------+------------------------------------------------------------------------------------------------------------------------------------------------
+ black  | {"buckets": [{"key": "budget", "doc_count": 1}, {"key": "gaming", "doc_count": 1}, {"key": "tech", "doc_count": 2}], "sum_other_doc_count": 0}
+ red    | {"buckets": [{"key": "fitness", "doc_count": 2}, {"key": "running", "doc_count": 1}], "sum_other_doc_count": 0}
+ silver | {"buckets": [{"key": "computer", "doc_count": 1}, {"key": "tech", "doc_count": 1}], "sum_other_doc_count": 0}
+        | {"buckets": [{"key": "kids", "doc_count": 1}, {"key": "tech", "doc_count": 1}], "sum_other_doc_count": 0}
+(4 rows)
+
+-- A JSON sub-field holding numbers is turned down at plan time
+SELECT pdb.agg('{"terms": {"field": "metadata.qty"}}')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes';
+ERROR:  Cannot execute pdb.agg: Aggregation field 'metadata.qty' is a JSON sub-field holding i64 values, which is not supported over joins
+-- Test 1.17: terms on the GROUP BY column itself, and two GROUP BY columns
 SELECT p.category, pdb.agg('{"terms": {"field": "category"}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
@@ -423,7 +453,7 @@ WHERE p.description @@@ 'laptop';
 SELECT pdb.agg('{"range": {"field": "price", "ranges": [{"to": 100}]}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
-ERROR:  Cannot execute pdb.agg: `range` aggregations are not supported on the DataFusion backend
+ERROR:  Cannot execute pdb.agg: `range` aggregations are not supported over joins
 -- Test 3.3: raw visibility skips the heap check; nothing is deleted here so the
 -- result matches
 SELECT p.category, pdb.agg('{"terms": {"field": "tag_name"}}'::jsonb, 'raw')
@@ -562,7 +592,8 @@ ORDER BY category;
  Toys        | {"buckets": [{"key": "Fisher Price", "doc_count": 1}], "sum_other_doc_count": 0}                                                          | {"value": 29.99}              |     1
 (3 rows)
 
--- Test 4.3: a spec DataFusion cannot lower stays on Tantivy
+-- Test 4.3: a spec that does not lower stays on the single-table path, whether
+-- the aggregation kind or a field is the reason
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT category, pdb.agg('{"range": {"field": "price", "ranges": [{"to": 100}]}}')
 FROM pa_products
@@ -580,6 +611,29 @@ ORDER BY category;
      Aggregate Definition: {"grouped":{"aggs":{"0":{"range":{"field":"price","keyed":false,"ranges":[{"to":100.0}]}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":1,"size":1}}}
 (7 rows)
 
+EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category, pdb.agg('{"sum": {"field": "metadata.qty"}}')
+FROM pa_products
+WHERE description @@@ 'laptop OR shoes'
+GROUP BY category
+ORDER BY category;
+                                                                                     QUERY PLAN                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.pa_products
+   Output: category, pdb.agg_fn('pdb.agg'::text)
+   Index: pa_products_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: CUSTOM_AGG({"sum":{"field":"metadata.qty"}})
+     Group By: category
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"metadata.qty","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":1,"size":1}}}
+(7 rows)
+
+SELECT category, pdb.agg('{"sum": {"field": "metadata.qty"}}')
+FROM pa_products
+WHERE description @@@ 'laptop OR shoes'
+GROUP BY category
+ORDER BY category;
+ERROR:  GROUP BY on "category" produced more than paradedb.max_term_agg_buckets (1) groups; returning the result would silently drop groups. Raise paradedb.max_term_agg_buckets to cover the group cardinality, or add a LIMIT to bound the result.
 RESET paradedb.max_term_agg_buckets;
 -- =====================================================================
 -- SECTION 5: MPP

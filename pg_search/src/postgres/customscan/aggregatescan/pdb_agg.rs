@@ -232,32 +232,6 @@ impl PdbAggRequest {
         })
     }
 
-    /// Whether the DataFusion backend can run this spec, judged from the JSON alone.
-    /// Field resolution is left to [`Self::lower`]; a bad field fails the same way on
-    /// the Tantivy backend, so it is no reason to prefer one over the other.
-    pub fn check_shape(agg_json: &serde_json::Value) -> Result<(), String> {
-        struct AcceptAll;
-        impl PdbAggFieldResolver for AcceptAll {
-            fn resolve(
-                &self,
-                field: &str,
-                _usage: PdbAggFieldUsage,
-            ) -> Result<PdbAggFieldRef, String> {
-                // Text takes any `missing` literal, so no spec is turned down for a
-                // type this stand-in cannot know.
-                Ok(PdbAggFieldRef {
-                    plan_position: 0,
-                    attno: 0,
-                    field_name: field.to_string(),
-                    field_type: SearchFieldType::Text(pg_sys::TEXTOID),
-                })
-            }
-        }
-        let agg: Aggregation = serde_json::from_value(agg_json.clone())
-            .map_err(|e| format!("invalid pdb.agg specification: {e}"))?;
-        lower_node(&agg, &AcceptAll).map(|_| ())
-    }
-
     /// True when the spec groups, which turns the plan into grouping sets.
     pub fn has_terms(&self) -> bool {
         self.root.has_terms()
@@ -351,17 +325,12 @@ fn lower_node(agg: &Aggregation, resolver: &dyn PdbAggFieldResolver) -> Result<P
     match &agg.agg {
         AggregationVariants::Terms(terms) => {
             if terms.include.is_some() || terms.exclude.is_some() {
-                return Err(
-                    "terms `include` and `exclude` are not supported on the DataFusion backend"
-                        .into(),
-                );
+                return Err("terms `include` and `exclude` are not supported over joins".into());
             }
             // Tantivy answers `min_doc_count: 0` with every term of the column
             // dictionary. A grouped scan only sees the terms of matched rows.
             if terms.min_doc_count == Some(0) {
-                return Err(
-                    "terms `min_doc_count: 0` is not supported on the DataFusion backend".into(),
-                );
+                return Err("terms `min_doc_count: 0` is not supported over joins".into());
             }
             let field = resolver.resolve(&terms.field, PdbAggFieldUsage::TermsKey)?;
             let missing = check_missing(&field, terms.missing.as_ref().map(PdbKey::from))?;
@@ -445,7 +414,7 @@ fn lower_node(agg: &Aggregation, resolver: &dyn PdbAggFieldResolver) -> Result<P
             false,
         ),
         other => Err(format!(
-            "`{}` aggregations are not supported on the DataFusion backend",
+            "`{}` aggregations are not supported over joins",
             variant_name(other)
         )),
     }

@@ -23,19 +23,23 @@
 //! of [`super::targetlist::TargetList`] (which assumes a single base relation).
 
 use super::GroupingShape;
-use super::datafusion_build::{FilterExprBuildContext, JoinAggSource};
+use super::datafusion_build::{FilterExprBuildContext, JoinAggSource, collect_join_agg_sources};
 use super::pdb_agg::{
     PdbAggFieldRef, PdbAggFieldResolver, PdbAggFieldUsage, PdbAggRequest, check_field_usage,
 };
 use super::privdat::FilterExpr;
 use crate::api::{FieldName, SortDirection, visibility_from_agg_arg};
+use crate::index::mvcc::MvccSatisfies;
+use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::customscan::datafusion::explain::get_attname_safe;
 use crate::postgres::customscan::joinscan::build::{PlannerRootId, RelNode, RelationAlias};
 use crate::postgres::customscan::pullup::field_type_for_pullup;
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::FieldSource;
 use crate::postgres::var::{VarContext, find_one_aggref, find_one_var_and_fieldname};
+use crate::query::SearchQueryInput;
 use crate::schema::SearchFieldType;
 use pgrx::pg_sys;
 use pgrx::pg_sys::{
@@ -47,6 +51,7 @@ use pgrx::pg_sys::{
     F_SUM_INT2, F_SUM_INT4, F_SUM_INT8, F_SUM_NUMERIC,
 };
 use pgrx::{FromDatum, PgList};
+use tantivy::columnar::ColumnType;
 
 /// Look up a join source by RTI, returning a uniform error message that
 /// names the calling context (e.g. "GROUP BY column", "aggregate argument").
@@ -568,7 +573,7 @@ pub unsafe fn extract_aggregate_targetlist(
                 if has_distinct {
                     return Err("pdb.agg() does not accept DISTINCT".into());
                 }
-                let request = lower_pdb_agg(aggref, sources, plan, outer_root_id)?;
+                let request = lower_pdb_agg(aggref, sources, Some(plan), outer_root_id)?;
                 aggregates.push(JoinAggregateEntry {
                     func_oid: aggfnoid,
                     agg_kind: AggKind::PdbAgg(Box::new(request)),
@@ -638,13 +643,34 @@ pub unsafe fn extract_aggregate_targetlist(
     })
 }
 
+/// Whether every `pdb.agg()` in the grouping output lowers for the DataFusion
+/// backend, fields included. A single-table query whose spec does not lower
+/// stays on the Tantivy path, which runs every Tantivy aggregation, so the
+/// user never sees an error for a query the index can answer.
+pub unsafe fn pdb_agg_specs_lower(
+    root: *mut pg_sys::PlannerInfo,
+    input_rel: &pg_sys::RelOptInfo,
+    shape: GroupingShape,
+) -> bool {
+    let sources = collect_join_agg_sources(root, input_rel);
+    let outer_root_id = PlannerRootId::from(root);
+    shape.target_exprs().iter_ptr().all(|expr| {
+        let Some(aggref) = find_one_aggref(expr as *mut pg_sys::Node) else {
+            return true;
+        };
+        !crate::api::is_agg_funcoid((*aggref).aggfnoid.to_u32())
+            || lower_pdb_agg(aggref, &sources, None, outer_root_id).is_ok()
+    })
+}
+
 /// Lower a `pdb.agg()` call into its DataFusion request. The spec must be a
 /// constant: field validation and the grouping-set layout both need it at plan
-/// time, the same as on the Tantivy backend.
+/// time, the same as on the Tantivy backend. Without `plan` the fields resolve
+/// but get no plan position, which is enough to decide whether the spec lowers.
 unsafe fn lower_pdb_agg(
     aggref: *mut pg_sys::Aggref,
     sources: &[JoinAggSource],
-    plan: &RelNode,
+    plan: Option<&RelNode>,
     outer_root_id: PlannerRootId,
 ) -> Result<PdbAggRequest, String> {
     let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
@@ -673,7 +699,7 @@ unsafe fn lower_pdb_agg(
 /// because an index field name can itself contain a dot (a JSON sub-field).
 struct JoinAggFieldResolver<'a> {
     sources: &'a [JoinAggSource],
-    plan: &'a RelNode,
+    plan: Option<&'a RelNode>,
     outer_root_id: PlannerRootId,
 }
 
@@ -690,7 +716,10 @@ impl JoinAggFieldResolver<'_> {
         source: &JoinAggSource,
         field: &str,
     ) -> Result<Option<(pg_sys::AttrNumber, SearchFieldType)>, String> {
-        let Some(schema) = source.bm25_index.as_ref().and_then(|i| i.schema().ok()) else {
+        let Some(indexrel) = source.bm25_index.as_ref() else {
+            return Ok(None);
+        };
+        let Some(schema) = indexrel.schema().ok() else {
             return Ok(None);
         };
         let root = FieldName::from(field).root();
@@ -712,8 +741,7 @@ impl JoinAggFieldResolver<'_> {
         };
         if data.is_array {
             return Err(format!(
-                "Aggregation field '{field}' is an array, which the DataFusion backend cannot \
-                 aggregate"
+                "Aggregation field '{field}' is an array, which is not supported over joins"
             ));
         }
         let field_type = if field == root {
@@ -728,9 +756,44 @@ impl JoinAggFieldResolver<'_> {
                 None => return Ok(None),
             }
         } else {
+            Self::check_json_sub_field_is_text(indexrel, field)?;
             search_field.field_type()
         };
         Ok(Some((attno as pg_sys::AttrNumber + 1, field_type)))
+    }
+
+    /// The scan reads every JSON sub-field as text, while the index stores each
+    /// sub-field in the type of its values. A numeric sub-field would come back
+    /// as numbers and fail the scan's schema at execution, so it is turned down
+    /// here. Only the column metadata is read; no values are loaded.
+    fn check_json_sub_field_is_text(
+        indexrel: &PgSearchRelation,
+        field: &str,
+    ) -> Result<(), String> {
+        let reader = SearchIndexReader::open(
+            indexrel,
+            SearchQueryInput::All,
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .map_err(|e| format!("could not open index to inspect field '{field}': {e}"))?;
+        for segment in reader.segment_readers() {
+            let handles = segment
+                .fast_fields()
+                .dynamic_column_handles(field)
+                .map_err(|e| format!("could not inspect field '{field}': {e}"))?;
+            if let Some(handle) = handles
+                .iter()
+                .find(|handle| handle.column_type() != ColumnType::Str)
+            {
+                return Err(format!(
+                    "Aggregation field '{field}' is a JSON sub-field holding {} values, which is \
+                     not supported over joins",
+                    handle.column_type()
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// The sources that carry `field`, and the reasons the others turned it down.
@@ -795,16 +858,18 @@ impl PdbAggFieldResolver for JoinAggFieldResolver<'_> {
             }
         };
         check_field_usage(field, &field_type, usage)?;
-        let plan_position = self
-            .plan
-            .plan_position(self.outer_root_id, source.rti, attno)
-            .ok_or_else(|| {
-                format!(
-                    "pdb.agg field '{field}' (RTI={}, attno={attno}) does not resolve to a unique \
-                     output-visible source in the plan tree",
-                    source.rti
-                )
-            })?;
+        let plan_position = match self.plan {
+            Some(plan) => plan
+                .plan_position(self.outer_root_id, source.rti, attno)
+                .ok_or_else(|| {
+                    format!(
+                        "pdb.agg field '{field}' (RTI={}, attno={attno}) does not resolve to a \
+                         unique output-visible source in the plan tree",
+                        source.rti
+                    )
+                })?,
+            None => 0,
+        };
         Ok(PdbAggFieldRef {
             plan_position,
             attno,

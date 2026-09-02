@@ -181,6 +181,8 @@ pub enum PrivateData {
         /// HAVING clause filter applied after aggregation.
         #[serde(default)]
         having_filter: Option<FilterExpr>,
+        /// PostgreSQL's statement-wide `PlannerGlobal.parallelModeOK` decision.
+        parallel_mode_ok: bool,
     },
 }
 

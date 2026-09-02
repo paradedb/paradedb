@@ -55,14 +55,15 @@ use crate::parallel_worker::{
     generic_parallel_worker_entry_point,
 };
 use crate::postgres::customscan::aggregatescan::datafusion_exec::create_aggregate_session_context;
+use crate::postgres::customscan::joinscan::build::RelNode;
 use crate::postgres::customscan::joinscan::scan_state::{
     SessionContextProfile, create_datafusion_session_context,
 };
 use crate::postgres::customscan::mpp::dispatch::dispatch_payload_from_stages;
 use crate::postgres::customscan::mpp::exec_worker::{MppWorkerInputs, run_mpp_worker};
 use crate::postgres::customscan::mpp::glue::{
-    MIN_TOTAL_WORKER_COUNT, MppLeaderState, estimate_dsm_size, leader_setup, producer_worker_cap,
-    worker_setup,
+    MIN_TOTAL_WORKER_COUNT, MppLeaderState, estimate_dsm_size, leader_setup, mpp_is_active,
+    producer_worker_cap, worker_setup,
 };
 use crate::postgres::customscan::mpp::worker_fragments::{
     collect_stages, max_producer_task_count, stages_have_data_parallelism,
@@ -314,6 +315,15 @@ pub(crate) fn mpp_gated_by_min_rows<'a>(sources: impl IntoIterator<Item = &'a Sc
             .into_iter()
             .map(|info| (info.estimate, info.estimate_from_total_docs)),
     )
+}
+
+/// Whether a scan over `plan` may attempt an MPP launch: the statement allows parallel mode
+/// (#6157), PG's worker budget admits producers, and the query clears the size gate (#5784).
+/// Shared by launch preparation and the plain-EXPLAIN plan rebuild so both agree.
+pub(crate) fn mpp_eligible(parallel_mode_ok: bool, plan: &RelNode) -> bool {
+    parallel_mode_ok
+        && mpp_is_active()
+        && !mpp_gated_by_min_rows(plan.sources().into_iter().map(|s| &s.scan_info))
 }
 
 /// `(estimate, estimate_from_total_docs)` per source, not `&ScanInfo`: the plain unit tests

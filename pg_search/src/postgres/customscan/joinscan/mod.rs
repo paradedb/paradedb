@@ -154,14 +154,12 @@ use self::planning::{
     extract_orderby_from_parse_sort_clause, get_score_func_rti, order_by_columns_are_fast_fields,
     pathkey_uses_scores_from_source,
 };
-use self::predicate::{all_vars_are_fast_fields_recursive, extract_join_level_conditions};
+use self::predicate::{extract_join_level_conditions, try_absorb_join_filter};
 use self::privdat::PrivateData;
 use crate::postgres::customscan::datafusion::explain::{
     explain_physical_plan, format_join_level_expr, get_attname_safe, get_plan_with_merged_metrics,
 };
-use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::pullup::resolve_fast_field;
-use crate::postgres::utils::expr_contains_any_operator;
 
 use self::scan_state::{
     JoinScanState, build_joinscan_logical_plan, build_physical_plan, build_task_context,
@@ -595,26 +593,6 @@ impl JoinScan {
         if limit_offset.is_none() && !is_subquery {
             return Err(JoinDeclineReason::new(
                 "JoinScan not used: LIMIT is required for top-level queries",
-            ));
-        }
-
-        // Empty join_keys are normally a rejection, but a disjunctive Semi/Anti
-        // condition (`a = b OR a = c`) legitimately produces no equi-keys — the
-        // predicate lives on `JoinNode.filter` and DataFusion evaluates it via
-        // NestedLoopJoinExec. Only the outermost join benefits from this
-        // relaxation; a nested Semi/Anti deeper in the tree does not excuse
-        // the current join-hook invocation from needing equi-keys.
-        let root_is_semi_anti = matches!(
-            &plan,
-            RelNode::Join(j) if matches!(j.join_type, build::JoinType::Semi | build::JoinType::Anti { .. })
-        );
-        let has_filter = matches!(
-            &plan,
-            RelNode::Join(j) if j.filter.is_some()
-        );
-        if join_keys.is_empty() && !root_is_semi_anti && !has_filter {
-            return Err(JoinDeclineReason::new(
-                "JoinScan not used: at least one equi-join key (e.g., a.id = b.id) or non-equi join condition is required",
             ));
         }
 
@@ -2121,12 +2099,6 @@ impl JoinScan {
         };
 
         let has_other_conditions = !join_conditions.other_conditions.is_empty();
-        if join_conditions.equi_keys.is_empty() && !has_other_conditions {
-            return Err(warn(JoinDeclineReason::new(
-                "JoinScan not used: at least one equi-join key (e.g., a.id = b.id) or non-equi join condition is required",
-            )));
-        }
-
         join_keys.extend(join_conditions.equi_keys.clone());
 
         let is_outer = matches!(
@@ -2136,77 +2108,15 @@ impl JoinScan {
                 | pg_sys::JoinType::JOIN_FULL
         );
 
-        // For non-equi joins (equi_keys is empty) and outer joins (where ON conditions
-        // with is_pushed_down == false must be evaluated during join), try to absorb
-        // conditions into `JoinNode.filter` as a serialized `PgExpression`.
-        let try_absorb = join_conditions.equi_keys.is_empty() || is_outer;
-        let (initial_filter, remaining_other_conditions) = if try_absorb {
-            let mut current_sources = outer_node.sources();
-            current_sources.extend(inner_node.sources());
-
-            let mut absorbed_clauses: Vec<*mut pg_sys::Node> = Vec::new();
-            let mut remaining: Vec<*mut pg_sys::RestrictInfo> =
-                Vec::with_capacity(join_conditions.other_conditions.len());
-            let search_op = crate::api::operator::anyelement_query_input_opoid();
-            for ri in join_conditions.other_conditions {
-                let clause = (*ri).clause;
-                // Skip `@@@` (and any search ops): search clauses pass through to
-                // `extract_join_level_conditions`, where `transform_to_search_expr` handles them.
-                if !clause.is_null() && expr_contains_any_operator(clause.cast(), &[search_op]) {
-                    remaining.push(ri);
-                    continue;
-                }
-                // For outer joins with equi-keys, only absorb ON-clause conditions (is_pushed_down == false);
-                // WHERE-clause conditions (is_pushed_down == true) stay as post-join filters.
-                if is_outer && !join_conditions.equi_keys.is_empty() && (*ri).is_pushed_down {
-                    remaining.push(ri);
-                    continue;
-                }
-                if clause.is_null()
-                    || !all_vars_are_fast_fields_recursive(clause.cast(), &current_sources)
-                    || !PredicateTranslator::can_translate(
-                        Some(root),
-                        &current_sources,
-                        clause.cast(),
-                    )
-                {
-                    remaining.push(ri);
-                    continue;
-                }
-                absorbed_clauses.push(clause.cast());
-            }
-
-            let filter = match absorbed_clauses.len() {
-                0 => None,
-                _ => {
-                    // Combine multiple absorbed clauses into a single AND at
-                    // the PG node level so we serialize one expression tree.
-                    let combined_node: *mut pg_sys::Node = if absorbed_clauses.len() == 1 {
-                        absorbed_clauses[0]
-                    } else {
-                        let mut list = PgList::<pg_sys::Expr>::new();
-                        for n in &absorbed_clauses {
-                            list.push((*n).cast());
-                        }
-                        pg_sys::make_andclause(list.into_pg()).cast()
-                    };
-                    let pg_node_string = {
-                        let node_str = pg_sys::nodeToString(combined_node.cast());
-                        std::ffi::CStr::from_ptr(node_str)
-                            .to_string_lossy()
-                            .into_owned()
-                    };
-                    let input_vars = collect_input_vars(combined_node);
-                    Some(build::JoinLevelExpr::PgExpression {
-                        pg_node_string,
-                        input_vars,
-                    })
-                }
-            };
-            (filter, remaining)
-        } else {
-            (None, join_conditions.other_conditions)
-        };
+        let mut current_sources = outer_node.sources();
+        current_sources.extend(inner_node.sources());
+        let (initial_filter, remaining_other_conditions) = try_absorb_join_filter(
+            root,
+            &current_sources,
+            &join_conditions.other_conditions,
+            is_outer,
+            !join_conditions.equi_keys.is_empty(),
+        );
 
         // For outer joins, if any ON condition (is_pushed_down == false) failed absorption
         // (e.g. references a non-fast-field column), decline JoinScan.
@@ -2220,8 +2130,9 @@ impl JoinScan {
             )));
         }
 
-        // When equi_keys is empty, at least one non-equi condition must have been absorbed into filter.
-        if join_conditions.equi_keys.is_empty() && initial_filter.is_none() {
+        // When equi_keys is empty and there were join conditions, at least one non-equi condition must have been absorbed into filter.
+        if join_conditions.equi_keys.is_empty() && has_other_conditions && initial_filter.is_none()
+        {
             return Err(warn(JoinDeclineReason::new(
                 "JoinScan not used: join conditions must reference columnar indexed fields",
             )));

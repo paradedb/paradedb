@@ -535,3 +535,79 @@ pub unsafe fn all_vars_are_fast_fields_recursive(
 
     true
 }
+
+/// For non-equi joins (where `has_equi_keys` is false) and outer joins (where ON-conditions
+/// with `is_pushed_down == false` must be evaluated during the join), attempts to absorb
+/// translatable conditions into `JoinNode.filter` as a serialized `PgExpression`.
+///
+/// Returns `(filter, remaining_conditions)`.
+pub unsafe fn try_absorb_join_filter(
+    root: *mut pg_sys::PlannerInfo,
+    sources: &[&JoinSource],
+    other_conditions: &[*mut pg_sys::RestrictInfo],
+    is_outer: bool,
+    has_equi_keys: bool,
+) -> (Option<JoinLevelExpr>, Vec<*mut pg_sys::RestrictInfo>) {
+    if has_equi_keys && !is_outer {
+        return (None, other_conditions.to_vec());
+    }
+
+    let search_op = anyelement_query_input_opoid();
+    let mut absorbed_clauses: Vec<*mut pg_sys::Node> = Vec::new();
+    let mut remaining: Vec<*mut pg_sys::RestrictInfo> = Vec::with_capacity(other_conditions.len());
+
+    for &ri in other_conditions {
+        let clause = (*ri).clause;
+        // Skip `@@@` (and any search ops): search clauses pass through to
+        // `extract_join_level_conditions`, where `transform_to_search_expr` handles them.
+        if !clause.is_null() && expr_contains_any_operator(clause.cast(), &[search_op]) {
+            remaining.push(ri);
+            continue;
+        }
+        // For outer joins with equi-keys, only absorb ON-clause conditions (is_pushed_down == false);
+        // WHERE-clause conditions (is_pushed_down == true) stay as post-join filters.
+        if is_outer && has_equi_keys && (*ri).is_pushed_down {
+            remaining.push(ri);
+            continue;
+        }
+        if clause.is_null()
+            || !all_vars_are_fast_fields_recursive(clause.cast(), sources)
+            || !PredicateTranslator::can_translate(Some(root), sources, clause.cast())
+        {
+            remaining.push(ri);
+            continue;
+        }
+        absorbed_clauses.push(clause.cast());
+    }
+
+    let filter = match absorbed_clauses.len() {
+        0 => None,
+        _ => {
+            // Combine multiple absorbed clauses into a single AND at
+            // the PG node level so we serialize one expression tree.
+            let combined_node: *mut pg_sys::Node = if absorbed_clauses.len() == 1 {
+                absorbed_clauses[0]
+            } else {
+                let mut list = PgList::<pg_sys::Expr>::new();
+                for n in &absorbed_clauses {
+                    list.push((*n).cast());
+                }
+                pg_sys::make_andclause(list.into_pg()).cast()
+            };
+            let pg_node_string = {
+                let node_str = pg_sys::nodeToString(combined_node.cast());
+                std::ffi::CStr::from_ptr(node_str)
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            let input_vars =
+                crate::postgres::customscan::joinscan::collect_input_vars(combined_node);
+            Some(JoinLevelExpr::PgExpression {
+                pg_node_string,
+                input_vars,
+            })
+        }
+    };
+
+    (filter, remaining)
+}

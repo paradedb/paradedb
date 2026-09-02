@@ -28,7 +28,7 @@ use super::build::{
     self as build, FilterNode, InputVarInfo, JoinCSClause, JoinKeyPair, JoinLevelExpr, JoinNode,
     JoinSource, JoinSourceCandidate, JoinType, RelNode,
 };
-use super::predicate::find_base_info_recursive;
+use super::predicate::{find_base_info_recursive, try_absorb_join_filter};
 use super::privdat::{OutputColumnInfo, PrivateData};
 
 use crate::api::operator::anyelement_query_input_opoid;
@@ -664,7 +664,25 @@ unsafe fn collect_join_sources_join_rel(
 
         let jointype = (*join_path).jointype;
 
-        if join_conditions.equi_keys.is_empty() {
+        let has_other_conditions = !join_conditions.other_conditions.is_empty();
+
+        let is_outer = matches!(
+            jointype,
+            pg_sys::JoinType::JOIN_LEFT
+                | pg_sys::JoinType::JOIN_RIGHT
+                | pg_sys::JoinType::JOIN_FULL
+        );
+
+        let (initial_filter, remaining_other_conditions) = try_absorb_join_filter(
+            root,
+            &all_sources,
+            &join_conditions.other_conditions,
+            is_outer,
+            !join_conditions.equi_keys.is_empty(),
+        );
+
+        if join_conditions.equi_keys.is_empty() && has_other_conditions && initial_filter.is_none()
+        {
             return None;
         }
 
@@ -681,16 +699,16 @@ unsafe fn collect_join_sources_join_rel(
         // `transform_to_search_expr`.
         let search_op = anyelement_query_input_opoid();
         let mut absorbed_search_clauses: Vec<*mut pg_sys::RestrictInfo> = Vec::new();
-        let mut has_non_search_leftover = false;
-        for ri in &join_conditions.other_conditions {
+        let mut has_untranslatable_leftover = false;
+        for ri in &remaining_other_conditions {
             let clause = (**ri).clause;
             if !clause.is_null() && expr_contains_any_operator(clause.cast(), &[search_op]) {
                 absorbed_search_clauses.push(*ri);
             } else {
-                has_non_search_leftover = true;
+                has_untranslatable_leftover = true;
             }
         }
-        if has_non_search_leftover {
+        if has_untranslatable_leftover {
             return None;
         }
 
@@ -768,7 +786,7 @@ unsafe fn collect_join_sources_join_rel(
             left: outer_node,
             right: inner_node,
             equi_keys: join_conditions.equi_keys.clone(),
-            filter: None,
+            filter: initial_filter,
             subplan_id: None,
             absorbed_search_clauses,
         };

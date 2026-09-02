@@ -366,8 +366,8 @@ FROM outer_pages p LEFT JOIN outer_files f
 WHERE p.page_text @@@ 'Page'
 ORDER BY p.id
 LIMIT 10;
-                                                                                                     QUERY PLAN                                                                                                     
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.file_id, f.title
    ->  Custom Scan (ParadeDB Join Scan)
@@ -380,12 +380,12 @@ LIMIT 10;
            : ProjectionExec: expr=[id@3 as col_1, file_id@2 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[p]
-           :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, file_id@1)], filter=size_bytes@0 > 2048, projection=[ctid_0@0, ctid_1@2, file_id@3, id@5]
-           :         VisibilityFilterExec: tables=[f]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, file_id@1)], filter=size_bytes@0 > 2048, projection=[ctid_0@0, ctid_1@2, file_id@3, id@5]
            :           CooperativeExec
-           :             PgSearchScan: table=f, segments=2, query="all"
-           :         CooperativeExec
-           :           PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=f, segments=2, visibility=eager, query="all"
+           :           CooperativeExec
+           :             PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
 (18 rows)
 
 SELECT p.id, p.file_id, f.title

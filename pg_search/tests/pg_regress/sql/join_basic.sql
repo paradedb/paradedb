@@ -218,10 +218,10 @@ ORDER BY p.price DESC
 LIMIT 3;
 
 -- =============================================================================
--- TEST 8: Cross join (no equi-join keys) - JoinScan NOT proposed
+-- TEST 8: Cross join (no equi-join keys) - JoinScan with CrossJoinExec
 -- =============================================================================
--- Verify JoinScan does NOT handle cross joins (no equi-join conditions).
--- Cross joins require O(N*M) comparisons and are better handled by PostgreSQL.
+-- Verify JoinScan handles cross joins (no equi-join conditions).
+-- Cross joins with search predicates on both sides execute via DataFusion's CrossJoinExec.
 
 DROP TABLE IF EXISTS colors CASCADE;
 DROP TABLE IF EXISTS sizes CASCADE;
@@ -252,7 +252,7 @@ CREATE INDEX colors_bm25_idx ON colors USING paradedb (id, name, description) WI
 CREATE INDEX sizes_bm25_idx ON sizes USING paradedb (id, name, description) WITH (key_field = 'id');
 
 -- Cross join with search predicates on both sides
--- JoinScan should NOT be proposed - falls back to PostgreSQL's Nested Loop
+-- JoinScan is used and executes CrossJoinExec in DataFusion
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT c.name AS color, s.name AS size
 FROM colors c, sizes s

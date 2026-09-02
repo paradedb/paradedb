@@ -80,8 +80,8 @@ SELECT COUNT(*), SUM(p.price), AVG(p.rating)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.price >= pr.min_price AND p.price <= pr.max_price
 WHERE p.description @@@ 'laptop OR shoes OR jacket';
-                                                                                                  QUERY PLAN                                                                                                  
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: agg_nonequi_products_idx (p), agg_nonequi_promos_idx (pr)
@@ -91,9 +91,9 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket';
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0, sum(p_0.price) as agg_1, avg(p_0.rating) as agg_2]
      :   NestedLoopJoinExec: join_type=Inner, filter=price@0 >= min_price@1 AND price@0 <= max_price@2 AND min_price@1 <= price@0 AND max_price@2 >= price@0, projection=[price@2, rating@3]
      :     CooperativeExec
-     :       PgSearchScan: table=pr, segments=1, query="all"
+     :       PgSearchScan: table=pr, segments=1, visibility=eager, query="all"
      :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
+     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
 (12 rows)
 
 SELECT COUNT(*), SUM(p.price), AVG(p.rating)
@@ -111,8 +111,8 @@ SELECT MIN(p.price), MAX(p.price), COUNT(*)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.rating >= pr.min_rating
 WHERE pr.description @@@ 'tech OR gala';
-                                                                                            QUERY PLAN                                                                                            
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                     QUERY PLAN                                                                                                     
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: agg_nonequi_products_idx (p), agg_nonequi_promos_idx (pr)
@@ -122,9 +122,9 @@ WHERE pr.description @@@ 'tech OR gala';
      : AggregateExec: mode=Single, gby=[], aggr=[min(p_0.price) as agg_0, max(p_0.price) as agg_1, count(1) as agg_2]
      :   NestedLoopJoinExec: join_type=Inner, filter=rating@0 >= min_rating@1 AND min_rating@1 <= rating@0, projection=[price@1]
      :     CooperativeExec
-     :       PgSearchScan: table=pr, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"tech OR gala","lenient":null,"conjunction_mode":null}}}}
+     :       PgSearchScan: table=pr, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"tech OR gala","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, query="all"
+     :       PgSearchScan: table=p, segments=1, visibility=eager, query="all"
 (12 rows)
 
 SELECT MIN(p.price), MAX(p.price), COUNT(*)
@@ -142,8 +142,8 @@ SELECT COUNT(*), SUM(p.price), MIN(p.rating), MAX(p.rating)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.category = pr.promo_code AND p.price <= pr.max_price
 WHERE p.description @@@ 'keyboard OR laptop';
-                                                                                              QUERY PLAN                                                                                               
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: agg_nonequi_products_idx (p), agg_nonequi_promos_idx (pr)
@@ -153,9 +153,9 @@ WHERE p.description @@@ 'keyboard OR laptop';
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0, sum(p_0.price) as agg_1, min(p_0.rating) as agg_2, max(p_0.rating) as agg_3]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, promo_code@0)], filter=max_price@1 >= price@0, projection=[price@1, rating@2]
      :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard OR laptop","lenient":null,"conjunction_mode":null}}}}
+     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard OR laptop","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
-     :       PgSearchScan: table=pr, segments=1, dynamic_filters=1, query="all"
+     :       PgSearchScan: table=pr, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (12 rows)
 
 SELECT COUNT(*), SUM(p.price), MIN(p.rating), MAX(p.rating)
@@ -178,8 +178,8 @@ JOIN agg_nonequi_promos pr ON p.price >= pr.min_price AND p.price <= pr.max_pric
 WHERE p.description @@@ 'laptop OR shoes OR keyboard'
 GROUP BY pr.promo_code
 ORDER BY pr.promo_code;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                               QUERY PLAN                                                                                                               
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: pr.promo_code
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -192,9 +192,9 @@ ORDER BY pr.promo_code;
            : AggregateExec: mode=Single, gby=[promo_code@1 as promo_code], aggr=[count(1) as agg_0, sum(p_0.price) as agg_1]
            :   NestedLoopJoinExec: join_type=Inner, filter=price@0 >= min_price@1 AND price@0 <= max_price@2 AND min_price@1 <= price@0 AND max_price@2 >= price@0, projection=[price@3, promo_code@0]
            :     CooperativeExec
-           :       PgSearchScan: table=pr, segments=1, query="all"
+           :       PgSearchScan: table=pr, segments=1, visibility=eager, query="all"
            :     CooperativeExec
-           :       PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR keyboard","lenient":null,"conjunction_mode":null}}}}
+           :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR keyboard","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT pr.promo_code, COUNT(*), SUM(p.price)
@@ -219,8 +219,8 @@ WHERE p.description @@@ 'laptop OR jacket OR shoes'
 GROUP BY p.category
 HAVING COUNT(*) > 1
 ORDER BY p.category;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                               QUERY PLAN                                                                                                               
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: p.category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -234,9 +234,9 @@ ORDER BY p.category;
            :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, avg(p_0.price) as agg_1]
            :     NestedLoopJoinExec: join_type=Inner, filter=price@0 <= max_price@1 AND max_price@1 >= price@0, projection=[category@1, price@2]
            :       CooperativeExec
-           :         PgSearchScan: table=pr, segments=1, query="all"
+           :         PgSearchScan: table=pr, segments=1, visibility=eager, query="all"
            :       CooperativeExec
-           :         PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
+           :         PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
 (16 rows)
 
 SELECT p.category, COUNT(*), AVG(p.price)
@@ -262,8 +262,8 @@ SELECT COUNT(*), COUNT(pr.id), SUM(p.price)
 FROM agg_nonequi_products p
 LEFT JOIN agg_nonequi_promos pr ON p.category = pr.promo_code AND p.price > pr.max_price
 WHERE p.description @@@ 'laptop OR jacket OR keyboard';
-                                                                                                   QUERY PLAN                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: agg_nonequi_products_idx (p), agg_nonequi_promos_idx (pr)
@@ -272,9 +272,9 @@ WHERE p.description @@@ 'laptop OR jacket OR keyboard';
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0, count(pr_1.id) as agg_1, sum(p_0.price) as agg_2]
      :   HashJoinExec: mode=CollectLeft, join_type=Right, on=[(promo_code@1, category@0)], filter=price@0 > max_price@1, projection=[price@4, id@0]
      :     CooperativeExec
-     :       PgSearchScan: table=pr, segments=1, query="all"
+     :       PgSearchScan: table=pr, segments=1, visibility=eager, query="all"
      :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR jacket OR keyboard","lenient":null,"conjunction_mode":null}}}}
+     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR jacket OR keyboard","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
 SELECT COUNT(*), COUNT(pr.id), SUM(p.price)
@@ -294,8 +294,8 @@ LEFT JOIN agg_nonequi_promos pr ON p.price > pr.max_price
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 ORDER BY p.category;
-                                                                                                     QUERY PLAN                                                                                                     
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                              QUERY PLAN                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: p.category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -307,9 +307,9 @@ ORDER BY p.category;
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, count(pr_1.id) as agg_1]
            :   NestedLoopJoinExec: join_type=Right, filter=price@0 > max_price@1, projection=[category@2, id@0]
            :     CooperativeExec
-           :       PgSearchScan: table=pr, segments=1, query="all"
+           :       PgSearchScan: table=pr, segments=1, visibility=eager, query="all"
            :     CooperativeExec
-           :       PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
+           :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
 (14 rows)
 
 SELECT p.category, COUNT(*), COUNT(pr.id)
@@ -337,8 +337,8 @@ JOIN agg_nonequi_tiers t ON p.price >= t.threshold_price
 WHERE p.description @@@ 'laptop OR keyboard'
 GROUP BY t.tier_name
 ORDER BY t.tier_name;
-                                                                                                  QUERY PLAN                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: t.tier_name
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -352,11 +352,11 @@ ORDER BY t.tier_name;
            :   NestedLoopJoinExec: join_type=Inner, filter=price@0 >= threshold_price@1 AND threshold_price@1 <= price@0, projection=[price@0, tier_name@1]
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, promo_code@0)], filter=max_price@1 >= price@0, projection=[price@1]
            :       CooperativeExec
-           :         PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+           :         PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
            :       CooperativeExec
-           :         PgSearchScan: table=pr, segments=1, dynamic_filters=1, query="all"
+           :         PgSearchScan: table=pr, segments=1, dynamic_filters=1, visibility=eager, query="all"
            :     CooperativeExec
-           :       PgSearchScan: table=t, segments=1, query="all"
+           :       PgSearchScan: table=t, segments=1, visibility=eager, query="all"
 (18 rows)
 
 SELECT t.tier_name, COUNT(*), SUM(p.price)

@@ -195,8 +195,8 @@ SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND b.pri
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND a.id < b.price WHERE a.txt @@@ 'alpha' ORDER BY a.id LIMIT 8;
-                                                                                         QUERY PLAN                                                                                         
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                          QUERY PLAN                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: a.id, b.id
    ->  Custom Scan (ParadeDB Join Scan)
@@ -209,12 +209,12 @@ SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND a.id 
            : ProjectionExec: expr=[id@3 as col_1, id@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            :   SortExec: TopK(fetch=8), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[a]
-           :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, dim_id@1)], filter=id@1 < price@0, projection=[ctid_0@0, id@1, ctid_1@3, id@5]
-           :         VisibilityFilterExec: tables=[b]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, dim_id@1)], filter=id@1 < price@0, projection=[ctid_0@0, id@1, ctid_1@3, id@5]
            :           CooperativeExec
-           :             PgSearchScan: table=b, segments=1, query="all"
-           :         CooperativeExec
-           :           PgSearchScan: table=a, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=b, segments=1, visibility=eager, query="all"
+           :           CooperativeExec
+           :             PgSearchScan: table=a, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
 (18 rows)
 
 SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND a.id < b.price WHERE a.txt @@@ 'alpha' ORDER BY a.id LIMIT 8;

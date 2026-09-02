@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+`CREATE INDEX` now fails if `key_field` is not one of the indexed columns, instead of creating the index and erroring on the first `INSERT`.

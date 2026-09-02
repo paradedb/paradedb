@@ -20,6 +20,7 @@ pub mod groupbygen;
 pub mod joingen;
 pub mod numericgen;
 pub mod opexprgen;
+pub mod orderbygen;
 pub mod pagegen;
 pub mod wheregen;
 

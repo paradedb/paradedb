@@ -72,7 +72,7 @@ use crate::api::{is_agg_funcoid, visibility_from_agg_arg};
 use crate::nodecast;
 use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::aggregatescan::aggregate_type::{
-    AggregateType, ParsedAggregateField, create_aggregate_from_oid,
+    AggregateType, ParsedAggregateField,
 };
 use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
@@ -385,9 +385,9 @@ unsafe fn convert_window_func_to_aggregate_type(
         ParsedAggregateField::from_query(first_arg, VarContext::from_query(parse)).ok()?;
     let missing = aggregate_field.missing().ok()?;
 
-    let agg_type = create_aggregate_from_oid(
+    let agg_type = AggregateType::from_oid(
         aggfnoid,
-        aggregate_field.field_name().to_string(),
+        aggregate_field.field_name().clone(),
         missing,
         filter,
         pg_sys::InvalidOid, // Will be filled in during planning

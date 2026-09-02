@@ -215,7 +215,7 @@ impl AggregateType {
             bm25_index,
             heap_rti,
         )?;
-        let field = aggregate_field.field_name().to_string();
+        let field = aggregate_field.field_name().clone();
         let missing = aggregate_field.missing()?;
 
         // Check if aggregate pushdown is supported for this field type on the
@@ -229,19 +229,74 @@ impl AggregateType {
             bail!("field '{}' does not support aggregate pushdown", field);
         }
 
-        let agg_type =
-            create_aggregate_from_oid(aggfnoid, field, missing, filter_query, bm25_index.oid())
-                .with_context(|| {
-                    if let Some(n) = crate::postgres::catalog::lookup_fully_qualified_func_name(
-                        pg_sys::Oid::from(aggfnoid),
-                    ) {
-                        format!("unsupported aggregate function: {}", n)
-                    } else {
-                        format!("unsupported aggregate function OID: {}", aggfnoid)
-                    }
-                })?;
+        let agg_type = Self::from_oid(aggfnoid, field, missing, filter_query, bm25_index.oid())
+            .with_context(|| {
+                if let Some(n) = crate::postgres::catalog::lookup_fully_qualified_func_name(
+                    pg_sys::Oid::from(aggfnoid),
+                ) {
+                    format!("unsupported aggregate function: {}", n)
+                } else {
+                    format!("unsupported aggregate function OID: {}", aggfnoid)
+                }
+            })?;
 
         Ok(agg_type)
+    }
+
+    pub fn from_oid(
+        aggfnoid: u32,
+        field: FieldName,
+        missing: Option<f64>,
+        filter: Option<SearchQueryInput>,
+        indexrelid: pg_sys::Oid,
+    ) -> Option<Self> {
+        let field = field.into_inner();
+
+        match aggfnoid {
+            F_COUNT_ANY => Some(Self::Count {
+                field,
+                missing,
+                filter,
+                indexrelid,
+            }),
+            F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
+                Some(Self::Avg {
+                    field,
+                    missing,
+                    filter,
+                    indexrelid,
+                })
+            }
+            F_SUM_INT8 | F_SUM_INT4 | F_SUM_INT2 | F_SUM_FLOAT4 | F_SUM_FLOAT8 | F_SUM_NUMERIC => {
+                Some(Self::Sum {
+                    field,
+                    missing,
+                    filter,
+                    indexrelid,
+                })
+            }
+            F_MAX_INT8 | F_MAX_INT4 | F_MAX_INT2 | F_MAX_FLOAT4 | F_MAX_FLOAT8 | F_MAX_DATE
+            | F_MAX_TIME | F_MAX_TIMETZ | F_MAX_TIMESTAMP | F_MAX_TIMESTAMPTZ | F_MAX_NUMERIC => {
+                Some(Self::Max {
+                    field,
+                    missing,
+                    filter,
+                    indexrelid,
+                })
+            }
+            F_MIN_INT8 | F_MIN_INT4 | F_MIN_INT2 | F_MIN_FLOAT4 | F_MIN_FLOAT8 | F_MIN_DATE
+            | F_MIN_TIME | F_MIN_TIMETZ | F_MIN_MONEY | F_MIN_TIMESTAMP | F_MIN_TIMESTAMPTZ
+            | F_MIN_NUMERIC => Some(Self::Min {
+                field,
+                missing,
+                filter,
+                indexrelid,
+            }),
+            _ => {
+                pgrx::debug1!("Unknown aggregate function OID: {}", aggfnoid);
+                None
+            }
+        }
     }
 
     pub fn can_use_doc_count(&self) -> bool {
@@ -794,60 +849,5 @@ impl AggregateFieldExpression {
         let (heaprelid, varattno) = context.var_relation(var);
         fieldname_from_var(heaprelid, var, varattno)
             .context("first argument of COALESCE must resolve to a field")
-    }
-}
-
-/// Create appropriate AggregateType from function OID
-pub fn create_aggregate_from_oid(
-    aggfnoid: u32,
-    field: String,
-    missing: Option<f64>,
-    filter: Option<SearchQueryInput>,
-    indexrelid: pg_sys::Oid,
-) -> Option<AggregateType> {
-    match aggfnoid {
-        F_COUNT_ANY => Some(AggregateType::Count {
-            field,
-            missing,
-            filter,
-            indexrelid,
-        }),
-        F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
-            Some(AggregateType::Avg {
-                field,
-                missing,
-                filter,
-                indexrelid,
-            })
-        }
-        F_SUM_INT8 | F_SUM_INT4 | F_SUM_INT2 | F_SUM_FLOAT4 | F_SUM_FLOAT8 | F_SUM_NUMERIC => {
-            Some(AggregateType::Sum {
-                field,
-                missing,
-                filter,
-                indexrelid,
-            })
-        }
-        F_MAX_INT8 | F_MAX_INT4 | F_MAX_INT2 | F_MAX_FLOAT4 | F_MAX_FLOAT8 | F_MAX_DATE
-        | F_MAX_TIME | F_MAX_TIMETZ | F_MAX_TIMESTAMP | F_MAX_TIMESTAMPTZ | F_MAX_NUMERIC => {
-            Some(AggregateType::Max {
-                field,
-                missing,
-                filter,
-                indexrelid,
-            })
-        }
-        F_MIN_INT8 | F_MIN_INT4 | F_MIN_INT2 | F_MIN_FLOAT4 | F_MIN_FLOAT8 | F_MIN_DATE
-        | F_MIN_TIME | F_MIN_TIMETZ | F_MIN_MONEY | F_MIN_TIMESTAMP | F_MIN_TIMESTAMPTZ
-        | F_MIN_NUMERIC => Some(AggregateType::Min {
-            field,
-            missing,
-            filter,
-            indexrelid,
-        }),
-        _ => {
-            pgrx::debug1!("Unknown aggregate function OID: {}", aggfnoid);
-            None
-        }
     }
 }

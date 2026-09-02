@@ -1,0 +1,685 @@
+-- =============================================================================
+-- Non-Equi Joins for JoinScan Custom Scan
+-- =============================================================================
+-- Tests non-equi join conditions (<, <=, >, >=, <>, BETWEEN), mixed equi and
+-- non-equi conditions, outer joins, and fallback behavior in JoinScan.
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- =============================================================================
+-- SETUP
+-- =============================================================================
+DROP TABLE IF EXISTS nonequi_items CASCADE;
+DROP TABLE IF EXISTS nonequi_offers CASCADE;
+CREATE TABLE nonequi_items (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    description TEXT,
+    category TEXT,
+    price DECIMAL(10,2),
+    rating INTEGER
+);
+CREATE TABLE nonequi_offers (
+    id INTEGER PRIMARY KEY,
+    promo_name TEXT,
+    description TEXT,
+    target_category TEXT,
+    min_price DECIMAL(10,2),
+    max_price DECIMAL(10,2),
+    min_rating INTEGER
+);
+INSERT INTO nonequi_items (id, name, description, category, price, rating) VALUES
+(101, 'Mechanical Keyboard', 'Ergonomic clicky mechanical keyboard for typing', 'electronics', 89.99, 5),
+(102, 'Wireless Mouse', 'Ergonomic wireless optical mouse with bluetooth', 'electronics', 29.99, 4),
+(103, 'USB-C Cable', 'Durable high speed charging and data cable', 'accessories', 9.99, 3),
+(104, 'Gaming Headset', 'Surround sound gaming headset with noise canceling', 'electronics', 149.99, 5),
+(105, 'Laptop Stand', 'Adjustable aluminum laptop riser for desk', 'accessories', 39.99, 4),
+(106, 'Desk Mat', 'Extra large waterproof desk mat mousepad', 'accessories', 19.99, 2);
+INSERT INTO nonequi_offers (id, promo_name, description, target_category, min_price, max_price, min_rating) VALUES
+(201, 'Budget Saver', 'Special discount on budget accessories and electronics', 'accessories', 5.00, 35.00, 3),
+(202, 'Midrange Deal', 'Great value for mid-tier productivity devices', 'electronics', 25.00, 100.00, 4),
+(203, 'Premium Tech', 'Exclusive promo on high-end electronics', 'electronics', 80.00, 200.00, 5),
+(204, 'All Clear', 'Clearance discounts across all categories', 'all', 0.00, 50.00, 1);
+-- All join, filter, and order-by columns must be fast fields for JoinScan
+CREATE INDEX nonequi_items_idx ON nonequi_items USING paradedb (id, name, description, category, price, rating)
+WITH (
+    key_field = 'id',
+    text_fields = '{"name": {"fast": true}, "category": {"fast": true}}',
+    numeric_fields = '{"price": {"fast": true}, "rating": {"fast": true}}'
+);
+CREATE INDEX nonequi_offers_idx ON nonequi_offers USING paradedb (id, promo_name, description, target_category, min_price, max_price, min_rating)
+WITH (
+    key_field = 'id',
+    text_fields = '{"promo_name": {"fast": true}, "target_category": {"fast": true}}',
+    numeric_fields = '{"min_price": {"fast": true}, "max_price": {"fast": true}, "min_rating": {"fast": true}}'
+);
+SET paradedb.enable_join_custom_scan = on;
+-- =============================================================================
+-- SECTION 1: Pure Non-Equi INNER JOINs
+-- =============================================================================
+-- Test 1.1: Less-than-or-equal condition (price <= max_price)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id, i.name, o.promo_name, i.price, o.max_price
+FROM nonequi_items i
+JOIN nonequi_offers o ON i.price <= o.max_price
+WHERE i.description @@@ 'ergonomic'
+ORDER BY i.id, o.id
+LIMIT 10;
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
+                                                                                    QUERY PLAN                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: i.id, i.name, o.promo_name, i.price, o.max_price, o.id
+   ->  Sort
+         Output: i.id, i.name, o.promo_name, i.price, o.max_price, o.id
+         Sort Key: i.id, o.id
+         ->  Nested Loop
+               Output: i.id, i.name, o.promo_name, i.price, o.max_price, o.id
+               Join Filter: (i.price <= o.max_price)
+               ->  Seq Scan on public.nonequi_offers o
+                     Output: o.id, o.promo_name, o.description, o.target_category, o.min_price, o.max_price, o.min_rating
+               ->  Materialize
+                     Output: i.id, i.name, i.price
+                     ->  Custom Scan (ParadeDB Base Scan) on public.nonequi_items i
+                           Output: i.id, i.name, i.price
+                           Table: nonequi_items
+                           Index: nonequi_items_idx
+                           Worker Selection: Cost model
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"ergonomic","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
+
+SELECT i.id, i.name, o.promo_name, i.price, o.max_price
+FROM nonequi_items i
+JOIN nonequi_offers o ON i.price <= o.max_price
+WHERE i.description @@@ 'ergonomic'
+ORDER BY i.id, o.id
+LIMIT 10;
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
+ id  |        name         |  promo_name   | price | max_price 
+-----+---------------------+---------------+-------+-----------
+ 101 | Mechanical Keyboard | Midrange Deal | 89.99 |    100.00
+ 101 | Mechanical Keyboard | Premium Tech  | 89.99 |    200.00
+ 102 | Wireless Mouse      | Budget Saver  | 29.99 |     35.00
+ 102 | Wireless Mouse      | Midrange Deal | 29.99 |    100.00
+ 102 | Wireless Mouse      | Premium Tech  | 29.99 |    200.00
+ 102 | Wireless Mouse      | All Clear     | 29.99 |     50.00
+(6 rows)
+
+-- Test 1.2: Greater-than-or-equal condition on offers table search predicate
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id, i.name, o.promo_name, i.rating, o.min_rating
+FROM nonequi_items i
+JOIN nonequi_offers o ON i.rating >= o.min_rating
+WHERE o.description @@@ 'exclusive OR value'
+ORDER BY i.id, o.id
+LIMIT 10;
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
+                                                                                        QUERY PLAN                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: i.id, i.name, o.promo_name, i.rating, o.min_rating, o.id
+   ->  Sort
+         Output: i.id, i.name, o.promo_name, i.rating, o.min_rating, o.id
+         Sort Key: i.id, o.id
+         ->  Nested Loop
+               Output: i.id, i.name, o.promo_name, i.rating, o.min_rating, o.id
+               Join Filter: (i.rating >= o.min_rating)
+               ->  Seq Scan on public.nonequi_items i
+                     Output: i.id, i.name, i.description, i.category, i.price, i.rating
+               ->  Materialize
+                     Output: o.promo_name, o.min_rating, o.id
+                     ->  Custom Scan (ParadeDB Base Scan) on public.nonequi_offers o
+                           Output: o.promo_name, o.min_rating, o.id
+                           Table: nonequi_offers
+                           Index: nonequi_offers_idx
+                           Worker Selection: Cost model
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"exclusive OR value","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
+
+SELECT i.id, i.name, o.promo_name, i.rating, o.min_rating
+FROM nonequi_items i
+JOIN nonequi_offers o ON i.rating >= o.min_rating
+WHERE o.description @@@ 'exclusive OR value'
+ORDER BY i.id, o.id
+LIMIT 10;
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
+ id  |        name         |  promo_name   | rating | min_rating 
+-----+---------------------+---------------+--------+------------
+ 101 | Mechanical Keyboard | Midrange Deal |      5 |          4
+ 101 | Mechanical Keyboard | Premium Tech  |      5 |          5
+ 102 | Wireless Mouse      | Midrange Deal |      4 |          4
+ 104 | Gaming Headset      | Midrange Deal |      5 |          4
+ 104 | Gaming Headset      | Premium Tech  |      5 |          5
+ 105 | Laptop Stand        | Midrange Deal |      4 |          4
+(6 rows)
+
+-- Test 1.3: Range condition (price BETWEEN min_price AND max_price)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id, i.name, o.promo_name, i.price, o.min_price, o.max_price
+FROM nonequi_items i
+JOIN nonequi_offers o ON i.price >= o.min_price AND i.price <= o.max_price
+WHERE i.description @@@ 'keyboard OR mouse OR headset'
+ORDER BY i.id, o.id
+LIMIT 10;
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
+                                                                                             QUERY PLAN                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: i.id, i.name, o.promo_name, i.price, o.min_price, o.max_price, o.id
+   ->  Sort
+         Output: i.id, i.name, o.promo_name, i.price, o.min_price, o.max_price, o.id
+         Sort Key: i.id, o.id
+         ->  Nested Loop
+               Output: i.id, i.name, o.promo_name, i.price, o.min_price, o.max_price, o.id
+               Join Filter: ((i.price >= o.min_price) AND (i.price <= o.max_price))
+               ->  Seq Scan on public.nonequi_offers o
+                     Output: o.id, o.promo_name, o.description, o.target_category, o.min_price, o.max_price, o.min_rating
+               ->  Materialize
+                     Output: i.id, i.name, i.price
+                     ->  Custom Scan (ParadeDB Base Scan) on public.nonequi_items i
+                           Output: i.id, i.name, i.price
+                           Table: nonequi_items
+                           Index: nonequi_items_idx
+                           Worker Selection: Cost model
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard OR mouse OR headset","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
+
+SELECT i.id, i.name, o.promo_name, i.price, o.min_price, o.max_price
+FROM nonequi_items i
+JOIN nonequi_offers o ON i.price >= o.min_price AND i.price <= o.max_price
+WHERE i.description @@@ 'keyboard OR mouse OR headset'
+ORDER BY i.id, o.id
+LIMIT 10;
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
+ id  |        name         |  promo_name   | price  | min_price | max_price 
+-----+---------------------+---------------+--------+-----------+-----------
+ 101 | Mechanical Keyboard | Midrange Deal |  89.99 |     25.00 |    100.00
+ 101 | Mechanical Keyboard | Premium Tech  |  89.99 |     80.00 |    200.00
+ 102 | Wireless Mouse      | Budget Saver  |  29.99 |      5.00 |     35.00
+ 102 | Wireless Mouse      | Midrange Deal |  29.99 |     25.00 |    100.00
+ 102 | Wireless Mouse      | All Clear     |  29.99 |      0.00 |     50.00
+ 104 | Gaming Headset      | Premium Tech  | 149.99 |     80.00 |    200.00
+(6 rows)
+
+-- Test 1.4: Inequality condition (<>) with search predicate on both sides
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id, i.name, o.promo_name, i.category, o.target_category
+FROM nonequi_items i
+JOIN nonequi_offers o ON i.category <> o.target_category
+WHERE i.description @@@ 'wireless' AND o.description @@@ 'budget'
+ORDER BY i.id, o.id
+LIMIT 10;
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
+                                                                                QUERY PLAN                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: i.id, i.name, o.promo_name, i.category, o.target_category, o.id
+   ->  Sort
+         Output: i.id, i.name, o.promo_name, i.category, o.target_category, o.id
+         Sort Key: i.id, o.id
+         ->  Nested Loop
+               Output: i.id, i.name, o.promo_name, i.category, o.target_category, o.id
+               Join Filter: (i.category <> o.target_category)
+               ->  Custom Scan (ParadeDB Base Scan) on public.nonequi_items i
+                     Output: i.id, i.name, i.category
+                     Table: nonequi_items
+                     Index: nonequi_items_idx
+                     Worker Selection: Cost model
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+               ->  Custom Scan (ParadeDB Base Scan) on public.nonequi_offers o
+                     Output: o.promo_name, o.target_category, o.id
+                     Table: nonequi_offers
+                     Index: nonequi_offers_idx
+                     Worker Selection: Cost model
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"budget","lenient":null,"conjunction_mode":null}}}}
+(24 rows)
+
+SELECT i.id, i.name, o.promo_name, i.category, o.target_category
+FROM nonequi_items i
+JOIN nonequi_offers o ON i.category <> o.target_category
+WHERE i.description @@@ 'wireless' AND o.description @@@ 'budget'
+ORDER BY i.id, o.id
+LIMIT 10;
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
+ id  |      name      |  promo_name  |  category   | target_category 
+-----+----------------+--------------+-------------+-----------------
+ 102 | Wireless Mouse | Budget Saver | electronics | accessories
+(1 row)
+
+-- =============================================================================
+-- SECTION 2: Mixed Equi and Non-Equi INNER JOINs
+-- =============================================================================
+-- Test 2.1: Category equality + price range non-equality
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id, i.name, o.promo_name, i.price, o.max_price
+FROM nonequi_items i
+JOIN nonequi_offers o ON i.category = o.target_category AND i.price <= o.max_price
+WHERE i.description @@@ 'cable OR riser OR mat'
+ORDER BY i.id, o.id
+LIMIT 10;
+                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: i.id, i.name, o.promo_name, i.price, o.max_price, o.id
+   ->  Result
+         Output: i.id, i.name, o.promo_name, i.price, o.max_price, o.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: i.id, i.name, i.price, o.promo_name, o.max_price, o.id
+               Relation Tree: o INNER i
+               Join Cond: i.category = o.target_category
+               Join Predicate: heap:{OPEXPR :opno 1755 :opfuncid 1723 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 5 :location -1} {VAR :varno 2 :varattno 6 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 6 :location -1}) :location -1}
+               Limit: 10
+               Order By: i.id asc, o.id asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@5 as col_1, NULL as col_2, price@4 as col_3, NULL as col_4, max_price@1 as col_5, id@2 as col_6, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+                 :   SortExec: TopK(fetch=10), expr=[id@5 ASC NULLS LAST, id@2 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     VisibilityFilterExec: tables=[o, i]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@1, target_category@1)], filter=max_price@0 >= price@1, projection=[ctid_0@4, max_price@6, id@7, ctid_1@0, price@2, id@3]
+                 :         CooperativeExec
+                 :           PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable OR riser OR mat","lenient":null,"conjunction_mode":null}}}}
+                 :         CooperativeExec
+                 :           PgSearchScan: table=o, segments=1, dynamic_filters=2, query="all"
+(20 rows)
+
+SELECT i.id, i.name, o.promo_name, i.price, o.max_price
+FROM nonequi_items i
+JOIN nonequi_offers o ON i.category = o.target_category AND i.price <= o.max_price
+WHERE i.description @@@ 'cable OR riser OR mat'
+ORDER BY i.id, o.id
+LIMIT 10;
+ id  |    name     |  promo_name  | price | max_price 
+-----+-------------+--------------+-------+-----------
+ 103 | USB-C Cable | Budget Saver |  9.99 |     35.00
+ 106 | Desk Mat    | Budget Saver | 19.99 |     35.00
+(2 rows)
+
+-- Test 2.2: Category equality + multiple non-equi conditions (price and rating)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id, i.name, o.promo_name, i.price, i.rating
+FROM nonequi_items i
+JOIN nonequi_offers o ON i.category = o.target_category
+                     AND i.price >= o.min_price
+                     AND i.rating >= o.min_rating
+WHERE i.description @@@ 'electronics OR keyboard OR headset'
+ORDER BY i.id, o.id
+LIMIT 10;
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: i.id, i.name, o.promo_name, i.price, i.rating, o.id
+   ->  Result
+         Output: i.id, i.name, o.promo_name, i.price, i.rating, o.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: i.id, i.name, i.price, i.rating, o.promo_name, o.id
+               Relation Tree: o INNER i
+               Join Cond: i.category = o.target_category
+               Join Predicate: (heap:{OPEXPR :opno 1757 :opfuncid 1721 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 5 :location -1} {VAR :varno 2 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 5 :location -1}) :location -1} AND heap:{OPEXPR :opno 525 :opfuncid 150 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 6 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 6 :location -1} {VAR :varno 2 :varattno 7 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 7 :location -1}) :location -1})
+               Limit: 10
+               Order By: i.id asc, o.id asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@5 as col_1, NULL as col_2, price@3 as col_3, rating@4 as col_4, NULL as col_5, id@1 as col_6, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+                 :   SortExec: TopK(fetch=10), expr=[id@5 ASC NULLS LAST, id@1 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     VisibilityFilterExec: tables=[o, i]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@1, target_category@1)], filter=min_price@0 <= price@2 AND min_rating@1 <= rating@3, projection=[ctid_0@5, id@9, ctid_1@0, price@2, rating@3, id@4]
+                 :         CooperativeExec
+                 :           PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"electronics OR keyboard OR headset","lenient":null,"conjunction_mode":null}}}}
+                 :         CooperativeExec
+                 :           PgSearchScan: table=o, segments=1, dynamic_filters=2, query="all"
+(20 rows)
+
+SELECT i.id, i.name, o.promo_name, i.price, i.rating
+FROM nonequi_items i
+JOIN nonequi_offers o ON i.category = o.target_category
+                     AND i.price >= o.min_price
+                     AND i.rating >= o.min_rating
+WHERE i.description @@@ 'electronics OR keyboard OR headset'
+ORDER BY i.id, o.id
+LIMIT 10;
+ id  |        name         |  promo_name   | price  | rating 
+-----+---------------------+---------------+--------+--------
+ 101 | Mechanical Keyboard | Midrange Deal |  89.99 |      5
+ 101 | Mechanical Keyboard | Premium Tech  |  89.99 |      5
+ 104 | Gaming Headset      | Midrange Deal | 149.99 |      5
+ 104 | Gaming Headset      | Premium Tech  | 149.99 |      5
+(4 rows)
+
+-- =============================================================================
+-- SECTION 3: Non-Equi OUTER JOINs
+-- =============================================================================
+-- Test 3.1: LEFT JOIN with pure non-equi ON condition
+-- Preserved left rows with no qualifying offer must be null-extended
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id, i.name, i.price, o.promo_name, o.max_price
+FROM nonequi_items i
+LEFT JOIN nonequi_offers o ON i.price > o.max_price AND o.min_rating >= 4
+WHERE i.description @@@ 'keyboard OR cable OR headset'
+ORDER BY i.id, o.id NULLS LAST
+LIMIT 10;
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: i.id, i.name, i.price, o.promo_name, o.max_price, o.id
+   ->  Sort
+         Output: i.id, i.name, i.price, o.promo_name, o.max_price, o.id
+         Sort Key: i.id, o.id
+         ->  Nested Loop Left Join
+               Output: i.id, i.name, i.price, o.promo_name, o.max_price, o.id
+               Join Filter: (i.price > o.max_price)
+               ->  Custom Scan (ParadeDB Base Scan) on public.nonequi_items i
+                     Output: i.id, i.name, i.price
+                     Table: nonequi_items
+                     Index: nonequi_items_idx
+                     Worker Selection: Cost model
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard OR cable OR headset","lenient":null,"conjunction_mode":null}}}}
+               ->  Materialize
+                     Output: o.promo_name, o.max_price, o.id
+                     ->  Seq Scan on public.nonequi_offers o
+                           Output: o.promo_name, o.max_price, o.id
+                           Filter: (o.min_rating >= 4)
+(21 rows)
+
+SELECT i.id, i.name, i.price, o.promo_name, o.max_price
+FROM nonequi_items i
+LEFT JOIN nonequi_offers o ON i.price > o.max_price AND o.min_rating >= 4
+WHERE i.description @@@ 'keyboard OR cable OR headset'
+ORDER BY i.id, o.id NULLS LAST
+LIMIT 10;
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
+ id  |        name         | price  |  promo_name   | max_price 
+-----+---------------------+--------+---------------+-----------
+ 101 | Mechanical Keyboard |  89.99 |               |          
+ 103 | USB-C Cable         |   9.99 |               |          
+ 104 | Gaming Headset      | 149.99 | Midrange Deal |    100.00
+(3 rows)
+
+-- Test 3.2: LEFT JOIN with mixed equi + non-equi ON condition
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id, i.name, o.promo_name, i.price, o.min_price
+FROM nonequi_items i
+LEFT JOIN nonequi_offers o ON i.category = o.target_category AND i.price < o.min_price
+WHERE i.description @@@ 'cable OR mat OR mouse'
+ORDER BY i.id, o.id NULLS LAST
+LIMIT 10;
+WARNING:  JoinScan not used: outer joins support only equi-join conditions in the ON clause (tables: i, o)
+                                                                                          QUERY PLAN                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: i.id, i.name, o.promo_name, i.price, o.min_price, o.id
+   ->  Sort
+         Output: i.id, i.name, o.promo_name, i.price, o.min_price, o.id
+         Sort Key: i.id, o.id
+         ->  Hash Right Join
+               Output: i.id, i.name, o.promo_name, i.price, o.min_price, o.id
+               Hash Cond: (o.target_category = i.category)
+               Join Filter: (i.price < o.min_price)
+               ->  Seq Scan on public.nonequi_offers o
+                     Output: o.id, o.promo_name, o.description, o.target_category, o.min_price, o.max_price, o.min_rating
+               ->  Hash
+                     Output: i.id, i.name, i.price, i.category
+                     ->  Custom Scan (ParadeDB Base Scan) on public.nonequi_items i
+                           Output: i.id, i.name, i.price, i.category
+                           Table: nonequi_items
+                           Index: nonequi_items_idx
+                           Worker Selection: Cost model
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable OR mat OR mouse","lenient":null,"conjunction_mode":null}}}}
+(21 rows)
+
+SELECT i.id, i.name, o.promo_name, i.price, o.min_price
+FROM nonequi_items i
+LEFT JOIN nonequi_offers o ON i.category = o.target_category AND i.price < o.min_price
+WHERE i.description @@@ 'cable OR mat OR mouse'
+ORDER BY i.id, o.id NULLS LAST
+LIMIT 10;
+WARNING:  JoinScan not used: outer joins support only equi-join conditions in the ON clause (tables: i, o)
+ id  |      name      |  promo_name  | price | min_price 
+-----+----------------+--------------+-------+-----------
+ 102 | Wireless Mouse | Premium Tech | 29.99 |     80.00
+ 103 | USB-C Cable    |              |  9.99 |          
+ 106 | Desk Mat       |              | 19.99 |          
+(3 rows)
+
+-- Test 3.3: RIGHT JOIN with non-equi ON condition
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id, i.name, o.promo_name, o.max_price
+FROM nonequi_items i
+RIGHT JOIN nonequi_offers o ON i.category = o.target_category AND i.price <= o.max_price
+WHERE o.description @@@ 'exclusive OR budget'
+ORDER BY o.id, i.id NULLS LAST
+LIMIT 10;
+WARNING:  JoinScan not used: outer joins support only equi-join conditions in the ON clause (tables: i, o)
+                                                                                         QUERY PLAN                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: i.id, i.name, o.promo_name, o.max_price, o.id
+   ->  Sort
+         Output: i.id, i.name, o.promo_name, o.max_price, o.id
+         Sort Key: o.id, i.id
+         ->  Hash Right Join
+               Output: i.id, i.name, o.promo_name, o.max_price, o.id
+               Hash Cond: (i.category = o.target_category)
+               Join Filter: (i.price <= o.max_price)
+               ->  Seq Scan on public.nonequi_items i
+                     Output: i.id, i.name, i.description, i.category, i.price, i.rating
+               ->  Hash
+                     Output: o.promo_name, o.max_price, o.id, o.target_category
+                     ->  Custom Scan (ParadeDB Base Scan) on public.nonequi_offers o
+                           Output: o.promo_name, o.max_price, o.id, o.target_category
+                           Table: nonequi_offers
+                           Index: nonequi_offers_idx
+                           Worker Selection: Cost model
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"exclusive OR budget","lenient":null,"conjunction_mode":null}}}}
+(21 rows)
+
+SELECT i.id, i.name, o.promo_name, o.max_price
+FROM nonequi_items i
+RIGHT JOIN nonequi_offers o ON i.category = o.target_category AND i.price <= o.max_price
+WHERE o.description @@@ 'exclusive OR budget'
+ORDER BY o.id, i.id NULLS LAST
+LIMIT 10;
+WARNING:  JoinScan not used: outer joins support only equi-join conditions in the ON clause (tables: i, o)
+ id  |        name         |  promo_name  | max_price 
+-----+---------------------+--------------+-----------
+ 103 | USB-C Cable         | Budget Saver |     35.00
+ 106 | Desk Mat            | Budget Saver |     35.00
+ 101 | Mechanical Keyboard | Premium Tech |    200.00
+ 102 | Wireless Mouse      | Premium Tech |    200.00
+ 104 | Gaming Headset      | Premium Tech |    200.00
+(5 rows)
+
+-- =============================================================================
+-- SECTION 4: Cross-Table Disjunctive Search (OR) with Non-Equi JOIN
+-- =============================================================================
+-- Test 4.1: OR across tables with non-equi condition
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id, i.name, o.promo_name
+FROM nonequi_items i
+JOIN nonequi_offers o ON i.price <= o.max_price
+WHERE i.description @@@ 'gaming' OR o.description @@@ 'clearance'
+ORDER BY i.id, o.id
+LIMIT 10;
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
+                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: i.id, i.name, o.promo_name, o.id
+   ->  Sort
+         Output: i.id, i.name, o.promo_name, o.id
+         Sort Key: i.id, o.id
+         ->  Nested Loop
+               Output: i.id, i.name, o.promo_name, o.id
+               Join Filter: ((i.price <= o.max_price) AND ((i.id @@@ '{"with_index":{"oid":14893901,"query":{"parse_with_field":{"field":"description","query_string":"gaming","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (o.id @@@ '{"with_index":{"oid":14893902,"query":{"parse_with_field":{"field":"description","query_string":"clearance","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)))
+               ->  Seq Scan on public.nonequi_items i
+                     Output: i.id, i.name, i.description, i.category, i.price, i.rating
+               ->  Materialize
+                     Output: o.promo_name, o.id, o.max_price
+                     ->  Seq Scan on public.nonequi_offers o
+                           Output: o.promo_name, o.id, o.max_price
+(14 rows)
+
+SELECT i.id, i.name, o.promo_name
+FROM nonequi_items i
+JOIN nonequi_offers o ON i.price <= o.max_price
+WHERE i.description @@@ 'gaming' OR o.description @@@ 'clearance'
+ORDER BY i.id, o.id
+LIMIT 10;
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
+ id  |      name      |  promo_name  
+-----+----------------+--------------
+ 102 | Wireless Mouse | All Clear
+ 103 | USB-C Cable    | All Clear
+ 104 | Gaming Headset | Premium Tech
+ 105 | Laptop Stand   | All Clear
+ 106 | Desk Mat       | All Clear
+(5 rows)
+
+-- =============================================================================
+-- SECTION 5: Parity Checks (Custom Scan ON vs OFF)
+-- =============================================================================
+-- Test 5.1: Non-equi inner join parity
+SET paradedb.enable_join_custom_scan = off;
+SELECT i.id, i.name, o.promo_name
+FROM nonequi_items i
+JOIN nonequi_offers o ON i.price <= o.max_price
+WHERE i.description @@@ 'ergonomic'
+ORDER BY i.id, o.id
+LIMIT 10;
+ id  |        name         |  promo_name   
+-----+---------------------+---------------
+ 101 | Mechanical Keyboard | Midrange Deal
+ 101 | Mechanical Keyboard | Premium Tech
+ 102 | Wireless Mouse      | Budget Saver
+ 102 | Wireless Mouse      | Midrange Deal
+ 102 | Wireless Mouse      | Premium Tech
+ 102 | Wireless Mouse      | All Clear
+(6 rows)
+
+SET paradedb.enable_join_custom_scan = on;
+SELECT i.id, i.name, o.promo_name
+FROM nonequi_items i
+JOIN nonequi_offers o ON i.price <= o.max_price
+WHERE i.description @@@ 'ergonomic'
+ORDER BY i.id, o.id
+LIMIT 10;
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
+ id  |        name         |  promo_name   
+-----+---------------------+---------------
+ 101 | Mechanical Keyboard | Midrange Deal
+ 101 | Mechanical Keyboard | Premium Tech
+ 102 | Wireless Mouse      | Budget Saver
+ 102 | Wireless Mouse      | Midrange Deal
+ 102 | Wireless Mouse      | Premium Tech
+ 102 | Wireless Mouse      | All Clear
+(6 rows)
+
+-- Test 5.2: Non-equi left join parity
+SET paradedb.enable_join_custom_scan = off;
+SELECT i.id, i.name, o.promo_name
+FROM nonequi_items i
+LEFT JOIN nonequi_offers o ON i.category = o.target_category AND i.price < o.min_price
+WHERE i.description @@@ 'cable OR mat OR mouse'
+ORDER BY i.id, o.id NULLS LAST
+LIMIT 10;
+ id  |      name      |  promo_name  
+-----+----------------+--------------
+ 102 | Wireless Mouse | Premium Tech
+ 103 | USB-C Cable    | 
+ 106 | Desk Mat       | 
+(3 rows)
+
+SET paradedb.enable_join_custom_scan = on;
+SELECT i.id, i.name, o.promo_name
+FROM nonequi_items i
+LEFT JOIN nonequi_offers o ON i.category = o.target_category AND i.price < o.min_price
+WHERE i.description @@@ 'cable OR mat OR mouse'
+ORDER BY i.id, o.id NULLS LAST
+LIMIT 10;
+WARNING:  JoinScan not used: outer joins support only equi-join conditions in the ON clause (tables: i, o)
+ id  |      name      |  promo_name  
+-----+----------------+--------------
+ 102 | Wireless Mouse | Premium Tech
+ 103 | USB-C Cable    | 
+ 106 | Desk Mat       | 
+(3 rows)
+
+-- =============================================================================
+-- SECTION 6: Fallback / Rejection
+-- =============================================================================
+-- Add an unindexed column to nonequi_items
+ALTER TABLE nonequi_items ADD COLUMN unindexed_weight FLOAT;
+UPDATE nonequi_items SET unindexed_weight = 1.5 WHERE id = 101;
+UPDATE nonequi_items SET unindexed_weight = 0.2 WHERE id = 102;
+-- Test 6.1: Non-equi condition on unindexed column should fall back to native join
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id, i.name, o.promo_name
+FROM nonequi_items i
+JOIN nonequi_offers o ON i.unindexed_weight < o.min_price
+WHERE i.description @@@ 'ergonomic'
+ORDER BY i.id, o.id
+LIMIT 10;
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
+                                                                                    QUERY PLAN                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: i.id, i.name, o.promo_name, o.id
+   ->  Sort
+         Output: i.id, i.name, o.promo_name, o.id
+         Sort Key: i.id, o.id
+         ->  Nested Loop
+               Output: i.id, i.name, o.promo_name, o.id
+               Join Filter: (i.unindexed_weight < (o.min_price)::double precision)
+               ->  Seq Scan on public.nonequi_offers o
+                     Output: o.id, o.promo_name, o.description, o.target_category, o.min_price, o.max_price, o.min_rating
+               ->  Materialize
+                     Output: i.id, i.name, i.unindexed_weight
+                     ->  Custom Scan (ParadeDB Base Scan) on public.nonequi_items i
+                           Output: i.id, i.name, i.unindexed_weight
+                           Table: nonequi_items
+                           Index: nonequi_items_idx
+                           Worker Selection: Cost model
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"ergonomic","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
+
+SELECT i.id, i.name, o.promo_name
+FROM nonequi_items i
+JOIN nonequi_offers o ON i.unindexed_weight < o.min_price
+WHERE i.description @@@ 'ergonomic'
+ORDER BY i.id, o.id
+LIMIT 10;
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
+ id  |        name         |  promo_name   
+-----+---------------------+---------------
+ 101 | Mechanical Keyboard | Budget Saver
+ 101 | Mechanical Keyboard | Midrange Deal
+ 101 | Mechanical Keyboard | Premium Tech
+ 102 | Wireless Mouse      | Budget Saver
+ 102 | Wireless Mouse      | Midrange Deal
+ 102 | Wireless Mouse      | Premium Tech
+(6 rows)
+
+-- =============================================================================
+-- CLEANUP
+-- =============================================================================
+DROP TABLE IF EXISTS nonequi_items CASCADE;
+DROP TABLE IF EXISTS nonequi_offers CASCADE;
+RESET max_parallel_workers_per_gather;
+RESET enable_indexscan;
+RESET paradedb.enable_join_custom_scan;

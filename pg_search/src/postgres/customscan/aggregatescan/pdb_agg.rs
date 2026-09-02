@@ -1008,17 +1008,23 @@ impl Assembler<'_> {
     }
 }
 
+/// What a metric reports over no input: counts and sums read 0, the rest `null`,
+/// like Tantivy. `sum` alone can opt into `null`.
+fn metric_value(kind: PdbMetricKind, value: Option<f64>, none_if_no_match: bool) -> Option<f64> {
+    match (kind, value) {
+        (PdbMetricKind::Sum, None) if !none_if_no_match => Some(0.0),
+        (PdbMetricKind::ValueCount | PdbMetricKind::Cardinality, None) => Some(0.0),
+        (_, value) => value,
+    }
+}
+
 fn metric_json(
     kind: PdbMetricKind,
     field: &PdbAggFieldRef,
     value: Option<f64>,
     none_if_no_match: bool,
 ) -> serde_json::Value {
-    let value = match (kind, value) {
-        (PdbMetricKind::Sum, None) if !none_if_no_match => Some(0.0),
-        (PdbMetricKind::ValueCount | PdbMetricKind::Cardinality, None) => Some(0.0),
-        (_, value) => value,
-    };
+    let value = metric_value(kind, value, none_if_no_match);
     let mut obj = serde_json::Map::new();
     let json_value = value
         .and_then(serde_json::Number::from_f64)
@@ -1331,20 +1337,19 @@ mod tests {
         assert_eq!(plan.metric_col(0), 1);
     }
 
+    // `metric_json` renders datetimes through Postgres, which the lib test binary
+    // cannot link on Linux, so the value rule is tested on its own.
     #[test]
     fn empty_metrics_render_like_tantivy() {
-        let f = field(0, "v");
-        let value = |kind, none_if_no_match| metric_json(kind, &f, None, none_if_no_match);
-        assert_eq!(value(PdbMetricKind::Sum, false)["value"], 0.0);
+        let value = |kind, none_if_no_match| metric_value(kind, None, none_if_no_match);
+        assert_eq!(value(PdbMetricKind::Sum, false), Some(0.0));
+        assert_eq!(value(PdbMetricKind::Sum, true), None);
+        assert_eq!(value(PdbMetricKind::ValueCount, false), Some(0.0));
+        assert_eq!(value(PdbMetricKind::Cardinality, false), Some(0.0));
+        assert_eq!(value(PdbMetricKind::Avg, false), None);
         assert_eq!(
-            value(PdbMetricKind::Sum, true)["value"],
-            serde_json::Value::Null
-        );
-        assert_eq!(value(PdbMetricKind::ValueCount, false)["value"], 0.0);
-        assert_eq!(value(PdbMetricKind::Cardinality, false)["value"], 0.0);
-        assert_eq!(
-            value(PdbMetricKind::Avg, false)["value"],
-            serde_json::Value::Null
+            metric_value(PdbMetricKind::Min, Some(3.0), false),
+            Some(3.0)
         );
     }
 

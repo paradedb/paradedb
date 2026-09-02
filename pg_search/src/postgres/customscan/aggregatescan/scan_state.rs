@@ -84,9 +84,9 @@ pub struct DataFusionAggState {
     /// Applies only when parallel execution is enabled and the query qualifies (binary join +
     /// supported aggregate).
     pub mpp: MppLifecycle,
-    /// Captured from PostgreSQL's query-wide `PlannerGlobal.parallelModeOK`. When false, this
+    /// Captured from PostgreSQL's statement-wide `PlannerGlobal.parallelModeOK`. When false, this
     /// scan may still use DataFusion, but it must never launch MPP producer workers.
-    pub mpp_query_safe: bool,
+    pub parallel_mode_ok: bool,
     /// Per-phase launch timing for `EXPLAIN ANALYZE`'s `MPP Launch` line. Set only when the
     /// query launched distributed.
     pub launch_timing: Option<MppLaunchTiming>,

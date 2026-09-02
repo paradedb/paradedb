@@ -78,20 +78,18 @@ pub struct PrivateData {
     /// post-setrefs custom_exprs on the executor's plan node is not
     /// translator-compatible.
     pub custom_exprs_string: Option<String>,
-    /// PostgreSQL's query-wide decision that entering parallel mode is safe.
-    /// Defaults closed when deserializing an older plan representation.
-    #[serde(default)]
-    pub mpp_query_safe: bool,
+    /// PostgreSQL's statement-wide `PlannerGlobal.parallelModeOK` decision.
+    pub parallel_mode_ok: bool,
 }
 
 impl PrivateData {
-    pub fn new(join_clause: JoinCSClause, mpp_query_safe: bool) -> Self {
+    pub fn new(join_clause: JoinCSClause, parallel_mode_ok: bool) -> Self {
         Self {
             join_clause,
             output_columns: Vec::new(),
             logical_plan: None,
             custom_exprs_string: None,
-            mpp_query_safe,
+            parallel_mode_ok,
         }
     }
 

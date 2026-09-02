@@ -320,8 +320,8 @@ pub(crate) fn mpp_gated_by_min_rows<'a>(sources: impl IntoIterator<Item = &'a Sc
 /// Whether a scan over `plan` may attempt an MPP launch: the statement allows parallel mode
 /// (#6157), PG's worker budget admits producers, and the query clears the size gate (#5784).
 /// Shared by launch preparation and the plain-EXPLAIN plan rebuild so both agree.
-pub(crate) fn mpp_eligible(mpp_query_safe: bool, plan: &RelNode) -> bool {
-    mpp_query_safe
+pub(crate) fn mpp_eligible(parallel_mode_ok: bool, plan: &RelNode) -> bool {
+    parallel_mode_ok
         && mpp_is_active()
         && !mpp_gated_by_min_rows(plan.sources().into_iter().map(|s| &s.scan_info))
 }

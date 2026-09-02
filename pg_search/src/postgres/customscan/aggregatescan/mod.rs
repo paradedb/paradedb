@@ -694,7 +694,7 @@ impl CustomScan for AggregateScan {
                 targetlist,
                 topk,
                 having_filter,
-                mpp_query_safe,
+                parallel_mode_ok,
                 ..
             } => {
                 // Replace Aggrefs for DataFusion path too
@@ -719,7 +719,7 @@ impl CustomScan for AggregateScan {
                     batch_row_idx: 0,
                     group_df_indices: Vec::new(),
                     mpp: MppLifecycle::Inactive,
-                    mpp_query_safe,
+                    parallel_mode_ok,
                     launch_timing: None,
                 });
                 builder.build()
@@ -1130,7 +1130,7 @@ impl AggregateScan {
         let Some(df_state) = state.custom_state().datafusion_state.as_ref() else {
             return;
         };
-        if !mpp_eligible(df_state.mpp_query_safe, &df_state.plan) {
+        if !mpp_eligible(df_state.parallel_mode_ok, &df_state.plan) {
             return;
         }
         Self::ensure_source_manifests(state);
@@ -1277,7 +1277,7 @@ impl AggregateScan {
                     build_physical_plan(ctx, logical).await
                 })
             };
-            let plan_result = if mpp_eligible(df_state.mpp_query_safe, &df_state.plan) {
+            let plan_result = if mpp_eligible(df_state.parallel_mode_ok, &df_state.plan) {
                 // EXPLAIN-time: skip the shm_mq transport install (no execution, no `open()` call).
                 // Plan against the cap first; fall back to serial when launch would not run (#5784).
                 match build_with(&Self::build_mpp_session_context(None)) {
@@ -1645,7 +1645,7 @@ impl AggregateScan {
             .set_pathtarget(shape.reltarget())
             .set_rows(shape.rows());
 
-        let mpp_query_safe = query_allows_parallel_mode(builder.args().root());
+        let parallel_mode_ok = query_allows_parallel_mode(builder.args().root());
 
         // Build the custom path with DataFusion private data
         let multi_table_clause_count = multi_table_clauses.len();
@@ -1655,7 +1655,7 @@ impl AggregateScan {
             topk,
             multi_table_clause_count,
             having_filter,
-            mpp_query_safe,
+            parallel_mode_ok,
         });
 
         // Append raw PG Expr pointers to custom_private after the serialized

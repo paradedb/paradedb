@@ -40,7 +40,7 @@ use crate::postgres::node::NodeExt;
 use crate::api::operator::expr_contains_search_predicate;
 use crate::api::version::VersionInfo;
 use crate::api::{NullTestKind, OrderByFeature, OrderByInfo, SortDirection};
-use crate::index::fast_fields_helper::WhichFastField;
+use crate::index::fast_fields_helper::{FieldDelivery, WhichFastField};
 use crate::nodecast;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::customscan::basescan::projections::score::is_score_func;
@@ -1278,7 +1278,11 @@ fn numeric_bytes_layouts_differ(
     let is_numeric_bytes = |ff: &WhichFastField| {
         matches!(
             ff,
-            WhichFastField::Named(_, SearchFieldType::NumericBytes(..))
+            WhichFastField::Named {
+                field_type: SearchFieldType::NumericBytes(..),
+                delivery: FieldDelivery::Eager,
+                ..
+            }
         )
     };
     is_numeric_bytes(outer_ff)
@@ -1836,7 +1840,7 @@ unsafe fn ensure_expression_field(source: &mut JoinSource, field_name: &str) -> 
     let synthetic_attno = -(source.scan_info.fields.len() as pg_sys::AttrNumber + 1);
     source.scan_info.add_field_by_name(
         synthetic_attno,
-        WhichFastField::Named(field_name.to_string(), field_type),
+        WhichFastField::eager(field_name.to_string(), field_type),
     );
     Ok(())
 }

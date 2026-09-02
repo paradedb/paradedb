@@ -269,7 +269,7 @@ jobs:
         if: ${{ steps.guard.outputs.build == 'true' && steps.cache-pgrx.outputs.cache-hit != 'true' }}
         run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
-      - name: Initialize pgrx environment
+      - name: Initialize pgrx Environment
         if: steps.guard.outputs.build == 'true'
         working-directory: pg_search/
         run: |

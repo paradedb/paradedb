@@ -1,4 +1,4 @@
-name: Set up PostgreSQL
+name: Set Up PostgreSQL
 description: Configure the PostgreSQL APT repository (PGDG) and install PostgreSQL packages
 
 inputs:

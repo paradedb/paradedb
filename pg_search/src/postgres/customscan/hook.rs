@@ -15,9 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::agg_funcoids;
 use crate::api::operator::{anyelement_search_opoids, is_paradedb_search_operator};
 use crate::api::window_aggregate::window_agg_oid;
-use crate::api::{agg_funcoid, agg_with_solve_mvcc_funcoid};
 use crate::gucs;
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
@@ -813,13 +813,13 @@ unsafe fn expr_contains_paradedb_operator(node: *mut pg_sys::Node) -> bool {
 ///
 /// TODO: Consider unifying this logic to avoid duplication (see GitHub issue #3455)
 pub(crate) unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query, recursive: bool) -> bool {
-    let paradedb_agg_oid = agg_funcoid().to_u32();
-    let paradedb_agg_mvcc_oid = agg_with_solve_mvcc_funcoid().to_u32();
+    // Hoisted out of the walk: each is a catalog lookup and the walker visits every
+    // node in the expression tree.
+    let paradedb_agg_oids = agg_funcoids();
     let window_agg_proc_oid = window_agg_oid();
 
     struct WalkerContext {
-        paradedb_agg_oid: u32,
-        paradedb_agg_mvcc_oid: u32,
+        paradedb_agg_oids: [u32; 3],
         window_agg_proc_oid: pg_sys::Oid,
         found: bool,
     }
@@ -836,21 +836,23 @@ pub(crate) unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query, recursive
         let ctx = context.cast::<WalkerContext>();
 
         // Check for window function usage (before planner hook replacement)
-        if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, node) {
-            let oid = (*window_func).winfnoid.to_u32();
-            if oid == (*ctx).paradedb_agg_oid || oid == (*ctx).paradedb_agg_mvcc_oid {
-                (*ctx).found = true;
-                return true; // Stop walking
-            }
+        if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, node)
+            && (*ctx)
+                .paradedb_agg_oids
+                .contains(&(*window_func).winfnoid.to_u32())
+        {
+            (*ctx).found = true;
+            return true; // Stop walking
         }
 
         // Check for aggregate function usage (GROUP BY context)
-        if let Some(aggref) = nodecast!(Aggref, T_Aggref, node) {
-            let oid = (*aggref).aggfnoid.to_u32();
-            if oid == (*ctx).paradedb_agg_oid || oid == (*ctx).paradedb_agg_mvcc_oid {
-                (*ctx).found = true;
-                return true; // Stop walking
-            }
+        if let Some(aggref) = nodecast!(Aggref, T_Aggref, node)
+            && (*ctx)
+                .paradedb_agg_oids
+                .contains(&(*aggref).aggfnoid.to_u32())
+        {
+            (*ctx).found = true;
+            return true; // Stop walking
         }
 
         // Check for window_agg() placeholder (after planner hook replacement)
@@ -868,8 +870,7 @@ pub(crate) unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query, recursive
     }
 
     let mut context = WalkerContext {
-        paradedb_agg_oid,
-        paradedb_agg_mvcc_oid,
+        paradedb_agg_oids,
         window_agg_proc_oid,
         found: false,
     };

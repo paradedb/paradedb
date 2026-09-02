@@ -212,10 +212,11 @@ impl TopKScanExecState {
             }
         }
 
-        // Determine if MVCC filtering should be enabled.
-        // Check for contradicting solve_mvcc settings - error if some have true and some have false.
-        // Only consider Custom aggregates (pdb.agg) since standard SQL aggregates always use default.
-        let mvcc_enabled = AggregateType::resolve_mvcc_enabled(combined_agg_types.iter());
+        // Determine the query-level visibility setting, erroring on contradicting
+        // settings, then resolve it against this execution. Only Custom aggregates
+        // (pdb.agg) carry a setting; standard SQL aggregates always use the default.
+        let mvcc_enabled = AggregateType::resolve_visibility(combined_agg_types.iter())
+            .resolve_filtering(state.indexrel(), state.search_query_input());
 
         // Convert aggregates to Tantivy Aggregations
         let mut aggregations: tantivy::aggregation::agg_req::Aggregations = Default::default();

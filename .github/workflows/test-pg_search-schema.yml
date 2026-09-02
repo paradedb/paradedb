@@ -10,6 +10,7 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - ".github/scripts/check_migration_diff.py"
+      - ".github/actions/setup-pg-search-toolchain/**"
       - ".github/workflows/test-pg_search-schema.yml"
       - "pg_search/**"
       - "!pg_search/README.md"
@@ -51,52 +52,29 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref || github.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
-      - name: Extract pgrx Version
-        id: pgrx
-        run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
-
-      - name: Install Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          cache: false
-          rustflags: "" # Use .cargo/config.toml target-cpu flags
-
       # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
       # See test-pg_search.yml for rationale.
-      # Only save cache on non-PR events; PRs restore from the default branch.
-      # See test-pg_search.yml for rationale.
-      - name: Install Rust Cache
-        uses: swatinem/rust-cache@v2
+      # Schema jobs restore the nightly-warmed cache but never save their own entry.
+      - name: Set Up pg_search Toolchain
+        id: toolchain
+        uses: ./.github/actions/setup-pg-search-toolchain
         with:
-          prefix-key: "v3-rust-cache"
-          shared-key: pg${{ matrix.pg_version }}
-          cache-targets: true
-          cache-all-crates: true
-          # We don't save the cache here to avoid thrashing. The cache is only saved on the nightly run of test-pg_search.yml
-          save-if: false
+          pg_version: ${{ matrix.pg_version }}
 
       - name: Install & Configure Supported PostgreSQL Version
         uses: ./.github/actions/setup-postgres
         with:
           pg_version: ${{ matrix.pg_version }}
+          extra_packages: libopenblas-dev clang lld llvm diffutils
 
-      - name: Install OpenBLAS (superkmeans-rs BLAS backend)
-        run: |
-          sudo apt-get update && sudo apt-get install -y libopenblas-dev
+      - name: Install pg-schema-diff
+        run: cargo install -j $(nproc) --git https://github.com/paradedb/pg-schema-diff.git --debug --force
 
-      - name: Install pg-schema-diff and its Required Dependencies
-        run: |
-          sudo apt install clang lld llvm diffutils
-          cargo install -j $(nproc) --git https://github.com/paradedb/pg-schema-diff.git --debug --force
-
-      - name: Install pgrx
-        run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
-
-      - name: Initialize pgrx environment
+      - name: Initialize pgrx Environment
         run: |
           cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
           # Save the pgrx version for comparison later
-          echo "FIRST_PGRX_VERSION=${{ steps.pgrx.outputs.version }}" >> $GITHUB_ENV
+          echo "FIRST_PGRX_VERSION=${{ steps.toolchain.outputs.pgrx_version }}" >> $GITHUB_ENV
 
       - name: Generate Schema from this git rev
         run: cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/this.sql

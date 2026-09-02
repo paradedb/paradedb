@@ -70,7 +70,7 @@ pub fn aggregation_results_iter(
 
     // Use the GUC for term aggregation bucket limits (single source of truth).
     let bucket_limit: u32 = gucs::max_term_agg_buckets() as u32;
-    let mvcc_enabled = aggregate_clause.mvcc_enabled();
+    let visibility = aggregate_clause.visibility();
     let grouping_fields: Vec<String> = aggregate_clause
         .grouping_columns()
         .into_iter()
@@ -92,7 +92,7 @@ pub fn aggregation_results_iter(
         state.custom_state().indexrel(),
         query,
         AggregateRequest::Sql(aggregate_clause),
-        mvcc_enabled,
+        visibility,
         WorkMem::Tantivy.bytes().try_into().unwrap(),
         bucket_limit,
         expr_context,

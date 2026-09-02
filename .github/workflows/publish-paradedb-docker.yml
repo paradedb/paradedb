@@ -199,10 +199,10 @@ jobs:
         with:
           ref: ${{ needs.generate-dockerfiles.outputs.branch }}
 
-      - name: Set up QEMU
+      - name: Set Up QEMU
         uses: docker/setup-qemu-action@v4
 
-      - name: Set up Docker Buildx
+      - name: Set Up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
       # The pg_version-tag Docker tag syntax is necessary for our CloudNativePG Helm chart. We only deploy
@@ -361,10 +361,10 @@ jobs:
           echo "amd64=$(fetch_checksum amd64)" >> "$GITHUB_OUTPUT"
           echo "arm64=$(fetch_checksum arm64)" >> "$GITHUB_OUTPUT"
 
-      - name: Set up QEMU
+      - name: Set Up QEMU
         uses: docker/setup-qemu-action@v4
 
-      - name: Set up Docker Buildx
+      - name: Set Up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
       - name: Setup Docker Image tags

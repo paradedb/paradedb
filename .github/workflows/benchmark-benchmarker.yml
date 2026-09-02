@@ -17,6 +17,9 @@ on:
       - "**/*.toml"
       - ".github/workflows/benchmark-benchmarker.yml"
       - ".github/actions/build-pg_search-source/**"
+      - ".github/actions/setup-pg-search-build-environment/**"
+      - ".github/actions/setup-pg-search-toolchain/**"
+      - ".github/actions/setup-postgres/**"
       - "docker/Dockerfile.benchmarker"
   pull_request:
     types: [labeled] # Opt in on a PR with the `benchmark-benchmarker` label
@@ -101,6 +104,9 @@ jobs:
         uses: ./.github/actions/build-pg_search-source
         with:
           pg-version: ${{ env.pg_version }}
+          cache-prefix-key: "v2-benchmarks-rust-cache"
+          cache-save: "true"
+          cache-on-failure: "true"
 
       - name: Assemble ParadeDB image (pg_search from source)
         run: |
@@ -125,8 +131,8 @@ jobs:
           ref: ${{ inputs.benchmarker_ref || 'main' }}
           path: benchmarker
 
-      - name: Set up Go
-        uses: actions/setup-go@v6
+      - name: Set Up Go
+        uses: actions/setup-go@v7
         with:
           go-version-file: benchmarker/go.mod
           cache-dependency-path: benchmarker/go.sum
@@ -323,3 +329,11 @@ jobs:
             echo "::error::No benchmark metrics extracted: the k6 run produced no query samples. Check query execution / the dashboard export." >&2
             exit 1
           fi
+
+      - name: Notify Slack on Failure (push only)
+        if: failure() && github.event_name == 'push'
+        uses: paradedb/actions/slack-alert@v10
+        with:
+          webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
+          mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
+          title: "${{ github.workflow }} Failed"

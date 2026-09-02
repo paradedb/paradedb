@@ -77,7 +77,7 @@ jobs:
       - name: Install pgrx
         run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
-      - name: Initialize pgrx environment
+      - name: Initialize pgrx Environment
         run: cargo pgrx init "--pg${{ env.pg_version }}=/usr/lib/postgresql/${{ env.pg_version }}/bin/pg_config"
 
       - name: Generate pg_search Schema

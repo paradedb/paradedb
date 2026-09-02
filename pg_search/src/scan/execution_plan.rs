@@ -887,10 +887,11 @@ impl DisplayAs for PgSearchScanPlan {
         if !self.dynamic_filters.is_empty() {
             write!(f, ", dynamic_filters={}", self.dynamic_filters.len())?;
         }
-        // Whether the scan checks visibility itself is otherwise readable only from the
-        // `VisibilityFilterExec` that names it, somewhere above.
-        if self.deferred_ctid_plan_position.is_some() {
-            write!(f, ", visibility=deferred")?;
+        // A deferred check is already named by the `VisibilityFilterExec` or
+        // `SegmentedTopKExec` that runs it. A scan that checks itself has no such
+        // witness, so only that case is marked.
+        if self.deferred_ctid_plan_position.is_none() {
+            write!(f, ", visibility=eager")?;
         }
         match &self.scan_mode {
             crate::scan::ScanMode::Standard { .. } => {

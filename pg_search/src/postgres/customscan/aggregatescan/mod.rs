@@ -118,6 +118,7 @@ use crate::postgres::utils::{
     ExprContextGuard, add_vars_to_tlist, is_unnest_func, make_text_const,
 };
 use crate::postgres::var::find_one_aggref;
+use crate::query::SearchQueryInput;
 use arrow_array::cast::AsArray;
 use arrow_array::{BooleanArray, RecordBatch};
 use pgrx::{FromDatum, PgList, PgMemoryContexts, PgTupleDesc, pg_sys};
@@ -1958,6 +1959,7 @@ impl AggregateScan {
                     .datafusion_state
                     .as_mut()
                     .expect("DataFusion state must be initialized");
+                Self::resolve_threshold_visibility(df_state);
                 Self::build_agg_physical_plan(
                     df_state,
                     &runtime,
@@ -2118,6 +2120,42 @@ impl AggregateScan {
 }
 
 impl AggregateScan {
+    /// Settle a `threshold` visibility for the whole query before the providers
+    /// are built, so every source scans under the same decision. Resolved per
+    /// execution, like the Tantivy backend, because the row estimate can move
+    /// between executions of a prepared plan.
+    fn resolve_threshold_visibility(df_state: &mut scan_state::DataFusionAggState) {
+        let mode = df_state
+            .plan
+            .sources()
+            .first()
+            .map(|source| source.scan_info.mvcc_visibility)
+            .unwrap_or_default();
+        if mode != MvccVisibility::Threshold {
+            return;
+        }
+        let sources: Vec<(PgSearchRelation, SearchQueryInput)> = df_state
+            .plan
+            .sources()
+            .iter()
+            .map(|source| {
+                (
+                    PgSearchRelation::open(source.scan_info.indexrelid),
+                    source.scan_info.mode.query().clone(),
+                )
+            })
+            .collect();
+        let check = mode.resolve_filtering_for_sources(sources.iter().map(|(rel, q)| (rel, q)));
+        let resolved = if check {
+            MvccVisibility::Transaction
+        } else {
+            MvccVisibility::Raw
+        };
+        for source in df_state.plan.sources_mut() {
+            source.scan_info.mvcc_visibility = resolved;
+        }
+    }
+
     /// A `pdb.agg()` result nests bucket levels under each SQL group, so the whole
     /// grouped stream has to land before the first output row can be built. Leaves
     /// the SQL-level rows in `current_batch` with their documents alongside.
@@ -2149,6 +2187,7 @@ impl AggregateScan {
             .unwrap_or(schema.fields().len() - pdb_plan.metrics.len());
         // A scalar aggregate answers with one row even over no input, and its
         // counts read 0 there, not NULL, so `HAVING` sees what Postgres would.
+        // Only a scalar query synthesizes, so its aggregate columns start at 0.
         let synthesize_empty_root = df_state.targetlist.group_columns.is_empty().then(|| {
             df_state
                 .targetlist

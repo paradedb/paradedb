@@ -515,6 +515,35 @@ impl MvccVisibility {
         })
     }
 
+    /// [`Self::resolve_filtering`] for a query that scans several indexes. One
+    /// decision covers all of them: a per-source decision could hide a deleted
+    /// row on one side of a join and show it on the other. The largest source's
+    /// estimate stands for the query, since that is where a heap check costs and
+    /// where a dead tuple hides best. A source that cannot be estimated keeps the
+    /// check on for everyone.
+    pub fn resolve_filtering_for_sources<'a>(
+        &self,
+        sources: impl IntoIterator<Item = (&'a PgSearchRelation, &'a SearchQueryInput)>,
+    ) -> bool {
+        match self {
+            MvccVisibility::Transaction => true,
+            MvccVisibility::Raw => false,
+            MvccVisibility::Threshold => {
+                let mut largest = 0;
+                for (indexrel, query) in sources {
+                    if query.has_heap_filters() || query.has_postgres_expressions() {
+                        return true;
+                    }
+                    match estimate_matching_rows(indexrel, query.clone()) {
+                        Some(rows) => largest = largest.max(rows),
+                        None => return true,
+                    }
+                }
+                largest < gucs::visibility_threshold()
+            }
+        }
+    }
+
     /// The single visibility a query runs under, given every `pdb.agg()` setting in
     /// it. Two different settings are an error even when one of them came from an
     /// omitted argument, since an omitted argument is indistinguishable from an

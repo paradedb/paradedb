@@ -120,6 +120,9 @@ The following join shapes are supported:
 | Per-aggregate `FILTER (WHERE ...)` | Yes |
 | `ORDER BY ... LIMIT K` | Pushed down as TopK when there is a single `ORDER BY` column targeting an aggregate, a group column, or `MIN(col)` / `MAX(col)` |
 | `ORDER BY` inside `STRING_AGG` / `ARRAY_AGG` | Yes (produces deterministic element ordering) |
+| `pdb.agg()` | `terms` (with `size`, `min_doc_count`, `missing`, and `order` by `_count`, `_key`, or a metric sub-aggregation), `sum`, `avg`, `min`, `max`, `value_count`, `cardinality`, and nested `aggs` built from these. The `visibility` argument is honored. |
+
+A `pdb.agg()` field name must belong to exactly one indexed table in the join. When the same field name exists in several tables, qualify it with the table alias, as in `"field": "p.category"`.
 
 For aggregates over joins, ParadeDB falls back to native Postgres execution when any of the following are true:
 
@@ -129,6 +132,7 @@ For aggregates over joins, ParadeDB falls back to native Postgres execution when
 - The query uses window functions (`OVER ...`), `ROLLUP`, `CUBE`, `GROUPING SETS`, `LATERAL`, or `DISTINCT ON`. The single-table [faceted query](/documentation/aggregates/facets) form `pdb.agg(...) OVER ()` is pushed down, but not across joins
 - `GROUP BY` uses a scalar function like `date_trunc(...)` or `lower(...)` (JSON sub-field access via `->>` is supported)
 - The aggregate argument or result is wrapped in an expression such as `COALESCE(SUM(...), 0)` or a cast
-- The query uses `pdb.agg()`, which is pushed down for single tables but not across joins (use standard SQL aggregate functions in join queries)
 
 When a fallback happens, the query still runs correctly through Postgres' native planner. ParadeDB simply does not accelerate it.
+
+`pdb.agg()` has no native Postgres implementation, so it cannot fall back. A `pdb.agg()` over a join that uses an aggregation outside the list above, such as `range`, `histogram`, `date_histogram`, `filter`, `composite`, `stats`, `percentiles`, or `top_hits`, raises an error.

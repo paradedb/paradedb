@@ -583,6 +583,7 @@ impl PgSearchScanPlan {
             range_split_points: self.range_split_points.clone(),
             assigned_partition: self.assigned_partition,
             scan_mode: scanner_config.scan_mode,
+            check_visibility: state.0.visibility.checks_visibility(),
         };
         serde_json::to_vec(&descriptor).map_err(|e| {
             DataFusionError::Internal(format!("PgSearchScan dispatch: serialize: {e}"))
@@ -673,7 +674,8 @@ impl PgSearchScanPlan {
             &descriptor.which_fast_fields,
         ));
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
-        let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
+        let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot)
+            .with_check_visibility(descriptor.check_visibility);
 
         let scanner_config = ScannerConfig {
             which_fast_fields: descriptor.which_fast_fields,
@@ -737,6 +739,10 @@ impl PgSearchScanPlan {
     }
 }
 
+fn default_check_visibility() -> bool {
+    true
+}
+
 /// Transport-neutral description of a `PgSearchScanPlan` for leader dispatch. Carries the
 /// recipe plus the inputs needed to re-open the reader on the receiving worker; the live tantivy
 /// state is rebuilt there from the worker's own `ParallelScanState`.
@@ -766,6 +772,10 @@ struct ScanDispatchDescriptor {
     /// assigned variant advertises one local output partition to DataFusion.
     global_partition_count: usize,
     range_split_points: Option<RangeSplitPoints>,
+    /// Whether the scan checks the heap for snapshot visibility. Decided on the
+    /// leader; see `PgSearchTableProvider::scan_inner`.
+    #[serde(default = "default_check_visibility")]
+    check_visibility: bool,
     assigned_partition: Option<usize>,
     scan_mode: crate::scan::ScanMode,
 }

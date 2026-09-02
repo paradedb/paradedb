@@ -779,7 +779,14 @@ impl PgSearchTableProvider {
         let scan_ffhelper = Arc::new(FFHelper::with_fields(&reader, &projected_fields));
         let table_ffhelper = Arc::new(FFHelper::with_fields(&reader, &active_fields));
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
-        let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
+        // Resolved once here, on the leader; a dispatched worker inherits the decision
+        // rather than estimating the row count again.
+        let check_visibility = self
+            .scan_info
+            .mvcc_visibility
+            .resolve_filtering(&index_rel, &query);
+        let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot)
+            .with_check_visibility(check_visibility);
 
         let total_estimated_rows = self.scan_info.estimate.as_planner_estimate();
 

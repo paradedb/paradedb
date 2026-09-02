@@ -600,6 +600,7 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
                     candidate.query.unwrap_or(SearchQueryInput::All),
                 ),
                 has_search_predicate: candidate.has_search_predicate,
+                mvcc_visibility: crate::api::MvccVisibility::default(),
                 alias: candidate.alias,
                 score_needed: candidate.score_needed,
                 fields: candidate.fields,

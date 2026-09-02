@@ -345,37 +345,16 @@ impl AggregateType {
     }
 
     /// Determines the single query-level visibility setting for a group of aggregates.
-    ///
-    /// A query resolves to exactly one visibility decision, so every `pdb.agg()` call in
-    /// it has to agree. Two different settings are an error even when one of them came
-    /// from an omitted argument, since an omitted argument is indistinguishable from an
-    /// explicit `'transaction'` by the time we see it.
+    /// Standard SQL aggregates carry no setting of their own.
     pub fn resolve_visibility<'a>(
         aggregates: impl Iterator<Item = &'a AggregateType>,
     ) -> MvccVisibility {
-        let mut resolved: Option<MvccVisibility> = None;
-        for visibility in aggregates.filter_map(|agg_type| match agg_type {
+        MvccVisibility::resolve_shared(aggregates.filter_map(|agg_type| match agg_type {
             AggregateType::Custom {
                 mvcc_visibility, ..
             } => Some(*mvcc_visibility),
-            // Standard SQL aggregates carry no setting of their own.
             _ => None,
-        }) {
-            match resolved {
-                None => resolved = Some(visibility),
-                Some(previous) if previous == visibility => {}
-                Some(previous) => pgrx::error!(
-                    "pdb.agg() calls have contradicting visibility settings: \
-                     '{}' and '{}'. All pdb.agg() calls in a query must use the same \
-                     visibility value, and omitting the argument selects '{}'.",
-                    previous.as_sql_value(),
-                    visibility.as_sql_value(),
-                    MvccVisibility::default().as_sql_value()
-                ),
-            }
-        }
-
-        resolved.unwrap_or_default()
+        }))
     }
 
     pub fn result_type_oid(&self) -> pg_sys::Oid {

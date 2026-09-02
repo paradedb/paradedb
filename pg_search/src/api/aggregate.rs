@@ -515,6 +515,29 @@ impl MvccVisibility {
         })
     }
 
+    /// The single visibility a query runs under, given every `pdb.agg()` setting in
+    /// it. Two different settings are an error even when one of them came from an
+    /// omitted argument, since an omitted argument is indistinguishable from an
+    /// explicit `'transaction'` by the time it is seen here.
+    pub fn resolve_shared(settings: impl Iterator<Item = MvccVisibility>) -> MvccVisibility {
+        let mut resolved: Option<MvccVisibility> = None;
+        for visibility in settings {
+            match resolved {
+                None => resolved = Some(visibility),
+                Some(previous) if previous == visibility => {}
+                Some(previous) => pgrx::error!(
+                    "pdb.agg() calls have contradicting visibility settings: \
+                     '{}' and '{}'. All pdb.agg() calls in a query must use the same \
+                     visibility value, and omitting the argument selects '{}'.",
+                    previous.as_sql_value(),
+                    visibility.as_sql_value(),
+                    MvccVisibility::default().as_sql_value()
+                ),
+            }
+        }
+        resolved.unwrap_or_default()
+    }
+
     /// The canonical SQL spelling, for error and deprecation messages.
     pub fn as_sql_value(&self) -> &'static str {
         match self {

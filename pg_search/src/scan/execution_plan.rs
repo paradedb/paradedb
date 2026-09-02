@@ -739,10 +739,6 @@ impl PgSearchScanPlan {
     }
 }
 
-fn default_check_visibility() -> bool {
-    true
-}
-
 /// Transport-neutral description of a `PgSearchScanPlan` for leader dispatch. Carries the
 /// recipe plus the inputs needed to re-open the reader on the receiving worker; the live tantivy
 /// state is rebuilt there from the worker's own `ParallelScanState`.
@@ -774,7 +770,6 @@ struct ScanDispatchDescriptor {
     range_split_points: Option<RangeSplitPoints>,
     /// Whether the scan checks the heap for snapshot visibility. Decided on the
     /// leader; see `PgSearchTableProvider::scan_inner`.
-    #[serde(default = "default_check_visibility")]
     check_visibility: bool,
     assigned_partition: Option<usize>,
     scan_mode: crate::scan::ScanMode,

@@ -124,6 +124,8 @@ The following join shapes are supported:
 
 A `pdb.agg()` field name must belong to exactly one indexed table in the join. When the same field name exists in several tables, qualify it with the table alias, as in `"field": "p.category"`.
 
+Two details differ from the single-table Tantivy backend. Metric aggregations over JSON sub-fields, such as `{"sum": {"field": "metadata.qty"}}`, are not supported over joins; `terms` on a JSON sub-field is. Buckets with equal counts sort by key here, while Tantivy leaves them in collection order, so a `size` cutoff can keep different buckets on the two backends.
+
 For aggregates over joins, ParadeDB falls back to native Postgres execution when any of the following are true:
 
 - One or more tables in the join lacks a ParadeDB index

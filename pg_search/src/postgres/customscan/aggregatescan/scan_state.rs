@@ -81,6 +81,8 @@ pub struct DataFusionAggState {
     pub group_df_indices: Vec<usize>,
     /// The `pdb.agg()` grouping-set layout, set when the query has any such call.
     pub pdb_plan: Option<PdbAggPlan>,
+    /// `HAVING` of a scalar `pdb.agg()` query, judged on the assembled root row.
+    pub pdb_root_having: Option<datafusion::logical_expr::Expr>,
     /// Assembled `pdb.agg()` documents for each row of `current_batch`, which then
     /// holds the SQL-level rows only.
     pub pdb_agg_json: Option<Vec<Vec<serde_json::Value>>>,

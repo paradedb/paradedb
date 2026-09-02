@@ -32,7 +32,7 @@ CREATE INDEX pa_products_idx ON pa_products
 USING paradedb (id, description, category, brand, price, rating, created_at, in_stock)
 WITH (
     key_field = 'id',
-    text_fields = '{"description": {}, "category": {"fast": true}, "brand": {"fast": true}}',
+    text_fields = '{"description": {}, "category": {"fast": true}, "brand": {"fast": true}, "cat_kw": {"column": "category", "fast": true, "tokenizer": {"type": "keyword"}}}',
     numeric_fields = '{"price": {"fast": true}, "rating": {"fast": true}}',
     boolean_fields = '{"in_stock": {"fast": true}}'
 );
@@ -148,6 +148,47 @@ GROUP BY p.category
 ORDER BY COUNT(*) DESC, p.category
 LIMIT 2;
 
+-- Test 1.9: a NULL key gets its own bucket, like the Tantivy backend's
+-- `missing` sentinel gives it one
+SELECT pdb.agg('{"terms": {"field": "rating", "order": {"_key": "asc"}}}')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes';
+
+-- Test 1.10: a `missing` literal takes the column's type
+SELECT pdb.agg('{"terms": {"field": "tag_name", "missing": 0}}')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop';
+
+SELECT pdb.agg('{"terms": {"field": "rating", "missing": "none"}}')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop';
+
+-- Test 1.11: cardinality on a float field counts exactly; bool and datetime
+-- take the HLL
+SELECT pdb.agg('{"cardinality": {"field": "price"}}'),
+       pdb.agg('{"cardinality": {"field": "in_stock"}}'),
+       pdb.agg('{"cardinality": {"field": "created_at"}}')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes';
+
+-- Test 1.12: an aliased index field resolves by its index name
+SELECT pdb.agg('{"terms": {"field": "cat_kw", "order": {"_key": "asc"}}}')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes';
+
+-- Test 1.13: terms on the GROUP BY column itself, and two GROUP BY columns
+SELECT p.category, pdb.agg('{"terms": {"field": "category"}}')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+SELECT p.category, p.in_stock, pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category, p.in_stock
+ORDER BY p.category, p.in_stock;
+
 -- =====================================================================
 -- SECTION 2: empty inputs
 -- =====================================================================
@@ -162,6 +203,28 @@ SELECT p.category, pdb.agg('{"terms": {"field": "tag_name"}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'nonexistent'
 GROUP BY p.category;
+
+-- Test 2.3: HAVING judges the scalar row, including the one made for an
+-- empty input
+SELECT pdb.agg('{"terms": {"field": "tag_name"}}'), COUNT(*)
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'nonexistent'
+HAVING COUNT(*) > 0;
+
+SELECT pdb.agg('{"terms": {"field": "tag_name"}}'), COUNT(*)
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'nonexistent'
+HAVING COUNT(*) = 0;
+
+SELECT pdb.agg('{"sum": {"field": "weight"}}'), COUNT(*)
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop'
+HAVING COUNT(*) < 3;
+
+SELECT pdb.agg('{"sum": {"field": "weight"}}'), COUNT(*)
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop'
+HAVING COUNT(*) > 3;
 
 -- =====================================================================
 -- SECTION 3: field resolution and visibility
@@ -279,5 +342,16 @@ ORDER BY p.category;
 SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"u": {"cardinality": {"field": "brand"}}}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard';
+
+-- The leader's visibility decision reaches the workers
+BEGIN;
+DELETE FROM pa_tags WHERE tag_name = 'gaming';
+SELECT pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}'::jsonb, 'transaction')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard';
+SELECT pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}'::jsonb, 'raw')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard';
+ROLLBACK;
 
 DROP TABLE pa_products, pa_tags CASCADE;

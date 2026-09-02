@@ -25,7 +25,9 @@
 //! and the result is aggregate rows, not individual tuples.
 
 use super::join_targetlist::{AggOrderByEntry, GroupingTransform};
-use super::pdb_agg::{PdbAggPlan, PdbAggRequest, PdbKey, PdbKeySpec, PdbMetricKind, PdbMetricSpec};
+use super::pdb_agg::{
+    PdbAggFieldRef, PdbAggPlan, PdbAggRequest, PdbKey, PdbKeySpec, PdbMetricKind, PdbMetricSpec,
+};
 use crate::api::HashMap;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::reader::index::SearchIndexManifest;
@@ -80,6 +82,10 @@ pub struct JoinAggregatePlan {
     pub group_df_indices: Vec<usize>,
     /// Set when the query carries `pdb.agg()` calls.
     pub pdb_plan: Option<PdbAggPlan>,
+    /// `HAVING` of a scalar `pdb.agg()` query, applied to the assembled root row
+    /// rather than inside the plan. Grouping sets emit no root row for an empty
+    /// input, so the executor has to make one and judge it itself.
+    pub pdb_root_having: Option<Expr>,
 }
 
 /// Build the complete DataFusion logical plan for an aggregate-on-join query:
@@ -291,6 +297,10 @@ pub async fn build_join_aggregate_plan(
     // Step 4: Apply aggregate, then HAVING (post-aggregate)
     let pdb_plan = (!pdb_entries.is_empty())
         .then(|| PdbAggPlan::build(&pdb_entries, group_exprs.len(), agg_exprs.len()));
+    let (having_expr, pdb_root_having) = match (&pdb_plan, group_exprs.is_empty()) {
+        (Some(_), true) => (None, having_expr),
+        _ => (having_expr, None),
+    };
     let mut df = match &pdb_plan {
         Some(pdb_plan) => apply_pdb_aggregate(
             df,
@@ -327,6 +337,7 @@ pub async fn build_join_aggregate_plan(
         logical: df.into_optimized_plan()?,
         group_df_indices,
         pdb_plan,
+        pdb_root_having,
     })
 }
 
@@ -407,20 +418,26 @@ fn apply_pdb_aggregate(
     df.select(select)
 }
 
-fn pdb_key_lit(key: &PdbKey) -> Expr {
-    match key {
+/// The `missing` literal in the column's own Arrow type, so `coalesce` neither
+/// widens the key column nor fails on a text column with a numeric literal.
+fn pdb_missing_lit(missing: &PdbKey, field: &PdbAggFieldRef) -> Expr {
+    let literal = match missing {
         PdbKey::Str(s) => lit(s.clone()),
         PdbKey::I64(v) => lit(*v),
         PdbKey::U64(v) => lit(*v),
         PdbKey::F64(v) => lit(*v),
-    }
+    };
+    Expr::Cast(Cast::new(
+        Box::new(literal),
+        field.field_type.arrow_data_type(),
+    ))
 }
 
 fn pdb_key_expr(key: &PdbKeySpec, plan: &RelNode) -> Expr {
     let column = make_plan_position_col(plan, key.field.plan_position, &key.field.field_name);
     match &key.missing {
         None => column,
-        Some(missing) => coalesce(vec![column, pdb_key_lit(missing)]),
+        Some(missing) => coalesce(vec![column, pdb_missing_lit(missing, &key.field)]),
     }
 }
 
@@ -434,7 +451,7 @@ fn pdb_metric_expr(
         (Some(kind), Some(field)) => {
             let mut column = make_plan_position_col(plan, field.plan_position, &field.field_name);
             if let Some(missing) = &metric.missing {
-                column = coalesce(vec![column, pdb_key_lit(missing)]);
+                column = coalesce(vec![column, pdb_missing_lit(missing, field)]);
             }
             // Sums and averages run in f64 like Tantivy's, which also keeps an
             // integer sum from overflowing. Timestamps have no direct f64 cast.
@@ -452,6 +469,19 @@ fn pdb_metric_expr(
                 PdbMetricKind::Min => min(column),
                 PdbMetricKind::Max => max(column),
                 PdbMetricKind::ValueCount => count(column),
+                // The HLL has no float accumulator, so a float field counts exactly.
+                PdbMetricKind::Cardinality
+                    if matches!(field.field_type, SearchFieldType::F64(_)) =>
+                {
+                    Expr::AggregateFunction(AggregateFunction::new_udf(
+                        count_udaf(),
+                        vec![column],
+                        true,
+                        None,
+                        vec![],
+                        None,
+                    ))
+                }
                 PdbMetricKind::Cardinality => approx_distinct(column),
             }
         }

@@ -32,7 +32,7 @@ use arrow_array::types::{
     Float32Type, Float64Type, Int8Type, Int16Type, Int32Type, Int64Type, TimestampMicrosecondType,
     UInt8Type, UInt16Type, UInt32Type, UInt64Type,
 };
-use arrow_array::{Array, ArrayRef, RecordBatch, UInt64Array, new_null_array};
+use arrow_array::{Array, ArrayRef, Int64Array, RecordBatch, UInt64Array, new_null_array};
 use arrow_schema::{DataType, Schema, SchemaRef, TimeUnit};
 use datafusion::common::Result;
 use pgrx::pg_sys;
@@ -288,6 +288,36 @@ fn variant_name(agg: &AggregationVariants) -> &'static str {
     }
 }
 
+/// `missing` stands in for the field's own values, so it has to be one of them.
+/// A number on a text field renders as its text. A string on a numeric field has
+/// no value to take, and Tantivy's request has no boolean literal.
+fn check_missing(
+    field: &PdbAggFieldRef,
+    missing: Option<PdbKey>,
+) -> Result<Option<PdbKey>, String> {
+    let Some(missing) = missing else {
+        return Ok(None);
+    };
+    let name = &field.field_name;
+    match (&field.field_type, missing) {
+        (SearchFieldType::Bool(_), _) => Err(format!(
+            "`missing` is not supported for boolean field '{name}'"
+        )),
+        (
+            SearchFieldType::I64(_)
+            | SearchFieldType::U64(_)
+            | SearchFieldType::F64(_)
+            | SearchFieldType::Date(_),
+            PdbKey::Str(_),
+        ) => Err(format!(
+            "`missing` for numeric field '{name}' must be a number"
+        )),
+        // A timestamp column takes its literal as whole microseconds.
+        (_, PdbKey::F64(v)) if field.is_datetime() => Ok(Some(PdbKey::I64(v as i64))),
+        (_, missing) => Ok(Some(missing)),
+    }
+}
+
 fn lower_node(agg: &Aggregation, resolver: &dyn PdbAggFieldResolver) -> Result<PdbAggNode, String> {
     let metric = |kind: PdbMetricKind,
                   field: &str,
@@ -306,9 +336,11 @@ fn lower_node(agg: &Aggregation, resolver: &dyn PdbAggFieldResolver) -> Result<P
             }
             PdbMetricKind::ValueCount | PdbMetricKind::Cardinality => PdbAggFieldUsage::AnyMetric,
         };
+        let field = resolver.resolve(field, usage)?;
+        let missing = check_missing(&field, missing)?;
         Ok(PdbAggNode::Metric(PdbMetricAgg {
             kind,
-            field: resolver.resolve(field, usage)?,
+            field,
             missing,
             none_if_no_match,
         }))
@@ -323,6 +355,7 @@ fn lower_node(agg: &Aggregation, resolver: &dyn PdbAggFieldResolver) -> Result<P
                 );
             }
             let field = resolver.resolve(&terms.field, PdbAggFieldUsage::TermsKey)?;
+            let missing = check_missing(&field, terms.missing.as_ref().map(PdbKey::from))?;
             let order = terms.order.clone().unwrap_or_default();
             // Tantivy only reports the error bound under the default ordering.
             let show_doc_count_error = terms
@@ -361,7 +394,7 @@ fn lower_node(agg: &Aggregation, resolver: &dyn PdbAggFieldResolver) -> Result<P
                     target,
                     asc: order.order == Order::Asc,
                 },
-                missing: terms.missing.as_ref().map(PdbKey::from),
+                missing,
                 show_doc_count_error,
                 sub_aggs,
             }))
@@ -793,8 +826,13 @@ impl KeyValue {
         }
     }
 
+    /// NULL sorts after every value, where the Tantivy backend's default
+    /// `missing` sentinel lands.
     fn compare(&self, other: &KeyValue) -> std::cmp::Ordering {
         match (self, other) {
+            (KeyValue::Null, KeyValue::Null) => std::cmp::Ordering::Equal,
+            (KeyValue::Null, _) => std::cmp::Ordering::Greater,
+            (_, KeyValue::Null) => std::cmp::Ordering::Less,
             (KeyValue::Str(a), KeyValue::Str(b)) => a.cmp(b),
             (a, b) => a
                 .as_f64()
@@ -808,9 +846,12 @@ impl KeyValue {
         match self {
             KeyValue::Null => (serde_json::Value::Null, None),
             KeyValue::Str(s) => (serde_json::Value::String(s.clone()), None),
-            KeyValue::I64(v) if field.is_datetime() => {
-                (serde_json::Value::String(pg_micros_to_string(*v)), None)
-            }
+            KeyValue::I64(v) if field.is_datetime() => (
+                pg_micros_to_string(*v)
+                    .map(serde_json::Value::String)
+                    .unwrap_or_else(|| serde_json::Value::from(*v)),
+                None,
+            ),
             KeyValue::I64(v) => (serde_json::Value::from(*v), None),
             KeyValue::U64(v) => (serde_json::Value::from(*v), None),
             KeyValue::F64(bits) => (
@@ -827,10 +868,12 @@ impl KeyValue {
     }
 }
 
-fn pg_micros_to_string(micros: i64) -> String {
+/// `None` outside the timestamp range, which a `sum` over a datetime column
+/// reaches quickly.
+fn pg_micros_to_string(micros: i64) -> Option<String> {
     PostgresDateTime::try_from_raw(micros)
-        .expect("a datetime fast field holds a valid timestamp")
-        .to_string()
+        .ok()
+        .map(|timestamp| timestamp.to_string())
 }
 
 fn f64_at(col: &ArrayRef, row: usize) -> Option<f64> {
@@ -897,12 +940,13 @@ impl Assembler<'_> {
                 sub,
                 ..
             } => {
+                // Rows without the field form a `null` bucket. The Tantivy backend
+                // gives them one too, through a `missing` sentinel it adds to every
+                // `terms`, so the two backends group the same way.
                 let children = self.indexes[*node_id].get(prefix);
                 let mut buckets: Vec<Bucket> = children
                     .into_iter()
                     .flatten()
-                    // A row without the field is in no bucket, like Tantivy.
-                    .filter(|(key, _)| *key != KeyValue::Null)
                     .map(|(key, child_row)| {
                         let mut child_prefix = Vec::with_capacity(key_cols.len());
                         child_prefix.extend_from_slice(prefix);
@@ -986,12 +1030,9 @@ fn metric_json(
             kind,
             PdbMetricKind::Sum | PdbMetricKind::Avg | PdbMetricKind::Min | PdbMetricKind::Max
         )
-        && let Some(value) = value
+        && let Some(key_as_string) = value.and_then(|value| pg_micros_to_string(value as i64))
     {
-        obj.insert(
-            "key_as_string".into(),
-            pg_micros_to_string(value as i64).into(),
-        );
+        obj.insert("key_as_string".into(), key_as_string.into());
     }
     serde_json::Value::Object(obj)
 }
@@ -1056,15 +1097,15 @@ fn collect_terms_nodes<'a>(node: &'a PdbAggNodeLayout, out: &mut Vec<&'a PdbAggN
 /// `pdb.agg()` documents.
 ///
 /// `num_root_cols` is the width of the SQL-level projection (group keys and
-/// standard aggregates). `synthesize_empty_root` asks for one all-NULL root row
-/// when the input produced none, which is what a scalar aggregate over no rows
-/// returns.
+/// standard aggregates). `synthesize_empty_root` asks for one root row when the
+/// input produced none, which is what a scalar aggregate over no rows returns:
+/// NULL everywhere except the `zero_on_empty` columns, the counts, which are 0.
 pub fn assemble_pdb_agg_rows(
     schema: SchemaRef,
     batches: &[RecordBatch],
     plan: &PdbAggPlan,
     num_root_cols: usize,
-    synthesize_empty_root: bool,
+    synthesize_empty_root: Option<&[usize]>,
 ) -> Result<AssembledPdbAggRows> {
     let batch = arrow_select::concat::concat_batches(&schema, batches)?;
 
@@ -1129,7 +1170,9 @@ pub fn assemble_pdb_agg_rows(
         .collect();
 
     let root_cols: Vec<usize> = (0..num_root_cols).collect();
-    if root_rows.is_empty() && synthesize_empty_root {
+    if root_rows.is_empty()
+        && let Some(zero_on_empty) = synthesize_empty_root
+    {
         let json = vec![
             plan.entries
                 .iter()
@@ -1146,7 +1189,14 @@ pub fn assemble_pdb_agg_rows(
         let columns = null_schema
             .fields()
             .iter()
-            .map(|f| new_null_array(f.data_type(), 1))
+            .enumerate()
+            .map(|(col, f)| {
+                if zero_on_empty.contains(&col) && *f.data_type() == DataType::Int64 {
+                    Arc::new(Int64Array::from(vec![0i64])) as ArrayRef
+                } else {
+                    new_null_array(f.data_type(), 1)
+                }
+            })
             .collect();
         let root_batch = RecordBatch::try_new(null_schema, columns)?;
         return Ok(AssembledPdbAggRows { root_batch, json });
@@ -1295,6 +1345,32 @@ mod tests {
         assert_eq!(
             value(PdbMetricKind::Avg, false)["value"],
             serde_json::Value::Null
+        );
+    }
+
+    #[test]
+    fn null_keys_sort_last() {
+        let bucket = |key: KeyValue| Bucket {
+            key,
+            doc_count: 1,
+            subs: Vec::new(),
+        };
+        let mut buckets = vec![
+            bucket(KeyValue::Null),
+            bucket(KeyValue::I64(2)),
+            bucket(KeyValue::I64(1)),
+        ];
+        sort_buckets(
+            &mut buckets,
+            &PdbTermsOrder {
+                target: PdbOrderTarget::Key,
+                asc: true,
+            },
+        );
+        let keys: Vec<_> = buckets.iter().map(|b| b.key.clone()).collect();
+        assert_eq!(
+            keys,
+            vec![KeyValue::I64(1), KeyValue::I64(2), KeyValue::Null]
         );
     }
 

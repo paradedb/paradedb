@@ -118,6 +118,8 @@ use crate::postgres::utils::{
     ExprContextGuard, add_vars_to_tlist, is_unnest_func, make_text_const,
 };
 use crate::postgres::var::find_one_aggref;
+use arrow_array::cast::AsArray;
+use arrow_array::{BooleanArray, RecordBatch};
 use pgrx::{FromDatum, PgList, PgMemoryContexts, PgTupleDesc, pg_sys};
 use std::ffi::CStr;
 
@@ -734,6 +736,7 @@ impl CustomScan for AggregateScan {
                     batch_row_idx: 0,
                     group_df_indices: Vec::new(),
                     pdb_plan: None,
+                    pdb_root_having: None,
                     pdb_agg_json: None,
                     mpp: MppLifecycle::Inactive,
                     parallel_mode_ok,
@@ -1224,6 +1227,7 @@ impl AggregateScan {
             .await?;
             df_state.group_df_indices = built.group_df_indices;
             df_state.pdb_plan = built.pdb_plan;
+            df_state.pdb_root_having = built.pdb_root_having;
             build_physical_plan(ctx, built.logical).await
         });
         match built {
@@ -2143,19 +2147,77 @@ impl AggregateScan {
         let num_root_cols = pdb_plan
             .grouping_id_col()
             .unwrap_or(schema.fields().len() - pdb_plan.metrics.len());
-        // A scalar aggregate answers with one row even over no input.
-        let synthesize_empty_root = df_state.targetlist.group_columns.is_empty();
-        let assembled = assemble_pdb_agg_rows(
+        // A scalar aggregate answers with one row even over no input, and its
+        // counts read 0 there, not NULL, so `HAVING` sees what Postgres would.
+        let synthesize_empty_root = df_state.targetlist.group_columns.is_empty().then(|| {
+            df_state
+                .targetlist
+                .aggregates
+                .iter()
+                .filter(|agg| !matches!(agg.agg_kind, AggKind::PdbAgg(_)))
+                .enumerate()
+                .filter(|(_, agg)| matches!(agg.agg_kind, AggKind::CountStar | AggKind::Count))
+                .map(|(col, _)| col)
+                .collect::<Vec<_>>()
+        });
+        let mut assembled = assemble_pdb_agg_rows(
             schema,
             &batches,
             pdb_plan,
             num_root_cols,
-            synthesize_empty_root,
+            synthesize_empty_root.as_deref(),
         )
         .unwrap_or_else(|e| pgrx::error!("Failed to assemble pdb.agg result: {}", e));
+        if let Some(having) = df_state.pdb_root_having.as_ref() {
+            let runtime = df_state
+                .runtime
+                .as_ref()
+                .expect("runtime set with the stream");
+            let keep = Self::evaluate_root_having(runtime, &assembled.root_batch, having);
+            assembled.root_batch =
+                arrow_select::filter::filter_record_batch(&assembled.root_batch, &keep)
+                    .unwrap_or_else(|e| pgrx::error!("Failed to apply HAVING: {}", e));
+            let mut rows = assembled.json.into_iter();
+            assembled.json = keep
+                .iter()
+                .filter_map(|keep| {
+                    let row = rows.next()?;
+                    keep.unwrap_or(false).then_some(row)
+                })
+                .collect();
+        }
         df_state.current_batch = Some(assembled.root_batch);
         df_state.pdb_agg_json = Some(assembled.json);
         df_state.batch_row_idx = 0;
+    }
+
+    /// The `HAVING` verdict per root row of a scalar `pdb.agg()` query. The plan
+    /// cannot judge the row itself: grouping sets emit nothing for an empty input,
+    /// and the row the executor makes in that case still has to pass `HAVING`, the
+    /// way Postgres keeps a `HAVING COUNT(*) = 0` row.
+    fn evaluate_root_having(
+        runtime: &tokio::runtime::Runtime,
+        root_batch: &RecordBatch,
+        having: &datafusion::logical_expr::Expr,
+    ) -> BooleanArray {
+        let verdicts = runtime.block_on(async {
+            create_aggregate_session_context()
+                .read_batch(root_batch.clone())?
+                .select(vec![having.clone().alias("keep")])?
+                .collect()
+                .await
+        });
+        let verdicts = match verdicts {
+            Ok(batches) => batches,
+            Err(e) => pgrx::error!("Failed to evaluate HAVING on the pdb.agg result: {}", e),
+        };
+        // NULL is not true, so a NULL verdict drops the row like a false one.
+        BooleanArray::from_iter(
+            verdicts
+                .iter()
+                .flat_map(|batch| batch.column(0).as_boolean().iter())
+                .map(|verdict| Some(verdict.unwrap_or(false))),
+        )
     }
 }
 

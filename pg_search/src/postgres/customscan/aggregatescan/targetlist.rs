@@ -224,18 +224,14 @@ impl CustomScanClause<AggregateScan> for TargetList {
                     }
 
                     let mut qual_state = QualExtractState::default();
-                    let aggregate = match AggregateType::try_from(
+                    let aggregate = AggregateType::try_from(
                         aggref,
                         index,
                         args.root,
                         heap_rti,
                         &mut qual_state,
-                    ) {
-                        Ok(a) => a,
-                        Err(e) => {
-                            return Err(e.into());
-                        }
-                    };
+                    )
+                    .map_err(|error| error.to_string())?;
                     uses_our_operator = uses_our_operator || qual_state.uses_our_operator;
 
                     // If we identified a pdb.agg() custom aggregate, we MUST handle it

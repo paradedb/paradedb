@@ -67,7 +67,6 @@
 //! LIMIT 10;
 //! ```
 
-use crate::api::FieldName;
 use crate::api::window_aggregate::window_agg_oid;
 use crate::api::{is_agg_funcoid, visibility_from_agg_arg};
 use crate::nodecast;
@@ -382,31 +381,18 @@ unsafe fn convert_window_func_to_aggregate_type(
 
     let first_arg = args.get_ptr(0)?;
 
-    // Extract field name and missing value using the same logic as aggregatescan
-    let (field, missing) = extract_field_name_from_aggregate_arg(parse, first_arg)?;
+    let aggregate_field =
+        ParsedAggregateField::from_query(first_arg, VarContext::from_query(parse)).ok()?;
+    let missing = aggregate_field.missing().ok()?;
 
     let agg_type = create_aggregate_from_oid(
         aggfnoid,
-        field.into_inner(),
+        aggregate_field.field_name().to_string(),
         missing,
         filter,
         pg_sys::InvalidOid, // Will be filled in during planning
     )?;
     Some(agg_type)
-}
-
-/// Extract the field name and missing value from an aggregate function's argument node
-/// Handles Var nodes (column references) and COALESCE expressions (for missing values)
-/// Returns: (field_name, optional_missing_value)
-unsafe fn extract_field_name_from_aggregate_arg(
-    parse: *mut pg_sys::Query,
-    arg_node: *mut pg_sys::Node,
-) -> Option<(FieldName, Option<f64>)> {
-    let var_context = VarContext::from_query(parse);
-    let aggregate_field = ParsedAggregateField::parse(arg_node).ok()?;
-    let field = aggregate_field.field_name(var_context)?;
-
-    Some((field, aggregate_field.missing()))
 }
 
 /// Convert a FILTER clause expression to SearchQueryInput by serializing it for later conversion

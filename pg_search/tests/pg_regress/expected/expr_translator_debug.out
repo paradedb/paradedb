@@ -74,10 +74,10 @@ DEBUG:  PredicateTranslator: unsupported operator [OpExpr] op="pg_catalog.||", t
            :       TantivyLookupExec: decode=[], fetch=[ctid_0]
            :         HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(name@1, CAST(pdb_eval_expr_opexpr_927de030(CAST(e_1.pattern AS Utf8)) AS Utf8View)@1)]
            :           CooperativeExec
-           :             PgSearchScan: table=i, segments=1, visibility=deferred, query={"with_index":{"query":"all"}}
+           :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":"all"}}
            :           ProjectionExec: expr=[pattern@0 as pattern, CAST(pdb_eval_expr_opexpr_927de030(CAST(pattern@0 AS Utf8)) AS Utf8View) as CAST(pdb_eval_expr_opexpr_927de030(CAST(e_1.pattern AS Utf8)) AS Utf8View)]
            :             CooperativeExec
-           :               PgSearchScan: table=e, segments=1, dynamic_filters=1, query={"with_index":{"query":"all"}}
+           :               PgSearchScan: table=e, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":"all"}}
 (15 rows)
 
 -- =====================================================================
@@ -109,10 +109,10 @@ DEBUG:  PredicateTranslator: no native mapping [FuncExpr] func=pg_catalog.md5, a
            :       TantivyLookupExec: decode=[], fetch=[ctid_0]
            :         HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(name@1, CAST(pdb_eval_expr_funcexpr_685b54ea(CAST(e_1.pattern AS Utf8)) AS Utf8View)@1)]
            :           CooperativeExec
-           :             PgSearchScan: table=i, segments=1, visibility=deferred, query={"with_index":{"query":"all"}}
+           :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":"all"}}
            :           ProjectionExec: expr=[pattern@0 as pattern, CAST(pdb_eval_expr_funcexpr_685b54ea(CAST(pattern@0 AS Utf8)) AS Utf8View) as CAST(pdb_eval_expr_funcexpr_685b54ea(CAST(e_1.pattern AS Utf8)) AS Utf8View)]
            :             CooperativeExec
-           :               PgSearchScan: table=e, segments=1, dynamic_filters=1, query={"with_index":{"query":"all"}}
+           :               PgSearchScan: table=e, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":"all"}}
 (15 rows)
 
 -- =====================================================================
@@ -150,9 +150,9 @@ DEBUG:  PredicateTranslator: rejected cross-type coercion [CoerceViaIO] source=i
            :         HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(CAST(pdb_eval_expr_coerceviaio_66583d6c(i_0.value) AS Utf8View)@2, pattern@0)], projection=[ctid_0@0, value@1]
            :           ProjectionExec: expr=[ctid_0@0 as ctid_0, value@1 as value, CAST(pdb_eval_expr_coerceviaio_66583d6c(value@1) AS Utf8View) as CAST(pdb_eval_expr_coerceviaio_66583d6c(i_0.value) AS Utf8View)]
            :             CooperativeExec
-           :               PgSearchScan: table=i, segments=1, visibility=deferred, query={"with_index":{"query":"all"}}
+           :               PgSearchScan: table=i, segments=1, query={"with_index":{"query":"all"}}
            :           CooperativeExec
-           :             PgSearchScan: table=e, segments=1, dynamic_filters=1, query={"with_index":{"query":"all"}}
+           :             PgSearchScan: table=e, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":"all"}}
 (15 rows)
 
 -- Cleanup

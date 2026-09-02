@@ -45,8 +45,8 @@ JOIN typmod_suppliers s ON p.supplier_id = s.id
 WHERE p.description === 'widget'
 ORDER BY s.name
 LIMIT 10;
-                                                                               QUERY PLAN                                                                               
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Custom Scan (ParadeDB Join Scan)
@@ -62,9 +62,9 @@ LIMIT 10;
                  :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
                  :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], projection=[ctid_0@2, name@4, ctid_1@0]
                  :           CooperativeExec
-                 :             PgSearchScan: table=p, segments=1, visibility=deferred, query={"with_index":{"query":{"term":{"field":"description","value":"widget"}}}}
+                 :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"term":{"field":"description","value":"widget"}}}}
                  :           CooperativeExec
-                 :             PgSearchScan: table=s, segments=1, dynamic_filters=1, visibility=deferred, query="all"
+                 :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
 (18 rows)
 
 SELECT DISTINCT s.name

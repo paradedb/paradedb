@@ -50,8 +50,8 @@ JOIN large_suppliers ls ON lo.supplier_id = ls.id
 WHERE lo.description @@@ 'wireless'
 ORDER BY lo.id
 LIMIT 10;
-                                                                                                                    QUERY PLAN                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: lo.id, lo.description, ls.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -67,9 +67,9 @@ LIMIT 10;
            :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
            :           CooperativeExec
-           :             PgSearchScan: table=ls, segments=1, visibility=deferred, query="all"
+           :             PgSearchScan: table=ls, segments=1, query="all"
            :           CooperativeExec
-           :             PgSearchScan: table=lo, segments=1, dynamic_filters=2, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=lo, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (18 rows)
 
 SELECT lo.id, lo.description, ls.name AS supplier_name
@@ -325,8 +325,8 @@ JOIN tiny_refs tr ON tp.ref_id = tr.id
 WHERE tp.description @@@ 'wireless'
 ORDER BY tp.id
 LIMIT 10;
-                                                                                                                    QUERY PLAN                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: tp.id, tp.description, tr.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -342,9 +342,9 @@ LIMIT 10;
            :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ref_id@1, id@1)], projection=[ctid_0@3, ctid_1@0, id@2]
            :           CooperativeExec
-           :             PgSearchScan: table=tp, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=tp, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
            :           CooperativeExec
-           :             PgSearchScan: table=tr, segments=1, dynamic_filters=1, visibility=deferred, query="all"
+           :             PgSearchScan: table=tr, segments=1, dynamic_filters=1, query="all"
 (18 rows)
 
 SELECT tp.id, tp.description, tr.name
@@ -396,8 +396,8 @@ JOIN hint_test_categories hc ON hp.category_id = hc.id
 WHERE hp.description @@@ 'wireless'
 ORDER BY hp.id
 LIMIT 20;
-                                                                                                                    QUERY PLAN                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: hp.id, hp.description, hc.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -413,9 +413,9 @@ LIMIT 20;
            :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
            :           CooperativeExec
-           :             PgSearchScan: table=hc, segments=1, visibility=deferred, query="all"
+           :             PgSearchScan: table=hc, segments=1, query="all"
            :           CooperativeExec
-           :             PgSearchScan: table=hp, segments=1, dynamic_filters=2, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=hp, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (18 rows)
 
 SELECT hp.id, hp.description, hc.name AS category_name

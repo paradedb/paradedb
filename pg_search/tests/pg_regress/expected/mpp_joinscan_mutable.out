@@ -72,8 +72,8 @@ JOIN mpp_mut_categories c ON t.category_id = c.id
 WHERE t.message @@@ 'beer'
 ORDER BY t.id
 LIMIT 25;
-                                                                                                               QUERY PLAN                                                                                                                
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                     QUERY PLAN                                                                                                     
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: t.id, t.message, c.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -89,9 +89,9 @@ LIMIT 25;
            :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
            :           CooperativeExec
-           :             PgSearchScan: table=c, segments=1, visibility=deferred, query="all"
+           :             PgSearchScan: table=c, segments=1, query="all"
            :           CooperativeExec
-           :             PgSearchScan: table=t, segments=3, dynamic_filters=2, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=t, segments=3, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}}}
 (18 rows)
 
 SELECT t.id, t.message, c.name
@@ -139,8 +139,8 @@ JOIN mpp_mut_categories c ON t.category_id = c.id
 WHERE t.message @@@ 'beer'
 ORDER BY t.id
 LIMIT 25;
-                                                                                                                  QUERY PLAN                                                                                                                   
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: t.id, t.message, c.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -163,14 +163,14 @@ LIMIT 25;
            :   │         CoalescePartitionsExec
            :   │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
            :   │         DistributedLeafExec:
-           :   │           t0: PgSearchScan: table=t, segments=3, dynamic_filters=2, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}}}
-           :   │           t1: PgSearchScan: table=t, segments=3, dynamic_filters=2, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}}}
-           :   │           t2: PgSearchScan: table=t, segments=3, dynamic_filters=2, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}}}
+           :   │           t0: PgSearchScan: table=t, segments=3, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}}}
+           :   │           t1: PgSearchScan: table=t, segments=3, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}}}
+           :   │           t2: PgSearchScan: table=t, segments=3, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}}}
            :   └──────────────────────────────────────────────────
            :     ┌───── Stage 1 ── tasks=1, partitions=3
            :     │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
            :     │   DistributedLeafExec:
-           :     │     t0: PgSearchScan: table=c, segments=1, visibility=deferred, query="all"
+           :     │     t0: PgSearchScan: table=c, segments=1, query="all"
            :     └──────────────────────────────────────────────────
 (31 rows)
 
@@ -250,8 +250,8 @@ JOIN mpp_mut_categories c ON t.category_id = c.id
 WHERE t.message @@@ 'beer'
 ORDER BY t.id
 LIMIT 25;
-                                                                                                                    QUERY PLAN                                                                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                          QUERY PLAN                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: t.id, t.message, c.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -272,14 +272,14 @@ LIMIT 25;
            : │               [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=1, input_tasks=3
            : │             RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
            : │               DistributedLeafExec:
-           : │                 t0: PgSearchScan: table=t, segments=1, dynamic_filters=2, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}}}
+           : │                 t0: PgSearchScan: table=t, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}}}
            : └──────────────────────────────────────────────────
            :   ┌───── Stage 1 ── tasks=3, partitions=3
            :   │ BroadcastExec: input_partitions=1, consumer_tasks=1, output_partitions=1
            :   │   DistributedLeafExec:
-           :   │     t0: PgSearchScan: table=c, segments=3, visibility=deferred, query="all"
-           :   │     t1: PgSearchScan: table=c, segments=3, visibility=deferred, query="all"
-           :   │     t2: PgSearchScan: table=c, segments=3, visibility=deferred, query="all"
+           :   │     t0: PgSearchScan: table=c, segments=3, query="all"
+           :   │     t1: PgSearchScan: table=c, segments=3, query="all"
+           :   │     t2: PgSearchScan: table=c, segments=3, query="all"
            :   └──────────────────────────────────────────────────
 (29 rows)
 

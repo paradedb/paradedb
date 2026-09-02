@@ -97,8 +97,8 @@ WHERE i.overview @@@ 'software'
   )
 ORDER BY i.id DESC
 LIMIT 10;
-                                                                                                                   QUERY PLAN                                                                                                                    
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                      QUERY PLAN                                                                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id
    ->  Custom Scan (ParadeDB Join Scan)
@@ -128,22 +128,22 @@ LIMIT 10;
            :     │       [Stage 1] => NetworkCoalesceExec: output_partitions=4, input_tasks=4
            :     │     RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
            :     │       DistributedLeafExec:
-           :     │         t0: PgSearchScan: table=e, segments=2, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"with_index":{"query":{"term_set":{"field":"technology_name","terms":["Marketo"]}}}}]}}
+           :     │         t0: PgSearchScan: table=e, segments=2, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"with_index":{"query":{"term_set":{"field":"technology_name","terms":["Marketo"]}}}}]}}
            :     └──────────────────────────────────────────────────
            :       ┌───── Stage 1 ── tasks=4, partitions=4
            :       │ DistributedLeafExec:
-           :       │   t0: PgSearchScan: table=i, segments=10, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
-           :       │   t1: PgSearchScan: table=i, segments=10, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
-           :       │   t2: PgSearchScan: table=i, segments=10, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
-           :       │   t3: PgSearchScan: table=i, segments=10, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
+           :       │   t0: PgSearchScan: table=i, segments=10, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
+           :       │   t1: PgSearchScan: table=i, segments=10, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
+           :       │   t2: PgSearchScan: table=i, segments=10, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
+           :       │   t3: PgSearchScan: table=i, segments=10, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
            :       └──────────────────────────────────────────────────
            :     ┌───── Stage 3 ── tasks=4, partitions=16
            :     │ RepartitionExec: partitioning=Hash([company_id@0], 16), input_partitions=1
            :     │   DistributedLeafExec:
-           :     │     t0: PgSearchScan: table=p, segments=30, dynamic_filters=1, query="all"
-           :     │     t1: PgSearchScan: table=p, segments=30, dynamic_filters=1, query="all"
-           :     │     t2: PgSearchScan: table=p, segments=30, dynamic_filters=1, query="all"
-           :     │     t3: PgSearchScan: table=p, segments=30, dynamic_filters=1, query="all"
+           :     │     t0: PgSearchScan: table=p, segments=30, dynamic_filters=1, visibility=eager, query="all"
+           :     │     t1: PgSearchScan: table=p, segments=30, dynamic_filters=1, visibility=eager, query="all"
+           :     │     t2: PgSearchScan: table=p, segments=30, dynamic_filters=1, visibility=eager, query="all"
+           :     │     t3: PgSearchScan: table=p, segments=30, dynamic_filters=1, visibility=eager, query="all"
            :     └──────────────────────────────────────────────────
 (46 rows)
 

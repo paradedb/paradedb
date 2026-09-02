@@ -237,6 +237,10 @@ pub struct JoinScanState {
     /// committed (#5667: the plan comes first; workers spawn only after it exists). Stays
     /// `Inactive` on the serial path.
     pub mpp: crate::postgres::customscan::mpp::launch::MppLifecycle,
+
+    /// Captured from PostgreSQL's statement-wide `PlannerGlobal.parallelModeOK`. When false, this
+    /// scan may still use DataFusion, but it must never launch MPP producer workers.
+    pub parallel_mode_ok: bool,
 }
 
 impl JoinScanState {

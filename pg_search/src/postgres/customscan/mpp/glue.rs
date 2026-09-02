@@ -59,6 +59,17 @@ pub fn mpp_is_active() -> bool {
     producer_worker_cap() >= MIN_TOTAL_WORKER_COUNT - 1
 }
 
+/// Whether PostgreSQL judged the entire statement safe to execute while parallel mode is active.
+///
+/// This must be captured from [`pg_sys::PlannerGlobal::parallelModeOK`], rather than inferred
+/// from the local query level: a SELECT subplan below `ModifyTable` still has `CMD_SELECT`, while
+/// its enclosing INSERT makes the complete statement unsafe for parallel mode. Entering parallel
+/// mode for such a subplan prevents PostgreSQL from assigning the transaction ID needed by the
+/// heap write.
+pub fn query_allows_parallel_mode(root: &pg_sys::PlannerInfo) -> bool {
+    !root.glob.is_null() && unsafe { (*root.glob).parallelModeOK }
+}
+
 // The shared-memory transport pins 8-byte alignment (its ring headers hold `u64` atomics). The
 // builder's `shm_toc_allocate` hands out MAXALIGN-aligned blobs for the mesh region, so the two
 // must agree or the rings would be misaligned, which is UB-class.

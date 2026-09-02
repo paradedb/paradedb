@@ -20,6 +20,7 @@ use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
 use crate::postgres::PgSearchRelation;
+use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::opexpr::UnwrapFromExpr;
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
@@ -116,7 +117,6 @@ impl SolvePostgresExpressions for AggregateType {
 impl AggregateType {
     pub unsafe fn try_from(
         aggref: *mut pg_sys::Aggref,
-        heaprelid: pg_sys::Oid,
         bm25_index: &PgSearchRelation,
         root: *mut pg_sys::PlannerInfo,
         heap_rti: pg_sys::Index,
@@ -208,7 +208,7 @@ impl AggregateType {
         }
 
         let first_arg = args.get_ptr(0).ok_or("aggregate missing argument")?;
-        let (field, missing) = parse_aggregate_field(first_arg, heaprelid, root)?;
+        let (field, missing) = parse_aggregate_field(first_arg, root, bm25_index, heap_rti)?;
 
         // Check if aggregate pushdown is supported for this field type on the
         // Tantivy backend. NUMERIC fields are not supported here; standard SQL
@@ -674,31 +674,52 @@ impl F64Lossless for i64 {
 /// Parse field name and missing value from aggregate argument
 unsafe fn parse_aggregate_field(
     first_arg: *mut pg_sys::TargetEntry,
-    heaprelid: pg_sys::Oid,
     root: *mut pg_sys::PlannerInfo,
+    bm25_index: &PgSearchRelation,
+    heap_rti: pg_sys::Index,
 ) -> Result<(String, Option<f64>), String> {
     let context = VarContext::from_planner(root);
     if let Some(coalesce_node) = nodecast!(CoalesceExpr, T_CoalesceExpr, (*first_arg).expr) {
-        let (field, missing) = parse_coalesce_expression(coalesce_node, context)?;
+        let (field, missing) =
+            parse_coalesce_expression(coalesce_node, context, Some((bm25_index, heap_rti)))?;
         Ok((field.into_inner(), missing))
-    } else if let Some(var) = nodecast!(Var, T_Var, (*first_arg).expr) {
-        let field = fieldname_from_var(heaprelid, var, (*var).varattno)
-            .ok_or("could not map variable to field name (may not be in the index)")?
-            .into_inner();
-        Ok((field, None))
-    } else if let Some((_var, field_name)) =
-        find_one_var_and_fieldname(context, (*first_arg).expr.cast())
-    {
-        Ok((field_name.into_inner(), None))
+    } else if let Some(field) = resolve_aggregate_field(
+        (*first_arg).expr.cast(),
+        context,
+        Some((bm25_index, heap_rti)),
+    ) {
+        Ok((field.into_inner(), None))
     } else {
         Err("argument to aggregate function is neither a direct column reference nor a COALESCE expression".into())
     }
+}
+
+unsafe fn resolve_aggregate_field(
+    expr: *mut pg_sys::Node,
+    context: VarContext,
+    index_info: Option<(&PgSearchRelation, pg_sys::Index)>,
+) -> Option<FieldName> {
+    if let Some((index, heap_rti)) = index_info
+        && let Ok(schema) = index.schema()
+        && let Some(fast_field) =
+            find_matching_fast_field(expr, &index.index_expressions(), schema, heap_rti)
+    {
+        return Some(FieldName::from(fast_field.name()));
+    }
+
+    if let Some(var) = <*mut pg_sys::Var>::unwrap_from_expr(expr as *mut pg_sys::Expr) {
+        let (heaprelid, varattno) = context.var_relation(var);
+        return fieldname_from_var(heaprelid, var, varattno);
+    }
+
+    find_one_var_and_fieldname(context, expr).map(|(_, field_name)| field_name)
 }
 
 /// Parse COALESCE expression to extract field name and missing value
 pub unsafe fn parse_coalesce_expression(
     coalesce_node: *mut pg_sys::CoalesceExpr,
     context: VarContext,
+    index_info: Option<(&PgSearchRelation, pg_sys::Index)>,
 ) -> Result<(FieldName, Option<f64>), String> {
     let args = PgList::<pg_sys::Node>::from_pg((*coalesce_node).args);
     if args.is_empty() {
@@ -710,19 +731,8 @@ pub unsafe fn parse_coalesce_expression(
     let first_arg = args
         .get_ptr(0)
         .ok_or("COALESCE expression missing first argument")?;
-    let field = if let Some(var) =
-        <*mut pg_sys::Var>::unwrap_from_expr(first_arg as *mut pg_sys::Expr)
-    {
-        let (heaprelid, varattno) = context.var_relation(var);
-        fieldname_from_var(heaprelid, var, varattno)
-            .ok_or("could not map COALESCE variable to field name (may not be in the index)")?
-    } else if let Some((_var, field_name)) = find_one_var_and_fieldname(context, first_arg) {
-        field_name
-    } else {
-        return Err(
-            "first argument of COALESCE must resolve to a variable or JSON field reference".into(),
-        );
-    };
+    let field = resolve_aggregate_field(first_arg, context, index_info)
+        .ok_or("first argument of COALESCE must resolve to a variable or JSON field reference")?;
 
     let missing = parse_coalesce_missing_value(&args)?;
 

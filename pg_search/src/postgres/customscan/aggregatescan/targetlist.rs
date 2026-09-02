@@ -170,17 +170,6 @@ impl CustomScanClause<AggregateScan> for TargetList {
             return Err("Target list is empty".into());
         }
 
-        let heap_rte = unsafe {
-            let rt = PgList::<pg_sys::RangeTblEntry>::from_pg((*args.root().parse).rtable);
-            match rt.get_ptr((heap_rti - 1) as usize) {
-                Some(ptr) => ptr,
-                None => {
-                    return Err("Could not get heap RTE".into());
-                }
-            }
-        };
-        let heap_oid = unsafe { (*heap_rte).relid };
-
         let groupby_clause = GroupByClause::from_pg(args, heap_rti, index)?;
         let grouping_columns = groupby_clause.grouping_columns();
         let mut entries = Vec::new();
@@ -237,7 +226,6 @@ impl CustomScanClause<AggregateScan> for TargetList {
                     let mut qual_state = QualExtractState::default();
                     let aggregate = match AggregateType::try_from(
                         aggref,
-                        heap_oid,
                         index,
                         args.root,
                         heap_rti,

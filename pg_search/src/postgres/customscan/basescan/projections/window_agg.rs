@@ -404,7 +404,7 @@ unsafe fn extract_field_name_from_aggregate_arg(
 ) -> Option<(FieldName, Option<f64>)> {
     let var_context = VarContext::from_query(parse);
     if let Some(coalesce_node) = nodecast!(CoalesceExpr, T_CoalesceExpr, arg_node) {
-        return parse_coalesce_expression(coalesce_node, var_context).ok();
+        return parse_coalesce_expression(coalesce_node, var_context, None).ok();
     }
 
     let var = nodecast!(Var, T_Var, arg_node)?;

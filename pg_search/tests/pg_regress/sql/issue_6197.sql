@@ -60,6 +60,39 @@ FROM (
     WHERE id @@@ paradedb.parse('custom.score:>990')
 ) q;
 
+SET paradedb.enable_aggregate_custom_scan = on;
+
+DROP INDEX issue_6197_json_fast_field_repro_idx;
+
+CREATE INDEX issue_6197_json_path_repro_idx
+ON issue_6197_json_fast_field_repro USING paradedb (
+    id,
+    body,
+    (((custom->>'score')::bigint)::pdb.alias('score'))
+) WITH (key_field = 'id');
+
+VACUUM (ANALYZE) issue_6197_json_fast_field_repro;
+
+SELECT name, field_type, fast
+FROM paradedb.schema('issue_6197_json_path_repro_idx')
+WHERE name IN ('custom', 'custom.score', 'score')
+ORDER BY name;
+
+EXPLAIN (VERBOSE, COSTS OFF)
+SELECT count(*), min(s), max(s)
+FROM (
+    SELECT (custom->>'score')::bigint AS s
+    FROM issue_6197_json_fast_field_repro
+    WHERE id @@@ paradedb.parse('score:>990')
+) q;
+
+SELECT count(*), min(s), max(s)
+FROM (
+    SELECT (custom->>'score')::bigint AS s
+    FROM issue_6197_json_fast_field_repro
+    WHERE id @@@ paradedb.parse('score:>990')
+) q;
+
 DROP TABLE issue_6197_json_fast_field_repro;
 
 RESET max_parallel_workers_per_gather;

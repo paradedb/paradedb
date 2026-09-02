@@ -82,6 +82,52 @@ FROM (
      3 | 991 | 999
 (1 row)
 
+SET paradedb.enable_aggregate_custom_scan = on;
+DROP INDEX issue_6197_json_fast_field_repro_idx;
+CREATE INDEX issue_6197_json_path_repro_idx
+ON issue_6197_json_fast_field_repro USING paradedb (
+    id,
+    body,
+    (((custom->>'score')::bigint)::pdb.alias('score'))
+) WITH (key_field = 'id');
+VACUUM (ANALYZE) issue_6197_json_fast_field_repro;
+SELECT name, field_type, fast
+FROM paradedb.schema('issue_6197_json_path_repro_idx')
+WHERE name IN ('custom', 'custom.score', 'score')
+ORDER BY name;
+ name  | field_type | fast 
+-------+------------+------
+ score | I64        | t
+(1 row)
+
+EXPLAIN (VERBOSE, COSTS OFF)
+SELECT count(*), min(s), max(s)
+FROM (
+    SELECT (custom->>'score')::bigint AS s
+    FROM issue_6197_json_fast_field_repro
+    WHERE id @@@ paradedb.parse('score:>990')
+) q;
+                                                                                QUERY PLAN                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.issue_6197_json_fast_field_repro
+   Output: pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
+   Index: issue_6197_json_path_repro_idx
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"score:>990","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*), MIN(score), MAX(score)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}},"1":{"min":{"field":"score","missing":null}},"2":{"max":{"field":"score","missing":null}}}
+(6 rows)
+
+SELECT count(*), min(s), max(s)
+FROM (
+    SELECT (custom->>'score')::bigint AS s
+    FROM issue_6197_json_fast_field_repro
+    WHERE id @@@ paradedb.parse('score:>990')
+) q;
+ count | min | max 
+-------+-----+-----
+     3 | 991 | 999
+(1 row)
+
 DROP TABLE issue_6197_json_fast_field_repro;
 RESET max_parallel_workers_per_gather;
 RESET paradedb.enable_columnar_exec;

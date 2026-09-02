@@ -79,9 +79,9 @@ LIMIT 10;
            :     VisibilityFilterExec: tables=[s, p]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_1_tag_0@1 OR __s_0_tag_0@0, projection=[ctid_0@0, ctid_1@3, id@5]
            :         CooperativeExec
-           :           PgSearchScan: table=s, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"display","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=s, segments=1, visibility=deferred, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"display","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: table=p, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=p, segments=1, dynamic_filters=2, visibility=deferred, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -125,9 +125,9 @@ LIMIT 10;
            :     VisibilityFilterExec: tables=[s, p]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_1_tag_0@1 OR __s_0_tag_0@0, projection=[ctid_0@0, ctid_1@3, id@5]
            :         CooperativeExec
-           :           PgSearchScan: table=s, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"acoustic","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=s, segments=1, visibility=deferred, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"acoustic","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: table=p, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard OR microphone","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=p, segments=1, dynamic_filters=2, visibility=deferred, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard OR microphone","lenient":null,"conjunction_mode":null}}}}
 (18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -155,8 +155,8 @@ WHERE p.price < 100.00
   AND (p.description @@@ 'mouse' OR s.description @@@ 'energy')
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                  QUERY PLAN                                                                                                                                                  
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                            QUERY PLAN                                                                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, p.price, s.name, s.rating
    ->  Custom Scan (ParadeDB Join Scan)
@@ -172,9 +172,9 @@ LIMIT 10;
            :     VisibilityFilterExec: tables=[s, p]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=__p_1_tag_0@1 OR __s_0_tag_0@0, projection=[ctid_0@4, ctid_1@0, id@2]
            :         CooperativeExec
-           :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":"100"}}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=deferred, query={"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":"100"}}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: table=s, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"energy","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=s, segments=1, dynamic_filters=1, visibility=deferred, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"energy","lenient":null,"conjunction_mode":null}}}}
 (18 rows)
 
 SELECT p.id, p.name, p.price, s.name AS supplier_name, s.rating
@@ -219,9 +219,9 @@ LIMIT 4;
            :     VisibilityFilterExec: tables=[s, p]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_1_tag_0@1 OR __s_0_tag_0@0, projection=[ctid_0@0, ctid_1@3, price@5]
            :         CooperativeExec
-           :           PgSearchScan: table=s, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"hardware","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=s, segments=1, visibility=deferred, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"hardware","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: table=p, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless OR bluetooth OR microphone","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=p, segments=1, dynamic_filters=2, visibility=deferred, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless OR bluetooth OR microphone","lenient":null,"conjunction_mode":null}}}}
 (18 rows)
 
 SELECT p.id, p.name, p.price, s.name AS supplier_name
@@ -325,12 +325,12 @@ LIMIT 10;
            :     VisibilityFilterExec: tables=[w, r, o]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, org_id@4)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[ctid_0@3, id@4, ctid_1@6, ctid_2@0]
            :         CooperativeExec
-           :           PgSearchScan: table=o, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"location","query_string":"Munich","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=o, segments=1, visibility=deferred, tag_0={"with_index":{"query":{"parse_with_field":{"field":"location","query_string":"Munich","lenient":null,"conjunction_mode":null}}}}
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, researcher_id@1)], projection=[ctid_0@4, id@6, __w_0_tag_0@7, ctid_1@0, org_id@2, __r_1_tag_0@3]
            :           CooperativeExec
-           :             PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"compiler","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=deferred, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"compiler","lenient":null,"conjunction_mode":null}}}}
            :           CooperativeExec
-           :             PgSearchScan: table=w, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract","query_string":"compaction","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=w, segments=1, dynamic_filters=2, visibility=deferred, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract","query_string":"compaction","lenient":null,"conjunction_mode":null}}}}
 (21 rows)
 
 SELECT w.id, w.title, r.name AS researcher_name, o.name AS org_name
@@ -379,11 +379,11 @@ LIMIT 10;
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(org_id@4, id@1)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[ctid_0@0, id@1, ctid_1@3, ctid_2@6]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@1, id@1)], projection=[ctid_0@0, id@2, __w_0_tag_0@3, ctid_1@4, org_id@6, __r_1_tag_0@7]
            :           CooperativeExec
-           :             PgSearchScan: table=w, segments=1, dynamic_filters=1, query={"range":{"field":"year","lower_bound":{"included":2024},"upper_bound":null}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"quantum","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=w, segments=1, dynamic_filters=1, visibility=deferred, query={"range":{"field":"year","lower_bound":{"included":2024},"upper_bound":null}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"quantum","lenient":null,"conjunction_mode":null}}}}
            :           CooperativeExec
-           :             PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Carol","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=deferred, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Carol","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: table=o, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Stanford","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=o, segments=1, dynamic_filters=1, visibility=deferred, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Stanford","lenient":null,"conjunction_mode":null}}}}
 (21 rows)
 
 SELECT w.id, w.title, w.year, r.name AS researcher_name, o.name AS org_name
@@ -432,12 +432,12 @@ LIMIT 10;
            :     VisibilityFilterExec: tables=[w, r, o]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, org_id@4)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[ctid_0@3, id@4, ctid_1@6, ctid_2@0]
            :         CooperativeExec
-           :           PgSearchScan: table=o, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"field","query_string":"Cloud","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=o, segments=1, visibility=deferred, tag_0={"with_index":{"query":{"parse_with_field":{"field":"field","query_string":"Cloud","lenient":null,"conjunction_mode":null}}}}
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, researcher_id@1)], projection=[ctid_0@4, id@6, __w_0_tag_0@7, ctid_1@0, org_id@2, __r_1_tag_0@3]
            :           CooperativeExec
-           :             PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"distributed","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=deferred, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"distributed","lenient":null,"conjunction_mode":null}}}}
            :           CooperativeExec
-           :             PgSearchScan: table=w, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract","query_string":"consensus","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=w, segments=1, dynamic_filters=2, visibility=deferred, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract","query_string":"consensus","lenient":null,"conjunction_mode":null}}}}
 (21 rows)
 
 SELECT w.id, w.title, r.name AS researcher_name, o.name AS org_name
@@ -503,8 +503,8 @@ WHERE (w.title @@@ 'nonexistent_quantum_xyz' OR r.name @@@ 'Carol')
   AND w.year >= 2024
 ORDER BY w.id
 LIMIT 10;
-                                                                                                                                                       QUERY PLAN                                                                                                                                                       
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                 QUERY PLAN                                                                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: w.id, w.title, w.year, r.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -520,9 +520,9 @@ LIMIT 10;
            :     VisibilityFilterExec: tables=[r, w]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@1, id@1)], filter=__w_1_tag_0@1 OR __r_0_tag_0@0, projection=[ctid_0@4, ctid_1@0, id@2]
            :         CooperativeExec
-           :           PgSearchScan: table=w, segments=1, dynamic_filters=1, query={"range":{"field":"year","lower_bound":{"included":2024},"upper_bound":null}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"nonexistent_quantum_xyz","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=w, segments=1, dynamic_filters=1, visibility=deferred, query={"range":{"field":"year","lower_bound":{"included":2024},"upper_bound":null}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"nonexistent_quantum_xyz","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Carol","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=deferred, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Carol","lenient":null,"conjunction_mode":null}}}}
 (18 rows)
 
 SELECT w.id, w.title, w.year, r.name AS researcher_name
@@ -566,12 +566,12 @@ LIMIT 10;
            :     VisibilityFilterExec: tables=[w, r, o]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, org_id@4)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[ctid_0@3, id@4, ctid_1@6, ctid_2@0]
            :         CooperativeExec
-           :           PgSearchScan: table=o, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"NonExistentOrg","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=o, segments=1, visibility=deferred, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"NonExistentOrg","lenient":null,"conjunction_mode":null}}}}
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, researcher_id@1)], projection=[ctid_0@4, id@6, __w_0_tag_0@7, ctid_1@0, org_id@2, __r_1_tag_0@3]
            :           CooperativeExec
-           :             PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Alice","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=deferred, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Alice","lenient":null,"conjunction_mode":null}}}}
            :           CooperativeExec
-           :             PgSearchScan: table=w, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"NonExistentTitle","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=w, segments=1, dynamic_filters=2, visibility=deferred, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"NonExistentTitle","lenient":null,"conjunction_mode":null}}}}
 (21 rows)
 
 SELECT w.id, w.title, r.name AS researcher_name, o.name AS org_name
@@ -616,9 +616,9 @@ LIMIT 10;
            :     VisibilityFilterExec: tables=[r, w]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@1, id@1)], filter=__w_1_tag_0@1 OR __r_0_tag_0@0, projection=[ctid_0@4, ctid_1@0, id@2]
            :         CooperativeExec
-           :           PgSearchScan: table=w, segments=1, dynamic_filters=1, query={"term":{"field":"year","value":2024}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"quantum","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=w, segments=1, dynamic_filters=1, visibility=deferred, query={"term":{"field":"year","value":2024}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"quantum","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"compiler","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=deferred, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"compiler","lenient":null,"conjunction_mode":null}}}}
 (18 rows)
 
 SELECT w.id, w.title, w.year, r.name AS researcher_name

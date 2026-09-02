@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788372308200,
+  "lastUpdate": 1788372316956,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -321858,6 +321858,96 @@ window.BENCHMARK_DATA = {
             "value": 44.875,
             "unit": "median mem",
             "extra": "avg mem: 44.59186527159764, max mem: 51.0703125, count: 58768"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d052f7d8476ff147ab65f17ac4304bf746870119",
+          "message": "feat: match ScalarArrayOpExpr clauses against the index (#6171)\n\n# Ticket(s) Closed\n\n- Closes #6091\n\n## What\n\n`IndexClause::from_clause` dispatched only `OpExpr` and `FuncExpr`, so\n`col = ANY(ARRAY[...])` stayed a heap filter even when a btree could\nanswer it. Adds a `from_saop` arm.\n\n## Why\n\nFollow-up to #6088. The array membership is exactly what the index\nanswers, so the bitmap rejects non-matching rows before the heap fetch\nand the filter drops to a recheck.\n\n## How\n\n`from_saop` mirrors core's `match_saopclause_to_indexcol`: `ANY` only,\nindex key as the left operand, a pseudoconstant array on the right, then\nthe collation and opfamily gates. `ALL` is refused because one index\nscan cannot answer a conjunction over every element, and there is no\ncommuted form to try since the array can only be the right operand.\n\nThose gates and the `IndexClause` construction were previously written\nout once per branch in `from_opexpr`. A preparatory commit extracts them\ninto `direct_match_ok` and `direct`, which both existing branches and\nthe new arm now share.\n\n## Tests\n\nThe `TODO ScalarArrayOpExpr` shape moves into the supported section: it\nharvests `providers_specialty` and its filter becomes a recheck, with\n`saop_count` unchanged at 400. `ALL` is added as a refusal alongside it.\n\n`cargo pgrx regress pg18` 333/333.",
+          "timestamp": "2026-09-02T10:27:19-07:00",
+          "tree_id": "eca0fd8b6f3370b1c6f5c522c3ae4b6f96f38110",
+          "url": "https://github.com/paradedb/paradedb/commit/d052f7d8476ff147ab65f17ac4304bf746870119"
+        },
+        "date": 1788372312909,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 63.0703125,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 72.74533735855879, max partition_index_size:MB: 123.5, count: 58770"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.334953,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.49399573000553, max cpu: 33.366436, count: 58770"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 45.55859375,
+            "unit": "median mem",
+            "extra": "avg mem: 46.46927322613578, max mem: 53.77734375, count: 58770"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.471882,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.08504341387104, max cpu: 47.642677, count: 58770"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 57.82421875,
+            "unit": "median mem",
+            "extra": "avg mem: 63.43430082312404, max mem: 99.3828125, count: 58770"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.500247,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.887005661729933, max cpu: 32.941177, count: 58770"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 53.9296875,
+            "unit": "median mem",
+            "extra": "avg mem: 51.76093836406755, max mem: 67.76953125, count: 58770"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.460411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.03095631142621, max cpu: 42.87841, count: 58770"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 52.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 53.019618520822696, max mem: 62.890625, count: 58770"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.404654774618255, max cpu: 33.250866, count: 58770"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 44.7734375,
+            "unit": "median mem",
+            "extra": "avg mem: 44.984205443359706, max mem: 52.11328125, count: 58770"
           }
         ]
       }

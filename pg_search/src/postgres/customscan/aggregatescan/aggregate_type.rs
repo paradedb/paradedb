@@ -679,63 +679,38 @@ unsafe fn parse_aggregate_field(
     heap_rti: pg_sys::Index,
 ) -> Result<(String, Option<f64>), String> {
     let context = VarContext::from_planner(root);
-    if let Some(coalesce_node) = nodecast!(CoalesceExpr, T_CoalesceExpr, (*first_arg).expr) {
-        let (field, missing) =
-            parse_coalesce_expression(coalesce_node, context, bm25_index, heap_rti)?;
-        Ok((field.into_inner(), missing))
-    } else if let Some(field) =
-        resolve_aggregate_field((*first_arg).expr.cast(), context, bm25_index, heap_rti)
-    {
-        Ok((field.into_inner(), None))
-    } else {
-        Err("argument to aggregate function is neither a direct column reference nor a COALESCE expression".into())
-    }
-}
+    let (field_expr, missing, is_coalesce) =
+        if let Some(coalesce) = nodecast!(CoalesceExpr, T_CoalesceExpr, (*first_arg).expr) {
+            let args = PgList::<pg_sys::Node>::from_pg((*coalesce).args);
+            let field_expr = args
+                .get_ptr(0)
+                .ok_or("COALESCE expression missing first argument")?;
+            (field_expr, parse_coalesce_missing_value(&args)?, true)
+        } else {
+            ((*first_arg).expr.cast(), None, false)
+        };
 
-unsafe fn resolve_aggregate_field(
-    expr: *mut pg_sys::Node,
-    context: VarContext,
-    bm25_index: &PgSearchRelation,
-    heap_rti: pg_sys::Index,
-) -> Option<FieldName> {
-    if let Ok(schema) = bm25_index.schema()
-        && let Some(fast_field) =
-            find_matching_fast_field(expr, &bm25_index.index_expressions(), schema, heap_rti)
+    let field = if let Ok(schema) = bm25_index.schema()
+        && let Some(fast_field) = find_matching_fast_field(
+            field_expr,
+            &bm25_index.index_expressions(),
+            schema,
+            heap_rti,
+        ) {
+        FieldName::from(fast_field.name())
+    } else if let Some((_, field_name)) = find_one_var_and_fieldname(context, field_expr) {
+        field_name
+    } else if is_coalesce
+        && let Some(var) = <*mut pg_sys::Var>::unwrap_from_expr(field_expr as *mut pg_sys::Expr)
     {
-        return Some(FieldName::from(fast_field.name()));
-    }
-
-    if let Some(var) = <*mut pg_sys::Var>::unwrap_from_expr(expr as *mut pg_sys::Expr) {
         let (heaprelid, varattno) = context.var_relation(var);
-        return fieldname_from_var(heaprelid, var, varattno);
-    }
+        fieldname_from_var(heaprelid, var, varattno)
+            .ok_or("could not map aggregate argument to a field name")?
+    } else {
+        return Err("argument to aggregate function is neither a direct column reference nor a COALESCE expression".into());
+    };
 
-    find_one_var_and_fieldname(context, expr).map(|(_, field_name)| field_name)
-}
-
-/// Parse COALESCE expression to extract field name and missing value
-unsafe fn parse_coalesce_expression(
-    coalesce_node: *mut pg_sys::CoalesceExpr,
-    context: VarContext,
-    bm25_index: &PgSearchRelation,
-    heap_rti: pg_sys::Index,
-) -> Result<(FieldName, Option<f64>), String> {
-    let args = PgList::<pg_sys::Node>::from_pg((*coalesce_node).args);
-    if args.is_empty() {
-        return Err("COALESCE expression has no arguments".into());
-    }
-
-    // First argument might be wrapped in type coercion (RelabelType, CoerceViaIO)
-    // when PostgreSQL needs to cast FLOAT4 → FLOAT8 for COALESCE consistency
-    let first_arg = args
-        .get_ptr(0)
-        .ok_or("COALESCE expression missing first argument")?;
-    let field = resolve_aggregate_field(first_arg, context, bm25_index, heap_rti)
-        .ok_or("first argument of COALESCE must resolve to a variable or JSON field reference")?;
-
-    let missing = parse_coalesce_missing_value(&args)?;
-
-    Ok((field, missing))
+    Ok((field.into_inner(), missing))
 }
 
 pub(crate) unsafe fn parse_coalesce_missing_value(

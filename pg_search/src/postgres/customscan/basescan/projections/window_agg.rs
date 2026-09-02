@@ -404,35 +404,32 @@ unsafe fn extract_field_name_from_aggregate_arg(
     arg_node: *mut pg_sys::Node,
 ) -> Option<(FieldName, Option<f64>)> {
     let var_context = VarContext::from_query(parse);
-    if let Some(coalesce_node) = nodecast!(CoalesceExpr, T_CoalesceExpr, arg_node) {
-        return extract_field_name_from_coalesce_arg(coalesce_node, var_context);
-    }
-
-    let var = nodecast!(Var, T_Var, arg_node)?;
-    let (heaprelid, varattno) = var_context.var_relation(var);
-    if heaprelid == pg_sys::InvalidOid {
-        return None;
-    }
-
-    Some((fieldname_from_var(heaprelid, var, varattno)?, None))
-}
-
-unsafe fn extract_field_name_from_coalesce_arg(
-    coalesce_node: *mut pg_sys::CoalesceExpr,
-    context: VarContext,
-) -> Option<(FieldName, Option<f64>)> {
-    let args = PgList::<pg_sys::Node>::from_pg((*coalesce_node).args);
-    let first_arg = args.get_ptr(0)?;
-    let field =
-        if let Some(var) = <*mut pg_sys::Var>::unwrap_from_expr(first_arg as *mut pg_sys::Expr) {
-            let (heaprelid, varattno) = context.var_relation(var);
-            fieldname_from_var(heaprelid, var, varattno)?
-        } else if let Some((_var, field_name)) = find_one_var_and_fieldname(context, first_arg) {
-            field_name
+    let (field_expr, missing, is_coalesce) =
+        if let Some(coalesce) = nodecast!(CoalesceExpr, T_CoalesceExpr, arg_node) {
+            let args = PgList::<pg_sys::Node>::from_pg((*coalesce).args);
+            (
+                args.get_ptr(0)?,
+                parse_coalesce_missing_value(&args).ok()?,
+                true,
+            )
         } else {
-            return None;
+            (arg_node, None, false)
         };
-    let missing = parse_coalesce_missing_value(&args).ok()?;
+
+    let field = if is_coalesce
+        && let Some(var) = <*mut pg_sys::Var>::unwrap_from_expr(field_expr as *mut pg_sys::Expr)
+    {
+        let (heaprelid, varattno) = var_context.var_relation(var);
+        if heaprelid == pg_sys::InvalidOid {
+            return None;
+        }
+        fieldname_from_var(heaprelid, var, varattno)?
+    } else if let Some((_var, field_name)) = find_one_var_and_fieldname(var_context, field_expr) {
+        field_name
+    } else {
+        return None;
+    };
+
     Some((field, missing))
 }
 

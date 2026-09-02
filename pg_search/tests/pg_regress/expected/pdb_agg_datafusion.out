@@ -70,6 +70,9 @@ INSERT INTO pa_tags (product_id, tag_name, weight) VALUES
     (7, 'outdoor', 2),
     (8, 'tech', 1), (8, 'kids', 2);
 RESET paradedb.global_mutable_segment_rows;
+-- Row estimates feed the MPP planner; unanalyzed tables leave them unknown.
+ANALYZE pa_products;
+ANALYZE pa_tags;
 -- =====================================================================
 -- SECTION 1: terms over a join
 -- =====================================================================
@@ -638,7 +641,9 @@ RESET paradedb.max_term_agg_buckets;
 -- =====================================================================
 -- SECTION 5: MPP
 -- =====================================================================
--- Grouping sets and the HLL sketch both cross the worker boundary.
+-- Grouping sets and the HLL sketch both cross the worker boundary. The plan
+-- shape is not asserted: whether the planner distributes depends on the
+-- machine, and the `mpp_*` suites pin it.
 SET paradedb.enable_join_custom_scan TO on;
 SET max_parallel_workers_per_gather TO 3;
 SET max_parallel_workers TO 8;
@@ -646,52 +651,6 @@ SET min_parallel_table_scan_size TO 0;
 SET parallel_setup_cost TO 0;
 SET parallel_tuple_cost TO 0;
 SET paradedb.mpp_min_rows TO 0;
-EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
-SELECT p.category, COUNT(*), pdb.agg('{"terms": {"field": "tag_name"}, "aggs": {"u": {"cardinality": {"field": "weight"}}, "s": {"sum": {"field": "weight"}}}}')
-FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard'
-GROUP BY p.category
-ORDER BY p.category;
-                                                                                                                          QUERY PLAN                                                                                                                           
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Output: p.category, (count(*)), (pdb.agg('{"aggs": {"s": {"sum": {"field": "weight"}}, "u": {"cardinality": {"field": "weight"}}}, "terms": {"field": "tag_name"}}'::jsonb))
-   Sort Key: p.category
-   ->  Custom Scan (ParadeDB Aggregate Scan)
-         Output: p.category, (count(*)), (pdb.agg('{"aggs": {"s": {"sum": {"field": "weight"}}, "u": {"cardinality": {"field": "weight"}}}, "terms": {"field": "tag_name"}}'::jsonb))
-         Backend: DataFusion
-         Indexes: pa_products_idx (p), pa_tags_idx (t)
-         Group By: category
-         Aggregates: COUNT(*), pdb.agg({"aggs":{"s":{"sum":{"field":"weight"}},"u":{"cardinality":{"field":"weight"}}},"terms":{"field":"tag_name"}})
-         DataFusion Physical Plan: 
-           : ┌───── DistributedExec
-           : │ CoalescePartitionsExec
-           : │   [Stage 3] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
-           : └──────────────────────────────────────────────────
-           :   ┌───── Stage 3 ── tasks=2, partitions=3
-           :   │ ProjectionExec: expr=[category@0 as category, __common_expr_1@3 as agg_0, __grouping_id@2 as __grouping_id, __pdb_k0@1 as __pdb_k0, __common_expr_1@3 as __pdb_m0, __pdb_m1@4 as __pdb_m1, __pdb_m2@5 as __pdb_m2]
-           :   │   AggregateExec: mode=FinalPartitioned, gby=[category@0 as category, __pdb_k0@1 as __pdb_k0, __grouping_id@2 as __grouping_id], aggr=[count(1) as __common_expr_1, sum(t_1.weight) as __pdb_m1, approx_distinct(t_1.weight) as __pdb_m2]
-           :   │     [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
-           :   └──────────────────────────────────────────────────
-           :     ┌───── Stage 2 ── tasks=2, partitions=6
-           :     │ RepartitionExec: partitioning=Hash([category@0, __pdb_k0@1, __grouping_id@2], 6), input_partitions=3
-           :     │   AggregateExec: mode=Partial, gby=[(category@0 as category, NULL as __pdb_k0), (category@0 as category, tag_name@1 as __pdb_k0)], aggr=[count(1) as __common_expr_1, sum(t_1.weight) as __pdb_m1, approx_distinct(t_1.weight) as __pdb_m2]
-           :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3, weight@4]
-           :     │       CoalescePartitionsExec
-           :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
-           :     │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-           :     │         DistributedLeafExec:
-           :     │           t0: PgSearchScan: table=t, segments=2, dynamic_filters=1, query="all"
-           :     │           t1: PgSearchScan: table=t, segments=2, dynamic_filters=1, query="all"
-           :     └──────────────────────────────────────────────────
-           :       ┌───── Stage 1 ── tasks=2, partitions=4
-           :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
-           :       │   DistributedLeafExec:
-           :       │     t0: PgSearchScan: table=p, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR keyboard","lenient":null,"conjunction_mode":null}}}}
-           :       │     t1: PgSearchScan: table=p, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR keyboard","lenient":null,"conjunction_mode":null}}}}
-           :       └──────────────────────────────────────────────────
-(36 rows)
-
 SELECT p.category, COUNT(*), pdb.agg('{"terms": {"field": "tag_name"}, "aggs": {"u": {"cardinality": {"field": "weight"}}, "s": {"sum": {"field": "weight"}}}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard'

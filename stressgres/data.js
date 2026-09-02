@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788387000725,
+  "lastUpdate": 1788387010152,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -327238,6 +327238,108 @@ window.BENCHMARK_DATA = {
             "value": 47.08203125,
             "unit": "median mem",
             "extra": "avg mem: 45.538858282674774, max mem: 56.32421875, count: 59220"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "51e683ece89fde7e42ca0c50e4fbad43a2cfe408",
+          "message": "refactor: resolve ctids in TantivyLookupExec, not VisibilityFilterExec (#6140)\n\nThis PR moves ctid resolution out of `VisibilityFilterExec` and into\n`TantivyLookupExec`.\n\nStacked on #6139. It is the second step Stu mentioned for the takeover\nof #6119: split column loading out of the visibility filter so\n`TantivyLookupExec` owns fetching columns (the ctid included) and\n`VisibilityFilterExec` only consumes and mutates the ctid.\n\n## What\n\n- `TantivyLookupExec` can resolve a `ctid_<plan_position>` column from\npacked doc-addresses to real ctids. A ctid-resolving lookup is inserted\ndirectly below every `VisibilityFilterExec`, and below a\n`SegmentedTopKExec` that absorbs one. The plan now shows\n`TantivyLookupExec: decode=[], resolve_ctid=[ctid_0, ctid_1]` under the\nfilter.\n- `VisibilityFilterExec` and the absorbed-visibility path in\n`SegmentedTopKExec` no longer resolve ctids. They check visibility and\nHOT-correct the already-real ctids.\n- The MPP dispatch machinery moved with it: the lookup's dispatch\npayload carries its ctid columns and resolver indexes, and its decode\nrebuilds a resolver from the index segment view when the source sits\nbehind a network boundary.\n\n## Why\n\n`VisibilityFilterExec` was doing two jobs: fetching the ctid column and\nchecking visibility. Separating them makes each node do one thing and\nsets up the follow-up where `TantivyLookupExec` owns all column\nfetching.\n\n## Tests\n\nExisting test.\n\n## CI benchmarks\n\nNo change in benchmark results as expected.\n\nPlease note that `SegmentedTopKExec`'s absorbed-visibility data keeps\nits own ctid resolvers: the absorption takes the lookup's input, so only\nthe K winners pay resolution, and the exec resolves them itself.",
+          "timestamp": "2026-09-02T14:32:52-07:00",
+          "tree_id": "52d24649a4d011b6bd1b09e366e3151a2cb7ecc5",
+          "url": "https://github.com/paradedb/paradedb/commit/51e683ece89fde7e42ca0c50e4fbad43a2cfe408"
+        },
+        "date": 1788387005614,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.204582061687761, max cpu: 4.7595444, count: 59240"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 17.2890625,
+            "unit": "median mem",
+            "extra": "avg mem: 17.263237070602635, max mem: 17.2890625, count: 59240"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.678363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.621502179765244, max cpu: 4.9205537, count: 59240"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 17.21875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.211198224383864, max mem: 17.21875, count: 59240"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.37958,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.606504903730197, max cpu: 28.756863, count: 59240"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 17.58984375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.60900171706195, max mem: 17.79296875, count: 59240"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.904101958136, max document_count: 10002.0, count: 59240"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.909858203917, max document_count: 10002.0, count: 59240"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59240"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.652732029031448, max cpu: 33.168808, count: 59240"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 47.2109375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.69292898854237, max mem: 56.5234375, count: 59240"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.550238120241985, max cpu: 33.005894, count: 59240"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 47.421875,
+            "unit": "median mem",
+            "extra": "avg mem: 45.88227113753376, max mem: 57.015625, count: 59240"
           }
         ]
       }

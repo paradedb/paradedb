@@ -108,7 +108,7 @@ pub mod window_aggregates {
     pub const HAVING_SUPPORT: bool = false;
 
     /// Enable support for window functions in queries with JOINs.
-    pub const JOIN_SUPPORT: bool = false;
+    pub const JOIN_SUPPORT: bool = true;
 
     /// Enable support for `FILTER` clause in window functions.
     pub const WINDOW_AGG_FILTER_CLAUSE: bool = false;

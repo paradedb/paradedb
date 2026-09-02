@@ -167,9 +167,7 @@ fn numeric_fast_field_type(
         let mapped = source.map_var(rti, attno)?;
         let field_info = source.scan_info.fields.iter().find(|f| f.attno == mapped)?;
         match &field_info.field {
-            WhichFastField::Named(_, ft) | WhichFastField::Deferred(_, ft) if ft.is_numeric() => {
-                Some(*ft)
-            }
+            WhichFastField::Named { field_type: ft, .. } if ft.is_numeric() => Some(*ft),
             _ => None,
         }
     })

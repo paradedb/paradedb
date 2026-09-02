@@ -363,8 +363,8 @@ mod tests {
         let manifest = SearchIndexManifest::capture(&index_rel, MvccSatisfies::Snapshot)
             .expect("manifest capture");
 
-        let fields = vec![WhichFastField::Named(
-            "id".to_string(),
+        let fields = vec![WhichFastField::eager(
+            "id",
             SearchFieldType::I64(pg_sys::INT8OID),
         )];
         let provider = PgSearchTableProvider::new(

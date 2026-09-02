@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788331589423,
+  "lastUpdate": 1788331598052,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -138982,6 +138982,108 @@ window.BENCHMARK_DATA = {
             "value": 99.55859375,
             "unit": "median mem",
             "extra": "avg mem: 99.03480861426492, max mem: 104.01953125, count: 59408"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8a85104bf07d4f6510bb189dec2155c7a7ee4af7",
+          "message": "fix: respect PostgreSQL parallel mode for MPP scans (#6181)\n\n# Ticket(s) Closed\n\n- Closes #6157\n\n## What\n\nGate MPP producer-worker launch on PostgreSQL's statement-wide\nparallel-mode decision (`PlannerGlobal.parallelModeOK`). A DataFusion\ncustom scan under `ModifyTable` now plans and runs serially instead of\nfailing with `cannot assign transaction IDs during a parallel\noperation`. The scan is still selected and still runs on DataFusion.\n\n## Why\n\nMPP launches its own producers via `EnterParallelMode()`, bypassing\nPostgreSQL's per-statement decision. Under `INSERT ... SELECT` that\ndecision is false, and the heap write's `AssignTransactionId` errors\nonce the backend is in parallel mode. The subplan's own query level\ncan't detect this — a SELECT under `ModifyTable` is still `CMD_SELECT`;\nonly the statement-wide flag reflects the enclosing INSERT.\n\nSide effect of adopting PG's decision: MPP is also suppressed for\ncursor-driven queries, queries containing `PARALLEL UNSAFE` functions,\nand modifying CTEs — all cases where entering parallel mode was already\nunsafe. pg_search's `@@@`, `score`, and `snippet*` are `parallel_safe`,\nso ordinary search queries are unaffected.\n\n## How\n\nReview in this order:\n\n1. `mpp/glue.rs` — `query_allows_parallel_mode(&PlannerInfo)`: reads\n`parallelModeOK`, captured once at path creation by each scan.\n2. `mpp/launch.rs` — `mpp_eligible(mpp_query_safe, &RelNode)`: the\nsingle gate (statement safety + worker budget + min-rows), used by\n`AggregateScan::prepare_mpp`, `JoinScan::begin_custom_scan`, and both\nplain-EXPLAIN rebuilds, so rendered plans match execution.\n3. `{aggregatescan,joinscan}/privdat.rs` + `scan_state.rs` — the flag is\nserialized in private data (`#[serde(default)]`, fail-closed) and copied\ninto scan state.\n4. `joinscan/mod.rs` — `bake_logical_plan` folds `!mpp_query_safe` into\n`force_serial` at the only place plan bytes are produced, so no caller\ncan bake MPP provider metadata (`mpp_source_idx`) for an unsafe\nstatement.\n\n## Tests\n\n- New `mpp_worker_sizing` regress cases: `INSERT ... SELECT` over both\nscans (serial plan shape + correct inserted rows), and a\n`force_generic_plan` prepared `INSERT` covering JoinScan's exec-time\nrebake with a runtime `Param`.\n- Full regress: 333/333. Integration (`tests` + `tokenizers`): 619\npassed, 0 failed. Unit/`#[pg_test]`: 339 passed, 0 failed.",
+          "timestamp": "2026-09-02T11:38:09+05:30",
+          "tree_id": "540c7951897fd1e08951af9b75d85f0a2781a674",
+          "url": "https://github.com/paradedb/paradedb/commit/8a85104bf07d4f6510bb189dec2155c7a7ee4af7"
+        },
+        "date": 1788331594311,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08450585700821328, max background_merging: 2.0, count: 59416"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.712813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.86943855726091, max cpu: 9.662808, count: 59416"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 19.4140625,
+            "unit": "median mem",
+            "extra": "avg mem: 19.46781196352834, max mem: 19.52734375, count: 59416"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7151275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.008571362061359, max cpu: 23.575638, count: 59416"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 49.34765625,
+            "unit": "median mem",
+            "extra": "avg mem: 47.26887019331914, max mem: 52.2734375, count: 59416"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 52479,
+            "unit": "median block_count",
+            "extra": "avg block_count: 52299.84743166824, max block_count: 52479.0, count: 59416"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 68.95090548000539, max segment_count: 105.0, count: 59416"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.587223,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.040577346907117, max cpu: 33.3996, count: 59416"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 83.63671875,
+            "unit": "median mem",
+            "extra": "avg mem: 80.0505391145693, max mem: 83.890625, count: 59416"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.7220855,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.781497542725712, max cpu: 27.866474, count: 59416"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 52.37890625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.58073957614531, max mem: 52.38671875, count: 59416"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7105007,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.77477612278096, max cpu: 28.166258, count: 59416"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 46.015625,
+            "unit": "median mem",
+            "extra": "avg mem: 45.57406195037953, max mem: 51.609375, count: 59416"
           }
         ]
       }

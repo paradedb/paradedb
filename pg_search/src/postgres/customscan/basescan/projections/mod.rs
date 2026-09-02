@@ -18,3 +18,13 @@
 pub mod score;
 pub mod snippet;
 pub mod window_agg;
+
+/// `pdb.score` / `pdb.snippet*` are placeholders rewritten by a ParadeDB custom
+/// scan. Reaching here means the scan did not take over the query — most often
+/// because no ParadeDB operator is in `WHERE`.
+pub(crate) fn placeholder_not_rewritten() -> ! {
+    pgrx::error!(
+        "pdb.score() / pdb.snippet() require a ParadeDB search operator (@@@, |||, &&&, ===, or ###) in the WHERE clause. \
+         If this query already has one, please report it at https://github.com/paradedb/paradedb/issues/new/choose"
+    )
+}

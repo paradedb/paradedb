@@ -671,6 +671,57 @@ impl F64Lossless for i64 {
     }
 }
 
+pub(crate) enum ParsedAggregateField {
+    Direct(*mut pg_sys::Node),
+    Coalesce {
+        field: *mut pg_sys::Node,
+        missing: Option<f64>,
+    },
+}
+
+impl ParsedAggregateField {
+    pub(crate) unsafe fn parse(expr: *mut pg_sys::Node) -> Result<Self, String> {
+        let Some(coalesce) = nodecast!(CoalesceExpr, T_CoalesceExpr, expr) else {
+            return Ok(Self::Direct(expr));
+        };
+
+        let args = PgList::<pg_sys::Node>::from_pg((*coalesce).args);
+        let field = args
+            .get_ptr(0)
+            .ok_or("COALESCE expression missing first argument")?;
+        let missing = parse_coalesce_missing_value(&args)?;
+
+        Ok(Self::Coalesce { field, missing })
+    }
+
+    pub(crate) fn expression(&self) -> *mut pg_sys::Node {
+        match self {
+            Self::Direct(field) | Self::Coalesce { field, .. } => *field,
+        }
+    }
+
+    pub(crate) unsafe fn field_name(&self, context: VarContext) -> Option<FieldName> {
+        let expression = self.expression();
+        if let Some((_, field_name)) = find_one_var_and_fieldname(context, expression) {
+            return Some(field_name);
+        }
+
+        let Self::Coalesce { .. } = self else {
+            return None;
+        };
+        let var = <*mut pg_sys::Var>::unwrap_from_expr(expression as *mut pg_sys::Expr)?;
+        let (heaprelid, varattno) = context.var_relation(var);
+        fieldname_from_var(heaprelid, var, varattno)
+    }
+
+    pub(crate) fn missing(&self) -> Option<f64> {
+        match self {
+            Self::Direct(_) => None,
+            Self::Coalesce { missing, .. } => *missing,
+        }
+    }
+}
+
 /// Parse field name and missing value from aggregate argument
 unsafe fn parse_aggregate_field(
     first_arg: *mut pg_sys::TargetEntry,
@@ -679,16 +730,8 @@ unsafe fn parse_aggregate_field(
     heap_rti: pg_sys::Index,
 ) -> Result<(String, Option<f64>), String> {
     let context = VarContext::from_planner(root);
-    let (field_expr, missing, is_coalesce) =
-        if let Some(coalesce) = nodecast!(CoalesceExpr, T_CoalesceExpr, (*first_arg).expr) {
-            let args = PgList::<pg_sys::Node>::from_pg((*coalesce).args);
-            let field_expr = args
-                .get_ptr(0)
-                .ok_or("COALESCE expression missing first argument")?;
-            (field_expr, parse_coalesce_missing_value(&args)?, true)
-        } else {
-            ((*first_arg).expr.cast(), None, false)
-        };
+    let aggregate_field = ParsedAggregateField::parse((*first_arg).expr.cast())?;
+    let field_expr = aggregate_field.expression();
 
     let field = if let Ok(schema) = bm25_index.schema()
         && let Some(fast_field) = find_matching_fast_field(
@@ -698,24 +741,16 @@ unsafe fn parse_aggregate_field(
             heap_rti,
         ) {
         FieldName::from(fast_field.name())
-    } else if let Some((_, field_name)) = find_one_var_and_fieldname(context, field_expr) {
-        field_name
-    } else if is_coalesce
-        && let Some(var) = <*mut pg_sys::Var>::unwrap_from_expr(field_expr as *mut pg_sys::Expr)
-    {
-        let (heaprelid, varattno) = context.var_relation(var);
-        fieldname_from_var(heaprelid, var, varattno)
-            .ok_or("could not map aggregate argument to a field name")?
     } else {
-        return Err("argument to aggregate function is neither a direct column reference nor a COALESCE expression".into());
+        aggregate_field.field_name(context).ok_or(
+            "argument to aggregate function is neither a direct column reference nor a COALESCE expression",
+        )?
     };
 
-    Ok((field.into_inner(), missing))
+    Ok((field.into_inner(), aggregate_field.missing()))
 }
 
-pub(crate) unsafe fn parse_coalesce_missing_value(
-    args: &PgList<pg_sys::Node>,
-) -> Result<Option<f64>, String> {
+unsafe fn parse_coalesce_missing_value(args: &PgList<pg_sys::Node>) -> Result<Option<f64>, String> {
     let second_arg = args
         .get_ptr(1)
         .ok_or("COALESCE expression missing second argument")?;

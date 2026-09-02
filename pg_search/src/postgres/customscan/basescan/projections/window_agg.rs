@@ -73,13 +73,12 @@ use crate::api::{is_agg_funcoid, visibility_from_agg_arg};
 use crate::nodecast;
 use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::aggregatescan::aggregate_type::{
-    AggregateType, create_aggregate_from_oid, parse_coalesce_missing_value,
+    AggregateType, ParsedAggregateField, create_aggregate_from_oid,
 };
 use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
-use crate::postgres::customscan::opexpr::UnwrapFromExpr;
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
-use crate::postgres::var::{VarContext, fieldname_from_var, find_one_var_and_fieldname};
+use crate::postgres::var::VarContext;
 use crate::query::{PostgresExpression, SearchQueryInput};
 use pgrx::{PgList, pg_sys};
 use serde::{Deserialize, Serialize};
@@ -404,33 +403,10 @@ unsafe fn extract_field_name_from_aggregate_arg(
     arg_node: *mut pg_sys::Node,
 ) -> Option<(FieldName, Option<f64>)> {
     let var_context = VarContext::from_query(parse);
-    let (field_expr, missing, is_coalesce) =
-        if let Some(coalesce) = nodecast!(CoalesceExpr, T_CoalesceExpr, arg_node) {
-            let args = PgList::<pg_sys::Node>::from_pg((*coalesce).args);
-            (
-                args.get_ptr(0)?,
-                parse_coalesce_missing_value(&args).ok()?,
-                true,
-            )
-        } else {
-            (arg_node, None, false)
-        };
+    let aggregate_field = ParsedAggregateField::parse(arg_node).ok()?;
+    let field = aggregate_field.field_name(var_context)?;
 
-    let field = if is_coalesce
-        && let Some(var) = <*mut pg_sys::Var>::unwrap_from_expr(field_expr as *mut pg_sys::Expr)
-    {
-        let (heaprelid, varattno) = var_context.var_relation(var);
-        if heaprelid == pg_sys::InvalidOid {
-            return None;
-        }
-        fieldname_from_var(heaprelid, var, varattno)?
-    } else if let Some((_var, field_name)) = find_one_var_and_fieldname(var_context, field_expr) {
-        field_name
-    } else {
-        return None;
-    };
-
-    Some((field, missing))
+    Some((field, aggregate_field.missing()))
 }
 
 /// Convert a FILTER clause expression to SearchQueryInput by serializing it for later conversion

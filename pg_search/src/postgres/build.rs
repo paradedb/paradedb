@@ -142,6 +142,13 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
     let options = index_relation.options();
     let key_field_name = options.key_field_name();
 
+    // `key_field` is recorded as a reloption even when it is not one of the
+    // indexed attributes. Reject that here so CREATE INDEX fails instead of
+    // succeeding and then erroring on the first INSERT (#3777).
+    if options.get_field_type(&key_field_name).is_none() {
+        panic!("key_field `{key_field_name}` does not exist in the USING clause");
+    }
+
     let options = index_relation.options();
     let text_configs = options.text_config();
     for (field_name, config) in text_configs.iter().flatten() {

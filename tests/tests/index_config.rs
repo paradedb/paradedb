@@ -47,6 +47,22 @@ fn invalid_create_index(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn key_field_must_be_in_using_clause(mut conn: PgConnection) {
+    "CREATE TABLE key_field_missing (id INT, status INT)".execute(&mut conn);
+
+    match r#"CREATE INDEX test_bm25 ON key_field_missing
+        USING bm25 (status) WITH (key_field = 'id')"#
+        .execute_result(&mut conn)
+    {
+        Ok(_) => panic!("should fail when key_field is not in the USING clause"),
+        Err(err) => assert_eq!(
+            db_error_message(&err),
+            "error returned from database: key_field `id` does not exist in the USING clause"
+        ),
+    };
+}
+
+#[rstest]
 fn prevent_duplicate(mut conn: PgConnection) {
     "CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);

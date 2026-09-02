@@ -181,13 +181,8 @@ use crate::postgres::customscan::joinscan::planning::distinct_columns_are_fast_f
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::mpp::glue::query_allows_parallel_mode;
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
-<<<<<<< HEAD
-use crate::postgres::customscan::mpp::launch::mpp_gated_by_min_rows;
-use crate::postgres::customscan::mpp::launch::MppLifecycle;
-=======
-use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::mpp::launch::mpp_eligible;
->>>>>>> 8a85104b (fix: respect PostgreSQL parallel mode for MPP scans (#6181))
+use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parallelism;
 use arrow_array::Array;
 use datafusion_distributed::shm::MppMesh;

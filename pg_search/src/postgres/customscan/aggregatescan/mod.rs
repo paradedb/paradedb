@@ -54,13 +54,8 @@ use datafusion_distributed::shm::MppMesh;
 
 use crate::postgres::customscan::mpp::glue::query_allows_parallel_mode;
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
-<<<<<<< HEAD
-use crate::postgres::customscan::mpp::launch::mpp_gated_by_min_rows;
-use crate::postgres::customscan::mpp::launch::MppLifecycle;
-=======
-use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::mpp::launch::mpp_eligible;
->>>>>>> 8a85104b (fix: respect PostgreSQL parallel mode for MPP scans (#6181))
+use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parallelism;
 
 use crate::api::agg_funcoid;
@@ -1479,19 +1474,8 @@ impl AggregateScan {
         // path stays serial to PG. Marking it parallel-aware would make PG plan a Gather over it and
         // spawn a redundant second worker set whose serial aggregates duplicate the result.
 
-<<<<<<< HEAD
-=======
-        // Set the pathtarget to the grouping output columns so the Sort/Limit
-        // nodes above can resolve their Var references. Required for DISTINCT
-        // (output_rel.reltarget.exprs is empty); for GROUP BY it equals the
-        // builder's default.
-        let builder = builder
-            .set_pathtarget(shape.reltarget())
-            .set_rows(shape.rows());
-
         let parallel_mode_ok = query_allows_parallel_mode(builder.args().root());
 
->>>>>>> 8a85104b (fix: respect PostgreSQL parallel mode for MPP scans (#6181))
         // Build the custom path with DataFusion private data
         let multi_table_clause_count = multi_table_clauses.len();
         let mut custom_path = builder.build(PrivateData::DataFusion {

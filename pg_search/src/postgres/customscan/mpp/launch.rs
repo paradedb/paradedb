@@ -62,13 +62,8 @@ use crate::postgres::customscan::joinscan::scan_state::{
 use crate::postgres::customscan::mpp::dispatch::dispatch_payload_from_stages;
 use crate::postgres::customscan::mpp::exec_worker::{run_mpp_worker, MppWorkerInputs};
 use crate::postgres::customscan::mpp::glue::{
-<<<<<<< HEAD
-    estimate_dsm_size, leader_setup, producer_worker_cap, worker_setup, MppLeaderState,
-    MIN_TOTAL_WORKER_COUNT,
-=======
-    MIN_TOTAL_WORKER_COUNT, MppLeaderState, estimate_dsm_size, leader_setup, mpp_is_active,
-    producer_worker_cap, worker_setup,
->>>>>>> 8a85104b (fix: respect PostgreSQL parallel mode for MPP scans (#6181))
+    estimate_dsm_size, leader_setup, mpp_is_active, producer_worker_cap, worker_setup,
+    MppLeaderState, MIN_TOTAL_WORKER_COUNT,
 };
 use crate::postgres::customscan::mpp::worker_fragments::{
     collect_stages, max_producer_task_count, stages_have_data_parallelism,

@@ -61,8 +61,8 @@ DEBUG:  PredicateTranslator: unsupported const type [Const] type=text
 DEBUG:  PredicateTranslator: unsupported operator [OpExpr] op="pg_catalog.||", types=(text, text) | T_OpExpr
 DEBUG:  PredicateTranslator: unsupported const type [Const] type=text
 DEBUG:  PredicateTranslator: unsupported operator [OpExpr] op="pg_catalog.||", types=(text, text) | T_OpExpr
-                                                                                                       QUERY PLAN                                                                                                        
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                     QUERY PLAN                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: i ANTI e
@@ -95,8 +95,8 @@ AND i.id @@@ paradedb.all()
 LIMIT 5;
 DEBUG:  PredicateTranslator: no native mapping [FuncExpr] func=pg_catalog.md5, arity=1 | T_FuncExpr
 DEBUG:  PredicateTranslator: no native mapping [FuncExpr] func=pg_catalog.md5, arity=1 | T_FuncExpr
-                                                                                                         QUERY PLAN                                                                                                          
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: i ANTI e
@@ -134,8 +134,8 @@ AND i.id @@@ paradedb.all()
 LIMIT 5;
 DEBUG:  PredicateTranslator: rejected cross-type coercion [CoerceViaIO] source=integer, target=text | (i.value)::text
 DEBUG:  PredicateTranslator: rejected cross-type coercion [CoerceViaIO] source=integer, target=text | (i.value)::text
-                                                                                                    QUERY PLAN                                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                  QUERY PLAN                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: i ANTI e

@@ -65,8 +65,8 @@ JOIN products ON users.age = products.age
 JOIN orders ON products.uuid = orders.uuid
 WHERE users.name @@@ 'bob'
 ORDER BY users.id, products.id, orders.id LIMIT 1;
-                                                                                                     QUERY PLAN                                                                                                     
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                               QUERY PLAN                                                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: users INNER (products INNER orders)
@@ -80,11 +80,11 @@ ORDER BY users.id, products.id, orders.id LIMIT 1;
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(uuid@3, uuid@1)], projection=[ctid_0@0, id@1, ctid_1@2, id@4, ctid_2@5, id@7]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@1, age@1)], projection=[ctid_0@0, id@2, ctid_1@3, uuid@5, id@6]
            :           CooperativeExec
-           :             PgSearchScan: table=users, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=users, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
            :           CooperativeExec
-           :             PgSearchScan: table=products, segments=1, dynamic_filters=1, query="all"
+           :             PgSearchScan: table=products, segments=1, dynamic_filters=1, visibility=deferred, query="all"
            :         CooperativeExec
-           :           PgSearchScan: table=orders, segments=1, dynamic_filters=1, query="all"
+           :           PgSearchScan: table=orders, segments=1, dynamic_filters=1, visibility=deferred, query="all"
 (18 rows)
 
 SELECT users.id, users.name

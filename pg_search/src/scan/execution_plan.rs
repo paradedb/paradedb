@@ -885,6 +885,11 @@ impl DisplayAs for PgSearchScanPlan {
         if !self.dynamic_filters.is_empty() {
             write!(f, ", dynamic_filters={}", self.dynamic_filters.len())?;
         }
+        // Whether the scan checks visibility itself is otherwise readable only from the
+        // `VisibilityFilterExec` that names it, somewhere above.
+        if self.deferred_ctid_plan_position.is_some() {
+            write!(f, ", visibility=deferred")?;
+        }
         match &self.scan_mode {
             crate::scan::ScanMode::Standard { .. } => {
                 write!(f, ", query={}", self.resolved_query.explain_format())?;

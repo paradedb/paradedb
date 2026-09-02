@@ -75,8 +75,8 @@ FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
 WHERE p.page_text @@@ 'Page'
 ORDER BY p.id
 LIMIT 10;
-                                                                                                     QUERY PLAN                                                                                                     
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                               QUERY PLAN                                                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.file_id, f.title
    ->  Custom Scan (ParadeDB Join Scan)
@@ -93,7 +93,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: table=f, segments=2, query="all"
            :         CooperativeExec
-           :           PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 SELECT p.id, p.file_id, f.title
@@ -142,8 +142,8 @@ FROM outer_files f LEFT JOIN outer_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section'
 ORDER BY f.id, p.id
 LIMIT 10;
-                                                                                            QUERY PLAN                                                                                            
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title, p.id
    ->  Custom Scan (ParadeDB Join Scan)
@@ -158,7 +158,7 @@ LIMIT 10;
            :     VisibilityFilterExec: tables=[f]
            :       HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@1, file_id@1)], projection=[ctid_0@2, id@4, ctid_1@0, id@1]
            :         CooperativeExec
-           :           PgSearchScan: table=f, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=f, segments=2, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
            :           PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
 (17 rows)
@@ -189,8 +189,8 @@ FROM outer_files f RIGHT JOIN outer_pages p ON f.id = p.file_id
 WHERE p.page_text @@@ 'Page'
 ORDER BY p.id
 LIMIT 10;
-                                                                                                     QUERY PLAN                                                                                                     
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                               QUERY PLAN                                                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.file_id, f.title
    ->  Custom Scan (ParadeDB Join Scan)
@@ -207,7 +207,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: table=f, segments=2, query="all"
            :         CooperativeExec
-           :           PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 SELECT p.id, p.file_id, f.title
@@ -263,8 +263,8 @@ FROM outer_files f FULL JOIN outer_pages p ON f.id = p.file_id
 WHERE p.page_text @@@ 'Page'
 ORDER BY p.id
 LIMIT 10;
-                                                                                              QUERY PLAN                                                                                               
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, p.id, p.file_id
    ->  Result
@@ -283,7 +283,7 @@ LIMIT 10;
                  :         CooperativeExec
                  :           PgSearchScan: table=f, segments=2, query="all"
                  :         CooperativeExec
-                 :           PgSearchScan: table=p, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+                 :           PgSearchScan: table=p, segments=2, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
 (19 rows)
 
 SELECT f.id, p.id AS page_id, p.file_id
@@ -312,8 +312,8 @@ FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
 WHERE p.page_text @@@ 'Page' AND f.id IS NULL
 ORDER BY p.id
 LIMIT 10;
-                                                                                                     QUERY PLAN                                                                                                     
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                               QUERY PLAN                                                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.file_id
    ->  Custom Scan (ParadeDB Join Scan)
@@ -330,7 +330,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: table=f, segments=2, query="all"
            :         CooperativeExec
-           :           PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 SELECT p.id, p.file_id
@@ -420,8 +420,8 @@ FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
 WHERE p.page_text @@@ 'Page'
 ORDER BY p.id
 LIMIT 10;
-                                                                                                         QUERY PLAN                                                                                                         
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                   QUERY PLAN                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.file_id, f.title
    ->  Custom Scan (ParadeDB Join Scan)
@@ -444,8 +444,8 @@ LIMIT 10;
            :   │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
            :   │       RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
            :   │         DistributedLeafExec:
-           :   │           t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
-           :   │           t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+           :   │           t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+           :   │           t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
            :   └──────────────────────────────────────────────────
            :     ┌───── Stage 1 ── tasks=2, partitions=4
            :     │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788370309600,
+  "lastUpdate": 1788370318128,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -323962,6 +323962,108 @@ window.BENCHMARK_DATA = {
             "value": 47.6484375,
             "unit": "median mem",
             "extra": "avg mem: 46.17753084960921, max mem: 57.453125, count: 59239"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "236c5131f72436f93b1d802c19b958f9e2de10b4",
+          "message": "perf: defer visibility and late materialization in more join plans (#6139)\n\nThis PR re-lands the deferred visibility and late-materialization work\nfrom #6119, adds a kill-switch so aggregates stay on the eager path for\nnow, and dedups the optimizer rules.\n\n## Why\n\n#6119 lets a scan defer its visibility check (and string decode) to a\n`VisibilityFilterExec` above a join, so rows dropped by the join, a\nfilter, or a LIMIT never pay the check. That helps when an intermediate\nnode reduces rows. For aggregate-on-join it did not: the benchmark heaps\nare ~100% all-visible, so the eager in-scan check is cheap, and\ndeferring only moves the ctid fetch past the `HashJoin` where it loses\nthe scan's ctid-sorted locality. Deferral there was a loss.\n\nSo aggregates keep the eager, in-scan path until selective late\nmaterialization can decide per-source when deferral pays. #6155 explored\na plan-time cost gate for it and was closed with the findings; the\nselective design needs statistics-driven or run-time decisions.\n\n## What\n\n- `paradedb.enable_aggregate_late_materialization` (default `false`)\ngates deferral for the aggregate-on-join path. With it off, aggregate\nplans check visibility in the scan, as before #6119. The join and TopK\npaths keep #6119's behavior.\n- The visibility and late-materialization optimizer rules shared their\nprovider downcast, reduction-node test, and beneficial-ancestor walk\ninto `pg_search_provider_from_scan`, `is_reduction_node`, and\n`has_reduction_before_stop`.\n- The beneficial walk no longer credits a Full barrier itself. A Full\nbarrier keeps every check below it, so its own reduction comes after the\ncheck. A scan under a mark or full join with nothing reducing in between\nkeeps its in-scan check instead of a `VisibilityFilterExec` wrap that\nfilters the same rows. The visibility rule's ctid-projection forcing\nmoved into two helper functions so the `transform_up` closure becomes as\nits two steps: activate the scan, then carry the ctid up through\nrow-preserving nodes.\n\n## Tests\n\n- `enable_aggregate_late_materialization` off reverts the aggregate\nexpected plans to eager; the join, TopK, and distinct expected files are\nunchanged from #6119.\n- Two unit tests pin the Full-join contract (no wrap without a reduction\nbelow the join, wrap on the reduced side only). `issue_4531`,\n`issue_4667`, `issue_4719`, and `join_outer_edge` drop the wraps that\nsat directly above their scans.\n\n## CI benchmarks\n\nThe Queries benchmark on the current head is neutral against main\n([run](https://github.com/paradedb/paradedb/actions/runs/33470217899),\n[main\nbaseline](https://github.com/paradedb/paradedb/actions/runs/33218525532)).\nNothing moved beyond noise: the largest tight-interval delta\n(`bucket-expr-filter`, 1.06 at 20m) is a single-table `GroupAggregate`\nthis PR does not touch, and `join_conjunctive_score_sort` (1.07 at 20m)\nhas overlapping confidence intervals and is flat at 100k and 1m.\n\nThe follow-up that decouples ctid fetching from the visibility check\n(moving column loading into `TantivyLookupExec`) will stack on this\nbranch.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-09-02T12:54:54-04:00",
+          "tree_id": "9ac244769e7a89e857852a22e3f0883b7975d35e",
+          "url": "https://github.com/paradedb/paradedb/commit/236c5131f72436f93b1d802c19b958f9e2de10b4"
+        },
+        "date": 1788370314002,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.68979,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.361418416519037, max cpu: 4.7619047, count: 59221"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 17.27734375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.247355707329326, max mem: 17.27734375, count: 59221"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.678363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.514505104233212, max cpu: 4.745428, count: 59221"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 17.20703125,
+            "unit": "median mem",
+            "extra": "avg mem: 17.20237502849496, max mem: 17.20703125, count: 59221"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.365853,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.521922072266895, max cpu: 28.472567, count: 59221"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 17.58203125,
+            "unit": "median mem",
+            "extra": "avg mem: 17.609357454492493, max mem: 17.78515625, count: 59221"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.917309738099, max document_count: 10002.0, count: 59221"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.91516522855, max document_count: 10002.0, count: 59221"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59221"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.67574510973361, max cpu: 32.925037, count: 59221"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 47.28125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.68446594641259, max mem: 56.13671875, count: 59221"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.64813026196361, max cpu: 33.267326, count: 59221"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 47.1328125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.710716070418435, max mem: 56.078125, count: 59221"
           }
         ]
       }

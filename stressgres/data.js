@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788331539337,
+  "lastUpdate": 1788331548601,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -303962,6 +303962,126 @@ window.BENCHMARK_DATA = {
             "value": 17.40646969670919,
             "unit": "median tps",
             "extra": "avg tps: 18.76858520517234, max tps: 176.0680242332986, count: 57390"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8a85104bf07d4f6510bb189dec2155c7a7ee4af7",
+          "message": "fix: respect PostgreSQL parallel mode for MPP scans (#6181)\n\n# Ticket(s) Closed\n\n- Closes #6157\n\n## What\n\nGate MPP producer-worker launch on PostgreSQL's statement-wide\nparallel-mode decision (`PlannerGlobal.parallelModeOK`). A DataFusion\ncustom scan under `ModifyTable` now plans and runs serially instead of\nfailing with `cannot assign transaction IDs during a parallel\noperation`. The scan is still selected and still runs on DataFusion.\n\n## Why\n\nMPP launches its own producers via `EnterParallelMode()`, bypassing\nPostgreSQL's per-statement decision. Under `INSERT ... SELECT` that\ndecision is false, and the heap write's `AssignTransactionId` errors\nonce the backend is in parallel mode. The subplan's own query level\ncan't detect this — a SELECT under `ModifyTable` is still `CMD_SELECT`;\nonly the statement-wide flag reflects the enclosing INSERT.\n\nSide effect of adopting PG's decision: MPP is also suppressed for\ncursor-driven queries, queries containing `PARALLEL UNSAFE` functions,\nand modifying CTEs — all cases where entering parallel mode was already\nunsafe. pg_search's `@@@`, `score`, and `snippet*` are `parallel_safe`,\nso ordinary search queries are unaffected.\n\n## How\n\nReview in this order:\n\n1. `mpp/glue.rs` — `query_allows_parallel_mode(&PlannerInfo)`: reads\n`parallelModeOK`, captured once at path creation by each scan.\n2. `mpp/launch.rs` — `mpp_eligible(mpp_query_safe, &RelNode)`: the\nsingle gate (statement safety + worker budget + min-rows), used by\n`AggregateScan::prepare_mpp`, `JoinScan::begin_custom_scan`, and both\nplain-EXPLAIN rebuilds, so rendered plans match execution.\n3. `{aggregatescan,joinscan}/privdat.rs` + `scan_state.rs` — the flag is\nserialized in private data (`#[serde(default)]`, fail-closed) and copied\ninto scan state.\n4. `joinscan/mod.rs` — `bake_logical_plan` folds `!mpp_query_safe` into\n`force_serial` at the only place plan bytes are produced, so no caller\ncan bake MPP provider metadata (`mpp_source_idx`) for an unsafe\nstatement.\n\n## Tests\n\n- New `mpp_worker_sizing` regress cases: `INSERT ... SELECT` over both\nscans (serial plan shape + correct inserted rows), and a\n`force_generic_plan` prepared `INSERT` covering JoinScan's exec-time\nrebake with a runtime `Param`.\n- Full regress: 333/333. Integration (`tests` + `tokenizers`): 619\npassed, 0 failed. Unit/`#[pg_test]`: 339 passed, 0 failed.",
+          "timestamp": "2026-09-02T11:38:09+05:30",
+          "tree_id": "540c7951897fd1e08951af9b75d85f0a2781a674",
+          "url": "https://github.com/paradedb/paradedb/commit/8a85104bf07d4f6510bb189dec2155c7a7ee4af7"
+        },
+        "date": 1788331534966,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 177.5426412533768,
+            "unit": "median tps",
+            "extra": "avg tps: 182.2762767917901, max tps: 221.17481677137957, count: 57405"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 302.4507277852461,
+            "unit": "median tps",
+            "extra": "avg tps: 326.4809270945025, max tps: 493.12078497736894, count: 57405"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 4010.060166735123,
+            "unit": "median tps",
+            "extra": "avg tps: 4001.6409161303886, max tps: 4032.5636461993577, count: 57405"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 181.17329633295714,
+            "unit": "median tps",
+            "extra": "avg tps: 186.57607380915718, max tps: 233.33088076651993, count: 57405"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3344.8655155028187,
+            "unit": "median tps",
+            "extra": "avg tps: 3328.1107031275596, max tps: 3419.93601804291, count: 57405"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3387.881355489721,
+            "unit": "median tps",
+            "extra": "avg tps: 3400.1481141255726, max tps: 3473.387370094403, count: 57405"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 155.60749020776552,
+            "unit": "median tps",
+            "extra": "avg tps: 158.9664325254688, max tps: 185.19589702855464, count: 57405"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 269.5116799467205,
+            "unit": "median tps",
+            "extra": "avg tps: 280.4178468307177, max tps: 361.4753689478681, count: 57405"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Primary - tps",
+            "value": 501.99932008834406,
+            "unit": "median tps",
+            "extra": "avg tps: 509.4628678937882, max tps: 575.9232792220924, count: 57405"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 575.8443120984298,
+            "unit": "median tps",
+            "extra": "avg tps: 584.5444271828661, max tps: 658.8291034143499, count: 57405"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1274.535411864687,
+            "unit": "median tps",
+            "extra": "avg tps: 1274.6372860918837, max tps: 1283.9360253960049, count: 57405"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 321.46217481792047,
+            "unit": "median tps",
+            "extra": "avg tps: 347.34223931314915, max tps: 548.7311269033377, count: 57405"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 525.5760792153641,
+            "unit": "median tps",
+            "extra": "avg tps: 534.7193713244897, max tps: 624.8372494226894, count: 57405"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2326.629432584036,
+            "unit": "median tps",
+            "extra": "avg tps: 2334.038624049311, max tps: 2507.728826985977, count: 57405"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1731.6819442152798,
+            "unit": "median tps",
+            "extra": "avg tps: 1748.3366041101679, max tps: 2057.6663504050216, count: 57405"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 21.36329968127025,
+            "unit": "median tps",
+            "extra": "avg tps: 24.59762279184578, max tps: 179.00613492382843, count: 57405"
           }
         ]
       }

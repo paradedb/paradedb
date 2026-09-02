@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788330412577,
+  "lastUpdate": 1788330421082,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -309282,6 +309282,90 @@ window.BENCHMARK_DATA = {
             "value": 575.0563754510674,
             "unit": "median tps",
             "extra": "avg tps: 580.8674648815811, max tps: 640.9941923247394, count: 55395"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8a85104bf07d4f6510bb189dec2155c7a7ee4af7",
+          "message": "fix: respect PostgreSQL parallel mode for MPP scans (#6181)\n\n# Ticket(s) Closed\n\n- Closes #6157\n\n## What\n\nGate MPP producer-worker launch on PostgreSQL's statement-wide\nparallel-mode decision (`PlannerGlobal.parallelModeOK`). A DataFusion\ncustom scan under `ModifyTable` now plans and runs serially instead of\nfailing with `cannot assign transaction IDs during a parallel\noperation`. The scan is still selected and still runs on DataFusion.\n\n## Why\n\nMPP launches its own producers via `EnterParallelMode()`, bypassing\nPostgreSQL's per-statement decision. Under `INSERT ... SELECT` that\ndecision is false, and the heap write's `AssignTransactionId` errors\nonce the backend is in parallel mode. The subplan's own query level\ncan't detect this — a SELECT under `ModifyTable` is still `CMD_SELECT`;\nonly the statement-wide flag reflects the enclosing INSERT.\n\nSide effect of adopting PG's decision: MPP is also suppressed for\ncursor-driven queries, queries containing `PARALLEL UNSAFE` functions,\nand modifying CTEs — all cases where entering parallel mode was already\nunsafe. pg_search's `@@@`, `score`, and `snippet*` are `parallel_safe`,\nso ordinary search queries are unaffected.\n\n## How\n\nReview in this order:\n\n1. `mpp/glue.rs` — `query_allows_parallel_mode(&PlannerInfo)`: reads\n`parallelModeOK`, captured once at path creation by each scan.\n2. `mpp/launch.rs` — `mpp_eligible(mpp_query_safe, &RelNode)`: the\nsingle gate (statement safety + worker budget + min-rows), used by\n`AggregateScan::prepare_mpp`, `JoinScan::begin_custom_scan`, and both\nplain-EXPLAIN rebuilds, so rendered plans match execution.\n3. `{aggregatescan,joinscan}/privdat.rs` + `scan_state.rs` — the flag is\nserialized in private data (`#[serde(default)]`, fail-closed) and copied\ninto scan state.\n4. `joinscan/mod.rs` — `bake_logical_plan` folds `!mpp_query_safe` into\n`force_serial` at the only place plan bytes are produced, so no caller\ncan bake MPP provider metadata (`mpp_source_idx`) for an unsafe\nstatement.\n\n## Tests\n\n- New `mpp_worker_sizing` regress cases: `INSERT ... SELECT` over both\nscans (serial plan shape + correct inserted rows), and a\n`force_generic_plan` prepared `INSERT` covering JoinScan's exec-time\nrebake with a runtime `Param`.\n- Full regress: 333/333. Integration (`tests` + `tokenizers`): 619\npassed, 0 failed. Unit/`#[pg_test]`: 339 passed, 0 failed.",
+          "timestamp": "2026-09-02T11:38:09+05:30",
+          "tree_id": "540c7951897fd1e08951af9b75d85f0a2781a674",
+          "url": "https://github.com/paradedb/paradedb/commit/8a85104bf07d4f6510bb189dec2155c7a7ee4af7"
+        },
+        "date": 1788330406789,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 201.04480667678737,
+            "unit": "median tps",
+            "extra": "avg tps: 201.7318415106264, max tps: 218.4220708569462, count: 55341"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 204.11604454595764,
+            "unit": "median tps",
+            "extra": "avg tps: 204.73372662625013, max tps: 222.32220514166957, count: 55341"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 180.46567778731142,
+            "unit": "median tps",
+            "extra": "avg tps: 181.2117891210645, max tps: 204.84709619208894, count: 55341"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 496.986428051422,
+            "unit": "median tps",
+            "extra": "avg tps: 502.16290419941885, max tps: 679.2084117050896, count: 55341"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 355.1139379542272,
+            "unit": "median tps",
+            "extra": "avg tps: 357.5344979831898, max tps: 434.6979863919874, count: 55341"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.865763850774396,
+            "unit": "median tps",
+            "extra": "avg tps: 14.862980676001785, max tps: 15.887276162407199, count: 55341"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Subscriber - tps",
+            "value": 678.2371148855965,
+            "unit": "median tps",
+            "extra": "avg tps: 678.1247558662096, max tps: 802.9572379769867, count: 55341"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 694.1567374834799,
+            "unit": "median tps",
+            "extra": "avg tps: 694.2961371088712, max tps: 818.4385028173517, count: 55341"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 275.91446615323923,
+            "unit": "median tps",
+            "extra": "avg tps: 277.5061357907962, max tps: 330.45985679329976, count: 55341"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 593.1678330819534,
+            "unit": "median tps",
+            "extra": "avg tps: 593.4613669182093, max tps: 651.9130928535917, count: 55341"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788369243888,
+  "lastUpdate": 1788369251880,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -302844,6 +302844,66 @@ window.BENCHMARK_DATA = {
             "value": 168,
             "unit": "median segment_count",
             "extra": "avg segment_count: 194.23786048389812, max segment_count: 361.0, count: 59434"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "236c5131f72436f93b1d802c19b958f9e2de10b4",
+          "message": "perf: defer visibility and late materialization in more join plans (#6139)\n\nThis PR re-lands the deferred visibility and late-materialization work\nfrom #6119, adds a kill-switch so aggregates stay on the eager path for\nnow, and dedups the optimizer rules.\n\n## Why\n\n#6119 lets a scan defer its visibility check (and string decode) to a\n`VisibilityFilterExec` above a join, so rows dropped by the join, a\nfilter, or a LIMIT never pay the check. That helps when an intermediate\nnode reduces rows. For aggregate-on-join it did not: the benchmark heaps\nare ~100% all-visible, so the eager in-scan check is cheap, and\ndeferring only moves the ctid fetch past the `HashJoin` where it loses\nthe scan's ctid-sorted locality. Deferral there was a loss.\n\nSo aggregates keep the eager, in-scan path until selective late\nmaterialization can decide per-source when deferral pays. #6155 explored\na plan-time cost gate for it and was closed with the findings; the\nselective design needs statistics-driven or run-time decisions.\n\n## What\n\n- `paradedb.enable_aggregate_late_materialization` (default `false`)\ngates deferral for the aggregate-on-join path. With it off, aggregate\nplans check visibility in the scan, as before #6119. The join and TopK\npaths keep #6119's behavior.\n- The visibility and late-materialization optimizer rules shared their\nprovider downcast, reduction-node test, and beneficial-ancestor walk\ninto `pg_search_provider_from_scan`, `is_reduction_node`, and\n`has_reduction_before_stop`.\n- The beneficial walk no longer credits a Full barrier itself. A Full\nbarrier keeps every check below it, so its own reduction comes after the\ncheck. A scan under a mark or full join with nothing reducing in between\nkeeps its in-scan check instead of a `VisibilityFilterExec` wrap that\nfilters the same rows. The visibility rule's ctid-projection forcing\nmoved into two helper functions so the `transform_up` closure becomes as\nits two steps: activate the scan, then carry the ctid up through\nrow-preserving nodes.\n\n## Tests\n\n- `enable_aggregate_late_materialization` off reverts the aggregate\nexpected plans to eager; the join, TopK, and distinct expected files are\nunchanged from #6119.\n- Two unit tests pin the Full-join contract (no wrap without a reduction\nbelow the join, wrap on the reduced side only). `issue_4531`,\n`issue_4667`, `issue_4719`, and `join_outer_edge` drop the wraps that\nsat directly above their scans.\n\n## CI benchmarks\n\nThe Queries benchmark on the current head is neutral against main\n([run](https://github.com/paradedb/paradedb/actions/runs/33470217899),\n[main\nbaseline](https://github.com/paradedb/paradedb/actions/runs/33218525532)).\nNothing moved beyond noise: the largest tight-interval delta\n(`bucket-expr-filter`, 1.06 at 20m) is a single-table `GroupAggregate`\nthis PR does not touch, and `join_conjunctive_score_sort` (1.07 at 20m)\nhas overlapping confidence intervals and is flat at 100k and 1m.\n\nThe follow-up that decouples ctid fetching from the visibility check\n(moving column loading into `TantivyLookupExec`) will stack on this\nbranch.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-09-02T12:54:54-04:00",
+          "tree_id": "9ac244769e7a89e857852a22e3f0883b7975d35e",
+          "url": "https://github.com/paradedb/paradedb/commit/236c5131f72436f93b1d802c19b958f9e2de10b4"
+        },
+        "date": 1788369248794,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 23.426062,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.113307482672955, max cpu: 33.6, count: 59421"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 44.48828125,
+            "unit": "median mem",
+            "extra": "avg mem: 44.10684919367732, max mem: 44.55859375, count: 59421"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.972332,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.962590769913213, max cpu: 43.243244, count: 59421"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 102.46875,
+            "unit": "median mem",
+            "extra": "avg mem: 101.41861134426381, max mem: 102.46875, count: 59421"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 26560,
+            "unit": "median block_count",
+            "extra": "avg block_count: 25417.309149963818, max block_count: 29124.0, count: 59421"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 168,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 194.42510223658303, max segment_count: 359.0, count: 59421"
           }
         ]
       }

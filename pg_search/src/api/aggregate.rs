@@ -17,7 +17,7 @@
 
 //! Aggregate functions for ParadeDB search.
 //!
-//! ## User-Facing Function: `pdb.agg(jsonb)` and `pdb.agg(jsonb, bool)`
+//! ## User-Facing Function: `pdb.agg(jsonb)`, `pdb.agg(jsonb, text)` and `pdb.agg(jsonb, bool)`
 //!
 //! This is the public API for users to specify custom Tantivy aggregations.
 //! When used in window function context (`OVER ()`), it gets intercepted at planning
@@ -26,12 +26,17 @@
 //!
 //! Example: `SELECT *, pdb.agg('{"avg": {"field": "price"}}'::jsonb) OVER () FROM products`
 //!
-//! The optional second argument controls MVCC visibility filtering:
-//! - 'enabled' (default): Apply MVCC filtering for transaction-accurate aggregates
-//! - 'disabled': Skip MVCC filtering for faster but potentially stale aggregates
+//! The optional second argument is the `visibility` mode:
+//! - 'transaction' (default): check transaction visibility, matching Postgres semantics
+//! - 'raw': skip the checks and aggregate raw index data, faster but approximate
+//! - 'threshold': check only when the estimated matching row count is below
+//!   `paradedb.visibility_threshold`
 //!
-//! Example with MVCC disabled:
-//! `SELECT *, pdb.agg('{"avg": {"field": "price"}}'::jsonb, false) OVER () FROM products`
+//! Example opting into raw index data:
+//! `SELECT *, pdb.agg('{"avg": {"field": "price"}}'::jsonb, 'raw') OVER () FROM products`
+//!
+//! The `bool` overload is the deprecated `solve_mvcc` spelling, kept so existing
+//! queries keep working: `true` means 'transaction' and `false` means 'raw'.
 //!
 //! When used with GROUP BY, the aggregate currently returns an error indicating it's not supported.
 //! The window function variant is the primary use case.
@@ -55,8 +60,10 @@ use pgrx::{Json, JsonB, PgRelation, default, pg_extern};
 use serde::{Deserialize, Serialize};
 
 use crate::aggregate::{AggregateRequest, execute_aggregate};
+use crate::api::operator::estimate_matching_rows;
 use crate::api::version::VersionInfo;
 use crate::gucs;
+use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::aggregate_type::validate_agg_json_fields;
 use crate::postgres::customscan::aggregatescan::json_rewrite::rewrite_aggregate_result_json_timestamps;
 use crate::postgres::rel::PgSearchRelation;
@@ -68,7 +75,7 @@ fn aggregate_impl(
     index: PgRelation,
     query: SearchQueryInput,
     agg: Json,
-    solve_mvcc: bool,
+    visibility: MvccVisibility,
     memory_limit: i64,
     bucket_limit: i64,
 ) -> Result<JsonB, Box<dyn Error>> {
@@ -101,11 +108,12 @@ fn aggregate_impl(
         &relation,
         query,
         AggregateRequest::Json(serde_json::from_value(agg.0)?),
-        solve_mvcc,
+        visibility,
         memory_limit.try_into()?,
         bucket_limit_u32,
         standalone_context.as_ptr(),
         std::ptr::null_mut(), // No planstate in API context
+        None,                 // No bitmap intersection in API context
     )?;
 
     if aggregate.0.is_empty() {
@@ -131,22 +139,56 @@ fn aggregate_impl(
     Ok(JsonB(output))
 }
 
-/// SQL: aggregate(index, query, agg, solve_mvcc=true, memory_limit=..., bucket_limit=GUC)
-/// SQL: aggregate(index, query, agg, solve_mvcc=true, memory_limit=..., bucket_limit=NULL)
+/// Resolve the UDF's visibility from its two spellings.
+///
+/// `visibility` is the supported parameter; `solve_mvcc` is deprecated and maps onto
+/// it. Supplying both is an error rather than a precedence rule, because either
+/// choice of winner would silently ignore something the caller asked for.
+fn resolve_udf_visibility(solve_mvcc: Option<bool>, visibility: Option<String>) -> MvccVisibility {
+    match (solve_mvcc, visibility) {
+        (Some(_), Some(_)) => pgrx::error!(
+            "cannot specify both `solve_mvcc` and `visibility`. \
+             `solve_mvcc` is deprecated: pass `visibility` alone."
+        ),
+        (Some(solve_mvcc), None) => {
+            let visibility = if solve_mvcc {
+                MvccVisibility::Transaction
+            } else {
+                MvccVisibility::Raw
+            };
+            pgrx::warning!(
+                "`solve_mvcc` is deprecated and will be removed in a future release. \
+                 Use `visibility => '{}'` instead.",
+                visibility.as_sql_value()
+            );
+            visibility
+        }
+        (None, Some(visibility)) => MvccVisibility::from_sql_value(&visibility),
+        (None, None) => MvccVisibility::default(),
+    }
+}
+
+/// SQL: aggregate(index, query, agg, solve_mvcc=NULL, memory_limit=..., bucket_limit=GUC, visibility=NULL)
 /// - bucket_limit=NULL => use GUC paradedb.max_term_agg_buckets
+/// - solve_mvcc is deprecated in favor of visibility; see `resolve_udf_visibility`
+///
+/// `visibility` is appended after `bucket_limit` rather than replacing `solve_mvcc`
+/// in place so that positional calls written against the old signature still resolve.
 #[pg_extern]
 pub fn aggregate(
     index: PgRelation,
     query: SearchQueryInput,
     agg: Json,
-    solve_mvcc: default!(bool, true),
+    solve_mvcc: default!(Option<bool>, "NULL"),
     memory_limit: default!(i64, 500000000),
     bucket_limit: default!(Option<i64>, "NULL"),
+    visibility: default!(Option<String>, "NULL"),
 ) -> Result<JsonB, Box<dyn Error>> {
     // bucket_limit NULL => use GUC
     let bucket_limit = bucket_limit.unwrap_or_else(|| gucs::max_term_agg_buckets() as i64);
+    let visibility = resolve_udf_visibility(solve_mvcc, visibility);
 
-    aggregate_impl(index, query, agg, solve_mvcc, memory_limit, bucket_limit)
+    aggregate_impl(index, query, agg, visibility, memory_limit, bucket_limit)
 }
 
 #[pgrx::pg_schema]
@@ -161,11 +203,11 @@ mod pdb {
     ///
     /// Usage:
     /// ```sql
-    /// -- Default (solve_mvcc = true)
+    /// -- Default (visibility => 'transaction')
     /// pdb.agg('{"avg": {"field": "price"}}'::jsonb)
     ///
-    /// -- Disable MVCC filtering for performance  
-    /// pdb.agg('{"avg": {"field": "price"}}'::jsonb, false)
+    /// -- Aggregate raw index data for performance
+    /// pdb.agg('{"avg": {"field": "price"}}'::jsonb, 'raw')
     /// ```
     #[derive(pgrx::AggregateName, Default)]
     #[aggregate_name = "agg"]
@@ -204,11 +246,13 @@ mod pdb {
         }
     }
 
-    /// Placeholder aggregate for `pdb.agg(jsonb, bool)` with explicit MVCC control.
+    /// Placeholder aggregate for the deprecated `pdb.agg(jsonb, bool)` overload.
     ///
-    /// The second parameter (solve_mvcc) controls MVCC visibility filtering:
-    /// - `true`: Apply MVCC filtering for transaction-accurate aggregates
-    /// - `false`: Skip MVCC filtering for faster but potentially stale aggregates
+    /// The second parameter is the old `solve_mvcc` boolean:
+    /// - `true`: equivalent to `visibility => 'transaction'`
+    /// - `false`: equivalent to `visibility => 'raw'`
+    ///
+    /// Kept so that queries written against the old signature keep working.
     #[derive(pgrx::AggregateName, Default)]
     #[aggregate_name = "agg"]
     pub struct AggPlaceholderWithMvcc;
@@ -216,6 +260,53 @@ mod pdb {
     #[pgrx::pg_aggregate(parallel_safe)]
     impl Aggregate<AggPlaceholderWithMvcc> for AggPlaceholderWithMvcc {
         type Args = (JsonB, bool);
+        type State = Internal;
+        type Finalize = JsonB;
+
+        fn state(
+            _current: Self::State,
+            _arg: Self::Args,
+            _fcinfo: pgrx::pg_sys::FunctionCallInfo,
+        ) -> Self::State {
+            pgrx::error!(
+                "pdb.agg() must be handled by ParadeDB's custom scan. \
+             This error usually means the query syntax is not supported. \
+             Try adding '@@@ pdb.all()' to your WHERE clause to force custom scan usage, \
+             or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported."
+            )
+        }
+
+        fn finalize(
+            _current: Self::State,
+            _direct_arg: Self::OrderedSetArgs,
+            _fcinfo: pgrx::pg_sys::FunctionCallInfo,
+        ) -> Self::Finalize {
+            pgrx::error!(
+                "pdb.agg() must be handled by ParadeDB's custom scan. \
+             This error usually means the query syntax is not supported. \
+             Try adding '@@@ paradedb.all()' to your WHERE clause to force custom scan usage, \
+             or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported."
+            )
+        }
+    }
+
+    /// Placeholder aggregate for `pdb.agg(jsonb, text)`, the `visibility` overload.
+    ///
+    /// The second parameter is the visibility mode: `'transaction'` (the default),
+    /// `'raw'`, or `'threshold'`. An unknown-typed literal such as `'threshold'`
+    /// resolves here rather than to the `bool` overload, because Postgres prefers
+    /// the string category when disambiguating an untyped literal.
+    ///
+    /// Keep the struct name short. `pg_aggregate` derives `<snake>_<snake>_finalize`
+    /// from it, so each character costs two and Postgres truncates past 63. The
+    /// current name lands at 61.
+    #[derive(pgrx::AggregateName, Default)]
+    #[aggregate_name = "agg"]
+    pub struct AggPlaceholderVisibility;
+
+    #[pgrx::pg_aggregate(parallel_safe)]
+    impl Aggregate<AggPlaceholderVisibility> for AggPlaceholderVisibility {
+        type Args = (JsonB, String);
         type State = Internal;
         type Finalize = JsonB;
 
@@ -274,10 +365,65 @@ pub fn agg_funcoid() -> pgrx::pg_sys::Oid {
     lookup_pdb_function("agg", &[pgrx::pg_sys::JSONBOID])
 }
 
-/// Get the OID of the pdb.agg(jsonb, bool) aggregate function with solve_mvcc parameter
+/// Get the OID of the deprecated pdb.agg(jsonb, bool) aggregate function
 /// Returns InvalidOid if the function doesn't exist yet (e.g., during extension creation)
-pub fn agg_with_solve_mvcc_funcoid() -> pgrx::pg_sys::Oid {
+fn agg_with_solve_mvcc_funcoid() -> pgrx::pg_sys::Oid {
     lookup_pdb_function("agg", &[pgrx::pg_sys::JSONBOID, pgrx::pg_sys::BOOLOID])
+}
+
+/// Get the OID of the pdb.agg(jsonb, text) aggregate function with the `visibility` parameter
+/// Returns InvalidOid if the function doesn't exist yet (e.g., during extension creation)
+fn agg_with_visibility_funcoid() -> pgrx::pg_sys::Oid {
+    lookup_pdb_function("agg", &[pgrx::pg_sys::JSONBOID, pgrx::pg_sys::TEXTOID])
+}
+
+/// The OIDs of every `pdb.agg()` overload: the one-argument form, the deprecated
+/// `(jsonb, bool)` form, and the `(jsonb, text)` form.
+///
+/// Each entry is a catalog lookup, so hoist this out of any loop that walks an
+/// expression tree rather than calling `is_agg_funcoid` per node.
+pub fn agg_funcoids() -> [u32; 3] {
+    [
+        agg_funcoid().to_u32(),
+        agg_with_solve_mvcc_funcoid().to_u32(),
+        agg_with_visibility_funcoid().to_u32(),
+    ]
+}
+
+/// True for any `pdb.agg()` overload. Convenient for a one-off check; use
+/// `agg_funcoids()` when the check is inside a tree walk.
+pub fn is_agg_funcoid(aggfnoid: u32) -> bool {
+    agg_funcoids().contains(&aggfnoid)
+}
+
+/// Decode the visibility argument of a `pdb.agg()` call.
+///
+/// `second_arg` is the second argument's expression, or `None` for the one-argument
+/// overload. A non-`Const` or NULL argument, and any overload without a visibility
+/// argument, yield the default: an undecodable mode must not silently downgrade
+/// accuracy.
+///
+/// # Safety
+/// The caller must ensure `second_arg`, when present, is a valid `Node` pointer.
+pub unsafe fn visibility_from_agg_arg(
+    aggfnoid: u32,
+    second_arg: Option<*mut pgrx::pg_sys::Node>,
+) -> MvccVisibility {
+    let Some(const_node) = second_arg.and_then(|node| nodecast!(Const, T_Const, node)) else {
+        return MvccVisibility::default();
+    };
+
+    if aggfnoid == agg_with_solve_mvcc_funcoid().to_u32() {
+        if extract_solve_mvcc_from_const(const_node) {
+            MvccVisibility::Transaction
+        } else {
+            MvccVisibility::Raw
+        }
+    } else if aggfnoid == agg_with_visibility_funcoid().to_u32() {
+        extract_visibility_from_const(const_node)
+    } else {
+        MvccVisibility::default()
+    }
 }
 
 /// Extract solve_mvcc boolean from a Const node.
@@ -285,7 +431,7 @@ pub fn agg_with_solve_mvcc_funcoid() -> pgrx::pg_sys::Oid {
 ///
 /// # Safety
 /// The caller must ensure `const_node` is a valid pointer to a Const node.
-pub unsafe fn extract_solve_mvcc_from_const(const_node: *mut pgrx::pg_sys::Const) -> bool {
+unsafe fn extract_solve_mvcc_from_const(const_node: *mut pgrx::pg_sys::Const) -> bool {
     if const_node.is_null() || (*const_node).constisnull {
         return true;
     }
@@ -293,47 +439,202 @@ pub unsafe fn extract_solve_mvcc_from_const(const_node: *mut pgrx::pg_sys::Const
     pgrx::FromDatum::from_datum(bool_datum, false).unwrap_or(true)
 }
 
-/// Controls MVCC visibility filtering for aggregate computations.
+/// Extract a `visibility` mode from a `text` Const node. A NULL or undecodable
+/// value yields the default; an unrecognized string is an error.
 ///
-/// This enum determines whether aggregations should apply Postgres MVCC
-/// (Multi-Version Concurrency Control) filtering to ensure transaction-consistent results.
+/// # Safety
+/// The caller must ensure `const_node` is a valid pointer to a Const node.
+unsafe fn extract_visibility_from_const(const_node: *mut pgrx::pg_sys::Const) -> MvccVisibility {
+    if const_node.is_null() || (*const_node).constisnull {
+        return MvccVisibility::default();
+    }
+    let datum = (*const_node).constvalue;
+    match <String as pgrx::FromDatum>::from_datum(datum, false) {
+        Some(value) => MvccVisibility::from_sql_value(&value),
+        None => MvccVisibility::default(),
+    }
+}
+
+/// Controls transaction visibility filtering for aggregate computations.
 ///
-/// The values are designed to be extensible for future enhancements, such as:
-/// - Dynamic MVCC based on query estimate (for small result sets, accuracy matters more)
-/// - Sampling-based MVCC for very large result sets
+/// Aggregates read the index rather than the heap, so an index entry for a row that
+/// is dead or invisible to the current snapshot is only excluded if it is checked
+/// against the heap. This enum decides whether that check runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum MvccVisibility {
-    /// Apply MVCC filtering for transaction-accurate aggregates.
-    /// This is the default behavior - aggregates will only include rows
-    /// visible to the current transaction.
+    /// Apply visibility checking, so aggregates count only rows visible to the
+    /// current transaction. The default, and the only mode that matches vanilla
+    /// Postgres semantics.
     #[default]
-    Enabled,
-    /// Skip MVCC filtering for performance.
-    /// Aggregates may include rows that are not visible to the current transaction,
-    /// but computation will be faster.
-    Disabled,
+    Transaction,
+    /// Skip visibility checking and aggregate raw index data. Faster, and
+    /// approximate whenever the index holds entries for rows the transaction
+    /// cannot see.
+    Raw,
+    /// Apply visibility checking only when the query's estimated matching row
+    /// count is below `paradedb.visibility_threshold`. Resolved per execution,
+    /// not per plan.
+    Threshold,
 }
 
 impl MvccVisibility {
-    /// Parse from a string value (case-insensitive).
-    /// Returns the default (Enabled) for unrecognized values with a warning.
-    pub fn from_str_or_default(s: &str) -> Self {
-        match s.to_lowercase().as_str() {
-            "enabled" | "true" | "on" | "1" => MvccVisibility::Enabled,
-            "disabled" | "false" | "off" | "0" => MvccVisibility::Disabled,
-            other => {
-                pgrx::warning!(
-                    "Unknown MVCC visibility mode '{}'. Using 'enabled'. \
-                     Valid values: 'enabled', 'disabled'.",
-                    other
-                );
-                MvccVisibility::Enabled
+    /// Parse a SQL-level `visibility` value (case-insensitive), or `None` when the
+    /// value is not one of the recognized spellings.
+    ///
+    /// The legacy `solve_mvcc` spellings are accepted as aliases so that queries
+    /// written against the old parameter keep working.
+    ///
+    /// Kept free of `pgrx::error!` so it stays a pure function. Reporting the error
+    /// is `from_sql_value`'s job: a unit test that reached the reporting path would
+    /// pull Postgres's `ereport` symbols into the test binary, which does not link
+    /// on Linux.
+    pub fn try_from_sql_value(value: &str) -> Option<Self> {
+        Some(match value.trim().to_lowercase().as_str() {
+            // The boolean spellings are the ones Postgres itself accepts for a
+            // `boolean` input, since this value used to be one.
+            "transaction" | "true" | "t" | "yes" | "y" | "on" | "1" | "enabled" | "always" => {
+                MvccVisibility::Transaction
             }
+            "raw" | "false" | "f" | "no" | "n" | "off" | "0" | "disabled" | "never" => {
+                MvccVisibility::Raw
+            }
+            "threshold" | "estimated" => MvccVisibility::Threshold,
+            _ => return None,
+        })
+    }
+
+    /// Parse a SQL-level `visibility` value, erroring on an unrecognized one rather
+    /// than guessing. Guessing wrong either costs accuracy silently or costs the
+    /// performance the caller asked for.
+    pub fn from_sql_value(value: &str) -> Self {
+        Self::try_from_sql_value(value).unwrap_or_else(|| {
+            pgrx::error!(
+                "unrecognized visibility mode '{value}'. \
+                 Valid values: 'transaction' (default), 'raw', 'threshold'."
+            )
+        })
+    }
+
+    /// The canonical SQL spelling, for error and deprecation messages.
+    pub fn as_sql_value(&self) -> &'static str {
+        match self {
+            MvccVisibility::Transaction => "transaction",
+            MvccVisibility::Raw => "raw",
+            MvccVisibility::Threshold => "threshold",
         }
     }
 
-    /// Returns true if MVCC filtering should be applied
-    pub fn should_filter(&self) -> bool {
-        matches!(self, MvccVisibility::Enabled)
+    /// Resolve to whether visibility checking actually runs for this execution.
+    ///
+    /// `Threshold` estimates the query's matching row count, which costs one extra
+    /// single-segment index open. Anything we cannot estimate falls back to
+    /// checking: an unknown row count must not silently downgrade accuracy.
+    ///
+    /// The estimate opens the index without an expression context, so a query
+    /// carrying heap filters or unsolved Postgres expressions is not estimated at
+    /// all. Building a Tantivy query for those shapes requires the context, and
+    /// the accurate side of the branch is the safe place to land.
+    pub fn resolve_filtering(&self, indexrel: &PgSearchRelation, query: &SearchQueryInput) -> bool {
+        match self {
+            MvccVisibility::Transaction => true,
+            MvccVisibility::Raw => false,
+            MvccVisibility::Threshold => {
+                if query.has_heap_filters() || query.has_postgres_expressions() {
+                    return true;
+                }
+                estimate_matching_rows(indexrel, query.clone())
+                    .is_none_or(|rows| rows < gucs::visibility_threshold())
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MvccVisibility;
+
+    // These exercise `try_from_sql_value`, never `from_sql_value`. The erroring
+    // wrapper calls `pgrx::error!`, and referencing it from a unit test pulls
+    // Postgres's `ereport` symbols into the lib test binary, which does not link
+    // on Linux. The SQL-level error is covered by the `visibility` regress test.
+
+    #[test]
+    fn parses_canonical_visibility_values() {
+        assert_eq!(
+            MvccVisibility::try_from_sql_value("transaction"),
+            Some(MvccVisibility::Transaction)
+        );
+        assert_eq!(
+            MvccVisibility::try_from_sql_value("raw"),
+            Some(MvccVisibility::Raw)
+        );
+        assert_eq!(
+            MvccVisibility::try_from_sql_value("threshold"),
+            Some(MvccVisibility::Threshold)
+        );
+    }
+
+    #[test]
+    fn parses_legacy_solve_mvcc_spellings() {
+        for value in ["true", "t", "yes", "y", "on", "1", "enabled", "always"] {
+            assert_eq!(
+                MvccVisibility::try_from_sql_value(value),
+                Some(MvccVisibility::Transaction),
+                "{value} should map to transaction"
+            );
+        }
+        for value in ["false", "f", "no", "n", "off", "0", "disabled", "never"] {
+            assert_eq!(
+                MvccVisibility::try_from_sql_value(value),
+                Some(MvccVisibility::Raw),
+                "{value} should map to raw"
+            );
+        }
+        assert_eq!(
+            MvccVisibility::try_from_sql_value("estimated"),
+            Some(MvccVisibility::Threshold)
+        );
+    }
+
+    #[test]
+    fn parsing_ignores_case_and_surrounding_whitespace() {
+        assert_eq!(
+            MvccVisibility::try_from_sql_value("  ThReSHoLd \t"),
+            Some(MvccVisibility::Threshold)
+        );
+        assert_eq!(
+            MvccVisibility::try_from_sql_value("RAW"),
+            Some(MvccVisibility::Raw)
+        );
+    }
+
+    #[test]
+    fn rejects_unrecognized_values() {
+        for value in ["nonsense", "", "  ", "transactional", "rawish", "10000"] {
+            assert_eq!(
+                MvccVisibility::try_from_sql_value(value),
+                None,
+                "{value:?} should not parse"
+            );
+        }
+    }
+
+    #[test]
+    fn transaction_is_the_default() {
+        assert_eq!(MvccVisibility::default(), MvccVisibility::Transaction);
+    }
+
+    #[test]
+    fn sql_values_round_trip() {
+        for visibility in [
+            MvccVisibility::Transaction,
+            MvccVisibility::Raw,
+            MvccVisibility::Threshold,
+        ] {
+            assert_eq!(
+                MvccVisibility::try_from_sql_value(visibility.as_sql_value()),
+                Some(visibility)
+            );
+        }
     }
 }

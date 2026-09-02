@@ -19,7 +19,8 @@ use anyhow::{Context, Result, bail};
 use clap::{ArgAction, Parser};
 use serde_json::Value;
 use std::env;
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -90,6 +91,15 @@ struct PgBackRestOptions {
 struct PreparedConfig {
     path: PathBuf,
     stanza: String,
+    generated: bool,
+}
+
+impl Drop for PreparedConfig {
+    fn drop(&mut self) {
+        if self.generated {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
 }
 
 struct AwsCredentials {
@@ -153,6 +163,7 @@ fn prepare_config(options: &PgBackRestOptions) -> Result<PreparedConfig> {
         return Ok(PreparedConfig {
             path: config.clone(),
             stanza: stanza.to_string(),
+            generated: false,
         });
     }
 
@@ -219,13 +230,27 @@ fn prepare_config(options: &PgBackRestOptions) -> Result<PreparedConfig> {
         process_max,
         credentials,
     });
-    fs::write(&config_path, config)
+    write_private_config(&config_path, config.as_bytes())
         .with_context(|| format!("Failed to write '{}'", config_path.display()))?;
 
     Ok(PreparedConfig {
         path: config_path,
         stanza: stanza.to_string(),
+        generated: true,
     })
+}
+
+fn write_private_config(path: &Path, contents: &[u8]) -> Result<()> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
+    file.write_all(contents)?;
+    Ok(())
 }
 
 fn load_aws_credentials() -> Result<AwsCredentials> {
@@ -370,4 +395,45 @@ fn command_output(output: &std::process::Output) -> String {
         return stderr;
     }
     String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_path(name: &str) -> PathBuf {
+        env::temp_dir().join(format!(
+            "paradedb-benchmarks-{name}-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("unnamed")
+        ))
+    }
+
+    #[test]
+    fn generated_config_is_removed_on_drop() {
+        let path = test_path("cleanup");
+        let _ = fs::remove_file(&path);
+        write_private_config(&path, b"secret").unwrap();
+        let config = PreparedConfig {
+            path: path.clone(),
+            stanza: "bench".to_string(),
+            generated: true,
+        };
+        assert!(path.exists());
+        drop(config);
+        assert!(!path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn generated_config_is_private() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = test_path("permissions");
+        let _ = fs::remove_file(&path);
+        write_private_config(&path, b"secret").unwrap();
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        fs::remove_file(path).unwrap();
+        assert_eq!(mode, 0o600);
+    }
 }

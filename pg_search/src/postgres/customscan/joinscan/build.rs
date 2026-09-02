@@ -30,6 +30,7 @@ use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 pub use crate::scan::ScanInfo;
 use anyhow::anyhow;
+use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use pgrx::{PgList, pg_sys};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -302,15 +303,12 @@ impl JoinKeyPair {
 pub struct JoinLevelSearchPredicate {
     /// The RTI of the relation this predicate applies to (used for column resolution).
     pub rti: pg_sys::Index,
-    /// The OID of the BM25 index to use.
+    /// The OID of the ParadeDB index to use.
     pub indexrelid: pg_sys::Oid,
     /// The OID of the heap relation for visibility checks.
     pub heaprelid: pg_sys::Oid,
     /// The search query.
     pub query: SearchQueryInput,
-    /// Human-readable representation of the original PostgreSQL expression (for EXPLAIN output).
-    /// Eagerly computed during planning via `deparse_expr`.
-    pub display_string: String,
 }
 
 pub use crate::postgres::customscan::expr_eval::InputVarInfo;
@@ -365,6 +363,7 @@ pub struct JoinSourceCandidate {
     pub fields: Vec<FieldInfo>,
     pub partition_by: Vec<crate::api::FieldName>,
     pub estimate: Option<RowEstimate>,
+    pub estimate_from_total_docs: bool,
     pub segment_count: Option<usize>,
 }
 
@@ -382,6 +381,7 @@ impl JoinSourceCandidate {
             fields: Vec::new(),
             partition_by: Vec::new(),
             estimate: None,
+            estimate_from_total_docs: false,
             segment_count: None,
         }
     }
@@ -454,6 +454,7 @@ impl JoinSourceCandidate {
                 .expect("Failed to open index reader for estimation");
             self.segment_count = Some(reader.total_segment_count());
             self.estimate = Some(RowEstimate::Known(reader.total_docs()));
+            self.estimate_from_total_docs = true;
             return;
         }
 
@@ -489,7 +490,7 @@ pub struct JoinSource {
     /// must stay distinguishable inside the plan:
     /// - synthetic ctid columns are named `ctid_<plan_position>`
     /// - deferred-visibility state is tracked per source
-    /// - SearchPredicateUDF canonical segment IDs are keyed by it
+    /// - canonical segment IDs are keyed by it
     ///
     /// `indexrelid` is not sufficient here because the same underlying index can
     /// appear more than once in a single JoinScan plan (for example a self-join,
@@ -545,6 +546,9 @@ impl JoinSource {
 
     /// Resolve an attribute number to its DataFusion column name.
     pub fn column_name(&self, attno: pg_sys::AttrNumber) -> Option<String> {
+        if attno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber {
+            return Some(CtidColumn::new(self.plan_position).to_string());
+        }
         self.scan_info
             .fields
             .iter()
@@ -592,7 +596,9 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
                         candidate.heap_rti
                     )
                 })?,
-                query: candidate.query.unwrap_or(SearchQueryInput::All),
+                mode: crate::scan::ScanMode::standard(
+                    candidate.query.unwrap_or(SearchQueryInput::All),
+                ),
                 has_search_predicate: candidate.has_search_predicate,
                 alias: candidate.alias,
                 score_needed: candidate.score_needed,
@@ -604,6 +610,7 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
                         candidate.heap_rti
                     )
                 })?,
+                estimate_from_total_docs: candidate.estimate_from_total_docs,
                 segment_count: candidate.segment_count.ok_or_else(|| {
                     anyhow!(
                         "cannot build JoinSource for RTI {}: segment_count is missing",
@@ -624,8 +631,6 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
 pub struct MultiTablePredicateInfo {
     /// Human-readable description for EXPLAIN output.
     pub description: String,
-    /// Index of this condition in the restrictlist (for runtime extraction).
-    pub restrictinfo_index: usize,
 }
 
 /// A boolean expression tree for join-level conditions.
@@ -635,13 +640,12 @@ pub enum JoinLevelExpr {
     SingleTablePredicate {
         /// Plan position of the source (in the order yielded by `RelNode::sources()`) this predicate references.
         plan_position: usize,
-        /// Index into the `join_level_predicates` vector.
-        predicate_idx: usize,
+        /// The search predicate to evaluate against Tantivy.
+        predicate: Box<JoinLevelSearchPredicate>,
     },
     /// Leaf: multi-table predicate, evaluate at runtime against the joined row pair.
     MultiTablePredicate {
-        /// Index into the `multi_table_predicates` vector.
-        predicate_idx: usize,
+        predicate: Box<MultiTablePredicateInfo>,
     },
     /// Logical AND of child expressions.
     And(Vec<JoinLevelExpr>),
@@ -680,6 +684,124 @@ pub enum JoinLevelExpr {
         pg_node_string: String,
         input_vars: Vec<InputVarInfo>,
     },
+}
+
+impl JoinLevelExpr {
+    pub fn has_search_predicate(&self) -> bool {
+        match self {
+            Self::SingleTablePredicate { .. } => true,
+            Self::MultiTablePredicate { .. } => false,
+            Self::And(children) | Self::Or(children) => {
+                children.iter().any(|c| c.has_search_predicate())
+            }
+            Self::Not(inner) => inner.has_search_predicate(),
+            Self::MarkOrNull { .. } | Self::PgExpression { .. } => false,
+        }
+    }
+
+    pub fn has_multi_table_predicate(&self) -> bool {
+        match self {
+            Self::SingleTablePredicate { .. } => false,
+            Self::MultiTablePredicate { .. } => true,
+            Self::And(children) | Self::Or(children) => {
+                children.iter().any(|c| c.has_multi_table_predicate())
+            }
+            Self::Not(inner) => inner.has_multi_table_predicate(),
+            Self::MarkOrNull { .. } | Self::PgExpression { .. } => false,
+        }
+    }
+
+    pub fn offset_plan_positions(&mut self, offset: usize) {
+        if offset == 0 {
+            return;
+        }
+        match self {
+            Self::SingleTablePredicate { plan_position, .. } => {
+                *plan_position += offset;
+            }
+            Self::MultiTablePredicate { .. } => {}
+            Self::And(children) | Self::Or(children) => {
+                for c in children {
+                    c.offset_plan_positions(offset);
+                }
+            }
+            Self::Not(inner) => inner.offset_plan_positions(offset),
+            Self::MarkOrNull { .. } | Self::PgExpression { .. } => {}
+        }
+    }
+
+    pub fn collect_search_predicates<'a>(
+        &'a self,
+        acc: &mut Vec<(usize, &'a JoinLevelSearchPredicate)>,
+    ) {
+        match self {
+            Self::SingleTablePredicate {
+                plan_position,
+                predicate,
+            } => {
+                acc.push((*plan_position, predicate.as_ref()));
+            }
+            Self::And(children) | Self::Or(children) => {
+                for c in children {
+                    c.collect_search_predicates(acc);
+                }
+            }
+            Self::Not(inner) => inner.collect_search_predicates(acc),
+            Self::MultiTablePredicate { .. }
+            | Self::MarkOrNull { .. }
+            | Self::PgExpression { .. } => {}
+        }
+    }
+
+    pub fn visit_queries_mut(&mut self, f: &mut impl FnMut(&mut SearchQueryInput)) {
+        match self {
+            Self::SingleTablePredicate { predicate, .. } => f(&mut predicate.query),
+            Self::And(children) | Self::Or(children) => {
+                for c in children {
+                    c.visit_queries_mut(f);
+                }
+            }
+            Self::Not(inner) => inner.visit_queries_mut(f),
+            Self::MultiTablePredicate { .. }
+            | Self::MarkOrNull { .. }
+            | Self::PgExpression { .. } => {}
+        }
+    }
+
+    pub fn visit_queries(&self, f: &mut impl FnMut(&SearchQueryInput)) {
+        match self {
+            Self::SingleTablePredicate { predicate, .. } => f(&predicate.query),
+            Self::And(children) | Self::Or(children) => {
+                for c in children {
+                    c.visit_queries(f);
+                }
+            }
+            Self::Not(inner) => inner.visit_queries(f),
+            Self::MultiTablePredicate { .. }
+            | Self::MarkOrNull { .. }
+            | Self::PgExpression { .. } => {}
+        }
+    }
+
+    pub fn collect_multi_table_predicates<'a>(
+        &'a self,
+        acc: &mut Vec<&'a MultiTablePredicateInfo>,
+    ) {
+        match self {
+            Self::MultiTablePredicate { predicate } => {
+                acc.push(predicate.as_ref());
+            }
+            Self::And(children) | Self::Or(children) => {
+                for c in children {
+                    c.collect_multi_table_predicates(acc);
+                }
+            }
+            Self::Not(inner) => inner.collect_multi_table_predicates(acc),
+            Self::SingleTablePredicate { .. }
+            | Self::MarkOrNull { .. }
+            | Self::PgExpression { .. } => {}
+        }
+    }
 }
 
 /// A node in the intermediate relational plan tree.
@@ -740,7 +862,7 @@ impl JoinNode {
     ///
     /// PG emits the right-oriented form (joinrels.c) when its hash-join cost
     /// model prefers to hash the preserved side -- a physical choice JoinScan
-    /// discards, since it joins BM25 indexes in DataFusion rather than via PG's
+    /// discards, since it joins ParadeDB indexes in DataFusion rather than via PG's
     /// hash table. A right-semi is just a left-semi with the inputs swapped
     /// (same rows, same key). The swap restores the `left == preserved side`
     /// invariant that [`RelNode::output_sources`], visibility filtering, and
@@ -771,17 +893,158 @@ pub struct FilterNode {
 
 type JoinKeySide<'a> = (&'a JoinSource, pg_sys::AttrNumber);
 
-// TODO: Implement `datafusion::common::tree_node::TreeNode` for `RelNode`.
-// This trait will likely be implemented in a future patch to enable functional, boilerplate-free
-// tree rewrites (using `.transform_up()` and `.transform_down()`). This is specifically
-// useful for hoisting PostgreSQL subqueries (like `InitPlan`s temporarily stored inside
-// expressions) into relational `SemiJoin` or `AntiJoin` nodes in the IR tree.
+// `RelNode` implements DataFusion's `TreeNode` trait to enable functional, boilerplate-free
+// tree walks and rewrites (`.apply()`, `.exists()`, `.transform_up()`, `.transform_down()`).
+//
+// TODO: Consider migrating additional manual tree-walking operations (such as
+// `rewrite_pruned_join_keys`, `output_sources`, or subquery lifting) to use `TreeNode`
+// methods.
+impl TreeNode for RelNode {
+    fn apply_children<'n, F: FnMut(&'n Self) -> datafusion::common::Result<TreeNodeRecursion>>(
+        &'n self,
+        mut f: F,
+    ) -> datafusion::common::Result<TreeNodeRecursion> {
+        match self {
+            Self::Scan(_) => Ok(TreeNodeRecursion::Continue),
+            Self::Filter(filter) => f(&filter.input),
+            Self::Join(join) => f(&join.left)?.visit_sibling(|| f(&join.right)),
+        }
+    }
+
+    fn map_children<F: FnMut(Self) -> datafusion::common::Result<Transformed<Self>>>(
+        self,
+        mut f: F,
+    ) -> datafusion::common::Result<Transformed<Self>> {
+        match self {
+            Self::Scan(_) => Ok(Transformed::no(self)),
+            Self::Filter(filter) => {
+                let FilterNode { input, predicate } = *filter;
+                let input = f(input)?;
+                Ok(input
+                    .update_data(|input| Self::Filter(Box::new(FilterNode { input, predicate }))))
+            }
+            Self::Join(mut join) => {
+                let left = f(join.left)?;
+                let right = f(join.right)?;
+                let transformed = left.transformed || right.transformed;
+                let tnr = left.tnr.visit_sibling(|| Ok(right.tnr))?;
+                join.left = left.data;
+                join.right = right.data;
+                Ok(Transformed::new(Self::Join(join), transformed, tnr))
+            }
+        }
+    }
+}
 
 impl RelNode {
+    /// Returns true if this node or any subtree contains a search predicate.
+    pub fn has_search_predicate(&self) -> bool {
+        self.exists(|node| {
+            let has = match node {
+                Self::Scan(s) => s.has_search_predicate(),
+                Self::Filter(f) => f.predicate.has_search_predicate(),
+                Self::Join(j) => {
+                    !j.absorbed_search_clauses.is_empty()
+                        || j.filter.as_ref().is_some_and(|f| f.has_search_predicate())
+                }
+            };
+            Ok(has)
+        })
+        .unwrap_or(false)
+    }
+
+    /// Returns true if this node or any subtree contains a multi-table predicate.
+    pub fn has_multi_table_predicates(&self) -> bool {
+        self.exists(|node| {
+            let has = match node {
+                Self::Filter(f) => f.predicate.has_multi_table_predicate(),
+                Self::Join(j) => j
+                    .filter
+                    .as_ref()
+                    .is_some_and(|f| f.has_multi_table_predicate()),
+                Self::Scan(_) => false,
+            };
+            Ok(has)
+        })
+        .unwrap_or(false)
+    }
+
+    /// Recursively collects all search predicates in this tree.
+    pub fn search_predicates(&self) -> Vec<JoinLevelSearchPredicate> {
+        let mut predicates = Vec::new();
+        let _ = self.apply(|node| {
+            if let Self::Filter(f) = node {
+                f.predicate.collect_search_predicates(&mut predicates);
+            }
+            if let Self::Join(j) = node
+                && let Some(ref f) = j.filter
+            {
+                f.collect_search_predicates(&mut predicates);
+            }
+            Ok(TreeNodeRecursion::Continue)
+        });
+        predicates.into_iter().map(|(_, p)| p.clone()).collect()
+    }
+
+    /// Recursively collects all multi-table predicates in this tree.
+    pub fn multi_table_predicates(&self) -> Vec<MultiTablePredicateInfo> {
+        let mut predicates = Vec::new();
+        let _ = self.apply(|node| {
+            if let Self::Filter(f) = node {
+                f.predicate.collect_multi_table_predicates(&mut predicates);
+            }
+            if let Self::Join(j) = node
+                && let Some(ref f) = j.filter
+            {
+                f.collect_multi_table_predicates(&mut predicates);
+            }
+            Ok(TreeNodeRecursion::Continue)
+        });
+        predicates.into_iter().cloned().collect()
+    }
+
+    /// Offset plan_position on all SingleTablePredicate expressions in this tree.
+    pub fn offset_plan_positions(self, offset: usize) -> Self {
+        if offset == 0 {
+            return self;
+        }
+        self.transform_down(|mut node| {
+            match &mut node {
+                Self::Scan(_) => {}
+                Self::Filter(f) => f.predicate.offset_plan_positions(offset),
+                Self::Join(j) => {
+                    if let Some(ref mut filter) = j.filter {
+                        filter.offset_plan_positions(offset);
+                    }
+                }
+            }
+            Ok(Transformed::yes(node))
+        })
+        .expect("infallible tree transformation")
+        .data
+    }
+
     /// Recursively collects all unsupported join types found in the tree.
     pub fn unsupported_join_types(&self) -> Vec<JoinType> {
         let mut unsupported = Vec::new();
-        self.collect_unsupported_join_types(&mut unsupported);
+        let _ = self.apply(|node| {
+            if let Self::Join(j) = node
+                && !matches!(
+                    j.join_type,
+                    JoinType::Inner
+                        | JoinType::Left
+                        | JoinType::Right
+                        | JoinType::Full
+                        | JoinType::Semi
+                        | JoinType::Anti { .. }
+                        | JoinType::LeftMark
+                        | JoinType::RightMark
+                )
+            {
+                unsupported.push(j.join_type);
+            }
+            Ok(TreeNodeRecursion::Continue)
+        });
         unsupported.sort_by_key(|t| t.to_string());
         unsupported.dedup_by_key(|t| t.to_string());
         unsupported
@@ -863,52 +1126,25 @@ impl RelNode {
 
     /// Returns true if the query tree contains a SEMI or ANTI join at any level.
     pub fn has_semi_or_anti(&self) -> bool {
-        match self {
-            RelNode::Scan(_) => false,
-            RelNode::Join(j) => {
-                matches!(
-                    j.join_type,
-                    JoinType::Semi
-                        | JoinType::Anti { .. }
-                        | JoinType::LeftMark
-                        | JoinType::RightMark
-                ) || j.left.has_semi_or_anti()
-                    || j.right.has_semi_or_anti()
-            }
-            RelNode::Filter(f) => f.input.has_semi_or_anti(),
-        }
-    }
-
-    fn collect_unsupported_join_types(&self, acc: &mut Vec<JoinType>) {
-        match self {
-            RelNode::Scan(_) => {}
-            RelNode::Join(j) => {
-                if !matches!(
-                    j.join_type,
-                    JoinType::Inner
-                        | JoinType::Left
-                        | JoinType::Right
-                        | JoinType::Full
-                        | JoinType::Semi
-                        | JoinType::Anti { .. }
-                        | JoinType::LeftMark
-                        | JoinType::RightMark
-                ) {
-                    acc.push(j.join_type);
-                }
-                j.left.collect_unsupported_join_types(acc);
-                j.right.collect_unsupported_join_types(acc);
-            }
-            RelNode::Filter(f) => f.input.collect_unsupported_join_types(acc),
-        }
+        self.exists(|node| {
+            Ok(matches!(
+                node,
+                RelNode::Join(j)
+                    if matches!(
+                        j.join_type,
+                        JoinType::Semi
+                            | JoinType::Anti { .. }
+                            | JoinType::LeftMark
+                            | JoinType::RightMark
+                    )
+            ))
+        })
+        .unwrap_or(false)
     }
 
     pub fn contains_rti(&self, rti: pg_sys::Index) -> bool {
-        match self {
-            RelNode::Scan(s) => s.scan_info.heap_rti == rti,
-            RelNode::Join(j) => j.left.contains_rti(rti) || j.right.contains_rti(rti),
-            RelNode::Filter(f) => f.input.contains_rti(rti),
-        }
+        self.exists(|node| Ok(matches!(node, RelNode::Scan(s) if s.scan_info.heap_rti == rti)))
+            .unwrap_or(false)
     }
 
     pub fn source_for_rti_in_subtree(&self, rti: pg_sys::Index) -> Option<&JoinSource> {
@@ -968,19 +1204,13 @@ impl RelNode {
     /// Recursively collects all base join sources from this tree.
     pub fn sources(&self) -> Vec<&JoinSource> {
         let mut result = Vec::new();
-        self.collect_sources(&mut result);
-        result
-    }
-
-    fn collect_sources<'a>(&'a self, acc: &mut Vec<&'a JoinSource>) {
-        match self {
-            RelNode::Scan(s) => acc.push(&**s),
-            RelNode::Join(j) => {
-                j.left.collect_sources(acc);
-                j.right.collect_sources(acc);
+        let _ = self.apply(|node| {
+            if let RelNode::Scan(s) = node {
+                result.push(&**s);
             }
-            RelNode::Filter(f) => f.input.collect_sources(acc),
-        }
+            Ok(TreeNodeRecursion::Continue)
+        });
+        result
     }
 
     /// Recursively collects all mutable base join sources from this tree.
@@ -1192,8 +1422,8 @@ impl RelNode {
         }
     }
 
-    /// Returns true if any `JoinNode` in the tree has an empty `equi_keys` list.
-    /// Used to reject plans where an intermediate join (e.g., CROSS JOIN inside
+    /// Returns true if any join in the tree lacks equi-join keys. If so, building
+    /// this tree via `build_relnode_df` (which uses Hash/Merge joins suitable for
     /// a 3-table query) would cause DataFusion to error or produce empty batches.
     pub fn has_join_without_keys(&self) -> bool {
         match self {
@@ -1254,12 +1484,29 @@ impl RelNode {
     /// the tree and must be visited separately (see `JoinCSClause::visit_queries_mut`).
     pub fn visit_queries_mut(&mut self, f: &mut impl FnMut(&mut SearchQueryInput)) {
         match self {
-            RelNode::Scan(source) => f(&mut source.scan_info.query),
+            RelNode::Scan(source) => match &mut source.scan_info.mode {
+                crate::scan::ScanMode::Standard { query } => f(query),
+                crate::scan::ScanMode::Tagged {
+                    base_query,
+                    local_queries,
+                } => {
+                    f(base_query);
+                    for tq in local_queries {
+                        f(&mut tq.query);
+                    }
+                }
+            },
             RelNode::Join(j) => {
                 j.left.visit_queries_mut(f);
                 j.right.visit_queries_mut(f);
+                if let Some(ref mut filter) = j.filter {
+                    filter.visit_queries_mut(f);
+                }
             }
-            RelNode::Filter(filt) => filt.input.visit_queries_mut(f),
+            RelNode::Filter(filt) => {
+                filt.input.visit_queries_mut(f);
+                filt.predicate.visit_queries_mut(f);
+            }
         }
     }
 
@@ -1268,12 +1515,29 @@ impl RelNode {
     /// just to satisfy a `&mut` receiver.
     pub fn visit_queries(&self, f: &mut impl FnMut(&SearchQueryInput)) {
         match self {
-            RelNode::Scan(source) => f(&source.scan_info.query),
+            RelNode::Scan(source) => match &source.scan_info.mode {
+                crate::scan::ScanMode::Standard { query } => f(query),
+                crate::scan::ScanMode::Tagged {
+                    base_query,
+                    local_queries,
+                } => {
+                    f(base_query);
+                    for tq in local_queries {
+                        f(&tq.query);
+                    }
+                }
+            },
             RelNode::Join(j) => {
                 j.left.visit_queries(f);
                 j.right.visit_queries(f);
+                if let Some(ref filter) = j.filter {
+                    filter.visit_queries(f);
+                }
             }
-            RelNode::Filter(filt) => filt.input.visit_queries(f),
+            RelNode::Filter(filt) => {
+                filt.input.visit_queries(f);
+                filt.predicate.visit_queries(f);
+            }
         }
     }
 }
@@ -1347,7 +1611,12 @@ impl Default for RelNode {
         RelNode::Scan(Box::new(JoinSource {
             plan_position: 0,
             root_id: None,
-            scan_info: ScanInfo::default(),
+            scan_info: ScanInfo::new(
+                0,
+                pgrx::pg_sys::InvalidOid,
+                pgrx::pg_sys::InvalidOid,
+                crate::scan::ScanMode::all(),
+            ),
         }))
     }
 }
@@ -1361,10 +1630,6 @@ pub struct JoinCSClause {
     /// `LimitOffset` form so parameterized values are resolved at execution
     /// time rather than dropped at planning time.
     pub limit_offset: Option<LimitOffset>,
-    /// Join-level search predicates (Tantivy queries to execute).
-    pub join_level_predicates: Vec<JoinLevelSearchPredicate>,
-    /// Heap conditions (PostgreSQL expressions referencing both sides).
-    pub multi_table_predicates: Vec<MultiTablePredicateInfo>,
     /// ORDER BY clause to be applied to the DataFusion plan.
     pub order_by: Vec<OrderByInfo>,
     /// Projection of output columns for this join.
@@ -1378,8 +1643,6 @@ impl JoinCSClause {
         let mut clause = Self {
             plan,
             limit_offset: None,
-            join_level_predicates: Vec::new(),
-            multi_table_predicates: Vec::new(),
             order_by: Vec::new(),
             output_projection: None,
             has_distinct: false,
@@ -1410,43 +1673,9 @@ impl JoinCSClause {
         self
     }
 
-    /// Add a join-level predicate and return its index.
-    pub fn add_join_level_predicate(
-        &mut self,
-        rti: pg_sys::Index,
-        indexrelid: pg_sys::Oid,
-        heaprelid: pg_sys::Oid,
-        query: SearchQueryInput,
-        display_string: String,
-    ) -> usize {
-        let idx = self.join_level_predicates.len();
-        self.join_level_predicates.push(JoinLevelSearchPredicate {
-            rti,
-            indexrelid,
-            heaprelid,
-            query,
-            display_string,
-        });
-        idx
-    }
-
-    /// Add a heap condition and return its index.
-    pub fn add_multi_table_predicate(
-        &mut self,
-        description: String,
-        restrictinfo_index: usize,
-    ) -> usize {
-        let idx = self.multi_table_predicates.len();
-        self.multi_table_predicates.push(MultiTablePredicateInfo {
-            description,
-            restrictinfo_index,
-        });
-        idx
-    }
-
     /// Returns true if there are heap conditions to evaluate.
     pub fn has_multi_table_predicates(&self) -> bool {
-        !self.multi_table_predicates.is_empty()
+        self.plan.has_multi_table_predicates()
     }
 
     /// Set the join-level expression tree by wrapping the current plan in a FilterNode.
@@ -1506,13 +1735,9 @@ impl JoinCSClause {
             None
         }
     }
-    /// Visit every `SearchQueryInput` in this clause: both inside `Scan` nodes
-    /// (via `plan`) and inside `join_level_predicates`.
+    /// Visit every `SearchQueryInput` in this clause via `plan`.
     pub fn visit_queries_mut(&mut self, f: &mut impl FnMut(&mut SearchQueryInput)) {
         self.plan.visit_queries_mut(f);
-        for pred in &mut self.join_level_predicates {
-            f(&mut pred.query);
-        }
     }
 
     /// Read-only counterpart of `visit_queries_mut`, for callers (e.g. EXPLAIN) that only
@@ -1520,9 +1745,6 @@ impl JoinCSClause {
     /// to satisfy a `&mut` receiver.
     pub fn visit_queries(&self, f: &mut impl FnMut(&SearchQueryInput)) {
         self.plan.visit_queries(f);
-        for pred in &self.join_level_predicates {
-            f(&pred.query);
-        }
     }
 
     pub fn has_postgres_expressions(&self) -> bool {
@@ -1569,11 +1791,45 @@ impl JoinCSClause {
             q.solve_postgres_expressions_no_reset(expr_context);
         });
     }
+
+    /// Configures `ScanMode::Tagged` on each join source that participates in search predicates.
+    pub fn assign_tagged_queries(&mut self) {
+        let predicates = self.plan.search_predicates();
+        assign_tagged_queries(self.plan.sources_mut(), &predicates);
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Shared utilities used by both JoinScan and AggregateScan
 // ---------------------------------------------------------------------------
+
+/// Configures `ScanMode::Tagged` on each join source that participates in `predicates`.
+pub fn assign_tagged_queries<'a>(
+    sources: impl IntoIterator<Item = &'a mut JoinSource>,
+    predicates: &[JoinLevelSearchPredicate],
+) {
+    if predicates.is_empty() {
+        return;
+    }
+    for source in sources {
+        let alias =
+            RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
+        let local_queries: Vec<crate::scan::TaggedQuery> = predicates
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p.rti == source.scan_info.heap_rti)
+            .enumerate()
+            .map(|(local_idx, (global_idx, p))| crate::scan::TaggedQuery {
+                tag_name: format!("__{alias}_tag_{local_idx}"),
+                tag_idx: crate::scan::TagIndex(local_idx),
+                predicate_idx: crate::scan::GlobalPredicateIndex(global_idx),
+                query: Box::new(p.query.clone()),
+            })
+            .collect();
+        let base_query = source.scan_info.mode.query().clone();
+        source.scan_info.mode = crate::scan::ScanMode::tagged(base_query, local_queries);
+    }
+}
 
 /// Strip expression wrappers (`RelabelType`, `PlaceHolderVar`) to get the
 /// underlying node. Used when extracting `Var` nodes from join conditions
@@ -1659,7 +1915,7 @@ pub unsafe fn try_extract_equi_key(
     })
 }
 
-/// Look up base-relation metadata for a given RTI: relid, alias, and BM25 index.
+/// Look up base-relation metadata for a given RTI: relid, alias, and ParadeDB index.
 ///
 /// Shared between JoinScan's `collect_join_sources_base_rel` and AggregateScan's
 /// `collect_join_agg_sources`. Returns `None` if the RTI doesn't point to a
@@ -1703,10 +1959,12 @@ mod tests {
         RelNode::Scan(Box::new(JoinSource {
             plan_position: rti as usize,
             root_id: None,
-            scan_info: ScanInfo {
-                heap_rti: rti,
-                ..Default::default()
-            },
+            scan_info: ScanInfo::new(
+                rti,
+                pg_sys::InvalidOid,
+                pg_sys::InvalidOid,
+                crate::scan::ScanMode::all(),
+            ),
         }))
     }
 

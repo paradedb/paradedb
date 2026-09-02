@@ -34,8 +34,7 @@ use pgrx::{
 };
 
 pub use aggregate::{
-    MvccVisibility, agg_fn_oid, agg_funcoid, agg_with_solve_mvcc_funcoid,
-    extract_solve_mvcc_from_const,
+    MvccVisibility, agg_fn_oid, agg_funcoid, agg_funcoids, is_agg_funcoid, visibility_from_agg_arg,
 };
 pub use rustc_hash::FxHashMap as HashMap;
 pub use rustc_hash::FxHashSet as HashSet;
@@ -469,6 +468,10 @@ pub enum OrderByFeature {
     Score {
         rti: u32,
     },
+    /// Sum of scores across multiple relations (used in JoinScan).
+    ScoreSum {
+        rtis: Vec<pg_sys::Index>,
+    },
     Field {
         name: FieldName,
         rti: u32,
@@ -517,6 +520,7 @@ impl std::fmt::Display for OrderByFeature {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Score { .. } => write!(f, "pdb.score()"),
+            Self::ScoreSum { .. } => write!(f, "sum(pdb.score())"),
             Self::Field { name, .. } => write!(f, "{name}"),
             Self::Var { name, .. } => write!(f, "{}", name.as_deref().unwrap_or("?")),
             Self::NullTest {

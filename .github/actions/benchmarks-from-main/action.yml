@@ -1,13 +1,13 @@
 name: Fetch Benchmark Sources from Main
-description: Fetch latest benchmark code, suites, and actions from `main`
+description: Fetch latest benchmark code and suites from `main`
 
 inputs:
   github-token:
     description: "GitHub token to authenticate with"
     required: true
 
-# We manually fetch the benchmark queries *and* our custom actions from `main` to make sure all are available
-# when backfilling old commits potentially created before new queries were added.
+# We manually fetch benchmark code from `main` when backfilling old commits that may predate
+# newer queries. Callers fetch composite actions separately before invoking this action.
 
 runs:
   using: "composite"

@@ -43,7 +43,7 @@ pub unsafe extern "C-unwind" fn amparallelrescan(scan: pg_sys::IndexScanDesc) {
 #[cfg(any(feature = "pg15", feature = "pg16"))]
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amestimateparallelscan() -> pg_sys::Size {
-    ParallelScanState::size_of(&[u16::MAX as usize], &[], false)
+    ParallelScanState::size_of(&[u16::MAX as usize], &[], false, false)
 }
 
 #[cfg(feature = "pg17")]
@@ -53,9 +53,10 @@ pub unsafe extern "C-unwind" fn amestimateparallelscan(
     _norderbys: i32,
 ) -> pg_sys::Size {
     // NB:  in this function, we have no idea how many segments we have.  We don't even know which
-    // index we're querying.  So we choose a, hopefully, large enough value at 65536, or u16::MAX
-    // TODO: This will result in a ~1MB allocation.
-    ParallelScanState::size_of(&[u16::MAX as usize], &[], false)
+    // index we're querying.  So we choose a, hopefully, large enough value at 65536, or u16::MAX.
+    // Index scans never publish per-segment EXPLAIN info, so without those slots the estimate
+    // stays around 2MB.
+    ParallelScanState::size_of(&[u16::MAX as usize], &[], false, false)
 }
 
 #[cfg(feature = "pg18")]
@@ -72,7 +73,7 @@ pub unsafe extern "C-unwind" fn amestimateparallelscan(
     } else {
         estimated_parallel_segments(rel)
     };
-    ParallelScanState::size_of(&[nsegments], &[], false)
+    ParallelScanState::size_of(&[nsegments], &[], false, false)
 }
 
 unsafe fn bm25_shared_state(
@@ -133,7 +134,7 @@ pub unsafe fn maybe_init_parallel_scan(
             );
             return None;
         }
-        state.populate(&[searcher.segment_readers()], &[], false);
+        state.populate(&[searcher.segment_view()], &[], false, false);
     }
     Some(unsafe { pg_sys::ParallelWorkerNumber })
 }

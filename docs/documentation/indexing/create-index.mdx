@@ -1,7 +1,7 @@
 ---
 title: Create an Index
 description: Index a Postgres table for full text search
-canonical: https://docs.paradedb.com/documentation/indexing/create-index
+canonical: https://www.paradedb.com/docs/documentation/indexing/create-index
 ---
 
 Before a table can be searched, it must be indexed. ParadeDB uses a custom index type called the ParadeDB index.
@@ -86,9 +86,9 @@ modelBuilder.Entity<MockItem>()
   fact that the index is now much more than BM25 scoring — it also powers
   [vector search](/documentation/vector/overview),
   [aggregates](/documentation/aggregates/overview), [top
-  K](/documentation/sorting/topk), and [filtering](/documentation/filtering).
-  `USING bm25` remains supported as a backwards-compatible alias for `USING
-  paradedb`.
+  K](/documentation/sorting/topk), and
+  [filtering](/documentation/filtering/overview). `USING bm25` remains supported
+  as a backwards-compatible alias for `USING paradedb`.
 </Note>
 
 <Note>

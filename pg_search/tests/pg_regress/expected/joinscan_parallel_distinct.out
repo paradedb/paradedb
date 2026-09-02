@@ -6,7 +6,7 @@
 -- to stop at the intervening `Sort`, so `is_join_path` returned false, the
 -- sub-join failed to reconstruct, and the third relation was never absorbed.
 -- JoinScan then declined the whole join -- surfacing (misleadingly) as
--- "DISTINCT columns must be fast fields" -- and the query fell back to a
+-- "DISTINCT columns must be columnar indexed" -- and the query fell back to a
 -- native plan.
 --
 -- The fix peels `SortPath` too (see `unwrap_path_wrappers`). This test guards
@@ -133,8 +133,8 @@ WHERE u.name @@@ 'bob'
   AND p.name @@@ 'bob'
 ORDER BY u.id, p.id, o.id
 LIMIT 48;
-                                                                                                             QUERY PLAN                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                   QUERY PLAN                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Custom Scan (ParadeDB Join Scan)
@@ -161,8 +161,8 @@ LIMIT 48;
                  :     │         CoalescePartitionsExec
                  :     │           [Stage 2] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
                  :     │         DistributedLeafExec:
-                 :     │           t0: PgSearchScan: segments=2, dynamic_filters=1, query="all"
-                 :     │           t1: PgSearchScan: segments=2, dynamic_filters=1, query="all"
+                 :     │           t0: PgSearchScan: table=o, segments=2, dynamic_filters=1, visibility=deferred, query="all"
+                 :     │           t1: PgSearchScan: table=o, segments=2, dynamic_filters=1, visibility=deferred, query="all"
                  :     └──────────────────────────────────────────────────
                  :       ┌───── Stage 2 ── tasks=2, partitions=4
                  :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
@@ -170,14 +170,14 @@ LIMIT 48;
                  :       │     CoalescePartitionsExec
                  :       │       [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
                  :       │     DistributedLeafExec:
-                 :       │       t0: PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
-                 :       │       t1: PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+                 :       │       t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+                 :       │       t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
                  :       └──────────────────────────────────────────────────
                  :         ┌───── Stage 1 ── tasks=2, partitions=4
                  :         │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
                  :         │   DistributedLeafExec:
-                 :         │     t0: PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
-                 :         │     t1: PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+                 :         │     t0: PgSearchScan: table=u, segments=2, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+                 :         │     t1: PgSearchScan: table=u, segments=2, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
                  :         └──────────────────────────────────────────────────
 (44 rows)
 

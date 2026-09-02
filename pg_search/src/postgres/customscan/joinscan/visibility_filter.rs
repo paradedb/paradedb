@@ -52,10 +52,11 @@ use arrow_array::{Array, ArrayRef, RecordBatch, UInt64Array};
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
 use datafusion::arrow::compute::kernels::boolean::{and, is_not_null};
-use datafusion::catalog::default_table_source::DefaultTableSource;
+use datafusion::catalog::Session;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use datafusion::common::{DFSchemaRef, DataFusionError, Result};
-use datafusion::execution::{SendableRecordBatchStream, SessionState, TaskContext};
+use datafusion::execution::{SendableRecordBatchStream, TaskContext};
+use datafusion::logical_expr::physical_planning_context::PhysicalPlanningContext;
 use datafusion::logical_expr::{Extension, LogicalPlan, UserDefinedLogicalNode};
 use datafusion::optimizer::optimizer::ApplyOrder;
 use datafusion::optimizer::{OptimizerConfig, OptimizerRule};
@@ -66,17 +67,21 @@ use datafusion::physical_plan::filter_pushdown::{
 use datafusion::physical_plan::metrics::{
     BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet, RecordOutput,
 };
-use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
+use datafusion::physical_plan::{
+    ChildrenPropertiesMode, DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties,
+    ReplaceChildrenOptions,
+};
 use datafusion::physical_planner::{ExtensionPlanner, PhysicalPlanner};
 use pgrx::pg_sys;
 
 use crate::index::fast_fields_helper::{FFHelper, for_each_segment};
+use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::postgres::customscan::joinscan::CtidColumn;
-use crate::postgres::customscan::joinscan::build::{JoinType, RelNode};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::execution_plan::UnsafeSendStream;
-use crate::scan::table_provider::{PgSearchTableProvider, VisibilitySourceMetadata};
+use crate::scan::late_materialization::is_reduction_node;
+use crate::scan::table_provider::{VisibilitySourceMetadata, pg_search_provider_from_scan};
 use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
 use arrow_select::filter::filter_record_batch;
 use tantivy::DocId;
@@ -204,19 +209,6 @@ impl VisibilityFilterOptimizerRule {
     }
 }
 
-fn pg_search_provider_from_scan(
-    scan: &datafusion::logical_expr::TableScan,
-) -> Option<&PgSearchTableProvider> {
-    let source = scan.source.as_ref();
-    if let Some(default_source) = source.downcast_ref::<DefaultTableSource>() {
-        default_source
-            .table_provider
-            .downcast_ref::<PgSearchTableProvider>()
-    } else {
-        (source as &dyn std::any::Any).downcast_ref::<PgSearchTableProvider>()
-    }
-}
-
 fn collect_visibility_source_metadata(
     plan: &LogicalPlan,
 ) -> Result<BTreeMap<usize, VisibilitySourceMetadata>> {
@@ -242,6 +234,197 @@ fn collect_visibility_source_metadata(
     Ok(metadata)
 }
 
+/// Recursively traverses `plan` tracking the ancestor chain down to each `TableScan`.
+/// For each `TableScan` with configured deferred ctid plan position, checks if there is
+/// any intermediate reduction node on the path between the scan and the first ancestor
+/// that acts as a barrier (or the root).
+fn collect_beneficial_deferred_visibility_inner<'a>(
+    node: &'a LogicalPlan,
+    ancestors: &mut Vec<(&'a LogicalPlan, usize)>,
+    beneficial: &mut BTreeSet<usize>,
+) {
+    if let LogicalPlan::TableScan(scan) = node {
+        if let Some(provider) = pg_search_provider_from_scan(scan)
+            && let Some(plan_pos) = provider.configured_deferred_ctid_plan_position()
+        {
+            // Like `has_reduction_before_stop`, but a stopping barrier that
+            // reduces rows counts for the side that continues past it: a semi,
+            // anti, or outer join is the reduction that makes deferring the
+            // preserved side's check worthwhile. The checked side's filter
+            // lands below that join, so nothing reduces its rows first and it
+            // stays eager unless something below already did.
+            //
+            // A Full barrier never credits itself: it keeps every check
+            // below it, so its own reduction comes after the check. Without
+            // a reduction under the barrier, the wrap would cost the same
+            // rows as the in-scan check plus a node.
+            let mut has_reduction = false;
+            for (ancestor, from_child) in ancestors.iter().rev() {
+                match barrier_status(ancestor) {
+                    BarrierStatus::None => {
+                        if is_reduction_node(ancestor) {
+                            has_reduction = true;
+                        }
+                    }
+                    BarrierStatus::Partial(checked) if *from_child == checked => break,
+                    BarrierStatus::Partial(_) => {
+                        has_reduction = has_reduction || is_reduction_node(ancestor);
+                        break;
+                    }
+                    BarrierStatus::Full => break,
+                }
+            }
+            if has_reduction {
+                beneficial.insert(plan_pos);
+            }
+        }
+        return;
+    }
+
+    for (idx, child) in node.inputs().into_iter().enumerate() {
+        ancestors.push((node, idx));
+        collect_beneficial_deferred_visibility_inner(child, ancestors, beneficial);
+        ancestors.pop();
+    }
+}
+
+fn collect_beneficial_deferred_visibility(plan: &LogicalPlan) -> BTreeSet<usize> {
+    let mut beneficial = BTreeSet::new();
+    let mut ancestors = Vec::new();
+    collect_beneficial_deferred_visibility_inner(plan, &mut ancestors, &mut beneficial);
+    beneficial
+}
+
+fn ensure_scan_projects_ctid(
+    scan: &datafusion::logical_expr::TableScan,
+    plan_pos: usize,
+) -> Result<datafusion::logical_expr::TableScan> {
+    let ctid_name = CtidColumn::new(plan_pos).to_string();
+    if scan
+        .projected_schema
+        .index_of_column_by_name(None, &ctid_name)
+        .is_some()
+    {
+        return Ok(scan.clone());
+    }
+
+    let source_schema = scan.source.schema();
+    let Ok(ctid_source_idx) = source_schema.index_of(&ctid_name) else {
+        return Ok(scan.clone());
+    };
+
+    let mut projected_indices: Vec<usize> = scan
+        .projected_schema
+        .fields()
+        .iter()
+        .map(|f| scan.source.schema().index_of(f.name()))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    projected_indices.push(ctid_source_idx);
+
+    let projected_arrow_schema = source_schema.project(&projected_indices)?;
+    let mut new_qualified_fields = Vec::new();
+    for (i, field) in projected_arrow_schema.fields().iter().enumerate() {
+        let qualifier = if i < scan.projected_schema.fields().len() {
+            let (q, _) = scan.projected_schema.qualified_field(i);
+            q.cloned()
+        } else if !scan.projected_schema.fields().is_empty() {
+            let (q, _) = scan.projected_schema.qualified_field(0);
+            q.cloned()
+        } else {
+            Some(scan.table_name.clone())
+        };
+        new_qualified_fields.push((qualifier, field.clone()));
+    }
+
+    let mut new_scan = scan.clone();
+    new_scan.projection = Some(projected_indices);
+    new_scan.projected_schema = Arc::new(datafusion::common::DFSchema::new_with_metadata(
+        new_qualified_fields,
+        scan.projected_schema.metadata().clone(),
+    )?);
+
+    Ok(new_scan)
+}
+
+/// Returns a copy of `proj` extended with any `ctid_<n>` column that its input
+/// produces for a beneficial plan position but the projection does not yet
+/// output, or `None` when it already forwards them all. A projection only emits
+/// the columns it lists, so a ctid bubbling up from below has to be added here
+/// explicitly to reach the barrier above.
+fn projection_with_ctids_added(
+    proj: &datafusion::logical_expr::Projection,
+    beneficial: &BTreeSet<usize>,
+) -> Result<Option<datafusion::logical_expr::Projection>> {
+    let mut new_exprs = proj.expr.clone();
+    let mut added = false;
+    for (i, field) in proj.input.schema().fields().iter().enumerate() {
+        let Ok(ctid_col) = CtidColumn::try_from(field.name().as_str()) else {
+            continue;
+        };
+        if beneficial.contains(&ctid_col.plan_position())
+            && proj
+                .schema
+                .index_of_column_by_name(None, field.name())
+                .is_none()
+        {
+            let (qualifier, _) = proj.input.schema().qualified_field(i);
+            new_exprs.push(datafusion::logical_expr::col(
+                datafusion::common::Column::new(qualifier.cloned(), field.name().clone()),
+            ));
+            added = true;
+        }
+    }
+    if added {
+        Ok(Some(datafusion::logical_expr::Projection::try_new(
+            new_exprs,
+            proj.input.clone(),
+        )?))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Threads a ctid column produced below `node` up through it, so a deferred
+/// scan's ctid survives every row-preserving node between the scan and the
+/// barrier where `VisibilityFilterExec` reads it. The caller only invokes this
+/// for non-barrier nodes.
+///
+/// A projection gets the ctid added to its output. A join is rebuilt with
+/// `Join::try_new` because `with_new_exprs` keeps the join's cached schema; only
+/// `try_new` re-runs `build_join_schema` so the bubbled ctid shows up. Every
+/// other node just recomputes its schema over the rewritten children.
+fn carry_ctid_columns_upward(
+    node: LogicalPlan,
+    beneficial: &BTreeSet<usize>,
+) -> Result<Transformed<LogicalPlan>> {
+    if let LogicalPlan::Projection(proj) = &node
+        && let Some(new_proj) = projection_with_ctids_added(proj, beneficial)?
+    {
+        return Ok(Transformed::yes(LogicalPlan::Projection(new_proj)));
+    }
+
+    if let LogicalPlan::Join(join) = &node {
+        let new_join = datafusion::logical_expr::logical_plan::Join::try_new(
+            join.left.clone(),
+            join.right.clone(),
+            join.on.clone(),
+            join.filter.clone(),
+            join.join_type,
+            join.join_constraint,
+            join.null_equality,
+            join.null_aware,
+        )?;
+        return Ok(Transformed::yes(LogicalPlan::Join(new_join)));
+    }
+
+    let new_node = node.with_new_exprs(
+        node.expressions(),
+        node.inputs().into_iter().cloned().collect(),
+    )?;
+    Ok(Transformed::yes(new_node.recompute_schema()?))
+}
+
 impl OptimizerRule for VisibilityFilterOptimizerRule {
     fn name(&self) -> &str {
         "VisibilityFilterInjection"
@@ -257,13 +440,37 @@ impl OptimizerRule for VisibilityFilterOptimizerRule {
         plan: LogicalPlan,
         _config: &dyn OptimizerConfig,
     ) -> Result<Transformed<LogicalPlan>> {
-        let plan_pos_metadata = collect_visibility_source_metadata(&plan)?;
+        let beneficial = collect_beneficial_deferred_visibility(&plan);
+        if beneficial.is_empty() {
+            return Ok(Transformed::no(plan));
+        }
+
+        let mut plan_pos_metadata = collect_visibility_source_metadata(&plan)?;
+        plan_pos_metadata.retain(|pos, _| beneficial.contains(pos));
 
         if plan_pos_metadata.is_empty() {
             return Ok(Transformed::no(plan));
         }
 
-        let (result, final_state) = analyze_and_inject(plan, &plan_pos_metadata)?;
+        let prepared_plan = plan.transform_up(|node| {
+            if let LogicalPlan::TableScan(scan) = &node
+                && let Some(provider) = pg_search_provider_from_scan(scan)
+                && let Some(plan_pos) = provider.configured_deferred_ctid_plan_position()
+                && beneficial.contains(&plan_pos)
+            {
+                provider.enable_deferred_visibility_schema();
+                let updated_scan = ensure_scan_projects_ctid(scan, plan_pos)?;
+                return Ok(Transformed::yes(LogicalPlan::TableScan(updated_scan)));
+            }
+
+            if matches!(barrier_status(&node), BarrierStatus::None) {
+                return carry_ctid_columns_upward(node, &beneficial);
+            }
+
+            Ok(Transformed::no(node))
+        })?;
+
+        let (result, final_state) = analyze_and_inject(prepared_plan.data, &plan_pos_metadata)?;
 
         // Root boundary fallback: any plan_position still unverified must be checked here.
         let unverified: BTreeSet<usize> = final_state
@@ -282,40 +489,6 @@ impl OptimizerRule for VisibilityFilterOptimizerRule {
             wrapped.transformed || result.transformed,
         ))
     }
-}
-
-/// Returns the plan_positions whose ctid columns are still packed DocAddresses
-/// at the output of this join subtree.
-///
-/// This shared barrier analysis is used while translating join-level search
-/// predicates so each `SearchPredicateUDF` knows whether to emit packed or real
-/// ctids at the point where it is attached.
-pub fn deferred_plan_positions(node: &RelNode) -> crate::api::HashSet<usize> {
-    fn collect(node: &RelNode, acc: &mut crate::api::HashSet<usize>) {
-        match node {
-            RelNode::Scan(source) => {
-                acc.insert(source.plan_position);
-            }
-            RelNode::Join(join) => match join.join_type {
-                JoinType::Inner => {
-                    collect(&join.left, acc);
-                    collect(&join.right, acc);
-                }
-                JoinType::Left => collect(&join.left, acc),
-                JoinType::Semi => collect(&join.left, acc),
-                JoinType::Anti { .. } => collect(&join.left, acc),
-                JoinType::Right => collect(&join.right, acc),
-                JoinType::RightSemi => collect(&join.right, acc),
-                JoinType::RightAnti => collect(&join.right, acc),
-                _ => (),
-            },
-            RelNode::Filter(filter) => collect(&filter.input, acc),
-        }
-    }
-
-    let mut deferred = crate::api::HashSet::default();
-    collect(node, &mut deferred);
-    deferred
 }
 
 // ---------------------------------------------------------------------------
@@ -568,6 +741,14 @@ enum BarrierStatus {
 /// Partial Barriers include left/left semi/left anti and right/right semi/right anti joins - the null-supplying child must have visibility checked, while
 /// the preserved side should remain deferred
 ///
+/// A consumed or null-supplying side cannot check above its join: a dead row
+/// that reaches the join fabricates a semi match, suppresses an anti row, or
+/// replaces a null-extension, and its ctid never reaches the plan top anyway.
+/// Null support in the check is what lets the preserved side defer past the
+/// join, but it is not enough to move the other side's check up: the filter
+/// can skip a NULL ctid, yet it cannot re-extend the preserved row that a
+/// dead match displaced.
+///
 /// Full Barriers include all other non-inner joins (outer, etc),
 /// aggregates, distinct, window functions, and sort-with-limit.
 ///
@@ -636,7 +817,10 @@ fn wrap_visibility_below_lookup_chain(
         table_names,
     )?) as Arc<dyn ExecutionPlan>;
     for lookup in lookups.into_iter().rev() {
-        result = lookup.with_new_children(vec![result])?;
+        result = lookup.replace_children(
+            vec![result],
+            ReplaceChildrenOptions::new(ChildrenPropertiesMode::Recompute),
+        )?;
     }
     Ok(result)
 }
@@ -655,7 +839,8 @@ impl ExtensionPlanner for VisibilityExtensionPlanner {
         node: &dyn UserDefinedLogicalNode,
         _logical_inputs: &[&LogicalPlan],
         physical_inputs: &[Arc<dyn ExecutionPlan>],
-        _session_state: &SessionState,
+        _session: &dyn Session,
+        _planning_context: &PhysicalPlanningContext,
     ) -> Result<Option<Arc<dyn ExecutionPlan>>> {
         let Some(vis_node) = node.as_any().downcast_ref::<VisibilityFilterNode>() else {
             return Ok(None);
@@ -791,13 +976,13 @@ impl VisibilityFilterExec {
 
     /// Rebuild from a dispatch descriptor, re-wiring the per-plan_position ctid resolvers from
     /// the scans the worker decoded below this node. A position whose scan sits behind a network
-    /// boundary rebuilds its resolver instead: a helper over that index's canonical segment view
+    /// boundary rebuilds its resolver instead: a helper replaying that source's segment view
     /// resolves any address a producer packed (ctid access needs no field layout).
     pub(crate) fn decode_for_dispatch(
         buf: &[u8],
         input: Arc<dyn ExecutionPlan>,
         ctid_resolvers: Vec<(usize, u32, Arc<FFHelper>)>,
-        index_segment_ids: &[crate::api::HashSet<tantivy::index::SegmentId>],
+        index_segment_views: &[SegmentView],
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let (plan_pos_oids, table_names, resolver_indexes): VisibilityDispatchPayload =
             serde_json::from_slice(buf).map_err(|e| {
@@ -813,16 +998,16 @@ impl VisibilityFilterExec {
             if ctid_resolvers.iter().any(|(pos, _, _)| *pos == plan_pos) {
                 continue;
             }
-            let ids = index_segment_ids.get(plan_pos).cloned().ok_or_else(|| {
+            let view = index_segment_views.get(plan_pos).cloned().ok_or_else(|| {
                 DataFusionError::Internal(format!(
-                    "VisibilityFilterExec dispatch: missing canonical segment ids for \
+                    "VisibilityFilterExec dispatch: missing segment view for \
                      plan_position {plan_pos}"
                 ))
             })?;
             let ffhelper = crate::scan::tantivy_lookup_exec::open_rebuilt_ffhelper(
                 indexrelid,
                 &[],
-                crate::index::mvcc::MvccSatisfies::ParallelWorker(ids),
+                MvccSatisfies::ParallelWorker(view),
             )?;
             exec.set_ctid_resolver(plan_pos, indexrelid, ffhelper);
         }
@@ -859,6 +1044,15 @@ impl ExecutionPlan for VisibilityFilterExec {
 
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
         vec![&self.input]
+    }
+
+    fn apply_expressions(
+        &self,
+        _f: &mut dyn FnMut(
+            &Arc<dyn datafusion::physical_plan::PhysicalExpr>,
+        ) -> Result<TreeNodeRecursion>,
+    ) -> Result<TreeNodeRecursion> {
+        Ok(TreeNodeRecursion::Continue)
     }
 
     fn with_new_children(
@@ -1204,16 +1398,16 @@ mod tests {
         heap_oid: pg_sys::Oid,
         alias: Option<&str>,
     ) -> Result<LogicalPlan> {
-        let mut provider = PgSearchTableProvider::new(
-            ScanInfo {
-                heap_rti: 1,
-                heaprelid: heap_oid,
-                alias: alias.map(str::to_string),
-                ..Default::default()
-            },
-            vec![WhichFastField::Ctid],
-            None,
+        let mut scan_info = ScanInfo::new(
+            1,
+            heap_oid,
+            pgrx::pg_sys::InvalidOid,
+            crate::scan::ScanMode::all(),
         );
+        if let Some(alias) = alias {
+            scan_info = scan_info.with_alias(alias);
+        }
+        let mut provider = PgSearchTableProvider::new(scan_info, vec![WhichFastField::Ctid], None);
         provider.configure_deferred_outputs(
             &crate::api::HashSet::default(),
             VisibilityMode::Deferred { plan_position },
@@ -1297,10 +1491,30 @@ mod tests {
     }
 
     #[pg_test]
-    fn root_injection_is_idempotent() -> Result<()> {
+    fn single_scan_without_reduction_is_not_transformed() -> Result<()> {
         let config = OptimizerContext::new();
         let rule = make_rule();
         let plan = make_ctid_plan(TEST_PLAN_POS, pg_sys::Oid::from(42), Some("test_table"))?;
+
+        let result = rule.rewrite(plan, &config)?;
+        assert!(!result.transformed);
+        assert_eq!(count_visibility_nodes(&result.data), 0);
+        Ok(())
+    }
+
+    #[pg_test]
+    fn root_injection_is_idempotent() -> Result<()> {
+        let config = OptimizerContext::new();
+        let rule = make_rule();
+        let plan = LogicalPlanBuilder::from(make_ctid_plan(
+            TEST_PLAN_POS,
+            pg_sys::Oid::from(42),
+            Some("test_table"),
+        )?)
+        .filter(
+            col(CtidColumn::new(TEST_PLAN_POS).to_string()).gt(datafusion::logical_expr::lit(10)),
+        )?
+        .build()?;
 
         let first = rule.rewrite(plan, &config)?;
         assert!(first.transformed);
@@ -1315,11 +1529,17 @@ mod tests {
 
     /// Builds a barrier plan, asserts injection + idempotency.
     fn assert_barrier(build: impl FnOnce(LogicalPlanBuilder) -> Result<LogicalPlan>) -> Result<()> {
-        let plan = build(LogicalPlanBuilder::from(make_ctid_plan(
-            TEST_PLAN_POS,
-            pg_sys::Oid::from(42),
-            Some("test_table"),
-        )?))?;
+        let plan = build(
+            LogicalPlanBuilder::from(make_ctid_plan(
+                TEST_PLAN_POS,
+                pg_sys::Oid::from(42),
+                Some("test_table"),
+            )?)
+            .filter(
+                col(CtidColumn::new(TEST_PLAN_POS).to_string())
+                    .gt(datafusion::logical_expr::lit(10)),
+            )?,
+        )?;
         assert_barrier_injection(plan)
     }
 
@@ -1332,6 +1552,9 @@ mod tests {
             pg_sys::Oid::from(42),
             Some("test_table"),
         )?)
+        .filter(
+            col(CtidColumn::new(TEST_PLAN_POS).to_string()).gt(datafusion::logical_expr::lit(10)),
+        )?
         .limit(0, Some(5))?
         .build()?;
 
@@ -1383,6 +1606,9 @@ mod tests {
             pg_sys::Oid::from(42),
             Some("test_table"),
         )?)
+        .filter(
+            col(CtidColumn::new(TEST_PLAN_POS).to_string()).gt(datafusion::logical_expr::lit(10)),
+        )?
         .sort(vec![
             col(CtidColumn::new(TEST_PLAN_POS).to_string()).sort(true, false),
         ])?
@@ -1479,10 +1705,13 @@ mod tests {
             first.transformed,
             "{join_type:?}: first pass should transform"
         );
+        // The checked side's filter would sit right below the join, where
+        // nothing has reduced its rows yet, so it stays eager and only the
+        // preserved side defers.
         assert_eq!(
             count_visibility_nodes(&first.data),
-            2,
-            "{join_type:?}: expected 2 visibility nodes"
+            1,
+            "{join_type:?}: expected 1 visibility node"
         );
 
         // Root should be a VisibilityFilterNode covering the preserved side.
@@ -1511,34 +1740,87 @@ mod tests {
             (join.left.as_ref(), join.right.as_ref())
         };
 
-        // The forced child should be wrapped with VisibilityFilterNode.
-        let LogicalPlan::Extension(forced_ext) = forced_plan else {
-            panic!("{join_type:?}: expected forced child to be wrapped with VisibilityFilterNode");
-        };
-        let forced_vf = forced_ext
-            .node
-            .as_any()
-            .downcast_ref::<VisibilityFilterNode>()
-            .expect("forced child should be VisibilityFilterNode");
-        assert_eq!(
-            forced_vf.plan_pos_oids,
-            vec![(forced_pos, forced_oid)],
-            "{join_type:?}: forced child visibility should cover forced side"
-        );
-
-        // The preserved child should be the raw scan (no visibility wrapper).
-        assert!(
-            !matches!(preserved_plan, LogicalPlan::Extension(ext)
-                if ext.node.as_any().downcast_ref::<VisibilityFilterNode>().is_some()),
-            "{join_type:?}: preserved child should NOT be wrapped with VisibilityFilterNode"
-        );
+        let _ = (forced_pos, forced_oid);
+        for (side, child) in [("forced", forced_plan), ("preserved", preserved_plan)] {
+            assert!(
+                !matches!(child, LogicalPlan::Extension(ext)
+                    if ext.node.as_any().downcast_ref::<VisibilityFilterNode>().is_some()),
+                "{join_type:?}: {side} child should NOT be wrapped with VisibilityFilterNode"
+            );
+        }
 
         let second = rule.rewrite(first.data.clone(), &config)?;
         assert!(
             !second.transformed,
             "{join_type:?}: second pass should be idempotent"
         );
-        assert_eq!(count_visibility_nodes(&second.data), 2);
+        assert_eq!(count_visibility_nodes(&second.data), 1);
+        Ok(())
+    }
+
+    /// A reduction below the checked side changes the answer: deferring past
+    /// that reduction pays, so the partial barrier forces the check below the
+    /// join.
+    #[pg_test]
+    fn left_join_reduced_checked_side_forces_visibility_below_join() -> Result<()> {
+        let config = OptimizerContext::new();
+
+        const POS_A: usize = 0;
+        const POS_B: usize = 1;
+        let oid_a = pg_sys::Oid::from(42);
+        let oid_b = pg_sys::Oid::from(43);
+
+        let rule = VisibilityFilterOptimizerRule::new();
+
+        let left = make_ctid_plan(POS_A, oid_a, Some("a"))?;
+        let right = LogicalPlanBuilder::from(make_ctid_plan(POS_B, oid_b, Some("b"))?)
+            .filter(col(CtidColumn::new(POS_B).to_string()).gt(datafusion::logical_expr::lit(10)))?
+            .build()?;
+
+        let plan = LogicalPlanBuilder::from(left)
+            .join_on(
+                right,
+                datafusion::common::JoinType::Left,
+                vec![
+                    col(CtidColumn::new(POS_A).to_string())
+                        .eq(col(CtidColumn::new(POS_B).to_string())),
+                ],
+            )?
+            .build()?;
+
+        let first = rule.rewrite(plan, &config)?;
+        assert!(first.transformed, "first pass should transform");
+        assert_eq!(count_visibility_nodes(&first.data), 2);
+
+        let LogicalPlan::Extension(root_ext) = &first.data else {
+            panic!("expected root to be VisibilityFilterNode");
+        };
+        let root_vf = root_ext
+            .node
+            .as_any()
+            .downcast_ref::<VisibilityFilterNode>()
+            .expect("root should be VisibilityFilterNode");
+        assert_eq!(
+            root_vf.plan_pos_oids,
+            vec![(POS_A, oid_a)],
+            "root visibility should cover the preserved side"
+        );
+
+        let LogicalPlan::Join(join) = &root_vf.input else {
+            panic!("expected child of root visibility to be Join");
+        };
+        let LogicalPlan::Extension(forced_ext) = join.right.as_ref() else {
+            panic!("expected checked child to be wrapped with VisibilityFilterNode");
+        };
+        let forced_vf = forced_ext
+            .node
+            .as_any()
+            .downcast_ref::<VisibilityFilterNode>()
+            .expect("checked child should be VisibilityFilterNode");
+        assert_eq!(forced_vf.plan_pos_oids, vec![(POS_B, oid_b)]);
+
+        let second = rule.rewrite(first.data.clone(), &config)?;
+        assert!(!second.transformed, "second pass should be idempotent");
         Ok(())
     }
 
@@ -1570,6 +1852,87 @@ mod tests {
     #[pg_test]
     fn right_anti_join_defers_preserved_side() -> Result<()> {
         assert_partial_barrier_join(datafusion::common::JoinType::RightAnti, 0)
+    }
+
+    /// A Full barrier holds every check below it, so with nothing reducing
+    /// under the join both scans keep their in-scan checks.
+    #[pg_test]
+    fn full_join_without_reduction_keeps_in_scan_checks() -> Result<()> {
+        let config = OptimizerContext::new();
+
+        const POS_A: usize = 0;
+        const POS_B: usize = 1;
+
+        let rule = VisibilityFilterOptimizerRule::new();
+
+        let left = make_ctid_plan(POS_A, pg_sys::Oid::from(42), Some("a"))?;
+        let right = make_ctid_plan(POS_B, pg_sys::Oid::from(43), Some("b"))?;
+
+        let plan = LogicalPlanBuilder::from(left)
+            .join_on(
+                right,
+                datafusion::common::JoinType::Full,
+                vec![
+                    col(CtidColumn::new(POS_A).to_string())
+                        .eq(col(CtidColumn::new(POS_B).to_string())),
+                ],
+            )?
+            .build()?;
+
+        let result = rule.rewrite(plan, &config)?;
+        assert!(!result.transformed);
+        assert_eq!(count_visibility_nodes(&result.data), 0);
+        Ok(())
+    }
+
+    /// A reduction under one side of a Full barrier makes deferring that
+    /// side pay; the other side keeps its in-scan check.
+    #[pg_test]
+    fn full_join_reduced_side_checks_below_join() -> Result<()> {
+        let config = OptimizerContext::new();
+
+        const POS_A: usize = 0;
+        const POS_B: usize = 1;
+        let oid_b = pg_sys::Oid::from(43);
+
+        let rule = VisibilityFilterOptimizerRule::new();
+
+        let left = make_ctid_plan(POS_A, pg_sys::Oid::from(42), Some("a"))?;
+        let right = LogicalPlanBuilder::from(make_ctid_plan(POS_B, oid_b, Some("b"))?)
+            .filter(col(CtidColumn::new(POS_B).to_string()).gt(datafusion::logical_expr::lit(10)))?
+            .build()?;
+
+        let plan = LogicalPlanBuilder::from(left)
+            .join_on(
+                right,
+                datafusion::common::JoinType::Full,
+                vec![
+                    col(CtidColumn::new(POS_A).to_string())
+                        .eq(col(CtidColumn::new(POS_B).to_string())),
+                ],
+            )?
+            .build()?;
+
+        let first = rule.rewrite(plan, &config)?;
+        assert!(first.transformed, "first pass should transform");
+        assert_eq!(count_visibility_nodes(&first.data), 1);
+
+        let LogicalPlan::Join(join) = &first.data else {
+            panic!("expected root to be Join");
+        };
+        let LogicalPlan::Extension(ext) = join.right.as_ref() else {
+            panic!("expected reduced child to be wrapped with VisibilityFilterNode");
+        };
+        let vf = ext
+            .node
+            .as_any()
+            .downcast_ref::<VisibilityFilterNode>()
+            .expect("reduced child should be VisibilityFilterNode");
+        assert_eq!(vf.plan_pos_oids, vec![(POS_B, oid_b)]);
+
+        let second = rule.rewrite(first.data.clone(), &config)?;
+        assert!(!second.transformed, "second pass should be idempotent");
+        Ok(())
     }
 
     #[pg_test]

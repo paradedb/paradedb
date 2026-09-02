@@ -1,4 +1,4 @@
-# **Contributing to ParadeDB**
+# Contributing to ParadeDB
 
 Welcome! We're excited that you're interested in contributing to ParadeDB and want to make the process as smooth as possible.
 
@@ -18,9 +18,8 @@ This repository has a workflow that automatically assigns issues to new contribu
 from a maintainer to pick an issue.
 
 1. Before claiming an issue, ensure that:
-
-- It's not already assigned to someone else
-- There are no comments indicating ongoing work
+   - It's not already assigned to someone else.
+   - There are no comments indicating ongoing work.
 
 2. To claim an unassigned issue, comment `/take` on the issue. This will automatically assign the issue to you.
 
@@ -28,20 +27,38 @@ If you find yourself unable to make progress, don't hesitate to seek help in the
 
 ### Development Workflow
 
-ParadeDB is a Postgres extension, `pg_search`, written in Rust and packaged as either a standalone binary or a Docker image. The development of our Postgres extension is done via `pgrx`. For instructions on setting up your development environment, building, and running `pg_search` locally, see the [pg_search README](/pg_search/README.md).
+ParadeDB's `pg_search` Postgres extension is written in Rust and distributed as
+prebuilt extension packages and Docker images. Development is done with `pgrx`.
+For instructions on setting up your development environment, building, and running
+`pg_search` locally, see the [pg_search README](/pg_search/README.md).
 
 ### Pull Request Workflow
 
-All changes to ParadeDB happen through GitHub Pull Requests. Here is the recommended flow for making a change:
+All changes to ParadeDB happen through GitHub pull requests. Here is the recommended flow for making a change:
 
 1. Before working on a change, please check if there is already a GitHub issue open for it.
 2. If there is not, please open an issue first. This gives the community visibility into your work and allows others to make suggestions and leave comments.
 3. Fork the ParadeDB repo and branch out from the `main` branch.
 4. Install [prek](https://github.com/j178/prek) hooks within your fork with `prek install` to ensure code quality and consistency with upstream.
 5. Make your changes. If you've added new functionality, please add tests. We will not merge a feature without appropriate tests.
-6. Open a pull request towards the `main` branch. Ensure that all tests and checks pass. Note that the ParadeDB repository has pull request title linting in place and follows the [Conventional Commits spec](https://github.com/amannn/action-semantic-pull-request).
-7. Keep your pull request focused on the scope of its associated issue. Pull requests that balloon in scope (e.g. bundling unrelated refactors, tangential cleanups, or additional features into a single change) will not be reviewed or merged. If you discover related work that should be done, please open a separate issue and pull request for it.
-8. Congratulations! Our team will review your pull request.
+6. Add release fragments (if applicable):
+   - Changelog fragment: If your PR introduces a user-facing feature, fix, or improvement, add a fragment in `docs/changelog/unreleased/<PR_NUMBER>.<category>.mdx` (e.g. `1234.bugfix.mdx` or `1234.feature.mdx`). Include frontmatter specifying the section header:
+
+     ```markdown
+     ---
+     header: stability
+     ---
+
+     Fixed an issue where blocks could get added to the free space map twice.
+     ```
+
+     Available `header` keys in `.changelog_headers.json` include `features`, `performance`, `stability`, `breaking`, and `docs`.
+
+   - SQL migration fragment: If your PR modifies the SQL schema/DDL of `pg_search` (such as adding or modifying functions, procedures, types, or opclasses), add a migration fragment in `pg_search/sql/unreleased/<PR_NUMBER>.<short_description>.sql`. SchemaBot enforces this in CI and will suggest the exact SQL statements if missing.
+
+7. Open a pull request towards the `main` branch. Ensure that all tests and checks pass. Note that the ParadeDB repository has pull request title linting in place and follows the [Conventional Commits spec](https://github.com/amannn/action-semantic-pull-request).
+8. Keep your pull request focused on the scope of its associated issue. Pull requests that balloon in scope (e.g. bundling unrelated refactors, tangential cleanups, or additional features into a single change) will not be reviewed or merged. If you discover related work that should be done, please open a separate issue and pull request for it.
+9. Congratulations! Our team will review your pull request.
 
 ### Use of AI Tools
 
@@ -55,12 +72,12 @@ ParadeDB's public-facing documentation is stored in the `docs` folder. If you ar
 
 ParadeDB has four main test categories. For a full overview of how and when to use them, please see their respective documentation:
 
-#### 1. pg regress tests
+#### 1. pg_regress tests
 
 Located in `pg_search/tests/pg_regress`.
 
-- **Purpose:** These are for output / golden testing, and are useful when the output is small enough that you can inspect it visually to determine correctness.
-- **Running:** Run them with `cargo pgrx regress -p pg_search --auto -- pg18 one_file_name`. There is no need to manually install the extension: it is handled automatically.
+- **Purpose:** These are golden-output tests, useful when the output is small enough to inspect visually for correctness.
+- **Running:** From `pg_search/`, run them with `cargo pgrx regress --auto`. To run a specific test, pass its name, for example `cargo pgrx regress --auto pg18 PREFIX_your_test`. There is no need to manually install the extension: it is handled automatically.
 - **Details:** See [`pg_search/tests/pg_regress/README.md`](pg_search/tests/pg_regress/README.md) for more details.
 
 #### 2. Integration tests
@@ -85,16 +102,16 @@ Located in the `pg_search/src` directory.
 
 Located in the `stressgres/` directory.
 
-- **Purpose:** Replicate representative customer workloads against ParadeDB (or vanilla Postgres) to surface concurrency, correctness, and performance regressions that don't show up in shorter-lived tests.
-- **Running:** Run a suite interactively with `cargo run -- ui suites/vanilla-postgres.toml`, or headlessly with `cargo run -- headless suites/vanilla-postgres.toml --runtime=300000`.
+- **Purpose:** Replicate representative customer workloads and PostgreSQL topologies against ParadeDB to surface concurrency, correctness, and performance regressions that don't show up in shorter-lived tests.
+- **Running:** Run a suite interactively with `cargo run -p stressgres -- ui stressgres/suites/single-node-planner-paths.toml`, or headlessly with `cargo run -p stressgres -- headless stressgres/suites/single-node-planner-paths.toml --runtime=300000`.
 - **Details:** See [`stressgres/README.md`](stressgres/README.md) for more details.
 
 #### Helper scripts
 
 Two scripts in `scripts/` wrap the install-and-start dance for a throwaway instance, for when you want a psql prompt or a test run against a freshly built extension:
 
-- `PGVER=18.0 ./scripts/pg_search_run.sh [--release] [psql arguments]` installs the extension, starts Postgres, creates a database, and connects to it.
-- `PGVER=18.0 ./scripts/pg_search_test.sh [--release] [--test test_name]` does the same, then runs the integration tests against it.
+- `PGVER=18.6 ./scripts/pg_search_run.sh [--release] [psql arguments]` installs the extension, starts Postgres, creates a database, and connects to it.
+- `PGVER=18.6 ./scripts/pg_search_test.sh [--release] [--test test_name]` does the same, then runs the integration tests against it.
 
 ## Legal Info
 

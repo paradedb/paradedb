@@ -1,7 +1,7 @@
 ---
 title: Ngram
 description: Splits text into small chunks called grams, useful for partial matching
-canonical: https://docs.paradedb.com/documentation/tokenizers/available-tokenizers/ngrams
+canonical: https://www.paradedb.com/docs/documentation/tokenizers/available-tokenizers/ngrams
 ---
 
 The ngram tokenizer splits text into "grams," where each "gram" is of a certain length.
@@ -32,7 +32,10 @@ SELECT 'Tokenize me!'::pdb.ngram(3,3)::text[];
 
 ## Ngram Prefix Only
 
-The generate ngram tokens for only the first `n` characters in the text, set `prefix_only` to `true`.
+To generate ngram tokens for only the first `n` characters in the text, set `prefix_only` to `true`.
+
+Note that `prefix_only` emits prefixes of the text as a whole, including any spaces. To emit prefixes
+of each individual word, use [`edge_ngram`](/documentation/tokenizers/available-tokenizers/edge-ngrams) instead.
 
 ```sql
 SELECT 'Tokenize me!'::pdb.ngram(3,3,'prefix_only=true')::text[];

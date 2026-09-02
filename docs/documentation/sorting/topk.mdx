@@ -1,7 +1,7 @@
 ---
 title: Top K
 description: ParadeDB is optimized for quickly finding the Top K results in a table
-canonical: https://docs.paradedb.com/documentation/sorting/topk
+canonical: https://www.paradedb.com/docs/documentation/sorting/topk
 ---
 
 <Note>
@@ -283,6 +283,20 @@ await dbContext
 ```
 
 </CodeGroup>
+
+## Sorting by Range
+
+Postgres range columns (`int4range`, `int8range`, `numrange`, `daterange`, `tsrange`, `tstzrange`) can receive the Top K optimization when they appear as the **leading** `ORDER BY` key. ParadeDB compares range values using the same rules as Postgres `range_cmp` (empty ranges, unbounded bounds, and inclusive/exclusive endpoints).
+
+Range columns are always indexed as fast fields, so no extra configuration is needed. If a range column appears in a later `ORDER BY` position, the whole `ORDER BY` falls back to a regular Postgres sort. Tiebreaker columns after a leading range key are fine.
+
+```sql
+SELECT description, rating, weight_range
+FROM mock_items
+WHERE description @@@ 'shoes'
+ORDER BY weight_range
+LIMIT 10;
+```
 
 ## Sorting by JSON
 

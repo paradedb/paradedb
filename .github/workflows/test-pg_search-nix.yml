@@ -37,7 +37,7 @@ jobs:
       - name: Generate GitHub App Token
         id: app-token
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@v3.2.0
         with:
           client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}

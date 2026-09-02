@@ -30,6 +30,9 @@ pub static MICROSECONDS_IN_SECOND: u32 = 1_000_000;
 /// This is the difference between them in microseconds.
 pub static PG_EPOCH_DIFF_FROM_UNIX_EPOCH_MICROS: i64 = 946_684_800 * MICROSECONDS_IN_SECOND as i64;
 
+/// The number of days between the Unix epoch and the PostgreSQL epoch.
+pub(crate) const PG_EPOCH_DIFF_FROM_UNIX_EPOCH_DAYS: i32 = 10_957;
+
 #[cfg(any(test, feature = "pg_test"))]
 pub fn pg_micros_to_unix_micros(pg_micros: i64) -> i64 {
     pg_micros
@@ -109,6 +112,16 @@ impl PartialOrd for PostgresDateTime {
 impl PostgresDateTime {
     pub fn into_inner(self) -> i64 {
         self.0.into_inner()
+    }
+
+    /// Formats as UTC RFC 3339 without a Postgres output function, so it runs outside a backend.
+    /// Returns `None` when the offset does not fit a `chrono` timestamp (the far extremes and the
+    /// `infinity` sentinels).
+    pub fn to_rfc3339(self) -> Option<String> {
+        let unix_micros = self
+            .into_inner()
+            .checked_add(PG_EPOCH_DIFF_FROM_UNIX_EPOCH_MICROS)?;
+        chrono::DateTime::from_timestamp_micros(unix_micros).map(|dt| dt.to_rfc3339())
     }
 
     pub fn try_from_raw(raw: i64) -> Result<Self, DateTimeConversionError> {
@@ -331,6 +344,24 @@ impl TryFrom<i64> for PostgresDateTime {
     }
 }
 
+/// Convert PostgreSQL-epoch timestamp microseconds into an Arrow Date32
+/// day count, preserving PostgreSQL's infinity sentinels.
+pub(crate) fn pg_timestamp_micros_to_date32(pg_micros: i64) -> i32 {
+    match pg_micros {
+        i64::MAX => i32::MAX,
+        i64::MIN => i32::MIN,
+        _ => {
+            let pg_days = pg_micros.div_euclid(ONE_DAY_MICROS);
+            let unix_days = pg_days
+                .checked_add(i64::from(PG_EPOCH_DIFF_FROM_UNIX_EPOCH_DAYS))
+                .expect("pg timestamp days to unix days should never overflow");
+            unix_days
+                .try_into()
+                .expect("Postgres timestamp day count should fit in Date32")
+        }
+    }
+}
+
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
@@ -463,5 +494,42 @@ mod tests {
             tantivy_dt.into_timestamp_micros(),
             round_tripped.into_timestamp_micros()
         );
+    }
+
+    #[test]
+    fn timestamp_to_date32_uses_the_unix_epoch() {
+        assert_eq!(pg_timestamp_micros_to_date32(0), 10_957);
+
+        // These values are still within 2000-01-01.
+        assert_eq!(pg_timestamp_micros_to_date32(1), 10_957);
+        assert_eq!(pg_timestamp_micros_to_date32(ONE_DAY_MICROS - 1), 10_957);
+
+        // This is exactly midnight on 2000-01-02.
+        assert_eq!(pg_timestamp_micros_to_date32(ONE_DAY_MICROS), 10_958);
+    }
+
+    #[test]
+    fn timestamp_to_date32_floors_negative_timestamps() {
+        // One microsecond before the PostgreSQL epoch is still 1999-12-31.
+        assert_eq!(pg_timestamp_micros_to_date32(-1), 10_956);
+
+        // Exactly midnight at the start of 1999-12-31.
+        assert_eq!(pg_timestamp_micros_to_date32(-ONE_DAY_MICROS), 10_956);
+
+        // One microsecond before that midnight belongs to 1999-12-30.
+        assert_eq!(pg_timestamp_micros_to_date32(-ONE_DAY_MICROS - 1), 10_955);
+    }
+
+    #[test]
+    fn timestamp_to_date32_preserves_infinity_sentinels() {
+        assert_eq!(pg_timestamp_micros_to_date32(i64::MAX), i32::MAX);
+        assert_eq!(pg_timestamp_micros_to_date32(i64::MIN), i32::MIN);
+    }
+
+    #[test]
+    fn timestamp_to_date32_converts_finite_postgres_bounds() {
+        assert_eq!(pg_timestamp_micros_to_date32(MIN_PG_MICROS), -2_440_588);
+
+        assert_eq!(pg_timestamp_micros_to_date32(MAX_PG_MICROS), 106_762_939);
     }
 }

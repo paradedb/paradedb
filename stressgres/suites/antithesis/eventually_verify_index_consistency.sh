@@ -11,9 +11,9 @@ set -Eeuo pipefail
 
 CONN="postgresql://postgres:antithesis-super-secret-password@paradedb-rw:5432/paradedb?connect_timeout=5"
 
-# EXECUTE keeps the pdb reference out of parse time: the vanilla-postgres timeline has no
-# pg_search extension, so the DO block must no-op there.
-SQL=$(cat <<'EOF'
+# EXECUTE keeps the pdb reference out of parse time when a topology has not installed pg_search
+# in the database being inspected, so the DO block can safely no-op there.
+read -r -d '' SQL <<'EOF' || true
 DO $$
 DECLARE
     bad text;
@@ -37,7 +37,6 @@ BEGIN
 END
 $$;
 EOF
-)
 
 # The deadline is 1.5x the workload's own 200s reconnect-grace: that grace holds under active
 # fault injection, while this command runs with all faults stopped, so a database that is still

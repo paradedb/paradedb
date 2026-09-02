@@ -29,9 +29,8 @@ use crate::api::operator::anyelement_query_input_opoid;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::joinscan::build::{
-    FilterNode, JoinKeyPair, JoinLevelExpr, JoinLevelSearchPredicate, JoinNode, JoinSource,
-    JoinSourceCandidate, JoinType, MultiTablePredicateInfo, PlannerRootId, RelNode,
-    lookup_base_rel_info, try_extract_equi_key,
+    FilterNode, JoinKeyPair, JoinLevelExpr, JoinNode, JoinSource, JoinSourceCandidate, JoinType,
+    PlannerRootId, RelNode, lookup_base_rel_info, try_extract_equi_key,
 };
 use crate::postgres::customscan::joinscan::planning::{
     ClassifiedBaseRestrictInfo, classify_base_restrictinfo, transparent_path_subpath,
@@ -55,23 +54,11 @@ use crate::query::SearchQueryInput;
 use crate::scan::info::FieldInfo;
 use pgrx::{PgList, pg_sys};
 
-/// Result type for `extract_join_tree_from_parse`: the plan tree, search
-/// predicates, multi-table predicate info, and raw PG Expr clause pointers.
-type JoinTreeResult = (
-    RelNode,
-    Vec<JoinLevelSearchPredicate>,
-    Vec<MultiTablePredicateInfo>,
-    Vec<*mut pg_sys::Expr>,
-);
+/// Result type for `extract_join_tree_from_parse`: the plan tree and raw PG Expr clause pointers.
+type JoinTreeResult = (RelNode, Vec<*mut pg_sys::Expr>);
 
-/// Result type for `build_search_filter`: the filter expression, search
-/// predicates, multi-table predicate info, and raw PG Expr clause pointers.
-type SearchFilterResult = (
-    JoinLevelExpr,
-    Vec<JoinLevelSearchPredicate>,
-    Vec<MultiTablePredicateInfo>,
-    Vec<*mut pg_sys::Expr>,
-);
+/// Result type for `build_search_filter`: the filter expression and raw PG Expr clause pointers.
+type SearchFilterResult = (JoinLevelExpr, Vec<*mut pg_sys::Expr>);
 
 /// Metadata about a table participating in the join, collected during parse-tree walk.
 #[derive(Debug)]
@@ -86,13 +73,13 @@ pub struct JoinAggSource {
     /// [`JoinAggSource::column_name`] and the downstream
     /// [`JoinSource::column_name`] / `build_source_df` paths agree on the
     /// BM25-registered field name for every heap attno. Empty when the
-    /// relation has no BM25 index.
+    /// relation has no ParadeDB index.
     pub fields: Vec<FieldInfo>,
 }
 
 impl JoinAggSource {
     /// Resolve a heap attribute number to its DataFusion-facing column name
-    /// via the BM25 index.
+    /// via the ParadeDB index.
     ///
     /// Returns the BM25 field name (which may be an alias like
     /// `"company_name_words"`), **not** the heap attribute name. This keeps
@@ -114,7 +101,7 @@ impl JoinAggSource {
 }
 
 /// Walk every column in the heap tuple descriptor, resolving each through the
-/// given BM25 index. Returns an empty vec when `bm25_index` is `None`.
+/// given ParadeDB index. Returns an empty vec when `bm25_index` is `None`.
 unsafe fn collect_source_fields(
     relid: pg_sys::Oid,
     bm25_index: Option<&PgSearchRelation>,
@@ -137,7 +124,7 @@ unsafe fn collect_source_fields(
 }
 
 /// Extract all tables participating in the join from `input_rel.relids` and look up
-/// their RTE / BM25 index information.
+/// their RTE / ParadeDB index information.
 ///
 /// Delegates per-relation metadata lookup to the shared [`lookup_base_rel_info`]
 /// in `joinscan/build.rs`.
@@ -225,8 +212,6 @@ pub unsafe fn extract_join_tree_from_parse(
     //
     // The earlier coverage check guarantees an opaque path cannot reach the
     // FromExpr.quals fallback below.
-    let mut join_level_predicates = Vec::new();
-    let mut multi_table_predicates = Vec::new();
     let mut multi_table_clauses: Vec<*mut pg_sys::Expr> = Vec::new();
 
     // Each call below fails closed if `build_search_filter` returns `None` -
@@ -246,15 +231,13 @@ pub unsafe fn extract_join_tree_from_parse(
         "path joinrestrictinfo",
         "cross-table predicate cannot be pushed into the aggregate scan",
         &mut plan,
-        &mut join_level_predicates,
-        &mut multi_table_predicates,
         &mut multi_table_clauses,
     )?;
 
     // 2. Fallback: parse-tree `(*jointree).quals` - PG sometimes leaves
     // cross-table predicates here that `joinrestrictinfo` didn't surface.
-    if join_level_predicates.is_empty()
-        && multi_table_predicates.is_empty()
+    if !plan.has_search_predicate()
+        && multi_table_clauses.is_empty()
         && !(*jointree).quals.is_null()
     {
         let mut parse_clauses = Vec::new();
@@ -266,26 +249,23 @@ pub unsafe fn extract_join_tree_from_parse(
             "jointree.quals",
             "cross-table predicate in WHERE clause cannot be pushed into the aggregate scan",
             &mut plan,
-            &mut join_level_predicates,
-            &mut multi_table_predicates,
             &mut multi_table_clauses,
         )?;
     }
+    let predicates = plan.search_predicates();
+    crate::postgres::customscan::joinscan::build::assign_tagged_queries(
+        plan.sources_mut(),
+        &predicates,
+    );
 
-    Ok((
-        plan,
-        join_level_predicates,
-        multi_table_predicates,
-        multi_table_clauses,
-    ))
+    Ok((plan, multi_table_clauses))
 }
 
 /// Try translating `clauses` into a cross-table search filter and, on
 /// success, wrap `plan` in a `FilterNode` and collect the resulting
 /// predicate metadata. If `build_search_filter` returns `None` we decline
 /// the agg-on-join path: silently dropping a cross-table predicate
-/// computes wrong rows. A no-op when `clauses` is empty.
-#[allow(clippy::too_many_arguments)]
+/// computes wrong rows.
 unsafe fn apply_search_filter_or_decline(
     root: *mut pg_sys::PlannerInfo,
     sources: &[JoinAggSource],
@@ -293,8 +273,6 @@ unsafe fn apply_search_filter_or_decline(
     source_label: &str,
     err_msg: &str,
     plan: &mut RelNode,
-    join_level_predicates: &mut Vec<JoinLevelSearchPredicate>,
-    multi_table_predicates: &mut Vec<MultiTablePredicateInfo>,
     multi_table_clauses: &mut Vec<*mut pg_sys::Expr>,
 ) -> Result<(), String> {
     if clauses.is_empty() {
@@ -311,9 +289,7 @@ unsafe fn apply_search_filter_or_decline(
         );
     }
 
-    let Some((filter_expr, predicates, mt_predicates, mt_clauses)) =
-        build_search_filter(root, clauses, sources, plan)
-    else {
+    let Some((filter_expr, mt_clauses)) = build_search_filter(root, clauses, sources, plan) else {
         pgrx::debug1!(
             "agg-on-join: declining; {} {} predicate(s) untranslatable",
             clauses.len(),
@@ -321,8 +297,6 @@ unsafe fn apply_search_filter_or_decline(
         );
         return Err(err_msg.into());
     };
-    *join_level_predicates = predicates;
-    *multi_table_predicates = mt_predicates;
     *multi_table_clauses = mt_clauses;
     let prev = std::mem::take(plan);
     *plan = RelNode::Filter(Box::new(FilterNode {
@@ -423,7 +397,7 @@ unsafe fn build_scan_node(
 
     let bm25_index = source.bm25_index.as_ref().ok_or_else(|| {
         format!(
-            "table at RTI {} ({}) has no BM25 index",
+            "table at RTI {} ({}) has no ParadeDB index",
             rti,
             source.alias.as_deref().unwrap_or("unknown")
         )
@@ -592,7 +566,7 @@ unsafe fn build_join_node(
 /// Extract equi-join keys from an expression tree (ON clause or WHERE clause).
 ///
 /// Looks for `OpExpr` nodes where the operator is `=` and the arguments are `Var`
-/// nodes referencing different tables that have BM25 indexes.
+/// nodes referencing different tables that have ParadeDB indexes.
 unsafe fn extract_equi_keys_from_expr(
     node: *mut pg_sys::Node,
     sources: &[JoinAggSource],
@@ -1307,12 +1281,12 @@ impl FilterExpr {
     }
 }
 
-/// Validate that at least one table in the join has a BM25 index.
+/// Validate that at least one table in the join has a ParadeDB index.
 pub fn has_any_bm25_index(sources: &[JoinAggSource]) -> bool {
     sources.iter().any(|s| s.bm25_index.is_some())
 }
 
-/// Validate that all tables in the join have a BM25 index.
+/// Validate that all tables in the join have a ParadeDB index.
 /// Required because DataFusion needs to scan all tables via `PgSearchTableProvider`.
 pub fn all_have_bm25_index(sources: &[JoinAggSource]) -> bool {
     sources.iter().all(|s| s.bm25_index.is_some())
@@ -1554,7 +1528,6 @@ unsafe fn build_search_filter(
     _sources: &[JoinAggSource],
     plan: &RelNode,
 ) -> Option<SearchFilterResult> {
-    use crate::postgres::customscan::joinscan::build::JoinCSClause;
     use crate::postgres::customscan::joinscan::predicate::transform_to_search_expr;
 
     // Predicate clauses are outer-query expressions.  Use only output-visible
@@ -1580,7 +1553,6 @@ unsafe fn build_search_filter(
         }
     }
 
-    let mut temp_clause = JoinCSClause::new(plan.clone());
     let mut multi_table_clauses: Vec<*mut pg_sys::Expr> = Vec::new();
     let mut expr_trees: Vec<JoinLevelExpr> = Vec::new();
 
@@ -1588,13 +1560,7 @@ unsafe fn build_search_filter(
         // If any clause can't be fully transformed, bail out.
         // Returning None causes the caller to decline the DataFusion path;
         // silently omitting any one clause would compute incorrect rows.
-        let expr = transform_to_search_expr(
-            root,
-            clause,
-            &sources,
-            &mut temp_clause,
-            &mut multi_table_clauses,
-        )?;
+        let expr = transform_to_search_expr(root, clause, &sources, &mut multi_table_clauses)?;
         expr_trees.push(expr);
     }
 
@@ -1608,12 +1574,7 @@ unsafe fn build_search_filter(
         JoinLevelExpr::And(expr_trees)
     };
 
-    Some((
-        final_expr,
-        temp_clause.join_level_predicates,
-        temp_clause.multi_table_predicates,
-        multi_table_clauses,
-    ))
+    Some((final_expr, multi_table_clauses))
 }
 
 /// Walk a parse-tree expression (typically `FromExpr.quals`) and collect

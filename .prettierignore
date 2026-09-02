@@ -1,8 +1,12 @@
+/docker/manifests/
+/docs/legacy/
 /docs/documentation/aggregates/limitations.mdx
+/docs/documentation/aggregates/overview.mdx
+/docs/documentation/full-text/fuzzy.mdx
 /docs/documentation/full-text/term.mdx
+/docs/documentation/indexing/verify-index.mdx
 /docs/documentation/query-builder/compound/all.mdx
 /docs/documentation/tokenizers/multiple-per-field.mdx
-/docs/documentation/indexing/verify-index.mdx
 **/*.csv
 **/*.csv.gz
 **/*.json
@@ -12,7 +16,3 @@
 **/*.tsv.gz
 **/*.txt
 **/*.zip
-/docker/manifests/
-/docs/documentation/aggregates/overview.mdx
-/docs/documentation/full-text/fuzzy.mdx
-/docs/legacy/

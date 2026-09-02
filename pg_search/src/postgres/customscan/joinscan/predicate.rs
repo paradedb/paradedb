@@ -36,7 +36,6 @@ use crate::postgres::customscan::datafusion::explain::format_expr_for_explain;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::pullup::resolve_fast_field;
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
-use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{expr_collect_rtis, expr_collect_vars, expr_contains_any_operator};
@@ -80,17 +79,18 @@ pub unsafe fn extract_join_level_conditions(
     let new_plan = lower_absorbed_search_clauses(
         root,
         std::mem::take(&mut join_clause.plan),
-        &mut join_clause,
         &mut multi_table_predicate_clauses,
     )?;
     join_clause.plan = new_plan;
 
     if extra.is_null() {
+        join_clause.assign_tagged_queries();
         return Ok((join_clause, multi_table_predicate_clauses));
     }
 
     let restrictlist = (*extra).restrictlist;
     if restrictlist.is_null() {
+        join_clause.assign_tagged_queries();
         return Ok((join_clause, multi_table_predicate_clauses));
     }
 
@@ -117,7 +117,6 @@ pub unsafe fn extract_join_level_conditions(
                 root,
                 clause.cast(),
                 sources,
-                &mut join_clause,
                 &mut multi_table_predicate_clauses,
             ) {
                 expr_trees.push(expr);
@@ -147,10 +146,14 @@ pub unsafe fn extract_join_level_conditions(
 
             // Create a MultiTablePredicate leaf node
             let description = format_expr_for_explain(clause.cast());
-            let predicate_idx = join_clause
-                .add_multi_table_predicate(description, multi_table_predicate_clauses.len());
             multi_table_predicate_clauses.push(clause);
-            expr_trees.push(JoinLevelExpr::MultiTablePredicate { predicate_idx });
+            expr_trees.push(JoinLevelExpr::MultiTablePredicate {
+                predicate: Box::new(
+                    crate::postgres::customscan::joinscan::build::MultiTablePredicateInfo {
+                        description,
+                    },
+                ),
+            });
         }
     }
 
@@ -164,23 +167,22 @@ pub unsafe fn extract_join_level_conditions(
         join_clause = join_clause.with_join_level_expr(final_expr);
     }
 
+    join_clause.assign_tagged_queries();
+
     Ok((join_clause, multi_table_predicate_clauses))
 }
 
-/// Recursively transform a PostgreSQL expression with search predicates into a JoinLevelExpr.
+/// Recursively transform a PostgreSQL expression tree into a `JoinLevelExpr`.
 ///
-/// - For single-table sub-trees with search predicates: extract as a Predicate leaf
-/// - For cross-relation sub-trees without search predicates: extract as a MultiTablePredicate leaf
-/// - For BoolExpr (AND/OR/NOT): recursively transform children
-///
-/// Also collects heap condition clause pointers into `multi_table_predicate_clauses` for adding
-/// to custom_exprs during plan_custom_path.
-#[allow(clippy::too_many_arguments)]
+/// Handles:
+/// - Single-table search predicates: extracted into a single Tantivy query (preserving NOT/AND/OR)
+/// - Cross-relation sub-trees without search predicates: extracted as a MultiTablePredicate leaf
+///   (in the same order as multi_table_predicates in the clause) for adding to custom_exprs
+/// - Cross-relation boolean expressions (AND/OR/NOT): recursively preserved in the `JoinLevelExpr` tree
 pub unsafe fn transform_to_search_expr(
     root: *mut pg_sys::PlannerInfo,
     node: *mut pg_sys::Node,
     sources: &[&JoinSource],
-    join_clause: &mut JoinCSClause,
     multi_table_predicate_clauses: &mut Vec<*mut pg_sys::Expr>,
 ) -> Option<JoinLevelExpr> {
     if node.is_null() {
@@ -196,13 +198,8 @@ pub unsafe fn transform_to_search_expr(
         let list = PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List);
         let mut children = Vec::new();
         for item in list.iter_ptr() {
-            let child_expr = transform_to_search_expr(
-                root,
-                item,
-                sources,
-                join_clause,
-                multi_table_predicate_clauses,
-            )?;
+            let child_expr =
+                transform_to_search_expr(root, item, sources, multi_table_predicate_clauses)?;
             children.push(child_expr);
         }
         return if children.is_empty() {
@@ -227,7 +224,9 @@ pub unsafe fn transform_to_search_expr(
         }
     }
 
-    // If this is a single-table expression with search predicate, extract as Predicate
+    // If this is a single-table expression with search predicate, extract as a single
+    // Tantivy search predicate so that table-local negation (with NULL-preserving exists guards),
+    // conjunctions, and disjunctions are evaluated natively by Tantivy.
     if has_search_op && rtis.len() == 1 && referenced_source_indices.len() == 1 {
         let rti = *rtis.iter().next().unwrap();
         let source = &sources[referenced_source_indices[0]];
@@ -235,12 +234,11 @@ pub unsafe fn transform_to_search_expr(
 
         // Extract the Tantivy query for this expression
         if let Some(base_info) = find_base_info_recursive(source, rti)
-            && let Some(predicate_idx) =
-                extract_single_table_predicate(root, rti, &base_info, node, join_clause)
+            && let Some(pred) = extract_single_table_predicate(root, rti, &base_info, node)
         {
             return Some(JoinLevelExpr::SingleTablePredicate {
                 plan_position,
-                predicate_idx,
+                predicate: Box::new(pred),
             });
         }
         return None;
@@ -256,13 +254,18 @@ pub unsafe fn transform_to_search_expr(
         translator.translate(node)?;
 
         let description = format_expr_for_explain(node);
-        let predicate_idx =
-            join_clause.add_multi_table_predicate(description, multi_table_predicate_clauses.len());
         multi_table_predicate_clauses.push(node as *mut pg_sys::Expr);
-        return Some(JoinLevelExpr::MultiTablePredicate { predicate_idx });
+        return Some(JoinLevelExpr::MultiTablePredicate {
+            predicate: Box::new(
+                crate::postgres::customscan::joinscan::build::MultiTablePredicateInfo {
+                    description,
+                },
+            ),
+        });
     }
 
-    // Handle BoolExpr
+    // If this is a cross-table BoolExpr, preserve its boolean structure (AND, OR, NOT)
+    // in JoinLevelExpr so it can be translated into DataFusion's boolean expressions.
     if node_type == pg_sys::NodeTag::T_BoolExpr {
         let boolexpr = node as *mut pg_sys::BoolExpr;
         let boolop = (*boolexpr).boolop;
@@ -276,7 +279,6 @@ pub unsafe fn transform_to_search_expr(
                         root,
                         arg,
                         sources,
-                        join_clause,
                         multi_table_predicate_clauses,
                     )?;
                     children.push(child_expr);
@@ -293,13 +295,8 @@ pub unsafe fn transform_to_search_expr(
             }
             pg_sys::BoolExprType::NOT_EXPR => {
                 if let Some(arg) = args.iter_ptr().next()
-                    && let Some(child_expr) = transform_to_search_expr(
-                        root,
-                        arg,
-                        sources,
-                        join_clause,
-                        multi_table_predicate_clauses,
-                    )
+                    && let Some(child_expr) =
+                        transform_to_search_expr(root, arg, sources, multi_table_predicate_clauses)
                 {
                     return Some(JoinLevelExpr::Not(Box::new(child_expr)));
                 }
@@ -323,15 +320,13 @@ pub unsafe fn find_base_info_recursive(
     }
 }
 
-/// Extract a single-table predicate and add it to the join clause.
-/// Returns the index of the predicate in join_level_predicates, or None if extraction fails.
+/// Extract a single-table predicate from an expression.
 pub unsafe fn extract_single_table_predicate(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
     side: &ScanInfo,
     expr: *mut pg_sys::Node,
-    join_clause: &mut JoinCSClause,
-) -> Option<usize> {
+) -> Option<crate::postgres::customscan::joinscan::build::JoinLevelSearchPredicate> {
     let indexrelid = side.indexrelid;
     let heaprelid = side.heaprelid;
     let (_, bm25_idx) = rel_get_bm25_index(heaprelid)?;
@@ -359,16 +354,14 @@ pub unsafe fn extract_single_table_predicate(
     )?;
 
     let query = SearchQueryInput::from(&qual);
-
-    // Eagerly deparse the expression for EXPLAIN output while planner pointers are valid
-    let display_str = {
-        let context = PlannerContext::from_planner(root);
-        let index_rel = PgSearchRelation::open(indexrelid);
-        deparse_expr(Some(&context), &index_rel, expr)
-    };
-
-    let idx = join_clause.add_join_level_predicate(rti, indexrelid, heaprelid, query, display_str);
-    Some(idx)
+    Some(
+        crate::postgres::customscan::joinscan::build::JoinLevelSearchPredicate {
+            rti,
+            indexrelid,
+            heaprelid,
+            query,
+        },
+    )
 }
 
 /// Sub-join reconstruction stashes `@@@` `RestrictInfo`s onto
@@ -379,19 +372,13 @@ pub unsafe fn extract_single_table_predicate(
 pub(super) unsafe fn lower_absorbed_search_clauses(
     root: *mut pg_sys::PlannerInfo,
     node: RelNode,
-    join_clause: &mut JoinCSClause,
     multi_table_predicate_clauses: &mut Vec<*mut pg_sys::Expr>,
 ) -> Result<RelNode, String> {
     match node {
         RelNode::Scan(s) => Ok(RelNode::Scan(s)),
         RelNode::Filter(f) => {
             let FilterNode { input, predicate } = *f;
-            let input = lower_absorbed_search_clauses(
-                root,
-                input,
-                join_clause,
-                multi_table_predicate_clauses,
-            )?;
+            let input = lower_absorbed_search_clauses(root, input, multi_table_predicate_clauses)?;
             Ok(RelNode::Filter(Box::new(FilterNode { input, predicate })))
         }
         RelNode::Join(j) => {
@@ -404,18 +391,8 @@ pub(super) unsafe fn lower_absorbed_search_clauses(
                 subplan_id,
                 absorbed_search_clauses,
             } = *j;
-            let left = lower_absorbed_search_clauses(
-                root,
-                left,
-                join_clause,
-                multi_table_predicate_clauses,
-            )?;
-            let right = lower_absorbed_search_clauses(
-                root,
-                right,
-                join_clause,
-                multi_table_predicate_clauses,
-            )?;
+            let left = lower_absorbed_search_clauses(root, left, multi_table_predicate_clauses)?;
+            let right = lower_absorbed_search_clauses(root, right, multi_table_predicate_clauses)?;
 
             if absorbed_search_clauses.is_empty() {
                 return Ok(RelNode::Join(Box::new(JoinNode {
@@ -438,7 +415,6 @@ pub(super) unsafe fn lower_absorbed_search_clauses(
                 root,
                 &sub_sources,
                 &absorbed_search_clauses,
-                join_clause,
                 multi_table_predicate_clauses,
             )?;
             Ok(RelNode::Filter(Box::new(FilterNode {
@@ -465,7 +441,6 @@ unsafe fn build_absorbed_filter(
     root: *mut pg_sys::PlannerInfo,
     sub_sources: &[&JoinSource],
     absorbed: &[*mut pg_sys::RestrictInfo],
-    join_clause: &mut JoinCSClause,
     multi_table_predicate_clauses: &mut Vec<*mut pg_sys::Expr>,
 ) -> Result<JoinLevelExpr, String> {
     let expr_trees: Vec<JoinLevelExpr> = absorbed
@@ -483,7 +458,6 @@ unsafe fn build_absorbed_filter(
                 root,
                 clause.cast(),
                 sub_sources,
-                join_clause,
                 multi_table_predicate_clauses,
             )
             .ok_or_else(|| {

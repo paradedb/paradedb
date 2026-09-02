@@ -72,6 +72,7 @@
 
 use crate::api::HashMap;
 use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, FFType, NULL_TERM_ORDINAL};
+use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::postgres::customscan::joinscan::build::CtidColumn;
 use crate::postgres::customscan::joinscan::visibility_filter::{
     DeferredCtidMaterializationState, materialize_deferred_ctid,
@@ -100,7 +101,9 @@ use datafusion::physical_plan::filter_pushdown::{
 use datafusion::physical_plan::metrics::{
     Count, ExecutionPlanMetricsSet, MetricBuilder, MetricsSet,
 };
-use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
+use datafusion::physical_plan::{
+    DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties, apply_expression_roots,
+};
 use pgrx::pg_sys;
 use std::sync::{Arc, Mutex};
 use tantivy::termdict::TermOrdinal;
@@ -404,7 +407,7 @@ impl SegmentedTopKExec {
         ffhelpers: HashMap<u32, Arc<FFHelper>>,
         ctid_resolvers: Vec<(usize, u32, Arc<FFHelper>)>,
         ctx: &TaskContext,
-        index_segment_ids: &[crate::api::HashSet<tantivy::index::SegmentId>],
+        index_segment_views: &[SegmentView],
         parallel_state: Option<*mut crate::postgres::ParallelScanState>,
         proto_converter: &dyn datafusion_proto::physical_plan::PhysicalProtoConverterExtension,
     ) -> Result<Arc<dyn ExecutionPlan>> {
@@ -508,16 +511,16 @@ impl SegmentedTopKExec {
                     if ctid_resolvers.iter().any(|(pos, _, _)| *pos == plan_pos) {
                         continue;
                     }
-                    let ids = index_segment_ids.get(plan_pos).cloned().ok_or_else(|| {
+                    let view = index_segment_views.get(plan_pos).cloned().ok_or_else(|| {
                         DataFusionError::Internal(format!(
-                            "SegmentedTopKExec dispatch: missing canonical segment ids for \
+                            "SegmentedTopKExec dispatch: missing segment view for \
                              plan_position {plan_pos}"
                         ))
                     })?;
                     let ffhelper = crate::scan::tantivy_lookup_exec::open_rebuilt_ffhelper(
                         indexrelid,
                         &[],
-                        crate::index::mvcc::MvccSatisfies::ParallelWorker(ids),
+                        MvccSatisfies::ParallelWorker(view),
                     )?;
                     vd.set_ctid_resolver(plan_pos, indexrelid, ffhelper);
                 }
@@ -572,6 +575,15 @@ impl ExecutionPlan for SegmentedTopKExec {
 
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
         vec![&self.input]
+    }
+
+    fn apply_expressions(
+        &self,
+        f: &mut dyn FnMut(
+            &Arc<dyn PhysicalExpr>,
+        ) -> Result<datafusion::common::tree_node::TreeNodeRecursion>,
+    ) -> Result<datafusion::common::tree_node::TreeNodeRecursion> {
+        apply_expression_roots([&self.dynamic_filter], f)
     }
 
     fn with_new_children(

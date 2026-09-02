@@ -10,7 +10,7 @@
 --
 -- Tests cover:
 -- 1. TopK (base scan ORDER BY ... LIMIT) with C vs non-C collation
--- 2. Aggregate scan ORDER BY with C vs non-C collation
+-- 2. Aggregate scan grouping and ordering with C vs non-C collation
 -- 3. Sorted index scan (sort_by) with C vs non-C collation
 -- 4. Non-text columns (integers) are unaffected by collation checks
 -- 5. Result correctness
@@ -32,11 +32,17 @@ CREATE COLLATION IF NOT EXISTS test_icu (
     provider = icu,
     locale = 'en-US'
 );
+CREATE COLLATION IF NOT EXISTS test_icu_case_insensitive (
+    provider = icu,
+    locale = 'und-u-ks-level2',
+    deterministic = false
+);
 DROP TABLE IF EXISTS collation_test CASCADE;
 CREATE TABLE collation_test (
     id SERIAL PRIMARY KEY,
     name_c TEXT COLLATE "C",
     name_icu TEXT COLLATE "test_icu",
+    name_case_insensitive TEXT COLLATE "test_icu_case_insensitive",
     name_default TEXT,
     priority INTEGER
 );
@@ -44,26 +50,30 @@ INSERT INTO
     collation_test (
         name_c,
         name_icu,
+        name_case_insensitive,
         name_default,
         priority
     )
-VALUES ('apple', 'apple', 'apple', 10),
+VALUES ('apple', 'apple', 'Electronics', 'apple', 10),
     (
         'Banana',
         'Banana',
+        'electronics',
         'Banana',
         20
     ),
     (
         'cherry',
         'cherry',
+        'Clothing',
         'cherry',
         30
     ),
-    ('Date', 'Date', 'Date', 40),
+    ('Date', 'Date', 'Home', 'Date', 40),
     (
         'elderberry',
         'elderberry',
+        'home',
         'elderberry',
         50
     );
@@ -71,12 +81,13 @@ CREATE INDEX collation_test_idx ON collation_test USING paradedb (
     id,
     name_c,
     name_icu,
+    name_case_insensitive,
     name_default,
     priority
 )
 WITH (
         key_field = 'id',
-        text_fields = '{"name_c": {"indexed": true, "fast": true}, "name_icu": {"indexed": true, "fast": true}, "name_default": {"indexed": true, "fast": true}}',
+        text_fields = '{"name_c": {"indexed": true, "fast": true}, "name_icu": {"indexed": true, "fast": true}, "name_case_insensitive": {"indexed": true, "fast": true}, "name_default": {"indexed": true, "fast": true}}',
         numeric_fields = '{"priority": {"indexed": true, "fast": true}}'
     );
 ANALYZE collation_test;
@@ -113,7 +124,7 @@ SELECT id, name_icu FROM collation_test
 WHERE id @@@ paradedb.all()
 ORDER BY name_icu
 LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Columnar instead). Reason: ORDER BY columns whose collation is not byte-ordered (C-like) cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Specify COLLATE "C" in your query, or use a byte-ordered collation instead. To disable this warning: SET paradedb.check_topk_scan = false (table: collation_test)
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Columnar instead). Reason: ORDER BY columns whose collation is not byte-ordered (C-like) cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Specify COLLATE "C" in your query, or use a byte-ordered collation instead. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
                            QUERY PLAN                           
 ----------------------------------------------------------------
  Limit
@@ -178,7 +189,7 @@ SELECT id, name_c FROM collation_test
 WHERE id @@@ paradedb.all()
 ORDER BY name_c COLLATE "test_icu"
 LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns whose collation is not byte-ordered (C-like) cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Specify COLLATE "C" in your query, or use a byte-ordered collation instead. To disable this warning: SET paradedb.check_topk_scan = false (table: collation_test)
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns whose collation is not byte-ordered (C-like) cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Specify COLLATE "C" in your query, or use a byte-ordered collation instead. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
                            QUERY PLAN                           
 ----------------------------------------------------------------
  Limit
@@ -216,8 +227,8 @@ ORDER BY name_c;
      Aggregate Definition: {"grouped":{"terms":{"field":"name_c","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
 (6 rows)
 
-\echo 'Test 2.2: GROUP BY + ORDER BY ICU-collation text -> Sort node expected'
-Test 2.2: GROUP BY + ORDER BY ICU-collation text -> Sort node expected
+\echo 'Test 2.2: deterministic ICU GROUP BY stays pushed down; ORDER BY stays above'
+Test 2.2: deterministic ICU GROUP BY stays pushed down; ORDER BY stays above
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_icu, COUNT(*) FROM collation_test
 WHERE id @@@ paradedb.all()
@@ -235,6 +246,23 @@ ORDER BY name_icu;
            Aggregate Definition: {"grouped":{"terms":{"field":"name_icu","segment_size":65000,"size":65000}}}
 (8 rows)
 
+-- Deterministic ICU equality is compatible with byte-based grouping. Keep
+-- pdb.agg() on AggregateScan rather than falling back to PostgreSQL, which
+-- cannot execute its placeholder.
+SELECT name_icu, pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
+FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_icu
+ORDER BY name_icu;
+  name_icu  |      agg       
+------------+----------------
+ apple      | {"value": 1.0}
+ Banana     | {"value": 1.0}
+ cherry     | {"value": 1.0}
+ Date       | {"value": 1.0}
+ elderberry | {"value": 1.0}
+(5 rows)
+
 \echo 'Test 2.3: GROUP BY + ORDER BY integer -> aggregate pushdown (collation is InvalidOid)'
 Test 2.3: GROUP BY + ORDER BY integer -> aggregate pushdown (collation is InvalidOid)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -251,6 +279,200 @@ ORDER BY priority;
      Group By: priority
      Aggregate Definition: {"grouped":{"terms":{"field":"priority","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
 (6 rows)
+
+\echo 'Test 2.4: safe GROUP BY + unsafe ORDER BY -> Sort above AggregateScan'
+Test 2.4: safe GROUP BY + unsafe ORDER BY -> Sort above AggregateScan
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT name_c, COUNT(*) FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_c
+ORDER BY name_c COLLATE "test_icu";
+                                                            QUERY PLAN                                                             
+-----------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: name_c COLLATE test_icu
+   ->  Custom Scan (ParadeDB Aggregate Scan) on collation_test
+         Index: collation_test_idx
+         Tantivy Query: {"with_index":{"query":"all"}}
+           Applies to Aggregates: COUNT(*)
+           Group By: name_c
+           Aggregate Definition: {"grouped":{"terms":{"field":"name_c","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(8 rows)
+
+\echo 'Test 2.5: nondeterministic ICU GROUP BY -> PostgreSQL combines equivalent values'
+Test 2.5: nondeterministic ICU GROUP BY -> PostgreSQL combines equivalent values
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT lower(name_case_insensitive) AS name, COUNT(*)
+FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_case_insensitive
+ORDER BY name;
+WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
+ Sort
+   Sort Key: (lower(name_case_insensitive)) COLLATE test_icu_case_insensitive
+   ->  GroupAggregate
+         Group Key: name_case_insensitive
+         ->  Sort
+               Sort Key: name_case_insensitive COLLATE test_icu_case_insensitive
+               ->  Custom Scan (ParadeDB Base Scan) on collation_test
+                     Table: collation_test
+                     Index: collation_test_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Full Index Scan: true
+                     Tantivy Query: {"with_index":{"query":"all"}}
+(13 rows)
+
+SELECT lower(name_case_insensitive) AS name, COUNT(*)
+FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_case_insensitive
+ORDER BY name;
+WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
+    name     | count 
+-------------+-------
+ clothing    |     1
+ electronics |     2
+ home        |     2
+(3 rows)
+
+\echo 'Test 2.6: GROUPING SETS with a deterministic key -> AggregateScan declined'
+Test 2.6: GROUPING SETS with a deterministic key -> AggregateScan declined
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT name_c, COUNT(*)
+FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY GROUPING SETS ((name_c), ());
+WARNING:  Aggregate Scan not used: GROUPING SETS are not supported. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
+                        QUERY PLAN                        
+----------------------------------------------------------
+ MixedAggregate
+   Hash Key: name_c
+   Group Key: ()
+   ->  Custom Scan (ParadeDB Base Scan) on collation_test
+         Table: collation_test
+         Index: collation_test_idx
+         Exec Method: ColumnarExecState
+         Fast Fields: name_c
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(11 rows)
+
+SELECT COUNT(*) AS group_count
+FROM (
+    SELECT name_c
+    FROM collation_test
+    WHERE id @@@ paradedb.all()
+    GROUP BY GROUPING SETS ((name_c), ())
+) AS grouped;
+WARNING:  Aggregate Scan not used: GROUPING SETS are not supported. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
+ group_count 
+-------------
+           6
+(1 row)
+
+SELECT name_c, pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
+FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY GROUPING SETS ((name_c), ());
+ERROR:  Cannot execute pdb.agg: GROUPING SETS are not supported
+\echo 'Test 2.7: constant-equality GROUP BY key with no pathkeys -> AggregateScan declined'
+Test 2.7: constant-equality GROUP BY key with no pathkeys -> AggregateScan declined
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT name_c, COUNT(*)
+FROM collation_test
+WHERE name_c = 'apple' AND id @@@ paradedb.all()
+GROUP BY name_c;
+WARNING:  Aggregate Scan not used: could not verify GROUP BY semantics. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
+                                                                                             QUERY PLAN                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   ->  Custom Scan (ParadeDB Base Scan) on collation_test
+         Table: collation_test
+         Index: collation_test_idx
+         Exec Method: ColumnarExecState
+         Fast Fields: name_c
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(name_c = 'apple'::text)"}]}}]}}
+(9 rows)
+
+SELECT name_c, pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
+FROM collation_test
+WHERE name_c = 'apple' AND id @@@ paradedb.all()
+GROUP BY name_c;
+ERROR:  Cannot execute pdb.agg: could not verify GROUP BY semantics
+\echo 'Test 2.8: hash aggregation with a nondeterministic collation -> AggregateScan declined'
+Test 2.8: hash aggregation with a nondeterministic collation -> AggregateScan declined
+SET enable_sort TO off;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT name_case_insensitive, COUNT(*)
+FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_case_insensitive;
+WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
+                        QUERY PLAN                        
+----------------------------------------------------------
+ HashAggregate
+   Group Key: name_case_insensitive
+   ->  Custom Scan (ParadeDB Base Scan) on collation_test
+         Table: collation_test
+         Index: collation_test_idx
+         Exec Method: ColumnarExecState
+         Fast Fields: name_case_insensitive
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(10 rows)
+
+SELECT COUNT(*) AS group_count
+FROM (
+    SELECT name_case_insensitive
+    FROM collation_test
+    WHERE id @@@ paradedb.all()
+    GROUP BY name_case_insensitive
+) AS grouped;
+WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
+ group_count 
+-------------
+           3
+(1 row)
+
+RESET enable_sort;
+\echo 'Test 2.9: pdb.agg() with a nondeterministic grouping collation warns before failing'
+Test 2.9: pdb.agg() with a nondeterministic grouping collation warns before failing
+SELECT lower(name_case_insensitive) AS name,
+       pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
+FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_case_insensitive;
+ERROR:  Cannot execute pdb.agg: GROUP BY uses a nondeterministic collation
+\echo 'Test 2.10: mixed safe and unsafe GROUP BY keys -> AggregateScan declined'
+Test 2.10: mixed safe and unsafe GROUP BY keys -> AggregateScan declined
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT name_c, name_case_insensitive, COUNT(*) FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_c, name_case_insensitive
+ORDER BY name_c, name_case_insensitive;
+WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
+                                          QUERY PLAN                                           
+-----------------------------------------------------------------------------------------------
+ GroupAggregate
+   Group Key: name_c, name_case_insensitive
+   ->  Sort
+         Sort Key: name_c COLLATE "C", name_case_insensitive COLLATE test_icu_case_insensitive
+         ->  Custom Scan (ParadeDB Base Scan) on collation_test
+               Table: collation_test
+               Index: collation_test_idx
+               Exec Method: ColumnarExecState
+               Fast Fields: name_c, name_case_insensitive
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+(12 rows)
 
 RESET paradedb.enable_aggregate_custom_scan;
 -- =============================================================================
@@ -441,8 +663,8 @@ JOIN collation_join_suppliers s ON p.id = s.product_id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name_c
 LIMIT 5;
-                                                                                                   QUERY PLAN                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                  QUERY PLAN                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: s INNER p
@@ -455,9 +677,9 @@ LIMIT 5;
            :     SegmentedTopKExec: expr=[name_c@2 ASC NULLS LAST], k=5, visibility_checks=[s, p]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@3, ctid_1@0, name_c@2]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :           PgSearchScan: table=s, segments=1, dynamic_filters=1, visibility=deferred, query="all"
 (15 rows)
 
 \echo 'Test 5.2: JoinScan ORDER BY ICU-collation column -> JoinScan declined (Sort node expected)'
@@ -469,7 +691,7 @@ JOIN collation_join_suppliers s ON p.id = s.product_id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name_icu
 LIMIT 5;
-WARNING:  JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation (tables: p, s)
+WARNING:  JoinScan not used: ORDER BY columns must have a byte-ordered (C-like) collation (tables: p, s)
                                                                                    QUERY PLAN                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -497,8 +719,8 @@ JOIN collation_join_suppliers s ON p.id = s.product_id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 5;
-                                                                                                      QUERY PLAN                                                                                                       
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                     QUERY PLAN                                                                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Result
          ->  Custom Scan (ParadeDB Join Scan)
@@ -512,9 +734,9 @@ LIMIT 5;
                  :     VisibilityFilterExec: tables=[s, p]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@2, ctid_1@0, id@1]
                  :         CooperativeExec
-                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                 :           PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                  :         CooperativeExec
-                 :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+                 :           PgSearchScan: table=s, segments=1, dynamic_filters=1, visibility=deferred, query="all"
 (16 rows)
 
 RESET paradedb.enable_join_custom_scan;
@@ -544,28 +766,32 @@ LIMIT 3;
            Aggregate Definition: {"grouped":{"terms":{"field":"name_c","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
 (8 rows)
 
-\echo 'Test 6.2: GROUP BY + ORDER BY ICU-collation text + LIMIT -> no TopK (Sort node expected)'
-Test 6.2: GROUP BY + ORDER BY ICU-collation text + LIMIT -> no TopK (Sort node expected)
+\echo 'Test 6.2: deterministic ICU GROUP BY + LIMIT -> grouping pushed down, ordering remains above'
+Test 6.2: deterministic ICU GROUP BY + LIMIT -> grouping pushed down, ordering remains above
+SET paradedb.max_term_agg_buckets = 1;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_icu, COUNT(*) FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY name_icu
 ORDER BY name_icu
 LIMIT 3;
-                                                     QUERY PLAN                                                     
---------------------------------------------------------------------------------------------------------------------
+                                                 QUERY PLAN                                                 
+------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: name_icu COLLATE test_icu
-         ->  Custom Scan (ParadeDB Aggregate Scan) on collation_test
-               Index: collation_test_idx
-               Tantivy Query: {"with_index":{"query":"all"}}
-                 Applies to Aggregates: COUNT(*)
-                 Group By: name_icu
-                 Limit: 3
-                 Aggregate Definition: {"grouped":{"terms":{"field":"name_icu","segment_size":65000,"size":65000}}}
-(10 rows)
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Backend: DataFusion
+               Indexes: collation_test_idx (collation_test)
+               Group By: name_icu
+               Aggregates: COUNT(*)
+               DataFusion Physical Plan: 
+                 : AggregateExec: mode=Single, gby=[name_icu@0 as name_icu], aggr=[count(1) as agg_0]
+                 :   CooperativeExec
+                 :     PgSearchScan: table=collation_test, segments=1, query={"with_index":{"query":"all"}}
+(12 rows)
 
+RESET paradedb.max_term_agg_buckets;
 \echo 'Test 6.3: GROUP BY + ORDER BY integer + LIMIT -> aggregate TopK pushdown'
 Test 6.3: GROUP BY + ORDER BY integer + LIMIT -> aggregate TopK pushdown
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -665,7 +891,7 @@ SELECT id, name_c, name_icu FROM collation_test
 WHERE id @@@ paradedb.all()
 ORDER BY name_c, name_icu
 LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.check_topk_scan = false (table: collation_test)
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
                            QUERY PLAN                            
 -----------------------------------------------------------------
  Limit
@@ -687,7 +913,7 @@ SELECT id, priority, name_icu FROM collation_test
 WHERE id @@@ paradedb.all()
 ORDER BY priority, name_icu
 LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.check_topk_scan = false (table: collation_test)
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
                            QUERY PLAN                           
 ----------------------------------------------------------------
  Limit
@@ -751,6 +977,7 @@ DROP TABLE IF EXISTS collation_test CASCADE;
 DROP TABLE IF EXISTS collation_sortby_test CASCADE;
 DROP TABLE IF EXISTS collation_join_products CASCADE;
 DROP TABLE IF EXISTS collation_join_suppliers CASCADE;
+DROP COLLATION IF EXISTS test_icu_case_insensitive;
 DROP COLLATION IF EXISTS test_icu;
 \i common/common_cleanup.sql
 -- Reset parallel workers setting to default

@@ -1,7 +1,7 @@
 ---
 title: Run Queries
 description: Run your first queries on ParadeDB
-canonical: https://docs.paradedb.com/documentation/getting-started/queries
+canonical: https://www.paradedb.com/docs/documentation/getting-started/queries
 ---
 
 Now that your [environment is configured](/documentation/getting-started/environment), select the codetab for your tool and run some queries.
@@ -384,9 +384,7 @@ await dbContext
 (3 rows)
 ```
 
-Because `embedding` is part of the same index as `description` and `rating`, the entire query (the full-text match, the rating filter,
-and the nearest-neighbor ordering) executes inside the ParadeDB index. ParadeDB is the only Postgres index that can do this — every other
-Postgres vector index is a standalone index that requires separate pre/post filtering, which hurts performance and recall.
+Because `embedding` is part of the same index as `description` and `rating`, the entire query (the full-text match, the rating filter, and the nearest-neighbor ordering) can execute in a single index scan. By comparison, pgvector and other Postgres vector indexes are standalone indexes that require separate pre- or post-filtering, which can significantly hurt performance and recall.
 
 ## Top K Ordering
 

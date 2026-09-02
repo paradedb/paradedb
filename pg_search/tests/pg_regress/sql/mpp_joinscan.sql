@@ -38,23 +38,6 @@ CREATE TABLE mpp_join_pages (
     size_bytes INTEGER
 );
 
-CREATE INDEX mpp_join_files_idx ON mpp_join_files
-USING paradedb (id, title, content)
-WITH (
-    key_field='id',
-    partition_by='id',
-    text_fields='{"title": {"fast": true}, "content": {}}'
-);
-
-CREATE INDEX mpp_join_pages_idx ON mpp_join_pages
-USING paradedb (id, file_id, page_text, size_bytes)
-WITH (
-    key_field='id',
-    partition_by='file_id',
-    numeric_fields='{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
-    text_fields='{"page_text": {}}'
-);
-
 SET paradedb.global_mutable_segment_rows = 0;
 
 INSERT INTO mpp_join_files (title, content)
@@ -81,6 +64,27 @@ RESET paradedb.global_mutable_segment_rows;
 
 ANALYZE mpp_join_files;
 ANALYZE mpp_join_pages;
+
+-- A serial build keeps the worker-count warning deterministic.
+SET max_parallel_maintenance_workers TO 0;
+
+CREATE INDEX mpp_join_files_idx ON mpp_join_files
+USING paradedb (id, title, content)
+WITH (
+    key_field='id',
+    target_segment_count=3,
+    partition_by='id',
+    text_fields='{"title": {"fast": true}, "content": {}}'
+);
+CREATE INDEX mpp_join_pages_idx ON mpp_join_pages
+USING paradedb (id, file_id, page_text, size_bytes)
+WITH (
+    key_field='id',
+    target_segment_count=3,
+    partition_by='file_id',
+    numeric_fields='{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
+    text_fields='{"page_text": {}}'
+);
 
 -- =====================================================================
 -- Pass 1: serial baseline (max_parallel_workers_per_gather = 0)
@@ -286,17 +290,15 @@ GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
 
-
 -- =====================================================================
 -- Pass 8: MPP with a parameterized search predicate (issue #5445)
 --
 -- length(f.title) > $1, with plan_cache_mode=force_generic_plan, keeps
 -- $1 unresolved in SearchQueryInput. Compared against the same query run
--- serially (enable_mpp = off) so MPP-vs-serial divergence surfaces as a
--- diff, not just a missing worker_metrics_shown flag (see #5167).
+-- serially (max_parallel_workers_per_gather = 0) so MPP-vs-serial divergence
+-- surfaces as a diff, not just a missing worker_metrics_shown flag (see #5167).
 -- =====================================================================
 
-SET paradedb.enable_mpp TO on;
 SET max_parallel_workers_per_gather TO 4;
 SET plan_cache_mode = force_generic_plan;
 PREPARE mpp_join_heapfilter_param(int) AS
@@ -338,7 +340,7 @@ WHERE line LIKE '%Gather%';
 DEALLOCATE mpp_join_heapfilter_param;
 
 -- Same query, run serially, to diff against the MPP result above.
-SET paradedb.enable_mpp TO off;
+SET max_parallel_workers_per_gather TO 0;
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section'
@@ -352,7 +354,7 @@ WHERE f.content @@@ 'Section'
   AND length(f.title) > 7
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
-SET paradedb.enable_mpp TO on;
+SET max_parallel_workers_per_gather TO 4;
 
 SET plan_cache_mode = auto;
 
@@ -393,13 +395,13 @@ LIMIT 10;
 
 -- Execute the identical InitPlan query serially so the expected output directly
 -- checks MPP/serial result equivalence, not only MPP worker activity.
-SET paradedb.enable_mpp TO off;
+SET max_parallel_workers_per_gather TO 0;
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
 WHERE f.content @@@ (SELECT content FROM mpp_join_files ORDER BY id LIMIT 1)
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
-SET paradedb.enable_mpp TO on;
+SET max_parallel_workers_per_gather TO 4;
 
 -- =====================================================================
 -- Pass 10: MPP with two parameterized source queries (review: mithuncy)
@@ -518,10 +520,59 @@ FROM mpp_explain_analyze_lines(
 WHERE line LIKE '%DistributedExec%';
 
 DROP TABLE mpp_join_rescan_terms;
-DROP FUNCTION mpp_explain_analyze_lines(text);
 SET plan_cache_mode = auto;
 
-SET paradedb.enable_mpp TO off;
+-- =====================================================================
+-- Pass 13: the size gate falls back to a plain serial run. The plan was
+-- built while MPP was eligible, so the fallback must not carry per-source
+-- claim markers that have no shared scan state to draw from. The gate is
+-- shared with the plain-EXPLAIN rebuild, so the rendered plan is serial
+-- too; the EXPLAIN ANALYZE asserts below pin the executed mode.
+-- =====================================================================
+
+SET max_parallel_workers_per_gather TO 3;
+SET paradedb.mpp_min_rows TO 1000000000;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+-- Executed serially: no DistributedExec root and no network boundary nodes.
+-- (Serial DataFusion nodes also render `output_rows` metrics, so those lines
+-- can't stand in for worker metrics here.)
+SELECT count(*) = 0 AS gated_no_distributed_exec
+FROM mpp_explain_analyze_lines(
+  $$SELECT f.title, p.size_bytes
+    FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+    WHERE f.content @@@ 'Section'
+    ORDER BY f.title, p.size_bytes
+    LIMIT 10$$
+) AS line
+WHERE line LIKE '%DistributedExec%';
+
+SELECT count(*) = 0 AS gated_no_network_boundaries
+FROM mpp_explain_analyze_lines(
+  $$SELECT f.title, p.size_bytes
+    FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+    WHERE f.content @@@ 'Section'
+    ORDER BY f.title, p.size_bytes
+    LIMIT 10$$
+) AS line
+WHERE line LIKE '%NetworkCoalesceExec%'
+   OR line LIKE '%NetworkShuffleExec%'
+   OR line LIKE '%NetworkBroadcastExec%';
+
+RESET paradedb.mpp_min_rows;
+DROP FUNCTION mpp_explain_analyze_lines(text);
 
 -- =====================================================================
 -- Cleanup

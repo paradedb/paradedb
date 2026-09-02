@@ -38,6 +38,7 @@ use sqlx::{Connection, PgConnection};
 use crate::fixtures::ConnExt;
 use crate::fixtures::db::Query;
 use crate::fixtures::fault_grace::{TransientKind, classify_transient};
+use crossrelgen::CrossRelExpr;
 use joingen::{JoinExpr, JoinType};
 use opexprgen::{ArrayQuantifier, Operator};
 use wheregen::Expr;
@@ -385,13 +386,14 @@ ANALYZE {tname};
 }
 
 ///
-/// Generates arbitrary joins and where clauses for the given tables and columns.
+/// Generates arbitrary joins, where clauses, and optional cross-relation predicates
+/// for the given tables and columns.
 ///
 pub fn arb_joins_and_wheres<J, S>(
     join_types: J,
     tables: Vec<S>,
     columns: &[Column],
-) -> impl Strategy<Value = (JoinExpr, Expr)> + use<J, S>
+) -> impl Strategy<Value = (JoinExpr, Expr, Option<CrossRelExpr>)> + use<J, S>
 where
     J: Strategy<Value = JoinType> + Clone,
     S: AsRef<str>,
@@ -402,15 +404,30 @@ where
         .collect::<Vec<_>>();
 
     let columns = columns.to_vec();
+    let numeric_columns: Vec<String> = columns
+        .iter()
+        .filter(|c| c.sql_type == "INTEGER" && c.is_whereable)
+        .map(|c| c.name.to_string())
+        .collect();
 
-    // Choose how many tables will be joined.
+    // Choose how many tables will be joined (at least 2).
     (2..=table_names.len())
         .prop_flat_map(move |join_size| {
             // Then choose tables for that join size.
             proptest::sample::subsequence(table_names.clone(), join_size)
         })
         .prop_flat_map(move |tables| {
-            // Finally, choose the joins and where clauses for those tables.
+            let cross_rel_strategy = if numeric_columns.is_empty() {
+                proptest::strategy::Just(None).boxed()
+            } else {
+                proptest::option::of(crossrelgen::arb_cross_rel_expr(
+                    tables.clone(),
+                    numeric_columns.clone(),
+                ))
+                .boxed()
+            };
+
+            // Finally, choose the joins, where clauses, and optional cross-relation predicate for those tables.
             (
                 joingen::arb_joins(
                     join_types.clone(),
@@ -418,6 +435,7 @@ where
                     columns.iter().map(|c| c.name.to_owned()).collect(),
                 ),
                 wheregen::arb_wheres(tables.clone(), &columns.to_vec()),
+                cross_rel_strategy,
             )
         })
 }

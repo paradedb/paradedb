@@ -31,6 +31,7 @@
 
 use std::sync::Arc;
 
+use datafusion::catalog::Session;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::logical_expr::{Expr, col};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
@@ -64,7 +65,7 @@ use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::{PgSearchTableProvider, VisibilityMode};
 use async_trait::async_trait;
-use datafusion::execution::context::{QueryPlanner, SessionState};
+use datafusion::execution::context::QueryPlanner;
 use datafusion::execution::session_state::SessionStateBuilder;
 use datafusion::functions_aggregate::expr_fn::min;
 use datafusion::physical_planner::{DefaultPhysicalPlanner, PhysicalPlanner};
@@ -133,7 +134,7 @@ impl QueryPlanner for PgSearchQueryPlanner {
     async fn create_physical_plan(
         &self,
         logical_plan: &datafusion::logical_expr::LogicalPlan,
-        session_state: &SessionState,
+        session_state: &dyn Session,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let mut extension_planners: Vec<
             Arc<dyn datafusion::physical_planner::ExtensionPlanner + Send + Sync>,
@@ -219,22 +220,27 @@ pub struct JoinScanState {
     pub stream_built_at: Option<std::time::Instant>,
 
     /// Captured source manifests held by the leader. Serves two purposes:
-    /// 1. Provides the segment readers `launch_mpp` needs (via `ParallelScanArgs`) to size
+    /// 1. Provides the segment views `launch_mpp` needs (via `ParallelScanArgs`) to size
     ///    and populate the shared `ParallelScanState` in DSM.
     /// 2. Keeps the underlying Tantivy buffer pins alive for the full duration of the
     ///    scan, preventing background merges from recycling the canonical segments.
     ///
     /// Must live on `JoinScanState` (not as a local in the launch) because the
     /// buffer pins must survive from DSM population through `exec_custom_scan`,
-    /// where workers reopen the same segments via `MvccSatisfies::ParallelWorker(ids)`.
+    /// where workers reopen the same segments via `MvccSatisfies::ParallelWorker(view)`.
     /// Dropping manifests early would release the pins and allow segment recycling
     /// before workers can open them.
     pub source_manifests: Vec<SearchIndexManifest>,
 
-    /// Where MPP sits in its launch lifecycle for this scan. Planning-time bytes represent a
-    /// pending launch only; execution rebakes parameterized plans and sizes DSM from the current
-    /// bytes instead. Stays `Inactive` on the serial path.
+    /// Where MPP sits in its launch lifecycle for this scan: marked pending at begin, launched
+    /// on first exec after runtime expressions are resolved and the built plan's stages are
+    /// committed (#5667: the plan comes first; workers spawn only after it exists). Stays
+    /// `Inactive` on the serial path.
     pub mpp: crate::postgres::customscan::mpp::launch::MppLifecycle,
+
+    /// Captured from PostgreSQL's statement-wide `PlannerGlobal.parallelModeOK`. When false, this
+    /// scan may still use DataFusion, but it must never launch MPP producer workers.
+    pub parallel_mode_ok: bool,
 }
 
 impl JoinScanState {
@@ -303,29 +309,10 @@ impl SolvePostgresExpressions for JoinScanState {
     }
 }
 
-/// Selects which physical optimizer rules to install on top of the shared
-/// base session for a given consumer.
-///
-/// JoinScan needs `SegmentedTopKRule`; AggregateScan needs a single
-/// `FilterPushdown` post-pass. Exposing the difference as an explicit profile
-/// keeps the choice grep-able from the call site.
-#[derive(Copy, Clone, Debug)]
-pub enum SessionContextProfile {
-    /// JoinScan execution: enables `topk_dynamic_filter_pushdown` and installs
-    /// `SegmentedTopKRule`, which transfers ownership of the SortExec's already
-    /// pushed-down dynamic filter into the injected `SegmentedTopKExec`.
-    Join,
-    /// AggregateScan execution: single `FilterPushdown` post-pass, no
-    /// SegmentedTopK, no topk dynamic filter pushdown.
-    Aggregate,
-}
-
 /// Build the shared core of a DataFusion [`SessionStateBuilder`] with:
 /// - Visibility filtering (logical + physical)
 /// - Late materialization
 /// - `PgSearchQueryPlanner`
-///
-/// Callers append their own TopK rule and FilterPushdown passes.
 pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
     use super::visibility_filter::VisibilityFilterOptimizerRule;
     use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
@@ -354,21 +341,11 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
         .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
 }
 
-/// Creates a DataFusion [`SessionContext`] for either JoinScan or AggregateScan.
-///
-/// The base session (visibility filtering, late materialization, the
-/// `PgSearchQueryPlanner`, and the visibility-ctid resolver) is shared via
-/// [`build_base_session`]. The supplied [`SessionContextProfile`] then layers on
-/// the physical optimizer rules each consumer needs:
-///
-/// - [`SessionContextProfile::Join`]: enables `topk_dynamic_filter_pushdown`,
-///   then appends `SegmentedTopKRule`. No trailing `FilterPushdown` pass is
-///   needed: `SegmentedTopKRule` transfers ownership of the SortExec's already
-///   pushed-down `DynamicFilterPhysicalExpr` into `SegmentedTopKExec`, so the
-///   scans stay wired to the same filter the SortExec would have driven.
-/// - [`SessionContextProfile::Aggregate`]: appends a single `FilterPushdown`
-///   post-pass; SegmentedTopK does not apply to aggregate-on-join queries.
-pub fn create_datafusion_session_context(profile: SessionContextProfile) -> SessionContext {
+/// Creates a DataFusion [`SessionContext`] with visibility filtering, late materialization,
+/// `PgSearchQueryPlanner`, topk dynamic filtering, range partitioning, and post-optimization filter pushdown.
+pub fn create_datafusion_session_context() -> SessionContext {
+    use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
+
     let mut config = SessionConfig::new().with_target_partitions(1);
 
     // Configure dynamic filter pushdown thresholds from our GUCs
@@ -388,35 +365,24 @@ pub fn create_datafusion_session_context(profile: SessionContextProfile) -> Sess
         .optimizer
         .hash_join_inlist_pushdown_max_distinct_values =
         crate::gucs::hash_join_inlist_pushdown_max_distinct_values() as usize;
-
-    if matches!(profile, SessionContextProfile::Join) {
-        config
-            .options_mut()
-            .optimizer
-            .enable_topk_dynamic_filter_pushdown = true;
-    }
+    config
+        .options_mut()
+        .optimizer
+        .enable_topk_dynamic_filter_pushdown = true;
 
     let mut builder = build_base_session(config);
 
-    match profile {
-        SessionContextProfile::Join => {
-            use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
-            builder = builder
-                .with_physical_optimizer_rule(Arc::new(
-                    crate::scan::segmented_topk_rule::SegmentedTopKRule,
-                ))
-                // SegmentedTopKRule absorbs VisibilityFilterExec and creates a fresh
-                // AbsorbedVisibilityData with empty ctid resolvers.  We must run
-                // VisibilityCtidResolverRule again here, *after* SegmentedTopKRule, so
-                // that it wires resolvers into the STK node rather than the (now-removed)
-                // VisibilityFilterExec node.
-                .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule));
-        }
-        SessionContextProfile::Aggregate => {
-            builder = builder
-                .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
-        }
-    }
+    builder = builder
+        .with_physical_optimizer_rule(Arc::new(
+            crate::scan::segmented_topk_rule::SegmentedTopKRule,
+        ))
+        // SegmentedTopKRule absorbs VisibilityFilterExec and creates a fresh
+        // AbsorbedVisibilityData with empty ctid resolvers.  We must run
+        // VisibilityCtidResolverRule again here, *after* SegmentedTopKRule, so
+        // that it wires resolvers into the STK node rather than the (now-removed)
+        // VisibilityFilterExec node.
+        .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
+        .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
 
     SessionContext::new_with_state(builder.build())
 }
@@ -432,7 +398,7 @@ pub async fn build_joinscan_logical_plan(
     custom_exprs: *mut pg_sys::List,
     force_serial: bool,
 ) -> Result<datafusion::logical_expr::LogicalPlan> {
-    let ctx = create_datafusion_session_context(SessionContextProfile::Join);
+    let ctx = create_datafusion_session_context();
     let is_parallel = !force_serial && crate::postgres::customscan::mpp::glue::mpp_is_active();
     let df = build_clause_df(&ctx, join_clause, private_data, custom_exprs, is_parallel).await?;
     df.into_optimized_plan()
@@ -518,7 +484,6 @@ struct RelNodeBuildCtx<'a> {
     is_parallel: bool,
     join_clause: &'a JoinCSClause,
     translated_exprs: &'a [Expr],
-    ctid_map: &'a crate::api::HashMap<pg_sys::Index, Expr>,
     output_columns: &'a [OutputColumnInfo],
 }
 
@@ -532,7 +497,7 @@ struct RelNodeBuildCtx<'a> {
 ///   dynamically ensuring `Expr::eq(Expr)` assignments map left-bound columns to the left side
 ///   of the equality expression to avoid `SchemaError`s in DataFusion.
 /// - **Filter**: Maps complex, cross-table PostgreSQL scalar expressions down to the DataFusion
-///   engine using a pre-constructed `ctid_map` for row-level execution.
+///   engine for row-level execution.
 ///
 /// All references that don't change between recursive calls are bundled into
 /// [`RelNodeBuildCtx`] so the recursive sites can stay terse.
@@ -568,23 +533,11 @@ fn build_relnode_df<'a>(
             }
             RelNode::Filter(filter) => {
                 let df = build_relnode_df(rctx, &filter.input).await?;
-
-                // Compute per-plan_position deferred visibility. A plan_position's
-                // ctid is "deferred" (packed DocAddress) if it flows through inner
-                // joins or the preserved side of a left/right/semi/anti join from the leaf
-                // scan. Other non-inner joins (full, etc.) trigger per-child
-                // visibility barriers that resolve ctids to real heap TIDs, while
-                // left/right/semi/anti joins only force the null-supplying side.
-                let deferred_positions =
-                    super::visibility_filter::deferred_plan_positions(&filter.input);
                 let sources = filter.input.sources();
                 apply_join_level_filter(
                     df,
                     &filter.predicate,
                     rctx.translated_exprs,
-                    rctx.ctid_map,
-                    &rctx.join_clause.join_level_predicates,
-                    &deferred_positions,
                     &sources,
                     /* handle_mark = */ true,
                 )
@@ -625,18 +578,11 @@ fn build_clause_df<'a>(
         // stages re-borrow `plan_sources` for projection / output assembly.
         drop(translator);
 
-        let mut ctid_map: crate::api::HashMap<pg_sys::Index, Expr> = Default::default();
-        for (i, _) in plan_sources.iter().enumerate() {
-            let ctid_name = CtidColumn::new(i).to_string();
-            ctid_map.insert(i as pg_sys::Index, col(&ctid_name));
-        }
-
         let rctx = RelNodeBuildCtx {
             ctx,
             is_parallel,
             join_clause,
             translated_exprs: &translated_exprs,
-            ctid_map: &ctid_map,
             output_columns: &private_data.output_columns,
         };
         let df = build_relnode_df(&rctx, &join_clause.plan).await?;
@@ -771,29 +717,29 @@ fn apply_distinct_group_by(
 }
 
 /// Resolve a column reference after the DISTINCT GROUP BY has rewritten every
-/// projection into a `col_N` alias. Score lookups iterate the map (rather than
-/// exact-match) because the parse-time `rti` may not survive cross-table OR
-/// predicate handling. When `distinct_col_map` is empty (DISTINCT not active),
-/// callers should not invoke this — `col_alias` is returned only as a fallback
-/// in case the requested key is missing.
+/// projection into a `col_N` alias. Score lookups try the exact RTI first, and
+/// fall back to iterating the map (rather than exact-match) because the parse-time
+/// `rti` may not survive cross-table OR predicate handling.
 fn resolve_distinct_col(
     distinct_col_map: &DistinctColMap,
     is_score: bool,
     rti: pg_sys::Index,
     attno: pg_sys::AttrNumber,
-    col_alias: &str,
-) -> Expr {
+) -> Option<Expr> {
     if is_score {
         distinct_col_map
-            .iter()
-            .find(|((_, a), _)| *a == 0)
-            .map(|(_, alias)| col(alias.as_str()))
-            .unwrap_or_else(|| col(col_alias))
+            .get(&(rti, 0))
+            .or_else(|| {
+                distinct_col_map
+                    .iter()
+                    .find(|((_, a), _)| *a == 0)
+                    .map(|(_, alias)| alias)
+            })
+            .map(|alias| col(alias.as_str()))
     } else {
         distinct_col_map
             .get(&(rti, attno))
             .map(|alias| col(alias.as_str()))
-            .unwrap_or_else(|| col(col_alias))
     }
 }
 
@@ -802,11 +748,15 @@ fn resolve_orderby_feature(
     feature: &OrderByFeature,
     join_clause: &JoinCSClause,
     distinct_col_map: &DistinctColMap,
-) -> Expr {
+) -> Result<Expr> {
     match feature {
         OrderByFeature::Score { rti } => {
             if !distinct_col_map.is_empty() {
-                resolve_distinct_col(distinct_col_map, true, 0, 0, "")
+                resolve_distinct_col(distinct_col_map, true, *rti, 0).ok_or_else(|| {
+                    DataFusionError::Plan(format!(
+                        "JoinScan: could not resolve DISTINCT score column for RTI {rti}"
+                    ))
+                })
             } else {
                 join_clause
                     .plan
@@ -814,8 +764,45 @@ fn resolve_orderby_feature(
                     .iter()
                     .find(|s| s.scan_info.heap_rti == *rti)
                     .map(|source| make_source_score_col(source))
-                    .unwrap_or_else(|| col("unknown_score"))
+                    .ok_or_else(|| {
+                        DataFusionError::Plan(format!(
+                            "JoinScan: could not find source for score RTI {rti}"
+                        ))
+                    })
             }
+        }
+        OrderByFeature::ScoreSum { rtis } => {
+            let score_cols: Result<Vec<Expr>> = rtis
+                .iter()
+                .map(|rti| {
+                    if !distinct_col_map.is_empty() {
+                        resolve_distinct_col(distinct_col_map, true, *rti, 0).ok_or_else(|| {
+                            DataFusionError::Plan(format!(
+                                "JoinScan: could not resolve DISTINCT score column for RTI {rti} in score sum"
+                            ))
+                        })
+                    } else {
+                        join_clause
+                            .plan
+                            .sources()
+                            .iter()
+                            .find(|s| s.scan_info.heap_rti == *rti)
+                            .map(|source| make_source_score_col(source))
+                            .ok_or_else(|| {
+                                DataFusionError::Plan(format!(
+                                    "JoinScan: could not find source for score sum RTI {rti}"
+                                ))
+                            })
+                    }
+                })
+                .collect();
+
+            score_cols?
+                .into_iter()
+                .reduce(|acc, col_expr| acc + col_expr)
+                .ok_or_else(|| {
+                    DataFusionError::Plan("JoinScan: empty RTI list in ScoreSum".to_string())
+                })
         }
         OrderByFeature::Field { name, rti } => join_clause
             .plan
@@ -823,16 +810,24 @@ fn resolve_orderby_feature(
             .iter()
             .find(|s| s.contains_rti(*rti))
             .map(|source| make_source_col(source, name.as_ref()))
-            .unwrap_or_else(|| {
-                pgrx::warning!("JoinScan: could not find source for RTI {rti} when building sort expression for field '{name}'");
-                col(name.as_ref())
+            .ok_or_else(|| {
+                DataFusionError::Plan(format!(
+                    "JoinScan: could not find source for RTI {rti} when building sort expression for field '{name}'"
+                ))
             }),
         OrderByFeature::Var { rti, attno, .. } => {
             if !distinct_col_map.is_empty() {
-                resolve_distinct_col(distinct_col_map, false, *rti, *attno, "")
+                resolve_distinct_col(distinct_col_map, false, *rti, *attno).ok_or_else(|| {
+                    DataFusionError::Plan(format!(
+                        "JoinScan: could not resolve DISTINCT var column for RTI {rti}, attno {attno}"
+                    ))
+                })
             } else {
-                resolve_var_to_df_col(join_clause, *rti, *attno)
-                    .unwrap_or_else(|| col("unknown_col"))
+                resolve_var_to_df_col(join_clause, *rti, *attno).ok_or_else(|| {
+                    DataFusionError::Plan(format!(
+                        "JoinScan: could not resolve var column for RTI {rti}, attno {attno}"
+                    ))
+                })
             }
         }
         OrderByFeature::NullTest { .. } => {
@@ -863,13 +858,13 @@ fn apply_sort(
                 inner,
                 nulltesttype,
             } => {
-                let inner_expr = resolve_orderby_feature(inner, join_clause, distinct_col_map);
+                let inner_expr = resolve_orderby_feature(inner, join_clause, distinct_col_map)?;
                 match nulltesttype {
                     NullTestKind::IsNull => inner_expr.is_null(),
                     NullTestKind::IsNotNull => inner_expr.is_not_null(),
                 }
             }
-            other => resolve_orderby_feature(other, join_clause, distinct_col_map),
+            other => resolve_orderby_feature(other, join_clause, distinct_col_map)?,
         };
 
         let asc = matches!(
@@ -905,11 +900,13 @@ fn apply_output_projection(
                 match proj {
                     build::ChildProjection::Expression { .. } => col(&col_alias),
                     build::ChildProjection::Score { rti } => {
-                        resolve_distinct_col(distinct_col_map, true, *rti, 0, &col_alias)
+                        resolve_distinct_col(distinct_col_map, true, *rti, 0)
+                            .unwrap_or_else(|| col(&col_alias))
                     }
                     build::ChildProjection::Column { rti, attno }
                     | build::ChildProjection::IndexedExpression { rti, attno } => {
-                        resolve_distinct_col(distinct_col_map, false, *rti, *attno, &col_alias)
+                        resolve_distinct_col(distinct_col_map, false, *rti, *attno)
+                            .unwrap_or_else(|| col(&col_alias))
                     }
                 }
             } else {
@@ -1056,6 +1053,11 @@ fn build_source_df<'a>(
         };
         let mut provider =
             PgSearchTableProvider::new(scan_info.clone(), fields.clone(), source_idx);
+        if let crate::scan::ScanMode::Tagged { local_queries, .. } = &source.scan_info.mode {
+            for tq in local_queries {
+                provider.add_match_tag_column(&tq.tag_name);
+            }
+        }
 
         // When DISTINCT is present, PostgreSQL expands the query path-keys
         // to include all DISTINCT columns.
@@ -1079,7 +1081,9 @@ fn build_source_df<'a>(
                             required_early.insert(col_name);
                         }
                     }
-                    OrderByFeature::Score { .. } | OrderByFeature::VectorDistance { .. } => {}
+                    OrderByFeature::Score { .. }
+                    | OrderByFeature::ScoreSum { .. }
+                    | OrderByFeature::VectorDistance { .. } => {}
                     OrderByFeature::NullTest { inner, .. } => match inner.as_ref() {
                         OrderByFeature::Field { name, rti } if source.contains_rti(*rti) => {
                             insert_field_name_required_early(

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788366884101,
+  "lastUpdate": 1788366891387,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -309166,6 +309166,234 @@ window.BENCHMARK_DATA = {
             "value": 28.7421875,
             "unit": "median mem",
             "extra": "avg mem: 28.127141921979792, max mem: 28.8671875, count: 57405"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "46780009+sahilchug@users.noreply.github.com",
+            "name": "sahil",
+            "username": "sahilchug"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f583d7e93a8235920707b29abd1ec929be41f6b5",
+          "message": "feat: push down GROUP BY DATE(timestamp) to the aggregate custom scan (#5936)\n\n# Ticket(s) Closed\n\n- Closes #4082 \n\n## What\nPushes `GROUP BY DATE(ts)` and `GROUP BY ts::date` into DataFusion\nbackend when `ts` is a bare timestamp without timezone.\n\nThe DataFusion path supports:\n\n- handles -infinity, infinity\n- preserves NULL date values correctly\n- handles `DATE()` combined with other grouping columns \n- supports both serial and MPP execution, producing the same grouped\nresults when work is distributed across multiple workers and index\nsegments\n\nShapes outside the safe boundary refuse pushdown with a named reason and\nfall sback to native Postgres execution :\n\n- `DATE(timestamptz)` — the result depends on the session `TimeZone`\n- `DATE()` over a cast (e.g. `DATE(text_col::timestamp)`) — the argument\n      must be a bare timestamp column  \n\n**Note**: support for Top K query via DataFusion path will be a follow\nup PR\n\n## Why\n  \nThis is a rework of #4918, which had 2 correctness bugs:\n     - NULL timestamp rows silently dropped fro results\n- `DATE(timestampz)` was pushed down with wrong timezone semantics.\n\nAlso an earlier attempt was done using Tantivy Path for predicate push\ndown but it has limitations:\n\n- Tantivy converts the stored `i64` timestamp microseconds to `f64` when\ncalculating histogram buckets. For dates far from the PostgreSQL epoch,\nthis loses microsecond precision and can move timestamps near midnight\ninto the wrong day.\n- PostgreSQL's `infinity` and `-infinity` timestamp sentinels cannot be\nrepresented correctly after the conversion to `f64`.\n- `ORDER BY ... LIMIT` / TopK queries were already routed toward\nDataFusion, so the histogram implementation did not help with that query\nshape\n  \n\n## How\n\n- Detects `Date(timestamp)` in `GROUP BY` clause and routes the query to\nDataFusion backend\n- Validates that `Date(timestamp)` is a bare timestamp column without\ntimezone\n- Adds a Grouping transform to `JoinGroupColumn` metadata\n- Applies a DataFusion scalar UDF `TimestampToDateUdf` that converts\ntimestamps to Arrow `Date32` values and preserves `NULL` and handles\n`-infinity` and `infinity` sentinels\n- Updates the Arrow `Date32` projection to map the internal\n`i32::MIN/MAX` sentinels back to PostgreSQL `-infinity` and `infinity`\ninstead of treating them as finite day counts.\n\n## Tests\n\n- Integration and `pg_regress` tests cover basic date grouping, NULL\ngroups, TopK, aggregate `FILTER`, multi-column grouping, timestamp\nboundaries, infinities, and fallback for unsupported expressions.\n- MPP regression tests verify that serial and distributed DataFusion\nexecution produce the same results as native PostgreSQL across multiple\nindex segments.",
+          "timestamp": "2026-09-02T11:56:33-04:00",
+          "tree_id": "39176d36a4ff5b7395132a8049b49145d589d53e",
+          "url": "https://github.com/paradedb/paradedb/commit/f583d7e93a8235920707b29abd1ec929be41f6b5"
+        },
+        "date": 1788366888608,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 9.275363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.821465578151101, max cpu: 15.094339, count: 57428"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 41.64453125,
+            "unit": "median mem",
+            "extra": "avg mem: 41.60168078670248, max mem: 41.859375, count: 57428"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - cpu",
+            "value": 9.288824,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.182500917257062, max cpu: 18.677044, count: 57428"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - mem",
+            "value": 40.515625,
+            "unit": "median mem",
+            "extra": "avg mem: 40.48302990538152, max mem: 40.859375, count: 57428"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.682395266595042, max cpu: 9.365853, count: 57428"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 20.73828125,
+            "unit": "median mem",
+            "extra": "avg mem: 20.72720460837919, max mem: 20.73828125, count: 57428"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - cpu",
+            "value": 9.257474,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.676842947147128, max cpu: 18.722574, count: 57428"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - mem",
+            "value": 37.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 37.64485196408982, max mem: 37.90234375, count: 57428"
+          },
+          {
+            "name": "Insert value A - Primary - cpu",
+            "value": 4.6624575,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.804045315165072, max cpu: 9.370424, count: 57428"
+          },
+          {
+            "name": "Insert value A - Primary - mem",
+            "value": 40.640625,
+            "unit": "median mem",
+            "extra": "avg mem: 40.00738451844048, max mem: 41.01171875, count: 57428"
+          },
+          {
+            "name": "Insert value B - Primary - cpu",
+            "value": 4.6669908,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.699780234155694, max cpu: 9.388753, count: 57428"
+          },
+          {
+            "name": "Insert value B - Primary - mem",
+            "value": 40.58203125,
+            "unit": "median mem",
+            "extra": "avg mem: 38.988946689223894, max mem: 40.94140625, count: 57428"
+          },
+          {
+            "name": "JoinScan - Primary - cpu",
+            "value": 9.361287,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.372391352754004, max cpu: 23.346306, count: 57428"
+          },
+          {
+            "name": "JoinScan - Primary - mem",
+            "value": 59.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 59.67015722404576, max mem: 60.51171875, count: 57428"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 6807,
+            "unit": "median block_count",
+            "extra": "avg block_count: 6880.437103851779, max block_count: 13358.0, count: 57428"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 62,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 55.478703768196695, max segment_count: 73.0, count: 57428"
+          },
+          {
+            "name": "Normal Base Scan - Primary - cpu",
+            "value": 9.29332,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.230698585346682, max cpu: 23.346306, count: 57428"
+          },
+          {
+            "name": "Normal Base Scan - Primary - mem",
+            "value": 36.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 36.69655794538379, max mem: 36.90625, count: 57428"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.645145327648008, max cpu: 9.2708845, count: 57428"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Primary - mem",
+            "value": 35.42578125,
+            "unit": "median mem",
+            "extra": "avg mem: 35.4181286649152, max mem: 35.640625, count: 57428"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.313127385293353, max cpu: 14.0625, count: 57428"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - mem",
+            "value": 35.3828125,
+            "unit": "median mem",
+            "extra": "avg mem: 35.38230262241415, max mem: 35.62109375, count: 57428"
+          },
+          {
+            "name": "Rotate join keys - Primary - cpu",
+            "value": 4.653417,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.757912228674481, max cpu: 9.37958, count: 57428"
+          },
+          {
+            "name": "Rotate join keys - Primary - mem",
+            "value": 24.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 24.858222877995054, max mem: 24.984375, count: 57428"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - cpu",
+            "value": 9.2708845,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.580521409493128, max cpu: 18.695229, count: 57428"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - mem",
+            "value": 37.3828125,
+            "unit": "median mem",
+            "extra": "avg mem: 37.35396734552396, max mem: 37.59765625, count: 57428"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 4.6669908,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.541189290112857, max cpu: 14.124571, count: 57428"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 36.546875,
+            "unit": "median mem",
+            "extra": "avg mem: 36.535507641089715, max mem: 36.76953125, count: 57428"
+          },
+          {
+            "name": "Update joined rows - Primary - cpu",
+            "value": 4.657933,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.577205498854199, max cpu: 9.297821, count: 57428"
+          },
+          {
+            "name": "Update joined rows - Primary - mem",
+            "value": 29.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 29.522675540459357, max mem: 29.53515625, count: 57428"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6624575,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6170541711056, max cpu: 4.703577, count: 57428"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 44.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 43.345848959784426, max mem: 44.08984375, count: 57428"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6624575,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.9838914363244005, max cpu: 4.6943765, count: 57428"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 28.41796875,
+            "unit": "median mem",
+            "extra": "avg mem: 27.6493971255311, max mem: 29.2109375, count: 57428"
           }
         ]
       }

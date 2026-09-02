@@ -111,8 +111,8 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5000;
-                                                                                                   QUERY PLAN                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                              QUERY PLAN                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id
    ->  Custom Scan (ParadeDB Join Scan)
@@ -134,10 +134,10 @@ LIMIT 5000;
            :   │         CoalescePartitionsExec
            :   │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=4, input_tasks=2
            :   │         DistributedLeafExec:
-           :   │           t0: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-           :   │           t1: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-           :   │           t2: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-           :   │           t3: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :   │           t0: PgSearchScan: table=i, segments=4, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :   │           t1: PgSearchScan: table=i, segments=4, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :   │           t2: PgSearchScan: table=i, segments=4, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :   │           t3: PgSearchScan: table=i, segments=4, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
            :   └──────────────────────────────────────────────────
            :     ┌───── Stage 1 ── tasks=2, partitions=8
            :     │ BroadcastExec: input_partitions=1, consumer_tasks=4, output_partitions=4
@@ -237,8 +237,8 @@ WHERE EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id ASC
 LIMIT 5000;
-                                                                                                   QUERY PLAN                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                              QUERY PLAN                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id
    ->  Custom Scan (ParadeDB Join Scan)
@@ -260,10 +260,10 @@ LIMIT 5000;
            :   │         CoalescePartitionsExec
            :   │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=4, input_tasks=2
            :   │         DistributedLeafExec:
-           :   │           t0: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-           :   │           t1: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-           :   │           t2: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-           :   │           t3: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :   │           t0: PgSearchScan: table=i, segments=4, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :   │           t1: PgSearchScan: table=i, segments=4, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :   │           t2: PgSearchScan: table=i, segments=4, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :   │           t3: PgSearchScan: table=i, segments=4, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
            :   └──────────────────────────────────────────────────
            :     ┌───── Stage 1 ── tasks=2, partitions=8
            :     │ BroadcastExec: input_partitions=1, consumer_tasks=4, output_partitions=4

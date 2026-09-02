@@ -74,8 +74,8 @@ AND p.id NOT IN (
 AND p.description @@@ 'widget OR gadget OR gizmo OR boring'
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                       QUERY PLAN                                                                                                                        
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: c INNER (p ANTI pt)
@@ -89,10 +89,10 @@ LIMIT 10;
            :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, company_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
            :           CooperativeExec
-           :             PgSearchScan: table=c, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Acme OR Globex OR Initech","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=c, segments=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Acme OR Globex OR Initech","lenient":null,"conjunction_mode":null}}}}
            :           HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@2, product_id@0)], null_aware
            :             CooperativeExec
-           :               PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
+           :               PgSearchScan: table=p, segments=1, dynamic_filters=2, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
            :             CooperativeExec
            :               PgSearchScan: table=pt, segments=1, query={"with_index":{"query":{"term":{"field":"tag","value":"niche"}}}}
 (19 rows)
@@ -201,8 +201,8 @@ WHERE p.id IN (
 AND p.description @@@ 'widget OR gizmo'
 ORDER BY p.id
 LIMIT 5;
-                                                                                                            QUERY PLAN                                                                                                             
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: p SEMI pt
@@ -216,7 +216,7 @@ LIMIT 5;
            :       TantivyLookupExec: decode=[], fetch=[ctid_0]
            :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, product_id@0)]
            :           CooperativeExec
-           :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gizmo","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gizmo","lenient":null,"conjunction_mode":null}}}}
            :           CooperativeExec
            :             PgSearchScan: table=pt, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"tag","query_string":"popular","lenient":null,"conjunction_mode":null}}}}
 (16 rows)

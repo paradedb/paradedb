@@ -48,8 +48,8 @@ FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
 WHERE u.id @@@ pdb.all() AND p.title @@@ 'error'
 ORDER BY u.id, p.id
 LIMIT 10;
-                                                                                                    QUERY PLAN                                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                               QUERY PLAN                                                                                                               
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: u.id, p.id
    ->  Custom Scan (ParadeDB Join Scan)
@@ -65,9 +65,9 @@ LIMIT 10;
            :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(owner_user_id@1, id@1)], projection=[ctid_0@0, id@2, ctid_1@3, id@4]
            :           CooperativeExec
-           :             PgSearchScan: table=p, segments=4, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=p, segments=4, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
            :           CooperativeExec
-           :             PgSearchScan: table=u, segments=4, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+           :             PgSearchScan: table=u, segments=4, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"all":{"field":"id"}}}}
 (18 rows)
 
 SELECT u.id, p.id
@@ -127,8 +127,8 @@ FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
 WHERE u.id @@@ pdb.all() AND p.title @@@ 'error'
 ORDER BY u.id, p.id
 LIMIT 10;
-                                                                                                                           QUERY PLAN                                                                                                                           
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                     QUERY PLAN                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: u.id, p.id
    ->  Custom Scan (ParadeDB Join Scan)
@@ -149,13 +149,13 @@ LIMIT 10;
            :   │     TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
            :   │       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(owner_user_id@1, id@1)], projection=[ctid_0@0, id@2, ctid_1@3, id@4]
            :   │         DistributedLeafExec:
-           :   │           t0: PgSearchScan: table=p, segments=4, partition=owner_user_id[-∞..10001), dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-           :   │           t1: PgSearchScan: table=p, segments=4, partition=owner_user_id[10001..15001), dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-           :   │           t2: PgSearchScan: table=p, segments=4, partition=owner_user_id[15001..∞), dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+           :   │           t0: PgSearchScan: table=p, segments=4, partition=owner_user_id[-∞..10001), dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+           :   │           t1: PgSearchScan: table=p, segments=4, partition=owner_user_id[10001..15001), dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+           :   │           t2: PgSearchScan: table=p, segments=4, partition=owner_user_id[15001..∞), dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
            :   │         DistributedLeafExec:
-           :   │           t0: PgSearchScan: table=u, segments=4, partition=id[-∞..10001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-           :   │           t1: PgSearchScan: table=u, segments=4, partition=id[10001..15001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-           :   │           t2: PgSearchScan: table=u, segments=4, partition=id[15001..∞), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+           :   │           t0: PgSearchScan: table=u, segments=4, partition=id[-∞..10001), dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"all":{"field":"id"}}}}
+           :   │           t1: PgSearchScan: table=u, segments=4, partition=id[10001..15001), dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"all":{"field":"id"}}}}
+           :   │           t2: PgSearchScan: table=u, segments=4, partition=id[15001..∞), dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"all":{"field":"id"}}}}
            :   └──────────────────────────────────────────────────
 (28 rows)
 

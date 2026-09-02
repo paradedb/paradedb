@@ -70,8 +70,8 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 10;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: i ANTI e
@@ -86,7 +86,7 @@ LIMIT 10;
            :           CooperativeExec
            :             PgSearchScan: table=e, segments=1, query={"with_index":{"query":"all"}}
            :           CooperativeExec
-           :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=i, segments=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT i.id
@@ -127,8 +127,8 @@ WHERE EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id ASC
 LIMIT 10;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: i SEMI e
@@ -143,7 +143,7 @@ LIMIT 10;
            :           CooperativeExec
            :             PgSearchScan: table=e, segments=1, query={"with_index":{"query":"all"}}
            :           CooperativeExec
-           :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=i, segments=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT i.id
@@ -188,8 +188,8 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 10;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: i ANTI e
@@ -204,7 +204,7 @@ LIMIT 10;
            :           CooperativeExec
            :             PgSearchScan: table=e, segments=1, query={"with_index":{"query":"all"}}
            :           CooperativeExec
-           :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=i, segments=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT i.id
@@ -284,8 +284,8 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
-                                                                                                 QUERY PLAN                                                                                                  
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: i ANTI e
@@ -302,7 +302,7 @@ LIMIT 5;
            :               CooperativeExec
            :                 PgSearchScan: table=e, segments=1, query={"with_index":{"query":"all"}}
            :             CooperativeExec
-           :               PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :               PgSearchScan: table=i, segments=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 SELECT i.id
@@ -341,8 +341,8 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 10;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: i ANTI e
@@ -357,7 +357,7 @@ LIMIT 10;
            :           CooperativeExec
            :             PgSearchScan: table=e, segments=1, query={"with_index":{"query":"all"}}
            :           CooperativeExec
-           :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=i, segments=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT i.id
@@ -406,8 +406,8 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 10;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: i ANTI e
@@ -422,7 +422,7 @@ LIMIT 10;
            :           CooperativeExec
            :             PgSearchScan: table=e, segments=1, query={"with_index":{"query":"all"}}
            :           CooperativeExec
-           :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=i, segments=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT i.id
@@ -492,8 +492,8 @@ WHERE EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 10;
-                                                                                                 QUERY PLAN                                                                                                  
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: i SEMI e
@@ -510,7 +510,7 @@ LIMIT 10;
            :               CooperativeExec
            :                 PgSearchScan: table=e, segments=1, query={"with_index":{"query":"all"}}
            :             CooperativeExec
-           :               PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :               PgSearchScan: table=i, segments=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 SELECT i.id
@@ -582,8 +582,8 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 10;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: i ANTI e
@@ -598,7 +598,7 @@ LIMIT 10;
            :           CooperativeExec
            :             PgSearchScan: table=e, segments=1, query={"with_index":{"query":"all"}}
            :           CooperativeExec
-           :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=i, segments=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT i.id
@@ -675,8 +675,8 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 10;
-                                                                                                          QUERY PLAN                                                                                                          
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                    QUERY PLAN                                                                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: i ANTI e
@@ -692,7 +692,7 @@ LIMIT 10;
            :           CooperativeExec
            :             PgSearchScan: table=e, segments=1, query={"with_index":{"query":"all"}}
            :           CooperativeExec
-           :             PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=i, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
 (16 rows)
 
 SELECT i.id
@@ -862,8 +862,8 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 10;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: i ANTI e
@@ -878,7 +878,7 @@ LIMIT 10;
            :           CooperativeExec
            :             PgSearchScan: table=e, segments=1, query={"with_index":{"query":"all"}}
            :           CooperativeExec
-           :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=i, segments=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT i.id
@@ -949,8 +949,8 @@ WHERE EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id ASC
 LIMIT 5;
-                                                                                                           QUERY PLAN                                                                                                           
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                     QUERY PLAN                                                                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: i SEMI e
@@ -967,7 +967,7 @@ LIMIT 5;
            :               PgSearchScan: table=e, segments=1, query={"with_index":{"query":"all"}}
            :           ProjectionExec: expr=[ctid_0@0 as ctid_0, name@1 as name, id@2 as id, pdb_eval_expr_funcexpr_53eb87a5(CAST(name@1 AS Utf8)) as pdb_eval_expr_funcexpr_53eb87a5(i_0.name)]
            :             CooperativeExec
-           :               PgSearchScan: table=i, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :               PgSearchScan: table=i, segments=1, dynamic_filters=2, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 SELECT i.id
@@ -1025,8 +1025,8 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
-                                                                                                          QUERY PLAN                                                                                                          
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                    QUERY PLAN                                                                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: i ANTI e
@@ -1042,7 +1042,7 @@ LIMIT 5;
            :             CooperativeExec
            :               PgSearchScan: table=e, segments=1, query={"with_index":{"query":"all"}}
            :           CooperativeExec
-           :             PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=i, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
 (16 rows)
 
 SELECT i.id
@@ -1101,8 +1101,8 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
-                                                                                                 QUERY PLAN                                                                                                  
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: i ANTI e
@@ -1119,7 +1119,7 @@ LIMIT 5;
            :               CooperativeExec
            :                 PgSearchScan: table=e, segments=1, query={"with_index":{"query":"all"}}
            :             CooperativeExec
-           :               PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :               PgSearchScan: table=i, segments=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 SELECT i.id
@@ -1177,8 +1177,8 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
-                                                                                                          QUERY PLAN                                                                                                          
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                    QUERY PLAN                                                                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: i ANTI e
@@ -1194,7 +1194,7 @@ LIMIT 5;
            :             CooperativeExec
            :               PgSearchScan: table=e, segments=1, query={"with_index":{"query":"all"}}
            :           CooperativeExec
-           :             PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=i, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
 (16 rows)
 
 SELECT i.id
@@ -1254,8 +1254,8 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: i ANTI e
@@ -1271,7 +1271,7 @@ LIMIT 5;
            :             CooperativeExec
            :               PgSearchScan: table=e, segments=1, query={"with_index":{"query":"all"}}
            :           CooperativeExec
-           :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=i, segments=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
 (16 rows)
 
 SELECT i.id
@@ -1349,7 +1349,7 @@ LIMIT 5;
            :               CooperativeExec
            :                 PgSearchScan: table=e, segments=1, query={"with_index":{"query":"all"}}
            :             CooperativeExec
-           :               PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :               PgSearchScan: table=i, segments=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 SELECT i.id
@@ -1415,8 +1415,8 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
-                                                                                                  QUERY PLAN                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                             QUERY PLAN                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: i ANTI e
@@ -1434,7 +1434,7 @@ LIMIT 5;
            :                 PgSearchScan: table=e, segments=1, query={"with_index":{"query":"all"}}
            :             ProjectionExec: expr=[ctid_0@0 as ctid_0, name@1 as name, id@2 as id, character_length(name@1) as join_proj_push_down_2]
            :               CooperativeExec
-           :                 PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :                 PgSearchScan: table=i, segments=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
 (18 rows)
 
 SELECT i.id
@@ -1488,8 +1488,8 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
-                                                                                                           QUERY PLAN                                                                                                           
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                             QUERY PLAN                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: i ANTI e
@@ -1507,7 +1507,7 @@ LIMIT 5;
            :                 PgSearchScan: table=e, segments=1, query={"with_index":{"query":"all"}}
            :             ProjectionExec: expr=[ctid_0@0 as ctid_0, name@1 as name, id@2 as id, character_length(name@1) as join_proj_push_down_3]
            :               CooperativeExec
-           :                 PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :                 PgSearchScan: table=i, segments=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
 (18 rows)
 
 SELECT i.id
@@ -1588,7 +1588,7 @@ LIMIT 5;
            :               PgSearchScan: table=e, segments=1, query={"with_index":{"query":"all"}}
            :           ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, name@2 as name, pdb_eval_expr_funcexpr_887b5ea5(CAST(name@2 AS Utf8)) as pdb_eval_expr_funcexpr_887b5ea5(i_0.name)]
            :             CooperativeExec
-           :               PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :               PgSearchScan: table=i, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 SELECT i.id
@@ -1740,7 +1740,7 @@ LIMIT 10;
            :                 PgSearchScan: table=p, segments=1, query={"with_index":{"query":"all"}}
            :             ProjectionExec: expr=[ctid_0@0 as ctid_0, pattern_id@1 as pattern_id, name@2 as name, id@3 as id, pdb_eval_expr_funcexpr_4b32ca6c(CAST(name@2 AS Utf8)) as join_proj_push_down_2]
            :               CooperativeExec
-           :                 PgSearchScan: table=i, segments=1, query={"with_index":{"query":"all"}}
+           :                 PgSearchScan: table=i, segments=1, visibility=deferred, query={"with_index":{"query":"all"}}
 (18 rows)
 
 SELECT i.id, i.name

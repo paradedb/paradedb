@@ -39,6 +39,18 @@ FROM issue_4767_products AS p;
 SELECT paradedb.score(p.id) AS score
 FROM issue_4767_products AS p;
 
+\echo '--- paradedb.snippet without a WHERE clause ---'
+SELECT paradedb.snippet(p.description) AS snippet
+FROM issue_4767_products AS p;
+
+\echo '--- paradedb.snippets without a WHERE clause ---'
+SELECT paradedb.snippets(p.description) AS snippets
+FROM issue_4767_products AS p;
+
+\echo '--- paradedb.snippet_positions without a WHERE clause ---'
+SELECT paradedb.snippet_positions(p.description) AS positions
+FROM issue_4767_products AS p;
+
 \echo '--- pdb.score with a non-search WHERE clause ---'
 SELECT p.id, pdb.score(p.id) AS score
 FROM issue_4767_products AS p

@@ -57,6 +57,7 @@ pub mod solve_expr;
 
 use crate::api::HashMap;
 
+use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -474,6 +475,40 @@ impl CreateUpperPathsHookArgs {
             }
         }
 
+        false
+    }
+
+    /// Returns true when a `GROUP BY` expression is `date(timestamp)` or
+    /// `date(timestamptz)`.
+    ///
+    /// This only picks the backend; the extractor decides which shapes it accepts
+    /// and names the reason for the rest.
+    pub unsafe fn has_date_group(&self) -> bool {
+        let parse = self.root().parse;
+
+        if parse.is_null() || (*parse).groupClause.is_null() || (*parse).targetList.is_null() {
+            return false;
+        }
+
+        let group_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).groupClause);
+
+        for gc in group_clauses.iter_ptr() {
+            let expr = pg_sys::get_sortgroupclause_expr(gc, (*parse).targetList);
+            if expr.is_null() {
+                continue;
+            }
+
+            let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, expr) else {
+                continue;
+            };
+
+            if matches!(
+                (*func_expr).funcid.to_u32(),
+                pg_sys::F_DATE_TIMESTAMP | pg_sys::F_DATE_TIMESTAMPTZ
+            ) {
+                return true;
+            }
+        }
         false
     }
 }

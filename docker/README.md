@@ -42,10 +42,10 @@ postgresql:
 ```bash
 helm repo add cnpg https://cloudnative-pg.github.io/charts
 helm repo update
-helm template cnpg cnpg/cloudnative-pg --namespace cnpg-system --version <chart_version>
+helm template cnpg cnpg/cloudnative-pg --namespace cnpg-system --version <chart_version> --set replicaCount=2
 ```
 
-Prepend the `cnpg-system` `Namespace` (the chart does not create it) and keep the trailing comment-only documents at the end of the file. The current file is chart `0.29.0` / CNPG `1.30.0`.
+Prepend the `cnpg-system` `Namespace` (the chart does not create it) and keep the trailing comment-only documents at the end of the file. The two operator replicas retain leader election so reconciliation can continue when one operator is unavailable. The current file is chart `0.29.0` / CNPG `1.30.0`.
 
 ## Release Process
 

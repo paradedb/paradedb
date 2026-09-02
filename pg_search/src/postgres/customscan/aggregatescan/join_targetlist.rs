@@ -103,6 +103,19 @@ impl std::fmt::Display for AggKind {
     }
 }
 
+/// A transformation applied to a fast-field value before DataFusion groups it.
+#[derive(
+    Debug, Clone, Copy, serde::Serialize, serde::Deserialize, Default, Hash, PartialEq, Eq,
+)]
+pub enum GroupingTransform {
+    /// Group by the fast field's stored value without changing it.
+    #[default]
+    Identity,
+
+    /// Apply PostgreSQL's `date(timestamp)` semantics before grouping.
+    TimestampToDate,
+}
+
 /// A GROUP BY column reference in a join aggregate query.
 ///
 /// `plan_position` is the unique DataFusion-facing source identity (used
@@ -121,6 +134,10 @@ pub struct JoinGroupColumn {
     /// with the column's display scale.
     #[serde(default)]
     pub numeric_scale: Option<i16>,
+
+    /// Transformation applied to the fast-field value before grouping.
+    #[serde(default)]
+    pub transform: GroupingTransform,
 }
 
 /// The NUMERIC field type an aggregate has to handle, or `None` when the
@@ -278,6 +295,52 @@ fn classify_aggregate_by_name(aggfnoid: u32) -> Option<AggKind> {
     }
 }
 
+unsafe fn extract_timestamp_to_date_var(
+    expr: *mut pg_sys::Node,
+) -> Result<Option<*mut pg_sys::Var>, String> {
+    if expr.is_null() || (*expr).type_ != pg_sys::NodeTag::T_FuncExpr {
+        return Ok(None);
+    }
+
+    let fun_expr = expr.cast::<pg_sys::FuncExpr>();
+
+    match (*fun_expr).funcid.to_u32() {
+        pg_sys::F_DATE_TIMESTAMP => {}
+        pg_sys::F_DATE_TIMESTAMPTZ => {
+            return Err(
+                "DATE(timestamptz) grouping is not pushed down because it depends on the session TimeZone"
+                    .into(),
+            );
+        }
+        _ => return Ok(None),
+    }
+
+    let args = PgList::<pg_sys::Node>::from_pg((*fun_expr).args);
+
+    if args.len() != 1 {
+        return Err("DATE(timestamp) grouping has an unexpected argument count".into());
+    }
+
+    let inner = args
+        .get_ptr(0)
+        .ok_or_else(|| "DATE(timestamp) grouping has a missing argument".to_string())?;
+
+    if inner.is_null() || (*inner).type_ != pg_sys::NodeTag::T_Var {
+        return Err("DATE(timestamp) grouping requires a bare timestamp column, casts and other expressions are not supported".into());
+    }
+
+    let var = inner.cast::<pg_sys::Var>();
+
+    if (*var).vartype != pg_sys::TIMESTAMPOID {
+        return Err(
+            "DATE(timestamp) grouping requires a timestamp column, found a non-timestamp column"
+                .into(),
+        );
+    }
+
+    Ok(Some(var))
+}
+
 /// Extract the aggregate target list for a join aggregate query from the
 /// grouping/DISTINCT output columns ([`GroupingShape::target_exprs`]).
 ///
@@ -330,11 +393,17 @@ pub unsafe fn extract_aggregate_targetlist(
     let mut aggregates = Vec::new();
 
     for (idx, expr) in target_exprs.iter_ptr().enumerate() {
-        let tag = (*(expr as *mut pg_sys::Node)).type_;
+        let mut node = expr.cast::<pg_sys::Node>();
+        let mut transform = GroupingTransform::Identity;
 
-        if tag == pg_sys::NodeTag::T_Var {
+        if !plain_columns_only && let Some(var) = extract_timestamp_to_date_var(node)? {
+            node = var.cast();
+            transform = GroupingTransform::TimestampToDate;
+        }
+
+        if (*node).type_ == pg_sys::NodeTag::T_Var {
             // GROUP BY column
-            let var = expr as *mut pg_sys::Var;
+            let var = node.cast::<pg_sys::Var>();
             let rti = (*var).varno as pg_sys::Index;
             let attno = (*var).varattno;
 
@@ -383,6 +452,7 @@ pub unsafe fn extract_aggregate_targetlist(
                 field_name,
                 output_index: idx,
                 numeric_scale,
+                transform,
             });
         } else if let Some((var, field_name)) = (!plain_columns_only)
             .then(|| {
@@ -437,6 +507,7 @@ pub unsafe fn extract_aggregate_targetlist(
                 field_name,
                 output_index: idx,
                 numeric_scale,
+                transform: GroupingTransform::Identity,
             });
         } else if let Some(aggref) = find_one_aggref(expr as *mut pg_sys::Node) {
             // Aggregate function (possibly wrapped in COALESCE, etc.)

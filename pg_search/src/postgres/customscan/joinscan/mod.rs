@@ -1243,7 +1243,10 @@ impl CustomScan for JoinScan {
         }
 
         if let Some(expr) = join_clause.plan.join_level_expr() {
-            explainer.add_text("Join Predicate", format_join_level_expr(expr, join_clause));
+            explainer.add_text(
+                "Join Predicate",
+                format_join_level_expr(expr, join_clause, Some(explainer)),
+            );
         }
 
         if let Some(lo) = &join_clause.limit_offset {
@@ -2161,7 +2164,11 @@ impl JoinScan {
                 }
                 if clause.is_null()
                     || !all_vars_are_fast_fields_recursive(clause.cast(), &current_sources)
-                    || !PredicateTranslator::can_translate(&current_sources, clause.cast())
+                    || !PredicateTranslator::can_translate(
+                        Some(root),
+                        &current_sources,
+                        clause.cast(),
+                    )
                 {
                     remaining.push(ri);
                     continue;

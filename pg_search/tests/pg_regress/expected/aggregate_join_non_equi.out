@@ -80,12 +80,12 @@ SELECT COUNT(*), SUM(p.price), AVG(p.rating)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.price >= pr.min_price AND p.price <= pr.max_price
 WHERE p.description @@@ 'laptop OR shoes OR jacket';
-                                                                                                                                                                                                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                               
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                  QUERY PLAN                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: agg_nonequi_products_idx (p), agg_nonequi_promos_idx (pr)
-   Multi-Table Filter: {OPEXPR :opno 675 :opfuncid 298 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 4 :location -1} {VAR :varno 2 :varattno 4 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 4 :location -1}) :location -1} AND {OPEXPR :opno 673 :opfuncid 296 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 4 :location -1} {VAR :varno 2 :varattno 5 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 5 :location -1}) :location -1}
+   Multi-Table Filter: (p.price >= pr.min_price) AND (p.price <= pr.max_price)
    Aggregates: COUNT(*), SUM(price), AVG(rating)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0, sum(p_0.price) as agg_1, avg(p_0.rating) as agg_2]
@@ -111,12 +111,12 @@ SELECT MIN(p.price), MAX(p.price), COUNT(*)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.rating >= pr.min_rating
 WHERE pr.description @@@ 'tech OR gala';
-                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                            QUERY PLAN                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: agg_nonequi_products_idx (p), agg_nonequi_promos_idx (pr)
-   Multi-Table Filter: {OPEXPR :opno 525 :opfuncid 150 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 5 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 5 :location -1} {VAR :varno 2 :varattno 6 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 6 :location -1}) :location -1}
+   Multi-Table Filter: (p.rating >= pr.min_rating)
    Aggregates: MIN(price), MAX(price), COUNT(*)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[min(p_0.price) as agg_0, max(p_0.price) as agg_1, count(1) as agg_2]
@@ -142,12 +142,12 @@ SELECT COUNT(*), SUM(p.price), MIN(p.rating), MAX(p.rating)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.category = pr.promo_code AND p.price <= pr.max_price
 WHERE p.description @@@ 'keyboard OR laptop';
-                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                              QUERY PLAN                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: agg_nonequi_products_idx (p), agg_nonequi_promos_idx (pr)
-   Multi-Table Filter: {OPEXPR :opno 673 :opfuncid 296 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 4 :location -1} {VAR :varno 2 :varattno 5 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 5 :location -1}) :location -1}
+   Multi-Table Filter: (p.price <= pr.max_price)
    Aggregates: COUNT(*), SUM(price), MIN(rating), MAX(rating)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0, sum(p_0.price) as agg_1, min(p_0.rating) as agg_2, max(p_0.rating) as agg_3]
@@ -178,15 +178,15 @@ JOIN agg_nonequi_promos pr ON p.price >= pr.min_price AND p.price <= pr.max_pric
 WHERE p.description @@@ 'laptop OR shoes OR keyboard'
 GROUP BY pr.promo_code
 ORDER BY pr.promo_code;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: pr.promo_code
    ->  Custom Scan (ParadeDB Aggregate Scan)
          Backend: DataFusion
          Indexes: agg_nonequi_products_idx (p), agg_nonequi_promos_idx (pr)
          Group By: promo_code
-         Multi-Table Filter: {OPEXPR :opno 675 :opfuncid 298 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 4 :location -1} {VAR :varno 2 :varattno 4 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 4 :location -1}) :location -1} AND {OPEXPR :opno 673 :opfuncid 296 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 4 :location -1} {VAR :varno 2 :varattno 5 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 5 :location -1}) :location -1}
+         Multi-Table Filter: (p.price >= pr.min_price) AND (p.price <= pr.max_price)
          Aggregates: COUNT(*), SUM(price)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[promo_code@1 as promo_code], aggr=[count(1) as agg_0, sum(p_0.price) as agg_1]
@@ -219,15 +219,15 @@ WHERE p.description @@@ 'laptop OR jacket OR shoes'
 GROUP BY p.category
 HAVING COUNT(*) > 1
 ORDER BY p.category;
-                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                     
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: p.category
    ->  Custom Scan (ParadeDB Aggregate Scan)
          Backend: DataFusion
          Indexes: agg_nonequi_products_idx (p), agg_nonequi_promos_idx (pr)
          Group By: category
-         Multi-Table Filter: {OPEXPR :opno 673 :opfuncid 296 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 4 :location -1} {VAR :varno 2 :varattno 5 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 5 :location -1}) :location -1}
+         Multi-Table Filter: (p.price <= pr.max_price)
          Aggregates: COUNT(*), AVG(price)
          DataFusion Physical Plan: 
            : FilterExec: agg_0@1 > 1
@@ -337,15 +337,15 @@ JOIN agg_nonequi_tiers t ON p.price >= t.threshold_price
 WHERE p.description @@@ 'laptop OR keyboard'
 GROUP BY t.tier_name
 ORDER BY t.tier_name;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                  QUERY PLAN                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: t.tier_name
    ->  Custom Scan (ParadeDB Aggregate Scan)
          Backend: DataFusion
          Indexes: agg_nonequi_products_idx (p), agg_nonequi_promos_idx (pr), agg_nonequi_tiers_idx (t)
          Group By: tier_name
-         Multi-Table Filter: {OPEXPR :opno 675 :opfuncid 298 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 4 :location -1} {VAR :varno 4 :varattno 4 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 4 :varattnosyn 4 :location -1}) :location -1} AND {OPEXPR :opno 673 :opfuncid 296 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 4 :location -1} {VAR :varno 2 :varattno 5 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 5 :location -1}) :location -1}
+         Multi-Table Filter: (p.price >= t.threshold_price) AND (p.price <= pr.max_price)
          Aggregates: COUNT(*), SUM(price)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[tier_name@1 as tier_name], aggr=[count(1) as agg_0, sum(p_0.price) as agg_1]

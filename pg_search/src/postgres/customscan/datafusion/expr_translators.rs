@@ -33,7 +33,7 @@ use std::sync::Arc;
 
 use crate::api::HashSet;
 use crate::postgres::customscan::datafusion::translator::{
-    PredicateTranslator, deparse_expr_for_debug, node_tag_debug, type_name,
+    PredicateTranslator, node_tag_debug, type_name,
 };
 use crate::postgres::customscan::expr_eval::InputVarInfo;
 use crate::postgres::customscan::pg_expr_udf::PgExprUdf;
@@ -102,7 +102,7 @@ impl<'a> PredicateTranslator<'a> {
                 schema,
                 name,
                 arity,
-                deparse_expr_for_debug(node, self.sources)
+                self.deparse_for_debug(node)
             );
         }
         result
@@ -332,7 +332,7 @@ impl<'a> PredicateTranslator<'a> {
             pgrx::debug1!(
                 "PredicateTranslator: RHS is not ArrayExpr [ScalarArrayOpExpr] rhs_tag={} | {}",
                 node_tag_debug(rhs),
-                deparse_expr_for_debug(node, self.sources)
+                self.deparse_for_debug(node)
             );
             return None;
         }
@@ -373,7 +373,7 @@ impl<'a> PredicateTranslator<'a> {
                 "PredicateTranslator: rejected cross-type coercion [CoerceViaIO] source={}, target={} | {}",
                 type_name(source),
                 type_name(target),
-                deparse_expr_for_debug(node, self.sources)
+                self.deparse_for_debug(node)
             );
             None
         }
@@ -399,7 +399,7 @@ impl<'a> PredicateTranslator<'a> {
                 "PredicateTranslator: unsupported result type for UDF wrap [{}] type={} | {}",
                 node_tag_debug(node),
                 type_name(result_type_oid),
-                deparse_expr_for_debug(node, self.sources)
+                self.deparse_for_debug(node)
             );
             return None;
         }
@@ -408,8 +408,8 @@ impl<'a> PredicateTranslator<'a> {
         let vars = PgList::<pg_sys::Var>::from_pg(var_list);
 
         let mut seen: HashSet<(pg_sys::Index, pg_sys::AttrNumber)> = HashSet::default();
-        let mut input_exprs: Vec<Expr> = Vec::new();
-        let mut input_vars: Vec<InputVarInfo> = Vec::new();
+        let mut input_vars: Vec<InputVarInfo> = Vec::with_capacity(vars.len());
+        let mut input_exprs: Vec<Expr> = Vec::with_capacity(vars.len());
 
         for var_ptr in vars.iter_ptr() {
             if var_ptr.is_null() {
@@ -441,7 +441,7 @@ impl<'a> PredicateTranslator<'a> {
                         node_tag_debug(node),
                         varno,
                         varattno,
-                        deparse_expr_for_debug(node, self.sources)
+                        self.deparse_for_debug(node)
                     );
                     return None;
                 }
@@ -530,7 +530,7 @@ impl<'a> PredicateTranslator<'a> {
                 op_str,
                 type_name(left_type),
                 type_name(right_type),
-                deparse_expr_for_debug(node, self.sources)
+                self.deparse_for_debug(node)
             );
             return None;
         }
@@ -554,7 +554,7 @@ impl<'a> PredicateTranslator<'a> {
                     op_str,
                     type_name(left_type),
                     type_name(right_type),
-                    deparse_expr_for_debug(node, self.sources)
+                    self.deparse_for_debug(node)
                 );
                 return None;
             }

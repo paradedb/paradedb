@@ -630,8 +630,8 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
 /// columns from both sides of the join.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MultiTablePredicateInfo {
-    /// Human-readable description for EXPLAIN output.
-    pub description: String,
+    /// Serialized PostgreSQL expression tree (via `nodeToString`).
+    pub pg_node_string: String,
 }
 
 /// A boolean expression tree for join-level conditions.

@@ -247,8 +247,8 @@ JOIN nonequi_offers o ON i.category = o.target_category AND i.price <= o.max_pri
 WHERE i.description @@@ 'cable OR riser OR mat'
 ORDER BY i.id, o.id
 LIMIT 10;
-                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id, i.name, o.promo_name, i.price, o.max_price, o.id
    ->  Result
@@ -257,7 +257,7 @@ LIMIT 10;
                Output: i.id, i.name, i.price, o.promo_name, o.max_price, o.id
                Relation Tree: o INNER i
                Join Cond: i.category = o.target_category
-               Join Predicate: heap:{OPEXPR :opno 1755 :opfuncid 1723 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 5 :location -1} {VAR :varno 2 :varattno 6 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 6 :location -1}) :location -1}
+               Join Predicate: heap:(i.price <= o.max_price)
                Limit: 10
                Order By: i.id asc, o.id asc
                DataFusion Physical Plan: 
@@ -293,8 +293,8 @@ JOIN nonequi_offers o ON i.category = o.target_category
 WHERE i.description @@@ 'electronics OR keyboard OR headset'
 ORDER BY i.id, o.id
 LIMIT 10;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                QUERY PLAN                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id, i.name, o.promo_name, i.price, i.rating, o.id
    ->  Result
@@ -303,7 +303,7 @@ LIMIT 10;
                Output: i.id, i.name, i.price, i.rating, o.promo_name, o.id
                Relation Tree: o INNER i
                Join Cond: i.category = o.target_category
-               Join Predicate: (heap:{OPEXPR :opno 1757 :opfuncid 1721 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 5 :location -1} {VAR :varno 2 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 5 :location -1}) :location -1} AND heap:{OPEXPR :opno 525 :opfuncid 150 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 6 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 6 :location -1} {VAR :varno 2 :varattno 7 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 7 :location -1}) :location -1})
+               Join Predicate: (heap:(i.price >= o.min_price) AND heap:(i.rating >= o.min_rating))
                Limit: 10
                Order By: i.id asc, o.id asc
                DataFusion Physical Plan: 

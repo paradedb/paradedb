@@ -813,8 +813,22 @@ impl CustomScan for AggregateScan {
                 // Show multi-table predicates (non-@@@ cross-table filters)
                 let mt_predicates = df_state.plan.multi_table_predicates();
                 if !mt_predicates.is_empty() {
-                    let preds: Vec<String> =
-                        mt_predicates.into_iter().map(|p| p.description).collect();
+                    let preds: Vec<String> = mt_predicates
+                        .into_iter()
+                        .map(|p| unsafe {
+                            let Ok(c_str) = std::ffi::CString::new(p.pg_node_string.as_str())
+                            else {
+                                return p.pg_node_string;
+                            };
+                            let node = pg_sys::stringToNode(c_str.as_ptr().cast_mut());
+                            if node.is_null() {
+                                return p.pg_node_string;
+                            }
+                            explainer
+                                .deparse_expr(node.cast())
+                                .unwrap_or(p.pg_node_string)
+                        })
+                        .collect();
                     explainer.add_text("Multi-Table Filter", preds.join(" AND "));
                 }
 

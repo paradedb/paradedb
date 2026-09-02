@@ -639,12 +639,12 @@ WHERE a.id NOT IN (
     )
   AND a.body @@@ 'outermatch'
   AND b.val > a.threshold;
-                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                        QUERY PLAN                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: asa_rti_outer_a_idx (a), asa_rti_inner_y_idx (y), asa_rti_inner_x_idx (x), asa_rti_outer_b_idx (b)
-   Multi-Table Filter: {OPEXPR :opno 521 :opfuncid 147 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 2 :varattno 3 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 3 :location -1} {VAR :varno 1 :varattno 3 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 3 :location -1}) :location -1}
+   Multi-Table Filter: (b.val > a.threshold)
    Aggregates: COUNT(*), SUM(val)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0, sum(b_3.val) as agg_1]

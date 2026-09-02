@@ -58,9 +58,9 @@ WHERE NOT EXISTS (
 AND i.id @@@ paradedb.all()
 LIMIT 5;
 DEBUG:  PredicateTranslator: unsupported const type [Const] type=text
-DEBUG:  PredicateTranslator: unsupported operator [OpExpr] op="pg_catalog.||", types=(text, text) | T_OpExpr
+DEBUG:  PredicateTranslator: unsupported operator [OpExpr] op="pg_catalog.||", types=(text, text) | (e.pattern || '_x'::text)
 DEBUG:  PredicateTranslator: unsupported const type [Const] type=text
-DEBUG:  PredicateTranslator: unsupported operator [OpExpr] op="pg_catalog.||", types=(text, text) | T_OpExpr
+DEBUG:  PredicateTranslator: unsupported operator [OpExpr] op="pg_catalog.||", types=(text, text) | {OPEXPR :opno 654 :opfuncid 1258 :opresulttype 25 :opretset false :opcollid 100 :inputcollid 100 :args ({VAR :varno 2 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 2 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 6 [ 24 0 0 0 95 120 ]}) :location -1}
                                                                                                         QUERY PLAN                                                                                                         
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -94,8 +94,8 @@ WHERE NOT EXISTS (
 )
 AND i.id @@@ paradedb.all()
 LIMIT 5;
-DEBUG:  PredicateTranslator: no native mapping [FuncExpr] func=pg_catalog.md5, arity=1 | T_FuncExpr
-DEBUG:  PredicateTranslator: no native mapping [FuncExpr] func=pg_catalog.md5, arity=1 | T_FuncExpr
+DEBUG:  PredicateTranslator: no native mapping [FuncExpr] func=pg_catalog.md5, arity=1 | md5(e.pattern)
+DEBUG:  PredicateTranslator: no native mapping [FuncExpr] func=pg_catalog.md5, arity=1 | {FUNCEXPR :funcid 2311 :funcresulttype 25 :funcretset false :funcvariadic false :funcformat 0 :funccollid 100 :inputcollid 100 :args ({VAR :varno 2 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 2 :location -1}) :location -1}
                                                                                                           QUERY PLAN                                                                                                           
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -135,7 +135,7 @@ WHERE NOT EXISTS (
 AND i.id @@@ paradedb.all()
 LIMIT 5;
 DEBUG:  PredicateTranslator: rejected cross-type coercion [CoerceViaIO] source=integer, target=text | (i.value)::text
-DEBUG:  PredicateTranslator: rejected cross-type coercion [CoerceViaIO] source=integer, target=text | (i.value)::text
+DEBUG:  PredicateTranslator: rejected cross-type coercion [CoerceViaIO] source=integer, target=text | {COERCEVIAIO :arg {VAR :varno 1 :varattno 3 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 3 :location -1} :resulttype 25 :resultcollid 100 :coerceformat 1 :location -1}
                                                                                                      QUERY PLAN                                                                                                      
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit

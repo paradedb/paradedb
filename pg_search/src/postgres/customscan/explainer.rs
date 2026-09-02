@@ -63,6 +63,35 @@ impl Explainer {
         );
     }
 
+    /// Deparse a PostgreSQL expression using PostgreSQL's active EXPLAIN context (`deparse_cxt`).
+    pub fn deparse_expr(&self, node: *mut pg_sys::Node) -> Option<String> {
+        use std::panic::AssertUnwindSafe;
+        if node.is_null() {
+            return None;
+        }
+        unsafe {
+            let es = self.state.as_ptr();
+            let cxt = (*es).deparse_cxt;
+            if cxt.is_null() {
+                return None;
+            }
+            pgrx::PgTryBuilder::new(AssertUnwindSafe(|| {
+                let deparsed = pg_sys::deparse_expression(node.cast(), cxt, true, false);
+                if deparsed.is_null() {
+                    None
+                } else {
+                    Some(
+                        std::ffi::CStr::from_ptr(deparsed)
+                            .to_string_lossy()
+                            .into_owned(),
+                    )
+                }
+            }))
+            .catch_others(|_| None)
+            .execute()
+        }
+    }
+
     pub fn add_json<T: serde::Serialize>(&mut self, key: &str, value: T) {
         self.add_text(
             key,

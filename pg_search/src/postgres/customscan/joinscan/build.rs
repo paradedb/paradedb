@@ -546,6 +546,9 @@ impl JoinSource {
 
     /// Resolve an attribute number to its DataFusion column name.
     pub fn column_name(&self, attno: pg_sys::AttrNumber) -> Option<String> {
+        if attno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber {
+            return Some(CtidColumn::new(self.plan_position).to_string());
+        }
         self.scan_info
             .fields
             .iter()
@@ -1419,8 +1422,8 @@ impl RelNode {
         }
     }
 
-    /// Returns true if any `JoinNode` in the tree has an empty `equi_keys` list.
-    /// Used to reject plans where an intermediate join (e.g., CROSS JOIN inside
+    /// Returns true if any join in the tree lacks equi-join keys. If so, building
+    /// this tree via `build_relnode_df` (which uses Hash/Merge joins suitable for
     /// a 3-table query) would cause DataFusion to error or produce empty batches.
     pub fn has_join_without_keys(&self) -> bool {
         match self {

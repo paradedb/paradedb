@@ -46,8 +46,8 @@ JOIN customers c ON o.customer_code = c.customer_code
 WHERE o.description @@@ 'wireless'
 ORDER BY o.id
 LIMIT 10;
-                                                                                                        QUERY PLAN                                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                  QUERY PLAN                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: o.id, o.description, c.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -62,9 +62,9 @@ LIMIT 10;
            :     VisibilityFilterExec: tables=[c, o]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(customer_code@1, customer_code@1)], projection=[ctid_0@0, ctid_1@2, id@4]
            :         CooperativeExec
-           :           PgSearchScan: table=c, segments=1, query="all"
+           :           PgSearchScan: table=c, segments=1, visibility=deferred, query="all"
            :         CooperativeExec
-           :           PgSearchScan: table=o, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=o, segments=1, dynamic_filters=2, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 SELECT o.id, o.description, c.name AS customer_name
@@ -126,8 +126,8 @@ JOIN warehouses w ON i.region_id = w.region_id AND i.warehouse_code = w.warehous
 WHERE i.product_name @@@ 'wireless'
 ORDER BY i.id
 LIMIT 10;
-                                                                                                        QUERY PLAN                                                                                                         
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                   QUERY PLAN                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id, i.product_name, w.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -142,9 +142,9 @@ LIMIT 10;
            :     VisibilityFilterExec: tables=[w, i]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(region_id@1, region_id@1), (warehouse_code@2, warehouse_code@2)], projection=[ctid_0@4, ctid_1@0, id@3]
            :         CooperativeExec
-           :           PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"product_name","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=i, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"product_name","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: table=w, segments=1, dynamic_filters=1, query="all"
+           :           PgSearchScan: table=w, segments=1, dynamic_filters=1, visibility=deferred, query="all"
 (17 rows)
 
 SELECT i.id, i.product_name, w.name AS warehouse_name
@@ -199,8 +199,8 @@ JOIN item_types t ON i.type_id = t.type_id
 WHERE i.details @@@ 'wireless'
 ORDER BY i.id
 LIMIT 10;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                QUERY PLAN                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id, i.name, t.type_name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -215,9 +215,9 @@ LIMIT 10;
            :     VisibilityFilterExec: tables=[t, i]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(type_id@1, type_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
            :         CooperativeExec
-           :           PgSearchScan: table=t, segments=1, query="all"
+           :           PgSearchScan: table=t, segments=1, visibility=deferred, query="all"
            :         CooperativeExec
-           :           PgSearchScan: table=i, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"details","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=i, segments=1, dynamic_filters=2, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"details","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 SELECT i.id, i.name, t.type_name
@@ -283,8 +283,8 @@ JOIN authors a ON d.author_code = a.author_code
 WHERE d.content @@@ 'search'
 ORDER BY d.id
 LIMIT 10;
-                                                                                                        QUERY PLAN                                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                  QUERY PLAN                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: d.title, a.name, d.id
    ->  Result
@@ -301,9 +301,9 @@ LIMIT 10;
                  :     VisibilityFilterExec: tables=[a, d]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(author_code@1, author_code@1)], projection=[ctid_0@3, ctid_1@0, id@2]
                  :         CooperativeExec
-                 :           PgSearchScan: table=d, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
+                 :           PgSearchScan: table=d, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
                  :         CooperativeExec
-                 :           PgSearchScan: table=a, segments=1, dynamic_filters=1, query="all"
+                 :           PgSearchScan: table=a, segments=1, dynamic_filters=1, visibility=deferred, query="all"
 (19 rows)
 
 SELECT d.title, a.name
@@ -357,8 +357,8 @@ JOIN categories_with_nulls c ON i.category_id = c.id
 WHERE i.content @@@ 'item OR laptop OR novel'
 ORDER BY i.id
 LIMIT 10;
-                                                                                                                QUERY PLAN                                                                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                           QUERY PLAN                                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.name, c.name, i.id
    ->  Result
@@ -375,9 +375,9 @@ LIMIT 10;
                  :     VisibilityFilterExec: tables=[c, i]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
                  :         CooperativeExec
-                 :           PgSearchScan: table=c, segments=1, query="all"
+                 :           PgSearchScan: table=c, segments=1, visibility=deferred, query="all"
                  :         CooperativeExec
-                 :           PgSearchScan: table=i, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"item OR laptop OR novel","lenient":null,"conjunction_mode":null}}}}
+                 :           PgSearchScan: table=i, segments=1, dynamic_filters=2, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"item OR laptop OR novel","lenient":null,"conjunction_mode":null}}}}
 (19 rows)
 
 -- Should return only rows with non-NULL category_id that match the search
@@ -437,8 +437,8 @@ JOIN order_items oi ON od.order_id = oi.order_id AND od.line_num = oi.line_num
 WHERE od.description @@@ 'wireless'
 ORDER BY od.order_id, od.line_num
 LIMIT 10;
-                                                                                                           QUERY PLAN                                                                                                            
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                      QUERY PLAN                                                                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: od.product_name, oi.quantity, oi.notes, od.order_id, od.line_num
    ->  Result
@@ -455,9 +455,9 @@ LIMIT 10;
                  :     VisibilityFilterExec: tables=[oi, od]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(order_id@1, order_id@1), (line_num@2, line_num@2)], projection=[ctid_0@3, ctid_1@0, order_id@1, line_num@2]
                  :         CooperativeExec
-                 :           PgSearchScan: table=od, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                 :           PgSearchScan: table=od, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                  :         CooperativeExec
-                 :           PgSearchScan: table=oi, segments=1, dynamic_filters=1, query="all"
+                 :           PgSearchScan: table=oi, segments=1, dynamic_filters=1, visibility=deferred, query="all"
 (19 rows)
 
 SELECT od.product_name, oi.quantity, oi.notes
@@ -512,8 +512,8 @@ JOIN uuid_customers c ON o.customer_id = c.id
 WHERE o.description @@@ 'wireless'
 ORDER BY o.id
 LIMIT 10;
-                                                                                                           QUERY PLAN                                                                                                           
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                     QUERY PLAN                                                                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: o.description, c.name, o.id
    ->  Result
@@ -530,9 +530,9 @@ LIMIT 10;
                  :     VisibilityFilterExec: tables=[c, o]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(customer_id@1, id@1)], projection=[ctid_0@3, ctid_1@0, id@2]
                  :         CooperativeExec
-                 :           PgSearchScan: table=o, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                 :           PgSearchScan: table=o, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                  :         CooperativeExec
-                 :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query="all"
+                 :           PgSearchScan: table=c, segments=1, dynamic_filters=1, visibility=deferred, query="all"
 (19 rows)
 
 SELECT o.description, c.name
@@ -587,8 +587,8 @@ JOIN numeric_accounts a ON t.account_num = a.account_num
 WHERE t.description @@@ 'wire'
 ORDER BY t.id
 LIMIT 10;
-                                                                                                         QUERY PLAN                                                                                                         
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                   QUERY PLAN                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: t.description, a.holder_name, t.amount, t.id
    ->  Result
@@ -605,9 +605,9 @@ LIMIT 10;
                  :     VisibilityFilterExec: tables=[a, t]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(account_num@1, account_num@1)], projection=[ctid_0@3, ctid_1@0, id@2]
                  :         CooperativeExec
-                 :           PgSearchScan: table=t, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wire","lenient":null,"conjunction_mode":null}}}}
+                 :           PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wire","lenient":null,"conjunction_mode":null}}}}
                  :         CooperativeExec
-                 :           PgSearchScan: table=a, segments=1, dynamic_filters=1, query="all"
+                 :           PgSearchScan: table=a, segments=1, dynamic_filters=1, visibility=deferred, query="all"
 (19 rows)
 
 -- =============================================================================

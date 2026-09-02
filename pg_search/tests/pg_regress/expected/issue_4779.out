@@ -60,8 +60,8 @@ WHERE EXISTS (SELECT 1 FROM t_a_4779 a WHERE a.main_id = m.id AND a.id @@@ pdb.a
   AND EXISTS (SELECT 1 FROM t_b_4779 b WHERE b.main_id = m.id AND b.id @@@ pdb.all())
   AND m.id @@@ pdb.all()
 ORDER BY m.id DESC LIMIT 10;
-                                                             QUERY PLAN                                                              
--------------------------------------------------------------------------------------------------------------------------------------
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: (m SEMI b) SEMI a
@@ -75,7 +75,7 @@ ORDER BY m.id DESC LIMIT 10;
            :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
            :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
            :           CooperativeExec
-           :             PgSearchScan: table=m, segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+           :             PgSearchScan: table=m, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"all":{"field":"id"}}}}
            :           CooperativeExec
            :             PgSearchScan: table=b, segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
            :         CooperativeExec
@@ -132,8 +132,8 @@ WHERE EXISTS (SELECT 1 FROM t_a_4779 a WHERE a.main_id = m.id AND a.id @@@ pdb.a
   AND NOT EXISTS (SELECT 1 FROM t_b_4779 b WHERE b.main_id = m.id AND b.id @@@ pdb.all())
   AND m.id @@@ pdb.all()
 ORDER BY m.id DESC LIMIT 10;
-                                                             QUERY PLAN                                                              
--------------------------------------------------------------------------------------------------------------------------------------
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: (m ANTI b) SEMI a
@@ -147,7 +147,7 @@ ORDER BY m.id DESC LIMIT 10;
            :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
            :         HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@1, main_id@0)]
            :           CooperativeExec
-           :             PgSearchScan: table=m, segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+           :             PgSearchScan: table=m, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"all":{"field":"id"}}}}
            :           CooperativeExec
            :             PgSearchScan: table=b, segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
            :         CooperativeExec
@@ -169,8 +169,8 @@ WHERE EXISTS (SELECT 1 FROM t_a_4779 a WHERE a.main_id = m.id AND a.id @@@ pdb.a
   AND EXISTS (SELECT 1 FROM t_b_4779 b WHERE b.main_id = m.id AND b.id @@@ pdb.all())
   AND m.id @@@ pdb.all()
 ORDER BY m.id DESC LIMIT 10;
-                                                             QUERY PLAN                                                              
--------------------------------------------------------------------------------------------------------------------------------------
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: (m SEMI b) SEMI a
@@ -184,7 +184,7 @@ ORDER BY m.id DESC LIMIT 10;
            :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
            :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
            :           CooperativeExec
-           :             PgSearchScan: table=m, segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+           :             PgSearchScan: table=m, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"all":{"field":"id"}}}}
            :           CooperativeExec
            :             PgSearchScan: table=b, segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
            :         CooperativeExec

@@ -20,7 +20,8 @@ CREATE TABLE pa_products (
     rating INTEGER,
     created_at TIMESTAMP,
     in_stock BOOLEAN,
-    metadata JSONB
+    metadata JSONB,
+    price_num NUMERIC(10, 2)
 );
 CREATE TABLE pa_tags (
     id SERIAL PRIMARY KEY,
@@ -30,11 +31,11 @@ CREATE TABLE pa_tags (
 );
 
 CREATE INDEX pa_products_idx ON pa_products
-USING paradedb (id, description, category, brand, price, rating, created_at, in_stock, metadata)
+USING paradedb (id, description, category, brand, price, rating, created_at, in_stock, metadata, price_num)
 WITH (
     key_field = 'id',
     text_fields = '{"description": {}, "category": {"fast": true}, "brand": {"fast": true}, "cat_kw": {"column": "category", "fast": true, "tokenizer": {"type": "keyword"}}}',
-    numeric_fields = '{"price": {"fast": true}, "rating": {"fast": true}}',
+    numeric_fields = '{"price": {"fast": true}, "rating": {"fast": true}, "price_num": {"fast": true}}',
     boolean_fields = '{"in_stock": {"fast": true}}',
     json_fields = '{"metadata": {"fast": true}}'
 );
@@ -51,16 +52,16 @@ WITH (
 -- section needs to spread work across producers.
 SET paradedb.global_mutable_segment_rows = 0;
 
-INSERT INTO pa_products (description, category, brand, price, rating, created_at, in_stock, metadata) VALUES
-    ('Laptop with fast processor', 'Electronics', 'Apple', 1299.99, 5, '2024-01-01 10:00:00', true, '{"color": "silver", "qty": 3}'),
-    ('Gaming laptop with RGB', 'Electronics', 'Dell', 1499.99, 5, '2024-01-02 10:00:00', false, '{"color": "black", "qty": 1}'),
-    ('Budget laptop', 'Electronics', 'HP', 499.99, 3, '2024-01-03 10:00:00', true, '{"color": "black", "qty": 7}'),
-    ('Wireless keyboard', 'Electronics', 'Logitech', 79.99, 4, '2024-01-04 10:00:00', true, '{"color": "black", "qty": 9}');
-INSERT INTO pa_products (description, category, brand, price, rating, created_at, in_stock, metadata) VALUES
-    ('Running shoes', 'Sports', 'Nike', 89.99, 5, '2024-01-05 10:00:00', true, '{"color": "red", "qty": 2}'),
-    ('Basketball shoes', 'Sports', 'Adidas', 119.99, 4, '2024-01-06 10:00:00', false, '{"color": "red", "qty": 1}'),
-    ('Winter jacket', 'Clothing', 'North Face', 199.99, 4, '2024-01-07 10:00:00', true, '{"color": "blue", "qty": 4}'),
-    ('Toy laptop', 'Toys', 'Fisher Price', 29.99, NULL, '2024-01-08 10:00:00', true, NULL);
+INSERT INTO pa_products (description, category, brand, price, rating, created_at, in_stock, metadata, price_num) VALUES
+    ('Laptop with fast processor', 'Electronics', 'Apple', 1299.99, 5, '2024-01-01 10:00:00', true, '{"color": "silver", "qty": 3}', 1299.99),
+    ('Gaming laptop with RGB', 'Electronics', 'Dell', 1499.99, 5, '2024-01-02 10:00:00', false, '{"color": "black", "qty": 1}', 1499.99),
+    ('Budget laptop', 'Electronics', 'HP', 499.99, 3, '2024-01-03 10:00:00', true, '{"color": "black", "qty": 7}', 499.99),
+    ('Wireless keyboard', 'Electronics', 'Logitech', 79.99, 4, '2024-01-04 10:00:00', true, '{"color": "black", "qty": 9}', 79.99);
+INSERT INTO pa_products (description, category, brand, price, rating, created_at, in_stock, metadata, price_num) VALUES
+    ('Running shoes', 'Sports', 'Nike', 89.99, 5, '2024-01-05 10:00:00', true, '{"color": "red", "qty": 2}', 89.99),
+    ('Basketball shoes', 'Sports', 'Adidas', 119.99, 4, '2024-01-06 10:00:00', false, '{"color": "red", "qty": 1}', 119.99),
+    ('Winter jacket', 'Clothing', 'North Face', 199.99, 4, '2024-01-07 10:00:00', true, '{"color": "blue", "qty": 4}', 199.99),
+    ('Toy laptop', 'Toys', 'Fisher Price', 29.99, NULL, '2024-01-08 10:00:00', true, NULL, NULL);
 
 INSERT INTO pa_tags (product_id, tag_name, weight) VALUES
     (1, 'tech', 10), (1, 'computer', 5),
@@ -220,7 +221,16 @@ SELECT pdb.agg('{"terms": {"field": "metadata.qty"}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes';
 
--- Test 1.17: terms on the GROUP BY column itself, and two GROUP BY columns
+-- Test 1.17: NUMERIC fields as metrics and as terms keys
+SELECT pdb.agg('{"terms": {"field": "category", "order": {"_key": "asc"}}, "aggs": {"total": {"sum": {"field": "price_num"}}, "mean": {"avg": {"field": "price_num"}}, "lo": {"min": {"field": "price_num"}}, "hi": {"max": {"field": "price_num"}}, "n": {"cardinality": {"field": "price_num"}}}}')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes';
+
+SELECT pdb.agg('{"terms": {"field": "price_num", "order": {"_key": "desc"}, "size": 3}}')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes';
+
+-- Test 1.18: terms on the GROUP BY column itself, and two GROUP BY columns
 SELECT p.category, pdb.agg('{"terms": {"field": "category"}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
@@ -388,20 +398,43 @@ ORDER BY category;
 
 RESET paradedb.max_term_agg_buckets;
 
+-- Test 4.4: a NUMERIC field in the spec routes a single-table query to
+-- DataFusion, since Tantivy cannot aggregate the decimal storage
+EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category, pdb.agg('{"sum": {"field": "price_num"}}'), pdb.agg('{"terms": {"field": "price_num", "order": {"_key": "asc"}}}')
+FROM pa_products
+WHERE description @@@ 'laptop OR shoes'
+GROUP BY category
+ORDER BY category;
+
+SELECT category, pdb.agg('{"sum": {"field": "price_num"}}'), pdb.agg('{"terms": {"field": "price_num", "order": {"_key": "asc"}}}')
+FROM pa_products
+WHERE description @@@ 'laptop OR shoes'
+GROUP BY category
+ORDER BY category;
+
 -- =====================================================================
 -- SECTION 5: MPP
 -- =====================================================================
--- Grouping sets and the HLL sketch both cross the worker boundary. The plan
--- shape is not asserted: whether the planner distributes depends on the
--- machine, and the `mpp_*` suites pin it.
+-- Grouping sets and the HLL sketch both cross the worker boundary. The plan is
+-- printed with workers off, so its shape does not depend on the machine; the
+-- queries then run with workers on.
 
 SET paradedb.enable_join_custom_scan TO on;
+SET paradedb.mpp_min_rows TO 0;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.category, COUNT(*), pdb.agg('{"terms": {"field": "tag_name"}, "aggs": {"u": {"cardinality": {"field": "weight"}}, "s": {"sum": {"field": "weight"}}}}')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard'
+GROUP BY p.category
+ORDER BY p.category;
+
 SET max_parallel_workers_per_gather TO 3;
 SET max_parallel_workers TO 8;
 SET min_parallel_table_scan_size TO 0;
 SET parallel_setup_cost TO 0;
 SET parallel_tuple_cost TO 0;
-SET paradedb.mpp_min_rows TO 0;
 
 SELECT p.category, COUNT(*), pdb.agg('{"terms": {"field": "tag_name"}, "aggs": {"u": {"cardinality": {"field": "weight"}}, "s": {"sum": {"field": "weight"}}}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id

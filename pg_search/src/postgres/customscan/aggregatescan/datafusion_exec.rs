@@ -464,8 +464,26 @@ fn pdb_metric_expr(
                 Expr::Cast(Cast::new(Box::new(column), DataType::Float64))
             };
             match kind {
-                PdbMetricKind::Sum => sum(as_f64(column)),
-                PdbMetricKind::Avg => avg(as_f64(column)),
+                // NUMERIC takes the decimal accumulators the SQL aggregates use; the
+                // assembler decodes their blobs.
+                PdbMetricKind::Sum => match field.field_type {
+                    SearchFieldType::Numeric64(_, scale) => {
+                        numeric64_sum_udaf().call(vec![column, lit(scale as i32)])
+                    }
+                    SearchFieldType::NumericBytes(..) => {
+                        numeric_bytes_sum_udaf().call(vec![column])
+                    }
+                    _ => sum(as_f64(column)),
+                },
+                PdbMetricKind::Avg => match field.field_type {
+                    SearchFieldType::Numeric64(_, scale) => {
+                        numeric64_avg_udaf().call(vec![column, lit(scale as i32)])
+                    }
+                    SearchFieldType::NumericBytes(..) => {
+                        numeric_bytes_avg_udaf().call(vec![column])
+                    }
+                    _ => avg(as_f64(column)),
+                },
                 PdbMetricKind::Min => min(column),
                 PdbMetricKind::Max => max(column),
                 PdbMetricKind::ValueCount => count(column),

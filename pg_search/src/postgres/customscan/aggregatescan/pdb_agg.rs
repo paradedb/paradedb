@@ -24,6 +24,7 @@
 //! mirrors Tantivy's result shape so a query reads the same on either backend.
 
 use crate::api::{HashMap, MvccVisibility};
+use crate::postgres::customscan::datafusion::numeric_agg::decode_avg_blob;
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::types::is_datetime_type;
 use crate::schema::SearchFieldType;
@@ -35,6 +36,7 @@ use arrow_array::types::{
 use arrow_array::{Array, ArrayRef, Int64Array, RecordBatch, UInt64Array, new_null_array};
 use arrow_schema::{DataType, Schema, SchemaRef, TimeUnit};
 use datafusion::common::Result;
+use decimal_bytes::Decimal;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -80,19 +82,14 @@ pub trait PdbAggFieldResolver {
     fn resolve(&self, field: &str, usage: PdbAggFieldUsage) -> Result<PdbAggFieldRef, String>;
 }
 
-/// Type gate shared by every resolver. NUMERIC declines on both backends. The other
-/// rejects are types DataFusion's grouping or metric accumulators cannot take.
+/// Type gate shared by every resolver: the types DataFusion's grouping or metric
+/// accumulators cannot take. NUMERIC passes; its storage is grouped as-is and
+/// summed through the decimal accumulators the SQL aggregates use.
 pub fn check_field_usage(
     field: &str,
     field_type: &SearchFieldType,
     usage: PdbAggFieldUsage,
 ) -> Result<(), String> {
-    if field_type.is_numeric() {
-        return Err(format!(
-            "Aggregation references NUMERIC field '{field}' which cannot be aggregated. \
-             NUMERIC columns do not support aggregate pushdown."
-        ));
-    }
     if matches!(
         field_type,
         SearchFieldType::Range(_) | SearchFieldType::Vector(..)
@@ -108,6 +105,8 @@ pub fn check_field_usage(
                 | SearchFieldType::U64(_)
                 | SearchFieldType::F64(_)
                 | SearchFieldType::Date(_)
+                | SearchFieldType::Numeric64(..)
+                | SearchFieldType::NumericBytes(..)
         )
     {
         return Err(format!(
@@ -278,6 +277,10 @@ fn check_missing(
     match (&field.field_type, missing) {
         (SearchFieldType::Bool(_), _) => Err(format!(
             "`missing` is not supported for boolean field '{name}'"
+        )),
+        // The literal would have to be encoded in the column's decimal storage.
+        (SearchFieldType::Numeric64(..) | SearchFieldType::NumericBytes(..), _) => Err(format!(
+            "`missing` is not supported for NUMERIC field '{name}'"
         )),
         (
             SearchFieldType::I64(_)
@@ -760,6 +763,8 @@ enum KeyValue {
     U64(u64),
     F64(u64),
     Bool(bool),
+    /// Decimal-bytes storage of a NUMERIC column, kept raw for hashing.
+    Bytes(Vec<u8>),
 }
 
 impl KeyValue {
@@ -789,14 +794,32 @@ impl KeyValue {
             DataType::Timestamp(TimeUnit::Microsecond, _) => {
                 KeyValue::I64(col.as_primitive::<TimestampMicrosecondType>().value(row))
             }
+            DataType::Binary | DataType::LargeBinary | DataType::BinaryView => {
+                KeyValue::Bytes(bytes_at(col, row).to_vec())
+            }
             other => panic!("BUG: unsupported pdb.agg group key type {other}"),
+        }
+    }
+
+    /// The value a NUMERIC key stands for, as a number. Other keys pass through.
+    fn decode_numeric(self, field: &PdbAggFieldRef) -> KeyValue {
+        match (&field.field_type, &self) {
+            (SearchFieldType::Numeric64(_, scale), KeyValue::I64(v)) => {
+                KeyValue::F64((*v as f64 / 10f64.powi(*scale as i32)).to_bits())
+            }
+            (SearchFieldType::NumericBytes(..), KeyValue::Bytes(bytes)) => {
+                decimal_bytes_to_f64(bytes)
+                    .map(|v| KeyValue::F64(v.to_bits()))
+                    .unwrap_or(KeyValue::Null)
+            }
+            _ => self,
         }
     }
 
     fn as_f64(&self) -> Option<f64> {
         match self {
             KeyValue::Null => None,
-            KeyValue::Str(_) => None,
+            KeyValue::Str(_) | KeyValue::Bytes(_) => None,
             KeyValue::I64(v) => Some(*v as f64),
             KeyValue::U64(v) => Some(*v as f64),
             KeyValue::F64(bits) => Some(f64::from_bits(*bits)),
@@ -842,7 +865,54 @@ impl KeyValue {
                 serde_json::Value::from(u64::from(*b)),
                 Some(if *b { "true" } else { "false" }.to_string()),
             ),
+            // NUMERIC keys are decoded before they reach here.
+            KeyValue::Bytes(_) => (serde_json::Value::Null, None),
         }
+    }
+}
+
+fn bytes_at(col: &ArrayRef, row: usize) -> &[u8] {
+    match col.data_type() {
+        DataType::Binary => col.as_binary::<i32>().value(row),
+        DataType::LargeBinary => col.as_binary::<i64>().value(row),
+        DataType::BinaryView => col.as_binary_view().value(row),
+        other => panic!("BUG: expected a binary column, found {other}"),
+    }
+}
+
+fn decimal_bytes_to_f64(bytes: &[u8]) -> Option<f64> {
+    Decimal::from_bytes(bytes).ok()?.to_string().parse().ok()
+}
+
+/// A metric value as the number Tantivy would report. NUMERIC results arrive in
+/// their storage encoding: sums and averages as decimal-bytes blobs from the
+/// decimal accumulators, minimums and maximums as the column's own storage.
+fn metric_f64(
+    col: &ArrayRef,
+    row: usize,
+    kind: PdbMetricKind,
+    field: &PdbAggFieldRef,
+) -> Option<f64> {
+    if col.is_null(row) {
+        return None;
+    }
+    let numeric = matches!(
+        field.field_type,
+        SearchFieldType::Numeric64(..) | SearchFieldType::NumericBytes(..)
+    );
+    match kind {
+        PdbMetricKind::Sum if numeric => decimal_bytes_to_f64(bytes_at(col, row)),
+        PdbMetricKind::Avg if numeric => {
+            let (count, sum) = decode_avg_blob(bytes_at(col, row)).ok()?;
+            if count == 0 {
+                return None;
+            }
+            decimal_bytes_to_f64(sum).map(|sum| sum / count as f64)
+        }
+        PdbMetricKind::Min | PdbMetricKind::Max if numeric => {
+            KeyValue::read(col, row).decode_numeric(field).as_f64()
+        }
+        _ => f64_at(col, row),
     }
 }
 
@@ -903,7 +973,8 @@ impl Assembler<'_> {
                 field,
                 none_if_no_match,
             } => {
-                let value = row.and_then(|row| f64_at(self.batch.column(*value_col), row));
+                let value = row
+                    .and_then(|row| metric_f64(self.batch.column(*value_col), row, *kind, field));
                 metric_json(*kind, field, value, *none_if_no_match)
             }
             PdbAggNodeLayout::Terms {
@@ -935,6 +1006,8 @@ impl Assembler<'_> {
                     // bucket's subtree is never read.
                     .filter(|(_, _, doc_count)| *doc_count >= *min_doc_count)
                     .map(|(key, child_row, doc_count)| {
+                        // Children are keyed on the stored value; the bucket carries
+                        // the value it stands for, which is what sorts and renders.
                         let mut child_prefix = Vec::with_capacity(key_cols.len());
                         child_prefix.extend_from_slice(prefix);
                         child_prefix.push(key.clone());
@@ -948,7 +1021,7 @@ impl Assembler<'_> {
                             })
                             .collect();
                         Bucket {
-                            key: key.clone(),
+                            key: key.clone().decode_numeric(field),
                             doc_count,
                             subs,
                         }

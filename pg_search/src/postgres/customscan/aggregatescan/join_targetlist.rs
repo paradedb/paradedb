@@ -643,24 +643,36 @@ pub unsafe fn extract_aggregate_targetlist(
     })
 }
 
-/// Whether every `pdb.agg()` in the grouping output lowers for the DataFusion
-/// backend, fields included. A single-table query whose spec does not lower
-/// stays on the Tantivy path, which runs every Tantivy aggregation, so the
-/// user never sees an error for a query the index can answer.
-pub unsafe fn pdb_agg_specs_lower(
+/// What the `pdb.agg()` calls in the grouping output mean for routing.
+pub struct PdbAggRoute {
+    /// A spec reads a NUMERIC field, which only the DataFusion backend can
+    /// aggregate.
+    pub references_numeric: bool,
+}
+
+/// Lower every `pdb.agg()` in the grouping output, fields included, to decide
+/// the route. `None` when a spec does not lower: a single-table query then stays
+/// on the Tantivy path, which runs every Tantivy aggregation, so the user never
+/// sees an error for a query the index can answer.
+pub unsafe fn pdb_agg_route(
     root: *mut pg_sys::PlannerInfo,
     input_rel: &pg_sys::RelOptInfo,
     shape: GroupingShape,
-) -> bool {
+) -> Option<PdbAggRoute> {
     let sources = collect_join_agg_sources(root, input_rel);
     let outer_root_id = PlannerRootId::from(root);
-    shape.target_exprs().iter_ptr().all(|expr| {
+    let mut references_numeric = false;
+    for expr in shape.target_exprs().iter_ptr() {
         let Some(aggref) = find_one_aggref(expr as *mut pg_sys::Node) else {
-            return true;
+            continue;
         };
-        !crate::api::is_agg_funcoid((*aggref).aggfnoid.to_u32())
-            || lower_pdb_agg(aggref, &sources, None, outer_root_id).is_ok()
-    })
+        if !crate::api::is_agg_funcoid((*aggref).aggfnoid.to_u32()) {
+            continue;
+        }
+        let request = lower_pdb_agg(aggref, &sources, None, outer_root_id).ok()?;
+        request.for_each_field(|field| references_numeric |= field.field_type.is_numeric());
+    }
+    Some(PdbAggRoute { references_numeric })
 }
 
 /// Lower a `pdb.agg()` call into its DataFusion request. The spec must be a

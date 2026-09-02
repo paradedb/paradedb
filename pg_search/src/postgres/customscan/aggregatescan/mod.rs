@@ -81,7 +81,7 @@ use crate::postgres::customscan::aggregatescan::exec::{
 };
 use crate::postgres::customscan::aggregatescan::groupby::GroupByClause;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
-    AggKind, GroupingTransform, extract_aggregate_targetlist, pdb_agg_specs_lower,
+    AggKind, GroupingTransform, extract_aggregate_targetlist, pdb_agg_route,
 };
 use crate::postgres::customscan::aggregatescan::pdb_agg::assemble_pdb_agg_rows;
 use crate::postgres::customscan::aggregatescan::privdat::PrivateData;
@@ -491,6 +491,12 @@ impl CustomScan for AggregateScan {
                 // Tantivy's TermsAggregation is faster for low-cardinality
                 // GROUP BY but has a hard bucket cap that would silently
                 // truncate a high-cardinality DISTINCT.
+                // A `pdb.agg()` spec the DataFusion backend cannot lower stays on
+                // Tantivy, which runs every Tantivy aggregation and reports a
+                // bucket-cap overflow at execution time instead.
+                let pdb_route = has_paradedb_agg
+                    .then(|| unsafe { pdb_agg_route(builder.args().root, input_rel, shape) })
+                    .flatten();
                 let use_datafusion = shape.is_distinct()
                     || unsafe {
                         // If the estimated number of groups exceeds Tantivy's bucket
@@ -515,13 +521,12 @@ impl CustomScan for AggregateScan {
                             // ORDER BY aggregate + LIMIT: route to DataFusion which has
                             // no bucket cap and provides native TopK via SortExec(fetch=K).
                             || build::has_aggregate_orderby_with_limit(builder.args())
-                            // NUMERIC aggregates and NUMERIC group keys only work on
-                            // the DataFusion backend: Tantivy aggregations compute in
-                            // f64 and cannot read the decimal-bytes storage.
-                            //
-                            // `pdb.agg()` rejects NUMERIC fields on both backends, so
-                            // it never needs this route.
-                            || (!has_paradedb_agg && builder.args().has_numeric_aggregate())
+                            // NUMERIC aggregates, NUMERIC group keys, and NUMERIC fields
+                            // inside a `pdb.agg()` spec only work on the DataFusion
+                            // backend: Tantivy aggregations compute in f64 and cannot
+                            // read the decimal-bytes storage.
+                            || builder.args().has_numeric_aggregate()
+                            || pdb_route.as_ref().is_some_and(|route| route.references_numeric)
                             // Route DATE grouping to DataFusion for exact integer day conversion
                             // and explicit handling of PostgreSQL infinities. Tantivy histograms
                             // use f64 arithmetic, which can round timestamps near midnight into
@@ -531,12 +536,7 @@ impl CustomScan for AggregateScan {
                             // rejects DATE(timestamptz) and non-bare timestamp expressions.
                             || (!has_paradedb_agg && builder.args().has_date_group())
                     };
-                // A `pdb.agg()` spec the DataFusion backend cannot lower stays on
-                // Tantivy, which runs every Tantivy aggregation and reports a
-                // bucket-cap overflow at execution time instead.
-                let use_datafusion = use_datafusion
-                    && (!has_paradedb_agg
-                        || unsafe { pdb_agg_specs_lower(builder.args().root, input_rel, shape) });
+                let use_datafusion = use_datafusion && (!has_paradedb_agg || pdb_route.is_some());
                 if use_datafusion {
                     if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg_recursive {
                         return Vec::new();

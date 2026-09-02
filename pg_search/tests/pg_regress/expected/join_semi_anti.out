@@ -171,7 +171,7 @@ AND id NOT IN (
 AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
-WARNING:  JoinScan not used: join keys must be fast fields (tables: table_a, table_b)
+WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: table_a, table_b)
                                                                                       QUERY PLAN                                                                                      
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -221,7 +221,7 @@ AND id NOT IN (
 AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
-WARNING:  JoinScan not used: join keys must be fast fields (tables: table_a, table_b)
+WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: table_a, table_b)
  id  |    category     
 -----+-----------------
   10 | target_category

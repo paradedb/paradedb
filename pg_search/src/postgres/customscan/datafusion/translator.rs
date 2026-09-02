@@ -525,14 +525,9 @@ pub fn build_join_df_with_filter(
         return left.join(right, df_join_type, &[], &[], Some(filter_expr));
     }
 
-    // The mixed case (equi keys + join filter) is not exercised today: only
-    // the disjunctive Semi/Anti path populates `JoinNode.filter`, and it
-    // always yields empty equi keys. Surface an explicit error so a future
-    // planner change that introduces the mixed case is noticed instead of
-    // silently producing a cross-join.
-    Err(DataFusionError::NotImplemented(
-        "JoinNode.filter combined with equi-join keys is not yet supported".into(),
-    ))
+    let mut on = build_equi_join_exprs(join)?;
+    on.push(filter_expr);
+    left.join_on(right, df_join_type, on)
 }
 
 /// Deserialize a PostgreSQL expression from its `nodeToString` representation

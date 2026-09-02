@@ -80,33 +80,29 @@ SELECT COUNT(*), SUM(p.price), AVG(p.rating)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.price >= pr.min_price AND p.price <= pr.max_price
 WHERE p.description @@@ 'laptop OR shoes OR jacket';
-WARNING:  Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys) (table: join)
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: p, pr)
-                                                                                      QUERY PLAN                                                                                      
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Nested Loop
-         Join Filter: ((p.price >= pr.min_price) AND (p.price <= pr.max_price))
-         ->  Custom Scan (ParadeDB Base Scan) on agg_nonequi_products p
-               Table: agg_nonequi_products
-               Index: agg_nonequi_products_idx
-               Exec Method: ColumnarExecState
-               Fast Fields: price, rating
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
-         ->  Materialize
-               ->  Seq Scan on agg_nonequi_promos pr
+                                                                                                                                                                                                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: agg_nonequi_products_idx (p), agg_nonequi_promos_idx (pr)
+   Multi-Table Filter: {OPEXPR :opno 675 :opfuncid 298 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 4 :location -1} {VAR :varno 2 :varattno 4 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 4 :location -1}) :location -1} AND {OPEXPR :opno 673 :opfuncid 296 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 4 :location -1} {VAR :varno 2 :varattno 5 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 5 :location -1}) :location -1}
+   Aggregates: COUNT(*), SUM(price), AVG(rating)
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0, sum(p_0.price) as agg_1, avg(p_0.rating) as agg_2]
+     :   NestedLoopJoinExec: join_type=Inner, filter=price@0 >= min_price@1 AND price@0 <= max_price@2 AND min_price@1 <= price@0 AND max_price@2 >= price@0, projection=[price@2, rating@3]
+     :     CooperativeExec
+     :       PgSearchScan: table=pr, segments=1, query="all"
+     :     CooperativeExec
+     :       PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
 (12 rows)
 
 SELECT COUNT(*), SUM(p.price), AVG(p.rating)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.price >= pr.min_price AND p.price <= pr.max_price
 WHERE p.description @@@ 'laptop OR shoes OR jacket';
-WARNING:  Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys) (table: join)
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: p, pr)
- count |        sum         |        avg         
--------+--------------------+--------------------
-    12 | 3189.8799999999983 | 3.4166666666666667
+ count |   sum   |       avg        
+-------+---------+------------------
+    12 | 3189.88 | 3.41666666666667
 (1 row)
 
 -- Test 1.2: MIN, MAX over pure non-equi inequality (rating >= min_rating)
@@ -115,30 +111,26 @@ SELECT MIN(p.price), MAX(p.price), COUNT(*)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.rating >= pr.min_rating
 WHERE pr.description @@@ 'tech OR gala';
-WARNING:  Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys) (table: join)
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: p, pr)
-                                                                                  QUERY PLAN                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Nested Loop
-         Join Filter: (p.rating >= pr.min_rating)
-         ->  Seq Scan on agg_nonequi_products p
-         ->  Materialize
-               ->  Custom Scan (ParadeDB Base Scan) on agg_nonequi_promos pr
-                     Table: agg_nonequi_promos
-                     Index: agg_nonequi_promos_idx
-                     Exec Method: ColumnarExecState
-                     Fast Fields: min_rating
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"tech OR gala","lenient":null,"conjunction_mode":null}}}}
+                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: agg_nonequi_products_idx (p), agg_nonequi_promos_idx (pr)
+   Multi-Table Filter: {OPEXPR :opno 525 :opfuncid 150 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 5 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 5 :location -1} {VAR :varno 2 :varattno 6 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 6 :location -1}) :location -1}
+   Aggregates: MIN(price), MAX(price), COUNT(*)
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Single, gby=[], aggr=[min(p_0.price) as agg_0, max(p_0.price) as agg_1, count(1) as agg_2]
+     :   NestedLoopJoinExec: join_type=Inner, filter=rating@0 >= min_rating@1 AND min_rating@1 <= rating@0, projection=[price@1]
+     :     CooperativeExec
+     :       PgSearchScan: table=pr, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"tech OR gala","lenient":null,"conjunction_mode":null}}}}
+     :     CooperativeExec
+     :       PgSearchScan: table=p, segments=1, query="all"
 (12 rows)
 
 SELECT MIN(p.price), MAX(p.price), COUNT(*)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.rating >= pr.min_rating
 WHERE pr.description @@@ 'tech OR gala';
-WARNING:  Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys) (table: join)
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: p, pr)
   min  |   max   | count 
 -------+---------+-------
  79.99 | 1299.99 |    10
@@ -186,25 +178,23 @@ JOIN agg_nonequi_promos pr ON p.price >= pr.min_price AND p.price <= pr.max_pric
 WHERE p.description @@@ 'laptop OR shoes OR keyboard'
 GROUP BY pr.promo_code
 ORDER BY pr.promo_code;
-WARNING:  Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys) (table: join)
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: p, pr)
-                                                                                          QUERY PLAN                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Group Key: pr.promo_code
-   ->  Sort
-         Sort Key: pr.promo_code
-         ->  Nested Loop
-               Join Filter: ((p.price >= pr.min_price) AND (p.price <= pr.max_price))
-               ->  Custom Scan (ParadeDB Base Scan) on agg_nonequi_products p
-                     Table: agg_nonequi_products
-                     Index: agg_nonequi_products_idx
-                     Exec Method: ColumnarExecState
-                     Fast Fields: price
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR keyboard","lenient":null,"conjunction_mode":null}}}}
-               ->  Materialize
-                     ->  Seq Scan on agg_nonequi_promos pr
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: pr.promo_code
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: agg_nonequi_products_idx (p), agg_nonequi_promos_idx (pr)
+         Group By: promo_code
+         Multi-Table Filter: {OPEXPR :opno 675 :opfuncid 298 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 4 :location -1} {VAR :varno 2 :varattno 4 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 4 :location -1}) :location -1} AND {OPEXPR :opno 673 :opfuncid 296 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 4 :location -1} {VAR :varno 2 :varattno 5 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 5 :location -1}) :location -1}
+         Aggregates: COUNT(*), SUM(price)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[promo_code@1 as promo_code], aggr=[count(1) as agg_0, sum(p_0.price) as agg_1]
+           :   NestedLoopJoinExec: join_type=Inner, filter=price@0 >= min_price@1 AND price@0 <= max_price@2 AND min_price@1 <= price@0 AND max_price@2 >= price@0, projection=[price@3, promo_code@0]
+           :     CooperativeExec
+           :       PgSearchScan: table=pr, segments=1, query="all"
+           :     CooperativeExec
+           :       PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR keyboard","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT pr.promo_code, COUNT(*), SUM(p.price)
@@ -213,8 +203,6 @@ JOIN agg_nonequi_promos pr ON p.price >= pr.min_price AND p.price <= pr.max_pric
 WHERE p.description @@@ 'laptop OR shoes OR keyboard'
 GROUP BY pr.promo_code
 ORDER BY pr.promo_code;
-WARNING:  Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys) (table: join)
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: p, pr)
  promo_code  | count |        sum         
 -------------+-------+--------------------
  all         |     2 |             169.98
@@ -231,26 +219,24 @@ WHERE p.description @@@ 'laptop OR jacket OR shoes'
 GROUP BY p.category
 HAVING COUNT(*) > 1
 ORDER BY p.category;
-WARNING:  Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys) (table: join)
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: p, pr)
-                                                                                         QUERY PLAN                                                                                         
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: p.category
-   ->  HashAggregate
-         Group Key: p.category
-         Filter: (count(*) > 1)
-         ->  Nested Loop
-               Join Filter: (p.price <= pr.max_price)
-               ->  Custom Scan (ParadeDB Base Scan) on agg_nonequi_products p
-                     Table: agg_nonequi_products
-                     Index: agg_nonequi_products_idx
-                     Exec Method: ColumnarExecState
-                     Fast Fields: category, price
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
-               ->  Materialize
-                     ->  Seq Scan on agg_nonequi_promos pr
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: agg_nonequi_products_idx (p), agg_nonequi_promos_idx (pr)
+         Group By: category
+         Multi-Table Filter: {OPEXPR :opno 673 :opfuncid 296 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 4 :location -1} {VAR :varno 2 :varattno 5 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 5 :location -1}) :location -1}
+         Aggregates: COUNT(*), AVG(price)
+         DataFusion Physical Plan: 
+           : FilterExec: agg_0@1 > 1
+           :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, avg(p_0.price) as agg_1]
+           :     NestedLoopJoinExec: join_type=Inner, filter=price@0 <= max_price@1 AND max_price@1 >= price@0, projection=[category@1, price@2]
+           :       CooperativeExec
+           :         PgSearchScan: table=pr, segments=1, query="all"
+           :       CooperativeExec
+           :         PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
 (16 rows)
 
 SELECT p.category, COUNT(*), AVG(p.price)
@@ -260,8 +246,6 @@ WHERE p.description @@@ 'laptop OR jacket OR shoes'
 GROUP BY p.category
 HAVING COUNT(*) > 1
 ORDER BY p.category;
-WARNING:  Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys) (table: join)
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: p, pr)
   category   | count |        avg        
 -------------+-------+-------------------
  clothing    |     7 | 104.2757142857143
@@ -278,31 +262,25 @@ SELECT COUNT(*), COUNT(pr.id), SUM(p.price)
 FROM agg_nonequi_products p
 LEFT JOIN agg_nonequi_promos pr ON p.category = pr.promo_code AND p.price > pr.max_price
 WHERE p.description @@@ 'laptop OR jacket OR keyboard';
-WARNING:  Aggregate Scan (DataFusion) not used: outer-join ON residual predicates are not supported (table: join)
-WARNING:  JoinScan not used: outer joins support only equi-join conditions in the ON clause (tables: p, pr)
-                                                                                          QUERY PLAN                                                                                           
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Hash Right Join
-         Hash Cond: (pr.promo_code = p.category)
-         Join Filter: (p.price > pr.max_price)
-         ->  Seq Scan on agg_nonequi_promos pr
-         ->  Hash
-               ->  Custom Scan (ParadeDB Base Scan) on agg_nonequi_products p
-                     Table: agg_nonequi_products
-                     Index: agg_nonequi_products_idx
-                     Exec Method: ColumnarExecState
-                     Fast Fields: category, price
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR jacket OR keyboard","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
+                                                                                                   QUERY PLAN                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: agg_nonequi_products_idx (p), agg_nonequi_promos_idx (pr)
+   Aggregates: COUNT(*), COUNT(id), SUM(price)
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0, count(pr_1.id) as agg_1, sum(p_0.price) as agg_2]
+     :   HashJoinExec: mode=CollectLeft, join_type=Right, on=[(promo_code@1, category@0)], filter=price@0 > max_price@1, projection=[price@4, id@0]
+     :     CooperativeExec
+     :       PgSearchScan: table=pr, segments=1, query="all"
+     :     CooperativeExec
+     :       PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR jacket OR keyboard","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
 
 SELECT COUNT(*), COUNT(pr.id), SUM(p.price)
 FROM agg_nonequi_products p
 LEFT JOIN agg_nonequi_promos pr ON p.category = pr.promo_code AND p.price > pr.max_price
 WHERE p.description @@@ 'laptop OR jacket OR keyboard';
-WARNING:  Aggregate Scan (DataFusion) not used: outer-join ON residual predicates are not supported (table: join)
-WARNING:  JoinScan not used: outer joins support only equi-join conditions in the ON clause (tables: p, pr)
  count | count |   sum   
 -------+-------+---------
      5 |     2 | 2509.95
@@ -316,26 +294,23 @@ LEFT JOIN agg_nonequi_promos pr ON p.price > pr.max_price
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  Aggregate Scan (DataFusion) not used: outer-join ON residual predicates are not supported (table: join)
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: p, pr)
-                                                                                         QUERY PLAN                                                                                         
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                     QUERY PLAN                                                                                                     
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: p.category
-   ->  HashAggregate
-         Group Key: p.category
-         ->  Nested Loop Left Join
-               Join Filter: (p.price > pr.max_price)
-               ->  Custom Scan (ParadeDB Base Scan) on agg_nonequi_products p
-                     Table: agg_nonequi_products
-                     Index: agg_nonequi_products_idx
-                     Exec Method: ColumnarExecState
-                     Fast Fields: category, price
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
-               ->  Materialize
-                     ->  Seq Scan on agg_nonequi_promos pr
-(15 rows)
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: agg_nonequi_products_idx (p), agg_nonequi_promos_idx (pr)
+         Group By: category
+         Aggregates: COUNT(*), COUNT(id)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, count(pr_1.id) as agg_1]
+           :   NestedLoopJoinExec: join_type=Right, filter=price@0 > max_price@1, projection=[category@2, id@0]
+           :     CooperativeExec
+           :       PgSearchScan: table=pr, segments=1, query="all"
+           :     CooperativeExec
+           :       PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
+(14 rows)
 
 SELECT p.category, COUNT(*), COUNT(pr.id)
 FROM agg_nonequi_products p
@@ -343,8 +318,6 @@ LEFT JOIN agg_nonequi_promos pr ON p.price > pr.max_price
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  Aggregate Scan (DataFusion) not used: outer-join ON residual predicates are not supported (table: join)
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: p, pr)
   category   | count | count 
 -------------+-------+-------
  clothing    |     2 |     1
@@ -364,30 +337,27 @@ JOIN agg_nonequi_tiers t ON p.price >= t.threshold_price
 WHERE p.description @@@ 'laptop OR keyboard'
 GROUP BY t.tier_name
 ORDER BY t.tier_name;
-WARNING:  Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys) (table: join)
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: p, t)
-                                                                                           QUERY PLAN                                                                                            
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Group Key: t.tier_name
-   ->  Sort
-         Sort Key: t.tier_name
-         ->  Nested Loop
-               Join Filter: (p.price >= t.threshold_price)
-               ->  Hash Join
-                     Hash Cond: (pr.promo_code = p.category)
-                     Join Filter: (p.price <= pr.max_price)
-                     ->  Seq Scan on agg_nonequi_promos pr
-                     ->  Hash
-                           ->  Custom Scan (ParadeDB Base Scan) on agg_nonequi_products p
-                                 Table: agg_nonequi_products
-                                 Index: agg_nonequi_products_idx
-                                 Exec Method: ColumnarExecState
-                                 Fast Fields: category, price
-                                 Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-               ->  Seq Scan on agg_nonequi_tiers t
-(19 rows)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: t.tier_name
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: agg_nonequi_products_idx (p), agg_nonequi_promos_idx (pr), agg_nonequi_tiers_idx (t)
+         Group By: tier_name
+         Multi-Table Filter: {OPEXPR :opno 675 :opfuncid 298 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 4 :location -1} {VAR :varno 4 :varattno 4 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 4 :varattnosyn 4 :location -1}) :location -1} AND {OPEXPR :opno 673 :opfuncid 296 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 4 :location -1} {VAR :varno 2 :varattno 5 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 5 :location -1}) :location -1}
+         Aggregates: COUNT(*), SUM(price)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[tier_name@1 as tier_name], aggr=[count(1) as agg_0, sum(p_0.price) as agg_1]
+           :   NestedLoopJoinExec: join_type=Inner, filter=price@0 >= threshold_price@1 AND threshold_price@1 <= price@0, projection=[price@0, tier_name@1]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, promo_code@0)], filter=max_price@1 >= price@0, projection=[price@1]
+           :       CooperativeExec
+           :         PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+           :       CooperativeExec
+           :         PgSearchScan: table=pr, segments=1, dynamic_filters=1, query="all"
+           :     CooperativeExec
+           :       PgSearchScan: table=t, segments=1, query="all"
+(18 rows)
 
 SELECT t.tier_name, COUNT(*), SUM(p.price)
 FROM agg_nonequi_products p
@@ -396,8 +366,6 @@ JOIN agg_nonequi_tiers t ON p.price >= t.threshold_price
 WHERE p.description @@@ 'laptop OR keyboard'
 GROUP BY t.tier_name
 ORDER BY t.tier_name;
-WARNING:  Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys) (table: join)
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: p, t)
  tier_name | count |   sum   
 -----------+-------+---------
  bronze    |     4 | 2379.96
@@ -414,7 +382,7 @@ SELECT COUNT(*), SUM(p.price), AVG(p.rating)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.price >= pr.min_price AND p.price <= pr.max_price
 WHERE p.description @@@ 'laptop OR shoes OR jacket';
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: p, pr)
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, pr)
  count |        sum         |        avg         
 -------+--------------------+--------------------
     12 | 3189.8799999999983 | 3.4166666666666667
@@ -425,11 +393,9 @@ SELECT COUNT(*), SUM(p.price), AVG(p.rating)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.price >= pr.min_price AND p.price <= pr.max_price
 WHERE p.description @@@ 'laptop OR shoes OR jacket';
-WARNING:  Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys) (table: join)
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: p, pr)
- count |        sum         |        avg         
--------+--------------------+--------------------
-    12 | 3189.8799999999983 | 3.4166666666666667
+ count |   sum   |       avg        
+-------+---------+------------------
+    12 | 3189.88 | 3.41666666666667
 (1 row)
 
 -- Test 5.2: GROUP BY aggregate parity
@@ -440,7 +406,7 @@ JOIN agg_nonequi_promos pr ON p.price >= pr.min_price AND p.price <= pr.max_pric
 WHERE p.description @@@ 'laptop OR shoes OR keyboard'
 GROUP BY pr.promo_code
 ORDER BY pr.promo_code;
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: p, pr)
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, pr)
  promo_code  | count |        sum         
 -------------+-------+--------------------
  all         |     2 |             169.98
@@ -455,8 +421,6 @@ JOIN agg_nonequi_promos pr ON p.price >= pr.min_price AND p.price <= pr.max_pric
 WHERE p.description @@@ 'laptop OR shoes OR keyboard'
 GROUP BY pr.promo_code
 ORDER BY pr.promo_code;
-WARNING:  Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys) (table: join)
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: p, pr)
  promo_code  | count |        sum         
 -------------+-------+--------------------
  all         |     2 |             169.98
@@ -477,7 +441,7 @@ FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.unindexed_stock < pr.min_rating
 WHERE p.description @@@ 'laptop';
 WARNING:  Aggregate Scan (DataFusion) not used: the selected lower join path contains a predicate that AggregateScan cannot classify (table: join)
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: p, pr)
+WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: p, pr)
                                                                                QUERY PLAN                                                                                
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -498,7 +462,7 @@ FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.unindexed_stock < pr.min_rating
 WHERE p.description @@@ 'laptop';
 WARNING:  Aggregate Scan (DataFusion) not used: the selected lower join path contains a predicate that AggregateScan cannot classify (table: join)
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: p, pr)
+WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: p, pr)
  count 
 -------
      0

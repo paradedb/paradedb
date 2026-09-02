@@ -645,12 +645,21 @@ unsafe fn build_join_node(
         Vec::new()
     };
 
+    let is_outer = matches!(join_type, JoinType::Left | JoinType::Right | JoinType::Full);
+
+    // Extract non-equi join conditions from ON clause (join.quals)
+    let filter = if !join.quals.is_null() && (equi_keys.is_empty() || is_outer) {
+        extract_non_equi_filter_from_quals(join.quals, sources)?
+    } else {
+        None
+    };
+
     Ok(RelNode::Join(Box::new(JoinNode {
         join_type,
         left,
         right,
         equi_keys,
-        filter: None,
+        filter,
         subplan_id: None,
         absorbed_search_clauses: Vec::new(),
     })))
@@ -673,6 +682,89 @@ unsafe fn is_removed_rel(root: *mut pg_sys::PlannerInfo, node: *mut pg_sys::Node
     #[cfg(not(feature = "pg15"))]
     let dead = false;
     rel.is_null() || dead
+}
+
+/// Extract non-equi join conditions from an ON clause expression tree into a
+/// `JoinLevelExpr::PgExpression`.
+unsafe fn extract_non_equi_filter_from_quals(
+    quals: *mut pg_sys::Node,
+    sources: &[JoinAggSource],
+) -> Result<Option<JoinLevelExpr>, String> {
+    if quals.is_null() {
+        return Ok(None);
+    }
+
+    let mut non_equi_nodes = Vec::new();
+    collect_non_equi_nodes(quals, sources, &mut non_equi_nodes);
+
+    if non_equi_nodes.is_empty() {
+        return Ok(None);
+    }
+
+    let search_op = crate::api::operator::anyelement_query_input_opoid();
+    for &node in &non_equi_nodes {
+        if expr_contains_any_operator(node, &[search_op]) {
+            return Err("search operators in join ON clause are not supported".into());
+        }
+        if !all_vars_are_fast_fields_for_agg(node, sources) {
+            return Err("join conditions must reference columnar indexed fields".into());
+        }
+    }
+
+    let combined_node: *mut pg_sys::Node = if non_equi_nodes.len() == 1 {
+        non_equi_nodes[0]
+    } else {
+        let mut list = PgList::<pg_sys::Expr>::new();
+        for n in &non_equi_nodes {
+            list.push((*n).cast());
+        }
+        pg_sys::make_andclause(list.into_pg()).cast()
+    };
+
+    let pg_node_string = {
+        let node_str = pg_sys::nodeToString(combined_node.cast());
+        std::ffi::CStr::from_ptr(node_str)
+            .to_string_lossy()
+            .into_owned()
+    };
+    let input_vars = crate::postgres::customscan::joinscan::collect_input_vars(combined_node);
+    Ok(Some(JoinLevelExpr::PgExpression {
+        pg_node_string,
+        input_vars,
+    }))
+}
+
+unsafe fn collect_non_equi_nodes(
+    node: *mut pg_sys::Node,
+    sources: &[JoinAggSource],
+    acc: &mut Vec<*mut pg_sys::Node>,
+) {
+    if node.is_null() {
+        return;
+    }
+
+    if (*node).type_ == pg_sys::NodeTag::T_OpExpr {
+        if try_extract_one_equi_key(node as *mut pg_sys::OpExpr, sources).is_none() {
+            acc.push(node);
+        }
+    } else if (*node).type_ == pg_sys::NodeTag::T_BoolExpr {
+        let bool_expr = node as *mut pg_sys::BoolExpr;
+        if (*bool_expr).boolop == pg_sys::BoolExprType::AND_EXPR {
+            let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
+            for arg in args.iter_ptr() {
+                collect_non_equi_nodes(arg, sources, acc);
+            }
+        } else {
+            acc.push(node);
+        }
+    } else if (*node).type_ == pg_sys::NodeTag::T_List {
+        let list = PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List);
+        for item in list.iter_ptr() {
+            collect_non_equi_nodes(item, sources, acc);
+        }
+    } else {
+        acc.push(node);
+    }
 }
 
 /// Extract equi-join keys from an expression tree (ON clause or WHERE clause).
@@ -983,9 +1075,11 @@ unsafe fn classify_path_restrictinfo(
         // under normal planning. If one does, reject the path rather than risk
         // double-applying it.
         if !allow_unpushed_cross_table && !(*ri).is_pushed_down {
-            // ON-clause predicate for an outer join - can't apply as post-join
-            // filter without changing NULL-extension semantics.
-            info.decline(PathPredicateDeclineReason::OuterJoinOnResidual);
+            // ON-clause predicate for an outer join - handled in JoinNode.filter during
+            // join execution. Decline only if columns are not fast fields.
+            if !all_vars_are_fast_fields_for_agg(clause, sources) {
+                info.decline(PathPredicateDeclineReason::OuterJoinOnResidual);
+            }
             continue;
         }
 
@@ -1490,6 +1584,8 @@ pub unsafe fn populate_required_fields(
         })
         .collect();
 
+    let join_filter_vars = plan.filter_input_vars();
+
     let mut sources = plan.sources_mut();
 
     // Open relations once per source and reuse throughout
@@ -1587,6 +1683,15 @@ pub unsafe fn populate_required_fields(
             if source.plan_position == plan_position {
                 require_fast_field(source, &tupdesc, indexrel, attno, || {
                     format!("multi-table predicate column (attno={attno})")
+                })?;
+            }
+        }
+
+        // Join filter columns (from JoinNode.filter)
+        for &(rti, attno) in &join_filter_vars {
+            if source.contains_rti(rti) {
+                require_fast_field(source, &tupdesc, indexrel, attno, || {
+                    format!("join filter column (attno={attno})")
                 })?;
             }
         }

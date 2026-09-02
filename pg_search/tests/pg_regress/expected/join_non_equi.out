@@ -65,30 +65,27 @@ JOIN nonequi_offers o ON i.price <= o.max_price
 WHERE i.description @@@ 'ergonomic'
 ORDER BY i.id, o.id
 LIMIT 10;
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
-                                                                                    QUERY PLAN                                                                                    
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                  QUERY PLAN                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id, i.name, o.promo_name, i.price, o.max_price, o.id
-   ->  Sort
+   ->  Result
          Output: i.id, i.name, o.promo_name, i.price, o.max_price, o.id
-         Sort Key: i.id, o.id
-         ->  Nested Loop
-               Output: i.id, i.name, o.promo_name, i.price, o.max_price, o.id
-               Join Filter: (i.price <= o.max_price)
-               ->  Seq Scan on public.nonequi_offers o
-                     Output: o.id, o.promo_name, o.description, o.target_category, o.min_price, o.max_price, o.min_rating
-               ->  Materialize
-                     Output: i.id, i.name, i.price
-                     ->  Custom Scan (ParadeDB Base Scan) on public.nonequi_items i
-                           Output: i.id, i.name, i.price
-                           Table: nonequi_items
-                           Index: nonequi_items_idx
-                           Worker Selection: Cost model
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"ergonomic","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: i.id, i.name, i.price, o.promo_name, o.max_price, o.id
+               Relation Tree: o INNER i
+               Limit: 10
+               Order By: i.id asc, o.id asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@5 as col_1, NULL as col_2, price@4 as col_3, NULL as col_4, max_price@1 as col_5, id@2 as col_6, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+                 :   SortExec: TopK(fetch=10), expr=[id@5 ASC NULLS LAST, id@2 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     VisibilityFilterExec: tables=[o, i]
+                 :       NestedLoopJoinExec: join_type=Inner, filter=price@1 <= max_price@0, projection=[ctid_0@3, max_price@4, id@5, ctid_1@0, price@1, id@2]
+                 :         CooperativeExec
+                 :           PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"ergonomic","lenient":null,"conjunction_mode":null}}}}
+                 :         CooperativeExec
+                 :           PgSearchScan: table=o, segments=1, query="all"
+(18 rows)
 
 SELECT i.id, i.name, o.promo_name, i.price, o.max_price
 FROM nonequi_items i
@@ -96,7 +93,6 @@ JOIN nonequi_offers o ON i.price <= o.max_price
 WHERE i.description @@@ 'ergonomic'
 ORDER BY i.id, o.id
 LIMIT 10;
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
  id  |        name         |  promo_name   | price | max_price 
 -----+---------------------+---------------+-------+-----------
  101 | Mechanical Keyboard | Midrange Deal | 89.99 |    100.00
@@ -115,30 +111,27 @@ JOIN nonequi_offers o ON i.rating >= o.min_rating
 WHERE o.description @@@ 'exclusive OR value'
 ORDER BY i.id, o.id
 LIMIT 10;
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
-                                                                                        QUERY PLAN                                                                                         
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id, i.name, o.promo_name, i.rating, o.min_rating, o.id
-   ->  Sort
+   ->  Result
          Output: i.id, i.name, o.promo_name, i.rating, o.min_rating, o.id
-         Sort Key: i.id, o.id
-         ->  Nested Loop
-               Output: i.id, i.name, o.promo_name, i.rating, o.min_rating, o.id
-               Join Filter: (i.rating >= o.min_rating)
-               ->  Seq Scan on public.nonequi_items i
-                     Output: i.id, i.name, i.description, i.category, i.price, i.rating
-               ->  Materialize
-                     Output: o.promo_name, o.min_rating, o.id
-                     ->  Custom Scan (ParadeDB Base Scan) on public.nonequi_offers o
-                           Output: o.promo_name, o.min_rating, o.id
-                           Table: nonequi_offers
-                           Index: nonequi_offers_idx
-                           Worker Selection: Cost model
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"exclusive OR value","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: i.id, i.name, i.rating, o.promo_name, o.min_rating, o.id
+               Relation Tree: o INNER i
+               Limit: 10
+               Order By: i.id asc, o.id asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@5 as col_1, NULL as col_2, rating@4 as col_3, NULL as col_4, min_rating@1 as col_5, id@2 as col_6, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+                 :   SortExec: TopK(fetch=10), expr=[id@5 ASC NULLS LAST, id@2 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     VisibilityFilterExec: tables=[o, i]
+                 :       NestedLoopJoinExec: join_type=Inner, filter=rating@1 >= min_rating@0
+                 :         CooperativeExec
+                 :           PgSearchScan: table=o, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"exclusive OR value","lenient":null,"conjunction_mode":null}}}}
+                 :         CooperativeExec
+                 :           PgSearchScan: table=i, segments=1, query="all"
+(18 rows)
 
 SELECT i.id, i.name, o.promo_name, i.rating, o.min_rating
 FROM nonequi_items i
@@ -146,7 +139,6 @@ JOIN nonequi_offers o ON i.rating >= o.min_rating
 WHERE o.description @@@ 'exclusive OR value'
 ORDER BY i.id, o.id
 LIMIT 10;
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
  id  |        name         |  promo_name   | rating | min_rating 
 -----+---------------------+---------------+--------+------------
  101 | Mechanical Keyboard | Midrange Deal |      5 |          4
@@ -165,30 +157,27 @@ JOIN nonequi_offers o ON i.price >= o.min_price AND i.price <= o.max_price
 WHERE i.description @@@ 'keyboard OR mouse OR headset'
 ORDER BY i.id, o.id
 LIMIT 10;
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
-                                                                                             QUERY PLAN                                                                                              
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id, i.name, o.promo_name, i.price, o.min_price, o.max_price, o.id
-   ->  Sort
+   ->  Result
          Output: i.id, i.name, o.promo_name, i.price, o.min_price, o.max_price, o.id
-         Sort Key: i.id, o.id
-         ->  Nested Loop
-               Output: i.id, i.name, o.promo_name, i.price, o.min_price, o.max_price, o.id
-               Join Filter: ((i.price >= o.min_price) AND (i.price <= o.max_price))
-               ->  Seq Scan on public.nonequi_offers o
-                     Output: o.id, o.promo_name, o.description, o.target_category, o.min_price, o.max_price, o.min_rating
-               ->  Materialize
-                     Output: i.id, i.name, i.price
-                     ->  Custom Scan (ParadeDB Base Scan) on public.nonequi_items i
-                           Output: i.id, i.name, i.price
-                           Table: nonequi_items
-                           Index: nonequi_items_idx
-                           Worker Selection: Cost model
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard OR mouse OR headset","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: i.id, i.name, i.price, o.promo_name, o.min_price, o.max_price, o.id
+               Relation Tree: o INNER i
+               Limit: 10
+               Order By: i.id asc, o.id asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@6 as col_1, NULL as col_2, price@5 as col_3, NULL as col_4, min_price@1 as col_5, max_price@2 as col_6, id@3 as col_7, ctid_0@0 as ctid_0, ctid_1@4 as ctid_1]
+                 :   SortExec: TopK(fetch=10), expr=[id@6 ASC NULLS LAST, id@3 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     VisibilityFilterExec: tables=[o, i]
+                 :       NestedLoopJoinExec: join_type=Inner, filter=price@2 >= min_price@0 AND price@2 <= max_price@1, projection=[ctid_0@3, min_price@4, max_price@5, id@6, ctid_1@0, price@1, id@2]
+                 :         CooperativeExec
+                 :           PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard OR mouse OR headset","lenient":null,"conjunction_mode":null}}}}
+                 :         CooperativeExec
+                 :           PgSearchScan: table=o, segments=1, query="all"
+(18 rows)
 
 SELECT i.id, i.name, o.promo_name, i.price, o.min_price, o.max_price
 FROM nonequi_items i
@@ -196,7 +185,6 @@ JOIN nonequi_offers o ON i.price >= o.min_price AND i.price <= o.max_price
 WHERE i.description @@@ 'keyboard OR mouse OR headset'
 ORDER BY i.id, o.id
 LIMIT 10;
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
  id  |        name         |  promo_name   | price  | min_price | max_price 
 -----+---------------------+---------------+--------+-----------+-----------
  101 | Mechanical Keyboard | Midrange Deal |  89.99 |     25.00 |    100.00
@@ -215,34 +203,27 @@ JOIN nonequi_offers o ON i.category <> o.target_category
 WHERE i.description @@@ 'wireless' AND o.description @@@ 'budget'
 ORDER BY i.id, o.id
 LIMIT 10;
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
-                                                                                QUERY PLAN                                                                                 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                 QUERY PLAN                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id, i.name, o.promo_name, i.category, o.target_category, o.id
-   ->  Sort
+   ->  Result
          Output: i.id, i.name, o.promo_name, i.category, o.target_category, o.id
-         Sort Key: i.id, o.id
-         ->  Nested Loop
-               Output: i.id, i.name, o.promo_name, i.category, o.target_category, o.id
-               Join Filter: (i.category <> o.target_category)
-               ->  Custom Scan (ParadeDB Base Scan) on public.nonequi_items i
-                     Output: i.id, i.name, i.category
-                     Table: nonequi_items
-                     Index: nonequi_items_idx
-                     Worker Selection: Cost model
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-               ->  Custom Scan (ParadeDB Base Scan) on public.nonequi_offers o
-                     Output: o.promo_name, o.target_category, o.id
-                     Table: nonequi_offers
-                     Index: nonequi_offers_idx
-                     Worker Selection: Cost model
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"budget","lenient":null,"conjunction_mode":null}}}}
-(24 rows)
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: i.id, i.name, i.category, o.promo_name, o.target_category, o.id
+               Relation Tree: o INNER i
+               Limit: 10
+               Order By: i.id asc, o.id asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@5 as col_1, NULL as col_2, category@4 as col_3, NULL as col_4, target_category@1 as col_5, id@2 as col_6, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+                 :   SortExec: TopK(fetch=10), expr=[id@5 ASC NULLS LAST, id@2 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     VisibilityFilterExec: tables=[o, i]
+                 :       NestedLoopJoinExec: join_type=Inner, filter=category@1 != target_category@0
+                 :         CooperativeExec
+                 :           PgSearchScan: table=o, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"budget","lenient":null,"conjunction_mode":null}}}}
+                 :         CooperativeExec
+                 :           PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 SELECT i.id, i.name, o.promo_name, i.category, o.target_category
 FROM nonequi_items i
@@ -250,7 +231,6 @@ JOIN nonequi_offers o ON i.category <> o.target_category
 WHERE i.description @@@ 'wireless' AND o.description @@@ 'budget'
 ORDER BY i.id, o.id
 LIMIT 10;
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
  id  |      name      |  promo_name  |  category   | target_category 
 -----+----------------+--------------+-------------+-----------------
  102 | Wireless Mouse | Budget Saver | electronics | accessories
@@ -365,31 +345,26 @@ LEFT JOIN nonequi_offers o ON i.price > o.max_price AND o.min_rating >= 4
 WHERE i.description @@@ 'keyboard OR cable OR headset'
 ORDER BY i.id, o.id NULLS LAST
 LIMIT 10;
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
-                                                                                          QUERY PLAN                                                                                           
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                        QUERY PLAN                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id, i.name, i.price, o.promo_name, o.max_price, o.id
-   ->  Sort
+   ->  Custom Scan (ParadeDB Join Scan)
          Output: i.id, i.name, i.price, o.promo_name, o.max_price, o.id
-         Sort Key: i.id, o.id
-         ->  Nested Loop Left Join
-               Output: i.id, i.name, i.price, o.promo_name, o.max_price, o.id
-               Join Filter: (i.price > o.max_price)
-               ->  Custom Scan (ParadeDB Base Scan) on public.nonequi_items i
-                     Output: i.id, i.name, i.price
-                     Table: nonequi_items
-                     Index: nonequi_items_idx
-                     Worker Selection: Cost model
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard OR cable OR headset","lenient":null,"conjunction_mode":null}}}}
-               ->  Materialize
-                     Output: o.promo_name, o.max_price, o.id
-                     ->  Seq Scan on public.nonequi_offers o
-                           Output: o.promo_name, o.max_price, o.id
-                           Filter: (o.min_rating >= 4)
-(21 rows)
+         Relation Tree: o RIGHT i
+         Limit: 10
+         Order By: i.id asc, o.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@5 as col_1, NULL as col_2, price@4 as col_3, NULL as col_4, max_price@1 as col_5, id@2 as col_6, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[id@5 ASC NULLS LAST, id@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :     VisibilityFilterExec: tables=[i]
+           :       NestedLoopJoinExec: join_type=Right, filter=price@1 > max_price@0
+           :         VisibilityFilterExec: tables=[o]
+           :           CooperativeExec
+           :             PgSearchScan: table=o, segments=1, query={"range":{"field":"min_rating","lower_bound":{"included":4},"upper_bound":null}}
+           :         CooperativeExec
+           :           PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard OR cable OR headset","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
 
 SELECT i.id, i.name, i.price, o.promo_name, o.max_price
 FROM nonequi_items i
@@ -397,7 +372,6 @@ LEFT JOIN nonequi_offers o ON i.price > o.max_price AND o.min_rating >= 4
 WHERE i.description @@@ 'keyboard OR cable OR headset'
 ORDER BY i.id, o.id NULLS LAST
 LIMIT 10;
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
  id  |        name         | price  |  promo_name   | max_price 
 -----+---------------------+--------+---------------+-----------
  101 | Mechanical Keyboard |  89.99 |               |          
@@ -413,31 +387,29 @@ LEFT JOIN nonequi_offers o ON i.category = o.target_category AND i.price < o.min
 WHERE i.description @@@ 'cable OR mat OR mouse'
 ORDER BY i.id, o.id NULLS LAST
 LIMIT 10;
-WARNING:  JoinScan not used: outer joins support only equi-join conditions in the ON clause (tables: i, o)
-                                                                                          QUERY PLAN                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id, i.name, o.promo_name, i.price, o.min_price, o.id
-   ->  Sort
+   ->  Result
          Output: i.id, i.name, o.promo_name, i.price, o.min_price, o.id
-         Sort Key: i.id, o.id
-         ->  Hash Right Join
-               Output: i.id, i.name, o.promo_name, i.price, o.min_price, o.id
-               Hash Cond: (o.target_category = i.category)
-               Join Filter: (i.price < o.min_price)
-               ->  Seq Scan on public.nonequi_offers o
-                     Output: o.id, o.promo_name, o.description, o.target_category, o.min_price, o.max_price, o.min_rating
-               ->  Hash
-                     Output: i.id, i.name, i.price, i.category
-                     ->  Custom Scan (ParadeDB Base Scan) on public.nonequi_items i
-                           Output: i.id, i.name, i.price, i.category
-                           Table: nonequi_items
-                           Index: nonequi_items_idx
-                           Worker Selection: Cost model
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable OR mat OR mouse","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: i.id, i.name, i.price, o.promo_name, o.min_price, o.id
+               Relation Tree: o RIGHT i
+               Join Cond: i.category = o.target_category
+               Limit: 10
+               Order By: i.id asc, o.id asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@5 as col_1, NULL as col_2, price@4 as col_3, NULL as col_4, min_price@1 as col_5, id@2 as col_6, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+                 :   SortExec: TopK(fetch=10), expr=[id@5 ASC NULLS LAST, id@2 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     VisibilityFilterExec: tables=[i]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(target_category@1, category@1)], filter=price@1 < min_price@0, projection=[ctid_0@0, min_price@2, id@3, ctid_1@4, price@6, id@7]
+                 :         VisibilityFilterExec: tables=[o]
+                 :           CooperativeExec
+                 :             PgSearchScan: table=o, segments=1, query="all"
+                 :         CooperativeExec
+                 :           PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable OR mat OR mouse","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
 
 SELECT i.id, i.name, o.promo_name, i.price, o.min_price
 FROM nonequi_items i
@@ -445,7 +417,6 @@ LEFT JOIN nonequi_offers o ON i.category = o.target_category AND i.price < o.min
 WHERE i.description @@@ 'cable OR mat OR mouse'
 ORDER BY i.id, o.id NULLS LAST
 LIMIT 10;
-WARNING:  JoinScan not used: outer joins support only equi-join conditions in the ON clause (tables: i, o)
  id  |      name      |  promo_name  | price | min_price 
 -----+----------------+--------------+-------+-----------
  102 | Wireless Mouse | Premium Tech | 29.99 |     80.00
@@ -461,31 +432,29 @@ RIGHT JOIN nonequi_offers o ON i.category = o.target_category AND i.price <= o.m
 WHERE o.description @@@ 'exclusive OR budget'
 ORDER BY o.id, i.id NULLS LAST
 LIMIT 10;
-WARNING:  JoinScan not used: outer joins support only equi-join conditions in the ON clause (tables: i, o)
-                                                                                         QUERY PLAN                                                                                         
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id, i.name, o.promo_name, o.max_price, o.id
-   ->  Sort
+   ->  Result
          Output: i.id, i.name, o.promo_name, o.max_price, o.id
-         Sort Key: o.id, i.id
-         ->  Hash Right Join
-               Output: i.id, i.name, o.promo_name, o.max_price, o.id
-               Hash Cond: (i.category = o.target_category)
-               Join Filter: (i.price <= o.max_price)
-               ->  Seq Scan on public.nonequi_items i
-                     Output: i.id, i.name, i.description, i.category, i.price, i.rating
-               ->  Hash
-                     Output: o.promo_name, o.max_price, o.id, o.target_category
-                     ->  Custom Scan (ParadeDB Base Scan) on public.nonequi_offers o
-                           Output: o.promo_name, o.max_price, o.id, o.target_category
-                           Table: nonequi_offers
-                           Index: nonequi_offers_idx
-                           Worker Selection: Cost model
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"exclusive OR budget","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: o.promo_name, o.max_price, o.id, i.id, i.name
+               Relation Tree: i RIGHT o
+               Join Cond: i.category = o.target_category
+               Limit: 10
+               Order By: o.id asc, i.id asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[NULL as col_1, max_price@3 as col_2, id@4 as col_3, id@1 as col_4, NULL as col_5, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+                 :   SortExec: TopK(fetch=10), expr=[id@4 ASC NULLS LAST, id@1 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     VisibilityFilterExec: tables=[o]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(category@1, target_category@1)], filter=price@0 <= max_price@1, projection=[ctid_0@0, id@3, ctid_1@4, max_price@6, id@7]
+                 :         VisibilityFilterExec: tables=[i]
+                 :           CooperativeExec
+                 :             PgSearchScan: table=i, segments=1, query="all"
+                 :         CooperativeExec
+                 :           PgSearchScan: table=o, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"exclusive OR budget","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
 
 SELECT i.id, i.name, o.promo_name, o.max_price
 FROM nonequi_items i
@@ -493,7 +462,6 @@ RIGHT JOIN nonequi_offers o ON i.category = o.target_category AND i.price <= o.m
 WHERE o.description @@@ 'exclusive OR budget'
 ORDER BY o.id, i.id NULLS LAST
 LIMIT 10;
-WARNING:  JoinScan not used: outer joins support only equi-join conditions in the ON clause (tables: i, o)
  id  |        name         |  promo_name  | max_price 
 -----+---------------------+--------------+-----------
  103 | USB-C Cable         | Budget Saver |     35.00
@@ -514,24 +482,26 @@ JOIN nonequi_offers o ON i.price <= o.max_price
 WHERE i.description @@@ 'gaming' OR o.description @@@ 'clearance'
 ORDER BY i.id, o.id
 LIMIT 10;
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
-                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                  QUERY PLAN                                                                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id, i.name, o.promo_name, o.id
-   ->  Sort
+   ->  Custom Scan (ParadeDB Join Scan)
          Output: i.id, i.name, o.promo_name, o.id
-         Sort Key: i.id, o.id
-         ->  Nested Loop
-               Output: i.id, i.name, o.promo_name, o.id
-               Join Filter: ((i.price <= o.max_price) AND ((i.id @@@ '{"with_index":{"oid":14893901,"query":{"parse_with_field":{"field":"description","query_string":"gaming","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (o.id @@@ '{"with_index":{"oid":14893902,"query":{"parse_with_field":{"field":"description","query_string":"clearance","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)))
-               ->  Seq Scan on public.nonequi_items i
-                     Output: i.id, i.name, i.description, i.category, i.price, i.rating
-               ->  Materialize
-                     Output: o.promo_name, o.id, o.max_price
-                     ->  Seq Scan on public.nonequi_offers o
-                           Output: o.promo_name, o.id, o.max_price
-(14 rows)
+         Relation Tree: o INNER i
+         Join Predicate: (i:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"gaming","lenient":null,"conjunction_mode":null}}}} OR o:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"clearance","lenient":null,"conjunction_mode":null}}}})
+         Limit: 10
+         Order By: i.id asc, o.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, NULL as col_3, id@1 as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST, id@1 ASC NULLS LAST], preserve_partitioning=[false]
+           :     VisibilityFilterExec: tables=[o, i]
+           :       NestedLoopJoinExec: join_type=Inner, filter=price@2 <= max_price@0 AND (__i_1_tag_0@3 OR __o_0_tag_0@1), projection=[ctid_0@0, id@2, ctid_1@4, id@6]
+           :         CooperativeExec
+           :           PgSearchScan: table=o, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"clearance","lenient":null,"conjunction_mode":null}}}}
+           :         CooperativeExec
+           :           PgSearchScan: table=i, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"gaming","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
 
 SELECT i.id, i.name, o.promo_name
 FROM nonequi_items i
@@ -539,7 +509,6 @@ JOIN nonequi_offers o ON i.price <= o.max_price
 WHERE i.description @@@ 'gaming' OR o.description @@@ 'clearance'
 ORDER BY i.id, o.id
 LIMIT 10;
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
  id  |      name      |  promo_name  
 -----+----------------+--------------
  102 | Wireless Mouse | All Clear
@@ -577,7 +546,6 @@ JOIN nonequi_offers o ON i.price <= o.max_price
 WHERE i.description @@@ 'ergonomic'
 ORDER BY i.id, o.id
 LIMIT 10;
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
  id  |        name         |  promo_name   
 -----+---------------------+---------------
  101 | Mechanical Keyboard | Midrange Deal
@@ -610,7 +578,6 @@ LEFT JOIN nonequi_offers o ON i.category = o.target_category AND i.price < o.min
 WHERE i.description @@@ 'cable OR mat OR mouse'
 ORDER BY i.id, o.id NULLS LAST
 LIMIT 10;
-WARNING:  JoinScan not used: outer joins support only equi-join conditions in the ON clause (tables: i, o)
  id  |      name      |  promo_name  
 -----+----------------+--------------
  102 | Wireless Mouse | Premium Tech
@@ -633,7 +600,7 @@ JOIN nonequi_offers o ON i.unindexed_weight < o.min_price
 WHERE i.description @@@ 'ergonomic'
 ORDER BY i.id, o.id
 LIMIT 10;
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
+WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: i, o)
                                                                                     QUERY PLAN                                                                                    
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -664,7 +631,7 @@ JOIN nonequi_offers o ON i.unindexed_weight < o.min_price
 WHERE i.description @@@ 'ergonomic'
 ORDER BY i.id, o.id
 LIMIT 10;
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: i, o)
+WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: i, o)
  id  |        name         |  promo_name   
 -----+---------------------+---------------
  101 | Mechanical Keyboard | Budget Saver

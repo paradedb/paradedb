@@ -266,7 +266,7 @@ impl AggregateDeclineReason {
                     "the selected lower join path contains a predicate that AggregateScan cannot classify".into()
                 }
             },
-            Self::CrossJoin => "CROSS JOINs are not supported (no equi-join keys)".into(),
+            Self::CrossJoin => "CROSS JOINs are not supported (no join conditions)".into(),
             Self::DistinctOn => "DISTINCT ON is not supported".into(),
             Self::NondeterministicCollation => {
                 "DISTINCT on a nondeterministic collation is not supported".into()

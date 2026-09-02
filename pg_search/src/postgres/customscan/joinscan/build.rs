@@ -1423,14 +1423,13 @@ impl RelNode {
         }
     }
 
-    /// Returns true if any join in the tree lacks equi-join keys. If so, building
-    /// this tree via `build_relnode_df` (which uses Hash/Merge joins suitable for
-    /// a 3-table query) would cause DataFusion to error or produce empty batches.
+    /// Returns true if any `JoinNode` in the tree has neither equi-keys nor a join filter.
+    /// Used to reject unconstrained CROSS JOINs that have no join conditions.
     pub fn has_join_without_keys(&self) -> bool {
         match self {
             RelNode::Scan(_) => false,
             RelNode::Join(j) => {
-                j.equi_keys.is_empty()
+                (j.equi_keys.is_empty() && j.filter.is_none())
                     || j.left.has_join_without_keys()
                     || j.right.has_join_without_keys()
             }

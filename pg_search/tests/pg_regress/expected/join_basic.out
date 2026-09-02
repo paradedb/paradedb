@@ -305,13 +305,12 @@ JOIN suppliers s ON p.supplier_id >= s.id AND p.supplier_id <= s.id + 1
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 10;
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: p, s)
  id  |      name      | supplier_name 
 -----+----------------+---------------
  201 | Wireless Mouse | TechCorp
  206 | Headphones     | TechCorp
- 207 | Mouse Pad      | TechCorp
  207 | Mouse Pad      | GlobalSupply
+ 207 | Mouse Pad      | TechCorp
 (4 rows)
 
 -- =============================================================================
@@ -438,7 +437,7 @@ FROM colors c, sizes s
 WHERE c.description @@@ 'color' AND s.description @@@ 'size'
 ORDER BY c.id, s.id
 LIMIT 10;
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: c, s)
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) or non-equi join condition is required (tables: c, s)
                                                                                  QUERY PLAN                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit

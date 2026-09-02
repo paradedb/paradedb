@@ -242,8 +242,8 @@ SELECT COUNT(*)
 FROM fb_products p
 CROSS JOIN fb_tags t
 WHERE p.description @@@ 'laptop';
-WARNING:  Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys) (table: join)
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: p, t)
+WARNING:  Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no join conditions) (table: join)
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) or non-equi join condition is required (tables: p, t)
                                                                             QUERY PLAN                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -261,8 +261,8 @@ SELECT COUNT(*)
 FROM fb_products p
 CROSS JOIN fb_tags t
 WHERE p.description @@@ 'laptop';
-WARNING:  Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys) (table: join)
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: p, t)
+WARNING:  Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no join conditions) (table: join)
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) or non-equi join condition is required (tables: p, t)
  count 
 -------
      3

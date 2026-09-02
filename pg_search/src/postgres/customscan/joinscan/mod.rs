@@ -608,9 +608,13 @@ impl JoinScan {
             &plan,
             RelNode::Join(j) if matches!(j.join_type, build::JoinType::Semi | build::JoinType::Anti { .. })
         );
-        if join_keys.is_empty() && !root_is_semi_anti {
+        let has_filter = matches!(
+            &plan,
+            RelNode::Join(j) if j.filter.is_some()
+        );
+        if join_keys.is_empty() && !root_is_semi_anti && !has_filter {
             return Err(JoinDeclineReason::new(
-                "JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required",
+                "JoinScan not used: at least one equi-join key (e.g., a.id = b.id) or non-equi join condition is required",
             ));
         }
 
@@ -647,7 +651,7 @@ impl JoinScan {
                         .is_none()
                     {
                         return Err(JoinDeclineReason::new(
-                            "JoinScan not used: join keys must be fast fields",
+                            "JoinScan not used: join conditions must reference columnar indexed fields",
                         ));
                     }
                 }
@@ -1977,7 +1981,7 @@ fn bake_logical_plan(
 /// referenced, capturing type metadata from the live Var pointer so execution
 /// doesn't need catalog lookups. Uses `pull_var_clause` (same as the DISTINCT
 /// extraction path in `planning.rs`) to recurse through all wrappers.
-unsafe fn collect_input_vars(node: *mut pg_sys::Node) -> Vec<build::InputVarInfo> {
+pub(crate) unsafe fn collect_input_vars(node: *mut pg_sys::Node) -> Vec<build::InputVarInfo> {
     const PVC_RECURSE_ALL: i32 = (pg_sys::PVC_RECURSE_AGGREGATES
         | pg_sys::PVC_RECURSE_WINDOWFUNCS
         | pg_sys::PVC_RECURSE_PLACEHOLDERS) as i32;
@@ -2113,75 +2117,46 @@ impl JoinScan {
             aliases: aliases.clone(),
         };
 
-        // For Semi/Anti joins, allow empty equi_keys when there are other_conditions
-        // (e.g. disjunctive join conditions like `a.col = b.x OR a.col = b.y`).
-        // DataFusion handles this as a cross-join + filter via NestedLoopJoinExec,
-        // placing the filter on the JoinNode directly (see later in this function).
-        let is_semi_anti = matches!(
-            jointype,
-            pg_sys::JoinType::JOIN_SEMI | pg_sys::JoinType::JOIN_ANTI
-        );
         let has_other_conditions = !join_conditions.other_conditions.is_empty();
-        if join_conditions.equi_keys.is_empty() && !(is_semi_anti && has_other_conditions) {
+        if join_conditions.equi_keys.is_empty() && !has_other_conditions {
             return Err(warn(JoinDeclineReason::new(
-                "JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required",
+                "JoinScan not used: at least one equi-join key (e.g., a.id = b.id) or non-equi join condition is required",
             )));
         }
 
         join_keys.extend(join_conditions.equi_keys.clone());
 
-        // For outer joins, a non-equi ON condition (is_pushed_down == false)
-        // decides which rows match, and an unmatched preserved row must still
-        // be null-extended. The join-level predicate pipeline applies such
-        // clauses as scan-level or post-join filters, either of which changes
-        // the set of null-extended rows, so decline. WHERE clauses
-        // (is_pushed_down == true) are post-join filters by definition and
-        // stay safe.
         let is_outer = matches!(
             jointype,
             pg_sys::JoinType::JOIN_LEFT
                 | pg_sys::JoinType::JOIN_RIGHT
                 | pg_sys::JoinType::JOIN_FULL
         );
-        if is_outer
-            && join_conditions
-                .other_conditions
-                .iter()
-                .any(|&ri| !(*ri).is_pushed_down)
-        {
-            return Err(warn(JoinDeclineReason::new(
-                "JoinScan not used: outer joins support only equi-join conditions in the ON clause",
-            )));
-        }
 
-        // For Semi/Anti with additional conditions that cannot ride the
-        // MultiTablePredicate pipeline (setrefs would fail to resolve inner-side
-        // Vars once the inner relation is pruned), try to absorb each condition
-        // into `JoinNode.filter` as a serialized `PgExpression`. Only attempted
-        // when `equi_keys` is empty — the mixed case isn't supported end-to-end
-        // yet (see `build_join_df_with_filter`).
-        let try_absorb_disjunction = is_semi_anti && join_conditions.equi_keys.is_empty();
-        let (initial_filter, remaining_other_conditions) = if try_absorb_disjunction {
+        // For non-equi joins (equi_keys is empty) and outer joins (where ON conditions
+        // with is_pushed_down == false must be evaluated during join), try to absorb
+        // conditions into `JoinNode.filter` as a serialized `PgExpression`.
+        let try_absorb = join_conditions.equi_keys.is_empty() || is_outer;
+        let (initial_filter, remaining_other_conditions) = if try_absorb {
             let mut current_sources = outer_node.sources();
             current_sources.extend(inner_node.sources());
 
-            // Validating translatability with the live pointer now means
-            // `stringToNode` + `PredicateTranslator::translate` will succeed at
-            // execution time on the same shape.
             let mut absorbed_clauses: Vec<*mut pg_sys::Node> = Vec::new();
             let mut remaining: Vec<*mut pg_sys::RestrictInfo> =
                 Vec::with_capacity(join_conditions.other_conditions.len());
             let search_op = crate::api::operator::anyelement_query_input_opoid();
             for ri in join_conditions.other_conditions {
                 let clause = (*ri).clause;
-                // Skip `@@@` (and any of our search ops, all of which the
-                // simplifier has rewritten to `@@@` by now): the
-                // Semi/Anti absorption path lowers via
-                // `PredicateTranslator::can_translate`, which only
-                // recognizes non-search predicates. Search clauses pass
-                // through to `extract_join_level_conditions`, where
-                // `transform_to_search_expr` handles them.
+                // Skip `@@@` (and any search ops): search clauses pass through to
+                // `extract_join_level_conditions`, where `transform_to_search_expr` handles them.
                 if !clause.is_null() && expr_contains_any_operator(clause.cast(), &[search_op]) {
+                    remaining.push(ri);
+                    continue;
+                }
+                // For outer joins with equi-keys, only absorb ON-clause conditions (is_pushed_down == false);
+                // WHERE-clause conditions (is_pushed_down == true) stay as post-join filters.
+                if is_outer && !join_conditions.equi_keys.is_empty() && (*ri).is_pushed_down {
+                    remaining.push(ri);
                     continue;
                 }
                 if clause.is_null()
@@ -2226,15 +2201,22 @@ impl JoinScan {
             (None, join_conditions.other_conditions)
         };
 
-        // The disjunctive-filter path was the only way to satisfy the equi-keys
-        // gate for this Semi/Anti join; absorption failed, so decline rather
-        // than fall through to the MultiTablePredicate pipeline (setrefs would
-        // fail on inner-side Vars).
-        if try_absorb_disjunction
-            && (initial_filter.is_none() || !remaining_other_conditions.is_empty())
+        // For outer joins, if any ON condition (is_pushed_down == false) failed absorption
+        // (e.g. references a non-fast-field column), decline JoinScan.
+        if is_outer
+            && remaining_other_conditions
+                .iter()
+                .any(|&ri| !(*ri).is_pushed_down)
         {
             return Err(warn(JoinDeclineReason::new(
-                "JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required",
+                "JoinScan not used: join conditions must reference columnar indexed fields",
+            )));
+        }
+
+        // When equi_keys is empty, at least one non-equi condition must have been absorbed into filter.
+        if join_conditions.equi_keys.is_empty() && initial_filter.is_none() {
+            return Err(warn(JoinDeclineReason::new(
+                "JoinScan not used: join conditions must reference columnar indexed fields",
             )));
         }
 
@@ -2295,7 +2277,7 @@ impl JoinScan {
         )
         .map_err(|_| {
             warn(JoinDeclineReason::new(
-                "JoinScan not used: failed to extract join-level conditions (ensure all referenced columns are fast fields)",
+                "JoinScan not used: failed to extract join-level conditions (ensure all referenced columns are columnar indexed)",
             ))
         })?;
         join_clause = join_clause_updated;

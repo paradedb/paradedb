@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788366864169,
+  "lastUpdate": 1788366884101,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -304712,6 +304712,126 @@ window.BENCHMARK_DATA = {
             "value": 21.36329968127025,
             "unit": "median tps",
             "extra": "avg tps: 24.59762279184578, max tps: 179.00613492382843, count: 57405"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "46780009+sahilchug@users.noreply.github.com",
+            "name": "sahil",
+            "username": "sahilchug"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f583d7e93a8235920707b29abd1ec929be41f6b5",
+          "message": "feat: push down GROUP BY DATE(timestamp) to the aggregate custom scan (#5936)\n\n# Ticket(s) Closed\n\n- Closes #4082 \n\n## What\nPushes `GROUP BY DATE(ts)` and `GROUP BY ts::date` into DataFusion\nbackend when `ts` is a bare timestamp without timezone.\n\nThe DataFusion path supports:\n\n- handles -infinity, infinity\n- preserves NULL date values correctly\n- handles `DATE()` combined with other grouping columns \n- supports both serial and MPP execution, producing the same grouped\nresults when work is distributed across multiple workers and index\nsegments\n\nShapes outside the safe boundary refuse pushdown with a named reason and\nfall sback to native Postgres execution :\n\n- `DATE(timestamptz)` — the result depends on the session `TimeZone`\n- `DATE()` over a cast (e.g. `DATE(text_col::timestamp)`) — the argument\n      must be a bare timestamp column  \n\n**Note**: support for Top K query via DataFusion path will be a follow\nup PR\n\n## Why\n  \nThis is a rework of #4918, which had 2 correctness bugs:\n     - NULL timestamp rows silently dropped fro results\n- `DATE(timestampz)` was pushed down with wrong timezone semantics.\n\nAlso an earlier attempt was done using Tantivy Path for predicate push\ndown but it has limitations:\n\n- Tantivy converts the stored `i64` timestamp microseconds to `f64` when\ncalculating histogram buckets. For dates far from the PostgreSQL epoch,\nthis loses microsecond precision and can move timestamps near midnight\ninto the wrong day.\n- PostgreSQL's `infinity` and `-infinity` timestamp sentinels cannot be\nrepresented correctly after the conversion to `f64`.\n- `ORDER BY ... LIMIT` / TopK queries were already routed toward\nDataFusion, so the histogram implementation did not help with that query\nshape\n  \n\n## How\n\n- Detects `Date(timestamp)` in `GROUP BY` clause and routes the query to\nDataFusion backend\n- Validates that `Date(timestamp)` is a bare timestamp column without\ntimezone\n- Adds a Grouping transform to `JoinGroupColumn` metadata\n- Applies a DataFusion scalar UDF `TimestampToDateUdf` that converts\ntimestamps to Arrow `Date32` values and preserves `NULL` and handles\n`-infinity` and `infinity` sentinels\n- Updates the Arrow `Date32` projection to map the internal\n`i32::MIN/MAX` sentinels back to PostgreSQL `-infinity` and `infinity`\ninstead of treating them as finite day counts.\n\n## Tests\n\n- Integration and `pg_regress` tests cover basic date grouping, NULL\ngroups, TopK, aggregate `FILTER`, multi-column grouping, timestamp\nboundaries, infinities, and fallback for unsupported expressions.\n- MPP regression tests verify that serial and distributed DataFusion\nexecution produce the same results as native PostgreSQL across multiple\nindex segments.",
+          "timestamp": "2026-09-02T11:56:33-04:00",
+          "tree_id": "39176d36a4ff5b7395132a8049b49145d589d53e",
+          "url": "https://github.com/paradedb/paradedb/commit/f583d7e93a8235920707b29abd1ec929be41f6b5"
+        },
+        "date": 1788366881224,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 174.73451746204427,
+            "unit": "median tps",
+            "extra": "avg tps: 179.5611375649523, max tps: 222.56642667401852, count: 57428"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 299.578374580077,
+            "unit": "median tps",
+            "extra": "avg tps: 319.58587743755464, max tps: 492.971124216399, count: 57428"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3967.0205796447763,
+            "unit": "median tps",
+            "extra": "avg tps: 3971.9542064492234, max tps: 4569.398842767105, count: 57428"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 178.84152825402242,
+            "unit": "median tps",
+            "extra": "avg tps: 184.22389700851912, max tps: 225.0770303997819, count: 57428"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3391.4893406413976,
+            "unit": "median tps",
+            "extra": "avg tps: 3389.4535210476047, max tps: 3694.5967350848655, count: 57428"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3320.028095877463,
+            "unit": "median tps",
+            "extra": "avg tps: 3301.176342254946, max tps: 3331.3878759288655, count: 57428"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 154.5433009299981,
+            "unit": "median tps",
+            "extra": "avg tps: 157.8229927824766, max tps: 183.52051573879152, count: 57428"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 264.50287519923074,
+            "unit": "median tps",
+            "extra": "avg tps: 274.785844680818, max tps: 369.89869473477694, count: 57428"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Primary - tps",
+            "value": 496.4513791021753,
+            "unit": "median tps",
+            "extra": "avg tps: 502.36491801339827, max tps: 559.4370155886446, count: 57428"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 564.1123493094254,
+            "unit": "median tps",
+            "extra": "avg tps: 573.4577391784237, max tps: 659.2872386114847, count: 57428"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1261.2081523624422,
+            "unit": "median tps",
+            "extra": "avg tps: 1260.012495928352, max tps: 1265.1631360020756, count: 57428"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 315.657372880082,
+            "unit": "median tps",
+            "extra": "avg tps: 339.49999560006876, max tps: 553.6869355535274, count: 57428"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 519.0515542066339,
+            "unit": "median tps",
+            "extra": "avg tps: 526.973104849587, max tps: 607.1149466939837, count: 57428"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2319.8051802929376,
+            "unit": "median tps",
+            "extra": "avg tps: 2321.40404795613, max tps: 2483.9600667115246, count: 57428"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1716.7972675132792,
+            "unit": "median tps",
+            "extra": "avg tps: 1728.4479644886171, max tps: 2102.9091294411833, count: 57428"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 54.84942795836942,
+            "unit": "median tps",
+            "extra": "avg tps: 52.61387632227028, max tps: 177.86060548552345, count: 57428"
           }
         ]
       }

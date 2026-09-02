@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788365719030,
+  "lastUpdate": 1788365729295,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -156158,6 +156158,66 @@ window.BENCHMARK_DATA = {
             "value": 21.5320723981231,
             "unit": "median tps",
             "extra": "avg tps: 21.516176680382674, max tps: 34.07021182438727, count: 59314"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "46780009+sahilchug@users.noreply.github.com",
+            "name": "sahil",
+            "username": "sahilchug"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f583d7e93a8235920707b29abd1ec929be41f6b5",
+          "message": "feat: push down GROUP BY DATE(timestamp) to the aggregate custom scan (#5936)\n\n# Ticket(s) Closed\n\n- Closes #4082 \n\n## What\nPushes `GROUP BY DATE(ts)` and `GROUP BY ts::date` into DataFusion\nbackend when `ts` is a bare timestamp without timezone.\n\nThe DataFusion path supports:\n\n- handles -infinity, infinity\n- preserves NULL date values correctly\n- handles `DATE()` combined with other grouping columns \n- supports both serial and MPP execution, producing the same grouped\nresults when work is distributed across multiple workers and index\nsegments\n\nShapes outside the safe boundary refuse pushdown with a named reason and\nfall sback to native Postgres execution :\n\n- `DATE(timestamptz)` — the result depends on the session `TimeZone`\n- `DATE()` over a cast (e.g. `DATE(text_col::timestamp)`) — the argument\n      must be a bare timestamp column  \n\n**Note**: support for Top K query via DataFusion path will be a follow\nup PR\n\n## Why\n  \nThis is a rework of #4918, which had 2 correctness bugs:\n     - NULL timestamp rows silently dropped fro results\n- `DATE(timestampz)` was pushed down with wrong timezone semantics.\n\nAlso an earlier attempt was done using Tantivy Path for predicate push\ndown but it has limitations:\n\n- Tantivy converts the stored `i64` timestamp microseconds to `f64` when\ncalculating histogram buckets. For dates far from the PostgreSQL epoch,\nthis loses microsecond precision and can move timestamps near midnight\ninto the wrong day.\n- PostgreSQL's `infinity` and `-infinity` timestamp sentinels cannot be\nrepresented correctly after the conversion to `f64`.\n- `ORDER BY ... LIMIT` / TopK queries were already routed toward\nDataFusion, so the histogram implementation did not help with that query\nshape\n  \n\n## How\n\n- Detects `Date(timestamp)` in `GROUP BY` clause and routes the query to\nDataFusion backend\n- Validates that `Date(timestamp)` is a bare timestamp column without\ntimezone\n- Adds a Grouping transform to `JoinGroupColumn` metadata\n- Applies a DataFusion scalar UDF `TimestampToDateUdf` that converts\ntimestamps to Arrow `Date32` values and preserves `NULL` and handles\n`-infinity` and `infinity` sentinels\n- Updates the Arrow `Date32` projection to map the internal\n`i32::MIN/MAX` sentinels back to PostgreSQL `-infinity` and `infinity`\ninstead of treating them as finite day counts.\n\n## Tests\n\n- Integration and `pg_regress` tests cover basic date grouping, NULL\ngroups, TopK, aggregate `FILTER`, multi-column grouping, timestamp\nboundaries, infinities, and fallback for unsupported expressions.\n- MPP regression tests verify that serial and distributed DataFusion\nexecution produce the same results as native PostgreSQL across multiple\nindex segments.",
+          "timestamp": "2026-09-02T11:56:33-04:00",
+          "tree_id": "39176d36a4ff5b7395132a8049b49145d589d53e",
+          "url": "https://github.com/paradedb/paradedb/commit/f583d7e93a8235920707b29abd1ec929be41f6b5"
+        },
+        "date": 1788365708226,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 75.44149501557898,
+            "unit": "median tps",
+            "extra": "avg tps: 75.07148309195885, max tps: 81.0396999772737, count: 59314"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 519.5988254460809,
+            "unit": "median tps",
+            "extra": "avg tps: 567.2316031581712, max tps: 7302.399742741147, count: 59314"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 807.1783504625346,
+            "unit": "median tps",
+            "extra": "avg tps: 774.9515021287525, max tps: 1084.2268576363783, count: 59314"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 174.14974902520768,
+            "unit": "median tps",
+            "extra": "avg tps: 171.9247663939875, max tps: 194.7293145399665, count: 59314"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 221.63557508729235,
+            "unit": "median tps",
+            "extra": "avg tps: 300.23002753776933, max tps: 2802.5289007838423, count: 118628"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.430423412779685,
+            "unit": "median tps",
+            "extra": "avg tps: 19.59251099386932, max tps: 34.55924299222358, count: 59314"
           }
         ]
       }

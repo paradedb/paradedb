@@ -1418,22 +1418,6 @@ pub unsafe fn populate_required_fields(
             })?;
         }
 
-        // `pdb.agg()` fields, which name index fields directly and so take the
-        // same by-name fallback as GROUP BY columns.
-        for field in targetlist.pdb_agg_field_refs() {
-            if source.plan_position != field.plan_position {
-                continue;
-            }
-            require_named_fast_field(
-                source,
-                &tupdesc,
-                indexrel,
-                field.attno,
-                &field.field_name,
-                || format!("pdb.agg field '{}' is not a fast field", field.field_name),
-            )?;
-        }
-
         // Aggregate arguments - match by plan_position.
         for agg in &targetlist.aggregates {
             for r in &agg.field_refs {
@@ -1495,6 +1479,21 @@ pub unsafe fn populate_required_fields(
                     format!("multi-table predicate column (attno={attno})")
                 })?;
             }
+        }
+
+        // `pdb.agg()` names index fields, which can be aliases of a column, so
+        // they register by name. Last, so a column the join needs under its own
+        // name is registered by attno first and an alias of it adds a second
+        // entry instead of taking its place.
+        for field in targetlist.pdb_agg_field_refs() {
+            if source.plan_position != field.plan_position {
+                continue;
+            }
+            let resolved =
+                resolve_fast_field_by_name(&field.field_name, indexrel).ok_or_else(|| {
+                    format!("pdb.agg field '{}' is not a fast field", field.field_name)
+                })?;
+            source.scan_info.add_field_by_name(field.attno, resolved);
         }
     }
 

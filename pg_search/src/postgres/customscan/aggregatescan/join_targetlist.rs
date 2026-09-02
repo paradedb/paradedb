@@ -33,10 +33,8 @@ use crate::nodecast;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::customscan::datafusion::explain::get_attname_safe;
 use crate::postgres::customscan::joinscan::build::{PlannerRootId, RelNode, RelationAlias};
-use crate::postgres::customscan::pullup::{
-    get_attno_by_name, resolve_fast_field, resolve_fast_field_by_name,
-};
-use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::customscan::pullup::field_type_for_pullup;
+use crate::postgres::utils::FieldSource;
 use crate::postgres::var::{VarContext, find_one_aggref, find_one_var_and_fieldname};
 use crate::schema::SearchFieldType;
 use pgrx::pg_sys;
@@ -680,35 +678,39 @@ struct JoinAggFieldResolver<'a> {
 }
 
 impl JoinAggFieldResolver<'_> {
-    /// The field as `source` knows it, or `None` when the index has no such fast
-    /// field. Goes through the same resolvers as GROUP BY columns so arrays and
-    /// non-fast columns are turned down the same way.
-    unsafe fn lookup(
+    /// The field as `source`'s index knows it, or `None` when the index has no such
+    /// fast field. Resolution goes through the index schema, since a spec names
+    /// index fields and those can be aliases of a column. The gates match the
+    /// GROUP BY column resolver: expression-indexed and array columns are turned
+    /// down, and a JSON column is only reachable through a dotted sub-field.
+    fn lookup(
         &self,
         source: &JoinAggSource,
         field: &str,
     ) -> Option<(pg_sys::AttrNumber, SearchFieldType)> {
-        let indexrel = source.bm25_index.as_ref()?;
+        let schema = source.bm25_index.as_ref()?.schema().ok()?;
         let root = FieldName::from(field).root();
-        let heaprel = PgSearchRelation::open(source.relid);
-        let tupdesc = heaprel.tuple_desc();
-        let attno = source
-            .fields
-            .iter()
-            .find(|f| f.field.name() == root)
-            .map(|f| f.attno)
-            .or_else(|| get_attno_by_name(&root, &tupdesc))?;
-        let resolved = if field == root {
-            resolve_fast_field(attno as i32, &tupdesc, indexrel)
-                .filter(|resolved| resolved.name() == field)
+        let search_field = schema.search_field(&root)?;
+        if !search_field.is_fast() {
+            return None;
+        }
+        let categorized = schema.categorized_fields();
+        let (_, data) = categorized.iter().find(|(sf, _)| *sf == search_field)?;
+        let FieldSource::Heap { attno } = data.source else {
+            return None;
+        };
+        if data.is_array {
+            return None;
+        }
+        let field_type = if field == root {
+            field_type_for_pullup(search_field.field_type(), false)?
         } else {
-            resolve_fast_field_by_name(field, indexrel)
-        }?;
-        let field_type = *resolved.field_type()?;
-        Some((attno, field_type))
+            search_field.field_type()
+        };
+        Some((attno as pg_sys::AttrNumber + 1, field_type))
     }
 
-    unsafe fn candidates(
+    fn candidates(
         &self,
         field: &str,
     ) -> Vec<(&JoinAggSource, pg_sys::AttrNumber, SearchFieldType)> {
@@ -724,7 +726,7 @@ impl JoinAggFieldResolver<'_> {
 
 impl PdbAggFieldResolver for JoinAggFieldResolver<'_> {
     fn resolve(&self, field: &str, usage: PdbAggFieldUsage) -> Result<PdbAggFieldRef, String> {
-        let (source, attno, field_type, field_name) = unsafe {
+        let (source, attno, field_type, field_name) = {
             let mut candidates = self.candidates(field);
             let mut field_name = field.to_string();
             if candidates.is_empty()

@@ -52,10 +52,15 @@ use datafusion_distributed::{DistributedExt, DistributedTaskContext};
 
 use datafusion_distributed::shm::MppMesh;
 
-use crate::postgres::customscan::mpp::glue::mpp_is_active;
+use crate::postgres::customscan::mpp::glue::query_allows_parallel_mode;
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
+<<<<<<< HEAD
 use crate::postgres::customscan::mpp::launch::mpp_gated_by_min_rows;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
+=======
+use crate::postgres::customscan::mpp::launch::MppLifecycle;
+use crate::postgres::customscan::mpp::launch::mpp_eligible;
+>>>>>>> 8a85104b (fix: respect PostgreSQL parallel mode for MPP scans (#6181))
 use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parallelism;
 
 use crate::api::agg_funcoid;
@@ -553,6 +558,7 @@ impl CustomScan for AggregateScan {
                 targetlist,
                 topk,
                 having_filter,
+                parallel_mode_ok,
                 ..
             } => {
                 // Replace Aggrefs for DataFusion path too
@@ -577,6 +583,7 @@ impl CustomScan for AggregateScan {
                     batch_row_idx: 0,
                     group_df_indices: Vec::new(),
                     mpp: MppLifecycle::Inactive,
+                    parallel_mode_ok,
                     launch_timing: None,
                 });
                 builder.build()
@@ -732,7 +739,6 @@ impl CustomScan for AggregateScan {
             // physical plan is built once, on first execution; its finished stages provide the
             // exact dispatch-payload size. Plain EXPLAIN never executes and must not prepare MPP.
             if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) == 0
-                && mpp_is_active()
                 && unsafe { pg_sys::ParallelWorkerNumber } == -1
             {
                 Self::prepare_mpp(state);
@@ -983,12 +989,12 @@ impl AggregateScan {
     /// Planning remains lazy: the finished physical stages provide the exact dispatch payload
     /// before DSM allocation, so begin never needs a throwaway logical plan.
     fn prepare_mpp(state: &mut CustomScanStateWrapper<Self>) {
-        // The size gate decides here, before any MPP work: a gated query keeps
+        // The eligibility gate decides here, before any MPP work: an ineligible query keeps
         // `MppLifecycle::Inactive`, so exec plans serially and no manifest is pinned.
         let Some(df_state) = state.custom_state().datafusion_state.as_ref() else {
             return;
         };
-        if mpp_gated_by_min_rows(df_state.plan.sources().into_iter().map(|s| &s.scan_info)) {
+        if !mpp_eligible(df_state.parallel_mode_ok, &df_state.plan) {
             return;
         }
         Self::ensure_source_manifests(state);
@@ -1085,7 +1091,7 @@ impl AggregateScan {
     /// and contains execution metrics. We merge in MPP worker metrics if applicable.
     ///
     /// In plain EXPLAIN, execution hasn't happened, so we must rebuild the physical plan.
-    /// When `mpp_is_active()` we first rebuild against `producer_worker_cap()` (`mesh = None`)
+    /// When `mpp_eligible()` we first rebuild against `producer_worker_cap()` (`mesh = None`)
     /// so the distributed planner can emit a `DistributedExec` for display. If task
     /// discovery says launch will not run (#5784 / `max_producer_task_count < 2`), rebuild
     /// serially so the printed shape matches execution.
@@ -1135,9 +1141,7 @@ impl AggregateScan {
                     build_physical_plan(ctx, logical).await
                 })
             };
-            let gated =
-                mpp_gated_by_min_rows(df_state.plan.sources().into_iter().map(|s| &s.scan_info));
-            let plan_result = if mpp_is_active() && !gated {
+            let plan_result = if mpp_eligible(df_state.parallel_mode_ok, &df_state.plan) {
                 // EXPLAIN-time: skip the shm_mq transport install (no execution, no `open()` call).
                 // Plan against the cap first; fall back to serial when launch would not run (#5784).
                 match build_with(&Self::build_mpp_session_context(None)) {
@@ -1475,6 +1479,19 @@ impl AggregateScan {
         // path stays serial to PG. Marking it parallel-aware would make PG plan a Gather over it and
         // spawn a redundant second worker set whose serial aggregates duplicate the result.
 
+<<<<<<< HEAD
+=======
+        // Set the pathtarget to the grouping output columns so the Sort/Limit
+        // nodes above can resolve their Var references. Required for DISTINCT
+        // (output_rel.reltarget.exprs is empty); for GROUP BY it equals the
+        // builder's default.
+        let builder = builder
+            .set_pathtarget(shape.reltarget())
+            .set_rows(shape.rows());
+
+        let parallel_mode_ok = query_allows_parallel_mode(builder.args().root());
+
+>>>>>>> 8a85104b (fix: respect PostgreSQL parallel mode for MPP scans (#6181))
         // Build the custom path with DataFusion private data
         let multi_table_clause_count = multi_table_clauses.len();
         let mut custom_path = builder.build(PrivateData::DataFusion {
@@ -1483,6 +1500,7 @@ impl AggregateScan {
             topk,
             multi_table_clause_count,
             having_filter,
+            parallel_mode_ok,
         });
 
         // Append raw PG Expr pointers to custom_private after the serialized

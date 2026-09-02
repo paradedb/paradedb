@@ -78,15 +78,18 @@ pub struct PrivateData {
     /// post-setrefs custom_exprs on the executor's plan node is not
     /// translator-compatible.
     pub custom_exprs_string: Option<String>,
+    /// PostgreSQL's statement-wide `PlannerGlobal.parallelModeOK` decision.
+    pub parallel_mode_ok: bool,
 }
 
 impl PrivateData {
-    pub fn new(join_clause: JoinCSClause) -> Self {
+    pub fn new(join_clause: JoinCSClause, parallel_mode_ok: bool) -> Self {
         Self {
             join_clause,
             output_columns: Vec::new(),
             logical_plan: None,
             custom_exprs_string: None,
+            parallel_mode_ok,
         }
     }
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788435091041,
+  "lastUpdate": 1788435099900,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -306150,6 +306150,66 @@ window.BENCHMARK_DATA = {
             "value": 170,
             "unit": "median segment_count",
             "extra": "avg segment_count: 196.3149536165636, max segment_count: 360.0, count: 59504"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cce20d6d0bc7b2f5947c0cabc203f279bec7cbcc",
+          "message": "fix: Join Scan composite ORDER BY on nullable key returned wrong top-K rows (#5981)\n\n# Ticket(s) Closed\n\n- Closes #5567\n\n## What\n\nComposite ORDER BY with a nullable deferred first key returned the wrong\ntop-K rows in ParadeDB Join Scan (rows emitted in insertion order\ninstead of the correct lex sort).\n\n## Why\n\nIn `SegmentedTopKExec::collect_batch`, one `pass_through_scratch` bitmap\nis shared across every deferred sort column. A NULL in any single\ndeferred column marks the whole row pass-through, and `emit_final_topk`\nthen substitutes `typed_null(sort_col)` for every deferred column,\ncollapsing the sort key to `(NULL, NULL, ...)`. Stable sort of identical\nkeys emits in insertion order.\n\n## How\n\nSplit `pass_through_rows` from `Vec<(usize, usize)>` into a struct\ncarrying per-column term ordinals + source `SegmentOrdinal`.\n`collect_batch` captures the ordinals from the already-computed\n`deferred_ords` map. `emit_final_topk` resolves each deferred column\nindependently via a shared `materialize_deferred_ordinal` helper.\n\n`resolve_global_threshold_values` is left alone (returns Err instead of\ntyped_null; different semantics, out of scope).\n\n## Tests\n\n`pg_search/tests/pg_regress/sql/issue_5567.sql` runs the ticket's\nminimal repro under `paradedb.enable_join_custom_scan = off` (baseline)\nand `= on` (fix path); post-fix the two outputs agree.\n\n---------\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2026-09-03T16:42:18+05:30",
+          "tree_id": "d80fc57f9fd2cce8448e0e54298ccce3effe7c75",
+          "url": "https://github.com/paradedb/paradedb/commit/cce20d6d0bc7b2f5947c0cabc203f279bec7cbcc"
+        },
+        "date": 1788435095656,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 23.414635,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.037430315448457, max cpu: 33.58321, count: 59422"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 44.6875,
+            "unit": "median mem",
+            "extra": "avg mem: 44.273878006567436, max mem: 44.95703125, count: 59422"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.953604,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.81394523197604, max cpu: 43.768997, count: 59422"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 102.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 101.7126917035147, max mem: 102.79296875, count: 59422"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 26634,
+            "unit": "median block_count",
+            "extra": "avg block_count: 25447.063141597388, max block_count: 29224.0, count: 59422"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 166,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 194.06458887280806, max segment_count: 361.0, count: 59422"
           }
         ]
       }

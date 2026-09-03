@@ -65,9 +65,6 @@ jobs:
       IMAGE_TAG: paradedb-source:ci
 
     steps:
-      - name: Configure RunsOn caching
-        uses: runs-on/action@v2
-
       # The label triggers this run; remove it so it can be re-applied to re-run.
       - name: Maybe Remove Label
         if: github.event_name == 'pull_request' && github.event.label.name == 'benchmark-benchmarker'
@@ -94,6 +91,9 @@ jobs:
         with:
           ref: ${{ steps.determine-ref.outputs.ref }}
           fetch-depth: 0
+
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
 
       # HEAD is the benchmarked commit, even for a custom ref.
       - name: Derive Short Commit

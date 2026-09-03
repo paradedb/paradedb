@@ -126,9 +126,6 @@ jobs:
       COMMIT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
     steps:
-      - name: Configure RunsOn caching
-        uses: runs-on/action@v2
-
       - name: Install Dependencies
         run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo git ca-certificates curl gnupg lsb-release binutils
 
@@ -136,6 +133,9 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
 
       - name: Retrieve OS Version
         id: version
@@ -252,13 +252,13 @@ jobs:
         workload: ${{ fromJSON(needs.setup.outputs.workloads) }}
 
     steps:
-      - name: Configure RunsOn caching
-        uses: runs-on/action@v2
-
       - name: Checkout Git Repository
         uses: actions/checkout@v7
         with:
           ref: ${{ env.COMMIT_SHA }}
+
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
 
       # The workload image and the run's `antithesis.source` are named after the repository
       - name: Resolve Registry Image Name From Repository

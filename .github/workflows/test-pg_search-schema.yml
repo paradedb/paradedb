@@ -45,15 +45,15 @@ jobs:
         pg_version: [18]
 
     steps:
-      - name: Configure RunsOn caching
-        uses: runs-on/action@v2
-
       - name: Checkout Git Repository
         uses: actions/checkout@v7
         with:
           fetch-depth: 0 # Fetch the entire history
           ref: ${{ github.event.pull_request.head.ref || github.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
 
       # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
       # See test-pg_search.yml for rationale.

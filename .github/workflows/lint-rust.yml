@@ -41,11 +41,11 @@ jobs:
         pg_version: [18]
 
     steps:
-      - name: Configure RunsOn caching
-        uses: runs-on/action@v2
-
       - name: Checkout Git Repository
         uses: actions/checkout@v7
+
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
 
       - name: Set Up pg_search Toolchain
         uses: ./.github/actions/setup-pg-search-toolchain

@@ -79,11 +79,11 @@ jobs:
             arch: amd64
 
     steps:
-      - name: Configure RunsOn caching
-        uses: runs-on/action@v2
-
       - name: Checkout Git Repository
         uses: actions/checkout@v7
+
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
 
       # Cache notes:
       # - Do NOT add hashFiles('**/Cargo.lock') to shared-key — the action

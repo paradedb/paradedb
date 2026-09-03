@@ -70,13 +70,13 @@ jobs:
             platform: linux/arm64
 
     steps:
-      - name: Configure RunsOn caching
-        uses: runs-on/action@v2
-
       - name: Checkout Git Repository
         uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.ref }}
+
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
 
       - name: Set Up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -451,13 +451,13 @@ jobs:
             deb_sha_arg: PG_SEARCH_DEB_ARM64_SHA256
 
     steps:
-      - name: Configure RunsOn caching
-        uses: runs-on/action@v2
-
       - name: Checkout Git Repository
         uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.ref }}
+
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
 
       - name: Set Up Docker Buildx
         uses: docker/setup-buildx-action@v4

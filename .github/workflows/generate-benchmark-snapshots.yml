@@ -81,13 +81,13 @@ jobs:
       BACKREST_REPO_ENDPOINT: s3.us-east-1.amazonaws.com
       BACKREST_REPO_S3_KEY_TYPE: shared
     steps:
-      - name: Configure RunsOn caching
-        uses: runs-on/action@v2
-
       - name: Checkout Git Repository
         uses: actions/checkout@v7
         with:
           fetch-depth: 1
+
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v6

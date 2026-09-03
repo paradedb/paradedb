@@ -72,9 +72,6 @@ jobs:
       pg_version: 18
 
     steps:
-      - name: Configure RunsOn caching
-        uses: runs-on/action@v2
-
       # The job can be triggered manually by attaching the `benchmarks` label to a PR. This step
       # removes the label once the job has started, so it can be applied again if needed.
       - name: Maybe Remove Label
@@ -110,6 +107,9 @@ jobs:
         with:
           ref: ${{ steps.determine-ref.outputs.ref }}
           fetch-depth: 0
+
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
 
       - name: Derive Short Commit
         id: commit_info

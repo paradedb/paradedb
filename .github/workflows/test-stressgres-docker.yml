@@ -37,11 +37,11 @@ jobs:
       - extras=s3-cache
 
     steps:
-      - name: Configure RunsOn caching
-        uses: runs-on/action@v2
-
       - name: Checkout Git Repository
         uses: actions/checkout@v7
+
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
 
       - name: Set Up Docker Buildx
         uses: docker/setup-buildx-action@v4

@@ -87,13 +87,13 @@ jobs:
         prior: ${{ fromJSON(needs.discover-upgrade-starting-points.outputs.prior_matrix) }}
 
     steps:
-      - name: Configure RunsOn caching
-        uses: runs-on/action@v2
-
       - name: Checkout Git Repository
         uses: actions/checkout@v7
         with:
           fetch-depth: 0 # Fetch the entire history (required to checkout tags)
+
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
 
       # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
       # See test-pg_search.yml for rationale.

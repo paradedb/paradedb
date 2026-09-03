@@ -116,9 +116,6 @@ jobs:
       COHERE_INDEX: ${{ inputs.cohere_index || (github.event.label.name == 'benchmark-cohere-ivfflat' && 'ivfflat') || (github.event.label.name == 'benchmark-cohere-vchord' && 'vchord') || (github.event.label.name == 'benchmark-cohere-pg_search' && 'pg_search') || (github.event.label.name == 'benchmark-cohere-pgvectorscale' && 'pgvectorscale') || (github.event.label.name == 'benchmark-cohere-hnsw' && 'hnsw') }}
 
     steps:
-      - name: Configure RunsOn caching
-        uses: runs-on/action@v2
-
       # The job can be triggered manually by attaching the `benchmarks` label to a PR. This step
       # removes the label once the job has started, so it can be applied again if needed.
       - name: Maybe Remove Label
@@ -161,6 +158,9 @@ jobs:
         with:
           ref: ${{ steps.determine-ref.outputs.ref }}
           fetch-depth: 0
+
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v6

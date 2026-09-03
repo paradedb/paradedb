@@ -19,9 +19,8 @@ use crate::api::operator::{field_name_from_node, searchqueryinput_typoid};
 use crate::api::tokenizers::type_is_alias;
 use crate::api::{FieldName, fieldname_typoid};
 use crate::nodecast;
-use crate::postgres::catalog::{
-    is_ltree_oid, is_nondeterministic_collation, lookup_procoid, lookup_typoid,
-};
+use crate::postgres::catalog::{is_ltree_oid, lookup_procoid, lookup_typoid};
+use crate::postgres::customscan::collation_semantics::collation_supports;
 use crate::postgres::customscan::operator_oid;
 use crate::postgres::customscan::opexpr::{OpExpr, TantivyOperatorExt, lookup_operator};
 use crate::postgres::customscan::qual_inspect::{PlannerContext, Qual, contains_correlated_param};
@@ -277,13 +276,6 @@ pub unsafe fn try_build_pushdown_qual(
         return Some(qual);
     }
 
-    // Nondeterministic ICU collations can equate distinct byte strings, but
-    // the Tantivy term query is byte exact. Let PostgreSQL evaluate the qual
-    // above the scan instead of pushing one that would return too few rows.
-    if is_nondeterministic_collation(opexpr.inputcollid()) {
-        return None;
-    }
-
     // JSONB ? operator: construct field path from LHS + RHS key.
     if opexpr.opno() == *JSONB_EXISTS_OPOID.get_or_init(|| operator_oid("?(jsonb,text)")) {
         return try_pushdown_jsonb_exists(context, rti, lhs, rhs, indexrel);
@@ -326,6 +318,15 @@ pub unsafe fn try_build_pushdown_qual(
 
             // Tantivy doesn't support JSON exists if JSON is not fast, and our `<>` pushdown uses exists.
             if search_field.is_json() && !search_field.is_fast() && pgsearch_operator.is_neq() {
+                return None;
+            }
+
+            // Tantivy compares text by its bytes, so it only answers this operator
+            // the way PostgreSQL would when the input collation permits it. A
+            // nondeterministic collation can equate distinct byte strings, and only
+            // a byte-ordered collation ranges the way Tantivy does. Decline and let
+            // PostgreSQL evaluate the qual above the scan.
+            if !collation_supports(opexpr.inputcollid(), pgsearch_operator.collation_operation()) {
                 return None;
             }
 

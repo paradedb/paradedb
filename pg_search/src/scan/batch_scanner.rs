@@ -280,13 +280,7 @@ impl Scanner {
                     field_type,
                     delivery: FieldDelivery::Eager,
                     ..
-                } | WhichFastField::Array(_, field_type) if matches!(
-                    field_type.arrow_data_type(),
-                    arrow_schema::DataType::Utf8View
-                        | arrow_schema::DataType::BinaryView
-                        | arrow_schema::DataType::LargeUtf8
-                        | arrow_schema::DataType::LargeBinary
-                )
+                } | WhichFastField::Array(_, field_type) if field_type.is_dictionary_storage()
             )
         });
 

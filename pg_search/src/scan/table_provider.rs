@@ -291,13 +291,7 @@ impl PgSearchTableProvider {
                 ..
             } = wff
             {
-                let is_string_or_bytes = matches!(
-                    field_type.arrow_data_type(),
-                    arrow_schema::DataType::Utf8View
-                        | arrow_schema::DataType::BinaryView
-                        | arrow_schema::DataType::LargeUtf8
-                        | arrow_schema::DataType::LargeBinary
-                );
+                let is_string_or_bytes = field_type.is_dictionary_storage();
                 if is_string_or_bytes && !required_early_columns.contains(name.as_str()) {
                     *delivery = FieldDelivery::Deferred;
                 }
@@ -394,10 +388,7 @@ impl PgSearchTableProvider {
                 ..
             } = wff
             {
-                let is_bytes = matches!(
-                    field_type.arrow_data_type(),
-                    arrow_schema::DataType::BinaryView | arrow_schema::DataType::LargeBinary
-                );
+                let is_bytes = field_type.is_bytes_storage();
                 deferred.push(DeferredField {
                     name: name.clone(),
                     is_bytes,

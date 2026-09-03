@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788400596216,
+  "lastUpdate": 1788400603725,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -192024,6 +192024,126 @@ window.BENCHMARK_DATA = {
             "value": 28.546875,
             "unit": "median mem",
             "extra": "avg mem: 28.189463992892794, max mem: 28.83984375, count: 59306"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "isaacjvandoren@gmail.com",
+            "name": "Isaac Van Doren",
+            "username": "isaacvando"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "16e0303417a0da7f025620a3398b2e013f7c5ea5",
+          "message": "ci: Use runs-on/action to properly configure runs-on's caching (#6195)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThis is the proper way to configure runs-on's cache that makes it work\nwithout us having to use workarounds for artifact uploads.\nhttps://runs-on.com/docs/performance/caching/actions/\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-09-02T18:38:12-07:00",
+          "tree_id": "eb77cd149f35313e59ebac99cca0a58dbc2991a7",
+          "url": "https://github.com/paradedb/paradedb/commit/16e0303417a0da7f025620a3398b2e013f7c5ea5"
+        },
+        "date": 1788400600208,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 14.035088,
+            "unit": "median cpu",
+            "extra": "avg cpu: 15.058793679763772, max cpu: 37.684006, count: 59311"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 42.27734375,
+            "unit": "median mem",
+            "extra": "avg mem: 42.27048286784913, max mem: 42.27734375, count: 59311"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.685212,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.757206576082172, max cpu: 38.019802, count: 59311"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 20.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 20.707116407580383, max mem: 20.73046875, count: 59311"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.685212,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.337067193003799, max cpu: 18.90508, count: 59311"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 40.640625,
+            "unit": "median mem",
+            "extra": "avg mem: 41.02988372466743, max mem: 43.3359375, count: 59311"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16695,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17249.22194871103, max block_count: 34183.0, count: 59311"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.685212,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.6647031894764117, max cpu: 4.703577, count: 59311"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 21.421875,
+            "unit": "median mem",
+            "extra": "avg mem: 21.385026728810846, max mem: 21.421875, count: 59311"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 27.19087521707609, max segment_count: 39.0, count: 59311"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.365853,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.465507980554964, max cpu: 23.988005, count: 59311"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 41.48828125,
+            "unit": "median mem",
+            "extra": "avg mem: 41.48516440352549, max mem: 41.48828125, count: 59311"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.306834,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.715124122982855, max cpu: 38.019802, count: 118622"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 43.80859375,
+            "unit": "median mem",
+            "extra": "avg mem: 43.043835868873394, max mem: 45.5703125, count: 118622"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.388753,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.657426563623995, max cpu: 19.190405, count: 59311"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 27.7734375,
+            "unit": "median mem",
+            "extra": "avg mem: 27.777085115956567, max mem: 28.3828125, count: 59311"
           }
         ]
       }

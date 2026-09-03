@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788399498673,
+  "lastUpdate": 1788399533083,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -307712,6 +307712,126 @@ window.BENCHMARK_DATA = {
             "value": 18.30145103714936,
             "unit": "median tps",
             "extra": "avg tps: 25.476223923477537, max tps: 132.11253134039526, count: 57451"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "zey8840@naver.com",
+            "name": "Tal",
+            "username": "taljeon"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8af80204b038b585a96131b5b21522493263afca",
+          "message": "test: cover JoinScan NULL predicate ordering in qgen (#6199)\n\n# Ticket(s) Closed\n\n- Progresses #6194. This is an umbrella issue and should remain open.\n\n## What\n\n- Add nullable `quantity IS NULL` and `quantity IS NOT NULL` ordering\nvariants to the existing `generated_joinscan` property test.\n- Move JoinScan ordering generation into a dedicated helper that emits\nonly valid combinations.\n- Remove the superseded `join_order_by_is_null` SQL and expected-output\nfiles.\n\n## Why\n\nThe fixed regression's NULL-valued companies have no matching rows, so\nits result blocks do not exercise joined NULL values. The qgen test\ndoes: it verifies both that the generated query uses `ParadeDB Join\nScan` and that its results match PostgreSQL over randomized joins,\npredicates, limits, GUCs, and data.\n\nThe property test uses the indexed nullable integer `quantity` column,\navoiding text-collation constraints while covering both NULL predicate\nforms with deterministic `quantity` and ID tie-breakers.\n\n## How\n\n`arb_joinscan_order_parts` explicitly represents all six previously\nvalid non-DISTINCT ordering states: regular columns, `upper(category)`,\nboth quantity NULL predicates, and both combinations of\n`upper(category)` with a NULL predicate. Each state includes the\nappropriate deterministic tie-breakers.\n\nDISTINCT is passed directly to the generator as a projection\nrestriction, which emits ordinary projected columns only. This removes\nthe intertwined booleans and rejected cases from the test body. Because\nqgen now owns both plan selection and result parity for #4751, the fixed\nSQL and expected-output files are removed entirely.\n\n## Tests\n\n- `cargo fmt --all -- --check`\n- `cargo clippy --package tests --test qgen -- -D warnings`\n- `cargo test --package tests --lib` — 16 passed\n- `cargo test --package tests --test qgen --no-run`\n- Focused local property validation of the NULL-ordering path, excluding\nthe pre-existing cross-relation planner path — 128/128 cases passed\nagainst the official ParadeDB 0.25.6 image in a C-locale PostgreSQL\ncluster. The temporary local filter is not part of the commit.\n- `rg -n 'join_order_by_is_null' pg_search tests` — no remaining\nreferences\n- `git diff --check`\n\nUnfiltered runs against the published image reached the existing\ncross-relation planner error (`variable not found in subplan target\nlist`) with both regular and nullable ordering. The focused run excluded\nthat unchanged heap-condition path; this PR does not alter\ncross-relation generation or planner behavior.\n\nAI assistance: OpenAI Codex helped prepare and validate this change.\n\n---------\n\nCo-authored-by: taljeon <taljeon@users.noreply.github.com>",
+          "timestamp": "2026-09-02T18:00:43-07:00",
+          "tree_id": "0ee699e6d518c7698e80492a223f374757b9062b",
+          "url": "https://github.com/paradedb/paradedb/commit/8af80204b038b585a96131b5b21522493263afca"
+        },
+        "date": 1788399529240,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 171.3794509217534,
+            "unit": "median tps",
+            "extra": "avg tps: 176.11959560657598, max tps: 218.07158588760672, count: 57408"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 261.1974490464747,
+            "unit": "median tps",
+            "extra": "avg tps: 286.818309483974, max tps: 473.48589469736834, count: 57408"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 4023.6179518140716,
+            "unit": "median tps",
+            "extra": "avg tps: 4010.5029859501997, max tps: 4033.3914894389386, count: 57408"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 175.18035848823155,
+            "unit": "median tps",
+            "extra": "avg tps: 180.51855321426763, max tps: 230.86986511022246, count: 57408"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3363.2043636977605,
+            "unit": "median tps",
+            "extra": "avg tps: 3335.054537547768, max tps: 3378.9283331860474, count: 57408"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3341.539434913192,
+            "unit": "median tps",
+            "extra": "avg tps: 3328.550957952629, max tps: 3428.4788676712255, count: 57408"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 150.62058617329404,
+            "unit": "median tps",
+            "extra": "avg tps: 154.0894605855067, max tps: 181.9873262017897, count: 57408"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 257.220082800228,
+            "unit": "median tps",
+            "extra": "avg tps: 268.1891825844882, max tps: 368.95824078054295, count: 57408"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Primary - tps",
+            "value": 493.69571704337255,
+            "unit": "median tps",
+            "extra": "avg tps: 503.8888408934096, max tps: 598.3281713678364, count: 57408"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 566.1309423670624,
+            "unit": "median tps",
+            "extra": "avg tps: 577.7711569184232, max tps: 684.7173241108588, count: 57408"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1270.0567042502325,
+            "unit": "median tps",
+            "extra": "avg tps: 1271.1092460784866, max tps: 1285.1619788503317, count: 57408"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 299.824900121511,
+            "unit": "median tps",
+            "extra": "avg tps: 324.4004019042055, max tps: 569.455108753257, count: 57408"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 518.6721693732841,
+            "unit": "median tps",
+            "extra": "avg tps: 528.9118468702375, max tps: 611.078939389231, count: 57408"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2320.7017108117866,
+            "unit": "median tps",
+            "extra": "avg tps: 2322.9472308219047, max tps: 2484.0932902756035, count: 57408"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1760.5668525234257,
+            "unit": "median tps",
+            "extra": "avg tps: 1753.8635807522269, max tps: 1784.9437968039854, count: 57408"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 4.949535650445035,
+            "unit": "median tps",
+            "extra": "avg tps: 14.463409778699248, max tps: 239.42346828836162, count: 57408"
           }
         ]
       }

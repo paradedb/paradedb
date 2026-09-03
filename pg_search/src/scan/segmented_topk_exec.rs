@@ -1727,16 +1727,28 @@ impl SegmentedTopKState {
         match self.ffhelper.column(seg_ord, deferred.canonical.ff_index) {
             FFType::Text(str_col) => {
                 let mut s = String::new();
-                str_col.ord_to_str(term_ord, &mut s).map_err(|e| {
+                if !str_col.ord_to_str(term_ord, &mut s).map_err(|e| {
                     DataFusionError::Internal(format!("Failed to resolve string ordinal: {e}"))
-                })?;
+                })? {
+                    return Err(DataFusionError::Internal(format!(
+                        "SegmentedTopKExec: term ordinal {term_ord} was not found in segment \
+                         {seg_ord} for fast-field index {}",
+                        deferred.canonical.ff_index
+                    )));
+                }
                 Ok(ScalarValue::Utf8View(Some(s)))
             }
             FFType::Bytes(bytes_col) => {
                 let mut b = Vec::new();
-                bytes_col.ord_to_bytes(term_ord, &mut b).map_err(|e| {
+                if !bytes_col.ord_to_bytes(term_ord, &mut b).map_err(|e| {
                     DataFusionError::Internal(format!("Failed to resolve bytes ordinal: {e}"))
-                })?;
+                })? {
+                    return Err(DataFusionError::Internal(format!(
+                        "SegmentedTopKExec: term ordinal {term_ord} was not found in segment \
+                         {seg_ord} for fast-field index {}",
+                        deferred.canonical.ff_index
+                    )));
+                }
                 Ok(ScalarValue::BinaryView(Some(b)))
             }
             _ => Err(DataFusionError::Internal(

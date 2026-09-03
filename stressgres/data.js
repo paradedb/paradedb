@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788436193792,
+  "lastUpdate": 1788436232255,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -309212,6 +309212,126 @@ window.BENCHMARK_DATA = {
             "value": 13.21072020068117,
             "unit": "median tps",
             "extra": "avg tps: 22.47224338711899, max tps: 770.3062352438211, count: 57405"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cce20d6d0bc7b2f5947c0cabc203f279bec7cbcc",
+          "message": "fix: Join Scan composite ORDER BY on nullable key returned wrong top-K rows (#5981)\n\n# Ticket(s) Closed\n\n- Closes #5567\n\n## What\n\nComposite ORDER BY with a nullable deferred first key returned the wrong\ntop-K rows in ParadeDB Join Scan (rows emitted in insertion order\ninstead of the correct lex sort).\n\n## Why\n\nIn `SegmentedTopKExec::collect_batch`, one `pass_through_scratch` bitmap\nis shared across every deferred sort column. A NULL in any single\ndeferred column marks the whole row pass-through, and `emit_final_topk`\nthen substitutes `typed_null(sort_col)` for every deferred column,\ncollapsing the sort key to `(NULL, NULL, ...)`. Stable sort of identical\nkeys emits in insertion order.\n\n## How\n\nSplit `pass_through_rows` from `Vec<(usize, usize)>` into a struct\ncarrying per-column term ordinals + source `SegmentOrdinal`.\n`collect_batch` captures the ordinals from the already-computed\n`deferred_ords` map. `emit_final_topk` resolves each deferred column\nindependently via a shared `materialize_deferred_ordinal` helper.\n\n`resolve_global_threshold_values` is left alone (returns Err instead of\ntyped_null; different semantics, out of scope).\n\n## Tests\n\n`pg_search/tests/pg_regress/sql/issue_5567.sql` runs the ticket's\nminimal repro under `paradedb.enable_join_custom_scan = off` (baseline)\nand `= on` (fix path); post-fix the two outputs agree.\n\n---------\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2026-09-03T16:42:18+05:30",
+          "tree_id": "d80fc57f9fd2cce8448e0e54298ccce3effe7c75",
+          "url": "https://github.com/paradedb/paradedb/commit/cce20d6d0bc7b2f5947c0cabc203f279bec7cbcc"
+        },
+        "date": 1788436228046,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 186.69317389091395,
+            "unit": "median tps",
+            "extra": "avg tps: 189.58514371679672, max tps: 217.71164654968675, count: 57446"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 357.1238823339703,
+            "unit": "median tps",
+            "extra": "avg tps: 366.993393470313, max tps: 501.7173562117637, count: 57446"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 4038.0715274390577,
+            "unit": "median tps",
+            "extra": "avg tps: 4034.3797520690387, max tps: 4564.16340132867, count: 57446"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 192.68278406063982,
+            "unit": "median tps",
+            "extra": "avg tps: 196.05415684677692, max tps: 230.19485665766274, count: 57446"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3398.411601012831,
+            "unit": "median tps",
+            "extra": "avg tps: 3385.8440477848435, max tps: 3421.667815324872, count: 57446"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3401.608239673832,
+            "unit": "median tps",
+            "extra": "avg tps: 3380.4740126510405, max tps: 3415.3149034174508, count: 57446"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 161.72542620056504,
+            "unit": "median tps",
+            "extra": "avg tps: 163.95997779131662, max tps: 183.6506957420019, count: 57446"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 294.56085819857765,
+            "unit": "median tps",
+            "extra": "avg tps: 301.5541608786787, max tps: 377.41354275711285, count: 57446"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Primary - tps",
+            "value": 532.5499172716537,
+            "unit": "median tps",
+            "extra": "avg tps: 536.1271597049841, max tps: 597.9056344017943, count: 57446"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 617.602830045384,
+            "unit": "median tps",
+            "extra": "avg tps: 624.6884154480503, max tps: 711.1349420331686, count: 57446"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1278.894557483779,
+            "unit": "median tps",
+            "extra": "avg tps: 1279.4332947356968, max tps: 1290.563076311883, count: 57446"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 375.4476822478681,
+            "unit": "median tps",
+            "extra": "avg tps: 395.05082468134316, max tps: 592.7566285094182, count: 57446"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 560.6449359048423,
+            "unit": "median tps",
+            "extra": "avg tps: 565.2897707126615, max tps: 635.7938089293777, count: 57446"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2321.8720263026016,
+            "unit": "median tps",
+            "extra": "avg tps: 2327.507406477928, max tps: 2509.037471661525, count: 57446"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1730.0348696408223,
+            "unit": "median tps",
+            "extra": "avg tps: 1741.6475716586524, max tps: 2101.7652426020436, count: 57446"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 10.88497361225822,
+            "unit": "median tps",
+            "extra": "avg tps: 21.161717821185317, max tps: 788.0518727264703, count: 57446"
           }
         ]
       }

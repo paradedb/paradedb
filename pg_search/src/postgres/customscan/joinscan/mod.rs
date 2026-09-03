@@ -147,7 +147,7 @@ pub mod scan_state;
 pub mod visibility_filter;
 
 pub use self::build::CtidColumn;
-use self::build::{JoinCSClause, RelNode, RelationAlias};
+use self::build::{JoinCSClause, RelNode, RelationAlias, WindowAggInfos};
 use self::planning::{
     collect_join_sources, collect_join_sources_base_rel, collect_required_fields,
     ensure_score_bubbling, expr_uses_scores_from_source, extract_join_conditions, extract_orderby,
@@ -157,6 +157,7 @@ use self::planning::{
 use self::predicate::{all_vars_are_fast_fields_recursive, extract_join_level_conditions};
 use self::privdat::PrivateData;
 use crate::api::window_aggregate::window_agg_oid;
+use crate::postgres::customscan::basescan::projections::window_agg::deserialize_window_agg_placeholders;
 use crate::postgres::customscan::datafusion::explain::{
     explain_physical_plan, format_join_level_expr, get_attname_safe, get_plan_with_merged_metrics,
 };
@@ -190,7 +191,6 @@ use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parall
 use arrow_array::Array;
 use datafusion_distributed::shm::MppMesh;
 
-use crate::DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE;
 use crate::postgres::customscan::parameterized_value::ParameterizedValue;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
@@ -198,6 +198,7 @@ use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::{ParallelScanArgs, types_arrow};
 use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logical_plan};
+use crate::{DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE, nodecast};
 
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::DistributedExt;
@@ -1107,11 +1108,15 @@ impl CustomScan for JoinScan {
             // custom_exprs Vars) so INDEX_VAR references can be resolved.
             let mut private_data = PrivateData::from(node.custom_private);
 
+            let window_agg_infos = deserialize_window_agg_placeholders(node.custom_scan_tlist);
+            private_data.join_clause.window_agg_infos = WindowAggInfos::new(window_agg_infos);
+
             private_data.output_columns =
                 compute_output_columns(&private_data.join_clause, node.custom_scan_tlist, root);
 
             let updated_entries = PgList::<pg_sys::TargetEntry>::from_pg(tlist_ptr);
             build_output_projection(&mut private_data, &updated_entries, root);
+
             // Snapshot custom_exprs before setrefs rewrites it, for MPP re-baking.
             // Needed for any of: maybe_solve_and_rebake (resolves Param/PostgresExpression
             // nodes) or rebake_for_mpp_fallback (serial replan on a short-launch decline,
@@ -1735,6 +1740,8 @@ impl CustomScan for JoinScan {
 /// join clause, a `paradedb.score()` call becomes a `Score` sentinel, and any
 /// expression that cannot be located emits `Pruned` so the parent plan slot
 /// stays NULL.
+///
+/// Requires join_class.window_agg_infos to be filled, if they exist, before calling
 unsafe fn compute_output_columns(
     join_clause: &JoinCSClause,
     original_tlist: *mut pg_sys::List,
@@ -1742,8 +1749,9 @@ unsafe fn compute_output_columns(
 ) -> Vec<privdat::OutputColumnInfo> {
     let mut output_columns = Vec::new();
     let original_entries = PgList::<pg_sys::TargetEntry>::from_pg(original_tlist);
+    let window_agg_funcoid = window_agg_oid();
 
-    for te in original_entries.iter_ptr() {
+    for (te_index, te) in original_entries.iter_ptr().enumerate() {
         let check_expr = crate::postgres::utils::strip_wrappers((*te).expr.cast());
         if (*check_expr).type_ == pg_sys::NodeTag::T_Var {
             let var = check_expr as *mut pg_sys::Var;
@@ -1774,6 +1782,18 @@ unsafe fn compute_output_columns(
                     plan_position: source.plan_position,
                     rti,
                 });
+            } else {
+                output_columns.push(privdat::OutputColumnInfo::Pruned);
+            }
+        } else if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, check_expr) {
+            if (*funcexpr).funcid == window_agg_funcoid
+                && let Some(index) = join_clause
+                    .window_agg_infos
+                    .index_of_entry_with_target_entry_index(te_index)
+            {
+                // This entry is a window_agg placeholder function and we have a deserialized
+                // WindowAggregateInfo for this index, so this is a Window Aggregate
+                output_columns.push(privdat::OutputColumnInfo::WindowAggregate { index });
             } else {
                 output_columns.push(privdat::OutputColumnInfo::Pruned);
             }

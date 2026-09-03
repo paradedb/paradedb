@@ -1961,10 +1961,31 @@ impl WindowAggInfosIndex {
 }
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct WindowAggInfos(Vec<WindowAggregateInfo>);
-
 impl WindowAggInfos {
+    pub fn new(infos: Vec<WindowAggregateInfo>) -> Self {
+        Self(infos)
+    }
+
     pub fn get(&self, index: WindowAggInfosIndex) -> Option<&WindowAggregateInfo> {
         self.0.get(index.0)
+    }
+
+    /// CORRECTNESS: This assumes the listo of WindowAggregateInfo contained in Self was derived
+    /// from the same target entry list the provided index is referencing.
+    ///
+    /// Returns the index of the WindowAggregateInfo derived from the target entry the provided
+    /// index references, if one exists.
+    pub fn index_of_entry_with_target_entry_index(
+        &self,
+        target_entry_index: usize,
+    ) -> Option<WindowAggInfosIndex> {
+        self.0.iter().enumerate().find_map(|(i, info)| {
+            if info.target_entry_index == target_entry_index {
+                Some(WindowAggInfosIndex(i))
+            } else {
+                None
+            }
+        })
     }
 }
 

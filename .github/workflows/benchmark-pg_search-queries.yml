@@ -159,6 +159,9 @@ jobs:
           ref: ${{ steps.determine-ref.outputs.ref }}
           fetch-depth: 0
 
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:

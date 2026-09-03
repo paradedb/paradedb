@@ -108,6 +108,9 @@ jobs:
           ref: ${{ steps.determine-ref.outputs.ref }}
           fetch-depth: 0
 
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
+
       - name: Derive Short Commit
         id: commit_info
         run: |

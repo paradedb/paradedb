@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788435071220,
+  "lastUpdate": 1788435079883,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -192354,6 +192354,126 @@ window.BENCHMARK_DATA = {
             "value": 27.7734375,
             "unit": "median mem",
             "extra": "avg mem: 27.777085115956567, max mem: 28.3828125, count: 59311"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cce20d6d0bc7b2f5947c0cabc203f279bec7cbcc",
+          "message": "fix: Join Scan composite ORDER BY on nullable key returned wrong top-K rows (#5981)\n\n# Ticket(s) Closed\n\n- Closes #5567\n\n## What\n\nComposite ORDER BY with a nullable deferred first key returned the wrong\ntop-K rows in ParadeDB Join Scan (rows emitted in insertion order\ninstead of the correct lex sort).\n\n## Why\n\nIn `SegmentedTopKExec::collect_batch`, one `pass_through_scratch` bitmap\nis shared across every deferred sort column. A NULL in any single\ndeferred column marks the whole row pass-through, and `emit_final_topk`\nthen substitutes `typed_null(sort_col)` for every deferred column,\ncollapsing the sort key to `(NULL, NULL, ...)`. Stable sort of identical\nkeys emits in insertion order.\n\n## How\n\nSplit `pass_through_rows` from `Vec<(usize, usize)>` into a struct\ncarrying per-column term ordinals + source `SegmentOrdinal`.\n`collect_batch` captures the ordinals from the already-computed\n`deferred_ords` map. `emit_final_topk` resolves each deferred column\nindependently via a shared `materialize_deferred_ordinal` helper.\n\n`resolve_global_threshold_values` is left alone (returns Err instead of\ntyped_null; different semantics, out of scope).\n\n## Tests\n\n`pg_search/tests/pg_regress/sql/issue_5567.sql` runs the ticket's\nminimal repro under `paradedb.enable_join_custom_scan = off` (baseline)\nand `= on` (fix path); post-fix the two outputs agree.\n\n---------\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2026-09-03T16:42:18+05:30",
+          "tree_id": "d80fc57f9fd2cce8448e0e54298ccce3effe7c75",
+          "url": "https://github.com/paradedb/paradedb/commit/cce20d6d0bc7b2f5947c0cabc203f279bec7cbcc"
+        },
+        "date": 1788435075616,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 14.083129,
+            "unit": "median cpu",
+            "extra": "avg cpu: 14.971490643722314, max cpu: 38.28514, count: 59295"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 42.1640625,
+            "unit": "median mem",
+            "extra": "avg mem: 42.16087122649464, max mem: 42.1796875, count: 59295"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.685212,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.630505549807105, max cpu: 38.28514, count: 59295"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 20.7109375,
+            "unit": "median mem",
+            "extra": "avg mem: 20.697791036870733, max mem: 20.7109375, count: 59295"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6966734,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.90415725792314, max cpu: 19.038177, count: 59295"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 43.01953125,
+            "unit": "median mem",
+            "extra": "avg mem: 42.992178211168735, max mem: 43.01953125, count: 59295"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 18807,
+            "unit": "median block_count",
+            "extra": "avg block_count: 18943.832178092587, max block_count: 36357.0, count: 59295"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 3.7929673,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.1834520118038943, max cpu: 4.6966734, count: 59295"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 21.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.416402099671135, max mem: 21.4609375, count: 59295"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 27.26002192427692, max segment_count: 38.0, count: 59295"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.388753,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.163198680865007, max cpu: 23.904383, count: 59295"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 41.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 41.52226888597268, max mem: 41.52734375, count: 59295"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.2708845,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.139622364496054, max cpu: 38.28514, count: 118590"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 43.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 42.97992884491736, max mem: 45.53515625, count: 118590"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.411765,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.570312234841026, max cpu: 23.021584, count: 59295"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 27.90234375,
+            "unit": "median mem",
+            "extra": "avg mem: 27.891961471772493, max mem: 28.5078125, count: 59295"
           }
         ]
       }

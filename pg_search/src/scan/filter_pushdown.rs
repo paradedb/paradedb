@@ -24,31 +24,25 @@ use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::query::SearchQueryInput;
 use crate::query::pdb_query::pdb;
-use crate::scan::search_predicate_udf::SearchPredicateUDF;
 use crate::schema::SearchFieldType;
 use datafusion::common::ScalarValue;
 use datafusion::logical_expr::{BinaryExpr, Expr, Operator};
-use pgrx::pg_sys;
 use std::collections::Bound;
 
 /// Analyzes DataFusion filters and converts supported ones to SearchQueryInput.
 ///
-/// This handles:
-/// - SearchPredicateUDF: Created by JoinScan for @@@ predicates at the join level.
-///   These MUST always be pushed down because they cannot be evaluated elsewhere.
-/// - Regular SQL predicates: Equality, range, IN list on indexed columns
+/// This handles regular SQL predicates: Equality, range, IN list on indexed columns.
 ///
 /// Note: baserestrictinfo predicates (single-table predicates) are handled separately
 /// via scan_info.query. The filters passed here are join-level predicates that
 /// couldn't be applied at the base relation level.
 pub struct FilterAnalyzer<'a> {
     fields: &'a [WhichFastField],
-    index_oid: pg_sys::Oid,
 }
 
 impl<'a> FilterAnalyzer<'a> {
-    pub fn new(fields: &'a [WhichFastField], index_oid: pg_sys::Oid) -> Self {
-        Self { fields, index_oid }
+    pub fn new(fields: &'a [WhichFastField]) -> Self {
+        Self { fields }
     }
 
     /// Check if a filter can be pushed down.
@@ -63,22 +57,6 @@ impl<'a> FilterAnalyzer<'a> {
     }
 
     fn try_analyze(&self, expr: &Expr) -> Option<SearchQueryInput> {
-        // SearchPredicateUDF contains the Tantivy query for @@@ predicates at the join level.
-        // When pushed down here, the query is folded into the Tantivy scan (preferred path).
-        //
-        // For cross-table ORs (e.g., `p @@@ 'x' OR s @@@ 'y'`), both paths are active:
-        // DataFusion pushes the per-table arms down to individual scans (reducing rows
-        // entering the join), while the full cross-table expression also remains as a
-        // HashJoinExec filter where invoke_with_args / execute_search evaluates it.
-        if let Some(search_udf) = SearchPredicateUDF::try_from_expr(expr) {
-            // Only process if it matches our index
-            if search_udf.index_oid == self.index_oid {
-                return Some(search_udf.query());
-            }
-            // Different index - not our responsibility
-            return None;
-        }
-
         match expr {
             Expr::BinaryExpr(BinaryExpr { left, right, op }) => match op {
                 Operator::And => self.translate_and(left, right),
@@ -159,7 +137,7 @@ impl<'a> FilterAnalyzer<'a> {
         let column_name = extract_column_name(column_expr)?;
         let field_type = self.find_field(&column_name)?;
         let scalar = extract_scalar_value(literal_expr)?;
-        let value = scalar_to_owned_value(&scalar, field_type)?;
+        let value = PdbOwnedValue::from_scalar(&scalar, field_type)?;
         let field: FieldName = column_name.into();
 
         match op {
@@ -198,7 +176,7 @@ impl<'a> FilterAnalyzer<'a> {
             .iter()
             .filter_map(|expr| {
                 let scalar = extract_scalar_value(expr)?;
-                scalar_to_owned_value(&scalar, field_type)
+                PdbOwnedValue::from_scalar(&scalar, field_type)
             })
             .collect();
 
@@ -314,91 +292,6 @@ fn extract_column_name(expr: &Expr) -> Option<String> {
 pub fn extract_scalar_value(expr: &Expr) -> Option<ScalarValue> {
     match expr {
         Expr::Literal(scalar, _) => Some(scalar.clone()),
-        _ => None,
-    }
-}
-
-pub fn scalar_to_owned_value(
-    scalar: &ScalarValue,
-    field_type: &SearchFieldType,
-) -> Option<PdbOwnedValue> {
-    match (scalar, field_type) {
-        // Integer types (I64)
-        (ScalarValue::Int8(Some(v)), SearchFieldType::I64(_)) => {
-            Some(PdbOwnedValue::I64(*v as i64))
-        }
-        (ScalarValue::Int16(Some(v)), SearchFieldType::I64(_)) => {
-            Some(PdbOwnedValue::I64(*v as i64))
-        }
-        (ScalarValue::Int32(Some(v)), SearchFieldType::I64(_)) => {
-            Some(PdbOwnedValue::I64(*v as i64))
-        }
-        (ScalarValue::Int64(Some(v)), SearchFieldType::I64(_)) => Some(PdbOwnedValue::I64(*v)),
-
-        // Unsigned integer types (U64)
-        (ScalarValue::UInt8(Some(v)), SearchFieldType::U64(_)) => {
-            Some(PdbOwnedValue::U64(*v as u64))
-        }
-        (ScalarValue::UInt16(Some(v)), SearchFieldType::U64(_)) => {
-            Some(PdbOwnedValue::U64(*v as u64))
-        }
-        (ScalarValue::UInt32(Some(v)), SearchFieldType::U64(_)) => {
-            Some(PdbOwnedValue::U64(*v as u64))
-        }
-        (ScalarValue::UInt64(Some(v)), SearchFieldType::U64(_)) => Some(PdbOwnedValue::U64(*v)),
-
-        // Cross-type integer conversions
-        (ScalarValue::Int8(Some(v)), SearchFieldType::U64(_)) if *v >= 0 => {
-            Some(PdbOwnedValue::U64(*v as u64))
-        }
-        (ScalarValue::Int16(Some(v)), SearchFieldType::U64(_)) if *v >= 0 => {
-            Some(PdbOwnedValue::U64(*v as u64))
-        }
-        (ScalarValue::Int32(Some(v)), SearchFieldType::U64(_)) if *v >= 0 => {
-            Some(PdbOwnedValue::U64(*v as u64))
-        }
-        (ScalarValue::Int64(Some(v)), SearchFieldType::U64(_)) if *v >= 0 => {
-            Some(PdbOwnedValue::U64(*v as u64))
-        }
-
-        // Float types (F64)
-        (ScalarValue::Float32(Some(v)), SearchFieldType::F64(_)) => {
-            Some(PdbOwnedValue::F64(*v as f64))
-        }
-        (ScalarValue::Float64(Some(v)), SearchFieldType::F64(_)) => Some(PdbOwnedValue::F64(*v)),
-
-        // Integer to float conversion
-        (ScalarValue::Int64(Some(v)), SearchFieldType::F64(_)) => {
-            Some(PdbOwnedValue::F64(*v as f64))
-        }
-        (ScalarValue::Int32(Some(v)), SearchFieldType::F64(_)) => {
-            Some(PdbOwnedValue::F64(*v as f64))
-        }
-
-        // Boolean
-        (ScalarValue::Boolean(Some(v)), SearchFieldType::Bool(_)) => Some(PdbOwnedValue::Bool(*v)),
-
-        // String/Text types
-        (ScalarValue::Utf8(Some(v)), SearchFieldType::Text(_)) => {
-            Some(PdbOwnedValue::Str(v.clone()))
-        }
-        (ScalarValue::LargeUtf8(Some(v)), SearchFieldType::Text(_)) => {
-            Some(PdbOwnedValue::Str(v.clone()))
-        }
-        (ScalarValue::Utf8View(Some(v)), SearchFieldType::Text(_)) => {
-            Some(PdbOwnedValue::Str(v.clone()))
-        }
-
-        // Numeric64 (scaled integers)
-        (ScalarValue::Int64(Some(v)), SearchFieldType::Numeric64(_, scale)) => {
-            let multiplier = 10i64.pow(*scale as u32);
-            Some(PdbOwnedValue::I64(v * multiplier))
-        }
-        (ScalarValue::Float64(Some(v)), SearchFieldType::Numeric64(_, scale)) => {
-            let multiplier = 10f64.powi(*scale as i32);
-            Some(PdbOwnedValue::I64((v * multiplier).round() as i64))
-        }
-
         _ => None,
     }
 }

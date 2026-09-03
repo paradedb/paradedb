@@ -30,7 +30,7 @@ use crate::postgres::composite::{
 use crate::postgres::customscan::orderby::text_lower_funcoid;
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::types::TantivyValue;
+use crate::postgres::types::{TantivyValue, TantivyValueError};
 use crate::postgres::var::find_vars;
 use crate::schema::{CategorizedFieldData, SearchField, SearchFieldType};
 use crate::vector::PgVector;
@@ -239,11 +239,17 @@ pub fn item_pointer_to_u64(ctid: pg_sys::ItemPointerData) -> u64 {
 /// bitpacking or compressing these values.
 #[inline(always)]
 pub fn u64_to_item_pointer(value: u64, tid: &mut pg_sys::ItemPointerData) {
-    // shift right 16 bits to pop off the OffsetNumber, leaving only the BlockNumber
-    // pgrx's version must shift right 32 bits to be in parity with `item_pointer_to_u64()`
-    let blockno = (value >> 16) as pg_sys::BlockNumber;
+    let blockno = u64_ctid_block_number(value);
     let offno = value as pg_sys::OffsetNumber;
     item_pointer_set_all(tid, blockno, offno);
+}
+
+/// The block number packed into a ctid by [`item_pointer_to_u64`].
+#[inline(always)]
+pub fn u64_ctid_block_number(value: u64) -> pg_sys::BlockNumber {
+    // shift right 16 bits to pop off the OffsetNumber, leaving only the BlockNumber
+    // pgrx's version must shift right 32 bits to be in parity with `item_pointer_to_u64()`
+    (value >> 16) as pg_sys::BlockNumber
 }
 
 /// Returns `true` if the block referenced by `ctid` (u64-packed form) exists
@@ -350,6 +356,28 @@ pub unsafe fn get_field_value(
             field_idx,
             ..
         } => unpacked_composites.get(*comp_index_attno, *field_idx),
+    }
+}
+
+/// Resolves an index field's `(datum, is_null)` from a deformed heap tuple and its evaluated
+/// index expressions. The boundary sampler and the mutable-segment materialization both project
+/// the same field sources, so they share this instead of matching `FieldSource` in each place.
+/// This is not [`get_field_value`], which indexes a single formed-tuple array by index attno.
+pub unsafe fn resolve_field_value(
+    source: &FieldSource,
+    values: &[pg_sys::Datum],
+    isnull: &[bool],
+    expr_results: &[(pg_sys::Datum, bool)],
+    unpacked_composites: &CompositeSlotValues,
+) -> (pg_sys::Datum, bool) {
+    match source {
+        FieldSource::Heap { attno } => (values[*attno], isnull[*attno]),
+        FieldSource::Expression { att_idx } => expr_results[*att_idx],
+        FieldSource::CompositeField {
+            expression_idx,
+            field_idx,
+            ..
+        } => unpacked_composites.get(*expression_idx, *field_idx),
     }
 }
 
@@ -784,11 +812,7 @@ pub unsafe fn row_to_search_document<'a>(
         }
 
         // For pdb.alias/tokenizer types, get the underlying type if it's not a text type.
-        let actual_datum = if type_is_alias(pg_type.value()) || type_is_tokenizer(pg_type.value()) {
-            unsafe { DatumWithType::get_underlying_type(datum).0 }
-        } else {
-            datum
-        };
+        let actual_datum = unsafe { unwrap_alias_datum(datum, *pg_type) };
 
         if *is_array {
             let converted_array = match search_field.field_type() {
@@ -796,7 +820,7 @@ pub unsafe fn row_to_search_document<'a>(
                     TantivyValue::try_from_numeric_array_i64(actual_datum, scale)
                 }
                 SearchFieldType::NumericBytes(..) => {
-                    TantivyValue::try_from_numeric_array_bytes(actual_datum)
+                    TantivyValue::try_from_numeric_array_bytes(actual_datum, created_by_version)
                 }
                 // Legacy pre-v0.22.0 indexes stored NUMERIC arrays as F64 in the tantivy schema.
                 SearchFieldType::F64(oid) if oid == pg_sys::NUMERICOID => {
@@ -832,18 +856,13 @@ pub unsafe fn row_to_search_document<'a>(
             };
             document.add_vector(search_field.field(), &vec);
         } else {
-            let tv = match search_field.field_type() {
-                SearchFieldType::Numeric64(_, scale) => {
-                    TantivyValue::try_from_numeric_i64(actual_datum, scale)
-                }
-                SearchFieldType::NumericBytes(..) => {
-                    TantivyValue::try_from_numeric_bytes(actual_datum)
-                }
-                // Legacy pre-v0.22.0 indexes stored NUMERIC as F64 in the tantivy schema.
-                SearchFieldType::F64(oid) if oid == pg_sys::NUMERICOID => {
-                    TantivyValue::try_from_numeric_f64(actual_datum)
-                }
-                _ => TantivyValue::try_from_datum(actual_datum, *base_oid),
+            let tv = unsafe {
+                scalar_datum_to_tantivy_value(
+                    actual_datum,
+                    search_field.field_type(),
+                    *base_oid,
+                    created_by_version,
+                )
             }
             .unwrap_or_else(|e| {
                 panic!("could not parse field `{}`: {e}", search_field.field_name())
@@ -855,6 +874,41 @@ pub unsafe fn row_to_search_document<'a>(
         }
     }
     Ok(())
+}
+
+/// Converts a non-NULL, single-valued (non-array, non-JSON, non-vector) index datum into the
+/// value the index stores for its field. `datum` must already have any `pdb.alias` /
+/// tokenizer wrapper type stripped, see [`unwrap_alias_datum`].
+pub unsafe fn scalar_datum_to_tantivy_value(
+    datum: pg_sys::Datum,
+    field_type: SearchFieldType,
+    base_oid: PgOid,
+    created_by_version: Option<Version>,
+) -> Result<TantivyValue, TantivyValueError> {
+    match field_type {
+        SearchFieldType::Numeric64(_, scale) => TantivyValue::try_from_numeric_i64(datum, scale),
+        SearchFieldType::NumericBytes(..) => {
+            TantivyValue::try_from_numeric_bytes(datum, created_by_version)
+        }
+        SearchFieldType::Range(oid) if oid == pg_sys::NUMRANGEOID => {
+            TantivyValue::try_from_numrange(datum, created_by_version)
+        }
+        // Legacy pre-v0.22.0 indexes stored NUMERIC as F64 in the tantivy schema.
+        SearchFieldType::F64(oid) if oid == pg_sys::NUMERICOID => {
+            TantivyValue::try_from_numeric_f64(datum)
+        }
+        _ => TantivyValue::try_from_datum(datum, base_oid),
+    }
+}
+
+/// For `pdb.alias` / tokenizer typed index attributes, returns the datum of the underlying
+/// type; other datums pass through unchanged.
+pub unsafe fn unwrap_alias_datum(datum: pg_sys::Datum, pg_type: PgOid) -> pg_sys::Datum {
+    if type_is_alias(pg_type.value()) || type_is_tokenizer(pg_type.value()) {
+        DatumWithType::get_underlying_type(datum).0
+    } else {
+        datum
+    }
 }
 
 pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> PostgresDateTime {
@@ -1455,36 +1509,58 @@ pub unsafe fn add_missing_search_operators_to_tlist(
     tlist: &mut PgList<pg_sys::TargetEntry>,
     search_operator_funcoids: &[pg_sys::Oid],
 ) {
-    let mut add_missing_func = |expr: *mut pg_sys::Node| {
-        if !is_search_operator(expr, search_operator_funcoids) {
-            return;
+    use pgrx::pg_sys::expression_tree_walker;
+    use std::ptr::addr_of_mut;
+
+    #[pgrx::pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
         }
 
-        let unwrapped_expr = strip_wrappers(expr.cast());
-        let already_present = tlist.iter_ptr().any(|te| {
-            pg_sys::equal(
-                strip_wrappers((*te).expr.cast()).cast(),
-                unwrapped_expr.cast(),
-            )
-        });
+        let ctx = context.cast::<Context>();
+        if is_search_operator(node, (*ctx).search_operator_funcoids) {
+            let unwrapped_expr = strip_wrappers(node);
+            let already_present = (*ctx).tlist.iter_ptr().any(|te| {
+                pg_sys::equal(
+                    strip_wrappers((*te).expr.cast()).cast(),
+                    unwrapped_expr.cast(),
+                )
+            });
 
-        if !already_present {
-            let resno = tlist.len() as pg_sys::AttrNumber + 1;
-            let te = pg_sys::makeTargetEntry(
-                pg_sys::copyObjectImpl(expr.cast()).cast(),
-                resno,
-                std::ptr::null_mut(),
-                true, // resjunk
-            );
-            tlist.push(te);
+            if !already_present {
+                let resno = (*ctx).tlist.len() as pg_sys::AttrNumber + 1;
+                let te = pg_sys::makeTargetEntry(
+                    pg_sys::copyObjectImpl(node.cast()).cast(),
+                    resno,
+                    std::ptr::null_mut(),
+                    true, // resjunk
+                );
+                (*ctx).tlist.push(te);
+            }
         }
+
+        expression_tree_walker(node, Some(walker), context)
+    }
+
+    struct Context<'a> {
+        tlist: &'a mut PgList<pg_sys::TargetEntry>,
+        search_operator_funcoids: &'a [pg_sys::Oid],
+    }
+
+    let mut ctx = Context {
+        tlist,
+        search_operator_funcoids,
     };
 
     // Look in processed_tlist
     if !(*root).processed_tlist.is_null() {
         let p_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*root).processed_tlist);
         for te in p_tlist.iter_ptr() {
-            add_missing_func((*te).expr.cast());
+            walker((*te).expr.cast(), addr_of_mut!(ctx).cast());
         }
     }
 
@@ -1496,7 +1572,7 @@ pub unsafe fn add_missing_search_operators_to_tlist(
             if !eclass.is_null() {
                 let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*eclass).ec_members);
                 for em in members.iter_ptr() {
-                    add_missing_func((*em).em_expr.cast());
+                    walker((*em).em_expr.cast(), addr_of_mut!(ctx).cast());
                 }
             }
         }

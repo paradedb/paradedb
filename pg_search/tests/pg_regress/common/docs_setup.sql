@@ -393,7 +393,7 @@ SELECT
 FROM generate_series(1, :rows) s(id);
 
 CREATE INDEX pages_index ON pages
-USING bm25 (
+USING paradedb (
     "id",
     "content",
     "title",
@@ -421,7 +421,7 @@ WITH (
 );
 
 CREATE INDEX files_index ON files
-USING bm25 (
+USING paradedb (
     "id",
     "content",
     "documentId",
@@ -449,7 +449,7 @@ WITH (
 );
 
 CREATE INDEX documents_index ON documents
-USING bm25 (
+USING paradedb (
     "id",
     "content",
     "title",

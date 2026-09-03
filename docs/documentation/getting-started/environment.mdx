@@ -1,7 +1,7 @@
 ---
 title: Configure your Environment
 description: Configure your environment for querying ParadeDB
-canonical: https://docs.paradedb.com/documentation/getting-started/environment
+canonical: https://www.paradedb.com/docs/documentation/getting-started/environment
 ---
 
 This guide will walk you through setting up your environment to run queries against ParadeDB. Choose your preferred tool below:
@@ -67,7 +67,7 @@ To get started, create a TypeScript project with [Drizzle](https://orm.drizzle.t
 ```bash
 npm init -y
 npm pkg set type=module
-npm install drizzle-orm@1.0.0-rc.2 drizzle-kit@1.0.0-rc.2 postgres @paradedb/drizzle-paradedb@0.2.0 tsx
+npm install drizzle-orm@1.0.0-rc.4 drizzle-kit@1.0.0-rc.4 postgres @paradedb/drizzle-paradedb@0.5.0 tsx
 ```
 
 Create a `db.ts` file with your database connection and a schema for ParadeDB's built-in test table:
@@ -88,6 +88,7 @@ import {
   time,
   timestamp,
   varchar,
+  vector,
 } from "drizzle-orm/pg-core";
 
 export const client = postgres(
@@ -110,13 +111,15 @@ export const mockItems = pgTable(
     weightRange: customType<{ data: string }>({
       dataType: () => "int4range",
     })("weight_range"),
+    embedding: vector("embedding", { dimensions: 8 }),
   },
   (table) => [
     indexing
-      .bm25Index("search_idx")
+      .paradedbIndex("search_idx")
       .on(
         table.id,
         table.description,
+        indexing.vectorField(table.embedding, "cosine"),
         table.category,
         table.rating,
         table.inStock,
@@ -129,6 +132,8 @@ export const mockItems = pgTable(
   ],
 );
 ```
+
+Note that this includes text, vector, and metadata fields.
 
 <Note>
   As a general rule of thumb, any columns that you want to filter, `GROUP BY`,
@@ -209,7 +214,7 @@ To start you'll need a [Django](https://www.djangoproject.com/) project with [Ps
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install django psycopg django-paradedb==0.10.0
+pip install django psycopg django-paradedb==0.13.0
 python3 -m django startproject myproject .
 python3 manage.py startapp myapp
 ```
@@ -241,9 +246,10 @@ We can now add a model for ParadeDB's built-in test table and ParadeDB index:
 from django.db import models
 
 from django.contrib.postgres.fields import IntegerRangeField
-from paradedb.indexes import BM25Index
+from paradedb.indexes import ParadeDBIndex
 from paradedb.queryset import ParadeDBManager
 from paradedb.search import Tokenizer
+from paradedb.vector import VectorField
 
 
 class MockItem(models.Model):
@@ -256,17 +262,19 @@ class MockItem(models.Model):
     last_updated_date = models.DateField(null=True, blank=True)
     latest_available_time = models.TimeField(null=True, blank=True)
     weight_range = IntegerRangeField(null=True, blank=True)
+    embedding = VectorField(dimensions=8, null=True, blank=True)
 
     objects = ParadeDBManager()
 
     class Meta:
         db_table = "mock_items"
         indexes = [
-            BM25Index(
+            ParadeDBIndex(
                 fields={
                     "id": {},
                     "description": {"tokenizer": Tokenizer.unicode_words()},
-                    "category": {"tokenizer": Tokenizer.literal()},
+                    "embedding": {"metric": "cosine"},
+                    "category": {},
                     "rating": {},
                     "in_stock": {},
                     "metadata": {"json_fields": {"fast": True}},
@@ -280,6 +288,8 @@ class MockItem(models.Model):
             ),
         ]
 ```
+
+Note that this includes text, vector, and metadata fields.
 
 <Note>
   As a general rule of thumb, any columns that you want to filter, `GROUP BY`,
@@ -327,7 +337,7 @@ To get started, install [SQLAlchemy](https://www.sqlalchemy.org/), [Alembic](htt
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install sqlalchemy psycopg alembic sqlalchemy-paradedb==0.8.0
+pip install sqlalchemy psycopg alembic sqlalchemy-paradedb==0.11.0
 ```
 
 Initialize Alembic:
@@ -355,6 +365,7 @@ from sqlalchemy.dialects.postgresql import INT4RANGE, JSONB, Range
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from paradedb.sqlalchemy import indexing
+from paradedb.sqlalchemy.vector import Vector
 
 
 class Base(DeclarativeBase):
@@ -374,24 +385,28 @@ class MockItem(Base):
     last_updated_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     latest_available_time: Mapped[time | None] = mapped_column(Time, nullable=True)
     weight_range: Mapped[Range[int] | None] = mapped_column(INT4RANGE, nullable=True)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(8), nullable=True)
 
 
 Index(
     "search_idx",
-    indexing.BM25Field(MockItem.id),
-    indexing.BM25Field(MockItem.description),
-    indexing.BM25Field(MockItem.category),
-    indexing.BM25Field(MockItem.rating),
-    indexing.BM25Field(MockItem.in_stock),
-    indexing.BM25Field(MockItem.metadata_),
-    indexing.BM25Field(MockItem.created_at),
-    indexing.BM25Field(MockItem.last_updated_date),
-    indexing.BM25Field(MockItem.latest_available_time),
-    indexing.BM25Field(MockItem.weight_range),
-    postgresql_using="bm25",
+    indexing.ParadeDBField(MockItem.id),
+    indexing.ParadeDBField(MockItem.description),
+    indexing.VectorField(MockItem.embedding, metric="cosine"),
+    indexing.ParadeDBField(MockItem.category),
+    indexing.ParadeDBField(MockItem.rating),
+    indexing.ParadeDBField(MockItem.in_stock),
+    indexing.ParadeDBField(MockItem.metadata_),
+    indexing.ParadeDBField(MockItem.created_at),
+    indexing.ParadeDBField(MockItem.last_updated_date),
+    indexing.ParadeDBField(MockItem.latest_available_time),
+    indexing.ParadeDBField(MockItem.weight_range),
+    postgresql_using="paradedb",
     postgresql_with={"key_field": "id"},
 )
 ```
+
+Note that this includes text, vector, and metadata fields.
 
 <Note>
   As a general rule of thumb, any columns that you want to filter, `GROUP BY`,
@@ -545,14 +560,14 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     """Upgrade schema."""
     # ### commands auto generated by Alembic - please adjust! ###
-    op.create_bm25_index('search_idx', 'mock_items', ['id', 'description', 'category', 'rating', 'in_stock', 'metadata', 'created_at', 'last_updated_date', 'latest_available_time', 'weight_range'], key_field='id', table_schema='public')
+    op.create_paradedb_index('search_idx', 'mock_items', ['id', 'description', 'embedding vector_cosine_ops', 'category', 'rating', 'in_stock', 'metadata', 'created_at', 'last_updated_date', 'latest_available_time', 'weight_range'], key_field='id', table_schema='public')
     # ### end Alembic commands ###
 
 
 def downgrade() -> None:
     """Downgrade schema."""
     # ### commands auto generated by Alembic - please adjust! ###
-    op.drop_bm25_index('search_idx', if_exists=True, schema='public')
+    op.drop_paradedb_index('search_idx', if_exists=True, schema='public')
     # ### end Alembic commands ###
 ```
 
@@ -585,7 +600,7 @@ cd paradedb
 Add the [rails-paradedb](https://rubygems.org/gems/rails-paradedb) gem to your `Gemfile`:
 
 ```ruby Gemfile
-gem "rails-paradedb", "0.9.0", require: "parade_db"
+gem "rails-paradedb", "0.12.0", require: "parade_db"
 ```
 
 Then install it:
@@ -651,6 +666,7 @@ class MockItemIndex < ParadeDB::Index
   self.fields = {
     id: nil,
     description: nil,
+    embedding: { metric: :cosine },
     category: nil,
     rating: nil,
     in_stock: nil,
@@ -662,6 +678,8 @@ class MockItemIndex < ParadeDB::Index
   }
 end
 ```
+
+Note that this includes text, vector, and metadata fields.
 
 <Note>
   As a general rule of thumb, any columns that you want to filter, `GROUP BY`,
@@ -689,7 +707,7 @@ def up
 end
 
 def down
-  remove_bm25_index :mock_items, name: :search_idx, if_exists: true
+  remove_paradedb_index :mock_items, name: :search_idx, if_exists: true
 end
 ```
 
@@ -716,7 +734,7 @@ dotnet new tool-manifest
 dotnet tool install dotnet-ef
 dotnet add package Microsoft.EntityFrameworkCore.Design
 dotnet add package Npgsql.EntityFrameworkCore.PostgreSQL
-dotnet add package ParadeDB.EntityFrameworkCore --version 0.1.2
+dotnet add package ParadeDB.EntityFrameworkCore --version 0.3.0
 ```
 
 <Note>
@@ -742,6 +760,7 @@ Replace `Program.cs` with a DbContext, model, and query scratchpad for ParadeDB'
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using NpgsqlTypes;
+using ParadeDB.EntityFrameworkCore;
 using ParadeDB.EntityFrameworkCore.Extensions;
 
 await using var dbContext = new AppDbContext();
@@ -808,10 +827,12 @@ public sealed class AppDbContext : DbContext
             entity.Property(item => item.LastUpdatedDate).HasColumnName("last_updated_date").HasColumnType("date");
             entity.Property(item => item.LatestAvailableTime).HasColumnName("latest_available_time").HasColumnType("time");
             entity.Property(item => item.WeightRange).HasColumnName("weight_range").HasColumnType("int4range");
+            entity.Property(item => item.Embedding).HasColumnName("embedding").HasColumnType("vector(8)");
 
             entity
-                .HasBm25Index("search_idx", item => item.Id)
+                .HasParadeDbIndex("search_idx", item => item.Id)
                 .HasField(item => item.Description)
+                .HasField(item => item.Embedding, VectorMetric.Cosine)
                 .HasField(item => item.Category)
                 .HasField(item => item.Rating)
                 .HasField(item => item.InStock)
@@ -836,8 +857,11 @@ public sealed class MockItem
     public DateOnly? LastUpdatedDate { get; set; }
     public TimeOnly? LatestAvailableTime { get; set; }
     public NpgsqlRange<int>? WeightRange { get; set; }
+    public float[]? Embedding { get; set; }
 }
 ```
+
+Note that this includes text, vector, and metadata fields.
 
 <Note>
   As a general rule of thumb, any columns that you want to filter, `GROUP BY`,

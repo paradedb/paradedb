@@ -30,10 +30,10 @@ INSERT INTO plants (genus_id, name) VALUES
 (3, 'Domestic Apple'),
 (3, 'Siberian Crabapple');
 CREATE INDEX plants_idx ON plants
-USING bm25 (id, genus_id, name)
+USING paradedb (id, genus_id, name)
 WITH (key_field = id);
 CREATE INDEX genus_idx ON genus
-USING bm25 (id, name)
+USING paradedb (id, name)
 WITH (key_field = id);
 --
 -- Test 1: Basic CTE query
@@ -48,7 +48,7 @@ SELECT plants.id, plants.name
 FROM plants, genus_terms
 WHERE plants.genus_id @@@ genus_terms.terms
 ORDER BY plants.id;
-WARNING:  Aggregate Scan not used: unsupported aggregate function: pdb.term_set. To disable this warning: SET paradedb.check_aggregate_scan = false (table: genus)
+WARNING:  Aggregate Scan not used: unsupported aggregate function: pdb.term_set. To disable this warning: SET paradedb.planner_warnings = 'off' (table: genus)
 WARNING:  using `pdb.term_set` in aggregate position is deprecated
  id |    name     
 ----+-------------
@@ -74,7 +74,7 @@ FROM paradedb.aggregate(
   ),
   '{"count":{"value_count":{"field":"genus_id"}}}'
 );
-WARNING:  Aggregate Scan not used: unsupported aggregate function: pdb.term_set. To disable this warning: SET paradedb.check_aggregate_scan = false (table: genus)
+WARNING:  Aggregate Scan not used: unsupported aggregate function: pdb.term_set. To disable this warning: SET paradedb.planner_warnings = 'off' (table: genus)
 WARNING:  using `pdb.term_set` in aggregate position is deprecated
          aggregate         
 ---------------------------
@@ -94,7 +94,7 @@ SELECT plants.id, plants.name
 FROM plants, genus_terms
 WHERE plants.genus_id @@@ genus_terms.terms
 ORDER BY plants.id;
-WARNING:  Aggregate Scan not used: unsupported aggregate function: pdb.term_set. To disable this warning: SET paradedb.check_aggregate_scan = false (table: genus)
+WARNING:  Aggregate Scan not used: unsupported aggregate function: pdb.term_set. To disable this warning: SET paradedb.planner_warnings = 'off' (table: genus)
 WARNING:  using `pdb.term_set` in aggregate position is deprecated
  id | name 
 ----+------

@@ -36,7 +36,7 @@ runs:
       shell: bash
       run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ inputs.prior_pgrx_version }} --force --debug
 
-    - name: Initialize pgrx environment for ParadeDB ${{ inputs.prior_pg_search_version }}
+    - name: Initialize pgrx Environment for ParadeDB ${{ inputs.prior_pg_search_version }}
       shell: bash
       run: cargo pgrx init "--pg${{ inputs.pg_version }}=/usr/lib/postgresql/${{ inputs.pg_version }}/bin/pg_config"
 
@@ -71,8 +71,9 @@ runs:
       working-directory: pg_search/
       shell: bash
       run: |
-        psql -h localhost -p 288${{ inputs.pg_version }} postgres -c 'CREATE EXTENSION IF NOT EXISTS vector;'
-        psql -h localhost -p 288${{ inputs.pg_version }} postgres -c 'CREATE EXTENSION pg_search;'
+        set -euo pipefail
+        psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} postgres -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+        psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} postgres -c 'CREATE EXTENSION pg_search;'
 
     - name: Create Upgrade Test Databases
       working-directory: pg_search/
@@ -118,9 +119,18 @@ runs:
       shell: bash
       run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --force --debug
 
-    - name: Initialize pgrx environment for ParadeDB
+    - name: Initialize pgrx Environment for ParadeDB
       shell: bash
       run: cargo pgrx init "--pg${{ inputs.pg_version }}=/usr/lib/postgresql/${{ inputs.pg_version }}/bin/pg_config"
+
+    # Assemble unreleased fragments into an upgrade script for a synthetic target version so
+    # ALTER EXTENSION pg_search UPDATE can be tested, while preserving the fragment files on disk during the test.
+    - name: Assemble SQL Upgrade Scripts
+      shell: bash
+      run: |
+        SYNTHETIC_VERSION="999.0.0"
+        ./scripts/release.sh set-version "$SYNTHETIC_VERSION" --skip-nix
+        ./scripts/release.sh sql "$SYNTHETIC_VERSION" --preserve-fragments
 
     - name: Compile & install pg_search
       working-directory: pg_search/
@@ -147,12 +157,12 @@ runs:
         set -euo pipefail
         VERSION=$(grep "^version" ../Cargo.toml | head -1 | awk -F '"' '{print $2}')
         psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} postgres -c "CREATE EXTENSION IF NOT EXISTS vector;"
-        psql -h localhost -p 288${{ inputs.pg_version }} postgres -c "ALTER EXTENSION pg_search UPDATE TO '$VERSION';"
+        psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} postgres -c "ALTER EXTENSION pg_search UPDATE TO '$VERSION';"
         for case_dir in "$UPGRADE_SQL_DIR"/*; do
           db="$(basename "$case_dir")"
           echo "Creating database $db"
           psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} "$db" -c "CREATE EXTENSION IF NOT EXISTS vector;"
-          psql -h localhost -p 288${{ inputs.pg_version }} "$db" -c "ALTER EXTENSION pg_search UPDATE TO '$VERSION';"
+          psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} "$db" -c "ALTER EXTENSION pg_search UPDATE TO '$VERSION';"
         done
 
     # An `ALTER EXTENSION ... UPDATE` must leave the schema identical to a fresh

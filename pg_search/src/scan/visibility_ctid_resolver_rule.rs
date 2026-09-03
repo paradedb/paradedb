@@ -38,9 +38,9 @@ use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::ExecutionPlan;
 
 use crate::index::fast_fields_helper::FFHelper;
-use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::segmented_topk_exec::SegmentedTopKExec;
+use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
 
 #[derive(Debug)]
 pub struct VisibilityCtidResolverRule;
@@ -69,8 +69,12 @@ impl PhysicalOptimizerRule for VisibilityCtidResolverRule {
 /// SegmentedTopKExec that has absorbed one, wire FFHelpers from matching
 /// PgSearchScanPlans in the subtree.
 fn walk_plan(plan: &Arc<dyn ExecutionPlan>) -> Result<()> {
-    if let Some(vis_exec) = plan.downcast_ref::<VisibilityFilterExec>() {
-        for &(plan_pos, _) in vis_exec.plan_pos_oids() {
+    // The ctid-resolving TantivyLookupExec below a VisibilityFilterExec (or an absorbed
+    // SegmentedTopKExec) turns packed doc-addresses into real ctids. String-decode lookups
+    // carry no ctid columns and are skipped.
+    if let Some(lookup) = plan.downcast_ref::<TantivyLookupExec>() {
+        for ctid_column in lookup.ctid_columns() {
+            let plan_pos = ctid_column.plan_position;
             let (indexrelid, ffhelper) = find_ffhelper_for_plan_position(plan.as_ref(), plan_pos)
                 .ok_or_else(|| {
                 DataFusionError::Internal(format!(
@@ -78,7 +82,7 @@ fn walk_plan(plan: &Arc<dyn ExecutionPlan>) -> Result<()> {
                      for deferred ctid plan_position {plan_pos}"
                 ))
             })?;
-            vis_exec.set_ctid_resolver(plan_pos, indexrelid, ffhelper);
+            lookup.set_ctid_resolver(plan_pos, indexrelid, ffhelper);
         }
     }
 
@@ -213,6 +217,7 @@ mod tests {
             ffhelper,
             5,
             None,
+            None,
         );
 
         // No visibility data absorbed → plan_pos_oids must be empty.
@@ -255,6 +260,7 @@ mod tests {
             Arc::new(FFHelper::empty()),
             5,
             Some(vis_data),
+            None,
         );
 
         let pos_oids = stk.plan_pos_oids();

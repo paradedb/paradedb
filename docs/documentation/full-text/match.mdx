@@ -1,7 +1,7 @@
 ---
 title: Match
 description: Returns documents that match the provided query string, which is tokenized before matching
-canonical: https://docs.paradedb.com/documentation/full-text/match
+canonical: https://www.paradedb.com/docs/documentation/full-text/match
 ---
 
 Match queries are the go-to query type for text search in ParadeDB. There are two types of match queries:
@@ -267,7 +267,7 @@ from paradedb.sqlalchemy import search, tokenizer
 
 stmt = (
     select(MockItem.description, MockItem.rating, MockItem.category)
-    .where(search.match_any(MockItem.description, "running shoes", tokenizer=tokenizer.whitespace()))
+    .where(search.match_any(MockItem.description, search.tokenize("running shoes", tokenizer.whitespace())))
 )
 
 with Session(engine) as session:
@@ -276,7 +276,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .match_any("running shoes", tokenizer: ParadeDB::Tokenizer.whitespace())
+        .match_any(ParadeDB.tokenize("running shoes", ParadeDB::Tokenizer.whitespace()))
         .select(:description, :rating, :category)
 ```
 
@@ -334,7 +334,7 @@ from paradedb.sqlalchemy import search
 
 stmt = (
     select(MockItem.description, MockItem.rating, MockItem.category)
-    .where(search.match_all(MockItem.description, "running", "shoes"))
+    .where(search.match_all(MockItem.description, ["running", "shoes"]))
 )
 
 with Session(engine) as session:
@@ -343,7 +343,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .match_all("running shoes")
+        .match_all(%w[running shoes])
         .select(:description, :rating, :category)
 ```
 

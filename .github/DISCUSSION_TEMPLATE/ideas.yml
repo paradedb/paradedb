@@ -1,14 +1,19 @@
 title: "[Ideas] "
-labels: ["feature", "idea", "suggestion"]
+labels: ["feature"]
 body:
   - type: markdown
     attributes:
       value: >
         This discussion type is for discussing ideas and feature requests for ParadeDB. If you are looking to raise an issue,
-        please do so on the relevant ParadeDB repository:
+        please use the most relevant issue tracker:
 
-          * [paradedb/paradedb](https://github.com/paradedb/paradedb/issues/news/) - ParadeDB core and pg_search extension repository
-          * [paradedb/charts](https://github.com/paradedb/charts/issues/new/) - ParadeDB Helm Chart repository
+          * [ParadeDB issue tracker](https://github.com/paradedb/paradedb/issues/new/choose) - Issues for ParadeDB core and the pg_search extension
+          * [Drizzle](https://github.com/paradedb/drizzle-paradedb) - ParadeDB integration for Drizzle
+          * [Django](https://github.com/paradedb/django-paradedb) - ParadeDB integration for Django
+          * [SQLAlchemy](https://github.com/paradedb/sqlalchemy-paradedb) - ParadeDB integration for SQLAlchemy
+          * [Rails](https://github.com/paradedb/rails-paradedb) - ParadeDB integration for Rails and Active Record
+          * [Entity Framework Core](https://github.com/paradedb/efcore-paradedb) - ParadeDB integration for Entity Framework Core
+          * [Benchmarker](https://github.com/paradedb/benchmarker) - Database benchmarking suite
 
         Please report security vulnerabilities using GitHub's [report vulnerability form](https://github.com/paradedb/paradedb/security/advisories/new).
 

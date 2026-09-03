@@ -30,7 +30,7 @@ INSERT INTO json_agg_test (metadata, data) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_agg ON json_agg_test
-USING bm25 (id, metadata, data)
+USING paradedb (id, metadata, data)
 WITH (
     key_field = 'id',
     json_fields = '{
@@ -297,7 +297,7 @@ INSERT INTO json_deep_agg (nested_data) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_deep_agg ON json_deep_agg
-USING bm25 (id, nested_data)
+USING paradedb (id, nested_data)
 WITH (
     key_field = 'id',
     json_fields = '{"nested_data": {"indexed": true, "fast": true, "expand_dots": true}}'
@@ -351,7 +351,7 @@ INSERT INTO json_mixed_agg (doc) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_mixed_agg ON json_mixed_agg
-USING bm25 (id, doc)
+USING paradedb (id, doc)
 WITH (
     key_field = 'id',
     json_fields = '{"doc": {"indexed": true, "fast": true, "expand_dots": true}}'
@@ -435,7 +435,7 @@ INSERT INTO json_array_agg (data) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_array_agg ON json_array_agg
-USING bm25 (id, data)
+USING paradedb (id, data)
 WITH (
     key_field = 'id',
     json_fields = '{"data": {"indexed": true, "fast": true, "expand_dots": true}}'
@@ -481,7 +481,7 @@ INSERT INTO json_special_agg (payload) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_special_agg ON json_special_agg
-USING bm25 (id, payload)
+USING paradedb (id, payload)
 WITH (
     key_field = 'id',
     json_fields = '{"payload": {"indexed": true, "fast": true, "expand_dots": true}}'

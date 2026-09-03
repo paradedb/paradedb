@@ -75,7 +75,10 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
-      - name: Set up Docker Buildx
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
+
+      - name: Set Up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
       # The committed Dockerfiles install pg_search from a specific GitHub Release. In
@@ -153,8 +156,9 @@ jobs:
         if: steps.release_gate.outputs.skip != 'true'
         run: |
           echo "Waiting for PostgreSQL to accept connections..."
+          # The temporary init server only listens on the Unix socket; TCP starts after initialization completes.
           for i in $(seq 1 60); do
-            if docker exec paradedb pg_isready -U myuser -d mydatabase > /dev/null 2>&1; then
+            if docker exec paradedb pg_isready -h localhost -U myuser -d mydatabase > /dev/null 2>&1; then
               echo "PostgreSQL is ready after ${i}s"
               break
             fi
@@ -165,7 +169,7 @@ jobs:
             fi
             sleep 1
           done
-          if ! docker exec paradedb pg_isready -U myuser -d mydatabase > /dev/null 2>&1; then
+          if ! docker exec paradedb pg_isready -h localhost -U myuser -d mydatabase > /dev/null 2>&1; then
             echo "Error: PostgreSQL did not become ready within 60s"
             docker logs paradedb
             exit 1
@@ -186,17 +190,21 @@ jobs:
       - name: Verify PostgreSQL accepts queries and extensions are available
         if: steps.release_gate.outputs.skip != 'true'
         run: |
-          docker exec paradedb psql -U myuser -d mydatabase -c "SELECT 1;"
-          docker exec paradedb psql -U myuser -d mydatabase -c "CREATE EXTENSION IF NOT EXISTS vector;"
-          docker exec paradedb psql -U myuser -d mydatabase -c "CREATE EXTENSION IF NOT EXISTS pg_search;"
-          docker exec paradedb psql -U myuser -d mydatabase -c "SELECT extname, extversion FROM pg_extension ORDER BY extname;"
+          set -euo pipefail
+          for database in mydatabase template1 paradedb; do
+            extensions="$(docker exec paradedb psql -At -v ON_ERROR_STOP=1 -U myuser -d "$database" -c "SELECT extname FROM pg_extension WHERE extname IN ('pg_search', 'vector') ORDER BY extname;")"
+            [ "$extensions" = $'pg_search\nvector' ] || {
+              printf 'Expected pg_search and vector in %s, got:\n%s\n' "$database" "$extensions"
+              exit 1
+            }
+          done
 
       - name: Verify barman-cloud is functional
         if: steps.release_gate.outputs.skip != 'true' && matrix.flavor == 'paradedb'
         run: docker exec paradedb barman-cloud-wal-archive --help
 
       - name: Test Postgres Auto-tuning
-        if: steps.release_gate.outputs.skip != 'true'
+        if: steps.release_gate.outputs.skip != 'true' && matrix.flavor == 'paradedb'
         run: |
           set -euo pipefail
           assert_not_tuned() {
@@ -332,12 +340,12 @@ jobs:
           # Begin ParadeDB tuning recommendations
           # Parameters based on auto-detected 2.7 CPUs and 2048MB RAM
           shared_buffers = '512MB'                      # 25% of RAM, capped at 16GB
-          effective_cache_size = '1536MB'               # 75% of RAM
+          effective_cache_size = '1536MB'               # 75% of RAM, capped at 16TB
           maintenance_work_mem = '128MB'                # RAM / 16, capped at 2GB
           work_mem = '15MB'                             # (RAM - shared_buffers) / (3 * max_connections), at least 15MB
-          max_parallel_workers = '13'                   # CPUs * 5
+          max_parallel_workers = '13'                   # CPUs * 5, capped at 1024
           max_worker_processes = '21'                   # max_parallel_workers + 8
-          max_parallel_workers_per_gather = '1'         # CPUs / 2, at least 1
+          max_parallel_workers_per_gather = '1'         # CPUs / 2, between 1 and 128
           max_parallel_maintenance_workers = '2'        # CPUs / 2, at least 2, at most 8
           # End ParadeDB tuning recommendations
           EOF
@@ -358,12 +366,12 @@ jobs:
           # Begin ParadeDB tuning recommendations
           # Parameters based on auto-detected 1 CPUs and 1024MB RAM
           shared_buffers = '256MB'                      # 25% of RAM, capped at 16GB
-          effective_cache_size = '768MB'                # 75% of RAM
+          effective_cache_size = '768MB'                # 75% of RAM, capped at 16TB
           maintenance_work_mem = '64MB'                 # RAM / 16, capped at 2GB
           work_mem = '15MB'                             # (RAM - shared_buffers) / (3 * max_connections), at least 15MB
-          max_parallel_workers = '5'                    # CPUs * 5
+          max_parallel_workers = '5'                    # CPUs * 5, capped at 1024
           max_worker_processes = '13'                   # max_parallel_workers + 8
-          max_parallel_workers_per_gather = '1'         # CPUs / 2, at least 1
+          max_parallel_workers_per_gather = '1'         # CPUs / 2, between 1 and 128
           max_parallel_maintenance_workers = '2'        # CPUs / 2, at least 2, at most 8
           # End ParadeDB tuning recommendations
           EOF
@@ -384,12 +392,12 @@ jobs:
           # Begin ParadeDB tuning recommendations
           # Parameters based on auto-detected 4 CPUs and 8192MB RAM
           shared_buffers = '2048MB'                     # 25% of RAM, capped at 16GB
-          effective_cache_size = '6144MB'               # 75% of RAM
+          effective_cache_size = '6144MB'               # 75% of RAM, capped at 16TB
           maintenance_work_mem = '512MB'                # RAM / 16, capped at 2GB
           work_mem = '20MB'                             # (RAM - shared_buffers) / (3 * max_connections), at least 15MB
-          max_parallel_workers = '20'                   # CPUs * 5
+          max_parallel_workers = '20'                   # CPUs * 5, capped at 1024
           max_worker_processes = '28'                   # max_parallel_workers + 8
-          max_parallel_workers_per_gather = '2'         # CPUs / 2, at least 1
+          max_parallel_workers_per_gather = '2'         # CPUs / 2, between 1 and 128
           max_parallel_maintenance_workers = '2'        # CPUs / 2, at least 2, at most 8
           # End ParadeDB tuning recommendations
           EOF
@@ -448,7 +456,10 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
-      - name: Set up Docker Buildx
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
+
+      - name: Set Up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
       # The extension image installs pg_search from the same GitHub Release .deb as

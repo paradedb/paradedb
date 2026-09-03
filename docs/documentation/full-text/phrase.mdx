@@ -1,7 +1,7 @@
 ---
 title: Phrase
 description: Phrase queries are like match queries, but with order and position of matching tokens enforced
-canonical: https://docs.paradedb.com/documentation/full-text/phrase
+canonical: https://www.paradedb.com/docs/documentation/full-text/phrase
 ---
 
 Phrase queries work exactly like [match conjunction](/documentation/full-text/match#match-conjunction), but are more strict in that they require the
@@ -156,7 +156,7 @@ from paradedb.sqlalchemy import search
 
 stmt = (
     select(MockItem.description, MockItem.rating, MockItem.category)
-    .where(search.phrase(MockItem.description, "shoes running", slop=2))
+    .where(search.phrase(MockItem.description, search.slop("shoes running", 2)))
 )
 
 with Session(engine) as session:
@@ -165,7 +165,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .phrase("shoes running", slop: 2)
+        .phrase(ParadeDB.slop("shoes running", 2))
         .select(:description, :rating, :category)
 ```
 
@@ -222,7 +222,7 @@ from paradedb.sqlalchemy import search, tokenizer
 
 stmt = (
     select(MockItem.description, MockItem.rating, MockItem.category)
-    .where(search.phrase(MockItem.description, "running shoes", tokenizer=tokenizer.whitespace()))
+    .where(search.phrase(MockItem.description, search.tokenize("running shoes", tokenizer.whitespace())))
 )
 
 with Session(engine) as session:
@@ -231,7 +231,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .phrase("running shoes", tokenizer: ParadeDB::Tokenizer.whitespace())
+        .phrase(ParadeDB.tokenize("running shoes", ParadeDB::Tokenizer.whitespace()))
         .select(:description, :rating, :category)
 ```
 
@@ -350,7 +350,7 @@ from paradedb.sqlalchemy import search
 
 stmt = (
     select(MockItem.description, MockItem.rating, MockItem.category)
-    .where(search.phrase(MockItem.description, ["shoes", "running"], slop=2))
+    .where(search.phrase(MockItem.description, search.slop(["shoes", "running"], 2)))
 )
 
 with Session(engine) as session:
@@ -359,7 +359,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .phrase(%w[shoes running], slop: 2)
+        .phrase(ParadeDB.slop(%w[shoes running], 2))
         .select(:description, :rating, :category)
 ```
 

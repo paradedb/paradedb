@@ -25,7 +25,7 @@ BEGIN
                     EXECUTE format('SET parallel_leader_participation = %s', lp);
                     EXECUTE format('SET maintenance_work_mem = %L', mwm);
 
-                    EXECUTE format('CREATE INDEX parallel_build_small_idx ON parallel_build_small USING bm25 (id, name, age) WITH (key_field = ''id'', target_segment_count = %s)', ts);
+                    EXECUTE format('CREATE INDEX parallel_build_small_idx ON parallel_build_small USING paradedb (id, name, age) WITH (key_field = ''id'', target_segment_count = %s)', ts);
 
                     -- Check index info and display results
                     SELECT COUNT(*) INTO count_val FROM paradedb.index_info('parallel_build_small_idx');

@@ -1,6 +1,6 @@
 """Execute extracted SQLAlchemy docs snippets against local verification tables."""
 
-# pylint: disable=import-error,too-few-public-methods
+# pylint: disable=import-error,too-few-public-methods,wrong-import-order
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import getpass
 import os
 from typing import Any
 
+from paradedb.sqlalchemy.vector import Vector
 from sqlalchemy import (
     Boolean,
     Date,
@@ -61,6 +62,7 @@ class MockItem(Base):
     last_updated_date: Mapped[Any] = mapped_column(Date, nullable=True)
     latest_available_time: Mapped[Any] = mapped_column(Time, nullable=True)
     weight_range: Mapped[Any] = mapped_column(INT4RANGE, nullable=True)
+    embedding: Mapped[Any] = mapped_column(Vector(8), nullable=True)
 
 
 class Order(Base):

@@ -2,7 +2,7 @@
 --
 -- The trigger is a join between two BM25-indexed tables whose indexes have
 -- DIFFERENT physical segment counts. Equal segment counts do not reproduce it.
--- It requires MPP to be enabled (max_parallel_workers_per_gather > 0).
+-- It requires an MPP-eligible worker configuration.
 --
 -- To get the asymmetry deterministically without needing much data:
 --   * pc_big   uses mutable_segment_rows='0', so every INSERT lands in its own
@@ -14,9 +14,9 @@ SET max_parallel_workers_per_gather = 4;
 DROP TABLE IF EXISTS pc_big, pc_small CASCADE;
 CREATE TABLE pc_big   (id bigint PRIMARY KEY, state text);
 CREATE TABLE pc_small (id bigint PRIMARY KEY, series_id bigint, user_id text);
-CREATE INDEX pc_big_idx ON pc_big USING bm25 (id, state)
+CREATE INDEX pc_big_idx ON pc_big USING paradedb (id, state)
   WITH (key_field = 'id', target_segment_count = '3', mutable_segment_rows = '0');
-CREATE INDEX pc_small_idx ON pc_small USING bm25 (id, series_id, user_id)
+CREATE INDEX pc_small_idx ON pc_small USING paradedb (id, series_id, user_id)
   WITH (key_field = 'id', target_segment_count = '3');
 -- Two separate statements, so pc_big ends up with two immutable segments.
 INSERT INTO pc_big SELECT g, 'active' FROM generate_series(1, 50) g;
@@ -31,8 +31,8 @@ WHERE le.id @@@ paradedb.term('user_id', 'u1')
   AND sv.id @@@ paradedb.term('state', 'merged')
 ORDER BY le.id
 LIMIT 5;
-                                                                      QUERY PLAN                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit  (cost=10.00..11.00 rows=5 width=8)
    ->  Custom Scan (ParadeDB Join Scan)  (cost=10.00..11.00 rows=5 width=8)
          Relation Tree: sv INNER le
@@ -45,20 +45,21 @@ LIMIT 5;
            : │   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=5
            : │     SortExec: TopK(fetch=5), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
            : │       VisibilityFilterExec: tables=[sv, le]
-           : │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, series_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
-           : │           CoalescePartitionsExec
-           : │             [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=2, stage_partitions=2, input_tasks=2
-           : │           RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-           : │             DistributedLeafExec:
-           : │               t0: PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"term":{"field":"user_id","value":"u1"}}}}
+           : │         TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           : │           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, series_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
+           : │             CoalescePartitionsExec
+           : │               [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=1, input_tasks=2
+           : │             RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+           : │               DistributedLeafExec:
+           : │                 t0: PgSearchScan: table=le, segments=1, dynamic_filters=2, query={"with_index":{"query":{"term":{"field":"user_id","value":"u1"}}}}
            : └──────────────────────────────────────────────────
-           :   ┌───── Stage 1 ── tasks=2, partitions=4
-           :   │ BroadcastExec: input_partitions=2, consumer_tasks=1, output_partitions=2
+           :   ┌───── Stage 1 ── tasks=2, partitions=2
+           :   │ BroadcastExec: input_partitions=1, consumer_tasks=1, output_partitions=1
            :   │   DistributedLeafExec:
-           :   │     t0: PgSearchScan: segments=2, query={"with_index":{"query":{"term":{"field":"state","value":"merged"}}}}
-           :   │     t1: PgSearchScan: segments=2, query={"with_index":{"query":{"term":{"field":"state","value":"merged"}}}}
+           :   │     t0: PgSearchScan: table=sv, segments=2, query={"with_index":{"query":{"term":{"field":"state","value":"merged"}}}}
+           :   │     t1: PgSearchScan: table=sv, segments=2, query={"with_index":{"query":{"term":{"field":"state","value":"merged"}}}}
            :   └──────────────────────────────────────────────────
-(25 rows)
+(26 rows)
 
 SELECT le.id
 FROM pc_small le

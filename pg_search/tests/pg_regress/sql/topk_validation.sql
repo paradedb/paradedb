@@ -1,19 +1,19 @@
 -- Test Top K scan validation feature
--- This test validates that paradedb.check_topk_scan correctly warns when
+-- This test validates that paradedb.planner_warnings correctly warns or errors when
 -- queries with LIMIT cannot use Top K scan optimization
 
 \i common/common_setup.sql
 
 -- Create test table with appropriate data
-CALL paradedb.create_bm25_test_table(
+CALL paradedb.create_paradedb_test_table(
   schema_name => 'public',
   table_name => 'test_products'
 );
 
 -- Scenario 1: Index WITHOUT lower() but query uses lower() in ORDER BY
--- This should trigger a warning when check_topk_scan is enabled
+-- This should trigger a warning when planner_warnings is enabled
 CREATE INDEX products_base_idx ON test_products
-USING bm25 (id, description, category, rating)
+USING paradedb (id, description, category, rating)
 WITH (
     key_field='id',
     text_fields='{
@@ -23,17 +23,17 @@ WITH (
     numeric_fields='{"rating": {"fast": true}}'
 );
 
--- Test 1: Validation OFF (default) - should not warn
+-- Test 1: Validation OFF - should not warn
 \echo 'Test 1: Validation OFF (no warning expected)'
-SET paradedb.check_topk_scan = false;
+SET paradedb.planner_warnings = 'off';
 SELECT id, description FROM test_products
 WHERE description @@@ 'shoes'
 ORDER BY description  -- Missing fast field
 LIMIT 5;
 
--- Test 2: Enable validation - should warn about missing fast field
-\echo 'Test 2: Validation ON - warning expected (ORDER BY not a fast field)'
-SET paradedb.check_topk_scan = true;
+-- Test 2: Enable validation (warning mode) - should warn about missing fast field
+\echo 'Test 2: Validation WARNING - warning expected (ORDER BY not a fast field)'
+SET paradedb.planner_warnings = 'warning';
 SELECT id, description FROM test_products
 WHERE description @@@ 'shoes'
 ORDER BY description  -- Not marked as fast
@@ -49,7 +49,7 @@ LIMIT 5;
 -- Test 4: Too many ORDER BY columns
 DROP INDEX products_base_idx;
 CREATE INDEX products_multi_idx ON test_products
-USING bm25 (id, description, category, rating, created_at, last_updated_date)
+USING paradedb (id, description, category, rating, created_at, last_updated_date)
 WITH (
     key_field='id',
     text_fields='{
@@ -68,7 +68,7 @@ LIMIT 10;
 -- Test 5: Query with lower() mismatch
 DROP INDEX products_multi_idx;
 CREATE INDEX products_lower_idx ON test_products
-USING bm25 (id, description, (lower(category)::pdb.literal), rating)
+USING paradedb (id, description, (lower(category)::pdb.literal), rating)
 WITH (
     key_field='id'
 );
@@ -99,15 +99,33 @@ WHERE category === 'Electronics'
 ORDER BY category DESC  -- Should warn
 LIMIT 10;
 
--- Test 8: Disable validation mid-session
-\echo 'Test 8: Disable validation (no warning)'
-SET paradedb.check_topk_scan = false;
+-- Test 8: Error mode - query fails, but EXPLAIN succeeds with warnings
+\echo 'Test 8: Error mode'
+SET paradedb.planner_warnings = 'error';
+
+-- EXPLAIN should succeed and show warnings
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM test_products
+WHERE category === 'Electronics'
+ORDER BY category DESC
+LIMIT 10;
+
+-- Direct SELECT should fail with ERROR
+SELECT id FROM test_products
+WHERE category === 'Electronics'
+ORDER BY category DESC
+LIMIT 10;
+
+-- Test 9: Disable validation mid-session
+\echo 'Test 9: Disable validation (no warning)'
+SET paradedb.planner_warnings = 'off';
 SELECT id FROM test_products
 WHERE category === 'Electronics'
 ORDER BY category DESC  -- No warning now
 LIMIT 10;
 
 -- Cleanup
+RESET paradedb.planner_warnings;
 DROP INDEX products_lower_idx;
 DROP TABLE test_products;
 

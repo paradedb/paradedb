@@ -30,11 +30,11 @@ INSERT INTO plants (genus_id, name) VALUES
 (3, 'Siberian Crabapple');
 
 CREATE INDEX plants_idx ON plants
-USING bm25 (id, genus_id, name)
+USING paradedb (id, genus_id, name)
 WITH (key_field = id);
 
 CREATE INDEX genus_idx ON genus
-USING bm25 (id, name)
+USING paradedb (id, name)
 WITH (key_field = id);
 
 --

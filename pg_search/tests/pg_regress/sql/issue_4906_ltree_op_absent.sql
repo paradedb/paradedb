@@ -42,7 +42,7 @@ VALUES
 
 CREATE INDEX issue_4906_without_ltree_idx
 ON issue_4906_without_ltree
-USING bm25 (id, body, rating)
+USING paradedb (id, body, rating)
 WITH (key_field = 'id');
 
 ANALYZE issue_4906_without_ltree;

@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 //! Provides a reference-counted wrapper around an open Postgres [`pg_sys::Relation`].
 use crate::api::version::Version;
+use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::build::is_bm25_index;
 use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::storage::metadata::MetaPage;
@@ -29,6 +30,7 @@ use std::ops::Deref;
 use std::ptr::NonNull;
 use std::rc::Rc;
 use tantivy::TantivyError;
+use tantivy::index::{Index, Order};
 
 type NeedClose = bool;
 
@@ -101,7 +103,7 @@ pub enum SchemaError {
 impl Display for SchemaError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::RelationNotBM25Index => write!(f, "relation is not a BM25 index"),
+            Self::RelationNotBM25Index => write!(f, "relation is not a ParadeDB index"),
             Self::Other(e) => write!(f, "{e}"),
         }
     }
@@ -444,6 +446,21 @@ impl PgSearchRelation {
         }
     }
 
+    /// True when this ParadeDB index's segments were built in ascending ctid
+    /// order. Reads the sort order stored in the tantivy settings rather than
+    /// the current `sort_by` index option, which can be altered after segments
+    /// exist.
+    pub fn is_ctid_sorted_asc(&self) -> bool {
+        let directory = MvccSatisfies::Snapshot.directory(self);
+        let Ok(underlying) = Index::open(directory) else {
+            return false;
+        };
+        matches!(
+            underlying.settings().sort_by_field.as_ref(),
+            Some(sort) if sort.field == "ctid" && sort.order == Order::Asc
+        )
+    }
+
     /// This opens the MetaPage on every call, so use it carefully
     pub fn created_by_version(&self) -> Option<Version> {
         MetaPage::open(self).created_by_version()
@@ -463,8 +480,8 @@ impl PgSearchRelation {
     ///
     /// Returns `Ok(false)` for NUMERIC fields, `Ok(true)` for other fields,
     /// or an error if the schema cannot be loaded.
-    pub fn field_supports_aggregate(&self, field: &str) -> Result<bool, SchemaError> {
-        self.schema().map(|s| s.field_supports_aggregate(field))
+    pub fn supports_tantivy_aggregate(&self, field: &str) -> Result<bool, SchemaError> {
+        self.schema().map(|s| s.supports_tantivy_aggregate(field))
     }
 }
 

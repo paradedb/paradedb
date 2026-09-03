@@ -641,12 +641,16 @@ impl From<&Qual> for SearchQueryInput {
                 search_query_input,
             } => {
                 // Create HeapFieldFilter from the PostgreSQL expression
-                let field_filters =
+                let always_filters =
                     vec![unsafe { HeapFieldFilter::new(*expr_node, expr_desc.clone()) }];
 
                 SearchQueryInput::HeapFilter {
                     indexed_query: search_query_input.clone(),
-                    field_filters,
+                    always_filters,
+                    recheck_filters: vec![],
+                    uses_tid_bitmap: false,
+                    bitmap_consumer_id: None,
+                    bitmap_cell: None,
                 }
             }
             Qual::And(quals) => {
@@ -2230,7 +2234,7 @@ mod tests {
                 description TEXT
             );
             CREATE INDEX exists_guard_test_idx ON exists_guard_test
-            USING bm25 (id, color, description) WITH (
+            USING paradedb (id, color, description) WITH (
                 key_field = 'id',
                 text_fields = '{
                     "color": {"tokenizer": {"type": "keyword"}, "fast": true},

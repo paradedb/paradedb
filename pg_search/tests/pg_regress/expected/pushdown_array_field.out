@@ -12,7 +12,7 @@ CREATE TABLE pushdown(
 INSERT INTO pushdown(description)
 VALUES (ARRAY['dog', 'cat', 'bird']), (ARRAY['fox', 'rabbit', 'squirrel']);
 -- Test with literal tokenizer (should pushdown)
-CREATE INDEX pushdown_idx ON pushdown USING bm25 (
+CREATE INDEX pushdown_idx ON pushdown USING paradedb (
     id, (description::pdb.literal)
 ) WITH (key_field = 'id');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -46,7 +46,7 @@ LIMIT 10;
 
 DROP INDEX pushdown_idx;
 -- Test with non-literal tokenizer (should NOT pushdown)
-CREATE INDEX pushdown_idx ON pushdown USING bm25 (
+CREATE INDEX pushdown_idx ON pushdown USING paradedb (
     id, description
 ) WITH (key_field = 'id');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -55,8 +55,8 @@ WHERE 'dog' = ANY(description)
 AND id @@@ pdb.all()
 ORDER BY id
 LIMIT 10;
-                                                                                                          QUERY PLAN                                                                                                          
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                          QUERY PLAN                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on pushdown
          Table: pushdown
@@ -65,7 +65,7 @@ LIMIT 10;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 10
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"heap_filter":"('dog'::text = ANY (description))"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"always_filters":[{"heap_filter":"('dog'::text = ANY (description))"}]}}]}}
 (9 rows)
 
 DROP TABLE pushdown;

@@ -21,7 +21,7 @@ SELECT
     (i % 5)::float4,
     (i % 5)::integer
 FROM generate_series(1, 100) i;
-CREATE INDEX numeric_pushdown_idx ON numeric_pushdown USING bm25 (
+CREATE INDEX numeric_pushdown_idx ON numeric_pushdown USING paradedb (
     id, text_col, numeric_col, float_col, int_col
 ) WITH (key_field = 'id');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -101,8 +101,8 @@ SELECT * FROM numeric_pushdown
 WHERE id @@@ paradedb.all()
 AND numeric_col::int > 1
 ORDER BY id LIMIT 10;
-                                                                                               QUERY PLAN                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on numeric_pushdown
          Table: numeric_pushdown
@@ -112,7 +112,7 @@ ORDER BY id LIMIT 10;
             TopK Order By: id asc
             TopK Limit: 10
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"heap_filter":"((numeric_col)::integer > 1)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"((numeric_col)::integer > 1)"}]}}]}}
 (10 rows)
 
 SELECT * FROM numeric_pushdown
@@ -198,7 +198,7 @@ INSERT INTO json_numeric_types (data) VALUES
     ('{"num": 150}'::jsonb),
     ('{"num": 200}'::jsonb);
 CREATE INDEX json_numeric_idx ON json_numeric_types
-    USING bm25 (id, data)
+    USING paradedb (id, data)
     WITH (key_field = 'id');
 -- ============================================================================
 -- SECTION A: EQUALITY (=) OPERATOR
@@ -378,8 +378,8 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric > 1000
 ORDER BY id;
-                                                                                                           QUERY PLAN                                                                                                            
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on json_numeric_types
@@ -388,7 +388,7 @@ ORDER BY id;
          Exec Method: NormalScanExecState
          Scores: false
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"heap_filter":"(((data ->> 'num'::text))::numeric > '1000'::numeric)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(((data ->> 'num'::text))::numeric > '1000'::numeric)"}]}}]}}
 (9 rows)
 
 SELECT id, data->>'num' as value
@@ -775,8 +775,8 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 0 AND 100
 ORDER BY id;
-                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on json_numeric_types
@@ -785,7 +785,7 @@ ORDER BY id;
          Exec Method: NormalScanExecState
          Scores: false
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"heap_filter":"(((data ->> 'num'::text))::numeric >= '0'::numeric)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"heap_filter":"(((data ->> 'num'::text))::numeric <= '100'::numeric)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(((data ->> 'num'::text))::numeric >= '0'::numeric)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(((data ->> 'num'::text))::numeric <= '100'::numeric)"}]}}]}}
 (9 rows)
 
 SELECT id, data->>'num' as value
@@ -1285,7 +1285,7 @@ INSERT INTO json_fast_field_test (data) VALUES
     ('{"value": 9007199254740993}'),    -- 2^53 + 1 (precision loss in F64)
     ('{"value": 9007199254740994}');    -- 2^53 + 2
 CREATE INDEX json_fast_idx ON json_fast_field_test
-USING bm25 (id, data)
+USING paradedb (id, data)
 WITH (key_field = 'id', text_fields = '{}', json_fields = '{"data": {"fast": true}}');
 -- ============================================================================
 -- SECTION K: Comparison of NUMERIC vs FLOAT8 pushdown on JSON fast fields
@@ -1447,7 +1447,7 @@ INSERT INTO json_scientific_test (data) VALUES
     ('{"value": 1e-1}'),          -- 0.1 (float)
     ('{"value": 9.99e2}');        -- 999 (float)
 CREATE INDEX json_sci_idx ON json_scientific_test
-USING bm25 (id, data)
+USING paradedb (id, data)
 WITH (key_field = 'id', text_fields = '{}', json_fields = '{"data": {"fast": true}}');
 -- Test M1a: Query using scientific notation constant (integer result)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -1601,7 +1601,7 @@ INSERT INTO numeric_scientific_test (value) VALUES
     (1e-1),          -- 0.1
     (9.99e2);        -- 999
 CREATE INDEX numeric_sci_idx ON numeric_scientific_test
-USING bm25 (id, value)
+USING paradedb (id, value)
 WITH (key_field = 'id');
 -- Test N1: Exact match with scientific notation constant
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

@@ -39,7 +39,7 @@ CREATE TABLE pages (
     FOREIGN KEY (fileId) REFERENCES files(id)
 );
 -- Create BM25 indexes with fast fields
-CREATE INDEX documents_search ON documents USING bm25 (
+CREATE INDEX documents_search ON documents USING paradedb (
     id,
     title,
     parents,
@@ -48,7 +48,7 @@ CREATE INDEX documents_search ON documents USING bm25 (
     key_field = 'id',
     text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
-CREATE INDEX files_search ON files USING bm25 (
+CREATE INDEX files_search ON files USING paradedb (
     id,
     documentId,
     title,
@@ -58,7 +58,7 @@ CREATE INDEX files_search ON files USING bm25 (
     key_field = 'id',
     text_fields = '{"documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
-CREATE INDEX pages_search ON pages USING bm25 (
+CREATE INDEX pages_search ON pages USING paradedb (
     id,
     fileId,
     content,
@@ -102,8 +102,8 @@ SELECT d.id, d.title,
 FROM documents d
 WHERE d.parents @@@ 'Factures'
 ORDER BY d.id;
-                                                                                                                                     QUERY PLAN                                                                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                      QUERY PLAN                                                                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: d.id, d.title, ((SubPlan 1))
    Sort Key: d.id
@@ -119,7 +119,7 @@ ORDER BY d.id;
            ->  Custom Scan (ParadeDB Aggregate Scan) on public.files f
                  Output: pdb.agg_fn('COUNT(*)'::text)
                  Index: files_search
-                 Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(documentid = $1)"}]}}]}}
+                 Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(documentid = $1)"}]}}]}}
                    Applies to Aggregates: COUNT(*)
                    Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (18 rows)

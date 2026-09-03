@@ -1,7 +1,7 @@
 ---
 title: Run Queries
 description: Run your first queries on ParadeDB
-canonical: https://docs.paradedb.com/documentation/getting-started/queries
+canonical: https://www.paradedb.com/docs/documentation/getting-started/queries
 ---
 
 Now that your [environment is configured](/documentation/getting-started/environment), select the codetab for your tool and run some queries.
@@ -296,23 +296,81 @@ LIMIT 5;
 ```
 
 ```ts Drizzle
-// Vector search support for Drizzle is coming very soon.
+import { and, gt } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+const queryEmbedding = [1, 2, 3, 4, 5, 6, 7, 8];
+
+await db
+  .select({
+    description: mockItems.description,
+    embedding: mockItems.embedding,
+  })
+  .from(mockItems)
+  .where(
+    and(
+      search.matchAny(mockItems.description, "running shoes"),
+      gt(mockItems.rating, 2),
+    ),
+  )
+  .orderBy(search.cosineDistance(mockItems.embedding, queryEmbedding))
+  .limit(5);
 ```
 
 ```python Django
-# Vector search support for Django is coming very soon.
+from paradedb import MatchAny, ParadeDB
+from paradedb.vector import CosineDistance
+
+query_embedding = [1, 2, 3, 4, 5, 6, 7, 8]
+
+MockItem.objects.filter(
+    description=ParadeDB(MatchAny('running shoes')),
+    rating__gt=2
+).order_by(
+    CosineDistance('embedding', query_embedding)
+).values('description', 'embedding')[:5]
 ```
 
 ```python SQLAlchemy
-# Vector search support for SQLAlchemy is coming very soon.
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search, vector
+
+query_embedding = [1, 2, 3, 4, 5, 6, 7, 8]
+
+stmt = (
+    select(MockItem.description, MockItem.embedding)
+    .where(search.match_any(MockItem.description, "running shoes"), MockItem.rating > 2)
+    .order_by(vector.cosine_distance(MockItem.embedding, query_embedding))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
 ```
 
 ```ruby Rails
-# Vector search support for Rails is coming very soon.
+query_embedding = [1, 2, 3, 4, 5, 6, 7, 8]
+
+MockItem.search(:description)
+        .match_any("running shoes")
+        .where(rating: 3..)
+        .nearest(:embedding, query_embedding, metric: :cosine)
+        .select(:description, :embedding)
+        .limit(5)
 ```
 
 ```cs EF Core
-// Vector search support for EF Core is coming very soon.
+var queryEmbedding = new float[] { 1, 2, 3, 4, 5, 6, 7, 8 };
+
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchAny(item.Description, "running shoes") && item.Rating > 2
+    )
+    .OrderBy(item => EF.Functions.CosineDistance(item.Embedding, queryEmbedding))
+    .Select(item => new { item.Description, item.Embedding })
+    .Take(5)
+    .ToListAsync();
 ```
 
 </CodeGroup>
@@ -326,9 +384,7 @@ LIMIT 5;
 (3 rows)
 ```
 
-Because `embedding` is part of the same index as `description` and `rating`, the entire query (the full-text match, the rating filter,
-and the nearest-neighbor ordering) executes inside the ParadeDB index. ParadeDB is the only Postgres index that can do this — every other
-Postgres vector index is a standalone index that requires separate pre/post filtering, which hurts performance and recall.
+Because `embedding` is part of the same index as `description` and `rating`, the entire query (the full-text match, the rating filter, and the nearest-neighbor ordering) can execute in a single index scan. By comparison, pgvector and other Postgres vector indexes are standalone indexes that require separate pre- or post-filtering, which can significantly hurt performance and recall.
 
 ## Top K Ordering
 

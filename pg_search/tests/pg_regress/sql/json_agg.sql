@@ -25,7 +25,7 @@ INSERT INTO json_test (metadata_json) VALUES
 
 -- Create BM25 index with JSON field as fast field
 CREATE INDEX json_test_idx ON json_test
-USING bm25 (id, metadata_json)
+USING paradedb (id, metadata_json)
 WITH (
     key_field = 'id',
     json_fields = '{"metadata_json": {"indexed": true, "fast": true, "expand_dots": true}}'
@@ -89,7 +89,7 @@ SELECT * FROM paradedb.aggregate(
     index=>'json_test_idx',
     query=>paradedb.exists('metadata_json.value'),
     agg=>'{"buckets": { "terms": { "field": "metadata_json.value" }}}',
-    solve_mvcc=>true
+    visibility=>'transaction'
 ) ORDER BY 1;
 
 -- Test 5: JSON projection without filter (should still work)

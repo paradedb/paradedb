@@ -67,7 +67,7 @@ FROM generate_series(1, 10000) i;
 
 -- Create a search index with various field types
 CREATE INDEX records_search_idx ON records
-USING bm25 (
+USING paradedb (
     id, notes, flow_type, tenant_id, state, source_id, 
     is_active, metadata, value_range, time_period, created_at, updated_at, 
     tags, process_method, currency_code, recipient_id, 
@@ -97,8 +97,6 @@ USING bm25 (
 
 \echo '======== EXECUTION METHOD TESTS ========'
 \echo 'Tests to identify when TopKScanExecState vs NormalScanExecState is used'
-
--- TODO: Many queries won't get Top K due to https://github.com/paradedb/paradedb/issues/2688
 
 -- Test 1: Simple query with LIMIT (should use TopKScanExecState)
 \echo 'Test 1: Simple query with LIMIT (should use TopKScanExecState)'

@@ -15,7 +15,7 @@ INSERT INTO tokenizer_fast (t, t_long, metadata) VALUES
     ('hello', 'The big cat', '{"key": "The big cat", "value": 1}'),
     ('hello', 'the big cat', '{"key": "the big cat", "value": 3}'),
     ('world', 'Quick brown fox', '{"key": "Quick brown fox", "value": 2}');
-CREATE INDEX idxtokenizer_fast ON tokenizer_fast USING bm25 (
+CREATE INDEX idxtokenizer_fast ON tokenizer_fast USING paradedb (
     id,
     (t::pdb.literal),
     (t_long::pdb.literal_normalized('stopwords_language=English')),
@@ -150,7 +150,7 @@ SELECT metadata->>'key', COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GRO
 -- Order by JSON not supported
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY metadata->>'key', id LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: tokenizer_fast)
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: tokenizer_fast)
                                   QUERY PLAN                                  
 ------------------------------------------------------------------------------
  Limit
@@ -165,7 +165,7 @@ WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). 
 (9 rows)
 
 SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY metadata->>'key', id LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: tokenizer_fast)
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: tokenizer_fast)
  id |   t   |     t_long      |                metadata                
 ----+-------+-----------------+----------------------------------------
   3 | world | Quick brown fox | {"key": "Quick brown fox", "value": 2}

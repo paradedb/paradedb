@@ -15,10 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::ops::Bound;
 use std::sync::Arc;
 
-use arrow_schema::{DataType, SchemaRef, SortOptions, TimeUnit};
-use datafusion::common::{ScalarValue, SplitPoint};
+use arrow_schema::{SchemaRef, SortOptions};
+use datafusion::common::SplitPoint;
 use datafusion::physical_expr::{
     LexOrdering, PhysicalSortExpr, RangePartitioning as DataFusionRangePartitioning,
 };
@@ -43,11 +44,26 @@ pub struct RangePartitioning {
     pub split_points: Vec<PdbOwnedValue>,
 }
 
+/// The rows one partition holds: a half-open value range, and whether the NULLs are among them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PartitionRange {
+    pub lower: Bound<PdbOwnedValue>,
+    pub upper: Bound<PdbOwnedValue>,
+    pub includes_nulls: bool,
+}
+
 impl RangePartitioning {
+    /// The partition a row with a NULL partition field lands in. The kd-tree of a partitioned
+    /// build sends NULLs below every split, so its lowest partition is this one, and so is the
+    /// first partition of DataFusion's `NULLS FIRST` range ordering. Every consumer of the NULL
+    /// rule reads it from here.
+    pub const NULL_PARTITION: usize = 0;
+
     /// Returns the static boundary constraint for the given partition as a single RangeQuery.
     ///
     /// **Consumer Caveats**:
-    /// - A row whose partition field is NULL will be deterministically routed to partition 0.
+    /// - A row whose partition field is NULL will be deterministically routed to
+    ///   [`Self::NULL_PARTITION`].
     /// - A multi-valued field can fall into multiple partition ranges and duplicate the row. This is statically prevented during index configuration for `partition_by` columns.
     pub fn partition_bounds(&self, partition: usize) -> SearchQueryInput {
         if self.split_points.is_empty() {
@@ -90,8 +106,7 @@ impl RangePartitioning {
             }
         };
 
-        // NULLs fall into partition 0
-        if partition == 0 {
+        if partition == Self::NULL_PARTITION {
             let null_query = SearchQueryInput::Boolean {
                 must: vec![],
                 should: vec![],
@@ -117,6 +132,32 @@ impl RangePartitioning {
         }
     }
 
+    /// The rows of `partition`, or `None` when the partition is not a range: no split points
+    /// at all (every row), or a NULL upper split (no row). The same rows
+    /// [`Self::partition_bounds`] selects.
+    pub fn partition_range(&self, partition: usize) -> Option<PartitionRange> {
+        if self.split_points.is_empty() {
+            return None;
+        }
+        let lower = match partition
+            .checked_sub(1)
+            .and_then(|i| self.split_points.get(i))
+        {
+            None | Some(PdbOwnedValue::Null) => Bound::Unbounded,
+            Some(val) => Bound::Included(val.clone()),
+        };
+        let upper = match self.split_points.get(partition) {
+            Some(PdbOwnedValue::Null) => return None,
+            Some(val) => Bound::Excluded(val.clone()),
+            None => Bound::Unbounded,
+        };
+        Some(PartitionRange {
+            lower,
+            upper,
+            includes_nulls: partition == Self::NULL_PARTITION,
+        })
+    }
+
     /// Translates these boundaries into a DataFusion [`Partitioning::Range`] declaration
     /// over `schema`, so the planner can co-partition operators (e.g. joins) without a
     /// repartition or broadcast.
@@ -134,13 +175,15 @@ impl RangePartitioning {
             .split_points
             .iter()
             .map(|value| {
-                scalar_value_for(value, field.data_type()).map(|sv| SplitPoint::new(vec![sv]))
+                value
+                    .to_scalar(field.data_type())
+                    .map(|sv| SplitPoint::new(vec![sv]))
             })
             .collect::<Option<Vec<_>>>()?;
 
-        // `partition_bounds` routes NULLs to partition 0 and uses lower-inclusive,
-        // upper-exclusive interior ranges, which is exactly DataFusion's split-point
-        // convention under an ascending NULLS FIRST ordering.
+        // `partition_bounds` routes NULLs to `NULL_PARTITION`, the first one, and uses
+        // lower-inclusive, upper-exclusive interior ranges, which is exactly DataFusion's
+        // split-point convention under an ascending NULLS FIRST ordering.
         let sort_expr = PhysicalSortExpr {
             expr: Arc::new(Column::new(self.partition_by.as_ref(), col_idx)),
             options: SortOptions {
@@ -150,9 +193,9 @@ impl RangePartitioning {
         };
         let ordering = LexOrdering::new([sort_expr])?;
 
-        // `new` rather than `try_new`: a down-sampled distribution can legally repeat a
-        // split point, which produces an empty partition in both our execution model and
-        // DataFusion's, but fails `try_new`'s strict-ordering validation.
+        // `new` rather than `try_new`: a repeated split point produces an empty partition in
+        // both our execution model and DataFusion's, but fails `try_new`'s strict-ordering
+        // validation. The build never repeats a split point; the tolerance costs nothing.
         Some(Partitioning::Range(DataFusionRangePartitioning::new(
             ordering,
             split_points,
@@ -160,72 +203,45 @@ impl RangePartitioning {
     }
 }
 
-/// Converts a sampled fast-field value into the `ScalarValue` representation of the
-/// column's arrow type. Returns `None` for NULLs and for any value/type combination
-/// that has no exact representation, in which case the caller declines to declare
-/// range partitioning rather than declare it imprecisely.
-fn scalar_value_for(value: &PdbOwnedValue, data_type: &DataType) -> Option<ScalarValue> {
-    match (data_type, value) {
-        (DataType::Int64, PdbOwnedValue::I64(v)) => Some(ScalarValue::Int64(Some(*v))),
-        (DataType::UInt64, PdbOwnedValue::U64(v)) => Some(ScalarValue::UInt64(Some(*v))),
-        // The sampler reads through FFType, whose integer classification follows the
-        // physical tantivy column rather than the declared field type; accept the
-        // lossless cross-representations.
-        (DataType::Int64, PdbOwnedValue::U64(v)) if *v <= i64::MAX as u64 => {
-            Some(ScalarValue::Int64(Some(*v as i64)))
-        }
-        (DataType::UInt64, PdbOwnedValue::I64(v)) if *v >= 0 => {
-            Some(ScalarValue::UInt64(Some(*v as u64)))
-        }
-        (DataType::Float64, PdbOwnedValue::F64(v)) => Some(ScalarValue::Float64(Some(*v))),
-        (DataType::Boolean, PdbOwnedValue::Bool(v)) => Some(ScalarValue::Boolean(Some(*v))),
-        (DataType::Utf8View, PdbOwnedValue::Str(v)) => Some(ScalarValue::Utf8View(Some(v.clone()))),
-        // Datetime fields use v2 storage: i64 microseconds.
-        (DataType::Timestamp(TimeUnit::Microsecond, None), PdbOwnedValue::I64(v)) => {
-            Some(ScalarValue::TimestampMicrosecond(Some(*v), None))
-        }
-        _ => None,
-    }
-}
-
-/// A representation of the raw partition split points for range partitioning.
-/// Rather than directly instantiating a static `RangePartitioning` with these
-/// points, this sample is kept so that `TaskEstimator`s and distributed execution
-/// engines can ask for exactly their preferred number of partitions at runtime.
+/// The split points a partitioned build stamped on an index's segments, kept as raw points
+/// rather than a static `RangePartitioning`, so that `TaskEstimator`s and distributed
+/// execution engines can ask for their preferred number of partitions at runtime.
 ///
-/// **Precondition**: `sample_points` must be sorted ascending, otherwise the generated
+/// **Precondition**: `points` must be sorted ascending, otherwise the generated
 /// boundaries will produce overlapping or gapped ranges that silently drop or duplicate rows.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct RangePartitioningSample {
+pub struct RangeSplitPoints {
     /// The index field used to define the boundaries.
     pub partition_by: FieldName,
-    /// A sample of values from the data space. This sample is typically much larger
-    /// than the target number of partitions, allowing us to safely down-sample to compute
-    /// relatively uniform distribution boundaries.
-    pub sample_points: Vec<PdbOwnedValue>,
+    /// The points to cut on, sorted ascending: the edges of every box the build stamped, so a
+    /// partition cut on them lines up with the segments. Typically there are more than the
+    /// target number of partitions, so `build` can down-sample them evenly.
+    pub points: Vec<PdbOwnedValue>,
 }
 
-impl RangePartitioningSample {
-    /// Generates a concrete `RangePartitioning` bounding exactly `target_partitions`.
+impl RangeSplitPoints {
+    /// The partitions these points cut for a request of `target_partitions`: never more than
+    /// the points seat, so no partition is empty.
+    pub fn partitions_for(&self, target_partitions: usize) -> usize {
+        target_partitions.min(self.points.len() + 1).max(1)
+    }
+
+    /// Generates a concrete `RangePartitioning` bounding exactly
+    /// `self.partitions_for(target_partitions)` partitions.
     ///
-    /// If `target_partitions` is smaller than the sample's inherent size, the
-    /// sample points are evenly down-sampled (effectively merging contiguous partitions).
-    /// To avoid scheduling unnecessary tasks scanning empty ranges, `target_partitions`
-    /// is capped at `sample_points.len() + 1`.
+    /// If `target_partitions` is smaller than the points seat, the points are evenly
+    /// down-sampled (effectively merging contiguous partitions).
     pub fn build(&self, target_partitions: usize) -> RangePartitioning {
+        let points = &self.points;
         debug_assert!(
-            self.sample_points.windows(2).all(|w| w[0] <= w[1]),
-            "RangePartitioningSample requires sample_points to be sorted ascending"
+            points
+                .windows(2)
+                .all(|w| w[0].total_cmp(&w[1]) != std::cmp::Ordering::Greater),
+            "RangeSplitPoints requires its points to be sorted ascending"
         );
 
-        let num_samples = self.sample_points.len();
-
-        // Cap target_partitions to avoid scheduling unnecessary empty ranges
-        let actual_partitions = if target_partitions > num_samples + 1 {
-            num_samples + 1
-        } else {
-            target_partitions
-        };
+        let num_points = points.len();
+        let actual_partitions = self.partitions_for(target_partitions);
 
         if actual_partitions <= 1 {
             return RangePartitioning {
@@ -238,8 +254,8 @@ impl RangePartitioningSample {
 
         // Down-sample evenly. We want `actual_partitions - 1` split points.
         for i in 1..actual_partitions {
-            let split_idx = (i * num_samples) / actual_partitions;
-            new_split_points.push(self.sample_points[split_idx].clone());
+            let split_idx = (i * num_points) / actual_partitions;
+            new_split_points.push(points[split_idx].clone());
         }
 
         RangePartitioning {

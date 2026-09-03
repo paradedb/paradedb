@@ -1,7 +1,7 @@
 ---
 title: Relevance Tuning
 description: Tune the BM25 score by adjusting the weights of individual queries
-canonical: https://docs.paradedb.com/documentation/sorting/boost
+canonical: https://www.paradedb.com/docs/documentation/sorting/boost
 ---
 
 ## Boosting
@@ -68,7 +68,7 @@ stmt = (
     )
     .where(
         or_(
-            search.match_any(MockItem.description, "shoes", boost=2.0),
+            search.match_any(MockItem.description, search.boost("shoes", 2.0)),
             search.match_any(MockItem.category, "footwear"),
         )
     )
@@ -82,7 +82,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .match_any("shoes", boost: 2)
+        .match_any(ParadeDB.boost("shoes", 2))
         .or(MockItem.search(:category).match_any("footwear"))
         .with_score
         .select(:id, :description, :category)
@@ -162,7 +162,7 @@ stmt = (
         MockItem.category,
         pdb.score(MockItem.id).label("score"),
     )
-    .where(search.regex(MockItem.description, "key.*", boost=2.0))
+    .where(search.boost(search.regex(MockItem.description, "key.*"), 2.0))
     .order_by(desc("score"))
     .limit(5)
 )
@@ -173,7 +173,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .regex("key.*", boost: 2)
+        .regex(ParadeDB.boost("key.*", 2))
         .with_score
         .select(:id, :description, :category)
         .order(search_score: :desc)
@@ -254,7 +254,7 @@ stmt = (
         MockItem.category,
         pdb.score(MockItem.id).label("score"),
     )
-    .where(search.match_any(MockItem.description, "shose", distance=2, boost=2.0))
+    .where(search.match_any(MockItem.description, search.boost(search.fuzzy("shose", 2), 2.0)))
     .order_by(desc("score"))
     .limit(5)
 )
@@ -265,7 +265,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .match_any("shose", distance: 2, boost: 2)
+        .match_any(ParadeDB.boost(ParadeDB.fuzzy("shose", 2), 2))
         .with_score
         .select(:id, :description, :category)
         .order(search_score: :desc)
@@ -346,7 +346,7 @@ stmt = (
         MockItem.description,
         MockItem.category,
     )
-    .where(search.match_any(MockItem.description, "shoes", const=1.0))
+    .where(search.match_any(MockItem.description, search.constant("shoes", 1.0)))
     .order_by(desc("score"))
     .limit(5)
 )
@@ -357,7 +357,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .match_any("shoes", constant_score: 1)
+        .match_any(ParadeDB.constant("shoes", 1))
         .with_score
         .select(:id, :description, :category)
         .order(search_score: :desc)

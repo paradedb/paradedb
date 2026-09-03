@@ -25,18 +25,36 @@ use std::num::NonZeroUsize;
 use tantivy::aggregation::DEFAULT_BUCKET_LIMIT;
 
 use crate::postgres::options::MAX_MUTABLE_SEGMENT_ROWS;
+use crate::postgres::options::MAX_TARGET_SEGMENT_COUNT;
+
+#[derive(pgrx::PostgresGucEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum PlannerWarnings {
+    Off,
+    #[default]
+    Warning,
+    Error,
+}
 
 /// Allows the user to toggle the use of our "ParadeDB Base Scan".
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Allows the user to toggle bitmap intersection with non-ParadeDB indexes.
+static ENABLE_BITMAP_INTERSECTION: GucSetting<bool> = GucSetting::<bool>::new(true);
+
 /// Allows the user to toggle the use of our "ParadeDB Aggregate Scan".
 static ENABLE_AGGREGATE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-/// Validate aggregate scan eligibility
-static CHECK_AGGREGATE_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
+/// Controls the behavior of ParadeDB planner warnings when an optimized scan cannot be used
+static PLANNER_WARNINGS: GucSetting<PlannerWarnings> =
+    GucSetting::<PlannerWarnings>::new(PlannerWarnings::Warning);
 
 /// Allows the user to toggle the use of our "ParadeDB Join Scan".
 static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// Allows the user to toggle range co-partitioning for joins.
+static ENABLE_RANGE_PARTITIONED_JOIN: GucSetting<bool> = GucSetting::<bool>::new(false);
+
+static ENABLE_AGGREGATE_LATE_MATERIALIZATION: GucSetting<bool> = GucSetting::<bool>::new(false);
 
 /// Allows the user to toggle the use of the custom scan without use of the `@@@` operator. The
 /// default is `false`.
@@ -63,6 +81,13 @@ static MAX_TOPK_CHUNK_SIZE: GucSetting<i32> = GucSetting::<i32>::new(100_000);
 
 /// The maximum number of buckets that can be returned by a TermsAggregation
 static MAX_TERM_AGG_BUCKETS: GucSetting<i32> = GucSetting::<i32>::new(DEFAULT_BUCKET_LIMIT as i32);
+
+/// Estimated matching row count below which `visibility => 'threshold'` applies
+/// transaction visibility checking. At or above it, the aggregate reads raw index
+/// data. Small result sets are where an unvacuumed dead tuple visibly skews the
+/// answer, so those keep the checks; large ones trade a negligible error margin
+/// for the scan.
+static VISIBILITY_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(10_000);
 
 /// The maximum response size in bytes for a window aggregate.
 static MAX_WINDOW_AGGREGATE_RESPONSE_BYTES: GucSetting<i32> = GucSetting::<i32>::new(1_048_576);
@@ -100,9 +125,6 @@ static GLOBAL_ENABLE_BACKGROUND_MERGING: GucSetting<bool> = GucSetting::<bool>::
 static GLOBAL_MUTABLE_SEGMENT_ROWS: GucSetting<i32> = GucSetting::<i32>::new(-1);
 static EXPLAIN_RECURSIVE_ESTIMATES: GucSetting<bool> = GucSetting::<bool>::new(false);
 
-/// Validate Top K scan eligibility for LIMIT queries
-static CHECK_TOPK_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
-
 /// When true, queries with expensive scorer construction (fuzzy, regex, range)
 /// use a cheap heuristic for selectivity estimation instead of building a full Tantivy scorer.
 static ENABLE_HEURISTIC_SELECTIVITY: GucSetting<bool> = GucSetting::<bool>::new(true);
@@ -134,6 +156,9 @@ static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// the Postgres server log (and in CI benchmark logs). When off, `mpp_log!()` is a no-op.
 static MPP_DEBUG: GucSetting<bool> = GucSetting::<bool>::new(false);
 
+#[cfg(debug_assertions)]
+static MPP_TEST_PANIC_IN_WORKER: GucSetting<bool> = GucSetting::<bool>::new(false);
+
 /// Dedicated diagnostic GUC for per-shuffle EOF row counts. These lines emit concurrently
 /// from every participant and can reorder between runs, so they're kept off `mpp_debug` to
 /// avoid flaking regress expected files. Turn this on in long-running benchmark queries to
@@ -141,6 +166,24 @@ static MPP_DEBUG: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// logs). When off, the same call sites route through `debug1!()` — still reachable via
 /// `SET log_min_messages = DEBUG1` but invisible to CI's default WARNING capture.
 static MPP_TRACE: GucSetting<bool> = GucSetting::<bool>::new(false);
+
+/// Minimum estimated row count in the scan's largest source for MPP to engage. The launch
+/// (worker spawn, plan dispatch, per-worker index opens) costs tens of milliseconds; below
+/// this size a serial plan finishes in the same order, so the query stays serial. Each
+/// source counts the rows its predicate is estimated to match (its live document count when
+/// unanalyzed). The benchmark grid loses across the board at 100k matched rows and wins
+/// from 1m up; the default sits between.
+///
+/// The default is a measurement, not a constant: it tracks the MPP-vs-serial crossover,
+/// which moves whenever MPP's per-query economics move. Recalibrate it when the launch
+/// floor shrinks, and when the distributed plan closes a capability gap against the serial
+/// plan. The known open gap is dynamic filters across process boundaries: within one
+/// process a join's build side prunes the probe scan, but a filter never crosses the mesh,
+/// so selective joins pay a penalty under MPP that inflates the serial side of the
+/// crossover. To recompute: run the benchmark suite's join queries (serial vs the MPP
+/// alternatives) across the dataset scales and set the default between the largest losing
+/// scale and the smallest winning one.
+static MPP_MIN_ROWS: GucSetting<i32> = GucSetting::<i32>::new(500_000);
 
 /// Per-inbox ring size in bytes. Each MPP query lays out one MPSC inbox per proc
 /// (leader plus workers), so the mesh region is about `N × mpp_queue_size`, and
@@ -156,6 +199,13 @@ static MPP_TRACE: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// changes shape, the right user knob is more likely a per-query DSM cap than
 /// a raw per-inbox byte count.
 static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(8 * 1024 * 1024);
+
+/// Longest a worker fragment waits for its next partition-execution request with none
+/// of its partitions running. Consumers issue every request while building their
+/// streams, so the wait is normally over in milliseconds; a stall this long means a
+/// consumer stopped requesting and the fragment (and the leader waiting on it) would
+/// otherwise wait forever. `0` disables the guard.
+static MPP_REQUEST_TIMEOUT: GucSetting<i32> = GucSetting::<i32>::new(300);
 
 /// The maximum size of an InList that can be pushed down to a TermSet Query.
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
@@ -216,6 +266,16 @@ pub fn vector_cluster_max_probe() -> f32 {
     VECTOR_CLUSTER_MAX_PROBE.get() as f32
 }
 
+/// Fixed per-probe cost — the IVF cluster OPEN — in rows of full work.
+/// Testing knob for calibrating the probe-budget work model; defaults to
+/// the fitted value in tantivy.
+static VECTOR_FIXED_PROBE_COST_ROWS: GucSetting<f64> =
+    GucSetting::<f64>::new(tantivy::vector::DEFAULT_FIXED_PROBE_COST_ROWS);
+
+pub fn vector_fixed_probe_cost_rows() -> f64 {
+    VECTOR_FIXED_PROBE_COST_ROWS.get()
+}
+
 /// Doc-count boundary at which a merged segment's vector storage switches
 /// from flat (exact scan) to IVF (clustered). Captured into the index's
 /// stored `IndexSettings` at CREATE INDEX time, so it applies to every merge
@@ -256,12 +316,21 @@ pub fn init() {
     );
 
     GucRegistry::define_bool_guc(
-        c"paradedb.check_aggregate_scan",
-        c"Validate Aggregate scan eligibility",
-        c"When enabled, logs a warning if a query expected to use the aggregate scan cannot. \
-          This helps detect performance issues during development where queries expected \
-          to use the aggregate scan fall back to slower execution methods.",
-        &CHECK_AGGREGATE_SCAN,
+        c"paradedb.enable_bitmap_intersection",
+        c"Enable intersecting ParadeDB scans with bitmaps from other indexes",
+        c"When enabled (default), a ParadeDB scan whose query carries heap-filter predicates covered by another index (btree, GiST, GIN) builds that index's bitmap and prunes documents against it before touching the heap.",
+        &ENABLE_BITMAP_INTERSECTION,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_enum_guc(
+        c"paradedb.planner_warnings",
+        c"Controls the behavior of ParadeDB planner warnings when an optimized scan cannot be used",
+        c"When set to 'warning' (default), logs a warning if a query expected to use an optimized \
+          scan (BaseScan / Top K, AggregateScan, or JoinScan) cannot. When set to 'error', raises \
+          an error instead. When set to 'off', suppresses checks and warnings.",
+        &PLANNER_WARNINGS,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -271,6 +340,24 @@ pub fn init() {
         c"Enable ParadeDB's join custom scan",
         c"Enable ParadeDB's join custom scan, which pushes eligible joins down into the ParadeDB executor. Default is true.",
         &ENABLE_JOIN_CUSTOM_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_range_partitioned_join",
+        c"Allows the user to enable or disable range co-partitioned joins",
+        c"When enabled, DataFusion optimizer rules co-partition inner joins across tables on the split points a partitioned build recorded. Both tables must define partition_by on the join key. An index created empty records no split points until it is reindexed. Default is false.",
+        &ENABLE_RANGE_PARTITIONED_JOIN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_aggregate_late_materialization",
+        c"Defer visibility checks above aggregate-on-join plans",
+        c"When enabled, an aggregate over a join may defer a source's visibility check to a VisibilityFilter below the aggregate instead of checking eagerly in the scan. Off until selective late materialization can decide when deferral pays. Default is false.",
+        &ENABLE_AGGREGATE_LATE_MATERIALIZATION,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -390,6 +477,17 @@ pub fn init() {
     );
 
     GucRegistry::define_int_guc(
+        c"paradedb.visibility_threshold",
+        c"Estimated matching row count below which `visibility => 'threshold'` applies transaction visibility checking",
+        c"An aggregate using `visibility => 'threshold'` applies MVCC visibility checking when the query's estimated matching row count is strictly less than this, and reads raw index data otherwise. Has no effect on `visibility => 'transaction'` or `visibility => 'raw'`.",
+        &VISIBILITY_THRESHOLD,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
         c"paradedb.max_window_aggregate_response_bytes",
         c"Maximum response size in bytes for a window aggregate.",
         c"The maximum response size in bytes for a window aggregate during a parallel scan. If this is exceeded, the query will be cancelled.",
@@ -406,7 +504,7 @@ pub fn init() {
         c"Setting this to a non-zero value ignores the `target_segment_count` property on all indexes in favor of this value",
         &GLOBAL_TARGET_SEGMENT_COUNT,
         0,
-        8192,
+        MAX_TARGET_SEGMENT_COUNT,
         GucContext::Sighup,
         GucFlags::default(),
     );
@@ -440,6 +538,17 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_fixed_probe_cost_rows",
+        c"Fixed per-probe cost (the cluster OPEN) in rows of full work, for the IVF probe budget (testing knob)",
+        c"How many rows of full work the fixed component of an IVF probe - opening the cluster - is modeled to cost in the probe-budget work model. Runtime-settable for testing and calibration only; the default is the value fitted on the reference fixture.",
+        &VECTOR_FIXED_PROBE_COST_ROWS,
+        0.001,
+        10_000.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     GucRegistry::define_int_guc(
         c"paradedb.vector_clustering_threshold",
         c"Doc-count boundary at which merged segments switch from flat to IVF vector storage",
@@ -467,17 +576,6 @@ pub fn init() {
         c"for testing, ensures the same handling of null aggregates as Postgres",
         c"Meant for internal testing usage",
         &ADD_DOC_COUNT_TO_AGGS,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
-    GucRegistry::define_bool_guc(
-        c"paradedb.check_topk_scan",
-        c"Validate Top K scan eligibility for LIMIT queries",
-        c"When enabled, logs a warning if a query with LIMIT cannot use the Top K scan. \
-          This helps detect performance issues during development where queries expected \
-          to use the Top K optimization fall back to slower execution methods.",
-        &CHECK_TOPK_SCAN,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -596,6 +694,16 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    #[cfg(debug_assertions)]
+    GucRegistry::define_bool_guc(
+        c"paradedb.mpp_test_panic_in_worker",
+        c"Trigger a panic in the MPP worker",
+        c"Used for testing error propagation.",
+        &MPP_TEST_PANIC_IN_WORKER,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     GucRegistry::define_bool_guc(
         c"paradedb.mpp_trace",
         c"Emit MPP setup timing at WARNING level",
@@ -605,6 +713,20 @@ pub fn init() {
           and can reorder run-to-run, so they're kept off `mpp_debug` to avoid flaking \
           regress expected files. Default is false.",
         &MPP_TRACE,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.mpp_min_rows",
+        c"Minimum estimated source row count for MPP",
+        c"MPP engages only when the scan's largest source is estimated to match at least \
+          this many rows (its live document count when the table is unanalyzed); smaller \
+          queries run serially, where the launch cost would dominate. Set to 0 to disable \
+          the size gate.",
+        &MPP_MIN_ROWS,
+        0,
+        i32::MAX,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -625,6 +747,22 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::UNIT_BYTE,
     );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.mpp_request_timeout",
+        c"Longest an MPP worker fragment waits for its next partition request",
+        c"Bounds how long an MPP worker fragment waits for the next partition-execution \
+          request while none of its partitions are running. Consumers issue every \
+          request while building their streams, so the wait is normally over in \
+          milliseconds; a stall this long means a consumer stopped requesting and the \
+          query would otherwise hang. Accepts standard Postgres time units. 0 disables \
+          the guard.",
+        &MPP_REQUEST_TIMEOUT,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::UNIT_S,
+    );
 }
 
 pub fn enable_custom_scan() -> bool {
@@ -635,12 +773,24 @@ pub fn enable_aggregate_custom_scan() -> bool {
     ENABLE_AGGREGATE_CUSTOM_SCAN.get()
 }
 
-pub fn check_aggregate_scan() -> bool {
-    CHECK_AGGREGATE_SCAN.get()
+pub fn enable_bitmap_intersection() -> bool {
+    ENABLE_BITMAP_INTERSECTION.get()
+}
+
+pub fn planner_warnings() -> PlannerWarnings {
+    PLANNER_WARNINGS.get()
 }
 
 pub fn enable_join_custom_scan() -> bool {
     ENABLE_JOIN_CUSTOM_SCAN.get()
+}
+
+pub fn enable_range_partitioned_join() -> bool {
+    ENABLE_RANGE_PARTITIONED_JOIN.get()
+}
+
+pub fn enable_aggregate_late_materialization() -> bool {
+    ENABLE_AGGREGATE_LATE_MATERIALIZATION.get()
 }
 
 pub fn enable_custom_scan_without_operator() -> bool {
@@ -688,7 +838,7 @@ pub fn global_enable_background_merging() -> bool {
 }
 
 // NB:  MEMORY_BUDGET_NUM_BYTES_MIN comes from [`tantivy::index_writer::MEMORY_BUDGET_NUM_BYTES_MIN`], which is not publicly exposed
-mod limits {
+pub(crate) mod limits {
     const MARGIN_IN_BYTES: usize = 1_000_000;
     // Size of the margin for the `memory_arena`. A segment is closed when the remaining memory
     // in the `memory_arena` goes below MARGIN_IN_BYTES.
@@ -765,6 +915,10 @@ pub fn expensive_query_cost_factor() -> f64 {
     EXPENSIVE_QUERY_COST_FACTOR.get()
 }
 
+pub fn visibility_threshold() -> u64 {
+    VISIBILITY_THRESHOLD.get().max(0) as u64
+}
+
 pub fn max_term_agg_buckets() -> i32 {
     let v = MAX_TERM_AGG_BUCKETS.get();
     if v <= 0 {
@@ -794,10 +948,6 @@ pub fn explain_recursive_estimates() -> bool {
     EXPLAIN_RECURSIVE_ESTIMATES.get()
 }
 
-pub fn check_topk_scan() -> bool {
-    CHECK_TOPK_SCAN.get()
-}
-
 pub fn enable_heuristic_selectivity() -> bool {
     ENABLE_HEURISTIC_SELECTIVITY.get()
 }
@@ -822,12 +972,25 @@ pub fn mpp_debug() -> bool {
     MPP_DEBUG.get()
 }
 
+#[cfg(debug_assertions)]
+pub fn mpp_test_panic_in_worker() -> bool {
+    MPP_TEST_PANIC_IN_WORKER.get()
+}
+
 pub fn mpp_trace() -> bool {
     MPP_TRACE.get()
 }
 
+pub fn mpp_min_rows() -> i32 {
+    MPP_MIN_ROWS.get()
+}
+
 pub fn mpp_queue_size() -> usize {
     MPP_QUEUE_SIZE.get() as usize
+}
+
+pub fn mpp_request_timeout_secs() -> i32 {
+    MPP_REQUEST_TIMEOUT.get()
 }
 
 pub fn hash_join_inlist_pushdown_max_size() -> i32 {
@@ -960,7 +1123,7 @@ mod tests {
         // global override
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
         Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
-        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id', mutable_segment_rows = 500)").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING paradedb (id, data) WITH (key_field = 'id', mutable_segment_rows = 500)").unwrap();
         let relation_oid: pg_sys::Oid =
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
                 .expect("spi should succeed")

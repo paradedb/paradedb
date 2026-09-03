@@ -16,7 +16,7 @@ SELECT 'the quick brown fox jumps over the lazy dog', g % 10
 FROM generate_series(1, 5000) g;
 
 -- Create BM25 index only on id and body (extra is NOT indexed).
-CREATE INDEX hfv_idx ON hfv_test USING bm25 (id, body) WITH (key_field = 'id');
+CREATE INDEX hfv_idx ON hfv_test USING paradedb (id, body) WITH (key_field = 'id');
 
 -- Baseline: query with heap_filter predicate works before any deletes.
 SELECT count(*) FROM hfv_test WHERE body @@@ 'fox' AND extra = 5;

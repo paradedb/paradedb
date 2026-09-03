@@ -18,7 +18,7 @@ CREATE TABLE test_metadata_scale (
 
 -- Create BM25 index on pages
 CREATE INDEX test_pages_scale_idx ON test_pages_scale
-USING bm25 (id, content)
+USING paradedb (id, content)
 WITH (key_field = 'id');
 
 -- Insert larger dataset (10,000 rows to simulate scale)

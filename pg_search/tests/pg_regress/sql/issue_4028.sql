@@ -5,7 +5,7 @@ CREATE TABLE test (id serial PRIMARY KEY, description text);
 INSERT INTO test (description) VALUES ('Cloud Engagement Manager'),('cloud engineer'), ('Clōüd engineer'),('cloud Engineer'), ('Cloud engineer');
 
 CREATE INDEX test_bm25 ON test
-USING bm25 (
+USING paradedb (
 	id,
 	(lower(description)::pdb.literal_normalized('ascii_folding=true'))
 ) WITH (key_field = id);

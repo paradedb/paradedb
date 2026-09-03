@@ -1,3 +1,9 @@
+-- Issue #2688: `ORDER BY <range column>` is pushed into the index as a Top-N scan, ordered the
+-- way Postgres' `range_cmp` orders ranges. Exhaustive coverage lives in `order_by_range.sql`.
+--
+-- Several queries below have no tiebreaker, so rows that tie on the range sort key have an
+-- unspecified relative order; the expected output just records whatever the current
+-- implementation produces.
 DROP TABLE IF EXISTS data_records;
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
@@ -38,7 +44,7 @@ FROM generate_series(1, 20) i;
 
 DROP INDEX IF EXISTS records_no_fast_idx;
 CREATE INDEX records_no_fast_idx ON data_records
-USING bm25 (
+USING paradedb (
     id, title, category, price, in_stock, created_at, valid_period, quantity_range, tags
 ) WITH (
     key_field = 'id'

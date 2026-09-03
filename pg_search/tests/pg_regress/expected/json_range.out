@@ -13,7 +13,7 @@ INSERT INTO json_range_test (metadata) VALUES
     ('{"attributes": {"score": 4, "tstz": "2023-05-01T09:12:34Z"}}'),
     ('{"attributes": {"score": 5, "tstz": "2023-05-01T10:12:34Z"}}');
 CREATE INDEX json_range_test_idx ON json_range_test
-USING bm25 (id, metadata)
+USING paradedb (id, metadata)
 WITH (
     key_field = 'id',
     json_fields = '{"metadata": {"fast": true}}'

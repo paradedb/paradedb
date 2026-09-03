@@ -30,7 +30,7 @@ INSERT INTO logs (id, message, country, timestamp) VALUES
 
 CREATE INDEX logs_idx
 ON logs
-USING bm25 (id, message, country)
+USING paradedb (id, message, country)
 WITH (key_field = 'id', text_fields = '{"country": {"tokenizer": {"type": "keyword"} }}');
 
 

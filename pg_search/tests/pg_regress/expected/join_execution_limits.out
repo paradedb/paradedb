@@ -39,9 +39,9 @@ SELECT
     CASE WHEN i % 5 = 0 THEN 'wireless product order' ELSE 'regular product order' END
 FROM generate_series(1, 1000) i;
 -- Note: large_orders.supplier_id must be a fast field for the join key
-CREATE INDEX large_orders_bm25_idx ON large_orders USING bm25 (id, description, supplier_id)
+CREATE INDEX large_orders_bm25_idx ON large_orders USING paradedb (id, description, supplier_id)
 WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}}');
-CREATE INDEX large_suppliers_bm25_idx ON large_suppliers USING bm25 (id, name, country) WITH (key_field = 'id');
+CREATE INDEX large_suppliers_bm25_idx ON large_suppliers USING paradedb (id, name, country) WITH (key_field = 'id');
 -- This query may fall back to nested loop due to small work_mem
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT lo.id, lo.description, ls.name AS supplier_name
@@ -50,8 +50,8 @@ JOIN large_suppliers ls ON lo.supplier_id = ls.id
 WHERE lo.description @@@ 'wireless'
 ORDER BY lo.id
 LIMIT 10;
-                                                                                                   QUERY PLAN                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: lo.id, lo.description, ls.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -64,12 +64,13 @@ LIMIT 10;
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[ls, lo]
-           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, query="all"
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
+           :           CooperativeExec
+           :             PgSearchScan: table=ls, segments=1, query="all"
+           :           CooperativeExec
+           :             PgSearchScan: table=lo, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 SELECT lo.id, lo.description, ls.name AS supplier_name
 FROM large_orders lo
@@ -112,10 +113,10 @@ SELECT i,
 FROM generate_series(1, 500) AS i;
 -- Note: mem_test_products.supplier_id must be a fast field for the join key
 CREATE INDEX mem_test_products_bm25_idx ON mem_test_products 
-    USING bm25 (id, name, description, supplier_id)
+    USING paradedb (id, name, description, supplier_id)
     WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}}');
 CREATE INDEX mem_test_suppliers_bm25_idx ON mem_test_suppliers
-    USING bm25 (id, name, info) WITH (key_field = 'id');
+    USING paradedb (id, name, info) WITH (key_field = 'id');
 -- Run with constrained work_mem to test memory handling
 -- Note: 64 is the minimum work_mem in PostgreSQL (KB)
 SET work_mem = '64kB';
@@ -173,9 +174,9 @@ SELECT
     (i % 50) + 1
 FROM generate_series(1, 1000) AS i;
 -- Note: large_items.category_id must be a fast field for the join key
-CREATE INDEX large_items_bm25_idx ON large_items USING bm25 (id, name, content, category_id)
+CREATE INDEX large_items_bm25_idx ON large_items USING paradedb (id, name, content, category_id)
 WITH (key_field = 'id', numeric_fields = '{"category_id": {"fast": true}}');
-CREATE INDEX large_categories_bm25_idx ON large_categories USING bm25 (id, name, description) WITH (key_field = 'id');
+CREATE INDEX large_categories_bm25_idx ON large_categories USING paradedb (id, name, description) WITH (key_field = 'id');
 -- Query with larger LIMIT to test larger result sets
 SELECT COUNT(*) AS wireless_count
 FROM large_items li
@@ -228,9 +229,9 @@ INSERT INTO update_test_items (id, content, ref_id) VALUES
 (102, 'wired device beta', 2),
 (103, 'wireless device gamma', 3);
 -- Note: update_test_items.ref_id must be a fast field for the join key
-CREATE INDEX update_items_bm25_idx ON update_test_items USING bm25 (id, content, ref_id)
+CREATE INDEX update_items_bm25_idx ON update_test_items USING paradedb (id, content, ref_id)
 WITH (key_field = 'id', numeric_fields = '{"ref_id": {"fast": true}}');
-CREATE INDEX update_refs_bm25_idx ON update_test_refs USING bm25 (id, ref_name) WITH (key_field = 'id');
+CREATE INDEX update_refs_bm25_idx ON update_test_refs USING paradedb (id, ref_name) WITH (key_field = 'id');
 -- Initial query
 SELECT i.id, i.content, r.ref_name, i.version
 FROM update_test_items i
@@ -313,9 +314,9 @@ INSERT INTO tiny_products VALUES
 (102, 2, 'wired device beta'),
 (103, 1, 'wireless device gamma');
 -- Note: tiny_products.ref_id must be a fast field for the join key
-CREATE INDEX tiny_products_bm25_idx ON tiny_products USING bm25 (id, description, ref_id)
+CREATE INDEX tiny_products_bm25_idx ON tiny_products USING paradedb (id, description, ref_id)
 WITH (key_field = 'id', numeric_fields = '{"ref_id": {"fast": true}}');
-CREATE INDEX tiny_refs_bm25_idx ON tiny_refs USING bm25 (id, name) WITH (key_field = 'id');
+CREATE INDEX tiny_refs_bm25_idx ON tiny_refs USING paradedb (id, name) WITH (key_field = 'id');
 -- Query with very small build side - should work correctly regardless of algorithm
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT tp.id, tp.description, tr.name
@@ -324,8 +325,8 @@ JOIN tiny_refs tr ON tp.ref_id = tr.id
 WHERE tp.description @@@ 'wireless'
 ORDER BY tp.id
 LIMIT 10;
-                                                                                                   QUERY PLAN                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: tp.id, tp.description, tr.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -338,12 +339,13 @@ LIMIT 10;
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[tr, tp]
-           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ref_id@1, id@1)], projection=[ctid_0@3, ctid_1@0, id@2]
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(17 rows)
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ref_id@1, id@1)], projection=[ctid_0@3, ctid_1@0, id@2]
+           :           CooperativeExec
+           :             PgSearchScan: table=tp, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: table=tr, segments=1, dynamic_filters=1, query="all"
+(18 rows)
 
 SELECT tp.id, tp.description, tr.name
 FROM tiny_products tp
@@ -383,9 +385,9 @@ SELECT i, (i % 50) + 1,
     CASE WHEN i % 3 = 0 THEN 'wireless product' ELSE 'standard product' END
 FROM generate_series(1, 200) i;
 -- Note: hint_test_products.category_id must be a fast field for the join key
-CREATE INDEX hint_test_products_bm25_idx ON hint_test_products USING bm25 (id, description, category_id)
+CREATE INDEX hint_test_products_bm25_idx ON hint_test_products USING paradedb (id, description, category_id)
 WITH (key_field = 'id', numeric_fields = '{"category_id": {"fast": true}}');
-CREATE INDEX hint_test_categories_bm25_idx ON hint_test_categories USING bm25 (id, name) WITH (key_field = 'id');
+CREATE INDEX hint_test_categories_bm25_idx ON hint_test_categories USING paradedb (id, name) WITH (key_field = 'id');
 -- Query that exercises hash table with medium build side
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT hp.id, hp.description, hc.name AS category_name
@@ -394,8 +396,8 @@ JOIN hint_test_categories hc ON hp.category_id = hc.id
 WHERE hp.description @@@ 'wireless'
 ORDER BY hp.id
 LIMIT 20;
-                                                                                                   QUERY PLAN                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: hp.id, hp.description, hc.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -408,12 +410,13 @@ LIMIT 20;
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=20), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[hc, hp]
-           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, query="all"
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
+           :           CooperativeExec
+           :             PgSearchScan: table=hc, segments=1, query="all"
+           :           CooperativeExec
+           :             PgSearchScan: table=hp, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 SELECT hp.id, hp.description, hc.name AS category_name
 FROM hint_test_products hp

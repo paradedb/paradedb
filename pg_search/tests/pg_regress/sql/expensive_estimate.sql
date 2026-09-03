@@ -4,7 +4,7 @@
 
 \i common/common_setup.sql
 
-CALL paradedb.create_bm25_test_table(
+CALL paradedb.create_paradedb_test_table(
         schema_name => 'public',
         table_name => 'mock_items'
 );
@@ -16,7 +16,7 @@ VACUUM FULL mock_items;
 
 CREATE INDEX idx_mock_items
 ON mock_items
-    USING bm25 (id, description, rating, category, in_stock, created_at, weight_range)
+    USING paradedb (id, description, rating, category, in_stock, created_at, weight_range)
 WITH (key_field='id');
 
 ANALYZE mock_items;

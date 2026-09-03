@@ -16,9 +16,9 @@ CREATE TABLE pig_right (id serial PRIMARY KEY, left_id int);
 INSERT INTO pig_right (left_id) SELECT g FROM generate_series(1, 900) g;
 -- Partial index on the left table: only rows WHERE active. `active` is not indexed.
 CREATE INDEX pig_left_idx ON pig_left
-USING bm25 (id, category) WITH (key_field = 'id') WHERE active;
+USING paradedb (id, category) WITH (key_field = 'id') WHERE active;
 CREATE INDEX pig_right_idx ON pig_right
-USING bm25 (id, left_id) WITH (key_field = 'id');
+USING paradedb (id, left_id) WITH (key_field = 'id');
 SET paradedb.enable_aggregate_custom_scan TO on;
 -- Reports whether the plan for `q` uses a given ParadeDB custom scan, without
 -- capturing the full plan (whose fallback seq-scan embeds a non-deterministic
@@ -36,7 +36,7 @@ END $$ LANGUAGE plpgsql;
 SELECT plan_uses(
   $$SELECT count(*) FROM pig_left WHERE category @@@ 'a'$$,
   'ParadeDB Aggregate Scan') AS agg_when_predicate_missing;
-WARNING:  Aggregate Scan not used: query does not imply the partial index predicate. To disable this warning: SET paradedb.check_aggregate_scan = false (table: pig_left)
+WARNING:  Aggregate Scan not used: query does not imply the partial index predicate. To disable this warning: SET paradedb.planner_warnings = 'off' (table: pig_left)
  agg_when_predicate_missing 
 ----------------------------
  f

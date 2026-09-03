@@ -160,6 +160,25 @@ impl SearchFieldType {
         )
     }
 
+    /// Returns true if this field type is supported as a `top_hits.sort` key.
+    ///
+    /// Tantivy's `top_hits` sort accessor is built with numeric-or-date column types only
+    /// (`F64` / `U64` / `I64` / `DateTime`); a text-like or binary field falls back to an
+    /// empty accessor and every hit gets `"sort": [null]` with no ordering applied (see
+    /// issue #5710). Sortable types must therefore lower to one of those Arrow storage
+    /// types: `I64`, `U64`, `F64`, `Date`, and `Numeric64` (stored as scaled `Int64`) all
+    /// qualify. `NumericBytes` is excluded because it stores as `BinaryView`.
+    pub fn supports_top_hits_sort(&self) -> bool {
+        matches!(
+            self,
+            SearchFieldType::I64(_)
+                | SearchFieldType::U64(_)
+                | SearchFieldType::F64(_)
+                | SearchFieldType::Date(_)
+                | SearchFieldType::Numeric64(..)
+        )
+    }
+
     /// Returns the Arrow DataType used to store this field type in fast fields.
     ///
     /// Multiple SearchFieldType variants may map to the same Arrow storage type.
@@ -492,6 +511,23 @@ impl SearchIndexSchema {
             .get_field_type(&FieldName::from(name.as_ref()))
     }
 
+    /// The field type and declared scale of `name` when the column is NUMERIC,
+    /// else `None`. Legacy indexes that store NUMERIC as F64 land in the `None`
+    /// arm too: their column data really is `Float64`, so the native aggregates
+    /// apply.
+    ///
+    /// Callers use the variant to pick the storage-specific aggregate and the
+    /// scale to render results at the column's declared scale; `None` scale
+    /// means the column is an unbounded NUMERIC.
+    pub fn numeric_field_type(
+        &self,
+        name: impl AsRef<str>,
+    ) -> Option<(SearchFieldType, Option<i16>)> {
+        self.get_field_type(name)
+            .filter(SearchFieldType::is_numeric)
+            .map(|field_type| (field_type, field_type.numeric_scale()))
+    }
+
     pub fn search_field(&self, name: impl AsRef<str>) -> Option<SearchField> {
         let field_name = FieldName::from(name.as_ref());
         match self.schema.get_field(&field_name.root()) {
@@ -500,12 +536,14 @@ impl SearchIndexSchema {
         }
     }
 
-    /// Check if a field supports aggregate pushdown.
+    /// Check if a field supports aggregate pushdown on the Tantivy backend.
     ///
-    /// Returns `false` for NUMERIC fields (which don't support aggregate pushdown
-    /// due to NaN/Infinity handling), `true` for all other field types.
-    /// Returns `false` if the field doesn't exist.
-    pub fn field_supports_aggregate(&self, name: impl AsRef<str>) -> bool {
+    /// Returns `false` for NUMERIC fields: Tantivy aggregations compute in f64
+    /// (losing precision and mishandling NaN/Infinity sentinels) and cannot read
+    /// the decimal-bytes storage at all. Standard SQL aggregates over NUMERIC
+    /// route to the DataFusion backend instead; `pdb.agg()` has no such backend
+    /// and declines. Returns `false` if the field doesn't exist.
+    pub fn supports_tantivy_aggregate(&self, name: impl AsRef<str>) -> bool {
         self.search_field(name)
             .is_some_and(|f| !f.field_type().is_numeric())
     }
@@ -708,6 +746,16 @@ impl SearchField {
     }
 
     fn is_sortable(&self, desired_normalizer: SearchNormalizer) -> bool {
+        // Range fields are stored as a tantivy JSON object, so they'd otherwise fall into the
+        // `JsonObject` arm below. They are sortable via `SortByRange`, which reads the bound
+        // sub-columns and compares them the way Postgres' `range_cmp` does. Only raw sorting:
+        // range bounds are never tokenized, so there is no lowercased variant to sort by.
+        // A true here is not enough on its own: `SortByErasedType` can't read a range, so
+        // `sortable_at_position` restricts it to the leading key.
+        if matches!(self.field_type, SearchFieldType::Range(_)) {
+            return matches!(desired_normalizer, SearchNormalizer::Raw) && self.is_fast();
+        }
+
         // NOTE: This list of supported field types must be synced with the field types which are
         // specialized (in a few spots!) in SearchIndexReader.
         match self.field_entry.field_type() {
@@ -722,7 +770,8 @@ impl SearchField {
             FieldType::Bool(options) => options.is_fast(),
             FieldType::Date(options) => options.is_fast(),
             FieldType::Bytes(options) => options.is_fast(),
-            // TODO: JSON and range fields are not yet sortable by us
+            // TODO: JSON fields are not yet sortable by us. Range fields are, and are handled
+            // above before this match.
             FieldType::JsonObject(_) => false,
             _ => false,
         }
@@ -740,8 +789,9 @@ impl SearchField {
         self.field_entry.field_type().is_str()
     }
 
-    /// Returns true if this field uses NumericBytes storage (hex-encoded string).
-    /// NumericBytes fields are stored as text but should support direct equality/range pushdown.
+    /// Returns true if this field uses NumericBytes storage (decimal-bytes column).
+    /// NumericBytes fields support direct equality/range pushdown because the
+    /// encoding is lexicographically order-preserving.
     pub fn is_numeric_bytes(&self) -> bool {
         matches!(self.field_type, SearchFieldType::NumericBytes(..))
     }
@@ -914,7 +964,7 @@ mod tests {
             text_options.get_fast_field_tokenizer_name()
         );
 
-        let text_options = text_options.set_fast(Some("index"));
+        let text_options = text_options.set_fast("index");
         assert_ne!(expected.is_fast(), text_options.is_fast());
     }
 
@@ -984,7 +1034,7 @@ mod tests {
             json_object_options.is_expand_dots_enabled()
         );
 
-        let text_options = json_object_options.set_fast(Some("index"));
+        let text_options = json_object_options.set_fast("index");
         assert_ne!(expected.is_fast(), text_options.is_fast());
     }
 

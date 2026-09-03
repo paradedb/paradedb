@@ -1,7 +1,7 @@
 ---
 title: Dokku
 description: Deploy ParadeDB on Dokku from the official Docker image
-canonical: https://docs.paradedb.com/deploy/cloud-platforms/dokku
+canonical: https://www.paradedb.com/docs/deploy/cloud-platforms/dokku
 ---
 
 <Note>
@@ -54,6 +54,8 @@ Postgres speaks TCP on port 5432. Tell Dokku to forward that port through its pr
 dokku ports:add paradedb tcp:5432:5432
 ```
 
+import { version } from "/snippets/version.mdx";
+
 ## Deploy from Docker Hub
 
 Point Dokku at the official ParadeDB image and rebuild the app:
@@ -62,7 +64,7 @@ Point Dokku at the official ParadeDB image and rebuild the app:
 dokku git:from-image paradedb paradedb/paradedb:latest
 ```
 
-See the [Docker Hub page](https://hub.docker.com/r/paradedb/paradedb/tags) for available tags. Pin a tag (for example `paradedb/paradedb:0.25.0-pg18`) instead of `latest` for reproducible deploys.
+See the [Docker Hub page](https://hub.docker.com/r/paradedb/paradedb/tags) for available tags. Pin a tag (for example `paradedb/paradedb:{version}-pg18`) instead of `latest` for reproducible deploys.
 
 ## Connect to ParadeDB
 

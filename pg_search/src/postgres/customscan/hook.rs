@@ -15,9 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::agg_funcoids;
 use crate::api::operator::{anyelement_search_opoids, is_paradedb_search_operator};
 use crate::api::window_aggregate::window_agg_oid;
-use crate::api::{agg_funcoid, agg_with_solve_mvcc_funcoid};
 use crate::gucs;
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
@@ -289,7 +289,9 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
 ) where
     CS: CustomScan<Args = CreateUpperPathsHookArgs> + 'static,
 {
-    if stage != pg_sys::UpperRelationKind::UPPERREL_GROUP_AGG {
+    if stage != pg_sys::UpperRelationKind::UPPERREL_GROUP_AGG
+        && stage != pg_sys::UpperRelationKind::UPPERREL_DISTINCT
+    {
         return;
     }
 
@@ -328,7 +330,7 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
 }
 
 /// Static variable to store the previous planner hook (e.g., from Citus or other extensions)
-/// This MUST be outside both register_window_aggregate_hook() and paradedb_planner_hook()
+/// This MUST be outside both register_planner_hook() and paradedb_planner_hook()
 /// so they both reference the same variable for proper hook chaining.
 static mut PREV_PLANNER_HOOK: pg_sys::planner_hook_type = None;
 
@@ -356,7 +358,7 @@ static mut PREV_PLANNER_HOOK: pg_sys::planner_hook_type = None;
 /// 3. **Simpler Integration**: The replacement happens once, early, and the rest
 ///    of the planning process sees our placeholder functions as regular function
 ///    calls that get projected through the plan tree.
-pub unsafe fn register_window_aggregate_hook() {
+pub unsafe fn register_planner_hook() {
     PREV_PLANNER_HOOK = pg_sys::planner_hook;
     pg_sys::planner_hook = Some(paradedb_planner_hook);
 }
@@ -393,14 +395,14 @@ unsafe fn can_handle_where_clause(parse: *mut pg_sys::Query) -> bool {
 /// Shared helper function to check if quals can be extracted from a Query's WHERE clause.
 ///
 /// This function encapsulates the common logic of:
-/// 1. Finding a relation with a BM25 index in the query's range table
+/// 1. Finding a relation with a ParadeDB index in the query's range table
 /// 2. Attempting to extract quals using Query context
 ///
 /// Used by `can_handle_where_clause` in the planner hook (to decide if we should replace window functions)
 ///
 /// Returns:
-/// - `true` if a BM25 index was found AND quals were successfully extracted
-/// - `false` if no BM25 index was found OR quals couldn't be extracted
+/// - `true` if a ParadeDB index was found AND quals were successfully extracted
+/// - `false` if no ParadeDB index was found OR quals couldn't be extracted
 pub unsafe fn try_extract_quals_from_query(
     parse: *mut pg_sys::Query,
     quals_node: *mut pg_sys::Node,
@@ -416,7 +418,7 @@ pub unsafe fn try_extract_quals_from_query(
         return false;
     }
 
-    // Find the first relation RTE with a BM25 index
+    // Find the first relation RTE with a ParadeDB index
     for (idx, rte_ptr) in rtable_list.iter_ptr().enumerate() {
         let rte = rte_ptr;
         if (*rte).rtekind != pg_sys::RTEKind::RTE_RELATION {
@@ -429,12 +431,12 @@ pub unsafe fn try_extract_quals_from_query(
             continue;
         }
 
-        // Check if this relation has a BM25 index
+        // Check if this relation has a ParadeDB index
         let Some((_, bm25_index)) = rel_get_bm25_index(relid) else {
             continue;
         };
 
-        // We found a relation with a BM25 index - try to extract quals
+        // We found a relation with a ParadeDB index - try to extract quals
         // Use Query context since we don't have PlannerInfo yet
         let rti = (idx + 1) as pg_sys::Index; // RTI is 1-indexed
         let mut state = QualExtractState::default();
@@ -461,7 +463,7 @@ pub unsafe fn try_extract_quals_from_query(
         return quals.is_some();
     }
 
-    // No BM25 index found
+    // No ParadeDB index found
     false
 }
 
@@ -503,11 +505,15 @@ unsafe fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
     if !can_handle_where_clause(parse) {
         if has_paradedb_agg_current_level {
             // pdb.agg() requires that we handle the query, but we can't handle the WHERE clause
-            pgrx::error!(
-                "pdb.agg() window functions cannot be used with this WHERE clause because some predicates may not be pushable to the index. \
-                 To fix this, enable 'SET paradedb.enable_filter_pushdown = on' to allow filtering on all fields. \
-                 Alternatively, ensure all WHERE predicates use indexed fields or remove non-indexed predicates."
-            );
+            if crate::gucs::enable_filter_pushdown() {
+                pgrx::error!(
+                    "Cannot execute window aggregate: WHERE clause contains predicates that cannot be pushed down"
+                );
+            } else {
+                pgrx::error!(
+                    "Cannot execute window aggregate: WHERE clause contains predicates that cannot be pushed down, and paradedb.enable_filter_pushdown is disabled"
+                );
+            }
         }
         // For non-pdb.agg queries, just don't replace - let PostgreSQL handle them
         return false;
@@ -807,13 +813,13 @@ unsafe fn expr_contains_paradedb_operator(node: *mut pg_sys::Node) -> bool {
 ///
 /// TODO: Consider unifying this logic to avoid duplication (see GitHub issue #3455)
 pub(crate) unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query, recursive: bool) -> bool {
-    let paradedb_agg_oid = agg_funcoid().to_u32();
-    let paradedb_agg_mvcc_oid = agg_with_solve_mvcc_funcoid().to_u32();
+    // Hoisted out of the walk: each is a catalog lookup and the walker visits every
+    // node in the expression tree.
+    let paradedb_agg_oids = agg_funcoids();
     let window_agg_proc_oid = window_agg_oid();
 
     struct WalkerContext {
-        paradedb_agg_oid: u32,
-        paradedb_agg_mvcc_oid: u32,
+        paradedb_agg_oids: [u32; 3],
         window_agg_proc_oid: pg_sys::Oid,
         found: bool,
     }
@@ -830,21 +836,23 @@ pub(crate) unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query, recursive
         let ctx = context.cast::<WalkerContext>();
 
         // Check for window function usage (before planner hook replacement)
-        if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, node) {
-            let oid = (*window_func).winfnoid.to_u32();
-            if oid == (*ctx).paradedb_agg_oid || oid == (*ctx).paradedb_agg_mvcc_oid {
-                (*ctx).found = true;
-                return true; // Stop walking
-            }
+        if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, node)
+            && (*ctx)
+                .paradedb_agg_oids
+                .contains(&(*window_func).winfnoid.to_u32())
+        {
+            (*ctx).found = true;
+            return true; // Stop walking
         }
 
         // Check for aggregate function usage (GROUP BY context)
-        if let Some(aggref) = nodecast!(Aggref, T_Aggref, node) {
-            let oid = (*aggref).aggfnoid.to_u32();
-            if oid == (*ctx).paradedb_agg_oid || oid == (*ctx).paradedb_agg_mvcc_oid {
-                (*ctx).found = true;
-                return true; // Stop walking
-            }
+        if let Some(aggref) = nodecast!(Aggref, T_Aggref, node)
+            && (*ctx)
+                .paradedb_agg_oids
+                .contains(&(*aggref).aggfnoid.to_u32())
+        {
+            (*ctx).found = true;
+            return true; // Stop walking
         }
 
         // Check for window_agg() placeholder (after planner hook replacement)
@@ -862,8 +870,7 @@ pub(crate) unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query, recursive
     }
 
     let mut context = WalkerContext {
-        paradedb_agg_oid,
-        paradedb_agg_mvcc_oid,
+        paradedb_agg_oids,
         window_agg_proc_oid,
         found: false,
     };

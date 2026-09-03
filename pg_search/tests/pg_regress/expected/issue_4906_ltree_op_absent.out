@@ -40,7 +40,7 @@ VALUES
     (3, 'gamma document', 3);
 CREATE INDEX issue_4906_without_ltree_idx
 ON issue_4906_without_ltree
-USING bm25 (id, body, rating)
+USING paradedb (id, body, rating)
 WITH (key_field = 'id');
 ANALYZE issue_4906_without_ltree;
 CREATE OR REPLACE FUNCTION pg_temp.issue_4906_absent_ltree_explain_text(query text)
@@ -96,7 +96,7 @@ SELECT array_agg(id ORDER BY id) AS non_ltree_query_result_ids
 FROM issue_4906_without_ltree
 WHERE body @@@ 'document'
   AND rating > 1;
-WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_without_ltree)
+WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To disable this warning: SET paradedb.planner_warnings = 'off' (table: issue_4906_without_ltree)
  non_ltree_query_result_ids 
 ----------------------------
  {2,3}

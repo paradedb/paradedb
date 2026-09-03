@@ -18,7 +18,7 @@ INSERT INTO issue_3827_t (txt, n, not_indexed) VALUES
     ('foo', 2, 20),
     ('foo', 3, 30);
 CREATE INDEX issue_3827_t_idx ON issue_3827_t
-USING bm25 (id, txt, n)
+USING paradedb (id, txt, n)
 WITH (
     key_field = 'id',
     text_fields = '{"txt": {}}',
@@ -77,7 +77,7 @@ FROM issue_3827_t
 GROUP BY txt
 HAVING (txt @@@ pdb.parse('foo')) OR SUM(n) < 0
 ORDER BY txt;
-WARNING:  Aggregate Scan not used: grouping column txt exists, but is not a fast field. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_3827_t)
+WARNING:  Aggregate Scan not used: grouping column txt exists, but is not a fast field. To disable this warning: SET paradedb.planner_warnings = 'off' (table: issue_3827_t)
  txt 
 -----
  foo
@@ -91,7 +91,7 @@ FROM issue_3827_t
 WHERE id @@@ pdb.all()
 GROUP BY not_indexed
 ORDER BY not_indexed;
-WARNING:  Aggregate Scan not used: grouping column not_indexed is missing from index. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_3827_t)
+WARNING:  Aggregate Scan not used: grouping column not_indexed is missing from index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: issue_3827_t)
                                   QUERY PLAN                                  
 ------------------------------------------------------------------------------
  GroupAggregate
@@ -115,7 +115,7 @@ FROM issue_3827_t
 WHERE id @@@ pdb.all()
 GROUP BY not_indexed
 ORDER BY not_indexed;
-WARNING:  Aggregate Scan not used: grouping column not_indexed is missing from index. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_3827_t)
+WARNING:  Aggregate Scan not used: grouping column not_indexed is missing from index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: issue_3827_t)
  not_indexed | count 
 -------------+-------
           10 |     1
@@ -130,7 +130,7 @@ FROM issue_3827_t
 WHERE id @@@ pdb.all()
 GROUP BY txt, n
 ORDER BY txt, n;
-WARNING:  Aggregate Scan not used: grouping column txt exists, but is not a fast field. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_3827_t)
+WARNING:  Aggregate Scan not used: grouping column txt exists, but is not a fast field. To disable this warning: SET paradedb.planner_warnings = 'off' (table: issue_3827_t)
                                   QUERY PLAN                                  
 ------------------------------------------------------------------------------
  GroupAggregate
@@ -154,7 +154,7 @@ FROM issue_3827_t
 WHERE id @@@ pdb.all()
 GROUP BY txt, n
 ORDER BY txt, n;
-WARNING:  Aggregate Scan not used: grouping column txt exists, but is not a fast field. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_3827_t)
+WARNING:  Aggregate Scan not used: grouping column txt exists, but is not a fast field. To disable this warning: SET paradedb.planner_warnings = 'off' (table: issue_3827_t)
  txt | n | count 
 -----+---+-------
  foo | 1 |     1

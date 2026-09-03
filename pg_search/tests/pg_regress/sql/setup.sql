@@ -12,12 +12,20 @@ $$;
 -- Also set it for the current session, in case any subsequent setup steps rely on it
 SET max_parallel_workers_per_gather = 2;
 
+-- Regress tables are tiny by design, so the MPP size gate would keep MPP off in every
+-- suite. Pin it off here; the suite that exercises the gate itself raises it per-test.
+DO $$
+BEGIN
+    EXECUTE format('ALTER DATABASE %I SET paradedb.mpp_min_rows = 0', current_database());
+END
+$$;
+
 DROP TABLE IF EXISTS mock_items_issue_2528;
-CALL paradedb.create_bm25_test_table(
+CALL paradedb.create_paradedb_test_table(
   schema_name => 'public',
   table_name => 'mock_items_issue_2528'
 );
-CREATE INDEX search_idx_issue_2528 ON mock_items_issue_2528 USING bm25 (id, description, category) WITH (key_field='id');
+CREATE INDEX search_idx_issue_2528 ON mock_items_issue_2528 USING paradedb (id, description, category) WITH (key_field='id');
 
 
 --
@@ -27,7 +35,7 @@ CREATE INDEX search_idx_issue_2528 ON mock_items_issue_2528 USING bm25 (id, desc
 -- we add a new column, "sku", to the table, and populate it with a unique UUID per row
 --
 CREATE SCHEMA IF NOT EXISTS regress;
-CALL paradedb.create_bm25_test_table(
+CALL paradedb.create_paradedb_test_table(
         schema_name => 'regress',
         table_name => 'mock_items'
      );
@@ -40,7 +48,7 @@ ALTER TABLE regress.mock_items DROP COLUMN embedding;
 VACUUM FULL regress.mock_items;
 CREATE INDEX idxregress_mock_items
     ON regress.mock_items
-        USING bm25 (id, sku, description, (lower(description)::pdb.simple('alias=description_lower')), rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range)
+        USING paradedb (id, sku, description, (lower(description)::pdb.simple('alias=description_lower')), rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range)
     WITH (key_field='id');
 
 

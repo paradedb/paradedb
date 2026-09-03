@@ -160,12 +160,12 @@ async fn reindex_schema_validation(mut conn: PgConnection) -> Result<()> {
 #[rstest]
 #[async_std::test]
 async fn reindex_partial_index(mut conn: PgConnection) -> Result<()> {
-    "CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');"
         .execute(&mut conn);
 
     // Create a partial index
     r#"CREATE INDEX partial_idx ON paradedb.bm25_search
-    USING bm25 (id, description, category)
+    USING paradedb (id, description, category)
     WITH (key_field='id')
     WHERE category = 'Electronics'"#
         .execute(&mut conn);
@@ -246,7 +246,7 @@ async fn concurrent_index_creation(mut conn: PgConnection) -> Result<()> {
 
     // Create a second index concurrently
     r#"CREATE INDEX CONCURRENTLY bm25_search_bm25_index_2 ON paradedb.bm25_search
-    USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date)
+    USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date)
     WITH (
         key_field='id',
         text_fields='{

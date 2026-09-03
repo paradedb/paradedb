@@ -56,7 +56,7 @@ fn index_sort_by_desc_multi_segment(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_sort_desc_idx ON test_sort_desc
-        USING bm25 (id, description, rank)
+        USING paradedb (id, description, rank)
         WITH (
             key_field = 'id',
             text_fields = '{"description": {}}',
@@ -137,7 +137,7 @@ fn index_sort_by_asc_multi_segment(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_sort_asc_idx ON test_sort_asc
-        USING bm25 (id, description, score)
+        USING paradedb (id, description, score)
         WITH (
             key_field = 'id',
             text_fields = '{"description": {}}',
@@ -193,7 +193,7 @@ fn index_sort_by_with_limit(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_sort_limit_idx ON test_sort_limit
-        USING bm25 (id, content, priority)
+        USING paradedb (id, content, priority)
         WITH (
             key_field = 'id',
             text_fields = '{"content": {}}',
@@ -259,7 +259,7 @@ fn index_without_sort_by_not_sorted(mut conn: PgConnection) {
 
         -- Index WITHOUT sort_by
         CREATE INDEX test_no_sort_idx ON test_no_sort
-        USING bm25 (id, description, value)
+        USING paradedb (id, description, value)
         WITH (
             key_field = 'id',
             text_fields = '{"description": {}}',
@@ -312,7 +312,7 @@ fn index_sort_by_with_explicit_order_by(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_explicit_order_idx ON test_explicit_order
-        USING bm25 (id, content, rank, name)
+        USING paradedb (id, content, rank, name)
         WITH (
             key_field = 'id',
             text_fields = '{"content": {}, "name": {"fast": true, "tokenizer": {"type": "raw"}}}',
@@ -380,7 +380,7 @@ fn index_sort_by_after_updates(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_sort_updates_idx ON test_sort_updates
-        USING bm25 (id, content, score)
+        USING paradedb (id, content, score)
         WITH (
             key_field = 'id',
             text_fields = '{"content": {}}',
@@ -473,7 +473,7 @@ fn index_sort_by_type_multi_segment(mut conn: PgConnection, #[case] variant: &st
                 r#"
                     CREATE TABLE test_sort (id SERIAL PRIMARY KEY, content TEXT, sort_col TEXT);
                     CREATE INDEX test_sort_idx ON test_sort
-                    USING bm25 (id, content, (sort_col::pdb.literal))
+                    USING paradedb (id, content, (sort_col::pdb.literal))
                     WITH (key_field = 'id', sort_by = 'sort_col ASC NULLS FIRST');
                 "#,
                 vec![
@@ -495,7 +495,7 @@ fn index_sort_by_type_multi_segment(mut conn: PgConnection, #[case] variant: &st
                 r#"
                     CREATE TABLE test_sort (id SERIAL PRIMARY KEY, content TEXT, sort_col TEXT);
                     CREATE INDEX test_sort_idx ON test_sort
-                    USING bm25 (id, content, (sort_col::pdb.literal))
+                    USING paradedb (id, content, (sort_col::pdb.literal))
                     WITH (key_field = 'id', sort_by = 'sort_col DESC NULLS LAST');
                 "#,
                 vec![
@@ -517,7 +517,7 @@ fn index_sort_by_type_multi_segment(mut conn: PgConnection, #[case] variant: &st
                 r#"
                     CREATE TABLE test_sort (id SERIAL PRIMARY KEY, content TEXT, sort_col UUID);
                     CREATE INDEX test_sort_idx ON test_sort
-                    USING bm25 (id, content, (sort_col::pdb.literal))
+                    USING paradedb (id, content, (sort_col::pdb.literal))
                     WITH (key_field = 'id', sort_by = 'sort_col ASC NULLS FIRST');
                 "#,
                 vec![
@@ -539,7 +539,7 @@ fn index_sort_by_type_multi_segment(mut conn: PgConnection, #[case] variant: &st
                 r#"
                     CREATE TABLE test_sort (id SERIAL PRIMARY KEY, content TEXT, sort_col NUMERIC(30,0));
                     CREATE INDEX test_sort_idx ON test_sort
-                    USING bm25 (id, content, sort_col)
+                    USING paradedb (id, content, sort_col)
                     WITH (key_field = 'id', sort_by = 'sort_col ASC NULLS FIRST');
                 "#,
                 vec![
@@ -630,7 +630,7 @@ fn index_sort_by_parallel_workers(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_parallel_sort_idx ON test_parallel_sort
-        USING bm25 (id, content, rank)
+        USING paradedb (id, content, rank)
         WITH (
             key_field = 'id',
             text_fields = '{"content": {}}',
@@ -720,7 +720,7 @@ fn index_sort_by_parallel_with_limit(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_parallel_limit_idx ON test_parallel_limit
-        USING bm25 (id, content, priority)
+        USING paradedb (id, content, priority)
         WITH (
             key_field = 'id',
             text_fields = '{"content": {}}',
@@ -788,7 +788,7 @@ fn index_sort_by_single_segment(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_single_segment_idx ON test_single_segment
-        USING bm25 (id, content, score)
+        USING paradedb (id, content, score)
         WITH (
             key_field = 'id',
             text_fields = '{"content": {}}',
@@ -840,7 +840,7 @@ fn index_sort_by_empty_results(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_empty_sort_idx ON test_empty_sort
-        USING bm25 (id, content, rank)
+        USING paradedb (id, content, rank)
         WITH (
             key_field = 'id',
             text_fields = '{"content": {}}',
@@ -884,7 +884,7 @@ fn index_sort_by_null_handling(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_null_sort_idx ON test_null_sort
-        USING bm25 (id, content, score)
+        USING paradedb (id, content, score)
         WITH (
             key_field = 'id',
             text_fields = '{"content": {}}',
@@ -971,7 +971,7 @@ fn index_sort_by_many_segments(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_many_segments_idx ON test_many_segments
-        USING bm25 (id, content, score)
+        USING paradedb (id, content, score)
         WITH (
             key_field = 'id',
             text_fields = '{"content": {}}',
@@ -1074,7 +1074,7 @@ fn index_sort_by_many_segments_parallel(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_many_segments_parallel_idx ON test_many_segments_parallel
-        USING bm25 (id, content, priority)
+        USING paradedb (id, content, priority)
         WITH (
             key_field = 'id',
             text_fields = '{"content": {}}',
@@ -1142,7 +1142,7 @@ fn index_sort_by_null_and_zero_interleaving(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_null_zero_idx ON test_null_zero
-        USING bm25 (id, content, score)
+        USING paradedb (id, content, score)
         WITH (
             key_field = 'id',
             text_fields = '{"content": {}}',
@@ -1228,7 +1228,7 @@ fn index_sort_by_null_and_zero_multi_segment_asc(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_null_zero_ms_asc_idx ON test_null_zero_ms_asc
-        USING bm25 (id, content, score)
+        USING paradedb (id, content, score)
         WITH (
             key_field = 'id',
             text_fields = '{"content": {}}',
@@ -1294,7 +1294,7 @@ fn index_sort_by_null_and_zero_multi_segment_desc(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_null_zero_ms_desc_idx ON test_null_zero_ms_desc
-        USING bm25 (id, content, score)
+        USING paradedb (id, content, score)
         WITH (
             key_field = 'id',
             text_fields = '{"content": {}}',
@@ -1358,7 +1358,7 @@ fn index_sort_by_f32_precision_above_2_24(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_f32_precision_idx ON test_f32_precision
-        USING bm25 (id, content, val)
+        USING paradedb (id, content, val)
         WITH (
             key_field = 'id',
             text_fields = '{"content": {}}',

@@ -46,7 +46,7 @@ SET paradedb.global_mutable_segment_rows = 0;
 
 -- The joined table has two text fast fields.
 CREATE INDEX mpp_topk_users_bm25 ON mpp_topk_users
-USING bm25 (
+USING paradedb (
     id,
     (about_me::pdb.unicode_words('columnar=true')),
     (display_name::pdb.unicode_words('columnar=true'))
@@ -54,7 +54,7 @@ USING bm25 (
 
 -- The sorted table has three, so `title`'s `ff_index` overruns the joined table's helper.
 CREATE INDEX mpp_topk_posts_bm25 ON mpp_topk_posts
-USING bm25 (
+USING paradedb (
     id,
     owner_user_id,
     (title::pdb.unicode_words('columnar=true')),

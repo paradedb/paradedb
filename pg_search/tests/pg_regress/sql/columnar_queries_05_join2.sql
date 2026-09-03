@@ -27,7 +27,7 @@ SELECT
     (20 + mod(s.a, 80))::text
 FROM generate_series(1, 10000) as s(a);
 
-CREATE INDEX idxusers ON users USING bm25 (id, name, color, age)
+CREATE INDEX idxusers ON users USING paradedb (id, name, color, age)
 WITH (
 key_field = 'id',
 text_fields = '
@@ -62,7 +62,7 @@ SELECT
     (20 + mod(s.a, 80))::text
 FROM generate_series(1, 10000) as s(a);
 
-CREATE INDEX idxproducts ON products USING bm25 (id, name, color, age)
+CREATE INDEX idxproducts ON products USING paradedb (id, name, color, age)
 WITH (
 key_field = 'id',
 text_fields = '
@@ -97,7 +97,7 @@ SELECT
     (20 + mod(s.a, 80))::text
 FROM generate_series(1, 10000) as s(a);
 
-CREATE INDEX idxorders ON orders USING bm25 (id, name, color, age)
+CREATE INDEX idxorders ON orders USING paradedb (id, name, color, age)
 WITH (
 key_field = 'id',
 text_fields = '

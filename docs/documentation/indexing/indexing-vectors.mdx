@@ -1,7 +1,7 @@
 ---
 title: Indexing Vectors
 description: Vectors live alongside text and filters in the ParadeDB index
-canonical: https://docs.paradedb.com/documentation/indexing/indexing-vectors
+canonical: https://www.paradedb.com/docs/documentation/indexing/indexing-vectors
 ---
 
 <Note>
@@ -31,29 +31,123 @@ WITH (key_field='id');
 ```
 
 ```ts Drizzle
-// Vector search support for Drizzle is coming very soon.
+import { indexing } from "@paradedb/drizzle-paradedb";
+
+// In the pgTable definition:
+(table) => [
+  indexing
+    .paradedbIndex("search_idx")
+    .on(
+      table.id,
+      table.description,
+      table.category,
+      indexing.vectorField(table.embedding, "cosine"),
+    ),
+];
 ```
 
 ```python Django
-# Vector search support for Django is coming very soon.
+from django.db import connection
+from paradedb.indexes import ParadeDBIndex
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        MockItem,
+        ParadeDBIndex(
+            fields={
+                "id": {},
+                "description": {},
+                "category": {},
+                "embedding": {"metric": "cosine"},
+            },
+            key_field="id",
+            name="search_idx",
+        ),
+    )
 ```
 
 ```python SQLAlchemy
-# Vector search support for SQLAlchemy is coming very soon.
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing
+
+idx = Index(
+    "search_idx",
+    indexing.ParadeDBField(MockItem.id),
+    indexing.ParadeDBField(MockItem.description),
+    indexing.ParadeDBField(MockItem.category),
+    indexing.VectorField(MockItem.embedding, metric="cosine"),
+    postgresql_using="paradedb",
+    postgresql_with={"key_field": "id"},
+)
+
+with engine.begin() as conn:
+    idx.create(conn)
 ```
 
 ```ruby Rails
-# Vector search support for Rails is coming very soon.
+ActiveRecord::Base.connection.add_paradedb_index(
+  :mock_items,
+  fields: {
+    id: {},
+    description: {},
+    category: {},
+    embedding: { metric: :cosine }
+  },
+  key_field: :id,
+  name: :search_idx
+)
 ```
 
 ```cs EF Core
-// Vector search support for EF Core is coming very soon.
+modelBuilder.Entity<MockItem>()
+    .HasParadeDbIndex("search_idx", e => e.Id)
+    .HasField(e => e.Description)
+    .HasField(e => e.Category)
+    .HasField(e => e.Embedding, VectorMetric.Cosine);
 ```
 
 </CodeGroup>
 
 The desired distance function is encoded into the index definition, and cannot be changed without reindexing.
-Use `vector_l2_ops` for L2 distance, `vector_ip_ops` for inner product, or `vector_cosine_ops` for cosine distance.
+
+<CodeGroup>
+```sql SQL
+embedding vector_l2_ops      -- L2 (default)
+embedding vector_cosine_ops  -- cosine
+embedding vector_ip_ops      -- inner product
+```
+
+```ts Drizzle
+indexing.vectorField(mockItems.embedding, "l2"); // L2 (default)
+indexing.vectorField(mockItems.embedding, "cosine"); // cosine
+indexing.vectorField(mockItems.embedding, "ip"); // inner product
+```
+
+```python Django
+"embedding": {"metric": "l2"}      # L2 (default)
+"embedding": {"metric": "cosine"}  # cosine
+"embedding": {"metric": "ip"}      # inner product
+```
+
+```python SQLAlchemy
+indexing.VectorField(MockItem.embedding, metric="l2")      # L2 (default)
+indexing.VectorField(MockItem.embedding, metric="cosine")  # cosine
+indexing.VectorField(MockItem.embedding, metric="ip")      # inner product
+```
+
+```ruby Rails
+embedding: { metric: :l2 }      # L2 (default)
+embedding: { metric: :cosine }  # cosine
+embedding: { metric: :ip }      # inner product
+```
+
+```cs EF Core
+.HasField(e => e.Embedding, VectorMetric.L2)            // L2 (default)
+.HasField(e => e.Embedding, VectorMetric.Cosine)        // cosine
+.HasField(e => e.Embedding, VectorMetric.InnerProduct)  // inner product
+```
+
+</CodeGroup>
 
 <Note>
   Only pgvector's `vector` type is supported. The `halfvec`, `sparsevec`, and
@@ -81,23 +175,101 @@ WITH (key_field='id', centroid_ratio=0.01, training_samples_per_centroid=32, clu
 ```
 
 ```ts Drizzle
-// Vector search support for Drizzle is coming very soon.
+import { indexing } from "@paradedb/drizzle-paradedb";
+
+// In the pgTable definition:
+(table) => [
+  indexing
+    .paradedbIndex("search_idx", {
+      centroidRatio: 0.01,
+      trainingSamplesPerCentroid: 32,
+      clusterReplication: 1,
+    })
+    .on(
+      table.id,
+      table.description,
+      table.category,
+      indexing.vectorField(table.embedding, "cosine"),
+    ),
+];
 ```
 
 ```python Django
-# Vector search support for Django is coming very soon.
+from django.db import connection
+from paradedb.indexes import ParadeDBIndex
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        MockItem,
+        ParadeDBIndex(
+            fields={
+                "id": {},
+                "description": {},
+                "category": {},
+                "embedding": {"metric": "cosine"},
+            },
+            key_field="id",
+            name="search_idx",
+            centroid_ratio=0.01,
+            training_samples_per_centroid=32,
+            cluster_replication=1,
+        ),
+    )
 ```
 
 ```python SQLAlchemy
-# Vector search support for SQLAlchemy is coming very soon.
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing
+
+idx = Index(
+    "search_idx",
+    indexing.ParadeDBField(MockItem.id),
+    indexing.ParadeDBField(MockItem.description),
+    indexing.ParadeDBField(MockItem.category),
+    indexing.VectorField(MockItem.embedding, metric="cosine"),
+    postgresql_using="paradedb",
+    postgresql_with={
+        "key_field": "id",
+        **indexing.VectorIndexOptions(
+            centroid_ratio=0.01,
+            training_samples_per_centroid=32,
+            cluster_replication=1,
+        ),
+    },
+)
+
+with engine.begin() as conn:
+    idx.create(conn)
 ```
 
 ```ruby Rails
-# Vector search support for Rails is coming very soon.
+ActiveRecord::Base.connection.add_paradedb_index(
+  :mock_items,
+  fields: {
+    id: {},
+    description: {},
+    category: {},
+    embedding: { metric: :cosine }
+  },
+  key_field: :id,
+  name: :search_idx,
+  index_options: {
+    centroid_ratio: 0.01,
+    training_samples_per_centroid: 32,
+    cluster_replication: 1
+  }
+)
 ```
 
 ```cs EF Core
-// Vector search support for EF Core is coming very soon.
+modelBuilder.Entity<MockItem>()
+    .HasParadeDbIndex("search_idx", e => e.Id)
+    .HasField(e => e.Description)
+    .HasField(e => e.Category)
+    .HasField(e => e.Embedding, VectorMetric.Cosine)
+    .HasCentroidRatio(0.01)
+    .HasTrainingSamplesPerCentroid(32)
+    .HasClusterReplication(1);
 ```
 
 </CodeGroup>

@@ -48,7 +48,7 @@ FROM generate_series(1, 1000) i;
 -- Create index WITHOUT explicit fast:true for non-text fields
 DROP INDEX IF EXISTS records_no_fast_idx;
 CREATE INDEX records_no_fast_idx ON data_records
-USING bm25 (
+USING paradedb (
     id, title, category, price, in_stock, created_at, valid_period, quantity_range, tags
 ) WITH (
     key_field = 'id',
@@ -102,7 +102,6 @@ WHERE title @@@ 'product'
 ORDER BY in_stock
 LIMIT 10;
 
--- TODO: Won't get Top K due to https://github.com/paradedb/paradedb/issues/2688.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, category
 FROM data_records
@@ -129,7 +128,7 @@ ORDER BY id;
 DROP INDEX IF EXISTS records_no_fast_idx;
 DROP INDEX IF EXISTS records_with_fast_idx;
 CREATE INDEX records_with_fast_idx ON data_records
-USING bm25 (
+USING paradedb (
     id, title, category, price, in_stock, created_at, valid_period, quantity_range, tags
 ) WITH (
     key_field = 'id',
@@ -187,7 +186,7 @@ ORDER BY id;
 DROP INDEX IF EXISTS records_no_fast_idx;
 DROP INDEX IF EXISTS records_with_fast_idx;
 CREATE INDEX records_with_fast_idx ON data_records
-USING bm25 (
+USING paradedb (
     id, title, category, price, in_stock, created_at, valid_period, quantity_range, tags
 ) WITH (
     key_field = 'id',

@@ -53,9 +53,9 @@ INSERT INTO products (id, name, description, supplier_id, price) VALUES
 
 -- Create BM25 indexes on both tables
 -- Note: JoinScan requires all join key columns and ORDER BY columns to be fast fields
-CREATE INDEX products_bm25_idx ON products USING bm25 (id, name, description, supplier_id, price)
+CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price)
 WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}}');
-CREATE INDEX suppliers_bm25_idx ON suppliers USING bm25 (id, name, contact_info, country)
+CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, contact_info, country)
 WITH (key_field = 'id');
 
 -- Make sure the GUC is enabled
@@ -79,7 +79,7 @@ INSERT INTO categories (id, name, description) VALUES
 (302, 'Office', 'Office supplies and equipment'),
 (303, 'Gaming', 'Gaming peripherals and accessories');
 
-CREATE INDEX categories_bm25_idx ON categories USING bm25 (id, name, description) WITH (key_field = 'id');
+CREATE INDEX categories_bm25_idx ON categories USING paradedb (id, name, description) WITH (key_field = 'id');
 
 -- Add category_id to products
 ALTER TABLE products ADD COLUMN category_id INTEGER;
@@ -203,13 +203,13 @@ INSERT INTO products (id, name, description, supplier_id, category_id, price) VA
 (207, 'Mouse Pad', 'Large gaming mouse pad', 152, 11, 29.99);
 
 -- Create BM25 indexes
-CREATE INDEX products_bm25_idx ON products USING bm25 (id, name, description, supplier_id, category_id, price)
+CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, category_id, price)
 WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}, "category_id": {"fast": true}, "price": {"fast": true}}');
 
-CREATE INDEX suppliers_bm25_idx ON suppliers USING bm25 (id, name, contact_info, country)
+CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, contact_info, country)
 WITH (key_field = 'id');
 
-CREATE INDEX categories_bm25_idx ON categories USING bm25 (id, name)
+CREATE INDEX categories_bm25_idx ON categories USING paradedb (id, name)
 WITH (key_field = 'id');
 
 -- Enable JoinScan
@@ -317,10 +317,10 @@ INSERT INTO level3 VALUES (2, 2, 'L3-B');
 INSERT INTO level2 VALUES (2, 2, 'L2-B');
 INSERT INTO level1 VALUES (2, 2, 'L1-B');
 
-CREATE INDEX l1_bm25 ON level1 USING bm25 (id, l2_id, name) WITH (key_field='id', numeric_fields='{"l2_id": {"fast": true}}');
-CREATE INDEX l2_bm25 ON level2 USING bm25 (id, l3_id, name) WITH (key_field='id', numeric_fields='{"l3_id": {"fast": true}}');
-CREATE INDEX l3_bm25 ON level3 USING bm25 (id, l4_id, name) WITH (key_field='id', numeric_fields='{"l4_id": {"fast": true}}');
-CREATE INDEX l4_bm25 ON level4 USING bm25 (id, name, description) WITH (key_field='id');
+CREATE INDEX l1_bm25 ON level1 USING paradedb (id, l2_id, name) WITH (key_field='id', numeric_fields='{"l2_id": {"fast": true}}');
+CREATE INDEX l2_bm25 ON level2 USING paradedb (id, l3_id, name) WITH (key_field='id', numeric_fields='{"l3_id": {"fast": true}}');
+CREATE INDEX l3_bm25 ON level3 USING paradedb (id, l4_id, name) WITH (key_field='id', numeric_fields='{"l4_id": {"fast": true}}');
+CREATE INDEX l4_bm25 ON level4 USING paradedb (id, name, description) WITH (key_field='id');
 
 -- Join 4 tables, driving predicate on level4
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

@@ -39,7 +39,7 @@ async fn lindera_korean_tokenizer(mut conn: PgConnection) {
         ('박지후', '지역 축제 개최 소식', '이번 주말 지역 축제가 열립니다. 다양한 음식과 공연이 준비되어 있어 기대가 됩니다.');
 
         CREATE INDEX korean_idx ON korean
-        USING bm25 (id, author, title, message)
+        USING paradedb (id, author, title, message)
         WITH (
             key_field = 'id',
             text_fields = '{
@@ -89,7 +89,7 @@ async fn lindera_chinese_tokenizer(mut conn: PgConnection) {
         ('王芳', '本地文化节', '本周末将举行一个地方文化节，预计将有各种食物和表演。');
 
     CREATE INDEX chinese_idx ON chinese
-    USING bm25 (id, author, title, message)
+    USING paradedb (id, author, title, message)
     WITH (
         key_field = 'id',
         text_fields = '{
@@ -140,7 +140,7 @@ async fn lindera_japenese_tokenizer(mut conn: PgConnection) {
         ('高橋花子', '地元の祭り', '今週末に地元で祭りが開催されます。様々な食べ物とパフォーマンスが用意されています。');
 
     CREATE INDEX japanese_idx ON japanese
-    USING bm25 (id, author, title, message)
+    USING paradedb (id, author, title, message)
     WITH (
         key_field = 'id',
         text_fields = '{

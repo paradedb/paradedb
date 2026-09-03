@@ -1,7 +1,7 @@
 {
    "name": "pg_search",
    "abstract": "@CRATE_DESC@",
-   "description": "ParadeDB pg_search is a Postgres extension that brings fast full-text search, vector retrieval, and aggregations to Postgres tables. It is built on top of Tantivy, the Rust-based alternative to Apache Lucene, using pgrx.",
+   "description": "pg_search upgrades Postgres with a custom index for fast full-text and vector search, BM25 scoring, filtering, and aggregations. Your application data and search engine live in one database, with no second system to deploy and nothing to sync.",
    "version": "@CRATE_VERSION@",
    "maintainer": [
       "ParadeDB <support@paradedb.com>"
@@ -39,16 +39,13 @@
    },
    "tags": [
       "paradedb",
+      "postgres",
       "search",
-      "analytics",
       "bm25",
-      "text search",
       "full text search",
-      "full-text search",
       "hybrid search",
+      "vector search",
       "faceted search",
-      "facets",
-      "columnar",
-      "olap"
+      "aggregations"
    ]
 }

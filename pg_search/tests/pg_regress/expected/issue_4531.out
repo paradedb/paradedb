@@ -23,9 +23,9 @@ INSERT INTO products_4531 VALUES
     (3, 'Gizmo',   'A neat gizmo',   NULL),
     (4, 'Doohicky','Another widget',  2),
     (5, 'Thingamajig', 'Yet another widget', 999);
-CREATE INDEX ON products_4531 USING bm25 (id, name, description, supplier_id)
+CREATE INDEX ON products_4531 USING paradedb (id, name, description, supplier_id)
     WITH (key_field='id', numeric_fields='{"supplier_id": {"fast": true}}');
-CREATE INDEX ON suppliers_4531 USING bm25 (id, name)
+CREATE INDEX ON suppliers_4531 USING paradedb (id, name)
     WITH (key_field='id');
 -- ============================================================
 -- Test 1: The original failing pattern — OR IS NULL
@@ -38,8 +38,8 @@ FROM products_4531 p
 WHERE p.description @@@ 'widget'
   AND (p.supplier_id IS NULL OR p.supplier_id IN (SELECT s.id FROM suppliers_4531 s))
 ORDER BY p.id DESC LIMIT 10;
-                                                                                                   QUERY PLAN                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                QUERY PLAN                                                                                                                
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id
    ->  Custom Scan (ParadeDB Join Scan)
@@ -53,13 +53,12 @@ ORDER BY p.id DESC LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
            :     FilterExec: mark@3 OR supplier_id@1 IS NULL, projection=[ctid_0@0, id@2]
-           :       HashJoinExec: mode=CollectLeft, join_type=LeftMark, on=[(supplier_id@1, id@0)]
-           :         VisibilityFilterExec: tables=[p]
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
+           :       HashJoinExec: mode=CollectLeft, join_type=RightMark, on=[(id@0, supplier_id@1)]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(19 rows)
+           :           PgSearchScan: table=s, segments=1, visibility=eager, query="all"
+           :         CooperativeExec
+           :           PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 -- Actual query execution
 SELECT p.id
@@ -83,8 +82,8 @@ FROM products_4531 p
 WHERE p.description @@@ 'widget'
   AND p.supplier_id IN (SELECT s.id FROM suppliers_4531 s)
 ORDER BY p.id DESC LIMIT 10;
-                                                                                                  QUERY PLAN                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id
    ->  Custom Scan (ParadeDB Join Scan)
@@ -97,12 +96,13 @@ ORDER BY p.id DESC LIMIT 10;
            : ProjectionExec: expr=[id@2 as col_1, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@2 DESC], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[s, p]
-           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, query="all"
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
+           :           CooperativeExec
+           :             PgSearchScan: table=s, segments=1, query="all"
+           :           CooperativeExec
+           :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 SELECT p.id
 FROM products_4531 p
@@ -163,8 +163,8 @@ FROM products_4531 p
 WHERE p.description @@@ 'widget'
   AND (p.supplier_id IS NULL OR p.supplier_id IN (SELECT s.id FROM suppliers_4531 s))
 ORDER BY p.id DESC LIMIT 10;
-                                                                                                   QUERY PLAN                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                QUERY PLAN                                                                                                                
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id
    ->  Custom Scan (ParadeDB Join Scan)
@@ -178,13 +178,12 @@ ORDER BY p.id DESC LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
            :     FilterExec: mark@3 OR supplier_id@1 IS NULL, projection=[ctid_0@0, id@2]
-           :       HashJoinExec: mode=CollectLeft, join_type=LeftMark, on=[(supplier_id@1, id@0)]
-           :         VisibilityFilterExec: tables=[p]
-           :           CooperativeExec
-           :             PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
+           :       HashJoinExec: mode=CollectLeft, join_type=RightMark, on=[(id@0, supplier_id@1)]
            :         CooperativeExec
-           :           PgSearchScan: segments=2, dynamic_filters=1, query="all"
-(19 rows)
+           :           PgSearchScan: table=s, segments=2, visibility=eager, query="all"
+           :         CooperativeExec
+           :           PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 SELECT p.id
 FROM products_4531 p

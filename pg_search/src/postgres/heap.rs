@@ -15,16 +15,56 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::buffer::BufferManager;
-use crate::postgres::utils;
-use pgrx::PgList;
-use pgrx::pg_sys;
+use std::collections::VecDeque;
 use std::ops::Deref;
+
+use crate::api::version::Version;
+use crate::postgres::composite::CompositeSlotValues;
+use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::storage::buffer::{BorrowedBuffer, BufferManager, PinnedBuffer};
+use crate::postgres::utils;
+use crate::schema::{CategorizedFieldData, FieldSource, SearchField};
+use pgrx::pg_sys;
+use pgrx::{PgList, PgTupleDesc};
+use tantivy::TantivyDocument;
+
+/// A pinned heap buffer that releases its pin on drop. It stays off the index block tracker
+/// that `PinnedBuffer` feeds. That tracker keys blocks by number with no relation, so a heap
+/// pin would collide with the index's tracked blocks under the `block_tracker` feature, and a
+/// `CREATE INDEX` reads the heap while its own index buffers are tracked.
+pub(crate) struct HeapBufferPin(pg_sys::Buffer);
+
+impl HeapBufferPin {
+    /// Reads and pins `blockno` of `heaprel`'s main fork.
+    ///
+    /// # Safety
+    /// `heaprel` must stay open for the lifetime of the returned pin.
+    pub(crate) unsafe fn read(heaprel: &PgSearchRelation, blockno: pg_sys::BlockNumber) -> Self {
+        Self(pg_sys::ReadBufferExtended(
+            heaprel.as_ptr(),
+            pg_sys::ForkNumber::MAIN_FORKNUM,
+            blockno,
+            pg_sys::ReadBufferMode::RBM_NORMAL,
+            std::ptr::null_mut(),
+        ))
+    }
+
+    pub(crate) fn buffer(&self) -> pg_sys::Buffer {
+        self.0
+    }
+}
+
+crate::impl_safe_drop!(HeapBufferPin, |self| {
+    unsafe {
+        if crate::postgres::utils::IsTransactionState() {
+            pg_sys::ReleaseBuffer(self.0);
+        }
+    }
+});
 
 /// Helper to validate that a "ctid" is currently visible to a snapshot.
 ///
-/// When querying BM25 indexes, individual ctid entries may be stale. After an UPDATE,
+/// When querying ParadeDB indexes, individual ctid entries may be stale. After an UPDATE,
 /// the old tuple is marked dead and a new tuple is created at a new ctid, but the
 /// index still has the old ctid until VACUUM runs.
 ///
@@ -48,6 +88,11 @@ pub struct VisibilityChecker {
     /// Cached relation size (in blocks) at scan start. Used to cheaply skip
     /// stale ctids pointing to pages truncated by a previous VACUUM.
     nblocks: pg_sys::BlockNumber,
+
+    /// Pin on the heap block last checked by `resolve_visible`, held across
+    /// calls since consecutive checks tend to hit the same block.
+    cached_heap_block: pg_sys::BlockNumber,
+    cached_heap_pin: Option<PinnedBuffer>,
 
     pub heap_tuple_check_count: usize,
     pub invisible_tuple_count: usize,
@@ -88,6 +133,8 @@ impl VisibilityChecker {
                 vmbuff: pg_sys::InvalidBuffer as pg_sys::Buffer,
                 blockvis: (pg_sys::InvalidBlockNumber, false),
                 nblocks,
+                cached_heap_block: pg_sys::InvalidBlockNumber,
+                cached_heap_pin: None,
                 heap_tuple_check_count: 0,
                 invisible_tuple_count: 0,
             }
@@ -108,13 +155,13 @@ impl VisibilityChecker {
         slot: *mut pg_sys::TupleTableSlot,
         mut func: F,
     ) -> Option<T> {
-        self.heap_tuple_check_count += 1;
         unsafe {
             let blockno = (ctid >> 16) as pg_sys::BlockNumber;
             if blockno >= self.nblocks {
                 self.invisible_tuple_count += 1;
                 return None;
             }
+            self.heap_tuple_check_count += 1;
 
             utils::u64_to_item_pointer(ctid, &mut self.tid);
 
@@ -203,31 +250,10 @@ impl VisibilityChecker {
         self.blockvis.1
     }
 
-    /// If the specified `ctid` is visible in the heap, return the visible `ctid`.
-    /// The returned `ctid` might differ from the input `ctid` if a HOT chain was followed.
-    fn check_visibility_with_buffer(&mut self, ctid: u64, buffer: pg_sys::Buffer) -> Option<u64> {
-        unsafe {
-            utils::u64_to_item_pointer(ctid, &mut self.tid);
-
-            let mut heap_tuple_data: pg_sys::HeapTupleData = std::mem::zeroed();
-            let mut all_dead = false;
-
-            let found = pg_sys::heap_hot_search_buffer(
-                &mut self.tid,
-                self.heaprel.as_ptr(),
-                buffer,
-                self.snapshot,
-                &mut heap_tuple_data,
-                &mut all_dead,
-                true, // first_call
-            );
-
-            if found {
-                Some(utils::item_pointer_to_u64(self.tid))
-            } else {
-                None
-            }
-        }
+    /// Single-ctid visibility check for callers probing one doc at a time
+    /// (e.g. the cardinality fast path's visibility filter).
+    pub fn check_one(&mut self, ctid: u64) -> bool {
+        self.resolve_visible(ctid, None).is_some()
     }
 
     /// Checks if a batch of rows are visible, and computes their updated ctid (by following a HOT
@@ -250,38 +276,79 @@ impl VisibilityChecker {
         let mut current_buffer: Option<crate::postgres::storage::buffer::Buffer> = None;
         let mut current_block = pg_sys::InvalidBlockNumber;
 
-        for (idx, mut ctid) in sorted_indices {
+        for (idx, ctid) in sorted_indices {
             let blockno = (ctid >> 16) as pg_sys::BlockNumber;
-
-            if blockno >= self.nblocks {
-                self.invisible_tuple_count += 1;
-                results[idx] = None;
-                continue;
-            }
-
-            if self.is_block_all_visible(blockno) {
-                results[idx] = Some(ctid);
-                continue;
-            }
-
-            self.heap_tuple_check_count += 1;
-
-            if current_block != blockno {
-                drop(current_buffer.take());
-                current_buffer = Some(self.bman.get_buffer(blockno));
-                current_block = blockno;
-            }
-
-            if let Some(visible_ctid) =
-                self.check_visibility_with_buffer(ctid, *current_buffer.as_ref().unwrap().deref())
-            {
-                if visible_ctid != ctid {
-                    ctid = visible_ctid;
+            // acquire the block's buffer once per run of same-block ctids and
+            // hold its lock across the run; resolve_visible's own VM re-check
+            // hits the blockvis cache
+            let needs_heap_check = blockno < self.nblocks && !self.is_block_all_visible(blockno);
+            let locked_buffer = if needs_heap_check {
+                if current_block != blockno {
+                    drop(current_buffer.take());
+                    current_buffer = Some(self.bman.get_buffer(blockno));
+                    current_block = blockno;
                 }
-                results[idx] = Some(ctid);
+                Some(*current_buffer.as_ref().unwrap().deref())
+            } else {
+                None
+            };
+            results[idx] = self.resolve_visible(ctid, locked_buffer);
+        }
+    }
+
+    /// Resolves a ctid to its visible ctid under the checker's snapshot,
+    /// following any HOT chain; `None` if invisible or stale. A caller
+    /// already holding a pin and share lock on the ctid's block passes the
+    /// buffer; otherwise the tuple is checked under a short share lock,
+    /// reusing a cached pin on the heap block across calls since consecutive
+    /// checks tend to hit the same block.
+    fn resolve_visible(&mut self, ctid: u64, locked_buffer: Option<pg_sys::Buffer>) -> Option<u64> {
+        let blockno = (ctid >> 16) as pg_sys::BlockNumber;
+        if blockno >= self.nblocks {
+            self.invisible_tuple_count += 1;
+            return None;
+        }
+        if self.is_block_all_visible(blockno) {
+            return Some(ctid);
+        }
+        self.heap_tuple_check_count += 1;
+        let (buffer, _lock) = match locked_buffer {
+            Some(buffer) => (buffer, None),
+            None => {
+                if self.cached_heap_block != blockno {
+                    drop(self.cached_heap_pin.take());
+                    self.cached_heap_pin = Some(self.bman.pinned_buffer(blockno));
+                    self.cached_heap_block = blockno;
+                }
+                let pg_buffer = self.cached_heap_pin.as_ref().unwrap().pg_buffer();
+                (
+                    pg_buffer,
+                    Some(unsafe { BorrowedBuffer::from_pg(pg_buffer) }),
+                )
+            }
+        };
+
+        unsafe {
+            utils::u64_to_item_pointer(ctid, &mut self.tid);
+
+            let mut heap_tuple_data: pg_sys::HeapTupleData = std::mem::zeroed();
+            let mut all_dead = false;
+
+            let found = pg_sys::heap_hot_search_buffer(
+                &mut self.tid,
+                self.heaprel.as_ptr(),
+                buffer,
+                self.snapshot,
+                &mut heap_tuple_data,
+                &mut all_dead,
+                true, // first_call
+            );
+
+            if found {
+                Some(utils::item_pointer_to_u64(self.tid))
             } else {
                 self.invisible_tuple_count += 1;
-                results[idx] = None;
+                None
             }
         }
     }
@@ -493,6 +560,297 @@ impl ExpressionState {
     }
 }
 
+/// Rebuilds the index document for individual ctids by re-fetching their rows from the heap.
+///
+/// Bundles the per-relation state needed to turn one ctid into the `TantivyDocument` the index
+/// holds for it. Fetches reuse the [`HeapFetchState`]'s buffer pins, so feeding ctids in heap
+/// order keeps same-block fetches on a pinned buffer.
+///
+/// Query-visible mode (`query_visible: true`) fetches each ctid with the active MVCC snapshot
+/// so that detoasting is safe: that registered snapshot holds back the global xmin horizon,
+/// preventing a concurrent VACUUM from reclaiming the external TOAST chunks we read. Fetching
+/// such rows with `SnapshotAny` could instead select DEAD / RECENTLY_DEAD versions whose TOAST
+/// has already been (or is being) freed, raising spurious "missing/unexpected chunk number ...
+/// in pg_toast_*" errors.
+///
+/// Maintenance mode (`query_visible: false`) must index every live ctid regardless of any
+/// single snapshot, since the resulting segment may serve future snapshots, so it fetches with
+/// `SnapshotAny` and filters dead tuples with `HeapTupleSatisfiesVacuum`, walking HOT chains
+/// for a live member. See: <https://github.com/paradedb/paradedb/issues/5365>
+pub struct HeapDocFetcher<'a> {
+    fetch_state: &'a HeapFetchState,
+    expression_state: &'a ExpressionState,
+    heaprel: &'a PgSearchRelation,
+    heaptupdesc: &'a PgTupleDesc<'a>,
+    categorized_fields: &'a [(SearchField, CategorizedFieldData)],
+    created_by_version: Option<Version>,
+    oldest_xmin: pg_sys::TransactionId,
+    query_visible: bool,
+    root_ctids: bool,
+    values: Vec<pg_sys::Datum>,
+    isnull: Vec<bool>,
+}
+
+impl<'a> HeapDocFetcher<'a> {
+    pub fn new(
+        fetch_state: &'a HeapFetchState,
+        expression_state: &'a ExpressionState,
+        heaprel: &'a PgSearchRelation,
+        heaptupdesc: &'a PgTupleDesc<'a>,
+        categorized_fields: &'a [(SearchField, CategorizedFieldData)],
+        created_by_version: Option<Version>,
+        query_visible: bool,
+    ) -> Self {
+        let oldest_xmin = unsafe { pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr()) };
+        Self {
+            fetch_state,
+            expression_state,
+            heaprel,
+            heaptupdesc,
+            categorized_fields,
+            created_by_version,
+            oldest_xmin,
+            query_visible,
+            root_ctids: false,
+            values: vec![pg_sys::Datum::null(); heaptupdesc.len()],
+            isnull: vec![false; heaptupdesc.len()],
+        }
+    }
+
+    /// The ctids this fetcher will receive are HOT chain roots from a table scan (what an index
+    /// build callback hands over), not exact member ctids. In maintenance mode the fetch must
+    /// then walk past superseded chain members to the live tail: the member whose values the
+    /// inline build callback delivered for the root. Without this, a chain whose root is still
+    /// RECENTLY_DEAD, or DELETE_IN_PROGRESS in this transaction, would have the superseded
+    /// version's values indexed under the root ctid.
+    ///
+    /// Exact-ctid callers (rebuilding docs for ctids that an index entry points at) must NOT
+    /// set this: with the index in place, HOT guarantees the chain members agree on indexed
+    /// columns, and the first surviving member is the version the entry was made for.
+    pub fn with_root_ctids(mut self) -> Self {
+        self.root_ctids = true;
+        self
+    }
+
+    /// Fetch `ctid` and build the document the index would hold for it, or `None` when there is
+    /// nothing to index at `ctid`: its block was truncated by a previous VACUUM, the tuple is
+    /// not visible to the active snapshot (query-visible mode), or every version in its HOT
+    /// chain is dead (maintenance mode).
+    pub unsafe fn fetch_doc(&mut self, ctid: u64) -> Option<TantivyDocument> {
+        unsafe {
+            // Guard against stale ctids referencing heap blocks truncated by VACUUM.
+            if !utils::ctid_satisfies_nblocks(
+                ctid,
+                self.heaprel.as_ptr(),
+                self.heaprel.fork_number(),
+            ) {
+                return None;
+            }
+
+            let mut ipd = pg_sys::ItemPointerData::default();
+            utils::u64_to_item_pointer(ctid, &mut ipd);
+
+            // See the struct docs for why the two modes fetch with different snapshots.
+            let fetch_snapshot = if self.query_visible {
+                pg_sys::GetActiveSnapshot()
+            } else {
+                &raw mut pg_sys::SnapshotAnyData
+            };
+            let mut call_again = false;
+            'next_hot_chain: loop {
+                let fetched = pg_sys::table_index_fetch_tuple(
+                    self.fetch_state.scan,
+                    &mut ipd,
+                    fetch_snapshot,
+                    self.fetch_state.slot(),
+                    // call_again: This parameter will be set to true if this `ctid` points to multiple
+                    // tuples as part of a HOT chain. We must attempt to find one live version of the
+                    // tuple, and it may not be the first one in the chain.
+                    &mut call_again,
+                    // all_dead: Can hypothetically signal that a `ctid` is dead in all
+                    // transactions: in practice, never actually seems to be anything but false
+                    // when used with `SnapshotAnyData`.
+                    &mut false,
+                );
+
+                if !fetched {
+                    // Either the tuple is not visible to `fetch_snapshot` (query-visible mode) or
+                    // heap page pruning removed it (SnapshotAny mode). In both cases there is no
+                    // content to index for this ctid.
+                    return None;
+                }
+
+                if self.query_visible {
+                    // Visible to the snapshot: skip the SnapshotAny dead-tuple filtering below and
+                    // index it.
+                    break;
+                }
+
+                let (mut htsv_result, hot_updated) = {
+                    let buffer = (*self.fetch_state.buffer_heap_slot()).buffer;
+                    let _lock = BorrowedBuffer::from_pg(buffer);
+                    let tuple = (*self.fetch_state.buffer_heap_slot()).base.tuple;
+                    (
+                        pg_sys::HeapTupleSatisfiesVacuum(tuple, self.oldest_xmin, buffer),
+                        u32::from((*(*tuple).t_data).t_infomask2) & pg_sys::HEAP_HOT_UPDATED != 0,
+                    )
+                };
+
+                if htsv_result == pg_sys::HTSV_Result::HEAPTUPLE_RECENTLY_DEAD {
+                    // Our `oldest_xmin` might be stale compared to a concurrent VACUUM.
+                    // If VACUUM saw this tuple as DEAD and deleted its TOAST chunks, we
+                    // must also see it as DEAD, otherwise we'll crash trying to read them.
+                    //
+                    // A single re-check is sufficient (no loop needed) because
+                    // `GetOldestNonRemovableTransactionId` returns the current global
+                    // XID horizon. If the tuple is still RECENTLY_DEAD under this fresh
+                    // horizon, then no concurrent VACUUM could have considered it DEAD
+                    // (VACUUM uses the same or an older horizon), so its TOAST data is
+                    // guaranteed to still exist.
+                    let fresh_oldest_xmin =
+                        pg_sys::GetOldestNonRemovableTransactionId(self.heaprel.as_ptr());
+                    if fresh_oldest_xmin != self.oldest_xmin {
+                        let buffer = (*self.fetch_state.buffer_heap_slot()).buffer;
+                        let _lock = BorrowedBuffer::from_pg(buffer);
+                        htsv_result = pg_sys::HeapTupleSatisfiesVacuum(
+                            (*self.fetch_state.buffer_heap_slot()).base.tuple,
+                            fresh_oldest_xmin,
+                            buffer,
+                        );
+                    }
+                }
+
+                if htsv_result == pg_sys::HTSV_Result::HEAPTUPLE_DEAD {
+                    // table_index_fetch_tuple stored this dead tuple in a buffer-backed slot. Since
+                    // this branch skips the tuple, clear the slot before any HOT-chain retry or ctid
+                    // skip so the slot releases its buffer pin.
+                    pg_sys::ExecClearTuple(self.fetch_state.slot());
+
+                    // This copy of the tuple is no longer visible to any transaction. Are there
+                    // more in the HOT chain?
+                    if call_again {
+                        // There are more entries in the hot chain: find the first one that is
+                        // visible.
+                        continue 'next_hot_chain;
+                    } else {
+                        // There are no more entries in the HOT chain, so no copy of the tuple is
+                        // visible in any transaction.
+                        return None;
+                    }
+                }
+
+                // The raw HOT bit is enough here. `HeapTupleHeaderIsHotUpdated` also wants a
+                // valid xmax and xmin, and under the visibility check taken in the same locked
+                // block an aborted updater reads as LIVE and an aborted inserter as DEAD, so
+                // neither reaches this branch.
+                if self.root_ctids
+                    && hot_updated
+                    && (htsv_result == pg_sys::HTSV_Result::HEAPTUPLE_RECENTLY_DEAD
+                        || htsv_result == pg_sys::HTSV_Result::HEAPTUPLE_DELETE_IN_PROGRESS)
+                {
+                    // This member survives for old snapshots, but a newer HOT member carries
+                    // the values the build callback delivered for this root. Skip forward so
+                    // the segment holds the live version, matching what
+                    // heapam_index_build_range_scan indexes for a broken HOT chain. A member
+                    // that was deleted outright (not HOT-updated) is indexed below instead,
+                    // as heapam does: a pre-existing snapshot may still need to see it. Under
+                    // SnapshotAny `call_again` is set after every fetch, so it says nothing
+                    // about whether the chain goes on; the tuple's own HOT flag does.
+                    pg_sys::ExecClearTuple(self.fetch_state.slot());
+                    continue 'next_hot_chain;
+                }
+
+                // We successfully fetched a tuple. Break out to fetch and deform it.
+                break;
+            }
+
+            // We have a completely valid tuple to index: fetch and deform it.
+            //
+            // NOTE: We intentionally pass `false` (don't materialize) to keep the
+            // buffer pin held by the BufferHeapTupleTableSlot. This pin blocks
+            // VACUUM's LockBufferForCleanup, which prevents it from removing the
+            // heap tuple and deleting its TOAST chunks while we read them below.
+            // See: https://github.com/paradedb/paradedb/issues/5076
+            let htup = pg_sys::ExecFetchSlotHeapTuple(
+                self.fetch_state.slot(),
+                false,
+                std::ptr::null_mut(),
+            );
+
+            pg_sys::heap_deform_tuple(
+                htup,
+                self.heaptupdesc.as_ptr(),
+                self.values.as_mut_ptr(),
+                self.isnull.as_mut_ptr(),
+            );
+
+            // Eagerly detoast all variable-length (varlena) datums while the
+            // buffer pin is still held. Without this, the lazy detoasting in
+            // row_to_search_document can race with VACUUM deleting TOAST chunks
+            // after we release the pin (the "missing chunk number 0" crash).
+            // pg_detoast_datum is a no-op for already-inline / non-TOASTed data.
+            for i in 0..self.heaptupdesc.len() {
+                if !self.isnull[i] {
+                    let att = self.heaptupdesc.get(i).expect("valid attribute");
+                    if att.attlen == -1 {
+                        self.values[i] = pg_sys::Datum::from(pg_sys::pg_detoast_datum(
+                            self.values[i].cast_mut_ptr(),
+                        ));
+                    }
+                }
+            }
+
+            let expr_results = self.expression_state.evaluate(self.fetch_state.slot());
+
+            let mut doc = TantivyDocument::new();
+
+            // Unpack all composites upfront from expr_results
+            let unpacked_composites = CompositeSlotValues::from_composites(
+                self.categorized_fields.iter().filter_map(|(_, cat)| {
+                    if let FieldSource::CompositeField {
+                        expression_idx,
+                        composite_type_oid,
+                        ..
+                    } = cat.source
+                    {
+                        let (datum, is_null) = expr_results[expression_idx];
+                        Some((expression_idx, datum, is_null, composite_type_oid))
+                    } else {
+                        None
+                    }
+                }),
+            );
+
+            utils::row_to_search_document(
+                self.categorized_fields.iter().map(|(field, categorized)| {
+                    let (datum, is_null) = utils::resolve_field_value(
+                        &categorized.source,
+                        &self.values,
+                        &self.isnull,
+                        &expr_results,
+                        &unpacked_composites,
+                    );
+                    (datum, is_null, field, categorized)
+                }),
+                &mut doc,
+                self.created_by_version,
+            )
+            .unwrap_or_else(|e| {
+                panic!("Failed to create document from row: {e}");
+            });
+
+            // Eagerly release the buffer pin now that all datum values have
+            // been detoasted into palloc'd memory. Without this, the pin would
+            // stay held until the next table_index_fetch_tuple call (which
+            // replaces the slot contents) or until HeapFetchState is dropped at
+            // end-of-query, unnecessarily blocking VACUUM on this buffer.
+            pg_sys::ExecClearTuple(self.fetch_state.slot());
+
+            Some(doc)
+        }
+    }
+}
+
 /// Direct `extern "C"` bindings for Postgres functions that bypass the pgrx `pg_guard` wrapper.
 ///
 /// Functions declared here MUST only be called when the caller has independently established
@@ -540,5 +898,73 @@ mod util {
             heapBlk: BlockNumber,
             buf: *mut Buffer,
         ) -> u8;
+    }
+}
+
+/// Streams ctids in the order given and prefetches their heap blocks `distance` blocks ahead,
+/// so that a block miss overlaps with the work on the blocks before it rather than stalling on
+/// it. The ctids are expected in heap order: a block's rows then arrive together and the block
+/// is prefetched once, when its first row enters the window.
+pub struct PrefetchWindow<'a, I: Iterator<Item = u64>> {
+    heaprel: &'a PgSearchRelation,
+    source: I,
+    window: VecDeque<u64>,
+    distance: usize,
+    /// Distinct blocks among the ctids in `window`.
+    blocks_in_window: usize,
+}
+
+impl<'a, I: Iterator<Item = u64>> PrefetchWindow<'a, I> {
+    /// `distance` is in blocks; `maintenance_io_concurrency` is the usual choice for a build.
+    pub fn new(heaprel: &'a PgSearchRelation, source: I, distance: usize) -> Self {
+        Self {
+            heaprel,
+            source,
+            window: VecDeque::new(),
+            distance,
+            blocks_in_window: 0,
+        }
+    }
+}
+
+impl<I: Iterator<Item = u64>> Iterator for PrefetchWindow<'_, I> {
+    type Item = u64;
+
+    fn next(&mut self) -> Option<u64> {
+        // Keep the block being read plus `distance` more in the window.
+        while self.blocks_in_window <= self.distance {
+            let Some(ctid) = self.source.next() else {
+                break;
+            };
+            let block = utils::u64_ctid_block_number(ctid);
+            if self
+                .window
+                .back()
+                .map(|&last| utils::u64_ctid_block_number(last))
+                != Some(block)
+            {
+                self.blocks_in_window += 1;
+                if self.distance > 0 {
+                    unsafe {
+                        pg_sys::PrefetchBuffer(
+                            self.heaprel.as_ptr(),
+                            pg_sys::ForkNumber::MAIN_FORKNUM,
+                            block,
+                        );
+                    }
+                }
+            }
+            self.window.push_back(ctid);
+        }
+        let ctid = self.window.pop_front()?;
+        if self
+            .window
+            .front()
+            .map(|&next| utils::u64_ctid_block_number(next))
+            != Some(utils::u64_ctid_block_number(ctid))
+        {
+            self.blocks_in_window -= 1;
+        }
+        Some(ctid)
     }
 }

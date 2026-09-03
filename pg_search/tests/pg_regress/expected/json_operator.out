@@ -5,7 +5,7 @@ SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 SET paradedb.enable_columnar_exec = true;
 DROP TABLE IF EXISTS mock_items;
-CALL paradedb.create_bm25_test_table(
+CALL paradedb.create_paradedb_test_table(
   schema_name => 'public',
   table_name => 'mock_items'
 );
@@ -17,7 +17,7 @@ INSERT INTO mock_items (description, metadata) VALUES
 ('Speaker', '{"price": 80, "color": "white", "in_stock": true}');
 -- CASE 1: fast, default tokenizer
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
+USING paradedb (id, description, category, rating, in_stock, created_at, metadata, weight_range)
 WITH (key_field='id', json_fields='{"metadata": {"fast": true}}');
 -- basic FTS query
 SELECT description, metadata->>'color' as color, metadata->>'price' as price FROM mock_items
@@ -206,8 +206,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, metadata->>'color', metadata->>'in_stock' as in_stock FROM mock_items
 WHERE metadata->>'color' IN ('white', 'black') AND id @@@ paradedb.all()
 ORDER BY id LIMIT 5;
-                                                                                                                QUERY PLAN                                                                                                                
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                QUERY PLAN                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
@@ -217,7 +217,7 @@ ORDER BY id LIMIT 5;
             TopK Order By: id asc
             TopK Limit: 5
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"heap_filter":"((metadata ->> 'color'::text) = ANY ('{white,black}'::text[]))"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"((metadata ->> 'color'::text) = ANY ('{white,black}'::text[]))"}]}}]}}
 (10 rows)
 
 -- should be pushed down

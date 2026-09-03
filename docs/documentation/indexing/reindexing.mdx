@@ -1,7 +1,7 @@
 ---
 title: Reindexing
 description: Rebuild an existing index with zero downtime
-canonical: https://docs.paradedb.com/documentation/indexing/reindexing
+canonical: https://www.paradedb.com/docs/documentation/indexing/reindexing
 ---
 
 ## Changing the Schema
@@ -27,19 +27,19 @@ WITH (key_field = 'id');
 import { indexing } from "@paradedb/drizzle-paradedb";
 
 indexing
-  .bm25Index("search_idx_v2")
+  .paradedbIndex("search_idx_v2")
   .on(mockItems.id, mockItems.description, mockItems.category)
   .concurrently();
 ```
 
 ```python Django
 from django.db import connection
-from paradedb.indexes import BM25Index
+from paradedb.indexes import ParadeDBIndex
 
 with connection.schema_editor(atomic=False) as schema_editor:
     schema_editor.add_index(
         MockItem,
-        BM25Index(
+        ParadeDBIndex(
             fields={
                 "id": {},
                 "description": {},
@@ -58,10 +58,10 @@ from paradedb.sqlalchemy import indexing
 
 idx = Index(
     "search_idx_v2",
-    indexing.BM25Field(MockItem.id),
-    indexing.BM25Field(MockItem.description),
-    indexing.BM25Field(MockItem.category),
-    postgresql_using="bm25",
+    indexing.ParadeDBField(MockItem.id),
+    indexing.ParadeDBField(MockItem.description),
+    indexing.ParadeDBField(MockItem.category),
+    postgresql_using="paradedb",
     postgresql_with={"key_field": "id"},
     postgresql_concurrently=True,
 )
@@ -72,7 +72,7 @@ with engine.connect() as conn:
 ```
 
 ```ruby Rails
-ActiveRecord::Base.connection.add_bm25_index(
+ActiveRecord::Base.connection.add_paradedb_index(
   :mock_items,
   fields: {
     id: {},
@@ -87,7 +87,7 @@ ActiveRecord::Base.connection.add_bm25_index(
 
 ```cs EF Core
 modelBuilder.Entity<MockItem>()
-    .HasBm25Index("search_idx_v2", e => e.Id)
+    .HasParadeDbIndex("search_idx_v2", e => e.Id)
     .HasField(e => e.Description)
     .HasField(e => e.Category)
     .IsCreatedConcurrently();

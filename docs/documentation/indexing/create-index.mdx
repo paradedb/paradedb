@@ -1,7 +1,7 @@
 ---
 title: Create an Index
 description: Index a Postgres table for full text search
-canonical: https://docs.paradedb.com/documentation/indexing/create-index
+canonical: https://www.paradedb.com/docs/documentation/indexing/create-index
 ---
 
 Before a table can be searched, it must be indexed. ParadeDB uses a custom index type called the ParadeDB index.
@@ -18,18 +18,18 @@ WITH (key_field='id');
 import { indexing } from "@paradedb/drizzle-paradedb";
 
 indexing
-  .bm25Index("search_idx")
+  .paradedbIndex("search_idx")
   .on(mockItems.id, mockItems.description, mockItems.category);
 ```
 
 ```python Django
 from django.db import connection
-from paradedb.indexes import BM25Index
+from paradedb.indexes import ParadeDBIndex
 
 with connection.schema_editor() as schema_editor:
     schema_editor.add_index(
         MockItem,
-        BM25Index(
+        ParadeDBIndex(
             fields={
                 "id": {},
                 "description": {},
@@ -47,10 +47,10 @@ from paradedb.sqlalchemy import indexing
 
 idx = Index(
     "search_idx",
-    indexing.BM25Field(MockItem.id),
-    indexing.BM25Field(MockItem.description),
-    indexing.BM25Field(MockItem.category),
-    postgresql_using="bm25",
+    indexing.ParadeDBField(MockItem.id),
+    indexing.ParadeDBField(MockItem.description),
+    indexing.ParadeDBField(MockItem.category),
+    postgresql_using="paradedb",
     postgresql_with={"key_field": "id"},
 )
 
@@ -59,7 +59,7 @@ with engine.begin() as conn:
 ```
 
 ```ruby Rails
-ActiveRecord::Base.connection.add_bm25_index(
+ActiveRecord::Base.connection.add_paradedb_index(
   :mock_items,
   fields: {
     id: {},
@@ -73,7 +73,7 @@ ActiveRecord::Base.connection.add_bm25_index(
 
 ```cs EF Core
 modelBuilder.Entity<MockItem>()
-    .HasBm25Index("search_idx", e => e.Id)
+    .HasParadeDbIndex("search_idx", e => e.Id)
     .HasField(e => e.Description)
     .HasField(e => e.Category);
 ```
@@ -86,9 +86,9 @@ modelBuilder.Entity<MockItem>()
   fact that the index is now much more than BM25 scoring — it also powers
   [vector search](/documentation/vector/overview),
   [aggregates](/documentation/aggregates/overview), [top
-  K](/documentation/sorting/topk), and [filtering](/documentation/filtering).
-  `USING bm25` remains supported as a backwards-compatible alias for `USING
-  paradedb`.
+  K](/documentation/sorting/topk), and
+  [filtering](/documentation/filtering/overview). `USING bm25` remains supported
+  as a backwards-compatible alias for `USING paradedb`.
 </Note>
 
 <Note>
@@ -126,7 +126,7 @@ with engine.begin() as conn:
 ```
 
 ```ruby Rails
-ActiveRecord::Base.connection.remove_bm25_index(:mock_items, name: :search_idx)
+ActiveRecord::Base.connection.remove_paradedb_index(:mock_items, name: :search_idx)
 ```
 
 ```cs EF Core
@@ -154,23 +154,23 @@ WITH (key_field='id');
 import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
 
 indexing
-  .bm25Index("search_idx")
+  .paradedbIndex("search_idx")
   .on(
     mockItems.id,
-    indexing.bm25Field(mockItems.description, tokenizer.icu()),
+    indexing.paradedbField(mockItems.description, tokenizer.icu()),
     mockItems.category,
   );
 ```
 
 ```python Django
 from django.db import connection
-from paradedb.indexes import BM25Index
+from paradedb.indexes import ParadeDBIndex
 from paradedb.search import Tokenizer
 
 with connection.schema_editor() as schema_editor:
     schema_editor.add_index(
         MockItem,
-        BM25Index(
+        ParadeDBIndex(
             fields={
                 "id": {},
                 "description": {"tokenizer": Tokenizer.icu()},
@@ -188,13 +188,13 @@ from paradedb.sqlalchemy import indexing, tokenizer
 
 idx = Index(
     "search_idx",
-    indexing.BM25Field(MockItem.id),
-    indexing.BM25Field(
+    indexing.ParadeDBField(MockItem.id),
+    indexing.ParadeDBField(
         MockItem.description,
         tokenizer=tokenizer.icu(),
     ),
-    indexing.BM25Field(MockItem.category),
-    postgresql_using="bm25",
+    indexing.ParadeDBField(MockItem.category),
+    postgresql_using="paradedb",
     postgresql_with={"key_field": "id"},
 )
 
@@ -203,7 +203,7 @@ with engine.begin() as conn:
 ```
 
 ```ruby Rails
-ActiveRecord::Base.connection.add_bm25_index(
+ActiveRecord::Base.connection.add_paradedb_index(
   :mock_items,
   fields: {
     id: {},
@@ -217,7 +217,7 @@ ActiveRecord::Base.connection.add_bm25_index(
 
 ```cs EF Core
 modelBuilder.Entity<MockItem>()
-    .HasBm25Index("search_idx", e => e.Id)
+    .HasParadeDbIndex("search_idx", e => e.Id)
     .HasField(e => e.Description, Tokenizer.Icu())
     .HasField(e => e.Category);
 ```
@@ -238,7 +238,7 @@ WITH (key_field='id');
 import { indexing } from "@paradedb/drizzle-paradedb";
 
 indexing
-  .bm25Index("search_idx")
+  .paradedbIndex("search_idx")
   .on(
     mockItems.id,
     mockItems.description,
@@ -253,12 +253,12 @@ indexing
 
 ```python Django
 from django.db import connection
-from paradedb.indexes import BM25Index
+from paradedb.indexes import ParadeDBIndex
 
 with connection.schema_editor() as schema_editor:
     schema_editor.add_index(
         MockItem,
-        BM25Index(
+        ParadeDBIndex(
             fields={
                 "id": {},
                 "description": {},
@@ -281,15 +281,15 @@ from paradedb.sqlalchemy import indexing
 
 idx = Index(
     "search_idx",
-    indexing.BM25Field(MockItem.id),
-    indexing.BM25Field(MockItem.description),
-    indexing.BM25Field(MockItem.category),
-    indexing.BM25Field(MockItem.rating),
-    indexing.BM25Field(MockItem.in_stock),
-    indexing.BM25Field(MockItem.created_at),
-    indexing.BM25Field(MockItem.metadata_),
-    indexing.BM25Field(MockItem.weight_range),
-    postgresql_using="bm25",
+    indexing.ParadeDBField(MockItem.id),
+    indexing.ParadeDBField(MockItem.description),
+    indexing.ParadeDBField(MockItem.category),
+    indexing.ParadeDBField(MockItem.rating),
+    indexing.ParadeDBField(MockItem.in_stock),
+    indexing.ParadeDBField(MockItem.created_at),
+    indexing.ParadeDBField(MockItem.metadata_),
+    indexing.ParadeDBField(MockItem.weight_range),
+    postgresql_using="paradedb",
     postgresql_with={"key_field": "id"},
 )
 
@@ -298,7 +298,7 @@ with engine.begin() as conn:
 ```
 
 ```ruby Rails
-ActiveRecord::Base.connection.add_bm25_index(
+ActiveRecord::Base.connection.add_paradedb_index(
   :mock_items,
   fields: {
     id: {},
@@ -317,7 +317,7 @@ ActiveRecord::Base.connection.add_bm25_index(
 
 ```cs EF Core
 modelBuilder.Entity<MockItem>()
-    .HasBm25Index("search_idx", e => e.Id)
+    .HasParadeDbIndex("search_idx", e => e.Id)
     .HasField(e => e.Description)
     .HasField(e => e.Category)
     .HasField(e => e.Rating)
@@ -370,10 +370,10 @@ WITH (key_field='id');
 import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
 
 indexing
-  .bm25Index("search_idx")
+  .paradedbIndex("search_idx")
   .on(
     mockItems.id,
-    indexing.bm25Field(
+    indexing.paradedbField(
       mockItems.description,
       tokenizer.simple({ stemmer: "english" }),
     ),
@@ -383,13 +383,13 @@ indexing
 
 ```python Django
 from django.db import connection
-from paradedb.indexes import BM25Index
+from paradedb.indexes import ParadeDBIndex
 from paradedb.search import Tokenizer
 
 with connection.schema_editor() as schema_editor:
     schema_editor.add_index(
         MockItem,
-        BM25Index(
+        ParadeDBIndex(
             fields={
                 "id": {},
                 "description": {
@@ -411,13 +411,13 @@ from paradedb.sqlalchemy import indexing, tokenizer
 
 idx = Index(
     "search_idx",
-    indexing.BM25Field(MockItem.id),
-    indexing.BM25Field(
+    indexing.ParadeDBField(MockItem.id),
+    indexing.ParadeDBField(
         MockItem.description,
         tokenizer=tokenizer.simple(options={"stemmer": "english"}),
     ),
-    indexing.BM25Field(MockItem.category),
-    postgresql_using="bm25",
+    indexing.ParadeDBField(MockItem.category),
+    postgresql_using="paradedb",
     postgresql_with={"key_field": "id"},
 )
 
@@ -426,7 +426,7 @@ with engine.begin() as conn:
 ```
 
 ```ruby Rails
-ActiveRecord::Base.connection.add_bm25_index(
+ActiveRecord::Base.connection.add_paradedb_index(
   :mock_items,
   fields: {
     id: {},
@@ -442,7 +442,7 @@ ActiveRecord::Base.connection.add_bm25_index(
 
 ```cs EF Core
 modelBuilder.Entity<MockItem>()
-    .HasBm25Index("search_idx", e => e.Id)
+    .HasParadeDbIndex("search_idx", e => e.Id)
     .HasField(e => e.Description, Tokenizer.Simple(new() { ["stemmer"] = "english" }))
     .HasField(e => e.Category);
 ```

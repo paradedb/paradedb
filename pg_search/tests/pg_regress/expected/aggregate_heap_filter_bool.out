@@ -19,17 +19,17 @@ SELECT (ARRAY['a', 'b'])[1 + (g % 2)], (g % 2 = 0)
 FROM generate_series(1, 500) g;
 -- `flag` is intentionally NOT indexed, so predicates on it become heap filters.
 CREATE INDEX agg_heap_bool_idx ON agg_heap_bool
-USING bm25 (id, category) WITH (key_field = 'id');
+USING paradedb (id, category) WITH (key_field = 'id');
 SET paradedb.enable_aggregate_custom_scan TO on;
 -- Bare boolean Var heap filter (previously crashed).
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT count(*) FROM agg_heap_bool WHERE category === 'a' AND flag;
-                                                                                         QUERY PLAN                                                                                          
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                          QUERY PLAN                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.agg_heap_bool
    Output: pdb.agg_fn('COUNT(*)'::text)
    Index: agg_heap_bool_idx
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"category","value":"a"}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"flag"}]}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"category","value":"a"}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"flag"}]}}]}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (6 rows)
@@ -43,12 +43,12 @@ SELECT count(*) FROM agg_heap_bool WHERE category === 'a' AND flag;
 -- Boolean equality heap filter (previously crashed).
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT count(*) FROM agg_heap_bool WHERE category === 'a' AND flag = false;
-                                                                                                              QUERY PLAN                                                                                                               
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                               QUERY PLAN                                                                                                               
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.agg_heap_bool
    Output: pdb.agg_fn('COUNT(*)'::text)
    Index: agg_heap_bool_idx
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"category","value":"a"}}}},{"boolean":{"must":["all"],"must_not":[{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"flag"}]}}]}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"category","value":"a"}}}},{"boolean":{"must":["all"],"must_not":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"flag"}]}}]}}]}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (6 rows)
@@ -62,12 +62,12 @@ SELECT count(*) FROM agg_heap_bool WHERE category === 'a' AND flag = false;
 -- Negated bare boolean Var heap filter.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT count(*) FROM agg_heap_bool WHERE category === 'a' AND NOT flag;
-                                                                                                              QUERY PLAN                                                                                                               
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                               QUERY PLAN                                                                                                               
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.agg_heap_bool
    Output: pdb.agg_fn('COUNT(*)'::text)
    Index: agg_heap_bool_idx
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"category","value":"a"}}}},{"boolean":{"must":["all"],"must_not":[{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"flag"}]}}]}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"category","value":"a"}}}},{"boolean":{"must":["all"],"must_not":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"flag"}]}}]}}]}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (6 rows)

@@ -36,11 +36,11 @@ INSERT INTO t_main_4779 SELECT i, 'val_' || i FROM generate_series(1, 100) i;
 INSERT INTO t_a_4779 SELECT i, (i % 100) + 1 FROM generate_series(1, 200) i;
 INSERT INTO t_b_4779 SELECT i, (i % 100) + 1 FROM generate_series(1, 200) i;
 CREATE INDEX t_main_4779_idx ON t_main_4779
-  USING bm25 (id, (val::pdb.literal)) WITH (key_field = 'id');
+  USING paradedb (id, (val::pdb.literal)) WITH (key_field = 'id');
 CREATE INDEX t_a_4779_idx ON t_a_4779
-  USING bm25 (id, main_id) WITH (key_field = 'id');
+  USING paradedb (id, main_id) WITH (key_field = 'id');
 CREATE INDEX t_b_4779_idx ON t_b_4779
-  USING bm25 (id, main_id) WITH (key_field = 'id');
+  USING paradedb (id, main_id) WITH (key_field = 'id');
 ANALYZE t_main_4779;
 ANALYZE t_a_4779;
 ANALYZE t_b_4779;
@@ -60,8 +60,8 @@ WHERE EXISTS (SELECT 1 FROM t_a_4779 a WHERE a.main_id = m.id AND a.id @@@ pdb.a
   AND EXISTS (SELECT 1 FROM t_b_4779 b WHERE b.main_id = m.id AND b.id @@@ pdb.all())
   AND m.id @@@ pdb.all()
 ORDER BY m.id DESC LIMIT 10;
-                                                         QUERY PLAN                                                         
-----------------------------------------------------------------------------------------------------------------------------
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: (m SEMI b) SEMI a
@@ -72,15 +72,16 @@ ORDER BY m.id DESC LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[m]
-           :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
            :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
+           :           HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
+           :             CooperativeExec
+           :               PgSearchScan: table=m, segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+           :             CooperativeExec
+           :               PgSearchScan: table=b, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-(18 rows)
+           :             PgSearchScan: table=a, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+(19 rows)
 
 -- Rows with JoinScan on (verifies correctness, not just plan shape).
 SELECT m.id FROM t_main_4779 m
@@ -132,8 +133,8 @@ WHERE EXISTS (SELECT 1 FROM t_a_4779 a WHERE a.main_id = m.id AND a.id @@@ pdb.a
   AND NOT EXISTS (SELECT 1 FROM t_b_4779 b WHERE b.main_id = m.id AND b.id @@@ pdb.all())
   AND m.id @@@ pdb.all()
 ORDER BY m.id DESC LIMIT 10;
-                                                         QUERY PLAN                                                         
-----------------------------------------------------------------------------------------------------------------------------
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: (m ANTI b) SEMI a
@@ -144,15 +145,16 @@ ORDER BY m.id DESC LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[m]
-           :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
-           :         HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@1, main_id@0)]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
+           :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
+           :           HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@1, main_id@0)]
+           :             CooperativeExec
+           :               PgSearchScan: table=m, segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+           :             CooperativeExec
+           :               PgSearchScan: table=b, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-(18 rows)
+           :             PgSearchScan: table=a, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+(19 rows)
 
 -- ============================================================
 -- Parallel mode: control. Worked pre-fix (issue #4910); guard against
@@ -169,8 +171,8 @@ WHERE EXISTS (SELECT 1 FROM t_a_4779 a WHERE a.main_id = m.id AND a.id @@@ pdb.a
   AND EXISTS (SELECT 1 FROM t_b_4779 b WHERE b.main_id = m.id AND b.id @@@ pdb.all())
   AND m.id @@@ pdb.all()
 ORDER BY m.id DESC LIMIT 10;
-                                                           QUERY PLAN                                                           
---------------------------------------------------------------------------------------------------------------------------------
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: (m SEMI b) SEMI a
@@ -179,17 +181,17 @@ ORDER BY m.id DESC LIMIT 10;
          Order By: m.id desc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
-           :   SortPreservingMergeExec: [id@1 DESC], fetch=10
-           :     SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[true]
-           :       VisibilityFilterExec: tables=[m]
+           :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
+           :     VisibilityFilterExec: tables=[m]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
            :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
-           :           CoalescePartitionsExec
-           :             HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
-           :               PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-           :               RepartitionExec: partitioning=RoundRobinBatch(8), input_partitions=1
-           :                 PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-           :           RepartitionExec: partitioning=RoundRobinBatch(8), input_partitions=1
-           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+           :           HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
+           :             CooperativeExec
+           :               PgSearchScan: table=m, segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+           :             CooperativeExec
+           :               PgSearchScan: table=b, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+           :           CooperativeExec
+           :             PgSearchScan: table=a, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
 (19 rows)
 
 DROP TABLE t_main_4779, t_a_4779, t_b_4779 CASCADE;

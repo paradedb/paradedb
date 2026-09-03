@@ -39,13 +39,13 @@ CREATE TABLE mpp_users    (id bigserial primary key, uuid uuid, name text, age i
 CREATE TABLE mpp_products (id bigserial primary key, uuid uuid, name text, age int);
 CREATE TABLE mpp_orders   (id bigserial primary key, uuid uuid, name text, age int);
 
-CREATE INDEX mpp_users_idx ON mpp_users USING bm25 (id, uuid, name, age, category)
+CREATE INDEX mpp_users_idx ON mpp_users USING paradedb (id, uuid, name, age, category)
 WITH (key_field='id', text_fields='{"uuid":{"tokenizer":{"type":"keyword"},"fast":true},"name":{"tokenizer":{"type":"keyword"},"fast":true},"category":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
 
-CREATE INDEX mpp_products_idx ON mpp_products USING bm25 (id, uuid, name, age)
+CREATE INDEX mpp_products_idx ON mpp_products USING paradedb (id, uuid, name, age)
 WITH (key_field='id', text_fields='{"uuid":{"tokenizer":{"type":"keyword"},"fast":true},"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
 
-CREATE INDEX mpp_orders_idx ON mpp_orders USING bm25 (id, uuid, name, age)
+CREATE INDEX mpp_orders_idx ON mpp_orders USING paradedb (id, uuid, name, age)
 WITH (key_field='id', text_fields='{"uuid":{"tokenizer":{"type":"keyword"},"fast":true},"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
 
 SET paradedb.global_mutable_segment_rows = 0;
@@ -86,6 +86,8 @@ ANALYZE mpp_orders;
 // 2 producers, matching this test's 2-segment tables.
 const MPP_GUCS: &str = r#"
 SET paradedb.enable_join_custom_scan TO on;
+-- The fixture tables are tiny; disable the size gate so MPP engages.
+SET paradedb.mpp_min_rows TO 0;
 SET max_parallel_workers_per_gather TO 2;
 SET max_parallel_workers TO 8;
 SET min_parallel_table_scan_size TO 0;

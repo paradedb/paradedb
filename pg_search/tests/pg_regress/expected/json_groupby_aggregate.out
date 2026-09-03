@@ -22,7 +22,7 @@ INSERT INTO json_test_single (metadata, data) VALUES
     ('{"category": "clothing", "brand": "Nike", "price": 99}', '{"size": "S", "stock": 30}');
 -- Create BM25 index
 CREATE INDEX idx_json_single ON json_test_single
-USING bm25 (id, metadata, data)
+USING paradedb (id, metadata, data)
 WITH (
     key_field = 'id',
     json_fields = '{
@@ -77,7 +77,7 @@ INSERT INTO json_test_multiple (metadata) VALUES
     ('{"category": "clothing", "brand": "Nike"}');
 -- Create BM25 index
 CREATE INDEX idx_json_multiple ON json_test_multiple
-USING bm25 (id, metadata)
+USING paradedb (id, metadata)
 WITH (
     key_field = 'id',
     json_fields = '{"metadata": {"indexed": true, "fast": true, "expand_dots": true}}'
@@ -136,7 +136,7 @@ INSERT INTO json_test_aggregates (metadata) VALUES
     ('{"brand": "Nike", "price": 99}');
 -- Create BM25 index
 CREATE INDEX idx_json_aggregates ON json_test_aggregates
-USING bm25 (id, metadata)
+USING paradedb (id, metadata)
 WITH (
     key_field = 'id',
     json_fields = '{"metadata": {"indexed": true, "fast": true, "expand_dots": true}}'
@@ -182,7 +182,7 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'category'
 ORDER BY category;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_test_aggregates)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_aggregates)
                                          QUERY PLAN                                          
 ---------------------------------------------------------------------------------------------
  GroupAggregate
@@ -208,7 +208,7 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'category'
 ORDER BY category;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_test_aggregates)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_aggregates)
  category | total_price 
 ----------+-------------
           |        3285
@@ -223,7 +223,7 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'brand'
 ORDER BY brand;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_test_aggregates)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_aggregates)
                                             QUERY PLAN                                            
 --------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -250,7 +250,7 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'brand'
 ORDER BY brand;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_test_aggregates)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_aggregates)
   brand  |       avg_price       | item_count 
 ---------+-----------------------+------------
  Apple   | 1149.0000000000000000 |          2
@@ -268,7 +268,7 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'category'
 ORDER BY category;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_test_aggregates)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_aggregates)
                                                                     QUERY PLAN                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -296,7 +296,7 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'category'
 ORDER BY category;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_test_aggregates)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_aggregates)
  category | min_price | max_price | item_count 
 ----------+-----------+-----------+------------
           |        89 |      1299 |          5
@@ -314,7 +314,7 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'brand'
 ORDER BY brand;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_test_aggregates)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_aggregates)
                                                                                                                  QUERY PLAN                                                                                                                 
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -344,7 +344,7 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'brand'
 ORDER BY brand;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_test_aggregates)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_aggregates)
   brand  | item_count | total_value |       avg_price       | min_price | max_price 
 ---------+------------+-------------+-----------------------+-----------+-----------
  Apple   |          2 |        2298 | 1149.0000000000000000 |       999 |      1299
@@ -368,7 +368,7 @@ INSERT INTO json_test_nulls (metadata) VALUES
     ('{"category": "clothing"}'); -- Missing brand
 -- Create BM25 index
 CREATE INDEX idx_json_nulls ON json_test_nulls
-USING bm25 (id, metadata)
+USING paradedb (id, metadata)
 WITH (
     key_field = 'id',
     json_fields = '{"metadata": {"indexed": true, "fast": true, "expand_dots": true}}'
@@ -421,7 +421,7 @@ INSERT INTO ledger_transactions (metadata_json, amount) VALUES
     ('{"reservation_id": "res_002", "user_id": "user_456"}', 95.00);
 -- Create BM25 index
 CREATE INDEX idx_ledger_json ON ledger_transactions
-USING bm25 (id, metadata_json, amount)
+USING paradedb (id, metadata_json, amount)
 WITH (
     key_field = 'id',
     json_fields = '{"metadata_json": {"indexed": true, "fast": true, "expand_dots": true}}'
@@ -476,7 +476,7 @@ INSERT INTO json_test_deep (config) VALUES
     ('{"user": {"profile": {"settings": {"theme": "light", "region": "us-east"}}}}');
 -- Create BM25 index with nested JSON fields
 CREATE INDEX idx_json_deep ON json_test_deep
-USING bm25 (id, config)
+USING paradedb (id, config)
 WITH (
     key_field = 'id',
     json_fields = '{"config": {"indexed": true, "fast": true, "expand_dots": true}}'
@@ -548,7 +548,7 @@ INSERT INTO json_test_mixed (data) VALUES
     ('{"type": "event", "event": {"name": "login", "timestamp": "2024-01-02", "source": {"app": "web", "version": "1.1"}}}');
 -- Create BM25 index 
 CREATE INDEX idx_json_mixed ON json_test_mixed
-USING bm25 (id, data)
+USING paradedb (id, data)
 WITH (
     key_field = 'id',
     json_fields = '{"data": {"indexed": true, "fast": true, "expand_dots": true}}'
@@ -670,7 +670,7 @@ INSERT INTO json_test_operators (payload) VALUES
     ('{"metadata": {"tags": ["feature", "api"], "priority": "medium", "assignee": {"name": "Bob", "team": "engineering"}}, "team": "engineering"}');
 -- Create BM25 index
 CREATE INDEX idx_json_operators ON json_test_operators
-USING bm25 (id, payload)
+USING paradedb (id, payload)
 WITH (
     key_field = 'id',
     json_fields = '{"payload": {"indexed": true, "fast": true, "expand_dots": true}}'
@@ -794,7 +794,7 @@ INSERT INTO json_test_complex (document) VALUES
     ('{"source": {"system": "crm", "version": "2.1"}, "tags": ["customer"], "metrics": {"score": 80, "category": "B"}}');
 -- Create BM25 index
 CREATE INDEX idx_json_complex ON json_test_complex
-USING bm25 (id, document)
+USING paradedb (id, document)
 WITH (
     key_field = 'id',
     json_fields = '{"document": {"indexed": true, "fast": true, "expand_dots": true}}'
@@ -810,7 +810,7 @@ WHERE id @@@ paradedb.exists('document.source.system')
   AND id @@@ paradedb.exists('document.metrics.category')
 GROUP BY document->'source'->>'system', document->'metrics'->>'category'
 ORDER BY source_system, metric_category;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_test_complex)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_complex)
                                                                                               QUERY PLAN                                                                                              
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -839,7 +839,7 @@ WHERE id @@@ paradedb.exists('document.source.system')
   AND id @@@ paradedb.exists('document.metrics.category')
 GROUP BY document->'source'->>'system', document->'metrics'->>'category'
 ORDER BY source_system, metric_category;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_test_complex)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_complex)
  source_system | metric_category | count |      avg_score      
 ---------------+-----------------+-------+---------------------
  billing       | A               |     1 | 95.0000000000000000
@@ -860,7 +860,7 @@ FROM json_test_complex
 WHERE id @@@ paradedb.exists('document.metrics.score')
 GROUP BY document->'metrics'->>'category'
 ORDER BY metric_category;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_test_complex)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_complex)
                                                                                                                                                                        QUERY PLAN                                                                                                                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -890,7 +890,7 @@ FROM json_test_complex
 WHERE id @@@ paradedb.exists('document.metrics.score')
 GROUP BY document->'metrics'->>'category'
 ORDER BY metric_category;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_test_complex)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_complex)
  metric_category | total_records | total_score |      avg_score      | min_score | max_score 
 -----------------+---------------+-------------+---------------------+-----------+-----------
  A               |             2 |         180 | 90.0000000000000000 |        85 |        95
@@ -915,7 +915,7 @@ INSERT INTO json_test_reconstruction (config) VALUES
     ('{"api": {"version": "v1", "endpoints": {"users": "/api/v1/users", "orders": "/api/v1/orders"}}, "database": {"host": "db1", "port": 5432}}');
 -- Create BM25 index
 CREATE INDEX idx_json_reconstruction ON json_test_reconstruction
-USING bm25 (id, config)
+USING paradedb (id, config)
 WITH (
     key_field = 'id',
     json_fields = '{"config": {"indexed": true, "fast": true, "expand_dots": true}}'
@@ -1053,7 +1053,7 @@ INSERT INTO json_test_multi_subfields (user_profile, order_details) VALUES
     ('{"name": "Henry", "department": "Engineering", "role": "Manager", "location": "SF"}', '{"product": "desk", "category": "furniture", "quantity": 2, "price": 300}');
 -- Create BM25 index
 CREATE INDEX idx_json_multi_subfields ON json_test_multi_subfields
-USING bm25 (id, user_profile, order_details)
+USING paradedb (id, user_profile, order_details)
 WITH (
     key_field = 'id',
     json_fields = '{
@@ -1162,7 +1162,7 @@ WHERE id @@@ paradedb.exists('user_profile.department')
   AND id @@@ paradedb.exists('order_details.category')
 GROUP BY user_profile->>'department', order_details->>'category'
 ORDER BY department, product_category;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_test_multi_subfields)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_multi_subfields)
                                                                                              QUERY PLAN                                                                                             
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -1192,7 +1192,7 @@ WHERE id @@@ paradedb.exists('user_profile.department')
   AND id @@@ paradedb.exists('order_details.category')
 GROUP BY user_profile->>'department', order_details->>'category'
 ORDER BY department, product_category;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_test_multi_subfields)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_multi_subfields)
  department  | product_category | order_count | total_quantity 
 -------------+------------------+-------------+----------------
  Engineering | electronics      |           3 |              9
@@ -1218,7 +1218,7 @@ WHERE id @@@ paradedb.exists('user_profile.department')
 GROUP BY user_profile->>'department', user_profile->>'location', 
          order_details->>'product', order_details->>'category'
 ORDER BY department, location, product;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_test_multi_subfields)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_multi_subfields)
                                                                                                                                          QUERY PLAN                                                                                                                                         
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -1252,7 +1252,7 @@ WHERE id @@@ paradedb.exists('user_profile.department')
 GROUP BY user_profile->>'department', user_profile->>'location', 
          order_details->>'product', order_details->>'category'
 ORDER BY department, location, product;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_test_multi_subfields)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_multi_subfields)
  department  | location | product |  category   | order_count |       avg_price       | total_quantity 
 -------------+----------+---------+-------------+-------------+-----------------------+----------------
  Engineering | NYC      | mouse   | electronics |           1 |   25.0000000000000000 |              5
@@ -1281,7 +1281,7 @@ INSERT INTO json_test_special (content) VALUES
     ('{"user-info": {"first_name": "Alice", "last-name": "Brown", "email@domain": "work"}}');
 -- Create BM25 index
 CREATE INDEX idx_json_special ON json_test_special
-USING bm25 (id, content)
+USING paradedb (id, content)
 WITH (
     key_field = 'id',
     json_fields = '{"content": {"indexed": true, "fast": true, "expand_dots": true}}'

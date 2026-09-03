@@ -42,6 +42,9 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v7
 
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
+
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -113,8 +116,8 @@ jobs:
           echo "Checking that each file has title, description, and canonical URL..."
           missing_meta=0
           for file in $(find . -name "*.mdx" \
-            ! -path "./legacy/*" \
             ! -path "./changelog/*" \
+            ! -path "./snippets/*" \
             ! -path "./welcome/support.mdx"); do
 
             title=$(grep -E "^title:" "$file" || true)
@@ -127,9 +130,9 @@ jobs:
               continue
             fi
 
-            # Build expected canonical: https://docs.paradedb.com/<relative path without .mdx>
+            # Build expected canonical: https://www.paradedb.com/docs/<relative path without .mdx>
             relative_path=$(echo "$file" | sed 's|^\./||; s|\.mdx$||; s|^docs/||')
-            expected_canonical="https://docs.paradedb.com/${relative_path}"
+            expected_canonical="https://www.paradedb.com/docs/${relative_path}"
 
             # Extract canonical from file (strip 'canonical:' and whitespace)
             found_canonical=$(echo "$canonical" | sed 's/^canonical:[[:space:]]*//')
@@ -153,7 +156,7 @@ jobs:
       - name: Install pgrx
         run: cargo install -j $(nproc) --locked cargo-pgrx --version "${{ steps.pgrx.outputs.version }}" --debug
 
-      - name: Initialize pgrx environment
+      - name: Initialize pgrx Environment
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=download" --configure-flag="--without-readline"
 
       - name: Add pgrx PostgreSQL binaries to PATH

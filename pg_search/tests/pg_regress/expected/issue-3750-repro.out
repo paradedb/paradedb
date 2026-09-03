@@ -20,7 +20,7 @@ CREATE TABLE places (
     country_code TEXT
 );
 -- Create the BM25 index as specified in the issue
-CREATE INDEX places_parade_idx ON places USING bm25 (id, name, country_code) WITH (key_field='id');
+CREATE INDEX places_parade_idx ON places USING paradedb (id, name, country_code) WITH (key_field='id');
 -- Insert test data that matches the issue's scenario
 -- The issue mentions "assist wireless" matching rows
 -- Generate enough data to trigger multiple parallel workers
@@ -83,12 +83,12 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*) as count
 FROM places 
 WHERE name &&& 'assist wireless' AND country_code = 'us';
-                                                                                                                                                             QUERY PLAN                                                                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                             QUERY PLAN                                                                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.places
    Output: pdb.agg_fn('COUNT(*)'::text)
    Index: places_parade_idx
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"name","value":"assist wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(country_code = 'us'::text)"}]}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"name","value":"assist wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(country_code = 'us'::text)"}]}}]}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (6 rows)
@@ -139,12 +139,12 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*) as count
 FROM places 
 WHERE name &&& 'assist wireless' AND country_code = 'us' AND id @@@ paradedb.all();
-                                                                                                                                                                            QUERY PLAN                                                                                                                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                             QUERY PLAN                                                                                                                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.places
    Output: pdb.agg_fn('COUNT(*)'::text)
    Index: places_parade_idx
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"name","value":"assist wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"with_index":{"query":"all"}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(country_code = 'us'::text)"}]}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"name","value":"assist wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"with_index":{"query":"all"}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(country_code = 'us'::text)"}]}}]}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (6 rows)

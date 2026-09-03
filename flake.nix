@@ -52,7 +52,7 @@
       # To build pg_search for the most recent supported version of Postgres:
       # nix build
       # You can also build the extension for specific versions of Postgres. Example:
-      # nix build --impure .#pg_search-pg17
+      # nix build --impure .#pg_search-pg18
       packages = forEachSupportedSystem (
         { pkgs, system }:
         let

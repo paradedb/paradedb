@@ -24,7 +24,7 @@ INSERT INTO nulls_test (text_col, int_col, float_col, json_col) VALUES
 
 -- Create BM25 index with fast fields for all columns
 CREATE INDEX idx_nulls_test ON nulls_test
-USING bm25 (id, text_col, int_col, float_col, json_col)
+USING paradedb (id, text_col, int_col, float_col, json_col)
 WITH (
     key_field = 'id',
     text_fields = '{"text_col": {"indexed": true, "fast": true}}',

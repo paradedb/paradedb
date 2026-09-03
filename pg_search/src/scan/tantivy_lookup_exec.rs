@@ -1,13 +1,16 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::index::mvcc::MvccSatisfies;
+use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::SearchQueryInput;
 
 use crate::index::fast_fields_helper::{
     CanonicalColumn, FFHelper, FFType, for_each_segment, ords_to_bytes_array, ords_to_string_array,
+};
+use crate::postgres::customscan::joinscan::visibility_filter::{
+    DeferredCtidMaterializationState, materialize_deferred_ctid,
 };
 use crate::scan::execution_plan::UnsafeSendStream;
 
@@ -65,11 +68,46 @@ impl PhysicalDeferredField {
 
 use crate::api::HashMap;
 
+/// A `ctid_<plan_position>` column (packed doc-addresses) that a `TantivyLookupExec` resolves
+/// to real ctids, so a `VisibilityFilterExec` above it consumes real ctids directly.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct CtidColumnLookup {
+    /// Column index of the ctid column in the physical batch.
+    pub col_idx: usize,
+    /// The source's plan position, keying the resolver for its index.
+    pub plan_position: usize,
+}
+
+/// Serialized shape for MPP dispatch: the deferred string/bytes fields, the ctid columns this
+/// lookup resolves, and their resolver indexes for the network-boundary rebuild.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct LookupDispatchPayload {
+    deferred_fields: Vec<PhysicalDeferredField>,
+    #[serde(default)]
+    ctid_columns: Vec<CtidColumnLookup>,
+    /// `(plan_position, indexrelid)` for each wired ctid resolver, so a worker whose scan sits
+    /// behind a network boundary can rebuild the resolver from its index segment view.
+    #[serde(default)]
+    ctid_resolver_indexes: Vec<(usize, u32)>,
+}
+
+/// One wired ctid resolver: the index it reads and the fast-field helper over its segments.
+type CtidResolver = (u32, Arc<FFHelper>);
+
 pub struct TantivyLookupExec {
     input: Arc<dyn ExecutionPlan>,
     deferred_fields: Vec<PhysicalDeferredField>,
     decoders: Vec<DecoderInfo>,
+    /// Keyed by index relid, so a self-join folds both aliases onto one helper. Term ordinals
+    /// and doc ids are per-reader, so the surviving helper decodes the other alias correctly
+    /// only while both sources share a segment view. Keying by `(plan_position, indexrelid)`
+    /// would remove the aliasing.
     ffhelpers: HashMap<u32, Arc<FFHelper>>,
+    /// `ctid_<plan_position>` columns this exec resolves from packed doc-addresses to real ctids.
+    ctid_columns: Vec<CtidColumnLookup>,
+    /// Per-plan_position `(indexrelid, FFHelper)` for resolving the ctid columns, wired by
+    /// `VisibilityCtidResolverRule` after plan construction. Indexed by plan_position.
+    ctid_resolvers: Mutex<Vec<Option<CtidResolver>>>,
     properties: Arc<PlanProperties>,
     metrics: ExecutionPlanMetricsSet,
 }
@@ -88,6 +126,7 @@ impl TantivyLookupExec {
         input: Arc<dyn ExecutionPlan>,
         deferred_fields: Vec<PhysicalDeferredField>,
         ffhelpers: HashMap<u32, Arc<FFHelper>>,
+        ctid_columns: Vec<CtidColumnLookup>,
     ) -> Result<Self> {
         let (output_schema, decoders) =
             build_schema_and_decoders(input.schema(), &deferred_fields)?;
@@ -128,11 +167,18 @@ impl TantivyLookupExec {
             EmissionType::Incremental,
             Boundedness::Bounded,
         ));
+        let resolver_len = ctid_columns
+            .iter()
+            .map(|c| c.plan_position)
+            .max()
+            .map_or(0, |m| m + 1);
         Ok(Self {
             input,
             deferred_fields,
             decoders,
             ffhelpers,
+            ctid_columns,
+            ctid_resolvers: Mutex::new(vec![None; resolver_len]),
             properties,
             metrics: ExecutionPlanMetricsSet::new(),
         })
@@ -140,6 +186,23 @@ impl TantivyLookupExec {
 
     pub fn deferred_fields(&self) -> &[PhysicalDeferredField] {
         &self.deferred_fields
+    }
+
+    pub fn ctid_columns(&self) -> &[CtidColumnLookup] {
+        &self.ctid_columns
+    }
+
+    /// Wire the FFHelper that resolves the given source's ctid column. Mirrors
+    /// `VisibilityFilterExec::set_ctid_resolver`.
+    pub fn set_ctid_resolver(&self, plan_pos: usize, indexrelid: u32, ffhelper: Arc<FFHelper>) {
+        let mut resolvers = self
+            .ctid_resolvers
+            .lock()
+            .expect("ctid_resolvers lock poisoned");
+        if plan_pos >= resolvers.len() {
+            resolvers.resize(plan_pos + 1, None);
+        }
+        resolvers[plan_pos] = Some((indexrelid, ffhelper));
     }
 
     pub fn ffhelper(&self, indexrelid: u32) -> Option<&Arc<FFHelper>> {
@@ -150,7 +213,20 @@ impl TantivyLookupExec {
     /// pulls them from the scans in its decoded subtree, keyed by index relid. `decoders` is
     /// derived from `deferred_fields`, so it's recomputed on decode.
     pub(crate) fn encode_for_dispatch(&self) -> datafusion::common::Result<Vec<u8>> {
-        serde_json::to_vec(&self.deferred_fields).map_err(|e| {
+        let ctid_resolver_indexes: Vec<(usize, u32)> = self
+            .ctid_resolvers
+            .lock()
+            .expect("ctid_resolvers lock poisoned")
+            .iter()
+            .enumerate()
+            .filter_map(|(pos, r)| r.as_ref().map(|(relid, _)| (pos, *relid)))
+            .collect();
+        serde_json::to_vec(&LookupDispatchPayload {
+            deferred_fields: self.deferred_fields.clone(),
+            ctid_columns: self.ctid_columns.clone(),
+            ctid_resolver_indexes,
+        })
+        .map_err(|e| {
             datafusion::common::DataFusionError::Internal(format!(
                 "TantivyLookupExec dispatch: serialize: {e}"
             ))
@@ -161,24 +237,46 @@ impl TantivyLookupExec {
         buf: &[u8],
         input: Arc<dyn ExecutionPlan>,
         mut ffhelpers: HashMap<u32, Arc<FFHelper>>,
+        ctid_resolvers: Vec<(usize, u32, Arc<FFHelper>)>,
+        index_segment_views: &[SegmentView],
         parallel_state: Option<*mut crate::postgres::ParallelScanState>,
     ) -> datafusion::common::Result<Arc<dyn ExecutionPlan>> {
-        let deferred_fields: Vec<PhysicalDeferredField> =
-            serde_json::from_slice(buf).map_err(|e| {
-                datafusion::common::DataFusionError::Internal(format!(
-                    "TantivyLookupExec dispatch: deserialize: {e}"
-                ))
-            })?;
+        let payload: LookupDispatchPayload = serde_json::from_slice(buf).map_err(|e| {
+            datafusion::common::DataFusionError::Internal(format!(
+                "TantivyLookupExec dispatch: deserialize: {e}"
+            ))
+        })?;
         rebuild_missing_ffhelpers(
-            &deferred_fields,
+            &payload.deferred_fields,
             &mut ffhelpers,
             LookupRebuildContext { parallel_state },
         )?;
-        Ok(Arc::new(TantivyLookupExec::new(
+        let exec = TantivyLookupExec::new(
             input,
-            deferred_fields,
+            payload.deferred_fields,
             ffhelpers,
-        )?))
+            payload.ctid_columns,
+        )?;
+        // Wire the ctid resolvers found in the decoded subtree.
+        for (plan_pos, indexrelid, ffhelper) in &ctid_resolvers {
+            exec.set_ctid_resolver(*plan_pos, *indexrelid, Arc::clone(ffhelper));
+        }
+        // A ctid column whose scan sits behind a network boundary is not in the subtree; rebuild
+        // its resolver from the index segment view (ctid access needs no field layout).
+        for (plan_pos, indexrelid) in payload.ctid_resolver_indexes {
+            if ctid_resolvers.iter().any(|(pos, _, _)| *pos == plan_pos) {
+                continue;
+            }
+            let view = index_segment_views.get(plan_pos).cloned().ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "TantivyLookupExec dispatch: missing segment view for plan_position {plan_pos}"
+                ))
+            })?;
+            let ffhelper =
+                open_rebuilt_ffhelper(indexrelid, &[], MvccSatisfies::ParallelWorker(view))?;
+            exec.set_ctid_resolver(plan_pos, indexrelid, ffhelper);
+        }
+        Ok(Arc::new(exec))
     }
 }
 
@@ -201,7 +299,7 @@ pub(crate) fn rebuild_mvcc(
             )
         })?;
         Ok(MvccSatisfies::ParallelWorker(unsafe {
-            (*ps).segment_ids_for_source(source_idx)
+            (*ps).segment_view_for_source(source_idx)
         }))
     } else {
         Ok(MvccSatisfies::Snapshot)
@@ -339,7 +437,21 @@ impl DisplayAs for TantivyLookupExec {
                 .map(|d| d.display_name.as_str())
                 .collect::<Vec<_>>()
                 .join(", ")
-        )
+        )?;
+        if !self.ctid_columns.is_empty() {
+            write!(
+                f,
+                // A resolved ctid is a fast-field fetch like any other
+                // column; only its consumer differs.
+                ", fetch=[{}]",
+                self.ctid_columns
+                    .iter()
+                    .map(|c| format!("ctid_{}", c.plan_position))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )?;
+        }
+        Ok(())
     }
 }
 
@@ -360,15 +472,37 @@ impl ExecutionPlan for TantivyLookupExec {
         vec![&self.input]
     }
 
+    fn apply_expressions(
+        &self,
+        _f: &mut dyn FnMut(
+            &Arc<dyn PhysicalExpr>,
+        ) -> Result<datafusion::common::tree_node::TreeNodeRecursion>,
+    ) -> Result<datafusion::common::tree_node::TreeNodeRecursion> {
+        Ok(datafusion::common::tree_node::TreeNodeRecursion::Continue)
+    }
+
     fn with_new_children(
         self: Arc<Self>,
         mut children: Vec<Arc<dyn ExecutionPlan>>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        Ok(Arc::new(TantivyLookupExec::new(
+        let exec = TantivyLookupExec::new(
             children.remove(0),
             self.deferred_fields.clone(),
             self.ffhelpers.clone(),
-        )?))
+            self.ctid_columns.clone(),
+        )?;
+        for (plan_pos, resolver) in self
+            .ctid_resolvers
+            .lock()
+            .expect("ctid_resolvers lock poisoned")
+            .iter()
+            .enumerate()
+        {
+            if let Some((indexrelid, ffhelper)) = resolver {
+                exec.set_ctid_resolver(plan_pos, *indexrelid, ffhelper.clone());
+            }
+        }
+        Ok(Arc::new(exec))
     }
 
     fn execute(
@@ -380,14 +514,24 @@ impl ExecutionPlan for TantivyLookupExec {
         let baseline_metrics = BaselineMetrics::new(&self.metrics, partition);
         let decoders = self.decoders.clone();
         let ffhelpers = self.ffhelpers.clone();
+        let ctid_columns = self.ctid_columns.clone();
+        let ctid_resolvers = self
+            .ctid_resolvers
+            .lock()
+            .expect("ctid_resolvers lock poisoned")
+            .clone();
         let schema = self.properties.eq_properties.schema().clone();
 
         let stream_gen = async_stream::try_stream! {
             use futures::StreamExt;
+            let mut ctid_state = DeferredCtidMaterializationState::default();
             while let Some(batch_res) = input_stream.next().await {
                 let timer = baseline_metrics.elapsed_compute().timer();
                 let result = match batch_res {
-                    Ok(batch) => enrich_batch(batch, &decoders, &ffhelpers, &schema),
+                    Ok(batch) => enrich_batch(batch, &decoders, &ffhelpers, &schema)
+                        .and_then(|b| {
+                            resolve_ctid_columns(b, &ctid_columns, &ctid_resolvers, &mut ctid_state)
+                        }),
                     Err(e) => Err(e),
                 };
                 timer.done();
@@ -480,6 +624,44 @@ fn enrich_batch(
     }
 
     RecordBatch::try_new(schema.clone(), output_columns)
+        .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
+}
+
+/// Replaces each configured ctid column's packed doc-addresses with real ctids, using the
+/// resolver wired for that column's plan position. A no-op when no ctid columns are configured.
+fn resolve_ctid_columns(
+    batch: RecordBatch,
+    ctid_columns: &[CtidColumnLookup],
+    resolvers: &[Option<(u32, Arc<FFHelper>)>],
+    state: &mut DeferredCtidMaterializationState,
+) -> Result<RecordBatch> {
+    if ctid_columns.is_empty() {
+        return Ok(batch);
+    }
+    let schema = batch.schema();
+    let mut columns = batch.columns().to_vec();
+    for ctid_column in ctid_columns {
+        let (_, ffhelper) = resolvers
+            .get(ctid_column.plan_position)
+            .and_then(|r| r.as_ref())
+            .ok_or_else(|| {
+                DataFusionError::Execution(format!(
+                    "TantivyLookupExec: no ctid resolver wired for plan_position {}. VisibilityCtidResolverRule must run before execute.",
+                    ctid_column.plan_position
+                ))
+            })?;
+        let packed = columns[ctid_column.col_idx]
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .ok_or_else(|| {
+                DataFusionError::Execution(format!(
+                    "TantivyLookupExec: ctid column (idx {}) is not UInt64",
+                    ctid_column.col_idx
+                ))
+            })?;
+        columns[ctid_column.col_idx] = materialize_deferred_ctid(ffhelper, packed, state)?;
+    }
+    RecordBatch::try_new(schema, columns)
         .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
 }
 
@@ -672,18 +854,80 @@ fn materialize_deferred_column(
         DataFusionError::Execution("expected dense union with offsets in deferred column".into())
     })?;
 
+    let doc_address_child = union_array
+        .child(0)
+        .as_any()
+        .downcast_ref::<UInt64Array>()
+        .ok_or_else(|| {
+            DataFusionError::Execution(
+                "expected UInt64Array for doc_address child in deferred union".into(),
+            )
+        })?;
+
+    let term_ord_child = union_array
+        .child(1)
+        .as_any()
+        .downcast_ref::<StructArray>()
+        .ok_or_else(|| {
+            DataFusionError::Execution(
+                "expected StructArray for term_ord child in deferred union".into(),
+            )
+        })?;
+    let seg_ord_array = term_ord_child
+        .column(0)
+        .as_any()
+        .downcast_ref::<UInt32Array>()
+        .ok_or_else(|| {
+            DataFusionError::Execution("expected UInt32Array for seg_ord column".into())
+        })?;
+
     let mut state_0_rows: Vec<usize> = Vec::new();
     let mut state_1_rows: Vec<usize> = Vec::new();
+    let mut null_rows: Vec<usize> = Vec::new();
+
     for row in 0..num_rows {
+        if union_array.is_null(row) {
+            null_rows.push(row);
+            continue;
+        }
+        let ci = offsets[row] as usize;
         match type_ids[row] {
-            0 => state_0_rows.push(row),
-            1 => state_1_rows.push(row),
+            0 => {
+                if doc_address_child.is_null(ci) {
+                    null_rows.push(row);
+                } else {
+                    state_0_rows.push(row);
+                }
+            }
+            1 => {
+                if term_ord_child.is_null(ci) || seg_ord_array.is_null(ci) {
+                    null_rows.push(row);
+                } else {
+                    state_1_rows.push(row);
+                }
+            }
             _ => unreachable!("Invalid Union State"),
         }
     }
 
     let mut segment_arrays: Vec<ArrayRef> = Vec::new();
     let mut indices: Vec<(usize, usize)> = vec![(0, 0); num_rows];
+
+    if !null_rows.is_empty() {
+        let null_array = new_null_array(
+            &if matches!(ffcolumn, DeferredColumnKind::Bytes { .. }) {
+                DataType::BinaryView
+            } else {
+                DataType::Utf8View
+            },
+            1,
+        );
+        segment_arrays.push(null_array);
+        let null_array_idx = segment_arrays.len() - 1;
+        for row in null_rows {
+            indices[row] = (null_array_idx, 0);
+        }
+    }
 
     // Step 1. Resolve State 0 (packed doc addresses) and State 1 (pre-resolved term
     // ordinals) into a unified collection of term ordinals grouped by segment
@@ -712,7 +956,7 @@ fn materialize_deferred_column(
     if segment_arrays.is_empty() {
         // All rows were somehow unhandled — return a null array of the right type.
         return Ok(new_null_array(
-            &if matches!(ffcolumn, DeferredColumnKind::Bytes { ff_index: _ }) {
+            &if matches!(ffcolumn, DeferredColumnKind::Bytes { .. }) {
                 DataType::BinaryView
             } else {
                 DataType::Utf8View

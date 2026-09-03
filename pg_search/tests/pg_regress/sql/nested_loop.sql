@@ -1,27 +1,25 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET max_parallel_workers_per_gather = 0;
 
--- This test demonstrates an extremely expensive nested-loop join plan
--- as described in https://github.com/paradedb/paradedb/issues/2733.
--- TODO: The test cannot be scaled up to 10k rows per-table as shown
--- in the original repro because the nested-loop plan runs in exponential time.
--- We keep a minimal amount of data to reproduce the plan structure.
+-- This test verifies that complex multi-table disjunctions in join queries
+-- are planned using ParadeDB Join Scan rather than falling back to
+-- nested-loop join plans.
 
 DROP TABLE IF EXISTS users CASCADE;
 CREATE TABLE users (id SERIAL8 PRIMARY KEY, name TEXT, color VARCHAR, age VARCHAR);
-CREATE INDEX idxusers ON users USING bm25 (id, name, color, age) WITH (key_field = 'id', text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }');
+CREATE INDEX idxusers ON users USING paradedb (id, name, color, age) WITH (key_field = 'id', text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }');
 INSERT INTO users (name, color, age) VALUES ('bob', 'blue', '20');
 ANALYZE;
 
 DROP TABLE IF EXISTS products CASCADE;
 CREATE TABLE products (id SERIAL8 PRIMARY KEY, name TEXT, color VARCHAR);
-CREATE INDEX idxproducts ON products USING bm25 (id, name, color) WITH (key_field = 'id', text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }');
+CREATE INDEX idxproducts ON products USING paradedb (id, name, color) WITH (key_field = 'id', text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }');
 INSERT INTO products (name, color) VALUES ('bob', 'blue');
 ANALYZE;
 
 DROP TABLE IF EXISTS orders CASCADE;
 CREATE TABLE orders (id SERIAL8 PRIMARY KEY, name TEXT, color VARCHAR);
-CREATE INDEX idxorders ON orders USING bm25 (id, name, color) WITH (key_field = 'id', text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }');
+CREATE INDEX idxorders ON orders USING paradedb (id, name, color) WITH (key_field = 'id', text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }');
 INSERT INTO orders (name, color) VALUES ('bob', 'blue');
 ANALYZE;
 

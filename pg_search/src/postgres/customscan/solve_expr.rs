@@ -16,13 +16,76 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::operator::searchqueryinput_typoid;
+use crate::query::tid_bitmap_stream::BitmapCell;
 use crate::query::{PostgresExpression, SearchQueryInput};
 use pgrx::{PgMemoryContexts, pg_sys};
 
 impl SearchQueryInput {
-    pub fn has_heap_filters(&mut self) -> bool {
-        let mut found = false;
+    /// The cursor-source cell attached to this query's HeapFilters, if any.
+    pub fn bitmap_cell(&self) -> Option<BitmapCell> {
+        let mut found = None;
+        self.visit_ref(&mut |sqi| {
+            if let SearchQueryInput::HeapFilter {
+                bitmap_cell: Some(cell),
+                ..
+            } = sqi
+                && found.is_none()
+            {
+                found = Some(cell.clone());
+            }
+        });
+        found
+    }
+
+    /// Install the late-bound cursor-source cell on every HeapFilter that was
+    /// assigned a consumer id at plan time.
+    pub fn attach_bitmap_cell(&mut self, cell: &BitmapCell) {
         self.visit(&mut |sqi| {
+            if let SearchQueryInput::HeapFilter {
+                bitmap_consumer_id: Some(_),
+                bitmap_cell,
+                ..
+            } = sqi
+            {
+                *bitmap_cell = Some(cell.clone());
+            }
+        });
+    }
+
+    /// Number of claim-table consumers: covered HeapFilters carry ids 0..n.
+    pub fn bitmap_consumer_count(&self) -> u32 {
+        let mut max_id = None;
+        self.visit_ref(&mut |sqi| {
+            if let SearchQueryInput::HeapFilter {
+                bitmap_consumer_id: Some(id),
+                ..
+            } = sqi
+            {
+                max_id = Some(max_id.map_or(*id, |m: u32| m.max(*id)));
+            }
+        });
+        max_id.map_or(0, |m| m + 1)
+    }
+
+    /// A copy with every HeapFilter wrapper replaced by its indexed child, for
+    /// estimation paths that cannot evaluate heap filters (no ExprContext).
+    pub fn without_heap_filters(&self) -> SearchQueryInput {
+        let mut clone = self.clone();
+        // `visit` is pre-order: the callback runs, then the walk descends into the
+        // mutated node. Unwrapping until the node is no longer a HeapFilter strips
+        // arbitrary nesting in a single pass.
+        clone.visit(&mut |sqi| {
+            while let SearchQueryInput::HeapFilter { indexed_query, .. } = sqi {
+                *sqi = std::mem::replace(indexed_query.as_mut(), SearchQueryInput::Uninitialized);
+            }
+        });
+        debug_assert!(!clone.has_heap_filters());
+        clone
+    }
+
+    pub fn has_heap_filters(&self) -> bool {
+        let mut found = false;
+        self.visit_ref(&mut |sqi| {
             if let SearchQueryInput::HeapFilter { .. } = sqi {
                 found = true;
             }
@@ -30,9 +93,9 @@ impl SearchQueryInput {
         found
     }
 
-    pub fn has_postgres_expressions(&mut self) -> bool {
+    pub fn has_postgres_expressions(&self) -> bool {
         let mut found = false;
-        self.visit(&mut |sqi| {
+        self.visit_ref(&mut |sqi| {
             if let SearchQueryInput::PostgresExpression { .. } = sqi {
                 found = true;
             }
@@ -40,16 +103,54 @@ impl SearchQueryInput {
         found
     }
 
-    pub fn has_parameters(&mut self) -> bool {
+    pub fn has_parameters(&self) -> bool {
         let mut found = false;
-        self.visit(&mut |sqi| {
-            if let SearchQueryInput::HeapFilter { field_filters, .. } = sqi
-                && field_filters.iter().any(|f| f.has_parameters())
+        self.visit_ref(&mut |sqi| {
+            if let SearchQueryInput::HeapFilter {
+                always_filters,
+                recheck_filters,
+                ..
+            } = sqi
+                && always_filters
+                    .iter()
+                    .chain(recheck_filters.iter())
+                    .any(|f| f.has_parameters())
             {
                 found = true;
             }
         });
         found
+    }
+
+    /// Collects raw `Expr*` pointers for every PostgreSQL expression referenced
+    /// by heap filters or PostgresExpression variants in this query tree.
+    ///
+    /// Used to populate `CustomScan.custom_exprs` so `finalize_plan`'s
+    /// param-dependency walker sees InitPlan references (issue #5727).
+    pub fn collect_expression_nodes(&mut self) -> Vec<*mut pg_sys::Node> {
+        let mut nodes = Vec::new();
+        self.visit(&mut |sqi| match sqi {
+            SearchQueryInput::HeapFilter {
+                always_filters,
+                recheck_filters,
+                ..
+            } => {
+                for filter in always_filters.iter().chain(recheck_filters.iter()) {
+                    let node = unsafe { filter.get_expression_node() };
+                    if !node.is_null() {
+                        nodes.push(node);
+                    }
+                }
+            }
+            SearchQueryInput::PostgresExpression { expr } => {
+                let node = expr.node();
+                if !node.is_null() {
+                    nodes.push(node);
+                }
+            }
+            _ => {}
+        });
+        nodes
     }
 
     pub fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) -> usize {
@@ -70,7 +171,24 @@ impl SearchQueryInput {
         );
         unsafe {
             pg_sys::MemoryContextReset((*expr_context).ecxt_per_tuple_memory);
+            self.solve_postgres_expressions_no_reset(expr_context);
+        }
+    }
 
+    /// Same as `solve_postgres_expressions`, but does not reset
+    /// `ecxt_per_tuple_memory` first. Callers solving several `SearchQueryInput`s
+    /// against the same `ExprContext` in one pass (e.g. `JoinCSClause`, which visits
+    /// multiple sources' queries) must reset the context once themselves before the
+    /// first call, then use this variant for every subsequent one in the pass —
+    /// otherwise each call's reset frees the rewritten expression tree solved by the
+    /// call before it, and anything reading the earlier tree afterward (e.g. rebaking
+    /// the logical plan) sees a dangling pointer.
+    pub fn solve_postgres_expressions_no_reset(&mut self, expr_context: *mut pg_sys::ExprContext) {
+        assert!(
+            !expr_context.is_null(),
+            "expr_context was never initialized"
+        );
+        unsafe {
             PgMemoryContexts::For((*expr_context).ecxt_per_tuple_memory).switch_to(|_| {
                 let sqi_typoid = searchqueryinput_typoid();
                 self.visit(&mut |sqi| match sqi {
@@ -87,8 +205,12 @@ impl SearchQueryInput {
                             *sqi = SearchQueryInput::Empty;
                         }
                     }
-                    SearchQueryInput::HeapFilter { field_filters, .. } => {
-                        for filter in field_filters {
+                    SearchQueryInput::HeapFilter {
+                        always_filters,
+                        recheck_filters,
+                        ..
+                    } => {
+                        for filter in always_filters.iter_mut().chain(recheck_filters.iter_mut()) {
                             filter.solve_parameters(expr_context);
                         }
                     }
@@ -155,6 +277,16 @@ pub trait SolvePostgresExpressions {
 
     fn init_search_query_input(&mut self) {}
 
+    /// Produce (and for workers, fill) the late-bound cursor-source cell for this
+    /// scan's bitmap intersection. Scans that carry a `BitmapExec` override this.
+    fn bitmap_source_cell(&mut self, _planstate: *mut pg_sys::PlanState) -> Option<BitmapCell> {
+        None
+    }
+
+    /// Install `cell` on the HeapFilters that were assigned consumer ids at plan
+    /// time.
+    fn attach_bitmap_cell(&mut self, _cell: &BitmapCell) {}
+
     fn prepare_query_for_execution(
         &mut self,
         planstate: *mut pg_sys::PlanState,
@@ -164,6 +296,11 @@ pub trait SolvePostgresExpressions {
         if self.has_postgres_expressions() || self.has_parameters() {
             self.init_postgres_expressions(planstate);
             self.solve_postgres_expressions(expr_context);
+        }
+        // Attach after `init_search_query_input` re-clones the query from its base,
+        // which wipes the serde-skipped cell.
+        if let Some(cell) = self.bitmap_source_cell(planstate) {
+            self.attach_bitmap_cell(&cell);
         }
     }
 }

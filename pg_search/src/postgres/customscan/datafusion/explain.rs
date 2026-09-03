@@ -73,7 +73,7 @@ pub fn format_join_level_expr(expr: &JoinLevelExpr, join_clause: &JoinCSClause) 
     match expr {
         JoinLevelExpr::SingleTablePredicate {
             plan_position,
-            predicate_idx,
+            predicate,
         } => {
             let label = join_clause
                 .plan
@@ -85,18 +85,10 @@ pub fn format_join_level_expr(expr: &JoinLevelExpr, join_clause: &JoinCSClause) 
                         .display(source.plan_position)
                 })
                 .unwrap_or_else(|| RelationAlias::new(None).display(*plan_position));
-            if let Some(pred) = join_clause.join_level_predicates.get(*predicate_idx) {
-                format!("{}:{}", label, pred.query.explain_format())
-            } else {
-                format!("{}:?", label)
-            }
+            format!("{}:{}", label, predicate.query.explain_format())
         }
-        JoinLevelExpr::MultiTablePredicate { predicate_idx } => {
-            if let Some(cond) = join_clause.multi_table_predicates.get(*predicate_idx) {
-                format!("heap:{}", cond.description)
-            } else {
-                "heap:?".to_string()
-            }
+        JoinLevelExpr::MultiTablePredicate { predicate } => {
+            format!("heap:{}", predicate.description)
         }
         JoinLevelExpr::And(children) => {
             let parts: Vec<_> = children

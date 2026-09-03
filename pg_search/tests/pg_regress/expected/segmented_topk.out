@@ -39,9 +39,9 @@ SELECT
     'File Title ' || LPAD(i::TEXT, 3, '0'),
     'file content for item ' || i
 FROM generate_series(1, 100) AS i;
-CREATE INDEX stk_documents_bm25_idx ON stk_documents USING bm25 (id, category)
+CREATE INDEX stk_documents_bm25_idx ON stk_documents USING paradedb (id, category)
 WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
-CREATE INDEX stk_files_bm25_idx ON stk_files USING bm25 (id, document_id, title, content)
+CREATE INDEX stk_files_bm25_idx ON stk_files USING paradedb (id, document_id, title, content)
 WITH (key_field = 'id', text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}, "content": {"fast": true}}');
 SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
@@ -55,8 +55,8 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 3;
-                                                                                           QUERY PLAN                                                                                           
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title
    ->  Custom Scan (ParadeDB Join Scan)
@@ -71,9 +71,9 @@ LIMIT 3;
            :     SegmentedTopKExec: expr=[title@2 ASC NULLS LAST], k=3, visibility_checks=[d, f]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=3, query="all"
+           :           PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all"
 (17 rows)
 
 SELECT f.id, f.title
@@ -101,8 +101,8 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title DESC
 LIMIT 3;
-                                                                                           QUERY PLAN                                                                                           
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title
    ->  Custom Scan (ParadeDB Join Scan)
@@ -117,9 +117,9 @@ LIMIT 3;
            :     SegmentedTopKExec: expr=[title@2 DESC], k=3, visibility_checks=[d, f]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=3, query="all"
+           :           PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all"
 (17 rows)
 
 SELECT f.id, f.title
@@ -161,9 +161,9 @@ LIMIT 3;
            :     SegmentedTopKExec: expr=[title@2 ASC NULLS LAST], k=3, visibility_checks=[d, f], metrics=[rows_filtered_invisible=0, rows_input=50, rows_output=3, segments_seen=1]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4], metrics=[output_rows=50, output_bytes=128.6 KB, output_batches=1, build_mem_used=344.0 B, array_map_created_count=0, build_input_batches=1, build_input_rows=5, input_batches=1, input_rows=50, avg_fanout=100% (50/50), probe_hit_rate=100% (50/50)]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=5, output_bytes=152.0 B, output_batches=1]
+           :           PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=5, output_bytes=152.0 B, output_batches=1]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=3, dynamic_filter_pushdown=automaton, query="all", metrics=[output_rows=50, output_bytes=1882.0 B, output_batches=1, rows_pruned=0, rows_scanned=50]
+           :           PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=50, output_bytes=1882.0 B, output_batches=1, dynamic_filter_pushdown_automaton=1, rows_pruned=0, rows_scanned=50]
 (15 rows)
 
 -- =============================================================================
@@ -257,8 +257,8 @@ WHERE f.document_id IN (
 )
 ORDER BY f.id ASC
 LIMIT 3;
-                                                                                           QUERY PLAN                                                                                           
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title
    ->  Custom Scan (ParadeDB Join Scan)
@@ -271,12 +271,13 @@ LIMIT 3;
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=3), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[d, f]
-           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
-(17 rows)
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
+           :           CooperativeExec
+           :             PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all"
+(18 rows)
 
 -- =============================================================================
 -- TEST 7: No LIMIT — SegmentedTopKExec should NOT appear
@@ -325,8 +326,8 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 3;
-                                                                                            QUERY PLAN                                                                                            
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                 QUERY PLAN                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title
    ->  Custom Scan (ParadeDB Join Scan)
@@ -340,12 +341,13 @@ LIMIT 3;
            :   SortExec: TopK(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     TantivyLookupExec: decode=[title]
            :       VisibilityFilterExec: tables=[d, f]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4]
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=2, query="all"
-(18 rows)
+           :         TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4]
+           :             CooperativeExec
+           :               PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :             CooperativeExec
+           :               PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all"
+(19 rows)
 
 -- Verify results are the same with optimization disabled
 SELECT f.id, f.title
@@ -409,8 +411,8 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC, f.id DESC
 LIMIT 5;
-                                                                                           QUERY PLAN                                                                                           
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title
    ->  Custom Scan (ParadeDB Join Scan)
@@ -425,9 +427,9 @@ LIMIT 5;
            :     SegmentedTopKExec: expr=[title@2 ASC NULLS LAST, id@3 DESC], k=5, visibility_checks=[d, f]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4, id@5]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=3, query="all"
+           :           PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all"
 (17 rows)
 
 SELECT f.id, f.title
@@ -475,8 +477,8 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC, f.content DESC
 LIMIT 5;
-                                                                                           QUERY PLAN                                                                                           
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title, f.content
    ->  Custom Scan (ParadeDB Join Scan)
@@ -491,9 +493,9 @@ LIMIT 5;
            :     SegmentedTopKExec: expr=[title@2 ASC NULLS LAST, content@3 DESC], k=5, visibility_checks=[d, f]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4, content@5]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=3, query="all"
+           :           PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all"
 (17 rows)
 
 SELECT f.id, f.title, f.content
@@ -541,8 +543,8 @@ WHERE d.category @@@ 'PROJECT_ALPHA'
 ORDER BY f.title ASC, d.category DESC, f.id ASC
 LIMIT 5;
 WARNING:  SegmentedTopK: ORDER BY includes string columns from multiple tables, which is not currently supported. Falling back to default execution.
-                                                                                            QUERY PLAN                                                                                            
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                 QUERY PLAN                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title, d.category
    ->  Custom Scan (ParadeDB Join Scan)
@@ -556,12 +558,13 @@ WARNING:  SegmentedTopK: ORDER BY includes string columns from multiple tables, 
            :   SortExec: TopK(fetch=5), expr=[title@3 ASC NULLS LAST, category@1 DESC, id@4 ASC NULLS LAST], preserve_partitioning=[false]
            :     TantivyLookupExec: decode=[category, title]
            :       VisibilityFilterExec: tables=[d, f]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, category@2, ctid_1@3, title@5, id@6]
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(18 rows)
+           :         TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, category@2, ctid_1@3, title@5, id@6]
+           :             CooperativeExec
+           :               PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :             CooperativeExec
+           :               PgSearchScan: table=f, segments=1, dynamic_filters=1, query="all"
+(19 rows)
 
 SELECT f.id, f.title, d.category
 FROM stk_files f
@@ -609,9 +612,9 @@ CREATE TABLE stk_files (
 );
 -- Create indexes BEFORE inserting data so inserts go through the mutable
 -- segment pathway, producing multiple segments.
-CREATE INDEX stk_documents_bm25_idx ON stk_documents USING bm25 (id, category)
+CREATE INDEX stk_documents_bm25_idx ON stk_documents USING paradedb (id, category)
 WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
-CREATE INDEX stk_files_bm25_idx ON stk_files USING bm25 (id, document_id, title, content)
+CREATE INDEX stk_files_bm25_idx ON stk_files USING paradedb (id, document_id, title, content)
 WITH (key_field = 'id', text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}, "content": {"fast": true}}', mutable_segment_rows = 5000);
 -- Insert 50K files across multiple segments (mutable_segment_rows=5000).
 -- Round-robin across the 5 documents. Titles zero-padded for clean sort.
@@ -665,9 +668,9 @@ LIMIT 5;
            :     SegmentedTopKExec: expr=[title@2 ASC NULLS LAST], k=5, visibility_checks=[d, f], metrics=[rows_filtered_invisible=0, rows_input=25.81 K, rows_output=5, segments_seen=3]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4], metrics=[output_rows=25.81 K, output_bytes=1008.9 KB, output_batches=4, build_mem_used=228.0 B, array_map_created_count=0, build_input_batches=1, build_input_rows=3, input_batches=4, input_rows=25.81 K, avg_fanout=100% (25.81 K/25.81 K), probe_hit_rate=53.08% (25.81 K/48.63 K)]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=3, output_bytes=104.0 B, output_batches=1]
+           :           PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=3, output_bytes=104.0 B, output_batches=1]
            :         CooperativeExec
-           :           PgSearchScan: segments=4, dynamic_filters=3, dynamic_filter_pushdown=bitset_from_postings, query="all", metrics=[output_rows=25.81 K, output_bytes=932.8 KB, output_batches=4, rows_pruned=4.19 K, rows_scanned=30.00 K]
+           :           PgSearchScan: table=f, segments=4, dynamic_filters=2, query="all", metrics=[output_rows=25.81 K, output_bytes=932.8 KB, output_batches=4, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=4.19 K, rows_scanned=30.00 K]
 (15 rows)
 
 SELECT f.id, f.title

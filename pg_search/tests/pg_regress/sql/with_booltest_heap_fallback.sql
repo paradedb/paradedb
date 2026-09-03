@@ -20,7 +20,7 @@ VALUES
 -- Create ParadeDB index
 CREATE INDEX booltest_simple_idx
     ON booltest_simple
-    USING bm25 (id, description)
+    USING paradedb (id, description)
     WITH (key_field = 'id');
 
 -- Force ParadeDB planner path

@@ -1,0 +1,91 @@
+-- Regression test for issue #5635:
+-- Plans where `SegmentedTopKExec` is inserted between a `SortExec` and a
+-- `HashJoinExec` used to leave an orphaned `lit(true)` dynamic filter behind on
+-- `PgSearchScan`, inflating the reported `dynamic_filters=` count by 1.
+-- `SegmentedTopKRule` now transfers ownership of the SortExec's already
+-- pushed down `DynamicFilterPhysicalExpr` into the injected
+-- `SegmentedTopKExec` instead of minting a fresh one, so the count on the
+-- `PgSearchScan` beneath the join reflects only the filters that are still
+-- actively produced (the HashJoin's join key bounds and the SegmentedTopK's
+-- TopK threshold).
+--
+-- We can't assert an exact number here without pinning table cardinalities to a
+-- specific plan shape, but pairing the EXPLAIN with the neighbouring
+-- `segmented_topk.out`/`join_order_by.out` expected files gives full coverage
+-- for the numeric change.
+
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+DROP TABLE IF EXISTS issue5635_files CASCADE;
+DROP TABLE IF EXISTS issue5635_documents CASCADE;
+
+CREATE TABLE issue5635_documents (
+    id TEXT PRIMARY KEY,
+    category TEXT
+);
+
+INSERT INTO issue5635_documents (id, category) VALUES
+    ('doc-01', 'PROJECT_ALPHA design review'),
+    ('doc-02', 'BETA_GROUP budget overview'),
+    ('doc-03', 'PROJECT_ALPHA roadmap planning'),
+    ('doc-04', 'GAMMA_DIVISION quarterly report'),
+    ('doc-05', 'PROJECT_ALPHA feedback notes');
+
+CREATE TABLE issue5635_files (
+    id SERIAL PRIMARY KEY,
+    document_id TEXT,
+    title TEXT
+);
+
+INSERT INTO issue5635_files (document_id, title)
+SELECT
+    'doc-' || LPAD(((i - 1) % 5 + 1)::TEXT, 2, '0'),
+    'File Title ' || LPAD(i::TEXT, 3, '0')
+FROM generate_series(1, 50) AS i;
+
+CREATE INDEX issue5635_documents_bm25_idx ON issue5635_documents
+USING paradedb (
+    id,
+    (category::pdb.unicode_words('columnar=true'))
+) WITH (key_field = 'id');
+
+CREATE INDEX issue5635_files_bm25_idx ON issue5635_files
+USING paradedb (
+    id,
+    (document_id::pdb.literal),
+    (title::pdb.unicode_words('columnar=true'))
+) WITH (key_field = 'id');
+
+SET paradedb.enable_join_custom_scan = on;
+
+-- ORDER BY on the deferred `title` column with LIMIT triggers `SegmentedTopKRule`
+-- to inject `SegmentedTopKExec` and unwrap the SortExec. The join is a
+-- HashJoinExec across the two `@@@` scans. Prior to the fix the inner
+-- PgSearchScan reported `dynamic_filters=3` (SortExec's orphaned filter + STK
+-- threshold + HashJoin bounds); with the fix, it reports `dynamic_filters=2`.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.id, f.title
+FROM issue5635_files f
+WHERE f.document_id IN (
+    SELECT d.id FROM issue5635_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+)
+ORDER BY f.title ASC
+LIMIT 3;
+
+SELECT f.id, f.title
+FROM issue5635_files f
+WHERE f.document_id IN (
+    SELECT d.id FROM issue5635_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+)
+ORDER BY f.title ASC
+LIMIT 3;
+
+DROP TABLE issue5635_files CASCADE;
+DROP TABLE issue5635_documents CASCADE;
+
+RESET max_parallel_workers_per_gather;
+RESET enable_indexscan;
+RESET paradedb.enable_join_custom_scan;

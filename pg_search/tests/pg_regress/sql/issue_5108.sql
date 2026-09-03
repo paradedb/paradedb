@@ -24,7 +24,7 @@ INSERT INTO issue_5108_docs (filename)
 SELECT 'doc_' || g || '.pdf' FROM generate_series(1, 10) g;
 
 CREATE INDEX issue_5108_chunks_bm25 ON issue_5108_chunks
-USING bm25 (id, body) WITH (key_field = 'id');
+USING paradedb (id, body) WITH (key_field = 'id');
 
 INSERT INTO issue_5108_chunks (doc_id, body)
 SELECT ((g - 1) % 10) + 1,

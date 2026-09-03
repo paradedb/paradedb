@@ -28,8 +28,7 @@
 //!   spawn. Returns the leader's [`MppLeaderState`] which carries the runtime [`MppMesh`]
 //!   handle the customscan installs on its DataFusion `SessionContext`.
 //! - [`worker_setup`] — worker-side mesh attach, called from `run_launched_worker`. Returns
-//!   the worker's [`MppWorkerState`] which carries the worker's outbound
-//!   senders and the deserialized plan bytes the worker runs.
+//!   the [`WorkerSession`] which carries the worker mesh, plan bytes, and outbound senders.
 
 use std::ffi::c_void;
 use std::sync::Arc;
@@ -37,7 +36,7 @@ use std::sync::Arc;
 use pgrx::pg_sys;
 
 use datafusion_distributed::TaskKey;
-use datafusion_distributed::shm::{self, Interrupt, MppMesh, MppSender, Wakeup};
+use datafusion_distributed::shm::{self, Interrupt, LeaderSession, MppMesh, Wakeup, WorkerSession};
 use datafusion_proto::physical_plan::DefaultPhysicalProtoConverter;
 
 use crate::gucs::mpp_queue_size as gucs_mpp_queue_size;
@@ -60,6 +59,17 @@ pub fn mpp_is_active() -> bool {
     producer_worker_cap() >= MIN_TOTAL_WORKER_COUNT - 1
 }
 
+/// Whether PostgreSQL judged the entire statement safe to execute while parallel mode is active.
+///
+/// This must be captured from [`pg_sys::PlannerGlobal::parallelModeOK`], rather than inferred
+/// from the local query level: a SELECT subplan below `ModifyTable` still has `CMD_SELECT`, while
+/// its enclosing INSERT makes the complete statement unsafe for parallel mode. Entering parallel
+/// mode for such a subplan prevents PostgreSQL from assigning the transaction ID needed by the
+/// heap write.
+pub fn query_allows_parallel_mode(root: &pg_sys::PlannerInfo) -> bool {
+    !root.glob.is_null() && unsafe { (*root.glob).parallelModeOK }
+}
+
 // The shared-memory transport pins 8-byte alignment (its ring headers hold `u64` atomics). The
 // builder's `shm_toc_allocate` hands out MAXALIGN-aligned blobs for the mesh region, so the two
 // must agree or the rings would be misaligned, which is UB-class.
@@ -70,12 +80,13 @@ pub(super) fn mpp_queue_size() -> usize {
     gucs_mpp_queue_size()
 }
 
-/// Total DSM bytes the leader will need for the mesh header, the worker plan, and one MPSC
+/// Total DSM bytes the leader will need for the mesh header, the dispatch payload, and one MPSC
 /// inbox per process. `n_procs` is the total proc count (leader + launched producers) the
 /// plan-first launch computed from the physical plan — the mesh grows as `n_procs²`, so this
-/// is sized from the plan's needs, not the GUC ceiling (#5667).
-pub fn estimate_dsm_size(n_procs: u32, plan_bytes_len: usize) -> Result<usize, String> {
-    shm::dsm_region_bytes(n_procs, mpp_queue_size(), plan_bytes_len).map_err(|e| e.to_string())
+/// is sized from the plan's needs, not the GUC ceiling (#5667). A short launch may initialize a
+/// narrower logical mesh in this allocation, but never a wider one.
+pub fn estimate_dsm_size(n_procs: u32, payload_len: usize) -> Result<usize, String> {
+    shm::dsm_region_bytes(n_procs, mpp_queue_size(), payload_len).map_err(|e| e.to_string())
 }
 
 /// Maximum number of producer workers a launch may spawn:
@@ -97,7 +108,7 @@ pub fn producer_worker_cap() -> u32 {
 /// decode and first scan.
 #[derive(Default, Clone, Copy, Debug)]
 pub struct MppLaunchTiming {
-    /// DSM alloc and scan-state populate, before the dispatch payload is built.
+    /// DSM alloc and scan-state populate, after the exact dispatch payload is sized.
     pub prepare_us: u64,
     /// Leader physical planning.
     pub plan_us: u64,
@@ -134,41 +145,11 @@ impl MppLaunchTiming {
     }
 }
 
-/// The leader's control senders behind their shared lock. The scan state and mesh cancel path
-/// share this `Arc`; `DsmDetachState` retains another reference so the detach callback can clear
-/// the stored senders while the DSM is still mapped.
-pub type ControlSenders = std::sync::Mutex<Vec<Option<MppSender>>>;
-
-/// State retained by PostgreSQL until DSM detach. The callback marks the shared mesh dead before
-/// clearing stored senders, so escaped sender clones can later drop without touching unmapped DSM.
-struct DsmDetachState {
-    alive: shm::AliveFlag,
-    control_senders: Arc<ControlSenders>,
-}
-
 /// Returned to the leader from [`leader_setup`]. The customscan stashes this on its execution
 /// state and consults it during `exec_custom_scan`.
-///
-/// The leader is consumer-only: it gathers fragments from worker procs but doesn't host a
-/// producer fragment itself. Its outbound senders are dropped inside `leader_setup`.
 pub struct MppLeaderState {
-    /// Runtime mesh handle. Install on the leader's `SessionContext` via
-    /// `with_extension(Arc::clone(&mesh))` so `ShmChannelResolver` can find
-    /// it at execute time.
-    pub mesh: Arc<MppMesh>,
-    /// The leader's outbound senders, one per peer inbox; the control-plane path for `SetPlan`
-    /// frames and stream cancel messages. Held for the query's lifetime so no ring observes a
-    /// sender count of zero before every worker attaches (the rings latch `detached` permanently at
-    /// zero).
-    ///
-    /// While the mesh is live, dropping one of these decrements a counter inside its DSM ring.
-    /// [`MppLeaderState::release_control_senders`] clears them from `shutdown_custom_scan` on the
-    /// success path. [`release_control_senders_on_detach`] covers every other path — abort, and a
-    /// `proc_exit` from `pg_terminate_backend` that skips shutdown — by marking the mesh dead and
-    /// clearing this vector before PG unmaps the segment. Escaped sender clones can then drop
-    /// safely without accessing DSM. The scan state's own drop runs after detach and must find
-    /// this vector empty.
-    pub control_senders: Arc<ControlSenders>,
+    /// Active leader session handle holding the runtime mesh and control senders.
+    pub session: LeaderSession,
     /// The builder handle owning the launched producer workers. The leader controls the launch, so
     /// it owns the teardown too: `end_custom_scan` takes this and calls `wait_for_finish` to join
     /// the workers and destroy the parallel context. `None` until `launch` installs it on the
@@ -198,14 +179,15 @@ unsafe fn self_receiver_token() -> u64 {
 /// # Safety
 /// - `coordinate` must be the MPP region pointer (a `ParallelState` byte blob the leader owns).
 /// - `n_procs` is the total mesh participant count including the leader: 1 (leader, proc 0)
-///   plus the launched producer workers. It must equal the count passed to
-///   [`estimate_dsm_size`] for this region, or the ring mesh won't fit.
-/// - `plan_bytes` must have the same length passed to [`estimate_dsm_size`]
+///   plus the launched producer workers. It must not exceed the count passed to
+///   [`estimate_dsm_size`] for this region. A short launch may use fewer processes than the
+///   preallocated region was sized for.
+/// - `dispatch_payload` must have the same length passed to [`estimate_dsm_size`]
 ///   so the leader doesn't overrun the region.
 pub unsafe fn leader_setup(
     coordinate: *mut c_void,
     n_procs: u32,
-    plan_bytes: Vec<u8>,
+    dispatch_payload: Vec<u8>,
 ) -> Result<MppLeaderState, String> {
     let wakeup: Arc<dyn Wakeup> = Arc::new(PgWakeup);
     let interrupt: Arc<dyn Interrupt> = Arc::new(PgInterrupt);
@@ -215,122 +197,69 @@ pub unsafe fn leader_setup(
     // because this runs synchronously on the leader backend from `launch_mpp`, before any
     // tokio runtime spins up.
     let t_setup = crate::gucs::mpp_trace().then(std::time::Instant::now);
-    let attach = unsafe {
+    let session = unsafe {
         shm::leader_setup(
             coordinate,
             n_procs,
             mpp_queue_size(),
-            &plan_bytes,
+            &dispatch_payload,
             wakeup,
             token,
             interrupt,
-            // The leader ships `SetPlan` frames (and later, work units) through these senders.
-            // `MppLeaderState` holds them for the query's lifetime, which keeps the rings'
-            // sender count above zero across every worker attach.
-            /* attach_senders */
-            true,
+            /* attach_senders */ true,
         )
     }
     .map_err(|e| e.to_string())?;
-    let mesh = attach.mesh;
     if let Some(t) = t_setup {
         pgrx::warning!(
             "mpp trace: leader_setup (ring create + self attach) took {:.3} ms",
             t.elapsed().as_secs_f64() * 1000.0
         );
     }
-    let control_senders = Arc::new(std::sync::Mutex::new(attach.outbound_senders));
-    // Hand the senders to the mesh too, so its early-termination cancel can reach the producers.
-    // The mesh shares this `Arc`, so clearing either view releases both before the DSM unmaps.
-    mesh.set_cancel_senders(Arc::clone(&control_senders));
-    // Released before the DSM unmaps via [`release_control_senders_on_detach`], registered by `launch`.
     Ok(MppLeaderState {
-        mesh,
-        control_senders,
+        session,
         finish: None,
         timing: MppLaunchTiming::default(),
     })
 }
 
-/// `on_dsm_detach` callback that invalidates the leader's mesh handles and releases its stored
-/// DSM-backed control senders while the MPP segment is still mapped.
+/// `on_dsm_detach` callback that invalidates the leader's mesh handles while the MPP segment is still mapped.
 ///
 /// While the mesh is live, dropping a sender decrements an atomic inside its DSM ring. The
-/// callback first marks every handle dead and then clears the stored senders while the mapping is
-/// live; an escaped clone can subsequently drop without touching DSM. `on_dsm_detach` runs on
-/// every teardown path. A transaction-abort callback can't replace it: it fires after
-/// `AtEOXact_Parallel` has already detached the DSM, and a backend FATAL skips
-/// `shutdown_custom_scan` entirely.
-///
-/// `arg` is the detach-state `Arc` converted into a raw pointer at registration;
-/// [`Arc::from_raw`] reclaims that reference exactly once. The success path may already have
-/// emptied the sender vector, in which case clearing it again is a no-op.
+/// callback marks every handle dead while the mapping is live; an escaped clone can subsequently drop
+/// without touching DSM. `on_dsm_detach` runs on every teardown path.
 #[pgrx::pg_guard]
-unsafe extern "C-unwind" fn release_control_senders_on_detach(
+unsafe extern "C-unwind" fn mark_mesh_detached_on_dsm_detach(
     _seg: *mut pg_sys::dsm_segment,
     arg: pg_sys::Datum,
 ) {
-    let state = unsafe { Arc::from_raw(arg.cast_mut_ptr::<DsmDetachState>()) };
-    release_control_senders_on_detach_impl(&state);
-}
-
-fn release_control_senders_on_detach_impl(state: &DsmDetachState) {
-    // `send_set_plan` can retain a sender clone after releasing the vector lock. Invalidate every
-    // handle before clearing the known senders so escaped clones no-op if dropped after DSM unmaps.
-    state
-        .alive
-        .store(false, std::sync::atomic::Ordering::Release);
-
-    // Tolerate a poisoned mutex rather than panic across the C boundary; the Vec data is still
-    // valid to clear.
-    let mut guard = state
-        .control_senders
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    // The current sender drop path is panic-free. `catch_unwind` contains any future panic so it
-    // cannot unwind through PostgreSQL's C teardown.
-    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        guard.clear();
-    }));
+    let mesh = unsafe { Arc::from_raw(arg.cast_mut_ptr::<MppMesh>()) };
+    mesh.mark_detached();
 }
 
 impl MppLeaderState {
-    /// Register the DSM detach cleanup for the leader mesh liveness flag and senders. PostgreSQL
-    /// stores the raw pointer; [`release_control_senders_on_detach`] turns it back into the same
+    /// Register the DSM detach cleanup for the leader mesh liveness flag. PostgreSQL
+    /// stores the raw pointer; [`mark_mesh_detached_on_dsm_detach`] turns it back into the same
     /// `Arc` and drops it.
     ///
     /// # Safety
-    /// `seg` must be the live DSM segment that owns the ring memory targeted by
-    /// `self.control_senders`.
+    /// `seg` must be the live DSM segment that owns the ring memory.
     pub unsafe fn register_control_senders_on_detach(&self, seg: *mut pg_sys::dsm_segment) {
-        let state = Arc::new(DsmDetachState {
-            alive: self.mesh.detached_flag(),
-            control_senders: Arc::clone(&self.control_senders),
-        });
+        let mesh_ptr = Arc::into_raw(Arc::clone(&self.session.mesh));
         unsafe {
             pg_sys::on_dsm_detach(
                 seg,
-                Some(release_control_senders_on_detach),
-                pg_sys::Datum::from(Arc::into_raw(state) as *mut c_void),
+                Some(mark_mesh_detached_on_dsm_detach),
+                pg_sys::Datum::from(mesh_ptr as *mut c_void),
             );
         }
-    }
-
-    /// Drop the DSM-backed control senders while the mapping is still attached. Called from
-    /// `shutdown_custom_scan` on the success path; [`release_control_senders_on_detach`] (registered
-    /// via `on_dsm_detach`) covers every other teardown path. Idempotent.
-    pub fn release_control_senders(&self) {
-        // Unlike the detach callback, a poisoned lock panics here on purpose: this runs on the
-        // success path inside the executor, where poison means a real bug and an ERROR is safe
-        // to raise. The callback can't afford that mid-`dsm_detach`.
-        self.control_senders.lock().unwrap().clear();
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use datafusion_distributed::shm::{MppFrameHeader, NoInterrupt};
+    use datafusion_distributed::shm::NoInterrupt;
     use std::sync::atomic::Ordering;
 
     struct NoopWakeup;
@@ -340,12 +269,45 @@ mod tests {
     }
 
     #[test]
+    fn mesh_can_use_fewer_processes_than_its_reserved_region() {
+        // `launch_mpp` must allocate DSM before PostgreSQL tells it how many workers actually
+        // attached. Pin the transport contract that lets a short launch initialize its smaller
+        // logical mesh in the region reserved for the requested width.
+        let requested_procs = 6;
+        let launched_procs = 4;
+        let plan = [0_u8; 64];
+        let region_bytes = shm::dsm_region_bytes(requested_procs, 64 * 1024, plan.len()).unwrap();
+        let mut region = vec![0_u64; region_bytes.div_ceil(std::mem::size_of::<u64>())];
+
+        let attach = unsafe {
+            shm::leader_setup(
+                region.as_mut_ptr().cast(),
+                launched_procs,
+                64 * 1024,
+                &plan,
+                Arc::new(NoopWakeup),
+                1,
+                Arc::new(NoInterrupt),
+                true,
+            )
+            .unwrap()
+        };
+
+        assert_eq!(attach.outbound_senders().len(), launched_procs as usize);
+        assert!(attach.outbound_senders()[0].is_none());
+        assert_eq!(
+            attach.outbound_senders().iter().flatten().count(),
+            (launched_procs - 1) as usize
+        );
+    }
+
+    #[test]
     fn dsm_detach_marks_mesh_before_a_set_plan_clone_can_drop() {
         // Sender Drop may touch ring memory while the mesh is live, so keep the backing region
         // alive through the final drop.
         let region_bytes = shm::dsm_region_bytes(3, 64 * 1024, 0).unwrap();
         let mut region = vec![0_u64; region_bytes.div_ceil(std::mem::size_of::<u64>())];
-        let attach = unsafe {
+        let session = unsafe {
             shm::leader_setup(
                 region.as_mut_ptr().cast(),
                 3,
@@ -358,29 +320,13 @@ mod tests {
             )
             .unwrap()
         };
-        // Model the sender clone `send_set_plan` can retain after releasing the control-sender
-        // lock; clearing the stored vector does not release this clone.
-        let delayed_set_plan_sender = attach
-            .outbound_senders
-            .iter()
-            .flatten()
-            .next()
-            .unwrap()
-            .clone_with_header(MppFrameHeader::set_plan(0, 0, 0));
-        let mesh = attach.mesh;
-        let state = DsmDetachState {
-            alive: mesh.detached_flag(),
-            control_senders: Arc::new(std::sync::Mutex::new(attach.outbound_senders)),
-        };
+        let mesh = session.mesh;
+        mesh.mark_detached();
 
-        release_control_senders_on_detach_impl(&state);
-
-        assert!(state.control_senders.lock().unwrap().is_empty());
         assert!(
             !mesh.detached_flag().load(Ordering::Acquire),
             "DSM detach must invalidate mesh handles before delayed SetPlan senders can drop"
         );
-        drop(delayed_set_plan_sender);
     }
 }
 
@@ -424,29 +370,6 @@ impl datafusion_distributed::DispatchPlanSource for StagePlanDispatchSource {
     }
 }
 
-/// Returned to a worker from [`worker_setup`]. The customscan reads the plan bytes, runs the
-/// plan, and pushes resulting batches through `outbound_senders`.
-pub struct MppWorkerState {
-    /// `outbound_senders[proc_idx]` is the sender that writes to peer `proc_idx`'s inbox.
-    /// The entry at `proc_idx == this_proc` is the self-loop in-proc channel installed by
-    /// `worker_setup` (since DSM MPSC inboxes have only one receiver per ring, the worker
-    /// can't be both producer and consumer on the shm_mq inbox path).
-    ///
-    /// Each fragment's per-partition output sender is keyed by
-    /// `outbound_senders[proc_for_task(n_workers, consumer_task)]`. Each `MppSender` wraps an
-    /// `Arc<dyn BatchChannelSender>` so callers can `clone_with_header` to multiplex
-    /// `(stage_id, partition)` channels onto one inbox.
-    pub outbound_senders: Vec<Option<MppSender>>,
-    /// Leader's dispatch payload (framed per-stage physical subplans), copied out of DSM. The
-    /// worker decodes it into its fragment assignments via `mpp::dispatch::expand_to_assignments`.
-    pub plan_bytes: Vec<u8>,
-    /// Worker's MppMesh. The single `inbound_receiver` pulls frames addressed to this
-    /// proc from both the DSM MPSC inbox and the in-proc self-loop channel; demux by
-    /// `(sender_proc, stage_id, partition)` happens inside the handle's channel-buffer
-    /// registry. Read by the multi-fragment dispatcher driven by `mpp::host::exec_mpp_worker`.
-    pub mesh: Arc<MppMesh>,
-}
-
 /// Body of `initialize_worker_custom_scan`. Reads the header, attaches as
 /// sender on this worker's slot row, copies the plan bytes out of DSM.
 ///
@@ -457,7 +380,7 @@ pub unsafe fn worker_setup(
     coordinate: *mut c_void,
     region_total: usize,
     worker_number: i32,
-) -> Result<MppWorkerState, String> {
+) -> Result<WorkerSession, String> {
     if worker_number < 0 {
         return Err("mpp: worker_number < 0".into());
     }
@@ -472,7 +395,7 @@ pub unsafe fn worker_setup(
     // Same backend-thread story as `leader_setup`: this runs on the parallel-worker backend
     // before tokio starts.
     let t_setup = crate::gucs::mpp_trace().then(std::time::Instant::now);
-    let attach =
+    let session =
         unsafe { shm::worker_setup(coordinate, region_total, proc_idx, wakeup, token, interrupt) }
             .map_err(|e| e.to_string())?;
     if let Some(t) = t_setup {
@@ -482,11 +405,7 @@ pub unsafe fn worker_setup(
         );
     }
 
-    Ok(MppWorkerState {
-        outbound_senders: attach.outbound_senders,
-        plan_bytes: attach.plan_bytes,
-        mesh: attach.mesh,
-    })
+    Ok(session)
 }
 
 /// Merge the worker fragments' `TaskMetrics` frames into an executed `DistributedExec` plan for

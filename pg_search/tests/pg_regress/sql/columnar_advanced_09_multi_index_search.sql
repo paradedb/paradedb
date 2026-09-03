@@ -115,7 +115,7 @@ DROP INDEX IF EXISTS categories_idx;
 DROP INDEX IF EXISTS reviews_idx;
 
 CREATE INDEX products_idx ON products
-USING bm25 (id, name, description, price, stock_count, is_available)
+USING paradedb (id, name, description, price, stock_count, is_available)
 WITH (
     key_field = 'id',
     text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}}}',
@@ -124,7 +124,7 @@ WITH (
 );
 
 CREATE INDEX categories_idx ON categories
-USING bm25 (id, name, description, product_count, is_active)
+USING paradedb (id, name, description, product_count, is_active)
 WITH (
     key_field = 'id',
     text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}, "fast": true}}',
@@ -133,7 +133,7 @@ WITH (
 );
 
 CREATE INDEX reviews_idx ON reviews
-USING bm25 (id, reviewer_name, content, rating, helpful_votes)
+USING paradedb (id, reviewer_name, content, rating, helpful_votes)
 WITH (
     key_field = 'id',
     text_fields = '{"reviewer_name": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',

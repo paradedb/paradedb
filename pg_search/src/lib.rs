@@ -93,10 +93,15 @@ pgrx::pg_module_magic!();
 
 extension_sql!(
     r#"
-        GRANT ALL ON SCHEMA paradedb TO PUBLIC;
-        GRANT ALL ON SCHEMA pdb TO PUBLIC;
+        -- PUBLIC needs USAGE to reference the extension's objects (types, casts,
+        -- operators, functions in `pdb`, and helpers in `paradedb`), but not
+        -- CREATE: every object in these schemas is created here at install time
+        -- by the extension owner, so granting CREATE to PUBLIC would only let
+        -- any role squat objects inside the extension's own schemas.
+        GRANT USAGE ON SCHEMA paradedb TO PUBLIC;
+        GRANT USAGE ON SCHEMA pdb TO PUBLIC;
     "#,
-    name = "paradedb_grant_all",
+    name = "paradedb_grant_usage",
     finalize
 );
 
@@ -161,8 +166,11 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     // that PostgreSQL does not flatten into joins, so `set_join_pathlist_hook` never fires.
     customscan::register_subplan_join_pathlist();
 
-    // Register global planner hook for window function support
-    customscan::register_window_aggregate_hook();
+    // Register hook for tracking explain statements (so planner warnings don't error under EXPLAIN)
+    postgres::planner_warnings::register_explain_hook();
+
+    // Register global planner hook for window function support and planner warning lifecycle
+    customscan::register_planner_hook();
 
     // Initialize the filter query builder
     customscan::aggregatescan::filterquery::init_filter_query_builder();

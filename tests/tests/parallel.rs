@@ -47,7 +47,7 @@ async fn test_simultaneous_commits_with_bm25(database: Db) -> Result<()> {
     );
 
     CREATE INDEX concurrent_items_bm25 ON public.concurrent_items
-    USING bm25 (id, description)
+    USING paradedb (id, description)
     WITH (
         key_field = 'id',
         text_fields = '{
@@ -117,7 +117,7 @@ async fn test_statement_level_locking(database: Db) -> Result<()> {
     );
 
     CREATE INDEX index_a_bm25 ON public.index_a
-    USING bm25 (id, content)
+    USING paradedb (id, content)
     WITH (
         key_field = 'id',
         text_fields = '{
@@ -126,7 +126,7 @@ async fn test_statement_level_locking(database: Db) -> Result<()> {
     );
 
     CREATE INDEX index_b_bm25 ON public.index_b
-    USING bm25 (id, content)
+    USING paradedb (id, content)
     WITH (
         key_field = 'id',
         text_fields = '{
@@ -235,11 +235,11 @@ async fn test_parallel_hash_join_race_condition(database: Db) -> Result<()> {
 
     -- Create BM25 indexes BEFORE inserting data
     CREATE INDEX idx_parade_core ON core
-    USING bm25 (dwf_doid, author)
+    USING paradedb (dwf_doid, author)
     WITH (key_field='dwf_doid');
 
     CREATE INDEX idx_parade_document_text ON document_text
-    USING bm25 (dwf_doid, full_text)
+    USING paradedb (dwf_doid, full_text)
     WITH (key_field='dwf_doid');
     "#
     .execute(&mut conn);
@@ -372,6 +372,138 @@ async fn test_parallel_hash_join_race_condition(database: Db) -> Result<()> {
     Ok(())
 }
 
+/// Regression test for https://github.com/paradedb/paradedb/issues/5024
+///
+/// A parallel-aware BaseScan under a Gather on the inner side of a Nested Loop is
+/// rescanned once per outer row. The shared segment work queue must be reset only in
+/// ReInitializeDSMCustomScan, which PostgreSQL runs before workers are launched. The
+/// leader's ReScan callback runs *after* LaunchParallelWorkers, so resetting the queue
+/// there races with segment claims from a freshly launched worker: an already-claimed
+/// segment goes back into the pool and gets scanned twice, duplicating every row in it
+/// (COUNT(*) returned exactly 2x).
+///
+/// The race is timing-dependent (the unfixed code failed ~65% of individual runs on a
+/// release build), so the query runs repeatedly and every result must match the plain
+/// PostgreSQL baseline.
+#[rstest]
+#[tokio::test]
+async fn test_parallel_rescan_does_not_double_scan(database: Db) -> Result<()> {
+    let mut conn = database.connection().await;
+
+    r#"CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
+
+    CREATE TABLE rescan_users (id BIGINT PRIMARY KEY, name TEXT, age INTEGER);
+    CREATE TABLE rescan_products (id BIGINT PRIMARY KEY, name TEXT, age INTEGER);
+    CREATE TABLE rescan_orders (id BIGINT PRIMARY KEY, name TEXT, age INTEGER);
+
+    CREATE INDEX idx_rescan_users ON rescan_users
+    USING paradedb (id, name, age)
+    WITH (
+        key_field = 'id',
+        text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true } }',
+        numeric_fields = '{ "age": { "fast": true } }'
+    );
+    CREATE INDEX idx_rescan_products ON rescan_products
+    USING paradedb (id, name, age)
+    WITH (
+        key_field = 'id',
+        text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true } }',
+        numeric_fields = '{ "age": { "fast": true } }'
+    );
+    CREATE INDEX idx_rescan_orders ON rescan_orders
+    USING paradedb (id, name, age)
+    WITH (
+        key_field = 'id',
+        text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true } }',
+        numeric_fields = '{ "age": { "fast": true } }'
+    );
+
+    INSERT INTO rescan_users (id, name, age) VALUES
+        (1, 'bob', 20), (2, 'alice', 30), (3, 'cloe', 40), (4, 'anchovy', 50);
+    INSERT INTO rescan_products (id, name, age)
+        SELECT i, (ARRAY['red', 'green', 'blue'])[1 + i % 3], 10 + i FROM generate_series(1, 12) i;
+    INSERT INTO rescan_orders (id, name, age)
+        SELECT i, (ARRAY['red', 'green', 'blue'])[1 + i % 3], 10 + i FROM generate_series(1, 12) i;
+
+    ANALYZE rescan_users, rescan_products, rescan_orders;
+    "#
+    .execute(&mut conn);
+
+    // Ground truth from the plain PostgreSQL plan (no custom scan, `=` operators).
+    "SET paradedb.enable_custom_scan = false".execute(&mut conn);
+    let expected: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)
+        FROM rescan_users CROSS JOIN rescan_products
+        JOIN rescan_orders ON rescan_products.name = rescan_orders.name
+        WHERE (rescan_users.name = 'bob')
+           OR ((rescan_users.id = 4) AND (rescan_orders.id = 4) AND (rescan_products.age = 20))
+        "#,
+    )
+    .fetch_one(&mut conn)
+    .await?;
+    assert!(expected > 0, "fixture should produce matching rows");
+
+    // The failing configuration from #5024: forced-parallel custom scans, so the
+    // inner side of the Nested Loop becomes a rescanned Gather over Parallel Custom
+    // Scans coordinating through the shared segment work queue.
+    r#"
+    SET paradedb.enable_custom_scan = true;
+    SET paradedb.enable_aggregate_custom_scan = false;
+    SET paradedb.enable_join_custom_scan = false;
+    SET paradedb.enable_filter_pushdown = false;
+    SET enable_seqscan = false;
+    SET enable_indexscan = true;
+    SET max_parallel_workers = 8;
+    "#
+    .execute(&mut conn);
+    // PG15: force_parallel_mode; PG16+: debug_parallel_query. On PG15 the basescan
+    // does not force a parallel worker for this plan, so the test degrades to a
+    // plain consistency check there.
+    let _ = "SET force_parallel_mode = on".execute_result(&mut conn);
+    let forced_parallel = "SET debug_parallel_query = on"
+        .execute_result(&mut conn)
+        .is_ok();
+
+    let query = r#"
+        SELECT COUNT(*)
+        FROM rescan_users CROSS JOIN rescan_products
+        JOIN rescan_orders ON rescan_products.name = rescan_orders.name
+        WHERE (rescan_users.name @@@ 'bob')
+           OR ((rescan_users.id @@@ '4') AND ((rescan_orders.id @@@ '4') AND (rescan_products.age @@@ '20')))
+    "#;
+
+    if forced_parallel {
+        // Confirm the plan has the shape that exercises the rescan path.
+        let explain_rows: Vec<(String,)> = format!("EXPLAIN (COSTS OFF) {query}").fetch(&mut conn);
+        let explain_text: String = explain_rows
+            .iter()
+            .map(|(s,)| s.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            explain_text.contains("Parallel Custom Scan (ParadeDB Base Scan)")
+                && explain_text.contains("Gather"),
+            "plan should use a parallel BaseScan under a Gather. EXPLAIN:\n{explain_text}"
+        );
+    }
+
+    // The unfixed race loses ~65% of individual runs, so 30 iterations detect a
+    // regression with near certainty; with the fix every run is deterministic.
+    let mut counts = Vec::new();
+    for _ in 0..30 {
+        let count: i64 = sqlx::query_scalar(query).fetch_one(&mut conn).await?;
+        counts.push(count);
+    }
+
+    assert!(
+        counts.iter().all(|&c| c == expected),
+        "parallel rescan duplicated rows: expected {expected} for every run, got {counts:?}"
+    );
+
+    Ok(())
+}
+
 /// Regression test for https://github.com/paradedb/paradedb/issues/4381
 ///
 /// In PG18 amestimateparallelscan sizes the DSM region based on target_segment_count. Concurrent
@@ -395,7 +527,7 @@ async fn test_parallel_scan_with_segments_exceeding_target(database: Db) -> Resu
     );
 
     CREATE INDEX idx_test ON test
-    USING bm25 (column_a, column_b)
+    USING paradedb (column_a, column_b)
     WITH (
         key_field='column_a',
         target_segment_count = 1

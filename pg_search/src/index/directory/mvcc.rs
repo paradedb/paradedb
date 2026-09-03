@@ -19,7 +19,6 @@ use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
 use crate::api::{HashMap, HashSet};
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
-use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::{ExpressionState, HeapFetchState};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
@@ -27,9 +26,8 @@ use crate::postgres::storage::block::{
     FileEntry, MVCCEntry, SegmentMetaEntry, SegmentMetaEntryContent, SegmentMetaEntryImmutable,
     SegmentMetaEntryMutable, bm25_max_free_space,
 };
-use crate::postgres::storage::buffer::{BorrowedBuffer, BufferManager, PinnedBuffer};
+use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::postgres::storage::metadata::MetaPage;
-use crate::schema::FieldSource;
 use parking_lot::Mutex;
 use pgrx::pg_sys;
 use std::any::Any;
@@ -49,7 +47,7 @@ use tantivy::directory::{
     DirectoryLock, DirectoryPanicHandler, FileHandle, InnerWritePtr, Lock, RamDirectory,
     WatchCallback, WatchHandle,
 };
-use tantivy::index::{SegmentId, SegmentMetaInventory};
+use tantivy::index::{SegmentComponent, SegmentId, SegmentMetaInventory};
 use tantivy::{Directory, IndexMeta, SegmentMeta, TantivyError};
 
 /// By default Tantivy writes 8192 bytes at a time (the `BufWriter` default).
@@ -57,13 +55,201 @@ use tantivy::{Directory, IndexMeta, SegmentMeta, TantivyError};
 /// which creates less lock contention than allocating one block at a time.
 pub const BUFWRITER_CAPACITY: usize = bm25_max_free_space() * MAX_BUFFERS_TO_EXTEND_BY;
 
+/// The `(max_doc, num_deleted_docs)` pair of a mutable segment's meta entry as one reader
+/// loaded it. A mutable segment is materialized from the heap on open, from the prefix of its
+/// add/remove log these two counts bound, so two opens agree on the segment's `DocId` space
+/// only if they use the same pair. Distinct from [`SegmentMetaEntry::mutable_snapshot`], which
+/// returns the ctid set a bound selects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MutableSegmentBound {
+    pub max_doc: u32,
+    pub num_deleted_docs: u32,
+}
+
+impl MutableSegmentBound {
+    /// Docs the materialized segment exposes: Adds minus Removes.
+    pub fn live_docs(self) -> u32 {
+        self.max_doc - self.num_deleted_docs
+    }
+}
+
+/// One segment of a [`SegmentView`], in the origin reader's ordinal position.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SegmentViewEntry {
+    pub id: SegmentId,
+    pub docs: SegmentViewDocs,
+}
+
+/// What the origin reader knew about the segment's documents. Mirrors the
+/// [`SegmentMetaEntryContent`] split: immutable content is fixed on disk, mutable content is
+/// materialized per open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SegmentViewDocs {
+    /// Fixed on disk, so a replaying reader gets the same documents from the segment id alone.
+    /// The counts ride along only because `EXPLAIN ANALYZE` renders per-segment doc counts out
+    /// of the shared state rather than out of a reader.
+    Immutable { max_doc: u32, num_deleted_docs: u32 },
+    /// Materialized per open from the log prefix the bound selects; every replaying reader
+    /// must use the same bound.
+    Mutable(MutableSegmentBound),
+    /// Nothing known: the view only pins the segment set. See
+    /// [`SegmentView::from_unordered_ids`].
+    IdOnly,
+}
+
+impl SegmentViewDocs {
+    /// What `SegmentReader::max_doc()` reports for this segment under this view.
+    pub fn max_doc(self) -> u32 {
+        match self {
+            SegmentViewDocs::Immutable { max_doc, .. } => max_doc,
+            SegmentViewDocs::Mutable(bound) => bound.live_docs(),
+            SegmentViewDocs::IdOnly => 0,
+        }
+    }
+
+    /// What `SegmentReader::num_deleted_docs()` reports for this segment under this view.
+    /// Zero for a mutable segment: materialization skips removed ctids instead of carrying
+    /// a delete bitset.
+    pub fn num_deleted_docs(self) -> u32 {
+        match self {
+            SegmentViewDocs::Immutable {
+                num_deleted_docs, ..
+            } => num_deleted_docs,
+            SegmentViewDocs::Mutable(_) | SegmentViewDocs::IdOnly => 0,
+        }
+    }
+
+    pub fn mutable_bound(self) -> Option<MutableSegmentBound> {
+        match self {
+            SegmentViewDocs::Mutable(bound) => Some(bound),
+            _ => None,
+        }
+    }
+}
+
+impl SegmentViewEntry {
+    pub fn max_doc(&self) -> u32 {
+        self.docs.max_doc()
+    }
+
+    pub fn num_deleted_docs(&self) -> u32 {
+        self.docs.num_deleted_docs()
+    }
+
+    pub fn mutable_bound(&self) -> Option<MutableSegmentBound> {
+        self.docs.mutable_bound()
+    }
+}
+
+/// A reader's segment view, frozen so other readers of the same index can replay it.
+///
+/// Packed `(segment_ord, doc_id)` addresses and per-segment term ordinals travel between
+/// readers opened in different processes (a JoinScan leader, its MPP workers, the readers a
+/// worker rebuilds for a scan that sits behind a network boundary). Those addresses are only
+/// meaningful against the reader that produced them, so every reader of one source in one query
+/// must expose the same ordinal order and, for mutable segments, materialize the same document
+/// set. Opening with [`MvccSatisfies::ParallelWorker`] over this view gives that: the listed
+/// segments in the listed order, mutable segments bounded by the origin's view.
+///
+/// The data sits behind an `Arc`, so clones are cheap even at thousands of segments.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SegmentView {
+    inner: Arc<SegmentViewInner>,
+}
+
+#[derive(Debug, PartialEq, Eq, Default)]
+struct SegmentViewInner {
+    entries: Vec<SegmentViewEntry>,
+    ordinals: HashMap<SegmentId, usize>,
+}
+
+impl SegmentView {
+    pub fn new(entries: Vec<SegmentViewEntry>) -> Self {
+        let ordinals = entries
+            .iter()
+            .enumerate()
+            .map(|(ord, e)| (e.id, ord))
+            .collect();
+        Self {
+            inner: Arc::new(SegmentViewInner { entries, ordinals }),
+        }
+    }
+
+    /// Capture the view of `segment_readers` (in ordinal order), taking mutable bounds from
+    /// `directory`. Both must come from the same open.
+    pub fn capture(segment_readers: &[tantivy::SegmentReader], directory: &MVCCDirectory) -> Self {
+        let mutable = directory.mutable_bounds();
+        Self::new(
+            segment_readers
+                .iter()
+                .map(|reader| {
+                    let id = reader.segment_id();
+                    let docs = match mutable.get(&id) {
+                        Some(bound) => SegmentViewDocs::Mutable(*bound),
+                        None => SegmentViewDocs::Immutable {
+                            max_doc: reader.max_doc(),
+                            num_deleted_docs: reader.num_deleted_docs(),
+                        },
+                    };
+                    SegmentViewEntry { id, docs }
+                })
+                .collect(),
+        )
+    }
+
+    /// A view that only pins the segment set. Ordinal order is the iterator's (arbitrary for a
+    /// set), and it carries no replay data, so it is only for readers whose addresses never
+    /// leave the process (a `paradedb.aggregate` worker).
+    pub fn from_unordered_ids(ids: impl IntoIterator<Item = SegmentId>) -> Self {
+        Self::new(
+            ids.into_iter()
+                .map(|id| SegmentViewEntry {
+                    id,
+                    docs: SegmentViewDocs::IdOnly,
+                })
+                .collect(),
+        )
+    }
+
+    pub fn entries(&self) -> &[SegmentViewEntry] {
+        &self.inner.entries
+    }
+
+    pub fn len(&self) -> usize {
+        self.inner.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.inner.entries.is_empty()
+    }
+
+    pub fn contains(&self, id: &SegmentId) -> bool {
+        self.inner.ordinals.contains_key(id)
+    }
+
+    pub fn ids(&self) -> impl Iterator<Item = SegmentId> + '_ {
+        self.inner.entries.iter().map(|e| e.id)
+    }
+
+    /// The origin reader's ordinal for `id`.
+    pub fn ordinal_of(&self, id: &SegmentId) -> Option<usize> {
+        self.inner.ordinals.get(id).copied()
+    }
+
+    pub fn mutable_bound(&self, id: &SegmentId) -> Option<MutableSegmentBound> {
+        self.ordinal_of(id)
+            .and_then(|ord| self.inner.entries[ord].mutable_bound())
+    }
+}
+
 /// Describes how a `MVCCDirectory` should resolve segment visibility.  Note that
 /// this enum is purposely non-cloneable.  Wrap it with an [`Arc`] if you need that.  Because of
 /// the [`MvccSatisfies::ParallelWorker`] variant, cloning could be incredibly expensive when
 /// an index has many (thousands!) of segments.
 #[derive(Debug, PartialEq, Eq)]
 pub enum MvccSatisfies {
-    ParallelWorker(HashSet<SegmentId>),
+    /// Replay exactly the given view; see [`SegmentView`].
+    ParallelWorker(SegmentView),
     LargestSegment,
     Snapshot,
     Vacuum,
@@ -137,11 +323,8 @@ unsafe impl Send for MVCCDirectory {}
 unsafe impl Sync for MVCCDirectory {}
 
 impl MVCCDirectory {
-    pub fn parallel_worker(
-        index_relation: &PgSearchRelation,
-        segment_ids: HashSet<SegmentId>,
-    ) -> Self {
-        Self::with_mvcc_style(index_relation, MvccSatisfies::ParallelWorker(segment_ids))
+    pub fn parallel_worker(index_relation: &PgSearchRelation, view: SegmentView) -> Self {
+        Self::with_mvcc_style(index_relation, MvccSatisfies::ParallelWorker(view))
     }
 
     pub fn with_mvcc_style(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Self {
@@ -159,6 +342,24 @@ impl MVCCDirectory {
             heap_fetch_state: Default::default(),
             expression_state: Default::default(),
         }
+    }
+
+    /// The bound each loaded mutable segment was materialized from.
+    pub fn mutable_bounds(&self) -> HashMap<SegmentId, MutableSegmentBound> {
+        self.all_entries
+            .lock()
+            .iter()
+            .filter_map(|(id, lsme)| match lsme {
+                LoadedSegmentMetaEntry::Persisted { .. } => None,
+                LoadedSegmentMetaEntry::Memory { meta, .. } => Some((
+                    *id,
+                    MutableSegmentBound {
+                        max_doc: meta.max_doc(),
+                        num_deleted_docs: meta.num_deleted_docs() as u32,
+                    },
+                )),
+            })
+            .collect()
     }
 
     /// If the given SegmentId is a mutable segment, return true.
@@ -197,7 +398,13 @@ impl MVCCDirectory {
                     ));
                 };
                 Ok(Arc::new(unsafe {
-                    SegmentComponentReader::new(&self.indexrel, file_entry)
+                    SegmentComponentReader::new(
+                        &self.indexrel,
+                        file_entry,
+                        path.extension()
+                            .and_then(|ext| ext.to_str())
+                            .and_then(|ext| SegmentComponent::try_from(ext).ok()),
+                    )
                 }))
             }
             LoadedSegmentMetaEntry::Memory {
@@ -347,7 +554,13 @@ impl Directory for MVCCDirectory {
                         };
                     Ok(vacant
                         .insert(Arc::new(unsafe {
-                            SegmentComponentReader::new(&self.indexrel, file_entry)
+                            SegmentComponentReader::new(
+                                &self.indexrel,
+                                file_entry,
+                                path.extension()
+                                    .and_then(|ext| ext.to_str())
+                                    .and_then(|ext| SegmentComponent::try_from(ext).ok()),
+                            )
                         }))
                         .clone())
                 }
@@ -536,28 +749,44 @@ impl Directory for MVCCDirectory {
                         })
                         .collect();
 
-                    // Sort the segments in ascending order by how long we think they'll take to
-                    // query.
-                    // * for immutable, smallest to largest by document count
-                    // * followed by mutable/in-memory, since they're indexed at read time, so
-                    //   their doc count is not comparable.
-                    //
-                    // When segments are claimed by workers they're claimed from back-to-front
-                    // and our goal is to have the most expensive segments claimed first to reduce
-                    // stragglers.
-                    //
-                    // TODO: I don't love doing this here, but it's the last place where we can
-                    // (easily) determine which segments are memory segments. If we found a better
-                    // way to identify a `SegmentReader` as being in-memory, then we could put it
-                    // back in parallel worker initialization.
-                    loaded.meta.segments.sort_unstable_by_key(|meta| {
-                        match all_entries.get(&meta.id()).unwrap() {
-                            LoadedSegmentMetaEntry::Persisted { meta, .. } => meta.num_docs(),
-                            LoadedSegmentMetaEntry::Memory { meta, .. } => {
-                                (u32::MAX as usize) + meta.num_docs()
-                            }
+                    match &*self.mvcc_style {
+                        // The view came from a reader that already ordered these segments, and
+                        // the addresses in flight were packed against that order. Replay it: a
+                        // doc-count sort would break ties in list order, and both the list order
+                        // and the counts can have moved since the view was captured.
+                        MvccSatisfies::ParallelWorker(view) => {
+                            loaded.meta.segments.sort_unstable_by_key(|meta| {
+                                view.ordinal_of(&meta.id())
+                                    .expect("load_metas: segment not in the parallel view")
+                            });
                         }
-                    });
+                        // Sort the segments in ascending order by how long we think they'll
+                        // take to query.
+                        // * for immutable, smallest to largest by document count
+                        // * followed by mutable/in-memory, since they're indexed at read time,
+                        //   so their doc count is not comparable.
+                        //
+                        // When segments are claimed by workers they're claimed from
+                        // back-to-front and our goal is to have the most expensive segments
+                        // claimed first to reduce stragglers.
+                        //
+                        // TODO: I don't love doing this here, but it's the last place where we
+                        // can (easily) determine which segments are memory segments. If we found
+                        // a better way to identify a `SegmentReader` as being in-memory, then we
+                        // could put it back in parallel worker initialization.
+                        _ => {
+                            loaded.meta.segments.sort_unstable_by_key(|meta| {
+                                match all_entries.get(&meta.id()).unwrap() {
+                                    LoadedSegmentMetaEntry::Persisted { meta, .. } => {
+                                        meta.num_docs()
+                                    }
+                                    LoadedSegmentMetaEntry::Memory { meta, .. } => {
+                                        (u32::MAX as usize) + meta.num_docs()
+                                    }
+                                }
+                            });
+                        }
+                    }
 
                     *self.all_entries.lock() = all_entries;
 
@@ -667,14 +896,8 @@ pub fn index_memory_segment(
     mvcc_style: &MvccSatisfies,
 ) -> anyhow::Result<RamDirectory> {
     use crate::index::writer::index::SerialIndexWriter;
-    use crate::postgres::utils::{row_to_search_document, u64_to_item_pointer};
-    use pgrx::{
-        PgTupleDesc,
-        pg_sys::{
-            GetOldestNonRemovableTransactionId, HTSV_Result, HeapTupleSatisfiesVacuum,
-            heap_deform_tuple,
-        },
-    };
+    use crate::postgres::heap::HeapDocFetcher;
+    use pgrx::PgTupleDesc;
 
     /// RAII guard that guarantees an active snapshot for the duration of the heap reads and
     /// detoasting performed while materializing a mutable segment.
@@ -734,25 +957,13 @@ pub fn index_memory_segment(
     let search_schema = indexrel.schema()?;
     let categorized_fields = search_schema.categorized_fields();
     let created_by_version = indexrel.created_by_version();
-    let oldest_xmin = unsafe { GetOldestNonRemovableTransactionId(heaprel.as_ptr()) };
-
-    let mut values = vec![pg_sys::Datum::null(); heaptupdesc.len()];
-    let mut isnull = vec![false; heaptupdesc.len()];
 
     // Query-visible materialization (Snapshot / ParallelWorker / LargestSegment) fetches each ctid
-    // with the active MVCC snapshot so that detoasting is safe: that registered snapshot holds back
-    // the global xmin horizon, preventing a concurrent VACUUM from reclaiming the external TOAST
-    // chunks we read. Fetching such rows with SnapshotAny could instead select DEAD /
-    // RECENTLY_DEAD versions whose TOAST has already been (or is being) freed, raising spurious
-    // "missing/unexpected chunk number ... in pg_toast_*" errors. Because materialization happens
-    // lazily inside query planning or execution, the active snapshot here is the snapshot that
-    // defines query-visible heap rows, so indexing an invisible ctid as empty cannot change a
-    // query result or estimate.
-    //
-    // Maintenance materialization (e.g. Mergeable) must index every live ctid regardless of any
-    // single snapshot, since the resulting segment may serve future snapshots, so it keeps using
-    // SnapshotAny and filters dead tuples with HeapTupleSatisfiesVacuum.
-    // See: https://github.com/paradedb/paradedb/issues/5365
+    // with the active MVCC snapshot; maintenance materialization (e.g. Mergeable) must index every
+    // live ctid regardless of any single snapshot. See the `HeapDocFetcher` docs for the full
+    // reasoning. Because query-visible materialization happens lazily inside query planning or
+    // execution, the active snapshot here is the snapshot that defines query-visible heap rows,
+    // so indexing an invisible ctid as empty cannot change a query result or estimate.
     let query_visible = match mvcc_style {
         MvccSatisfies::Snapshot
         | MvccSatisfies::ParallelWorker(_)
@@ -760,219 +971,23 @@ pub fn index_memory_segment(
         MvccSatisfies::Vacuum | MvccSatisfies::Mergeable => false,
     };
 
-    'next_ctid: for ctid in ctids {
-        // Guard against stale ctids referencing heap blocks truncated by VACUUM.
-        if !unsafe {
-            crate::postgres::utils::ctid_satisfies_nblocks(
-                ctid,
-                heaprel.as_ptr(),
-                heaprel.fork_number(),
-            )
-        } {
-            writer.insert(tantivy::TantivyDocument::new(), ctid, || {
-                unreachable!("No limits configured: should not finalize.")
-            })?;
-            continue 'next_ctid;
-        }
+    let mut fetcher = HeapDocFetcher::new(
+        heap_fetch_state,
+        expression_state,
+        &heaprel,
+        &heaptupdesc,
+        categorized_fields.as_slice(),
+        created_by_version,
+        query_visible,
+    );
 
-        let mut ipd = pg_sys::ItemPointerData::default();
-        u64_to_item_pointer(ctid, &mut ipd);
-
-        unsafe {
-            // See `query_visible` above for why these two styles fetch with different snapshots.
-            let fetch_snapshot = if query_visible {
-                pg_sys::GetActiveSnapshot()
-            } else {
-                &raw mut pg_sys::SnapshotAnyData
-            };
-            let mut call_again = false;
-            'next_hot_chain: loop {
-                let fetched = pg_sys::table_index_fetch_tuple(
-                    heap_fetch_state.scan,
-                    &mut ipd,
-                    fetch_snapshot,
-                    heap_fetch_state.slot(),
-                    // call_again: This parameter will be set to true if this `ctid` points to multiple
-                    // tuples as part of a HOT chain. We must attempt to find one live version of the
-                    // tuple, and it may not be the first one in the chain.
-                    &mut call_again,
-                    // all_dead: Can hypothetically signal that a `ctid` is dead in all
-                    // transactions: in practice, never actually seems to be anything but false
-                    // when used with `SnapshotAnyData`.
-                    &mut false,
-                );
-
-                if !fetched {
-                    // Either the tuple is not visible to `fetch_snapshot` (query-visible mode) or
-                    // heap page pruning removed it (SnapshotAny mode). In both cases there is no
-                    // content to index for this ctid, so insert an empty document.
-                    writer.insert(tantivy::TantivyDocument::new(), ctid, || {
-                        unreachable!("No limits configured: should not finalize.")
-                    })?;
-                    continue 'next_ctid;
-                }
-
-                if query_visible {
-                    // Visible to the snapshot: skip the SnapshotAny dead-tuple filtering below and
-                    // index it.
-                    break;
-                }
-
-                let mut htsv_result = {
-                    let buffer = (*heap_fetch_state.buffer_heap_slot()).buffer;
-                    let _lock = BorrowedBuffer::from_pg(buffer);
-                    HeapTupleSatisfiesVacuum(
-                        (*heap_fetch_state.buffer_heap_slot()).base.tuple,
-                        oldest_xmin,
-                        buffer,
-                    )
-                };
-
-                if htsv_result == HTSV_Result::HEAPTUPLE_RECENTLY_DEAD {
-                    // Our `oldest_xmin` might be stale compared to a concurrent VACUUM.
-                    // If VACUUM saw this tuple as DEAD and deleted its TOAST chunks, we
-                    // must also see it as DEAD, otherwise we'll crash trying to read them.
-                    //
-                    // A single re-check is sufficient (no loop needed) because
-                    // `GetOldestNonRemovableTransactionId` returns the current global
-                    // XID horizon. If the tuple is still RECENTLY_DEAD under this fresh
-                    // horizon, then no concurrent VACUUM could have considered it DEAD
-                    // (VACUUM uses the same or an older horizon), so its TOAST data is
-                    // guaranteed to still exist.
-                    let fresh_oldest_xmin =
-                        pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr());
-                    if fresh_oldest_xmin != oldest_xmin {
-                        let buffer = (*heap_fetch_state.buffer_heap_slot()).buffer;
-                        let _lock = BorrowedBuffer::from_pg(buffer);
-                        htsv_result = HeapTupleSatisfiesVacuum(
-                            (*heap_fetch_state.buffer_heap_slot()).base.tuple,
-                            fresh_oldest_xmin,
-                            buffer,
-                        );
-                    }
-                }
-
-                if htsv_result == HTSV_Result::HEAPTUPLE_DEAD {
-                    // table_index_fetch_tuple stored this dead tuple in a buffer-backed slot. Since
-                    // this branch skips the tuple, clear the slot before any HOT-chain retry or ctid
-                    // skip so the slot releases its buffer pin.
-                    pg_sys::ExecClearTuple(heap_fetch_state.slot());
-
-                    // This copy of the tuple is no longer visible to any transaction. Are there
-                    // more in the HOT chain?
-                    if call_again {
-                        // There are more entries in the hot chain: find the first one that is
-                        // visible.
-                        continue 'next_hot_chain;
-                    } else {
-                        // There are no more entries in the HOT chain, so no copy of the tuple is
-                        // visible in any transaction.
-                        writer.insert(tantivy::TantivyDocument::new(), ctid, || {
-                            unreachable!("No limits configured: should not finalize.")
-                        })?;
-                        continue 'next_ctid;
-                    }
-                }
-
-                // We successfully fetched a tuple. Break out to fetch and deform it.
-                break;
-            }
-
-            // We have a completely valid tuple to index: fetch and deform it.
-            //
-            // NOTE: We intentionally pass `false` (don't materialize) to keep the
-            // buffer pin held by the BufferHeapTupleTableSlot. This pin blocks
-            // VACUUM's LockBufferForCleanup, which prevents it from removing the
-            // heap tuple and deleting its TOAST chunks while we read them below.
-            // See: https://github.com/paradedb/paradedb/issues/5076
-            let htup = pg_sys::ExecFetchSlotHeapTuple(
-                heap_fetch_state.slot(),
-                false,
-                std::ptr::null_mut(),
-            );
-
-            heap_deform_tuple(
-                htup,
-                heaptupdesc.as_ptr(),
-                values.as_mut_ptr(),
-                isnull.as_mut_ptr(),
-            );
-
-            // Eagerly detoast all variable-length (varlena) datums while the
-            // buffer pin is still held. Without this, the lazy detoasting in
-            // row_to_search_document can race with VACUUM deleting TOAST chunks
-            // after we release the pin (the "missing chunk number 0" crash).
-            // pg_detoast_datum is a no-op for already-inline / non-TOASTed data.
-            for i in 0..heaptupdesc.len() {
-                if !isnull[i] {
-                    let att = heaptupdesc.get(i).expect("valid attribute");
-                    if att.attlen == -1 {
-                        values[i] =
-                            pg_sys::Datum::from(pg_sys::pg_detoast_datum(values[i].cast_mut_ptr()));
-                    }
-                }
-            }
-
-            let expr_results = expression_state.evaluate(heap_fetch_state.slot());
-
-            let mut doc = tantivy::TantivyDocument::new();
-
-            // Unpack all composites upfront from expr_results
-            let unpacked_composites = CompositeSlotValues::from_composites(
-                categorized_fields.iter().filter_map(|(_, cat)| {
-                    if let FieldSource::CompositeField {
-                        expression_idx,
-                        composite_type_oid,
-                        ..
-                    } = cat.source
-                    {
-                        let (datum, is_null) = expr_results[expression_idx];
-                        Some((expression_idx, datum, is_null, composite_type_oid))
-                    } else {
-                        None
-                    }
-                }),
-            );
-
-            row_to_search_document(
-                categorized_fields
-                    .iter()
-                    .map(|(field, categorized)| match categorized.source {
-                        FieldSource::Heap { attno } => {
-                            (values[attno], isnull[attno], field, categorized)
-                        }
-                        FieldSource::Expression { att_idx } => {
-                            let (datum, is_null) = expr_results[att_idx];
-                            (datum, is_null, field, categorized)
-                        }
-                        FieldSource::CompositeField {
-                            expression_idx,
-                            field_idx,
-                            ..
-                        } => {
-                            let (datum, is_null) =
-                                unpacked_composites.get(expression_idx, field_idx);
-                            (datum, is_null, field, categorized)
-                        }
-                    }),
-                &mut doc,
-                created_by_version,
-            )
-            .unwrap_or_else(|e| {
-                panic!("Failed to create document from row: {e}");
-            });
-
-            writer.insert(doc, ctid, || {
-                unreachable!("No limits configured: should not finalize.")
-            })?;
-
-            // Eagerly release the buffer pin now that all datum values have
-            // been detoasted into palloc'd memory. Without this, the pin would
-            // stay held until the next table_index_fetch_tuple call (which
-            // replaces the slot contents) or until HeapFetchState is dropped at
-            // end-of-query, unnecessarily blocking VACUUM on this buffer.
-            pg_sys::ExecClearTuple(heap_fetch_state.slot());
-        }
+    for ctid in ctids {
+        // A ctid with nothing to index becomes an empty document: the segment must contain
+        // every ctid in the mutable snapshot.
+        let doc = unsafe { fetcher.fetch_doc(ctid) }.unwrap_or_else(tantivy::TantivyDocument::new);
+        writer.insert(doc, ctid, || {
+            unreachable!("No limits configured: should not finalize.")
+        })?;
     }
 
     writer.finalize_nocommit()?.expect(
@@ -996,7 +1011,8 @@ mod tests {
     unsafe fn test_list_meta_entries() {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
         Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
-        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING paradedb (id, data) WITH (key_field = 'id')")
+            .unwrap();
         let relation_oid: pg_sys::Oid =
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
                 .expect("spi should succeed")
@@ -1015,5 +1031,88 @@ mod tests {
         assert!(entry.positions.is_some());
         assert!(entry.terms.is_some());
         assert!(entry.delete.is_none());
+    }
+
+    /// A reader replaying a [`SegmentView`] must expose the view's ordinal order and, for a
+    /// mutable segment, the document set the view's origin materialized, even after the
+    /// segment's log has grown. This is what keeps packed `DocAddress`es comparable across
+    /// the readers a JoinScan opens in different processes.
+    #[pg_test]
+    unsafe fn test_segment_view_replays_origin_reader() {
+        use crate::index::reader::index::SearchIndexReader;
+
+        Spi::run("CREATE TABLE t (id SERIAL8, data TEXT);").unwrap();
+        // Two immutable segments of unequal size, then a small batch that lands in the
+        // mutable segment.
+        Spi::run("SET paradedb.global_mutable_segment_rows = 0;").unwrap();
+        Spi::run(
+            "CREATE INDEX t_idx ON t USING paradedb (id, data) \
+             WITH (key_field = 'id', layer_sizes = '0', background_layer_sizes = '0')",
+        )
+        .unwrap();
+        Spi::run("INSERT INTO t (data) SELECT 'a' FROM generate_series(1, 30);").unwrap();
+        Spi::run("INSERT INTO t (data) SELECT 'b' FROM generate_series(1, 10);").unwrap();
+        Spi::run("RESET paradedb.global_mutable_segment_rows;").unwrap();
+        Spi::run("INSERT INTO t (data) SELECT 'c' FROM generate_series(1, 5);").unwrap();
+
+        let relation_oid: pg_sys::Oid =
+            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
+                .expect("spi should succeed")
+                .unwrap();
+        let indexrel = PgSearchRelation::open(relation_oid);
+
+        let origin =
+            SearchIndexReader::empty(&indexrel, MvccSatisfies::Snapshot).expect("open origin");
+        let view = origin.segment_view();
+        assert_eq!(view.len(), 3);
+        let mutable: Vec<_> = view
+            .entries()
+            .iter()
+            .filter(|e| e.mutable_bound().is_some())
+            .collect();
+        assert_eq!(mutable.len(), 1, "one mutable segment expected");
+        assert_eq!(mutable[0].max_doc(), 5);
+        let origin_ids: Vec<_> = origin
+            .segment_readers()
+            .iter()
+            .map(|r| r.segment_id())
+            .collect();
+
+        // The mutable segment's log grows past the captured view.
+        Spi::run("INSERT INTO t (data) SELECT 'd' FROM generate_series(1, 7);").unwrap();
+        let fresh =
+            SearchIndexReader::empty(&indexrel, MvccSatisfies::Snapshot).expect("open fresh");
+        let fresh_mutable = fresh
+            .segment_readers()
+            .iter()
+            .find(|r| r.segment_id() == mutable[0].id)
+            .expect("mutable segment still there");
+        assert_eq!(
+            fresh_mutable.max_doc(),
+            12,
+            "a plain snapshot sees the new rows"
+        );
+
+        // A replaying reader sees what the origin saw.
+        let replay = SearchIndexReader::empty(&indexrel, MvccSatisfies::ParallelWorker(view))
+            .expect("open replay");
+        let replay_ids: Vec<_> = replay
+            .segment_readers()
+            .iter()
+            .map(|r| r.segment_id())
+            .collect();
+        assert_eq!(replay_ids, origin_ids, "ordinal order replays the origin");
+        for (o, r) in origin
+            .segment_readers()
+            .iter()
+            .zip(replay.segment_readers())
+        {
+            assert_eq!(
+                o.max_doc(),
+                r.max_doc(),
+                "segment {} doc space",
+                o.segment_id()
+            );
+        }
     }
 }

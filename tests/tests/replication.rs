@@ -253,11 +253,11 @@ async fn test_logical_replication() -> Result<()> {
 
     // Create the bm25 index on the description field
     "CREATE INDEX mock_items_bm25_idx ON public.mock_items
-    USING bm25 (id, description) WITH (key_field='id');
+    USING paradedb (id, description) WITH (key_field='id');
     "
     .execute(&mut source_conn);
     "CREATE INDEX mock_items_bm25_idx ON public.mock_items
-    USING bm25 (id, description) WITH (key_field='id');
+    USING paradedb (id, description) WITH (key_field='id');
     "
     .execute(&mut target_conn);
 
@@ -431,7 +431,7 @@ async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
 
     "
     CREATE INDEX text_array_table_idx ON text_array_table
-    USING bm25 (id, text_array)
+    USING paradedb (id, text_array)
     WITH (key_field = 'id');
     "
     .execute(&mut source_conn);
@@ -739,7 +739,7 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     // standby replays it, rm_redo aborts recovery with our "not supported" error.
     "
     CREATE INDEX items_search_idx ON items
-    USING bm25 (id, description, category)
+    USING paradedb (id, description, category)
     WITH (key_field = 'id');
     "
     .execute(&mut source_conn);

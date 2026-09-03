@@ -277,6 +277,14 @@ impl<CS: CustomScan> CustomPathBuilder<CS> {
         self
     }
 
+    pub fn startup_cost(&self) -> pg_sys::Cost {
+        self.custom_path_node.path.startup_cost
+    }
+
+    pub fn total_cost(&self) -> pg_sys::Cost {
+        self.custom_path_node.path.total_cost
+    }
+
     pub fn add_path_key(mut self, style: &OrderByStyle) -> Self {
         unsafe {
             let mut pklist =
@@ -290,6 +298,13 @@ impl<CS: CustomScan> CustomPathBuilder<CS> {
 
     pub fn set_pathkeys(mut self, pathkeys: *mut pg_sys::List) -> Self {
         self.custom_path_node.path.pathkeys = pathkeys;
+        self
+    }
+
+    pub fn set_pathtarget(mut self, pathtarget: *mut pg_sys::PathTarget) -> Self {
+        if !pathtarget.is_null() {
+            self.custom_path_node.path.pathtarget = pathtarget;
+        }
         self
     }
 
@@ -323,6 +338,13 @@ impl<CS: CustomScan> CustomPathBuilder<CS> {
     /// it will be a "replicated" execution where the worker performs the full scan.
     pub fn set_parallel_safe(mut self, safe: bool) -> Self {
         self.custom_path_node.path.parallel_safe = safe;
+        self
+    }
+
+    /// Attach child paths; core plans them into `CustomScan.custom_plans` via
+    /// `create_customscan_plan`.
+    pub fn set_custom_paths(mut self, paths: PgList<pg_sys::Path>) -> Self {
+        self.custom_path_node.custom_paths = paths.into_pg();
         self
     }
 

@@ -23,7 +23,7 @@ CREATE TABLE mixed_numeric_string_test (
 );
 
 -- Create index with both numeric and string fast fields
-CREATE INDEX mixed_test_search ON mixed_numeric_string_test USING bm25 (
+CREATE INDEX mixed_test_search ON mixed_numeric_string_test USING paradedb (
     id,
     numeric_field1,
     numeric_field2,

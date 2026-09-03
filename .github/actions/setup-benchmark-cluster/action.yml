@@ -1,4 +1,4 @@
-name: Set up benchmark cluster
+name: Set Up Benchmark Cluster
 description: >-
   Install and configure the pg_search + pgvector Postgres cluster used by both benchmark snapshot
   generation and snapshot restore. Keeping this in one place ensures the cluster that gets
@@ -22,50 +22,23 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Install Rust
-      uses: actions-rust-lang/setup-rust-toolchain@v1
+    - name: Set Up pg_search Build Environment
+      uses: ./.github/actions/setup-pg-search-build-environment
       with:
-        cache: false
-        rustflags: "" # Use .cargo/config.toml target-cpu flags
+        pg_version: ${{ inputs.pg_version }}
+        cache_prefix_key: "v2-benchmarks-rust-cache"
+        cache_save: "true"
+        cache_on_failure: "true"
+        extra_packages: lld libopenblas-dev postgresql-${{ inputs.pg_version }}-pgvector
 
-    - name: Install & Configure Supported PostgreSQL Version
+    - name: Compile and Install pg_search
       shell: bash
-      run: |
-        wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
-        sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-        sudo apt-get update && sudo apt-get install -y lld libopenblas-dev postgresql-${{ inputs.pg_version }} postgresql-server-dev-${{ inputs.pg_version }} postgresql-${{ inputs.pg_version }}-pgvector
-        echo "/usr/lib/postgresql/${{ inputs.pg_version }}/bin" >> $GITHUB_PATH
+      run: >-
+        cargo pgrx install -p pg_search --sudo --release
+        --pg-config "/usr/lib/postgresql/${{ inputs.pg_version }}/bin/pg_config"
+        --features=pg${{ inputs.pg_version }} --no-default-features
 
-    # Separate prefix-key from debug workflows - benchmarks compile with --release.
-    # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
-    # See test-pg_search.yml for rationale.
-    - name: Install Rust Cache
-      uses: swatinem/rust-cache@v2
-      with:
-        prefix-key: "v2-benchmarks-rust-cache"
-        shared-key: pg${{ inputs.pg_version }}
-        cache-targets: true
-        cache-all-crates: true
-        cache-on-failure: true
-
-    - name: Extract pgrx Version
-      id: pgrx
-      shell: bash
-      run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
-
-    - name: Install pgrx
-      shell: bash
-      run: cargo install cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug --locked
-
-    - name: Initialize pgrx environment
-      shell: bash
-      run: cargo pgrx init --pg${{ inputs.pg_version }}=`which pg_config`
-
-    - name: Compile & install pg_search extension
-      shell: bash
-      run: cargo pgrx install -p pg_search --sudo --release --pg-config `which pg_config` --features=pg${{ inputs.pg_version }} --no-default-features
-
-    - name: Start Postgres
+    - name: Start PostgreSQL
       shell: bash
       working-directory: pg_search/
       run: cargo pgrx start pg${{ inputs.pg_version }}
@@ -106,10 +79,6 @@ runs:
         psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET pg_stat_statements.track_planning = on;"
         psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET pg_stat_statements.track = top ;"
 
-    - name: Install pgvector
-      shell: bash
-      run: sudo apt-get update && sudo apt-get install -y postgresql-${{ inputs.pg_version }}-pgvector
-
     - name: Install pg_search
       shell: bash
       working-directory: pg_search/
@@ -146,3 +115,21 @@ runs:
         curl -fsSL -o "/tmp/${deb}" \
           "https://github.com/tensorchord/VectorChord/releases/download/${VCHORD_VERSION}/${deb}"
         sudo apt-get install -y "/tmp/${deb}"
+
+    # pgvectorscale (StreamingDiskANN) binary for the "cohere / pgvectorscale" index variant. Not on
+    # apt: it ships as a zip bundling the runtime .deb (plus a dbgsym .deb we skip). Depends on
+    # pgvector's `vector` type (installed above); unlike vchord it needs no shared_preload_libraries,
+    # so the benchmark workflow's post-restore CREATE EXTENSION is all that is required.
+    - name: Install pgvectorscale
+      shell: bash
+      env:
+        PGVECTORSCALE_VERSION: "0.9.0"
+      run: |
+        set -euo pipefail
+        arch="$(dpkg --print-architecture)"   # arm64 on the benchmark runners; amd64 elsewhere
+        zip="pgvectorscale-${PGVECTORSCALE_VERSION}-pg${{ inputs.pg_version }}-${arch}.zip"
+        curl -fsSL -o "/tmp/${zip}" \
+          "https://github.com/timescale/pgvectorscale/releases/download/${PGVECTORSCALE_VERSION}/${zip}"
+        unzip -o -d /tmp/pgvectorscale "/tmp/${zip}"
+        # Runtime package only; the `_*` glob excludes the `-dbgsym_*` debug package.
+        sudo apt-get install -y /tmp/pgvectorscale/pgvectorscale-postgresql-${{ inputs.pg_version }}_*.deb

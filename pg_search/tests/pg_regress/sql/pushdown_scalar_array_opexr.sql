@@ -23,7 +23,7 @@ SELECT
 FROM generate_series(1, 1000) i;
 
 -- Non-keyword text fields are not pushed down
-CREATE INDEX scalar_array_pushdown_idx ON scalar_array_pushdown USING bm25 (
+CREATE INDEX scalar_array_pushdown_idx ON scalar_array_pushdown USING paradedb (
     id, uuid_col, text_col, int_col, date_col, ts_col
 ) WITH (
     key_field = 'id',
@@ -45,7 +45,7 @@ LIMIT 10;
 DROP INDEX scalar_array_pushdown_idx;
 
 -- Now test pushdown
-CREATE INDEX scalar_array_pushdown_idx ON scalar_array_pushdown USING bm25 (
+CREATE INDEX scalar_array_pushdown_idx ON scalar_array_pushdown USING paradedb (
     id, uuid_col, text_col, int_col, date_col, ts_col
 ) WITH (
     key_field = 'id',

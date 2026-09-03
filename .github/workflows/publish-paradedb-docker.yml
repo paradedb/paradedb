@@ -80,7 +80,7 @@ jobs:
     steps:
       - name: Generate GitHub App Token
         id: app-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@v3.2.0
         with:
           client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
@@ -199,10 +199,10 @@ jobs:
         with:
           ref: ${{ needs.generate-dockerfiles.outputs.branch }}
 
-      - name: Set up QEMU
+      - name: Set Up QEMU
         uses: docker/setup-qemu-action@v4
 
-      - name: Set up Docker Buildx
+      - name: Set Up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
       # The pg_version-tag Docker tag syntax is necessary for our CloudNativePG Helm chart. We only deploy
@@ -297,6 +297,24 @@ jobs:
             }' > provenance.json
           cosign attest --yes --type slsaprovenance --predicate provenance.json "$IMAGE_REF"
 
+      - name: Evaluate Docker Scout Policies (amd64)
+        uses: docker/scout-action@v1.24.0
+        with:
+          command: policy
+          image: index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}
+          organization: paradedb
+          platform: linux/amd64
+          policy-config: docker/docker-scout-policy.json
+
+      - name: Evaluate Docker Scout Policies (arm64)
+        uses: docker/scout-action@v1.24.0
+        with:
+          command: policy
+          image: index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}
+          organization: paradedb
+          platform: linux/arm64
+          policy-config: docker/docker-scout-policy.json
+
   # Beta (`-rc.`) releases publish only the runnable PG 18 image, not the mountable extension image.
   publish-extension-image:
     name: Publish ParadeDB Extension Image for PostgreSQL ${{ matrix.pg_version }}
@@ -343,10 +361,10 @@ jobs:
           echo "amd64=$(fetch_checksum amd64)" >> "$GITHUB_OUTPUT"
           echo "arm64=$(fetch_checksum arm64)" >> "$GITHUB_OUTPUT"
 
-      - name: Set up QEMU
+      - name: Set Up QEMU
         uses: docker/setup-qemu-action@v4
 
-      - name: Set up Docker Buildx
+      - name: Set Up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
       - name: Setup Docker Image tags
@@ -440,6 +458,24 @@ jobs:
             }' > provenance.json
           cosign attest --yes --type slsaprovenance --predicate provenance.json "$IMAGE_REF"
 
+      - name: Evaluate Docker Scout Policies (amd64)
+        uses: docker/scout-action@v1.24.0
+        with:
+          command: policy
+          image: index.docker.io/${{ env.image_name }}@${{ steps.build-push.outputs.digest }}
+          organization: paradedb
+          platform: linux/amd64
+          policy-config: docker/docker-scout-policy.json
+
+      - name: Evaluate Docker Scout Policies (arm64)
+        uses: docker/scout-action@v1.24.0
+        with:
+          command: policy
+          image: index.docker.io/${{ env.image_name }}@${{ steps.build-push.outputs.digest }}
+          organization: paradedb
+          platform: linux/arm64
+          policy-config: docker/docker-scout-policy.json
+
   # Skip for beta (`-rc.`) releases, since we don't want to open Dockerfile-update PRs for prereleases
   open-dockerfile-prs:
     name: Open Dockerfile Update PRs
@@ -451,7 +487,7 @@ jobs:
     steps:
       - name: Generate GitHub App Token
         id: app-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@v3.2.0
         with:
           client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
@@ -528,7 +564,7 @@ jobs:
 
       - name: Generate GitHub App Token
         id: app-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@v3.2.0
         with:
           client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}

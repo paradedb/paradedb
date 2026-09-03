@@ -57,7 +57,7 @@ SELECT i,
 FROM generate_series(1, 1000) i;
 -- Make the BM25 index
 CREATE INDEX lp_items_bm25 ON lp_items
-USING bm25 (id, category_id, tenant_id, status, fk, description)
+USING paradedb (id, category_id, tenant_id, status, fk, description)
 WITH (key_field = 'id');
 -- Active statuses for lateral/partitioned tests
 INSERT INTO lp_active_statuses VALUES ('active');
@@ -128,7 +128,7 @@ SELECT count(*) FROM (
                SELECT id FROM lp_categories
                WHERE name = 'rare_category'))
 ) sub;
-WARNING:  Aggregate Scan not used: could not extract search query from quals. To disable this warning: SET paradedb.check_aggregate_scan = false (table: lp_items)
+WARNING:  Aggregate Scan not used: could not extract search query from quals. To disable this warning: SET paradedb.planner_warnings = 'off' (table: lp_items)
  count 
 -------
    150
@@ -192,9 +192,9 @@ SELECT i,
        'partitioned item'
 FROM generate_series(1, 1000) i;
 CREATE INDEX lp_items_part_1_bm25 ON lp_items_part_1
-USING bm25 (id, status, description) WITH (key_field = 'id');
+USING paradedb (id, status, description) WITH (key_field = 'id');
 CREATE INDEX lp_items_part_2_bm25 ON lp_items_part_2
-USING bm25 (id, status, description) WITH (key_field = 'id');
+USING paradedb (id, status, description) WITH (key_field = 'id');
 ANALYZE;
 -- Query partition directly (not the parent table)
 SELECT count(*) FROM (

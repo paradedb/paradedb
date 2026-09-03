@@ -55,6 +55,7 @@ use crate::postgres::customscan::basescan::projections::window_agg::{
     resolve_window_aggregate_filters_at_plan_time,
 };
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
+use crate::postgres::customscan::bitmap_intersection;
 use crate::postgres::customscan::builders::custom_path::{
     CustomPathBuilder, ExecMethodType, Flags, RestrictInfoType, restrict_info,
 };
@@ -67,7 +68,7 @@ use crate::postgres::customscan::orderby::{
     PathKeyInfo, UnusableReason, extract_pathkey_styles_with_sortability_check,
 };
 use crate::postgres::customscan::parallel::{
-    RowEstimate, compute_nworkers, list_segment_ids, max_useful_workers,
+    RowEstimate, compute_nworkers, max_useful_workers, segment_view,
 };
 use crate::postgres::customscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
@@ -153,7 +154,7 @@ impl BaseScan {
                     // this is because the workers pick a specific segment to query that
                     // is known to be held open/pinned by the leader but might not pass a ::Snapshot
                     // visibility test due to concurrent merges/garbage collects
-                    MvccSatisfies::ParallelWorker(list_segment_ids(parallel_state))
+                    MvccSatisfies::ParallelWorker(segment_view(parallel_state))
                 } else {
                     // We are in a worker, but this is not a parallel-aware scan (e.g. we are running
                     // a serial scan inside a parallel worker, like in a Parallel Nested Loop Join).
@@ -167,6 +168,16 @@ impl BaseScan {
         )
         .expect("should be able to open the search index reader");
         state.custom_state_mut().search_reader = Some(search_reader);
+
+        let parallel_aware = unsafe { (*(*state.planstate()).plan).parallel_aware };
+        if !parallel_aware
+            && let Some(cell) = state.custom_state().bitmap_cell.clone()
+            && cell.get().is_none()
+            && let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut()
+            && let Some(source) = unsafe { bitmap_exec.private_source() }
+        {
+            cell.fill(source);
+        }
 
         let csstate = addr_of_mut!(state.csstate);
         state.custom_state_mut().init_exec_method(csstate);
@@ -299,6 +310,9 @@ impl BaseScan {
             }
         }
 
+        let allow_without_operator =
+            gucs::enable_custom_scan_without_operator() || query_has_window_agg_functions(root);
+
         // If we couldn't push down quals, try to push down quals from the join
         // This is only done if we have a join predicate, and only if we have used our operator
         let quals = if quals.is_none() {
@@ -315,7 +329,8 @@ impl BaseScan {
                 attempt_pushdown,
             );
 
-            let quals = Self::handle_heap_expr_optimization(&state, &mut quals);
+            let quals =
+                Self::handle_heap_expr_optimization(&state, &mut quals, allow_without_operator);
 
             // If we have found something to push down in the join, then we can use the join quals
             // Note: these Join quals won't help in filtering down the data (as they contain
@@ -333,7 +348,7 @@ impl BaseScan {
                 None
             }
         } else {
-            Self::handle_heap_expr_optimization(&state, &mut quals)
+            Self::handle_heap_expr_optimization(&state, &mut quals, allow_without_operator)
         };
 
         // Finally, decide whether we can actually use the extracted quals.
@@ -345,9 +360,7 @@ impl BaseScan {
         //    their own, OR
         // 2. enable_custom_scan_without_operator is true, OR
         // 3. The query has window aggregates (pdb.agg()) that we must handle.
-        let has_window_aggs = query_has_window_agg_functions(root);
-        if state.uses_our_operator || gucs::enable_custom_scan_without_operator() || has_window_aggs
-        {
+        if state.uses_our_operator || allow_without_operator {
             quals
         } else {
             None
@@ -357,8 +370,9 @@ impl BaseScan {
     unsafe fn handle_heap_expr_optimization(
         state: &QualExtractState,
         quals: &mut Option<Qual>,
+        allow_without_operator: bool,
     ) -> Option<Qual> {
-        if state.uses_heap_expr && !state.uses_our_operator {
+        if state.uses_heap_expr && !state.uses_our_operator && !allow_without_operator {
             return None;
         }
 
@@ -558,33 +572,55 @@ unsafe fn unnest_arg_is_paradedb_srf(unnest_expr: *mut pg_sys::FuncExpr) -> bool
     snippets_funcoids().contains(&inner_oid) || snippet_positions_funcoids().contains(&inner_oid)
 }
 
-/// Returns `true` if any predicate in `baserestrictinfo` cannot be fully
-/// evaluated inside Tantivy — meaning Postgres will apply a post-filter
-/// above the scan. Pushing LIMIT into the scan in that case would cap
-/// the output before post-filtering, producing fewer rows than correct.
+pub struct BaseScanDeclineReason {
+    pub message: &'static str,
+}
+
+impl BaseScanDeclineReason {
+    pub fn new(message: &'static str) -> Self {
+        Self { message }
+    }
+}
+
+/// Returns `Ok(())` if all predicates in `baserestrictinfo` can be fully
+/// evaluated inside custom scan. Returns `Err` if Postgres will need to apply a
+/// post-filter above the scan.
+///
+/// Used to gate:
+///   1. LIMIT pushdown: pushing LIMIT below a post-filter would cap output prematurely.
+///   2. Window aggregates (`pdb.agg()`): window aggregates require full pushdown to avoid data loss.
 unsafe fn has_non_pushable_predicates(
     rel: *mut pg_sys::RelOptInfo,
     quals_pushed: &Option<Qual>,
-) -> bool {
+) -> Result<(), BaseScanDeclineReason> {
     let restrict_list = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
 
     for ri in restrict_list.iter_ptr() {
         let clause = (*ri).clause as *mut pg_sys::Node;
         if pg_sys::contain_subplans(clause) {
-            return true;
+            return Err(BaseScanDeclineReason::new(
+                "WHERE clause contains subqueries which cannot be evaluated in a custom scan",
+            ));
         }
         if pg_sys::contain_volatile_functions(clause) {
-            return true;
+            return Err(BaseScanDeclineReason::new(
+                "WHERE clause contains volatile functions which cannot be safely evaluated in a custom scan",
+            ));
         }
     }
 
     // If qual extraction returned None but restrictions exist,
     // something is being left as a post-filter.
     if quals_pushed.is_none() && !restrict_list.is_empty() {
-        return true;
+        let message = if crate::gucs::enable_filter_pushdown() {
+            "WHERE clause contains predicates that cannot be pushed down"
+        } else {
+            "WHERE clause contains predicates that cannot be pushed down, and paradedb.enable_filter_pushdown is disabled"
+        };
+        return Err(BaseScanDeclineReason::new(message));
     }
 
-    false
+    Ok(())
 }
 
 /// Returns true if the query's LIMIT can safely be pushed into this scan node.
@@ -611,7 +647,7 @@ unsafe fn is_limit_pushdown_safe(
         is_left_join_lateral(root, rel) && where_clause_only_references_left(root, rti);
 
     (rel_is_single_or_partitioned || is_left_driven_lateral)
-        && !has_non_pushable_predicates(rel, quals)
+        && has_non_pushable_predicates(rel, quals).is_ok()
         && !classify_target_list_srf(root).is_unsafe()
 }
 
@@ -673,7 +709,7 @@ impl CustomScan for BaseScan {
                     return None;
                 }
 
-                // and that relation must have a `USING bm25` index
+                // and that relation must have a `USING paradedb` index
                 let (table, bm25_index) = rel_get_bm25_index(rte.relid)?;
 
                 (table, bm25_index)
@@ -705,36 +741,22 @@ impl CustomScan for BaseScan {
                 is_select,
             );
 
-            // If we have window aggregates but no quals, we must still create the custom path
-            // because pdb.agg() can only be executed by our custom scan
-            let quals = if let Some(q) = quals {
-                q
-            } else if has_window_aggs {
-                // We have window aggregates but couldn't extract quals.
-                // This can happen in two cases:
-                // 1. No WHERE clause at all -> safe to use Qual::All
-                // 2. WHERE clause exists but couldn't be extracted:
-                //    a. filter_pushdown enabled -> HeapExpr was created during extraction, safe to use Qual::All
-                //    b. filter_pushdown disabled -> unsafe, reject the query
-                let has_where_clause = !(*root).parse.is_null()
-                    && !(*(*root).parse).jointree.is_null()
-                    && !(*(*(*root).parse).jointree).quals.is_null();
+            // If window aggregates are present, validate that the WHERE clause contains no
+            // non-pushable predicates (e.g. subqueries, volatile functions, or unpushable
+            // filters when filter pushdown is disabled) that would cause silent data loss or incorrect results.
+            if has_window_aggs && let Err(reason) = has_non_pushable_predicates(rel, &quals) {
+                pgrx::error!("Cannot execute window aggregate: {}", reason.message);
+            }
 
-                if has_where_clause && !crate::gucs::enable_filter_pushdown() {
-                    // There's a WHERE clause but we couldn't extract quals and filter_pushdown is disabled.
-                    // This means qual extraction failed without creating HeapExpr, so we cannot handle
-                    // this query safely - the WHERE clause would be silently ignored.
-                    return None;
-                }
-
-                // Safe to use Qual::All because:
-                // - Either there's no WHERE clause (nothing to filter), OR
-                // - filter_pushdown is enabled, meaning HeapExpr was created during qual extraction
-                //   and will be evaluated by PostgreSQL's executor after we return results
-                Qual::All
-            } else {
-                // No quals and no window aggregates - we can't help
-                return None;
+            // Resolve quals for the custom scan path:
+            // - `Some(q)`: Use extracted pushdown or HeapExpr quals.
+            // - `None` with `has_window_aggs`: No quals were extracted (e.g., no WHERE clause),
+            //   but pdb.agg() window functions require ParadeDB custom scan execution, so default to Qual::All.
+            // - `None` without `has_window_aggs`: Neither quals nor window aggs exist; decline custom path.
+            let quals = match quals {
+                Some(q) => q,
+                None if has_window_aggs => Qual::All,
+                None => return None,
             };
 
             if missing_partial_index_predicate(bm25_index.rd_indpred, &restrict_info) {
@@ -839,7 +861,7 @@ impl CustomScan for BaseScan {
                 .collect(),
             );
 
-            let query = SearchQueryInput::from(&quals);
+            let mut query = SearchQueryInput::from(&quals);
             let norm_selec = if restrict_info.len() == 1 {
                 (*restrict_info.get_ptr(0).unwrap()).norm_selec
             } else {
@@ -909,6 +931,19 @@ impl CustomScan for BaseScan {
             }
             .max(1.0);
 
+            let harvested_bitmap = bitmap_intersection::BitmapPlanner::from_query(
+                root,
+                builder.args().rel,
+                bm25_index.oid(),
+                &quals,
+                row_estimate.known_rows().map(|rows| rows as f64),
+            )
+            .and_then(|planner| planner.harvest());
+            if let Some(harvested) = &harvested_bitmap {
+                harvested.rewrite_query(&mut query);
+                custom_private.set_query(query.clone());
+            }
+
             let exec_method_types = choose_exec_method(
                 &custom_private,
                 &topk_pathkey_info,
@@ -921,7 +956,8 @@ impl CustomScan for BaseScan {
             // to decide on parallelism
             //
 
-            let startup_cost = DEFAULT_STARTUP_COST;
+            let startup_cost =
+                DEFAULT_STARTUP_COST + harvested_bitmap.as_ref().map_or(0.0, |h| h.build_cost);
             let mut custom_paths = Vec::new();
             let parallel_leader_participates = pg_sys::parallel_leader_participation;
             // Seed the cost memo from the open create_custom_path already did for selectivity (if
@@ -1055,6 +1091,12 @@ impl CustomScan for BaseScan {
                             path_builder = path_builder.set_pathkeys(pathkeys);
                         }
 
+                        if let Some(harvested) = &harvested_bitmap {
+                            let mut children = PgList::<pg_sys::Path>::new();
+                            children.push(harvested.path);
+                            path_builder = path_builder.set_custom_paths(children);
+                        }
+
                         let mut method_private = custom_private.clone();
                         method_private.set_exec_method_type(method.clone());
                         method_private.set_use_sorted_path(is_sorted);
@@ -1074,7 +1116,7 @@ impl CustomScan for BaseScan {
                         // mechanism as TopK / score-snippet / `all()`), leaving only our serial and
                         // partial paths for PostgreSQL to choose between -- the honest scan-work cost
                         // would otherwise let PostgreSQL's own (correct, but fast-field/Block-WAND-
-                        // less) index scan over the BM25 index undercut us on cost (see module docs).
+                        // less) index scan over the ParadeDB index undercut us on cost (see module docs).
                         // Today the only multi-method emitter is Columnar: it emits unsorted first
                         // and the index-sort variant second, and the sorted variant exists only for
                         // an ORDER BY shape where it is the useful survivor. If another multi-method
@@ -1099,6 +1141,8 @@ impl CustomScan for BaseScan {
 
     fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {
         unsafe {
+            bitmap_intersection::keep_bitmap_child_plan(&mut builder);
+
             let mut tlist = PgList::<pg_sys::TargetEntry>::from_pg(builder.args().tlist.as_ptr());
 
             // Store the length of the target list
@@ -1249,9 +1293,27 @@ impl CustomScan for BaseScan {
                     .set_exec_method_type(ExecMethodType::Normal);
             }
 
+            // #5727: collect heap-filter and PostgresExpression nodes so we can
+            // hand them to `custom_exprs` below. `finalize_plan` walks that field
+            // for Param references; without it, `Gather.initParam` omits InitPlan
+            // outputs and parallel workers execute with empty param slots.
+            let expr_nodes = builder
+                .custom_private_mut()
+                .query_mut()
+                .as_mut()
+                .map(|q| q.collect_expression_nodes())
+                .unwrap_or_default();
+
             let mut scan = builder.build();
             if !subplan_quals.is_empty() {
                 scan.scan.plan.qual = subplan_quals.into_pg();
+            }
+            if !expr_nodes.is_empty() {
+                let mut expr_list = PgList::<pg_sys::Node>::new();
+                for node in expr_nodes {
+                    expr_list.push(node);
+                }
+                scan.custom_exprs = expr_list.into_pg();
             }
             scan
         }
@@ -1403,6 +1465,17 @@ impl CustomScan for BaseScan {
     ) {
         explainer.add_text("Table", state.custom_state().heaprelname());
         explainer.add_text("Index", state.custom_state().indexrelname());
+        if let Some(bitmap_exec) = state.custom_state().bitmap_exec.as_ref() {
+            explainer.add_text("Bitmap Intersection", bitmap_exec.index_names().join(", "));
+            if explainer.is_analyze()
+                && let Some((exact, lossy, recheck, rejected)) = bitmap_exec.cursor_stats()
+            {
+                explainer.add_unsigned_integer("Bitmap Exact Pages", exact, None);
+                explainer.add_unsigned_integer("Bitmap Lossy Pages", lossy, None);
+                explainer.add_unsigned_integer("Bitmap Recheck Pages", recheck, None);
+                explainer.add_unsigned_integer("Bitmap Rejected Docs", rejected, None);
+            }
+        }
         if explainer.is_costs() {
             explainer.add_unsigned_integer(
                 "Segment Count",
@@ -1506,7 +1579,7 @@ impl CustomScan for BaseScan {
                     if let Some(search_reader) = state.custom_state().search_reader.as_ref() {
                         // EXPLAIN ANALYZE: use the existing search reader
                         search_reader
-                            .build_query_tree_with_estimates(base_query.clone())
+                            .build_query_tree_with_estimates(base_query.without_heap_filters())
                             .expect("building query tree with estimates should not fail")
                     } else {
                         // EXPLAIN (without ANALYZE): create a temporary reader for estimates
@@ -1518,7 +1591,7 @@ impl CustomScan for BaseScan {
 
                         let temp_reader = SearchIndexReader::open_with_context(
                             indexrel,
-                            base_query.clone(),
+                            base_query.without_heap_filters(),
                             false,                         // don't need scores for estimates
                             MvccSatisfies::LargestSegment, // Use largest segment for estimation
                             None,                          // No expr_context needed for estimates
@@ -1528,7 +1601,7 @@ impl CustomScan for BaseScan {
                         .expect("opening temporary search reader for estimates should not fail");
 
                         temp_reader
-                            .build_query_tree_with_estimates(base_query.clone())
+                            .build_query_tree_with_estimates(base_query.without_heap_filters())
                             .expect("building query tree with estimates should not fail")
                     };
 
@@ -1554,6 +1627,17 @@ impl CustomScan for BaseScan {
             let lockmode = (*rte).rellockmode as pg_sys::LOCKMODE;
 
             state.custom_state_mut().open_relations(lockmode);
+
+            // Initialize the harvested child bitmap scan, if any; registering it in
+            // custom_ps lets EXPLAIN render it.
+            let cscan = state.csstate.ss.ps.plan.cast::<pg_sys::CustomScan>();
+            if let Some(bitmap_exec) = bitmap_intersection::BitmapExec::init(cscan, estate, eflags)
+            {
+                let mut custom_ps = PgList::<pg_sys::PlanState>::from_pg(state.csstate.custom_ps);
+                custom_ps.push(bitmap_exec.planstate());
+                state.csstate.custom_ps = custom_ps.into_pg();
+                state.custom_state_mut().bitmap_exec = Some(bitmap_exec);
+            }
 
             // For EXPLAIN ANALYZE queries, we need to continue with full initialization
             // For EXPLAIN-only (without ANALYZE), begin_custom_scan is not called at all
@@ -1610,6 +1694,19 @@ impl CustomScan for BaseScan {
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        // Drop the previous execution's scorers (whose cursors point into the
+        // bitmap) and the stale source cell before the bitmap is freed; only then
+        // rebuild for the new params. The exec method itself is preserved and
+        // re-bound by `reset()` below. No reader means the scan never executed:
+        // there are no scorers, and the exec method may not even be bound yet.
+        if state.custom_state().search_reader.is_some() {
+            state.custom_state_mut().reset_exec_results();
+        }
+        drop(state.custom_state_mut().search_reader.take());
+        state.custom_state_mut().bitmap_cell = None;
+        if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut() {
+            unsafe { bitmap_exec.rescan() };
+        }
         Self::init_search_reader(state);
         state.custom_state_mut().reset();
     }
@@ -1765,13 +1862,20 @@ impl CustomScan for BaseScan {
             }
         }
 
-        // get some things dropped now
+        // get some things dropped now. Order matters: scorers hold bitmap
+        // cursors into the TIDBitmap/DSA, so everything that can hold a scorer
+        // drops before the bitmap machinery is torn down.
+        state.custom_state_mut().drop_exec_method();
         drop(state.custom_state_mut().visibility_checker.take());
         drop(state.custom_state_mut().doc_from_heap_state.take());
         drop(state.custom_state_mut().search_reader.take());
         drop(std::mem::take(
             &mut state.custom_state_mut().snippet_generators,
         ));
+        state.custom_state_mut().bitmap_cell = None;
+        if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.take() {
+            unsafe { bitmap_exec.shutdown() };
+        }
 
         state.custom_state_mut().heaprel.take();
         state.custom_state_mut().indexrel.take();
@@ -1944,7 +2048,7 @@ unsafe fn window_funcs_are_position_only(parse: *mut pg_sys::Query) -> bool {
 ///
 /// Validates whether a query that should use Top K scan is actually using it.
 ///
-/// When `paradedb.check_topk_scan` is enabled, this function checks if a query with LIMIT
+/// When `paradedb.planner_warnings` is not 'off', this function checks if a query with LIMIT
 /// that uses ParadeDB's search operators is using the Top K execution method. If Top K was
 /// expected but not chosen, it logs a warning with diagnostic information to help developers
 /// identify performance issues.
@@ -1959,7 +2063,7 @@ fn validate_topk_expectation(
     table_name: &str,
 ) {
     // Fast path: if validation is disabled, return immediately
-    if !crate::gucs::check_topk_scan() {
+    if crate::gucs::planner_warnings() == crate::gucs::PlannerWarnings::Off {
         return;
     }
 
@@ -2034,6 +2138,10 @@ fn validate_topk_expectation(
                 .to_string(),
             "Specify COLLATE \"C\" in your query, or use a byte-ordered collation instead".to_string(),
         ),
+        PathKeyInfo::Unusable(UnusableReason::UnsupportedScoreExpression) => (
+            "ORDER BY expressions containing pdb.score() cannot be evaluated in the index".to_string(),
+            "Only standalone pdb.score() or sums of pdb.score() across tables are supported in ORDER BY".to_string(),
+        ),
         PathKeyInfo::UsablePrefix(matched) => (
             format!(
                 "only partial prefix of ORDER BY can be pushed down ({} of {} columns)",
@@ -2064,7 +2172,7 @@ fn validate_topk_expectation(
              Reason: {}. \
              This may cause poor performance on large datasets. \
              Remedies: {}. \
-             To disable this warning: SET paradedb.check_topk_scan = false",
+             To disable this warning: SET paradedb.planner_warnings = 'off'",
             limit, method_name, reason, remedies
         ),
         table_name,

@@ -48,7 +48,7 @@
 //!    - Future work will allow no-limit joins when both sides have search predicates.
 //!
 //! 4. **Search predicate**: At least one side must have:
-//!    - A BM25 index on the table
+//!    - A ParadeDB index on the table
 //!    - A `@@@` search predicate in the WHERE clause
 //!
 //! 5. **Multi-level Joins**: JoinScan supports multi-level joins (e.g., `(A JOIN B) JOIN C`).
@@ -56,7 +56,7 @@
 //!    multiple JoinScan operators.
 //!
 //! 6. **Fast-field columns**: All columns used in the join must be fast fields in their
-//!    respective BM25 indexes. This allows the join to be executed entirely within the index:
+//!    respective ParadeDB indexes. This allows the join to be executed entirely within the index:
 //!    - Equi-join keys (e.g., `a.id = b.id`) must be fast fields for join execution
 //!    - Multi-table predicates (e.g., `a.price > b.min_price`) must reference fast fields
 //!    - ORDER BY columns must be fast fields for efficient sorting
@@ -89,7 +89,7 @@
 //! WHERE p.description @@@ 'wireless'
 //! LIMIT 10;
 //!
-//! -- JoinScan IS proposed if price/min_price are fast fields in BM25 indexes
+//! -- JoinScan IS proposed if price/min_price are fast fields in ParadeDB indexes
 //! SELECT p.name, s.name
 //! FROM products p
 //! JOIN suppliers s ON p.supplier_id = s.id
@@ -164,12 +164,12 @@ use crate::postgres::customscan::pullup::resolve_fast_field;
 use crate::postgres::utils::expr_contains_any_operator;
 
 use self::scan_state::{
-    JoinScanState, SessionContextProfile, build_joinscan_logical_plan, build_physical_plan,
-    build_task_context, create_datafusion_session_context,
+    JoinScanState, build_joinscan_logical_plan, build_physical_plan, build_task_context,
+    create_datafusion_session_context,
 };
 use crate::api::HashSet;
 use crate::api::OrderByFeature;
-use crate::index::mvcc::MvccSatisfies;
+use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
@@ -177,17 +177,22 @@ use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::joinscan::planning::distinct_columns_are_fast_fields;
+use crate::postgres::customscan::joinscan::planning::{
+    distinct_collations_are_deterministic, distinct_columns_are_fast_fields,
+};
 use crate::postgres::customscan::limit_offset::LimitOffset;
-use crate::postgres::customscan::mpp::glue::mpp_is_active;
+use crate::postgres::customscan::mpp::glue::query_allows_parallel_mode;
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
+use crate::postgres::customscan::mpp::launch::mpp_eligible;
+use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parallelism;
 use arrow_array::Array;
 use datafusion_distributed::shm::MppMesh;
 
 use crate::DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE;
 use crate::postgres::ParallelScanArgs;
 use crate::postgres::customscan::parameterized_value::ParameterizedValue;
+use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
@@ -258,6 +263,9 @@ impl JoinDeclineReason {
     }
 
     fn emit(&self, aliases: &[String]) {
+        if crate::gucs::planner_warnings() == crate::gucs::PlannerWarnings::Off {
+            return;
+        }
         match self {
             Self::ContainsAggregate => {
                 if crate::gucs::enable_aggregate_custom_scan() {
@@ -504,10 +512,12 @@ pub unsafe fn try_create_subplan_join_paths(
     }
 
     // Try to extract SubPlan-based joins from baserestrictinfo.
-    let (plan, join_keys) = match collect_join_sources_base_rel(root, rel, rti) {
+    let collected = match collect_join_sources_base_rel(root, rel, rti) {
         Some(res) => res,
         None => return Vec::new(),
     };
+    let plan = collected.plan;
+    let join_keys = collected.join_keys;
 
     // Only proceed if the plan actually contains a join (from SubPlan extraction).
     if !plan.has_semi_or_anti() {
@@ -567,7 +577,7 @@ impl JoinScan {
             .any(|s| s.scan_info.indexrelid == pg_sys::InvalidOid)
         {
             return Err(JoinDeclineReason::new(
-                "JoinScan not used: at least one relation lacks a BM25 index",
+                "JoinScan not used: at least one relation lacks a ParadeDB index",
             ));
         }
 
@@ -604,17 +614,19 @@ impl JoinScan {
             ));
         }
 
-        if has_distinct && distinct_columns_are_fast_fields(root, &all_sources).is_none() {
+        if has_distinct && !distinct_collations_are_deterministic(root) {
             return Err(JoinDeclineReason::new(
-                "JoinScan not used: DISTINCT columns must be fast fields",
+                "JoinScan not used: DISTINCT on a nondeterministic collation is not supported",
             ));
         }
 
-        if !order_by_columns_are_fast_fields(root, &all_sources, has_distinct) {
+        if has_distinct && distinct_columns_are_fast_fields(root, &all_sources).is_none() {
             return Err(JoinDeclineReason::new(
-                "JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation",
+                "JoinScan not used: DISTINCT columns must be columnar indexed",
             ));
         }
+
+        order_by_columns_are_fast_fields(root, &all_sources, has_distinct)?;
 
         for jk in join_keys {
             let outer_source = all_sources.iter().find(|s| s.contains_rti(jk.outer_rti));
@@ -716,7 +728,7 @@ impl JoinScan {
         let order_by_len = join_clause.order_by.len();
         let relevant_pathkeys =
             planning::count_relevant_pathkeys(root, &join_clause.plan.sources());
-        let private_data = PrivateData::new(join_clause);
+        let private_data = PrivateData::new(join_clause, query_allows_parallel_mode(&*root));
         let mut custom_path = pg_sys::CustomPath {
             path: pg_sys::Path {
                 type_: pg_sys::NodeTag::T_CustomPath,
@@ -786,7 +798,7 @@ impl JoinScan {
         state.custom_state_mut().source_manifests = manifests;
     }
 
-    /// Build plan_position → canonical segment IDs map for SearchPredicateUDF.
+    /// Build the plan_position → segment view list every reader of a source replays.
     ///
     /// This is keyed by plan_position rather than indexrelid because it is a
     /// per-source contract, not just a per-index one. The same index can appear
@@ -796,55 +808,40 @@ impl JoinScan {
     /// inject another source's segment set and make packed DocAddresses resolve
     /// against the wrong segment ordering.
     ///
-    /// Workers use frozen segment IDs from DSM to match the leader's segment set.
-    /// Leader/serial uses manifests captured with the same snapshot.
-    fn build_index_segment_ids(
+    /// The manifests are also what populates the DSM, so the leader's providers and every
+    /// worker reader open the same view.
+    fn build_source_manifests(
         state: &mut CustomScanStateWrapper<Self>,
         _join_clause: &JoinCSClause,
         plan_sources: &[&build::JoinSource],
-    ) -> Vec<crate::api::HashSet<tantivy::index::SegmentId>> {
-        let mut ids_by_pos = vec![None; plan_sources.len()];
-
+    ) -> Vec<SearchIndexManifest> {
         Self::ensure_source_manifests(state);
-        for (i, _source) in plan_sources.iter().enumerate() {
-            if let Some(manifest) = state.custom_state().source_manifests.get(i) {
-                let ids: crate::api::HashSet<_> = manifest
-                    .segment_readers()
-                    .iter()
-                    .map(|r| r.segment_id())
-                    .collect();
-                ids_by_pos[i] = Some(ids);
-            }
-        }
-
-        ids_by_pos
-            .into_iter()
-            .enumerate()
-            .map(|(plan_position, ids)| {
-                ids.unwrap_or_else(|| {
-                    panic!(
-                        "missing canonical segment IDs for join source at plan_position {}",
-                        plan_position
-                    )
-                })
+        (0..plan_sources.len())
+            .map(|plan_position| {
+                state
+                    .custom_state()
+                    .source_manifests
+                    .get(plan_position)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "missing source manifest for join source at plan_position \
+                             {plan_position}"
+                        )
+                    })
+                    .clone()
             })
             .collect()
     }
 
-    fn source_queries_have_parameters(join_clause: &JoinCSClause) -> bool {
-        // TODO(#5445): Implement `SolvePostgresExpressions` for `JoinScan` to solve
-        // these parameters on the leader before dispatch.
-        join_clause.plan.sources().iter().any(|source| {
-            let mut query = source.scan_info.query.clone();
-            query.has_parameters()
-        })
-    }
-
+    /// Whether any `SearchQueryInput` reachable from `join_clause` — scan-node queries AND
+    /// `join_level_predicates` — still carries a Param or PostgresExpression(SubPlan) the
+    /// executor needs to resolve. Clause-wide (not per-source): a cross-relation predicate
+    /// (e.g. an `OR` spanning two joined tables) lives in `join_level_predicates`, outside
+    /// every source's `scan_info.query`, so a per-source-only check misses it. Read-only
+    /// (`&JoinCSClause`) so EXPLAIN's `&CustomScanStateWrapper` call site doesn't need a
+    /// mutable borrow just to ask a yes/no question.
     fn source_queries_need_executor_state(join_clause: &JoinCSClause) -> bool {
-        join_clause.plan.sources().iter().any(|source| {
-            let mut query = source.scan_info.query.clone();
-            query.has_postgres_expressions() || query.has_parameters()
-        })
+        join_clause.has_postgres_expressions() || join_clause.has_parameters()
     }
 }
 
@@ -857,9 +854,33 @@ impl JoinScan {
         mesh: Option<Arc<MppMesh>>,
     ) -> datafusion::prelude::SessionContext {
         crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context(
-            create_datafusion_session_context(SessionContextProfile::Join),
+            create_datafusion_session_context(),
             mesh,
         )
+    }
+
+    /// First-exec solve of Param/SubPlan-backed expressions on the leader, rebaking the
+    /// logical plan afterward so the bytes used for planning (both MPP dispatch and the
+    /// leader's own execution) are fully resolved. Called before `build_plan` in
+    /// `exec_custom_scan`, ahead of the plan-first MPP launch (#5667). Rebaking is required once
+    /// expressions have been solved: failures abort at the operation that violated the invariant
+    /// rather than being represented as a recoverable absence of plan bytes.
+    fn maybe_solve_and_rebake(state: &mut CustomScanStateWrapper<Self>) {
+        if !Self::source_queries_need_executor_state(&state.custom_state().join_clause) {
+            return;
+        }
+
+        let planstate = state.planstate();
+        let expr_context = state.runtime_context;
+
+        state
+            .custom_state_mut()
+            .prepare_query_for_execution(planstate, expr_context);
+
+        let bytes = unsafe { Self::rebake_for_mpp(state) };
+        // Keep the leader's own execution in sync with what's dispatched to workers:
+        // exec_custom_scan's build_plan closure deserializes this same field.
+        state.custom_state_mut().logical_plan = Some(bytes::Bytes::from(bytes));
     }
 
     /// Plan-first MPP launch (#5667). Called with the leader's already-built physical plan:
@@ -870,24 +891,93 @@ impl JoinScan {
     fn launch_mpp(
         state: &mut CustomScanStateWrapper<Self>,
         physical: &Arc<dyn ExecutionPlan>,
-        plan_bytes_len: usize,
     ) -> Option<crate::postgres::customscan::mpp::glue::MppLeaderState> {
         Self::ensure_source_manifests(state);
-        let all_sources: Vec<&[tantivy::SegmentReader]> = state
+        let all_sources: Vec<SegmentView> = state
             .custom_state()
             .source_manifests
             .iter()
-            .map(|manifest| manifest.segment_readers())
+            .map(|manifest| manifest.segment_view())
             .collect();
         let args = ParallelScanArgs {
             all_sources,
             query: vec![],
             with_aggregates: false,
+            with_segment_info: false,
         };
-        crate::postgres::customscan::mpp::launch::launch_mpp_join(physical, plan_bytes_len, args)
+        crate::postgres::customscan::mpp::launch::launch_mpp_join(physical, args)
+    }
+
+    /// Re-bake the DataFusion logical plan from the current (post-solve) `join_clause`, so the
+    /// plan bytes used for dispatch and for the leader's own execution have every
+    /// Param/SubPlan-backed `SearchQueryInput` fully resolved.
+    unsafe fn rebake_for_mpp(state: &mut CustomScanStateWrapper<Self>) -> Vec<u8> {
+        Self::rebake_from_custom_exprs_string(state, false)
+    }
+
+    /// Re-bake with `mpp_source_idx` forced to `None` on every source after a short-launch
+    /// decline. Physical replanning does not rewrite provider metadata already serialized in
+    /// the logical plan, so the serial fallback needs its own logical shape.
+    unsafe fn rebake_for_mpp_fallback(state: &mut CustomScanStateWrapper<Self>) -> Vec<u8> {
+        Self::rebake_from_custom_exprs_string(state, true)
+    }
+
+    unsafe fn rebake_from_custom_exprs_string(
+        state: &mut CustomScanStateWrapper<Self>,
+        force_serial: bool,
+    ) -> Vec<u8> {
+        let custom_exprs: *mut pg_sys::List = match &state.custom_state().custom_exprs_string {
+            Some(s) => {
+                let cstr = std::ffi::CString::new(s.as_str())
+                    .expect("nodeToString snapshot cannot contain an interior NUL");
+                pg_sys::stringToNode(cstr.as_ptr()).cast()
+            }
+            None => std::ptr::null_mut(),
+        };
+
+        let mut private_data = PrivateData::new(
+            state.custom_state().join_clause.clone(),
+            state.custom_state().parallel_mode_ok,
+        );
+        private_data.output_columns = state.custom_state().output_columns.clone();
+
+        bake_logical_plan(&mut private_data, custom_exprs, force_serial);
+        private_data
+            .logical_plan
+            .expect("rebaking must produce serialized logical plan bytes")
+            .to_vec()
+    }
+
+    /// Join the MPP producer workers and destroy the parallel context once nothing
+    /// references the ring mesh. Drains any remaining worker metrics first, takes the
+    /// leader out (its mesh handle drops with it), then drops the stream/plan/runtime
+    /// (all carry mesh references) before `wait_for_finish` destroys the DSM. Used at
+    /// EndCustomScan and before a correlated rescan relaunches a fresh worker set.
+    fn finish_mpp_execution(state: &mut CustomScanStateWrapper<Self>) {
+        state.custom_state_mut().datafusion_stream = None;
+        if let Some(leader) = state.custom_state().mpp.leader()
+            && let Some(plan) = state.custom_state().physical_plan.as_ref()
+        {
+            crate::postgres::customscan::mpp::glue::drain_worker_metrics(
+                plan,
+                &leader.session.mesh,
+            );
+        }
+        let finish = match state.custom_state_mut().mpp.take_leader() {
+            Some(mut leader) => leader.finish.take(),
+            None => None,
+        };
+        if finish.is_some() {
+            let cs = state.custom_state_mut();
+            cs.current_batch = None;
+            cs.physical_plan = None;
+            cs.runtime = None;
+        }
+        if let Some(finish) = finish {
+            finish.wait_for_finish();
+        }
     }
 }
-
 impl CustomScan for JoinScan {
     const NAME: &'static CStr = c"ParadeDB Join Scan";
     type Args = JoinPathlistHookArgs;
@@ -987,22 +1077,60 @@ impl CustomScan for JoinScan {
             // join condition evaluation manually during execution using the original Var
             // references.
 
-            // Extract the column mappings from the UPDATED targetlist (before we add restrictlist
-            // Vars). The updated targetlist has the SELECT's output columns plus any missing
-            // search operators, which is what ps_ResultTupleSlot is based on. We store this
-            // mapping in PrivateData so build_result_tuple can use it during execution.
-            let mut private_data = PrivateData::from(node.custom_private);
-
-            private_data.output_columns =
-                compute_output_columns(&private_data.join_clause, tlist_ptr, root);
-
-            let updated_entries = PgList::<pg_sys::TargetEntry>::from_pg(tlist_ptr);
-            build_output_projection(&mut private_data, &updated_entries, root);
-
             // Add heap condition clauses to custom_exprs so they get transformed by
             // set_customscan_references. The Vars in these expressions will be converted to
             // INDEX_VAR references into custom_scan_tlist.
             node.custom_exprs = splice_path_private_into_list(node.custom_exprs, best_path);
+
+            // Ensure all Vars referenced in custom_exprs (heap condition clauses)
+            // are present in custom_scan_tlist so setrefs can create INDEX_VAR references.
+            let path_private_full = PgList::<pg_sys::Node>::from_pg((*best_path).custom_private);
+            let mut scan_tlist = PgList::<pg_sys::TargetEntry>::from_pg(node.custom_scan_tlist);
+            for i in 1..path_private_full.len() {
+                if let Some(node_ptr) = path_private_full.get_ptr(i) {
+                    crate::postgres::utils::add_vars_to_tlist(node_ptr, &mut scan_tlist);
+                }
+            }
+            node.custom_scan_tlist = scan_tlist.into_pg();
+
+            // Extract the column mappings from custom_scan_tlist (including any added
+            // custom_exprs Vars) so INDEX_VAR references can be resolved.
+            let mut private_data = PrivateData::from(node.custom_private);
+
+            private_data.output_columns =
+                compute_output_columns(&private_data.join_clause, node.custom_scan_tlist, root);
+
+            let updated_entries = PgList::<pg_sys::TargetEntry>::from_pg(tlist_ptr);
+            build_output_projection(&mut private_data, &updated_entries, root);
+            // Snapshot custom_exprs before setrefs rewrites it, for MPP re-baking.
+            // Needed for any of: maybe_solve_and_rebake (resolves Param/PostgresExpression
+            // nodes) or rebake_for_mpp_fallback (serial replan on a short-launch decline,
+            // which can hit any MPP query regardless of params). Both funnel into
+            // translate_custom_exprs, which also resolves JoinLevelExpr::MultiTablePredicate
+            // nodes (cross-relation predicates like `users.age < products.age`) by indexing
+            // into custom_exprs — so this is required whenever the plan has params,
+            // postgres expressions, OR multi-table predicates, not just the first two.
+            let needs_rebake_snapshot = private_data.join_clause.has_parameters()
+                || private_data.join_clause.has_postgres_expressions()
+                || private_data.join_clause.has_multi_table_predicates();
+            private_data.custom_exprs_string =
+                if !needs_rebake_snapshot || node.custom_exprs.is_null() {
+                    None
+                } else {
+                    // Non-lossy round-trip: fail loudly on invalid UTF-8 (should never happen —
+                    // nodeToString produces ASCII-safe output) rather than to_string_lossy()
+                    // silently mangling bytes stringToNode would later fail to parse, or worse,
+                    // parse into a different node than what was captured. Mirrors
+                    // PostgresPointer::serialize's handling of the same nodeToString/stringToNode
+                    // round-trip in query/mod.rs.
+                    let s = pg_sys::nodeToString(node.custom_exprs.cast());
+                    let owned = std::ffi::CStr::from_ptr(s)
+                        .to_str()
+                        .expect("nodeToString output must be valid UTF-8")
+                        .to_owned();
+                    pg_sys::pfree(s.cast());
+                    Some(owned)
+                };
 
             // Collect all required fields for execution
             collect_required_fields(
@@ -1011,7 +1139,7 @@ impl CustomScan for JoinScan {
                 node.custom_exprs,
             );
 
-            bake_logical_plan(&mut private_data, node.custom_exprs);
+            bake_logical_plan(&mut private_data, node.custom_exprs, false);
 
             // Convert PrivateData back to a list and preserve the restrictlist.
             let private_list = PrivateData::into(private_data);
@@ -1023,9 +1151,21 @@ impl CustomScan for JoinScan {
     fn create_custom_scan_state(
         mut builder: CustomScanStateBuilder<Self, Self::PrivateData>,
     ) -> *mut CustomScanStateWrapper<Self> {
-        builder.custom_state().join_clause = builder.custom_private().join_clause.clone();
+        let join_clause = builder.custom_private().join_clause.clone();
+        let has_params = join_clause.has_parameters() || join_clause.has_postgres_expressions();
+
+        builder.custom_state().base_join_clause = if has_params {
+            Some(join_clause.clone())
+        } else {
+            None
+        };
+        builder.custom_state().join_clause = join_clause;
+
         builder.custom_state().output_columns = builder.custom_private().output_columns.clone();
         builder.custom_state().logical_plan = builder.custom_private().logical_plan.clone();
+        builder.custom_state().custom_exprs_string =
+            builder.custom_private().custom_exprs_string.clone();
+        builder.custom_state().parallel_mode_ok = builder.custom_private().parallel_mode_ok;
         builder.build()
     }
 
@@ -1191,30 +1331,41 @@ impl CustomScan for JoinScan {
             }
             // For plain EXPLAIN, reconstruct the plan using the same session configuration
             // that execution uses so `VisibilityFilterExec` appears in the displayed plan,
-            // matching EXPLAIN ANALYZE. When MPP is active, pass `mesh = None`; the shared
-            // session-context builder derives `n_workers` from `producer_worker_cap()` and
-            // skips the shm_mq transport install (EXPLAIN doesn't execute).
+            // matching EXPLAIN ANALYZE. When MPP is active, first build against
+            // `producer_worker_cap()` (`mesh = None`); if task discovery says launch will
+            // not run (#5784 / `max_producer_task_count < 2`), rebuild serially so the
+            // printed shape matches execution.
             let expr_context = crate::postgres::utils::ExprContextGuard::new();
-            let ctx = if mpp_is_active() {
-                Self::build_mpp_session_context(None)
-            } else {
-                create_datafusion_session_context(SessionContextProfile::Join)
-            };
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .build()
                 .expect("Failed to create tokio runtime");
-            let logical_plan = deserialize_logical_plan_with_runtime(
-                logical_plan,
-                &ctx.task_ctx(),
-                None,
-                Some(expr_context.as_ptr()),
-                None,
-                vec![],
-            )
-            .expect("Failed to deserialize logical plan");
-            let physical_plan = runtime
-                .block_on(build_physical_plan(&ctx, logical_plan))
-                .expect("Failed to create execution plan");
+            let build_with = |ctx: &datafusion::prelude::SessionContext| {
+                let logical_plan = deserialize_logical_plan_with_runtime(
+                    logical_plan,
+                    &ctx.task_ctx(),
+                    None,
+                    Some(expr_context.as_ptr()),
+                    None,
+                    vec![],
+                )
+                .expect("Failed to deserialize logical plan");
+                runtime
+                    .block_on(build_physical_plan(ctx, logical_plan))
+                    .expect("Failed to create execution plan")
+            };
+            let physical_plan = if mpp_eligible(
+                state.custom_state().parallel_mode_ok,
+                &state.custom_state().join_clause.plan,
+            ) {
+                let mpp_plan = build_with(&Self::build_mpp_session_context(None));
+                if mpp_plan_has_data_parallelism(&mpp_plan) {
+                    mpp_plan
+                } else {
+                    build_with(&create_datafusion_session_context())
+                }
+            } else {
+                build_with(&create_datafusion_session_context())
+            };
             explain_physical_plan(&physical_plan, explainer);
         }
     }
@@ -1233,29 +1384,52 @@ impl CustomScan for JoinScan {
                 state.custom_state_mut().result_slot = Some(state.csstate.ss.ps.ps_ResultTupleSlot);
                 state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
             }
-            // MPP: stash the leader's serialized logical plan for the first exec call, which
-            // deserializes it to build the physical plan and uses its length to size the DSM
-            // dispatch-payload region (`dispatch_plan_capacity`). Only the leader runs this
-            // branch (`ParallelWorkerNumber == -1`); workers receive per-stage physical
-            // subplans over the mesh, never these bytes.
-            if mpp_is_active()
-                && !Self::source_queries_have_parameters(&state.custom_state().join_clause)
-                && unsafe { pg_sys::ParallelWorkerNumber } == -1
-                && let Some(bytes) = state.custom_state().logical_plan.clone()
+            // MPP: mark one launch attempt for the first exec call. The existing logical plan is
+            // resolved and rebaked at execution time before it is deserialized to build the
+            // physical plan. The finished stages then provide the exact dispatch payload before
+            // DSM allocation. Only the leader runs this branch (`ParallelWorkerNumber == -1`).
+            // The size gate decides here, before any MPP work: a gated query takes the plain
+            // serial path and never builds the distributed plan or captures manifests.
+            if mpp_eligible(
+                state.custom_state().parallel_mode_ok,
+                &state.custom_state().join_clause.plan,
+            ) && unsafe { pg_sys::ParallelWorkerNumber } == -1
+                && state.custom_state().logical_plan.is_some()
             {
-                state.custom_state_mut().mpp = MppLifecycle::PlanBytes(bytes.to_vec());
+                state.custom_state_mut().mpp = MppLifecycle::Pending;
             }
         }
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        let relaunch_mpp = matches!(
+            &state.custom_state().mpp,
+            MppLifecycle::Pending | MppLifecycle::Launched(_)
+        );
+        Self::finish_mpp_execution(state);
+        state.custom_state_mut().relations.clear();
         state.custom_state_mut().reset();
+        if relaunch_mpp {
+            assert!(
+                state.custom_state().logical_plan.is_some(),
+                "MPP rescan requires logical plan bytes"
+            );
+            state.custom_state_mut().mpp = MppLifecycle::Pending;
+        }
     }
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
         let mut launch_us = crate::postgres::customscan::mpp::glue::MppLaunchTiming::default();
         unsafe {
             if state.custom_state().datafusion_stream.is_none() {
+                // Solve any Param/SubPlan-backed SearchQueryInputs on the leader and rebake the
+                // logical plan before it's cloned/deserialized below, so both `join_clause` and
+                // `plan_bytes` reflect the resolved query. Must run before the pending MPP
+                // marker is consumed below and before plan_bytes is cloned, or a stale unresolved
+                // plan gets planned/dispatched. Rebake failures are invariant violations and
+                // abort at their source rather than falling back to unresolved bytes.
+                Self::maybe_solve_and_rebake(state);
+
                 let runtime = tokio::runtime::Builder::new_current_thread()
                     .build()
                     .unwrap();
@@ -1291,8 +1465,8 @@ impl CustomScan for JoinScan {
                     .clone()
                     .expect("Logical plan is required");
 
-                let index_segment_ids =
-                    Self::build_index_segment_ids(state, &join_clause, &plan_sources);
+                let source_manifests =
+                    Self::build_source_manifests(state, &join_clause, &plan_sources);
 
                 // For parameterized LIMIT/OFFSET, the planning-time logical plan has no Limit
                 // node. Resolve the fetch once; each planning pass below injects it (before
@@ -1326,7 +1500,7 @@ impl CustomScan for JoinScan {
                             None,
                             Some(runtime_context),
                             Some(planstate),
-                            index_segment_ids.clone(),
+                            source_manifests.clone(),
                         )
                         .expect("Failed to deserialize logical plan");
                         let logical_plan = match runtime_fetch {
@@ -1345,30 +1519,32 @@ impl CustomScan for JoinScan {
                             .expect("Failed to create execution plan")
                     };
 
-                let mpp_plan_bytes = state.custom_state_mut().mpp.take_plan_bytes();
+                let mpp_pending = state.custom_state_mut().mpp.take_pending();
                 // Leader session context: on an MPP attempt, layer the DF-D fork's
                 // distributed-planner knobs over the Join profile so the resulting physical
                 // plan is a `DistributedExec`, with `producer_worker_cap()` acting as the
                 // planner's ceiling. The mesh and the dispatch source are execute-time
                 // concerns; the exec session below carries them once the workers are committed.
-                let plan_ctx = if mpp_plan_bytes.is_some() {
+                let plan_ctx = if mpp_pending {
                     Self::build_mpp_session_context(None)
                 } else {
-                    create_datafusion_session_context(SessionContextProfile::Join)
+                    create_datafusion_session_context()
                 };
                 let t_plan = std::time::Instant::now();
                 let plan = build_plan(&plan_ctx);
                 launch_us.plan_us = t_plan.elapsed().as_micros() as u64;
 
-                // On a launch fallback (nothing to distribute, short launch) no workers remain
-                // and the `DistributedExec` shape has no mesh to read from, so replan serially.
-                let (ctx, plan) = match mpp_plan_bytes {
-                    Some(bytes) => match Self::launch_mpp(state, &plan, bytes.len()) {
+                // On a launch fallback (nothing to distribute, or too few attached workers) no
+                // workers remain and the `DistributedExec` shape has no mesh to read from, so
+                // replan serially.
+                let (ctx, plan) = if mpp_pending {
+                    match Self::launch_mpp(state, &plan) {
                         Some(leader) => {
                             let source = crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::default();
-                            let exec_ctx =
-                                Self::build_mpp_session_context(Some(Arc::clone(&leader.mesh)))
-                                    .with_distributed_dispatch_plan_source(source);
+                            let exec_ctx = Self::build_mpp_session_context(Some(Arc::clone(
+                                &leader.session.mesh,
+                            )))
+                            .with_distributed_dispatch_plan_source(source);
                             launch_us.prepare_us = leader.timing.prepare_us;
                             launch_us.payload_us = leader.timing.payload_us;
                             launch_us.attach_us = leader.timing.attach_us;
@@ -1378,13 +1554,45 @@ impl CustomScan for JoinScan {
                             (exec_ctx, plan)
                         }
                         None => {
-                            let serial_ctx =
-                                create_datafusion_session_context(SessionContextProfile::Join);
-                            let plan = build_plan(&serial_ctx);
+                            // Short-launch decline: rebuild the logical plan with serial provider
+                            // metadata. Merely changing SessionContext would replan the existing
+                            // MPP-shaped logical providers without rewriting their source fields.
+                            let serial_ctx = create_datafusion_session_context();
+                            let fallback_bytes = Self::rebake_for_mpp_fallback(state);
+                            let logical_plan = deserialize_logical_plan_with_runtime(
+                                &fallback_bytes,
+                                &serial_ctx.task_ctx(),
+                                None,
+                                Some(runtime_context),
+                                Some(planstate),
+                                source_manifests.clone(),
+                            )
+                            .expect("Failed to deserialize serial fallback logical plan");
+                            let logical_plan = match runtime_fetch {
+                                Some(fetch) => {
+                                    use datafusion::logical_expr::LogicalPlanBuilder;
+                                    LogicalPlanBuilder::from(logical_plan)
+                                        .limit(0, Some(fetch))
+                                        .expect("failed to add Limit to logical plan")
+                                        .build()
+                                        .expect("failed to build logical plan with Limit")
+                                }
+                                None => logical_plan,
+                            };
+                            let plan = runtime
+                                .block_on(build_physical_plan(&serial_ctx, logical_plan))
+                                .expect("Failed to create execution plan from serial fallback");
+                            // Keep custom_state's logical_plan in sync: a later rescan reads it
+                            // (see maybe_solve_and_rebake / JoinScanState::reset), and it should
+                            // reflect the serial shape actually executed here, not the MPP-shaped
+                            // bytes this fallback declined to use.
+                            state.custom_state_mut().logical_plan =
+                                Some(bytes::Bytes::from(fallback_bytes));
                             (serial_ctx, plan)
                         }
-                    },
-                    None => (plan_ctx, plan),
+                    }
+                } else {
+                    (plan_ctx, plan)
                 };
 
                 let task_ctx = build_task_context(
@@ -1473,14 +1681,7 @@ impl CustomScan for JoinScan {
         // leader-inbox detach, so producers blocked on full rings stop. Harmless when the gather
         // already reached EOF.
         state.custom_state_mut().datafusion_stream = None;
-        // Release the DSM-backed control senders before `recv`. A producer's `work_mem` overflow
-        // (or any worker error) is re-raised in the leader from inside `recv`, which `longjmp`s
-        // out of this hook; a release placed after it would never run, leaving the senders for the
-        // detach callback, which clears them while the mapping is still live. The query is done
-        // producing here, so the senders aren't needed, and the drop runs while DSM is mapped.
-        if let Some(leader) = state.custom_state().mpp.leader() {
-            leader.release_control_senders();
-        }
+
         // Drain the workers' metrics frames off the mesh BEFORE joining the workers. On an
         // early-terminated query the rings still hold data the leader will never read; a worker's
         // bounded metrics send spins on the full ring until the leader frees slots. Draining here
@@ -1489,7 +1690,10 @@ impl CustomScan for JoinScan {
         if let Some(leader) = state.custom_state().mpp.leader()
             && let Some(plan) = state.custom_state().physical_plan.as_ref()
         {
-            crate::postgres::customscan::mpp::glue::drain_worker_metrics(plan, &leader.mesh);
+            crate::postgres::customscan::mpp::glue::drain_worker_metrics(
+                plan,
+                &leader.session.mesh,
+            );
         }
         // Join the producer workers so their metrics land before the EXPLAIN render (which runs
         // before end_custom_scan, where the context is finally destroyed). A worker error is
@@ -1502,32 +1706,8 @@ impl CustomScan for JoinScan {
     }
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // Join the MPP producer workers and destroy the parallel context once nothing references
-        // the ring mesh. Take the leader out first (its mesh handle drops with it), then drop the
-        // stream/plan/runtime (all carry mesh references) before wait_for_finish destroys the DSM.
-        let finish = match state.custom_state_mut().mpp.take_leader() {
-            Some(mut leader) => leader.finish.take(),
-            _ => None,
-        };
-        if finish.is_some() {
-            let cs = state.custom_state_mut();
-            cs.datafusion_stream = None;
-            cs.current_batch = None;
-            cs.physical_plan = None;
-            cs.runtime = None;
-        }
-        if let Some(finish) = finish {
-            // The gather already drained, or early-terminated and the deadlock fix let the
-            // producers stop, so the workers have finished and detached; this returns promptly.
-            finish.wait_for_finish();
-        }
+        Self::finish_mpp_execution(state);
 
-        unsafe {
-            // Drop tuple slots that we own.
-            for rel_state in state.custom_state().relations.values() {
-                pg_sys::ExecDropSingleTupleTableSlot(rel_state.fetch_slot);
-            }
-        }
         // Clean up resources
         state.custom_state_mut().relations.clear();
         state.custom_state_mut().result_slot = None;
@@ -1573,22 +1753,22 @@ unsafe fn compute_output_columns(
                 // the parent plan will not read this position.
                 output_columns.push(privdat::OutputColumnInfo::Pruned);
             }
-        } else {
-            let mut found_score = false;
-            for source in join_clause.plan.sources() {
-                if expr_uses_scores_from_source(check_expr.cast(), source) {
-                    let rti = get_score_func_rti(check_expr.cast()).unwrap_or(0);
-                    output_columns.push(privdat::OutputColumnInfo::Score {
-                        plan_position: source.plan_position,
-                        rti,
-                    });
-                    found_score = true;
-                    break;
-                }
-            }
-            if !found_score {
+        } else if let Some(rti) = get_score_func_rti(check_expr.cast()) {
+            if let Some(source) = join_clause
+                .plan
+                .sources()
+                .iter()
+                .find(|s| s.contains_rti(rti))
+            {
+                output_columns.push(privdat::OutputColumnInfo::Score {
+                    plan_position: source.plan_position,
+                    rti,
+                });
+            } else {
                 output_columns.push(privdat::OutputColumnInfo::Pruned);
             }
+        } else {
+            output_columns.push(privdat::OutputColumnInfo::Pruned);
         }
     }
 
@@ -1765,7 +1945,18 @@ unsafe fn build_output_projection(
 /// Build the DataFusion logical plan for the JoinScan, serialize it, and store
 /// the bytes inside `private_data.logical_plan` so the executor can rehydrate
 /// it during scan startup.
-fn bake_logical_plan(private_data: &mut PrivateData, custom_exprs: *mut pg_sys::List) {
+///
+/// `force_serial`: when `true`, every source is baked with `mpp_source_idx = None`
+/// regardless of the global `mpp_is_active()` budget check. A short-launch decline must rebuild
+/// this logical metadata because choosing a serial physical planner does not rewrite it. A
+/// parallel-unsafe statement (`private_data.parallel_mode_ok == false`, #6157) is baked serially
+/// regardless of this flag.
+fn bake_logical_plan(
+    private_data: &mut PrivateData,
+    custom_exprs: *mut pg_sys::List,
+    force_serial: bool,
+) {
+    let force_serial = force_serial || !private_data.parallel_mode_ok;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("Failed to create tokio runtime");
@@ -1774,6 +1965,7 @@ fn bake_logical_plan(private_data: &mut PrivateData, custom_exprs: *mut pg_sys::
             &private_data.join_clause,
             &*private_data,
             custom_exprs,
+            force_serial,
         ))
         .expect("Failed to build DataFusion logical plan");
     private_data.logical_plan = Some(
@@ -1870,11 +2062,18 @@ impl JoinScan {
         }
 
         // Silent gates: collect outer/inner sources or bail without a warning.
-        let (outer_node, mut join_keys) =
-            collect_join_sources(root, outerrel).ok_or(JoinPathDecline::Quiet)?;
-        let (inner_node, inner_keys) =
-            collect_join_sources(root, innerrel).ok_or(JoinPathDecline::Quiet)?;
-        join_keys.extend(inner_keys);
+        let outer_collected = collect_join_sources(root, outerrel).ok_or(JoinPathDecline::Quiet)?;
+        let inner_collected = collect_join_sources(root, innerrel).ok_or(JoinPathDecline::Quiet)?;
+
+        let left_sources_count = outer_collected.plan.sources().len();
+        let inner_node = inner_collected
+            .plan
+            .offset_plan_positions(left_sources_count);
+
+        let mut join_keys = outer_collected.join_keys;
+        join_keys.extend(inner_collected.join_keys);
+
+        let outer_node = outer_collected.plan;
 
         let aliases: Vec<String> = {
             let mut all_sources = outer_node.sources();
@@ -1895,12 +2094,14 @@ impl JoinScan {
         };
 
         // The minimum requirement for considering the join scan is that a
-        // search predicate is used — either in a source or in a join-level
+        // search predicate is used — either in a source, a sub-join plan, or in a join-level
         // condition. Below this gate, every Err carries a planner warning.
         {
             let mut all_sources = outer_node.sources();
             all_sources.extend(inner_node.sources());
             if !all_sources.iter().any(|s| s.scan_info.has_search_predicate)
+                && !outer_node.has_search_predicate()
+                && !inner_node.has_search_predicate()
                 && !join_conditions.has_search_predicate
             {
                 return Err(JoinPathDecline::Quiet);
@@ -2073,6 +2274,9 @@ impl JoinScan {
         let (mut join_clause, limit_offset) =
             Self::validate_and_build_clause(root, &plan, &join_keys, has_distinct).map_err(warn)?;
 
+        let mut multi_table_clauses = outer_collected.multi_table_clauses;
+        multi_table_clauses.extend(inner_collected.multi_table_clauses);
+
         // --- Join-level predicate extraction (join-hook specific) ---
         // This builds an expression tree that can reference:
         // - Predicate nodes: Tantivy search queries
@@ -2082,7 +2286,7 @@ impl JoinScan {
         // `JoinNode.filter` (above) are filtered out of `remaining_other_conditions`
         // so they are not re-processed here as MultiTablePredicates.
         let current_sources = join_clause.plan.sources();
-        let (join_clause_updated, multi_table_clauses) = extract_join_level_conditions(
+        let (join_clause_updated, new_multi_table_clauses) = extract_join_level_conditions(
             root,
             extra,
             &current_sources,
@@ -2095,16 +2299,12 @@ impl JoinScan {
             ))
         })?;
         join_clause = join_clause_updated;
+        multi_table_clauses.extend(new_multi_table_clauses);
 
-        // Post-extraction check: need at least one side predicate OR join-level predicates.
+        // Post-extraction check: need at least one search predicate in the plan.
         // This is a silent gate — the join is no longer interesting once predicates have
         // been pulled out.
-        let current_sources_after_cond = join_clause.plan.sources();
-        let has_side_predicate = current_sources_after_cond
-            .iter()
-            .any(|s| s.has_search_predicate());
-        let has_join_level_predicates = !join_clause.join_level_predicates.is_empty();
-        if !has_side_predicate && !has_join_level_predicates {
+        if !join_clause.plan.has_search_predicate() {
             return Err(JoinPathDecline::Quiet);
         }
 

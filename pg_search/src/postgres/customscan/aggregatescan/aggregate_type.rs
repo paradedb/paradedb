@@ -15,10 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::{
-    FieldName, HashSet, MvccVisibility, agg_funcoid, agg_with_solve_mvcc_funcoid,
-    extract_solve_mvcc_from_const,
-};
+use crate::api::{FieldName, HashSet, MvccVisibility, is_agg_funcoid, visibility_from_agg_arg};
 use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
@@ -146,11 +143,8 @@ impl AggregateType {
         };
         let filter_query = filter_expr.map(|qual| SearchQueryInput::from(&qual));
 
-        // Check for pdb.agg() custom aggregate (both overloads)
-        let agg_oid = agg_funcoid().to_u32();
-        let agg_with_mvcc_oid = agg_with_solve_mvcc_funcoid().to_u32();
-
-        if aggfnoid == agg_oid || aggfnoid == agg_with_mvcc_oid {
+        // Check for pdb.agg() custom aggregate (any overload)
+        if is_agg_funcoid(aggfnoid) {
             // Extract JSON argument (first arg)
             let arg = args.get_ptr(0).expect("pdb.agg missing argument");
             let expr = (*arg).expr;
@@ -169,21 +163,12 @@ impl AggregateType {
                 return Err("pdb.agg argument must be a constant for aggregate pushdown".into());
             };
 
-            // Extract solve_mvcc bool argument (second arg) if using the two-arg overload
-            let solve_mvcc = if aggfnoid == agg_with_mvcc_oid {
-                args.get_ptr(1)
-                    .and_then(|mvcc_arg| nodecast!(Const, T_Const, (*mvcc_arg).expr))
-                    .map(|const_node| extract_solve_mvcc_from_const(const_node))
-                    .unwrap_or(true)
-            } else {
-                true // Single-arg overload: default to solve_mvcc = true
-            };
-
-            let mvcc_visibility = if solve_mvcc {
-                MvccVisibility::Enabled
-            } else {
-                MvccVisibility::Disabled
-            };
+            // Decode the visibility argument (second arg) of the two-arg overloads;
+            // the one-arg overload has none and takes the default.
+            let mvcc_visibility = visibility_from_agg_arg(
+                aggfnoid,
+                args.get_ptr(1).map(|arg| (*arg).expr as *mut pg_sys::Node),
+            );
 
             // Check if any existing fields in the custom aggregate are NUMERIC
             // NUMERIC fields do not support aggregate pushdown
@@ -194,7 +179,7 @@ impl AggregateType {
             for field_name in &fields {
                 // Only check NUMERIC support if field exists in schema
                 if schema.search_field(field_name).is_some()
-                    && !schema.field_supports_aggregate(field_name)
+                    && !schema.supports_tantivy_aggregate(field_name)
                 {
                     return Err(format!(
                         "field '{}' does not support aggregate pushdown (NUMERIC)",
@@ -225,9 +210,14 @@ impl AggregateType {
         let first_arg = args.get_ptr(0).ok_or("aggregate missing argument")?;
         let (field, missing) = parse_aggregate_field(first_arg, heaprelid)?;
 
-        // Check if aggregate pushdown is supported for this field type
-        // NUMERIC fields are not supported - they fall back to PostgreSQL
-        if !bm25_index.field_supports_aggregate(&field).unwrap_or(false) {
+        // Check if aggregate pushdown is supported for this field type on the
+        // Tantivy backend. NUMERIC fields are not supported here; standard SQL
+        // aggregates over them route to the DataFusion backend at path
+        // creation time and never reach this classifier.
+        if !bm25_index
+            .supports_tantivy_aggregate(&field)
+            .unwrap_or(false)
+        {
             return Err(format!(
                 "field '{}' does not support aggregate pushdown",
                 field
@@ -341,9 +331,9 @@ impl AggregateType {
         }
     }
 
-    /// Get the MVCC visibility setting for this aggregate.
-    /// Only Custom aggregates (pdb.agg) can have non-default MVCC settings.
-    /// All standard SQL aggregates (COUNT, SUM, etc.) use the default (Enabled).
+    /// Get the visibility setting for this aggregate.
+    /// Only Custom aggregates (pdb.agg) can have a non-default setting.
+    /// All standard SQL aggregates (COUNT, SUM, etc.) use the default (Transaction).
     pub fn mvcc_visibility(&self) -> MvccVisibility {
         match self {
             AggregateType::Custom {
@@ -354,35 +344,38 @@ impl AggregateType {
         }
     }
 
-    /// Determines if MVCC filtering should be enabled for a group of aggregates.
-    /// Validates that there are no contradicting solve_mvcc settings among custom aggregates.
-    pub fn resolve_mvcc_enabled<'a>(aggregates: impl Iterator<Item = &'a AggregateType>) -> bool {
-        let custom_mvcc_settings: Vec<MvccVisibility> = aggregates
-            .filter_map(|agg_type| {
-                if let AggregateType::Custom {
-                    mvcc_visibility, ..
-                } = agg_type
-                {
-                    Some(*mvcc_visibility)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        if !custom_mvcc_settings.is_empty() {
-            let has_enabled = custom_mvcc_settings.contains(&MvccVisibility::Enabled);
-            let has_disabled = custom_mvcc_settings.contains(&MvccVisibility::Disabled);
-            if has_enabled && has_disabled {
-                pgrx::error!(
-                    "pdb.agg() calls have contradicting solve_mvcc settings. \
-                     All pdb.agg() calls in a query must use the same solve_mvcc value. \
-                     Either use solve_mvcc=true (or omit) for all, or solve_mvcc=false for all."
-                );
+    /// Determines the single query-level visibility setting for a group of aggregates.
+    ///
+    /// A query resolves to exactly one visibility decision, so every `pdb.agg()` call in
+    /// it has to agree. Two different settings are an error even when one of them came
+    /// from an omitted argument, since an omitted argument is indistinguishable from an
+    /// explicit `'transaction'` by the time we see it.
+    pub fn resolve_visibility<'a>(
+        aggregates: impl Iterator<Item = &'a AggregateType>,
+    ) -> MvccVisibility {
+        let mut resolved: Option<MvccVisibility> = None;
+        for visibility in aggregates.filter_map(|agg_type| match agg_type {
+            AggregateType::Custom {
+                mvcc_visibility, ..
+            } => Some(*mvcc_visibility),
+            // Standard SQL aggregates carry no setting of their own.
+            _ => None,
+        }) {
+            match resolved {
+                None => resolved = Some(visibility),
+                Some(previous) if previous == visibility => {}
+                Some(previous) => pgrx::error!(
+                    "pdb.agg() calls have contradicting visibility settings: \
+                     '{}' and '{}'. All pdb.agg() calls in a query must use the same \
+                     visibility value, and omitting the argument selects '{}'.",
+                    previous.as_sql_value(),
+                    visibility.as_sql_value(),
+                    MvccVisibility::default().as_sql_value()
+                ),
             }
         }
 
-        !custom_mvcc_settings.contains(&MvccVisibility::Disabled)
+        resolved.unwrap_or_default()
     }
 
     pub fn result_type_oid(&self) -> pg_sys::Oid {
@@ -408,7 +401,7 @@ impl AggregateType {
     pub fn validate_fields(&self, schema: &SearchIndexSchema) -> Result<(), String> {
         // Check NUMERIC field support for standard aggregates
         if let Some(field) = self.field_name()
-            && !schema.field_supports_aggregate(&field)
+            && !schema.supports_tantivy_aggregate(&field)
         {
             return Err(format!(
                 "Aggregate on NUMERIC field '{}' cannot be pushed down. \
@@ -439,12 +432,19 @@ impl AggregateType {
 /// Returns an error if:
 /// - Any referenced field doesn't exist in the index
 /// - Any referenced field is a NUMERIC type (not supported for aggregation)
+/// - Any `top_hits.sort` key has a type Tantivy's sort accessor does not support
+///   (only `I64` / `U64` / `F64` / `Date` / `Numeric64` are accepted)
 pub(crate) fn validate_agg_json_fields(
     agg_json: &serde_json::Value,
     schema: &SearchIndexSchema,
 ) -> Result<(), String> {
     let mut fields = HashSet::default();
     extract_fields_from_agg_json(agg_json, &mut fields);
+    // top_hits.sort keys are object keys inside the sort array rather than values under a
+    // "field" key, so extract_fields_from_agg_json will not see them. Collect them here so
+    // the existence check below covers them and validate_top_hits_sort_fields can rely on
+    // schema.get_field_type() returning Some.
+    collect_top_hits_sort_field_names(agg_json, &mut fields);
     let indexed_fields: HashSet<String> = schema
         .fields()
         .map(|(_, entry)| entry.name().to_string())
@@ -466,7 +466,7 @@ pub(crate) fn validate_agg_json_fields(
             ));
         }
         // Check NUMERIC support
-        if !schema.field_supports_aggregate(field) {
+        if !schema.supports_tantivy_aggregate(field) {
             return Err(format!(
                 "Aggregation references NUMERIC field '{}' which cannot be aggregated. \
                  NUMERIC columns do not support aggregate pushdown.",
@@ -474,7 +474,113 @@ pub(crate) fn validate_agg_json_fields(
             ));
         }
     }
+
+    validate_top_hits_sort_fields(agg_json, schema)?;
+
     Ok(())
+}
+
+/// Recursively walk `agg_json` and validate that every `top_hits.sort` field is a type
+/// Tantivy's sort accessor supports (see [`crate::schema::SearchFieldType::supports_top_hits_sort`]).
+///
+/// A text / uuid / inet / ltree / json / range / vector sort key would fall back to an empty
+/// accessor and every hit would silently get `"sort": [null]` with no ordering applied
+/// (issue #5710). Raising a clear planning-time error is friendlier than silent wrong
+/// results.
+///
+/// Elasticsearch-style pseudo fields prefixed with `_` (`_score`, `_doc`) are skipped:
+/// they do not resolve to schema fields and have their own accessor path in Tantivy.
+fn validate_top_hits_sort_fields(
+    agg_json: &serde_json::Value,
+    schema: &SearchIndexSchema,
+) -> Result<(), String> {
+    match agg_json {
+        serde_json::Value::Object(map) => {
+            if let Some(sort) = map
+                .get("top_hits")
+                .and_then(|v| v.as_object())
+                .and_then(|top_hits| top_hits.get("sort"))
+                .and_then(|v| v.as_array())
+            {
+                for entry in sort {
+                    let Some(sort_obj) = entry.as_object() else {
+                        continue;
+                    };
+                    for field_name in sort_obj.keys() {
+                        if field_name.starts_with('_') {
+                            continue;
+                        }
+                        let root = FieldName::from(field_name.as_str()).root();
+                        // Existence is guaranteed by the fields loop in
+                        // validate_agg_json_fields (which now includes top_hits.sort keys via
+                        // collect_top_hits_sort_field_names). Panic loudly if that invariant
+                        // is ever broken so the failure is not silent.
+                        let field_type = schema.get_field_type(&root).expect(
+                            "top_hits.sort field existence should have been validated by the \
+                             indexed_fields loop in validate_agg_json_fields",
+                        );
+                        if !field_type.supports_top_hits_sort() {
+                            return Err(format!(
+                                "top_hits.sort field '{}' has an unsupported type for sorting. \
+                                 Only numeric and date fields can be used as top_hits.sort keys.",
+                                field_name
+                            ));
+                        }
+                    }
+                }
+            }
+
+            for value in map.values() {
+                validate_top_hits_sort_fields(value, schema)?;
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr {
+                validate_top_hits_sort_fields(item, schema)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// Recursively walk `json` and add every `top_hits.sort` field key to `fields`. Sort keys
+/// appear as object keys inside the sort array (`{"field_name": "asc"}`), so
+/// [`extract_fields_from_agg_json`] does not see them. Elasticsearch-style pseudo fields
+/// (`_score`, `_doc`) are skipped since they do not resolve to schema fields.
+fn collect_top_hits_sort_field_names(json: &serde_json::Value, fields: &mut HashSet<String>) {
+    match json {
+        serde_json::Value::Object(map) => {
+            if let Some(sort) = map
+                .get("top_hits")
+                .and_then(|v| v.as_object())
+                .and_then(|top_hits| top_hits.get("sort"))
+                .and_then(|v| v.as_array())
+            {
+                for entry in sort {
+                    let Some(sort_obj) = entry.as_object() else {
+                        continue;
+                    };
+                    for field_name in sort_obj.keys() {
+                        if field_name.starts_with('_') {
+                            continue;
+                        }
+                        let field_name = FieldName::from(field_name.as_str());
+                        fields.insert(field_name.root());
+                    }
+                }
+            }
+            for value in map.values() {
+                collect_top_hits_sort_field_names(value, fields);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr {
+                collect_top_hits_sort_field_names(item, fields);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn extract_fields_from_agg_json(json: &serde_json::Value, fields: &mut HashSet<String>) {

@@ -40,7 +40,7 @@ values
 
 
 CREATE INDEX idx_stopwords_bm25 ON test_stopwords
-    USING bm25 (id, name)
+    USING paradedb (id, name)
     WITH (
     key_field = 'id',
     text_fields ='{

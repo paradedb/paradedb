@@ -24,7 +24,9 @@ pub mod pdb_query;
 pub(crate) mod proximity;
 mod range;
 mod score;
+pub mod tid_bitmap_stream;
 
+use crate::query::tid_bitmap_stream::BitmapCell;
 use builder::{QueryBuilder, QueryOnlyBuilder, QueryTreeBuilder};
 use estimate_tree::QueryWithEstimates;
 use heap_field_filter::HeapFieldFilter;
@@ -59,6 +61,10 @@ use tantivy::{
     schema::{DATE_TIME_PRECISION_INDEXED, Field, FieldType},
 };
 use thiserror::Error;
+
+fn is_false(value: &bool) -> bool {
+    !*value
+}
 
 #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -131,7 +137,32 @@ pub enum SearchQueryInput {
     /// Mixed query with indexed search and heap field filters
     HeapFilter {
         indexed_query: Box<SearchQueryInput>,
-        field_filters: Vec<HeapFieldFilter>,
+        /// Predicates the bitmap-set bitmap cannot prove: either no external index
+        /// covers them, or the covering index qual is lossy (e.g. `ST_DWithin` matched
+        /// only through its bounding-box qual). Evaluated against the heap for every
+        /// document that survives the bitmap probe -- and for every document when no
+        /// bitmap was planned.
+        always_filters: Vec<HeapFieldFilter>,
+        /// Predicates proven by exact bitmap membership: their clause matched an
+        /// external index exactly (`IndexClause.lossy == false`), so a document found
+        /// in the bitmap on an exact, non-recheck page already satisfies them.
+        /// Evaluated only when that proof breaks down: a lossy page, a recheck-flagged
+        /// page, or no bitmap set attached.
+        #[serde(default)]
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        recheck_filters: Vec<HeapFieldFilter>,
+        /// Set at plan time when an external index's bitmap covers this filter's
+        /// clauses; the cursor source itself is attached at execution time.
+        #[serde(default)]
+        #[serde(skip_serializing_if = "is_false")]
+        uses_tid_bitmap: bool,
+        /// Which claim-table consumer this node is, when covered. Serialized so
+        /// parallel workers claim the same streams the build owner prepared.
+        #[serde(default)]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        bitmap_consumer_id: Option<u32>,
+        #[serde(skip)]
+        bitmap_cell: Option<BitmapCell>,
     },
 
     #[serde(serialize_with = "serialize_fielded_query")]
@@ -141,6 +172,55 @@ pub enum SearchQueryInput {
         field: FieldName,
         query: pdb::Query,
     },
+}
+
+// Mutable and read-only visitors need separate signatures, but share one recursive enum walk so
+// adding a query variant cannot silently update only one traversal.
+macro_rules! visit_search_query_input {
+    ($query:expr, $visitor:expr, $visit_method:ident, $option_access:ident) => {{
+        $visitor($query);
+        match $query {
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+                ..
+            } => {
+                for query in must_not {
+                    query.$visit_method($visitor);
+                }
+                for query in should {
+                    query.$visit_method($visitor);
+                }
+                for query in must {
+                    query.$visit_method($visitor);
+                }
+            }
+            SearchQueryInput::Boost { query, .. }
+            | SearchQueryInput::ConstScore { query, .. }
+            | SearchQueryInput::WithIndex { query, .. } => query.$visit_method($visitor),
+            SearchQueryInput::ScoreFilter { query, .. } => query
+                .$option_access()
+                .expect("ScoreFilter's query should have been set")
+                .$visit_method($visitor),
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+                for query in disjuncts {
+                    query.$visit_method($visitor);
+                }
+            }
+            SearchQueryInput::HeapFilter { indexed_query, .. } => {
+                indexed_query.$visit_method($visitor);
+            }
+            SearchQueryInput::Uninitialized
+            | SearchQueryInput::All
+            | SearchQueryInput::Empty
+            | SearchQueryInput::MoreLikeThis { .. }
+            | SearchQueryInput::Parse { .. }
+            | SearchQueryInput::TermSet { .. }
+            | SearchQueryInput::PostgresExpression { .. }
+            | SearchQueryInput::FieldedQuery { .. } => {}
+        }
+    }};
 }
 
 fn serialize_fielded_query<S>(
@@ -635,59 +715,12 @@ impl SearchQueryInput {
     }
 
     pub fn visit(&mut self, visitor: &mut impl FnMut(&mut SearchQueryInput)) {
-        // Visit this node.
-        visitor(self);
-        // Then recurse on its children.
-        match self {
-            SearchQueryInput::Boolean {
-                must,
-                should,
-                must_not,
-                ..
-            } => {
-                for q in must_not {
-                    q.visit(visitor);
-                }
-                for q in should {
-                    q.visit(visitor);
-                }
-                for q in must {
-                    q.visit(visitor);
-                }
-            }
-            SearchQueryInput::Boost { query, .. } => {
-                query.visit(visitor);
-            }
-            SearchQueryInput::ConstScore { query, .. } => {
-                query.visit(visitor);
-            }
-            SearchQueryInput::ScoreFilter { query, .. } => {
-                query
-                    .as_mut()
-                    .expect("ScoreFilter's query should have been set")
-                    .visit(visitor);
-            }
-            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
-                for q in disjuncts {
-                    q.visit(visitor);
-                }
-            }
-            SearchQueryInput::WithIndex { query, .. } => {
-                query.visit(visitor);
-            }
-            SearchQueryInput::HeapFilter { indexed_query, .. } => {
-                indexed_query.visit(visitor);
-            }
+        visit_search_query_input!(self, visitor, visit, as_mut);
+    }
 
-            SearchQueryInput::Uninitialized
-            | SearchQueryInput::All
-            | SearchQueryInput::Empty
-            | SearchQueryInput::MoreLikeThis { .. }
-            | SearchQueryInput::Parse { .. }
-            | SearchQueryInput::TermSet { .. }
-            | SearchQueryInput::PostgresExpression { .. }
-            | SearchQueryInput::FieldedQuery { .. } => {}
-        }
+    /// Read-only query-tree traversal sharing [`Self::visit`]'s recursive enum walk.
+    pub fn visit_ref(&self, visitor: &mut impl FnMut(&SearchQueryInput)) {
+        visit_search_query_input!(self, visitor, visit_ref, as_ref);
     }
 
     pub fn canonical_query_string(&self) -> String {
@@ -843,11 +876,12 @@ fn check_range_bounds(
     typeoid: PgOid,
     lower_bound: Bound<PdbOwnedValue>,
     upper_bound: Bound<PdbOwnedValue>,
+    index_created_by_version: Option<Version>,
 ) -> Result<(Bound<PdbOwnedValue>, Bound<PdbOwnedValue>), QueryError> {
     // For NUMRANGEOID, convert numeric values to hex-encoded sortable bytes
     // to match the indexed format (see SortableDecimal in range.rs)
-    let lower_bound = convert_numrange_bound(typeoid, lower_bound);
-    let upper_bound = convert_numrange_bound(typeoid, upper_bound);
+    let lower_bound = convert_numrange_bound(typeoid, lower_bound, index_created_by_version);
+    let upper_bound = convert_numrange_bound(typeoid, upper_bound, index_created_by_version);
 
     let lower_bound = match (typeoid, lower_bound.clone()) {
         // Excluded U64 needs to be canonicalized
@@ -977,7 +1011,11 @@ fn check_range_bounds(
 
 /// Convert numeric values in NUMRANGEOID bounds to hex-encoded sortable bytes.
 /// This matches the format used for indexing (see SortableDecimal in range.rs).
-fn convert_numrange_bound(typeoid: PgOid, bound: Bound<PdbOwnedValue>) -> Bound<PdbOwnedValue> {
+fn convert_numrange_bound(
+    typeoid: PgOid,
+    bound: Bound<PdbOwnedValue>,
+    index_created_by_version: Option<Version>,
+) -> Bound<PdbOwnedValue> {
     use decimal_bytes::Decimal;
     use std::str::FromStr;
 
@@ -996,9 +1034,12 @@ fn convert_numrange_bound(typeoid: PgOid, bound: Bound<PdbOwnedValue>) -> Bound<
             _ => return None,
         };
 
-        Decimal::from_str(&numeric_str)
-            .ok()
-            .map(|dec| PdbOwnedValue::Str(numeric::bytes_to_hex(dec.as_bytes())))
+        Decimal::from_str(&numeric_str).ok().map(|dec| {
+            PdbOwnedValue::Str(numeric::bytes_to_hex(&numeric::decimal_to_index_bytes(
+                dec,
+                index_created_by_version,
+            )))
+        })
     };
 
     match bound {
@@ -1424,16 +1465,22 @@ impl SearchQueryInput {
                 Ok(builder.build_leaf(query, || "Parse Query".to_string(), cloned_for_estimate))
             }
             SearchQueryInput::TermSet { terms: fields } => {
-                let query = Box::new(TermSetQuery::new(fields.into_iter().map(
-                    |TermInput { field, value }| {
+                let terms = fields
+                    .into_iter()
+                    .map(|TermInput { field, value }| {
                         let search_field = schema
                             .search_field(field.root())
-                            .ok_or_else(|| QueryError::NonIndexedField(field.clone()))
-                            .expect("could not find search field");
+                            .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
                         let field_type = search_field.field_entry().field_type();
 
-                        // Convert string numeric values to appropriate types for JSON fields
-                        let value = convert_for_field_type(&value, field_type);
+                        // The tantivy `FieldType` can't tell a scaled `Numeric64` or an encoded
+                        // `NumericBytes` column from a plain `I64` or `Bytes` one, so the term has
+                        // to be converted from the schema-level type, same as a single `Term`.
+                        let value = numeric::convert_value_for_field(
+                            value,
+                            &search_field.field_type(),
+                            index_created_by_version,
+                        )?;
 
                         value_to_term(
                             search_field.field(),
@@ -1442,9 +1489,9 @@ impl SearchQueryInput {
                             field.path().as_deref(),
                             index_created_by_version,
                         )
-                        .expect("could not convert argument to search term")
-                    },
-                )));
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let query = Box::new(TermSetQuery::new(terms));
 
                 Ok(builder.build_leaf(query, || "TermSet Query".to_string(), cloned_for_estimate))
             }
@@ -1464,7 +1511,11 @@ impl SearchQueryInput {
             }
             SearchQueryInput::HeapFilter {
                 indexed_query,
-                field_filters,
+                always_filters,
+                recheck_filters,
+                uses_tid_bitmap: _,
+                bitmap_consumer_id,
+                bitmap_cell,
             } => {
                 // Convert indexed query first
                 let inner_output = recurse(*indexed_query)?;
@@ -1478,7 +1529,10 @@ impl SearchQueryInput {
                 // Create combined query with heap field filters
                 let query = Box::new(heap_field_filter::HeapFilterQuery::new(
                     indexed_tantivy_query,
-                    field_filters.clone(),
+                    always_filters.clone(),
+                    recheck_filters.clone(),
+                    bitmap_consumer_id,
+                    bitmap_cell.clone(),
                     relation_oid.expect("relation_oid is required for HeapFilter queries"),
                     expr_context,
                     planstate,
@@ -1540,27 +1594,6 @@ impl SearchQueryInput {
             expr_context,
             planstate,
         )
-    }
-}
-
-/// Convert a string-encoded numeric value to the appropriate type based on field type.
-/// Used for JSON field comparisons where NUMERIC constants need to match stored JSON numbers.
-fn convert_for_field_type(value: &PdbOwnedValue, field_type: &FieldType) -> PdbOwnedValue {
-    use crate::query::numeric::{
-        string_to_f64, string_to_i64, string_to_json_numeric, string_to_u64,
-    };
-
-    // Only convert string values - other types pass through unchanged
-    if !matches!(value, PdbOwnedValue::Str(_)) {
-        return value.clone();
-    }
-
-    match field_type {
-        FieldType::JsonObject(_) => string_to_json_numeric(value.clone()),
-        FieldType::I64(_) => string_to_i64(value.clone()),
-        FieldType::U64(_) => string_to_u64(value.clone()),
-        FieldType::F64(_) => string_to_f64(value.clone()),
-        _ => value.clone(),
     }
 }
 
@@ -1741,8 +1774,20 @@ impl From<anyhow::Error> for QueryError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 struct PostgresPointer(*mut std::os::raw::c_void);
+
+impl PartialEq for PostgresPointer {
+    fn eq(&self, other: &Self) -> bool {
+        if self.0 == other.0 {
+            return true;
+        }
+        if self.0.is_null() || other.0.is_null() {
+            return false;
+        }
+        unsafe { pg_sys::equal(self.0.cast(), other.0.cast()) }
+    }
+}
 
 // SAFETY: PostgresPointer is only used within PostgreSQL's single-threaded context
 // during query execution. The PostgresPointer serialization/deserialization handles
@@ -2171,7 +2216,11 @@ mod tests {
         assert!(
             SearchQueryInput::HeapFilter {
                 indexed_query: Box::new(SearchQueryInput::All),
-                field_filters: vec![],
+                always_filters: vec![],
+                recheck_filters: vec![],
+                uses_tid_bitmap: false,
+                bitmap_consumer_id: None,
+                bitmap_cell: None,
             }
             .is_full_scan_query()
         );
@@ -2224,5 +2273,56 @@ mod tests {
             }
             .is_full_scan_query()
         );
+    }
+
+    #[pg_test]
+    fn read_only_and_mutable_visitors_follow_the_same_nodes_in_the_same_order() {
+        let query = SearchQueryInput::Boolean {
+            must: vec![SearchQueryInput::Boost {
+                query: Box::new(SearchQueryInput::All),
+                factor: 2.0,
+            }],
+            should: vec![SearchQueryInput::ScoreFilter {
+                bounds: vec![],
+                query: Some(Box::new(SearchQueryInput::ConstScore {
+                    query: Box::new(SearchQueryInput::Empty),
+                    score: 1.0,
+                })),
+            }],
+            must_not: vec![SearchQueryInput::DisjunctionMax {
+                disjuncts: vec![SearchQueryInput::WithIndex {
+                    oid: 42.into(),
+                    query: Box::new(SearchQueryInput::HeapFilter {
+                        indexed_query: Box::new(SearchQueryInput::Parse {
+                            query_string: "term".into(),
+                            lenient: None,
+                            conjunction_mode: None,
+                        }),
+                        always_filters: vec![],
+                        recheck_filters: vec![],
+                        uses_tid_bitmap: false,
+                        bitmap_consumer_id: None,
+                        bitmap_cell: None,
+                    }),
+                }],
+                tie_breaker: None,
+            }],
+            minimum_should_match: None,
+        };
+
+        let mut read_only_order = Vec::new();
+        query.visit_ref(&mut |node| {
+            read_only_order.push(std::mem::discriminant(node));
+        });
+
+        let mut mutable_query = query.clone();
+        let mut mutable_order = Vec::new();
+        mutable_query.visit(&mut |node| {
+            mutable_order.push(std::mem::discriminant(node));
+        });
+
+        assert_eq!(read_only_order.len(), 10);
+        assert_eq!(read_only_order, mutable_order);
+        assert_eq!(query, mutable_query);
     }
 }

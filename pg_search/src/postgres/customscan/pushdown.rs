@@ -60,7 +60,7 @@ unsafe fn is_ltree_descendant_operator(
     CStr::from_ptr(op_name).to_bytes() == b"<@"
 }
 
-/// Pushdown PostgreSQL ltree descendant operator `<@` to the BM25 index.
+/// Pushdown PostgreSQL ltree descendant operator `<@` to the ParadeDB index.
 ///
 /// Converts:
 ///
@@ -311,7 +311,7 @@ pub unsafe fn try_build_pushdown_qual(
 
     match lookup_operator(opexpr.opno()) {
         Some(pgsearch_operator) => {
-            // can't push down tokenized text (but NumericBytes fields are stored as text with raw tokenizer)
+            // can't push down tokenized text (but NumericBytes fields are untokenized decimal-bytes)
             if (search_field.is_text() || opexpr.is_text_binary())
                 && !search_field.is_keyword()
                 && !search_field.is_numeric_bytes()
@@ -361,7 +361,7 @@ pub unsafe fn try_build_pushdown_qual(
     }
 }
 
-/// Pushdown JSONB `?` (exists) operator to BM25 index.
+/// Pushdown JSONB `?` (exists) operator to ParadeDB index.
 ///
 /// Converts `data ? 'key'` to equivalent of `id @@@ paradedb.exists('data.key')`.
 /// For nested paths like `data->'nested' ? 'key'`, produces `data.nested.key`.

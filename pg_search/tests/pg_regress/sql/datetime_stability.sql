@@ -26,7 +26,7 @@ INSERT INTO events (description, occurred_at, occurred_at_tz) VALUES
     ('echo event',    '2024-01-05 14:00:00', '2024-01-05 14:00:00+00');
 
 CREATE INDEX events_idx ON events
-USING bm25 (id, description, occurred_at, occurred_at_tz)
+USING paradedb (id, description, occurred_at, occurred_at_tz)
 WITH (
     key_field = 'id',
     text_fields = '{"description": {}}'

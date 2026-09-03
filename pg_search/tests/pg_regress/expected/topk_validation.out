@@ -1,5 +1,5 @@
 -- Test Top K scan validation feature
--- This test validates that paradedb.check_topk_scan correctly warns when
+-- This test validates that paradedb.planner_warnings correctly warns or errors when
 -- queries with LIMIT cannot use Top K scan optimization
 \i common/common_setup.sql
 CREATE EXTENSION IF NOT EXISTS pg_search;
@@ -8,14 +8,14 @@ SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 SET paradedb.enable_columnar_exec = true;
 -- Create test table with appropriate data
-CALL paradedb.create_bm25_test_table(
+CALL paradedb.create_paradedb_test_table(
   schema_name => 'public',
   table_name => 'test_products'
 );
 -- Scenario 1: Index WITHOUT lower() but query uses lower() in ORDER BY
--- This should trigger a warning when check_topk_scan is enabled
+-- This should trigger a warning when planner_warnings is enabled
 CREATE INDEX products_base_idx ON test_products
-USING bm25 (id, description, category, rating)
+USING paradedb (id, description, category, rating)
 WITH (
     key_field='id',
     text_fields='{
@@ -24,10 +24,10 @@ WITH (
     }',
     numeric_fields='{"rating": {"fast": true}}'
 );
--- Test 1: Validation OFF (default) - should not warn
+-- Test 1: Validation OFF - should not warn
 \echo 'Test 1: Validation OFF (no warning expected)'
 Test 1: Validation OFF (no warning expected)
-SET paradedb.check_topk_scan = false;
+SET paradedb.planner_warnings = 'off';
 SELECT id, description FROM test_products
 WHERE description @@@ 'shoes'
 ORDER BY description  -- Missing fast field
@@ -39,15 +39,15 @@ LIMIT 5;
   4 | White jogging shoes
 (3 rows)
 
--- Test 2: Enable validation - should warn about missing fast field
-\echo 'Test 2: Validation ON - warning expected (ORDER BY not a fast field)'
-Test 2: Validation ON - warning expected (ORDER BY not a fast field)
-SET paradedb.check_topk_scan = true;
+-- Test 2: Enable validation (warning mode) - should warn about missing fast field
+\echo 'Test 2: Validation WARNING - warning expected (ORDER BY not a fast field)'
+Test 2: Validation WARNING - warning expected (ORDER BY not a fast field)
+SET paradedb.planner_warnings = 'warning';
 SELECT id, description FROM test_products
 WHERE description @@@ 'shoes'
 ORDER BY description  -- Not marked as fast
 LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: test_products)
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: test_products)
  id |     description     
 ----+---------------------
   5 | Generic shoes
@@ -74,7 +74,7 @@ LIMIT 5;
 -- Test 4: Too many ORDER BY columns
 DROP INDEX products_base_idx;
 CREATE INDEX products_multi_idx ON test_products
-USING bm25 (id, description, category, rating, created_at, last_updated_date)
+USING paradedb (id, description, category, rating, created_at, last_updated_date)
 WITH (
     key_field='id',
     text_fields='{
@@ -89,7 +89,7 @@ SELECT id FROM test_products
 WHERE category @@@ 'electronics'
 ORDER BY rating DESC, created_at DESC, id DESC, category DESC, description DESC, last_updated_date DESC  -- 6 columns, max is 5
 LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: ORDER BY has 6 columns but Top K supports maximum 5. This may cause poor performance on large datasets. Remedies: Reduce ORDER BY columns to 5 or fewer. To disable this warning: SET paradedb.check_topk_scan = false (table: test_products)
+WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: ORDER BY has 6 columns but Top K supports maximum 5. This may cause poor performance on large datasets. Remedies: Reduce ORDER BY columns to 5 or fewer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: test_products)
  id 
 ----
 (0 rows)
@@ -97,7 +97,7 @@ WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead).
 -- Test 5: Query with lower() mismatch
 DROP INDEX products_multi_idx;
 CREATE INDEX products_lower_idx ON test_products
-USING bm25 (id, description, (lower(category)::pdb.literal), rating)
+USING paradedb (id, description, (lower(category)::pdb.literal), rating)
 WITH (
     key_field='id'
 );
@@ -117,7 +117,7 @@ SELECT id, category FROM test_products
 WHERE category === 'Electronics'
 ORDER BY category DESC  -- Doesn't match - index has lower()
 LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: test_products)
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: test_products)
  id | category 
 ----+----------
 (0 rows)
@@ -140,7 +140,7 @@ SELECT id FROM test_products
 WHERE category === 'Electronics'
 ORDER BY category DESC  -- Should warn
 LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: test_products)
+WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: test_products)
                                                 QUERY PLAN                                                 
 -----------------------------------------------------------------------------------------------------------
  Limit
@@ -154,10 +154,40 @@ WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead).
                Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"Electronics"}}}}
 (9 rows)
 
--- Test 8: Disable validation mid-session
-\echo 'Test 8: Disable validation (no warning)'
-Test 8: Disable validation (no warning)
-SET paradedb.check_topk_scan = false;
+-- Test 8: Error mode - query fails, but EXPLAIN succeeds with warnings
+\echo 'Test 8: Error mode'
+Test 8: Error mode
+SET paradedb.planner_warnings = 'error';
+-- EXPLAIN should succeed and show warnings
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM test_products
+WHERE category === 'Electronics'
+ORDER BY category DESC
+LIMIT 10;
+WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: test_products)
+                                                QUERY PLAN                                                 
+-----------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: category DESC
+         ->  Custom Scan (ParadeDB Base Scan) on test_products
+               Table: test_products
+               Index: products_lower_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"Electronics"}}}}
+(9 rows)
+
+-- Direct SELECT should fail with ERROR
+SELECT id FROM test_products
+WHERE category === 'Electronics'
+ORDER BY category DESC
+LIMIT 10;
+ERROR:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: test_products)
+-- Test 9: Disable validation mid-session
+\echo 'Test 9: Disable validation (no warning)'
+Test 9: Disable validation (no warning)
+SET paradedb.planner_warnings = 'off';
 SELECT id FROM test_products
 WHERE category === 'Electronics'
 ORDER BY category DESC  -- No warning now
@@ -167,6 +197,7 @@ LIMIT 10;
 (0 rows)
 
 -- Cleanup
+RESET paradedb.planner_warnings;
 DROP INDEX products_lower_idx;
 DROP TABLE test_products;
 \i common/common_cleanup.sql

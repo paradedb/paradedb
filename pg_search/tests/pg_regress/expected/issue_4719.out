@@ -43,7 +43,7 @@ INSERT INTO issue_4719_companies (id, body) VALUES
     (10, 'co'), (20, 'co'), (30, 'co');
 CREATE INDEX issue_4719_people_idx
     ON issue_4719_people
-    USING bm25 (id, company_id, body)
+    USING paradedb (id, company_id, body)
     WITH (
         key_field = 'id',
         numeric_fields = '{"company_id": {"fast": true}}',
@@ -51,7 +51,7 @@ CREATE INDEX issue_4719_people_idx
     );
 CREATE INDEX issue_4719_experiences_idx
     ON issue_4719_experiences
-    USING bm25 (id, person_id, company_id, body)
+    USING paradedb (id, person_id, company_id, body)
     WITH (
         key_field = 'id',
         numeric_fields = '{"person_id": {"fast": true}, "company_id": {"fast": true}}',
@@ -59,7 +59,7 @@ CREATE INDEX issue_4719_experiences_idx
     );
 CREATE INDEX issue_4719_companies_idx
     ON issue_4719_companies
-    USING bm25 (id, body)
+    USING paradedb (id, body)
     WITH (
         key_field = 'id',
         text_fields = '{"body": {"fast": true}}'
@@ -84,8 +84,8 @@ WHERE p.id NOT IN (
        OR p.company_id IN (SELECT c.id FROM issue_4719_companies c))
 ORDER BY p.id DESC
 LIMIT 26;
-                                                                                                 QUERY PLAN                                                                                                  
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id
    ->  Custom Scan (ParadeDB Join Scan)
@@ -101,14 +101,15 @@ LIMIT 26;
            :     FilterExec: mark@3 OR company_id@1 IS NULL, projection=[ctid_0@0, id@2]
            :       HashJoinExec: mode=CollectLeft, join_type=LeftMark, on=[(company_id@1, id@0)]
            :         VisibilityFilterExec: tables=[p]
-           :           HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@2, person_id@0)], null_aware
-           :             CooperativeExec
-           :               PgSearchScan: segments=1, dynamic_filters=1, query="all"
-           :             CooperativeExec
-           :               PgSearchScan: segments=1, dynamic_filters=1, query={"term_set":{"terms":[{"field":"company_id","value":10},{"field":"company_id","value":20},{"field":"company_id","value":50}]}}
+           :           TantivyLookupExec: decode=[], fetch=[ctid_0]
+           :             HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@2, person_id@0)], null_aware
+           :               CooperativeExec
+           :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query="all"
+           :               CooperativeExec
+           :                 PgSearchScan: table=x, segments=1, visibility=eager, query={"term_set":{"terms":[{"field":"company_id","value":10},{"field":"company_id","value":20},{"field":"company_id","value":50}]}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(22 rows)
+           :           PgSearchScan: table=c, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(23 rows)
 
 SELECT p.id
 FROM issue_4719_people p

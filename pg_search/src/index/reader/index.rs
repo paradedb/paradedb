@@ -20,6 +20,7 @@ use std::collections::BTreeMap;
 use std::fmt::{Debug, Display};
 use std::path::PathBuf;
 use std::ptr::NonNull;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
@@ -27,8 +28,10 @@ use crate::api::operator::keyset::KeySet;
 use crate::api::version::Version;
 use crate::api::{FieldName, HashMap, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::FFHelper;
-use crate::index::mvcc::MvccSatisfies;
+use crate::index::mvcc::{MVCCDirectory, MvccSatisfies, SegmentView};
+use crate::index::reader::io_stats;
 use crate::index::reader::scorer::{DeferredScorer, LazyWeight, ScorerIter};
+use crate::index::reader::sort_by_range::SortByRange;
 use crate::index::setup_tokenizers;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
@@ -38,7 +41,7 @@ use crate::postgres::storage::metadata::MetaPage;
 use crate::query::SearchQueryInput;
 use crate::query::estimate_tree::QueryWithEstimates;
 use crate::scan::info::RowEstimate;
-use crate::schema::SearchIndexSchema;
+use crate::schema::{SearchFieldType, SearchIndexSchema};
 
 use anyhow::Result;
 use tantivy::aggregation::DistributedAggregationCollector;
@@ -302,6 +305,10 @@ impl MultiSegmentSearchResults {
             lazy_estimated_rows: None,
         }
     }
+
+    pub fn searcher(&self) -> &Searcher {
+        &self.searcher
+    }
 }
 
 impl Iterator for MultiSegmentSearchResults {
@@ -334,11 +341,16 @@ impl Iterator for MultiSegmentSearchResults {
 pub struct TopKAuxiliaryCollector {
     /// If aggregations should be computed alongside Top K, the collector to use.
     pub aggregation_collector: DistributedAggregationCollector,
-    /// If MVCC filtering should be applied, then the visibility checker to use for that.
+    /// If MVCC filtering should be applied up front, then the visibility checker to use for that.
     ///
-    /// Note: If enabled, visibility checking is applied to _both_ the Top K and to any
+    /// Note: If set, visibility checking is applied to _both_ the Top K and to any
     /// aggregation collector: this is because once you've bothered to filter for MVCC, you might
     /// as well feed the filtered result to Top K too.
+    ///
+    /// `None` means either that MVCC filtering was not requested, or that it is solved lazily
+    /// inside `aggregation_collector` (cardinality-only over string fields). In both cases Top K
+    /// gets no pre-filtering here: the caller must verify visibility of the results and re-query
+    /// if necessary, exactly as when no auxiliary collector is present.
     pub vischeck: Option<VisibilityChecker>,
 }
 
@@ -354,6 +366,9 @@ pub struct SearchIndexReader {
     total_docs: u64,
     index_created_by_version: Option<Version>,
     segment_ordinal_by_id: HashMap<SegmentId, SegmentOrdinal>,
+    /// The directory `underlying_index` opened over; kept to capture this reader's
+    /// [`SegmentView`].
+    directory: MVCCDirectory,
 
     // [`PinnedBuffer`] has a Drop impl, so we hold onto it but don't otherwise use it
     //
@@ -362,11 +377,25 @@ pub struct SearchIndexReader {
     _cleanup_lock: Arc<PinnedBuffer>,
 }
 
-/// A queryless snapshot of visible segments used to capture canonical manifests for parallel
-/// JoinScan initialization without requiring executor state.
-pub struct SearchIndexManifest {
-    searcher: Searcher,
-    _cleanup_lock: Arc<PinnedBuffer>,
+/// A queryless snapshot of visible segments used to initialize parallel JoinScan and
+/// AggregateScan sources without requiring executor state. Clones are cheap handles to the same
+/// backend-local components, keeping the captured segment set and its pins alive together.
+#[derive(Clone)]
+pub struct SearchIndexManifest(Rc<SearchIndexManifestInner>);
+
+struct SearchIndexManifestInner {
+    components: IndexComponents,
+}
+
+impl std::fmt::Debug for SearchIndexManifest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SearchIndexManifest")
+            .field(
+                "segments",
+                &self.components().searcher.segment_readers().len(),
+            )
+            .finish_non_exhaustive()
+    }
 }
 
 impl Clone for SearchIndexReader {
@@ -383,13 +412,76 @@ impl Clone for SearchIndexReader {
             total_docs: self.total_docs,
             index_created_by_version: self.index_created_by_version,
             segment_ordinal_by_id: self.segment_ordinal_by_id.clone(),
+            directory: self.directory.clone(),
             _cleanup_lock: self._cleanup_lock.clone(),
         }
     }
 }
 
+#[cfg(any(test, feature = "pg_test"))]
+pub(crate) mod test_support {
+    use super::PgSearchRelation;
+    use pgrx::Spi;
+    use std::sync::atomic::AtomicUsize;
+
+    /// How many times the index was actually opened (metadata walk, pins, searcher build).
+    /// Tests use it to prove reuse paths perform zero additional opens.
+    pub(crate) static INDEX_COMPONENT_OPENS: AtomicUsize = AtomicUsize::new(0);
+
+    /// Test fixture shared by the reuse/laziness tests: a table + ParadeDB index laid out as
+    /// `immutable_batches` frozen segments of 10 rows (batch 0's titles contain "silver dragon",
+    /// later batches "quiet river"), plus an optional 5-row mutable segment. Returns the opened
+    /// index relation and the heap relation's OID.
+    pub(crate) fn segmented_index_fixture(
+        name: &str,
+        immutable_batches: usize,
+        with_mutable: bool,
+    ) -> (PgSearchRelation, pgrx::pg_sys::Oid) {
+        let mut sql = format!(
+            "CREATE TABLE {name} (id bigint PRIMARY KEY, title text NOT NULL);
+             CREATE INDEX {name}_idx ON {name} USING paradedb (id, title)
+             WITH (key_field = 'id', target_segment_count = 8, background_layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;"
+        );
+        for batch in 0..immutable_batches {
+            let (lo, hi) = (batch * 10 + 1, batch * 10 + 10);
+            let words = if batch == 0 {
+                "silver dragon"
+            } else {
+                "quiet river"
+            };
+            sql.push_str(&format!(
+                "INSERT INTO {name} SELECT g, '{words} ' || g FROM generate_series({lo}, {hi}) g;"
+            ));
+        }
+        if with_mutable {
+            let lo = immutable_batches * 10 + 1;
+            sql.push_str(&format!(
+                "SET paradedb.global_mutable_segment_rows = 10000;
+                 INSERT INTO {name} SELECT g, 'mutable ' || g FROM generate_series({lo}, {}) g;",
+                lo + 4
+            ));
+        }
+        sql.push_str("RESET paradedb.global_mutable_segment_rows;");
+        Spi::run(&sql).expect("fixture setup");
+        unsafe { pgrx::pg_sys::CommandCounterIncrement() };
+
+        let index_oid =
+            Spi::get_one::<pgrx::pg_sys::Oid>(&format!("SELECT '{name}_idx'::regclass::oid"))
+                .unwrap()
+                .unwrap();
+        let heap_oid =
+            Spi::get_one::<pgrx::pg_sys::Oid>(&format!("SELECT '{name}'::regclass::oid"))
+                .unwrap()
+                .unwrap();
+        (PgSearchRelation::open(index_oid), heap_oid)
+    }
+}
+
+#[derive(Clone)]
 struct IndexComponents {
     cleanup_lock: Arc<PinnedBuffer>,
+    directory: MVCCDirectory,
     index: Index,
     reader: IndexReader,
     searcher: Searcher,
@@ -404,6 +496,8 @@ impl SearchIndexReader {
         mvcc_style: MvccSatisfies,
         needs_tokenizer_manager: bool,
     ) -> Result<IndexComponents> {
+        #[cfg(any(test, feature = "pg_test"))]
+        test_support::INDEX_COMPONENT_OPENS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let cleanup_lock = Arc::new(MetaPage::open(index_relation).cleanup_lock_pinned());
 
         let directory = mvcc_style.directory(index_relation);
@@ -427,6 +521,7 @@ impl SearchIndexReader {
 
         Ok(IndexComponents {
             cleanup_lock,
+            directory,
             index,
             reader,
             searcher,
@@ -471,10 +566,64 @@ impl SearchIndexReader {
         planstate: Option<NonNull<pgrx::pg_sys::PlanState>>,
         needs_tokenizer_manager: bool,
     ) -> Result<Self> {
+        // Derive the tokenizer need from the query as well as the caller's flag: a caller
+        // passing `false` alongside a query that tokenizes must not silently parse wrong.
+        let needs_tokenizer_manager =
+            needs_tokenizer_manager || search_query_input.needs_tokenizer();
         let components =
             Self::open_index_components(index_relation, mvcc_style, needs_tokenizer_manager)?;
+        Self::from_components(
+            index_relation,
+            components,
+            search_query_input,
+            need_scores,
+            expr_context,
+            planstate,
+        )
+    }
+
+    /// Build a reader over `manifest`'s already-open components: same searcher, same frozen
+    /// segment set, no additional I/O. A fresh open would also install the index's
+    /// tokenizers, so [`register_tokenizers`] does that here, into the managers the
+    /// manifest's searcher already shares.
+    ///
+    /// [`register_tokenizers`]: crate::index::search::register_tokenizers
+    pub fn from_manifest(
+        manifest: &SearchIndexManifest,
+        index_relation: &PgSearchRelation,
+        search_query_input: SearchQueryInput,
+        need_scores: bool,
+        expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
+        needs_tokenizer_manager: bool,
+    ) -> Result<Self> {
+        if needs_tokenizer_manager || search_query_input.needs_tokenizer() {
+            crate::index::search::register_tokenizers(
+                index_relation,
+                &manifest.components().index,
+            )?;
+        }
+        Self::from_components(
+            index_relation,
+            manifest.components().clone(),
+            search_query_input,
+            need_scores,
+            expr_context,
+            None,
+        )
+    }
+
+    /// The shared tail of [`Self::open_with_context`] and [`Self::from_manifest`].
+    fn from_components(
+        index_relation: &PgSearchRelation,
+        components: IndexComponents,
+        search_query_input: SearchQueryInput,
+        need_scores: bool,
+        expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
+        planstate: Option<NonNull<pgrx::pg_sys::PlanState>>,
+    ) -> Result<Self> {
         let IndexComponents {
             cleanup_lock,
+            directory,
             index,
             reader,
             searcher,
@@ -523,6 +672,7 @@ impl SearchIndexReader {
             total_docs,
             index_created_by_version,
             segment_ordinal_by_id: segment_ord_by_id,
+            directory,
             _cleanup_lock: cleanup_lock,
         })
     }
@@ -533,6 +683,12 @@ impl SearchIndexReader {
             .iter()
             .map(|r| r.segment_id())
             .collect()
+    }
+
+    /// This reader's segment view, for other readers to replay through
+    /// [`MvccSatisfies::ParallelWorker`].
+    pub fn segment_view(&self) -> SegmentView {
+        SegmentView::capture(self.searcher.segment_readers(), &self.directory)
     }
 
     pub fn need_scores(&self) -> bool {
@@ -559,6 +715,32 @@ impl SearchIndexReader {
     pub fn and_query_input(&self, query: &SearchQueryInput) -> Self {
         let tantivy_query = self.make_query(query, None);
         self.and_query(tantivy_query)
+    }
+
+    /// Compiles a tantivy `Weight` for a tagged search query.
+    pub fn compile_match_weight(
+        &self,
+        query_input: &SearchQueryInput,
+        need_scores: bool,
+    ) -> tantivy::Result<Box<dyn tantivy::query::Weight>> {
+        let tantivy_query = self.make_query(query_input, None);
+        tantivy_query.weight(enable_scoring(need_scores, self.searcher()))
+    }
+
+    /// Count matched docs by summing `Weight::count` across segments.
+    ///
+    /// For term-like queries (term, or term wrapped in boost/const-score) on
+    /// segments without deletes this reads the stored doc_freq from the term
+    /// dictionary without touching postings; other queries drain their
+    /// docsets without scoring or collection overhead. Counts raw index
+    /// entries: no MVCC filtering.
+    pub fn count_matched_docs(&self) -> tantivy::Result<u64> {
+        let weight = self.weight();
+        let mut total = 0u64;
+        for segment_reader in self.searcher.segment_readers() {
+            total += u64::from(weight.count(segment_reader)?);
+        }
+        Ok(total)
     }
 
     pub fn weight(&self) -> Box<dyn Weight> {
@@ -869,9 +1051,10 @@ impl SearchIndexReader {
     /// The documents are returned in either score or field order, in the given direction: at least
     /// one `OrderByInfo` must be defined.
     ///
-    /// If a TopKAuxiliaryCollector is provided, this method can optionally pre-filter for MVCC
-    /// visibility: if a collector is _not_ provided, then it is up to the caller to filter the
-    /// results for MVCC visibility, and re-query if necessary.
+    /// If a TopKAuxiliaryCollector with a vischeck is provided, this method pre-filters for MVCC
+    /// visibility. Otherwise — no auxiliary collector, or one whose vischeck is `None` because
+    /// MVCC is solved lazily inside its aggregation collector — it is up to the caller to filter
+    /// the results for MVCC visibility, and re-query if necessary.
     ///
     /// `parallel_state_holding_shared_threshold` should only be passed if we intend to query with a shared_threshold
     ///
@@ -923,6 +1106,24 @@ impl SearchIndexReader {
                         ))
                         .into()
                     }};
+                }
+
+                // A range is indexed as a tantivy JSON object, so `value_type()` below reports
+                // `Type::Json`, which no arm handles — it would reach the catch-all `panic!`.
+                // Dispatch on the Postgres type instead: tantivy cannot distinguish a range's
+                // JSON from a user-supplied JSON column, and only the former is sortable (see
+                // `SearchField::is_sortable`). `SortByRange` compares the bound sub-columns the
+                // way Postgres' `range_cmp` does.
+                if matches!(field.field_type(), SearchFieldType::Range(_)) {
+                    return TopKSearchResults::new_for_discarded_field(self.top_in_segments(
+                        segment_ids,
+                        (SortByRange::for_field(sort_field), order),
+                        erased_features,
+                        n,
+                        offset,
+                        aux_collector,
+                    ))
+                    .into();
                 }
 
                 match field.field_entry().field_type().value_type() {
@@ -1012,6 +1213,10 @@ impl SearchIndexReader {
                 ..
             } => unreachable!("NullTest ORDER BY is only used in JoinScan"),
             OrderByInfo {
+                feature: OrderByFeature::ScoreSum { .. },
+                ..
+            } => unreachable!("ScoreSum ORDER BY is only used in JoinScan"),
+            OrderByInfo {
                 feature:
                     OrderByFeature::VectorDistance {
                         name, query_vector, ..
@@ -1032,6 +1237,11 @@ impl SearchIndexReader {
                     .resolved()
                     .expect("vector ORDER BY query vector was never resolved")
                     .to_vec();
+                // Testing knob: push the GUC's work-model open cost into
+                // tantivy so this search's probe budget reflects it.
+                tantivy::vector::set_fixed_probe_cost_rows(
+                    crate::gucs::vector_fixed_probe_cost_rows(),
+                );
                 let collector = TopDocs::with_limit(n)
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
@@ -1088,7 +1298,8 @@ impl SearchIndexReader {
                     ),
                 };
                 let segment_ids = collected_ids.into_inner();
-                let segment_info = probe_stats_to_segment_info(&segment_ids, &fruit.stats);
+                let mut segment_info = probe_stats_to_segment_info(&segment_ids, &fruit.stats);
+                io_stats::attach(&mut segment_info);
                 TopKSearch::with_segment_info(
                     TopKSearchResults::new_for_score(fruit.results, aggregation_results),
                     segment_info,
@@ -1580,7 +1791,8 @@ impl SearchIndexReader {
                     direction,
                 } => {
                     // NOTE: The list of supported field types for `SortByErasedType` must be synced with
-                    // `SearchField::is_sortable`.
+                    // `SearchField::is_sortable`, except Range: `is_sortable` accepts it, but only as
+                    // the leading key, which `sortable_at_position` enforces before we get here.
                     erased_features
                         .push_feature(SortByErasedType::for_field(sort_field), *direction);
                 }
@@ -1598,6 +1810,10 @@ impl SearchIndexReader {
                     feature: OrderByFeature::NullTest { .. },
                     ..
                 } => unreachable!("NullTest ORDER BY is only used in JoinScan"),
+                OrderByInfo {
+                    feature: OrderByFeature::ScoreSum { .. },
+                    ..
+                } => unreachable!("ScoreSum ORDER BY is only used in JoinScan"),
                 OrderByInfo {
                     feature: OrderByFeature::VectorDistance { .. },
                     ..
@@ -1645,11 +1861,14 @@ impl SearchIndexReader {
         collector: &C,
         weight: &dyn Weight,
     ) -> Vec<<<C as Collector>::Child as SegmentCollector>::Fruit> {
+        io_stats::reset();
         self.segment_readers_in_segments(segment_ids)
             .map(|(segment_ord, segment_reader)| {
-                collector
+                let fruit = collector
                     .collect_segment(weight, segment_ord, segment_reader)
-                    .expect("should be able to collect in segment")
+                    .expect("should be able to collect in segment");
+                io_stats::end_segment(segment_reader.segment_id());
+                fruit
             })
             .collect()
     }
@@ -1658,18 +1877,24 @@ impl SearchIndexReader {
 /// Shape-only inspection — never reads segment contents. The planning-time
 /// gate relies on this to use a one-segment (`LargestSegment`) reader.
 impl SearchIndexManifest {
+    fn components(&self) -> &IndexComponents {
+        &self.0.components
+    }
+
     /// Capture the currently visible segment set without building a search query.
     pub fn capture(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Result<Self> {
         let components =
             SearchIndexReader::open_index_components(index_relation, mvcc_style, false)?;
-        Ok(Self {
-            searcher: components.searcher,
-            _cleanup_lock: components.cleanup_lock,
-        })
+        Ok(Self(Rc::new(SearchIndexManifestInner { components })))
     }
 
-    pub fn segment_readers(&self) -> &[SegmentReader] {
-        self.searcher.segment_readers()
+    /// This manifest's segment view, for other readers to replay through
+    /// [`MvccSatisfies::ParallelWorker`].
+    pub fn segment_view(&self) -> SegmentView {
+        SegmentView::capture(
+            self.components().searcher.segment_readers(),
+            &self.components().directory,
+        )
     }
 }
 
@@ -1728,5 +1953,92 @@ impl ErasedFeatures {
             OwnedValue::Null => None,
             _ => panic!("expected a f64 for the score"),
         })
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::test_support::{INDEX_COMPONENT_OPENS, segmented_index_fixture};
+    use super::*;
+    use pgrx::prelude::*;
+
+    /// `from_manifest` must reuse the capture's open (zero additional index opens) and must
+    /// still install the index's tokenizers: the `Parse` query below matches rows only if
+    /// the shared managers now hold them.
+    #[pg_test]
+    fn from_manifest_reuses_the_captured_open() {
+        let (index_rel, _heap) = segmented_index_fixture("manifest_reuse_test", 2, false);
+        let manifest = SearchIndexManifest::capture(&index_rel, MvccSatisfies::Snapshot)
+            .expect("manifest capture");
+        assert!(
+            manifest.segment_view().len() >= 2,
+            "fixture must span several segments"
+        );
+
+        let opens_before = INDEX_COMPONENT_OPENS.load(std::sync::atomic::Ordering::Relaxed);
+        let reader = SearchIndexReader::from_manifest(
+            &manifest,
+            &index_rel,
+            SearchQueryInput::Parse {
+                query_string: "title:silver".to_string(),
+                lenient: None,
+                conjunction_mode: None,
+            },
+            /* need_scores */ false,
+            None,
+            /* needs_tokenizer_manager */ true,
+        )
+        .expect("from_manifest");
+
+        assert_eq!(
+            INDEX_COMPONENT_OPENS.load(std::sync::atomic::Ordering::Relaxed),
+            opens_before,
+            "building a reader from a manifest must not open the index again"
+        );
+        assert_eq!(
+            reader.segment_view(),
+            manifest.segment_view(),
+            "the reader replays the capture's frozen segment set"
+        );
+        assert_eq!(
+            reader.search().count(),
+            10,
+            "the tokenized query resolves through the registered tokenizers"
+        );
+
+        // Registration must reach managers shared with the already-built searcher (execution
+        // paths like MoreLikeThis and fast-field normalization look tokenizers up through it,
+        // not through the parse-time index handle).
+        use tantivy::tokenizer::{RawTokenizer, TextAnalyzer};
+        let probe = || TextAnalyzer::from(RawTokenizer::default());
+        manifest
+            .components()
+            .index
+            .tokenizers()
+            .register("test_probe", probe());
+        manifest
+            .components()
+            .index
+            .fast_field_tokenizer()
+            .register("test_probe", probe());
+        assert!(
+            reader
+                .searcher()
+                .index()
+                .tokenizers()
+                .get("test_probe")
+                .is_some(),
+            "registering into the manifest's manager must be visible through the searcher"
+        );
+        assert!(
+            reader
+                .searcher()
+                .index()
+                .fast_field_tokenizer()
+                .get("test_probe")
+                .is_some(),
+            "the fast-field manager must be shared the same way"
+        );
     }
 }

@@ -43,7 +43,7 @@ CREATE TABLE pages (
     FOREIGN KEY (fileId) REFERENCES files(id)
 );
 -- Create BM25 indexes with fast fields
-CREATE INDEX documents_search ON documents USING bm25 (
+CREATE INDEX documents_search ON documents USING paradedb (
     id,
     title,
     parents,
@@ -52,7 +52,7 @@ CREATE INDEX documents_search ON documents USING bm25 (
     key_field = 'id',
     text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
-CREATE INDEX files_search ON files USING bm25 (
+CREATE INDEX files_search ON files USING paradedb (
     id,
     documentId,
     title,
@@ -62,7 +62,7 @@ CREATE INDEX files_search ON files USING bm25 (
     key_field = 'id',
     text_fields = '{"documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
-CREATE INDEX pages_search ON pages USING bm25 (
+CREATE INDEX pages_search ON pages USING paradedb (
     id,
     fileId,
     content,
@@ -177,8 +177,8 @@ EXPLAIN (COSTS OFF) SELECT d.id, d.title, d.parents,
 FROM documents d
 WHERE d.parents @@@ 'Factures'
 ORDER BY d.id;
-                                                                                                                                              QUERY PLAN                                                                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Gather Merge
    Workers Planned: 1
    ->  Sort
@@ -194,12 +194,15 @@ ORDER BY d.id;
            ->  Custom Scan (ParadeDB Base Scan) on files f
                  Table: files
                  Index: files_search
+                 Bitmap Intersection: files_pkey
                  Exec Method: TopKScanExecState
                  Scores: true
                     TopK Order By: pdb.score() desc
                     TopK Limit: 1
-                 Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(documentid = $1)"}]}}]}}
-(20 rows)
+                 Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(documentid = $1)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
+                 ->  Bitmap Index Scan on files_pkey
+                       Index Cond: (documentid = d.id)
+(23 rows)
 
 SELECT d.id, d.title, d.parents,
        (

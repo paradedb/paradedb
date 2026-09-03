@@ -7,12 +7,13 @@
 set -Eeuo pipefail
 
 SUITE_DIR=/home/app/stressgres/suites
-STRESSGRES=/home/app/target/x86_64-unknown-linux-gnu/dst/stressgres
+STRESSGRES=/symbols/stressgres
+PARADEDB_ADMIN_CONN="postgresql://postgres:antithesis-super-secret-password@paradedb-rw:5432/paradedb?connect_timeout=5"
 
 # The paired singleton_driver runs this symlink; each first_ repoints it at its own suite.
 WORKLOAD_LINK=/tmp/stressgres-workload.toml
 
-# Point a single-server suite at paradedb-rw. The connection-string query params are
+# Point a single-node suite at paradedb-rw. The connection-string query params are
 # fail-fast timeouts so a dropped socket lands inside the reconnect-grace window.
 rewrite_single() {
   sed -i 's|\[server\.style\.Automatic\]|[server.style.With]\nconnection_string = "postgresql://postgres:antithesis-super-secret-password@paradedb-rw:5432/paradedb?connect_timeout=5\&keepalives=1\&keepalives_idle=5\&keepalives_interval=2\&keepalives_count=3\&tcp_user_timeout=15"|' "$1"
@@ -24,9 +25,23 @@ rewrite_publisher() {
   sed -i -z 's|\[server\.style\.Automatic\]\npostgresql_conf = "Publisher"|[server.style.With]\nconnection_string = "postgresql://postgres:antithesis-super-secret-password@logical-replication-publisher:5432/postgres?connect_timeout=5\&keepalives=1\&keepalives_idle=5\&keepalives_interval=2\&keepalives_count=3\&tcp_user_timeout=15"|' "$1"
 }
 
-# Point a suite's subscriber at paradedb-rw (the CNPG primary, has pg_search).
+# Point the first remaining subscriber in a suite at a database on paradedb-rw. Repeated calls
+# rewrite successive subscribers because each replacement removes its `postgresql_conf` marker.
+rewrite_subscriber_database() {
+  local path="$1" database="$2"
+  sed -i -z "s|\[server\.style\.Automatic\]\npostgresql_conf = \"Subscriber\"|[server.style.With]\nconnection_string = \"postgresql://postgres:antithesis-super-secret-password@paradedb-rw:5432/${database}?connect_timeout=5\&keepalives=1\&keepalives_idle=5\&keepalives_interval=2\&keepalives_count=3\&tcp_user_timeout=15\"|" "${path}"
+}
+
+# Point a suite's subscriber at the default database on paradedb-rw.
 rewrite_subscriber() {
-  sed -i -z 's|\[server\.style\.Automatic\]\npostgresql_conf = "Subscriber"|[server.style.With]\nconnection_string = "postgresql://postgres:antithesis-super-secret-password@paradedb-rw:5432/paradedb?connect_timeout=5\&keepalives=1\&keepalives_idle=5\&keepalives_interval=2\&keepalives_count=3\&tcp_user_timeout=15"|' "$1"
+  rewrite_subscriber_database "$1" paradedb
+}
+
+create_database_if_missing() {
+  local database="$1"
+  if [[ "$(psql "${PARADEDB_ADMIN_CONN}" -At -v ON_ERROR_STOP=1 -c "SELECT 1 FROM pg_database WHERE datname = '${database}'")" != "1" ]]; then
+    psql "${PARADEDB_ADMIN_CONN}" -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"${database}\""
+  fi
 }
 
 # Point a suite's WAL receiver at paradedb-ro, the CNPG read-only service. Enterprise runs a
@@ -37,14 +52,19 @@ rewrite_wal_receiver() {
 
 # Point a logical-replication suite at its publisher and subscriber.
 rewrite_pub_sub() {
-  rewrite_publisher  "$1"
+  rewrite_publisher "$1"
   rewrite_subscriber "$1"
 }
 
-# vanilla-postgres.toml hardcodes a localhost connection string rather than
-# server.style.Automatic, so it needs its own rewrite.
-rewrite_vanilla() {
-  sed -i 's|postgresql://postgres:postgres@localhost:5432/postgres|postgresql://postgres:antithesis-super-secret-password@paradedb-rw:5432/paradedb?connect_timeout=5\&keepalives=1\&keepalives_idle=5\&keepalives_interval=2\&keepalives_count=3\&tcp_user_timeout=15|g' "$1"
+# Give each logical subscriber its own database on the CNPG primary. They share the faulted
+# PostgreSQL instance but maintain independent subscriptions, tables, indexes, and replay state.
+rewrite_pub_multi_sub() {
+  local path="$1"
+  rewrite_publisher "${path}"
+  create_database_if_missing stressgres_subscriber_a
+  create_database_if_missing stressgres_subscriber_b
+  rewrite_subscriber_database "${path}" stressgres_subscriber_a
+  rewrite_subscriber_database "${path}" stressgres_subscriber_b
 }
 
 # Point <toml> at its cluster(s) using <topology>, build its schema fault-free, and publish
@@ -58,18 +78,25 @@ setup() {
   # A _phys topology adds a physical replica streaming from paradedb-rw: sub_phys is that
   # WAL sender/receiver pair on its own, pub_sub_phys hangs it off a logical subscriber.
   case "${topology}" in
-    single)       rewrite_single     "${path}" ;;
-    pub_sub)      rewrite_pub_sub    "${path}" ;;
-    vanilla)      rewrite_vanilla    "${path}" ;;
-    sub_phys)     rewrite_subscriber "${path}"; rewrite_wal_receiver "${path}" ;;
-    pub_sub_phys) rewrite_pub_sub    "${path}"; rewrite_wal_receiver "${path}" ;;
-    *) echo "unknown topology: ${topology}" >&2; exit 1 ;;
+    single) rewrite_single "${path}" ;;
+    pub_sub) rewrite_pub_sub "${path}" ;;
+    pub_multi_sub) rewrite_pub_multi_sub "${path}" ;;
+    sub_phys)
+      rewrite_subscriber "${path}"
+      rewrite_wal_receiver "${path}"
+      ;;
+    pub_sub_phys)
+      rewrite_pub_sub "${path}"
+      rewrite_wal_receiver "${path}"
+      ;;
+    *)
+      echo "unknown topology: ${topology}" >&2
+      exit 1
+      ;;
   esac
 
-  echo ""
-  echo "Waiting 60s for the ParadeDB cluster to initialize..."
-  sleep 60
-
+  # antithesis-bootstrap-gate.yaml holds the fault-free bootstrap phase open until paradedb-rw
+  # accepts connections, so no fixed wait is needed here.
   echo ""
   echo "Building schema for ${toml}..."
   "${STRESSGRES}" headless "${path}" --setup-only --reconnect-grace 200000

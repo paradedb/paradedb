@@ -18,7 +18,7 @@ INSERT INTO books (all_titles) VALUES
     (ARRAY['The Dragon Chronicles', 'Rise of the Phoenix', 'Ancient Legends']);
 
 CREATE INDEX idx_books ON books
-USING bm25 (id, all_titles)
+USING paradedb (id, all_titles)
 WITH (
     key_field = 'id',
     text_fields = '{

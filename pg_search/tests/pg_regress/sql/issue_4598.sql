@@ -9,7 +9,7 @@ INSERT INTO issue_4598_repro (id, mock_text, mock_hash)
 SELECT i, 'test content ' || i, md5(i::text)
 FROM generate_series(1, 1000) i;
 
-CREATE INDEX issue_4598_idx ON issue_4598_repro USING bm25 (id, mock_text, mock_hash) WITH (key_field=id);
+CREATE INDEX issue_4598_idx ON issue_4598_repro USING paradedb (id, mock_text, mock_hash) WITH (key_field=id);
 
 -- force parallel execution
 SET max_parallel_workers_per_gather = 2;

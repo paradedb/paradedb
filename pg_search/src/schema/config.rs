@@ -345,7 +345,7 @@ impl From<SearchFieldConfig> for TextOptions {
             } => {
                 validate_bm25_indexed(indexed, k1, b);
                 if fast {
-                    text_options = text_options.set_fast(Some(normalizer.name()));
+                    text_options = text_options.set_fast(normalizer.name());
                 }
                 if indexed {
                     let text_field_indexing = TextFieldIndexing::default()
@@ -356,12 +356,12 @@ impl From<SearchFieldConfig> for TextOptions {
                     text_options = text_options.set_indexing_options(text_field_indexing);
                 }
             }
-            // NumericBytes fields are stored as hex-encoded text strings.
+            // NumericBytes fields are stored as decimal-bytes columns.
             // They don't need tokenization since they're exact values.
             SearchFieldConfig::Numeric { indexed, fast, .. } => {
                 if fast {
                     // Use raw normalizer for hex strings (no transformation needed)
-                    text_options = text_options.set_fast(Some("raw"));
+                    text_options = text_options.set_fast("raw");
                 }
                 if indexed {
                     // Use raw tokenizer (no tokenization) for exact matching
@@ -447,7 +447,7 @@ impl From<SearchFieldConfig> for JsonObjectOptions {
             } => {
                 validate_bm25_indexed(indexed, k1, b);
                 if fast {
-                    json_options = json_options.set_fast(Some(normalizer.name()));
+                    json_options = json_options.set_fast(normalizer.name());
                 }
                 if expand_dots {
                     json_options = json_options.set_expand_dots_enabled();
@@ -465,7 +465,7 @@ impl From<SearchFieldConfig> for JsonObjectOptions {
                 // Range must be indexed and fast to be searchable
                 let text_field_indexing = TextFieldIndexing::default();
                 json_options = json_options.set_indexing_options(text_field_indexing);
-                json_options = json_options.set_fast(Some("raw"));
+                json_options = json_options.set_fast("raw");
             }
             _ => {
                 panic!("attempted to convert non-json search field config to tantivy json config")

@@ -111,7 +111,7 @@ impl GraceWindow {
 /// Substrings that identify a transient connectivity failure when all we have is a
 /// stringified error (e.g. one already flattened by `format_postgres_error`).
 ///
-/// The `(sqlstate: ...` needles must mirror the connection-class codes in
+/// The `(sqlstate: ...` needles must mirror [`dst::is_connection_lost_sqlstate`] via
 /// [`is_transient_connection_error`]; this is the fallback for errors that have lost
 /// their structured `postgres::Error`, so keep the two lists in sync.
 const TRANSIENT_ERROR_NEEDLES: &[&str] = &[
@@ -157,13 +157,7 @@ fn message_looks_transient(msg: &str) -> bool {
 /// SQLSTATE and no `is_closed()` signal, so needle matching alone would miss it).
 fn is_transient_connection_error(e: &postgres::Error) -> bool {
     match e.as_db_error() {
-        Some(db) => {
-            let code = db.code().code();
-            // Class 08 = connection exception; 57P0x = operator/crash shutdown,
-            // "cannot connect now" (server starting up / shutting down), and idle-session
-            // timeout — all cases where the connection is gone and reconnecting is right.
-            code.starts_with("08") || matches!(code, "57P01" | "57P02" | "57P03" | "57P05")
-        }
+        Some(db) => dst::is_connection_lost_sqlstate(db.code().code()),
         // Client-side/transport failure: no answer from the server, so it never got
         // far enough to be a logical bug. Treat it as transient.
         None => true,
@@ -234,10 +228,19 @@ pub(crate) fn tolerate_transient<T>(
     let mut backoff = INITIAL_RECONNECT_BACKOFF;
     let mut down_since: Option<Instant> = None;
     let mut last_grace: Option<Duration> = None;
+    let mut rode_out_fault = false;
     loop {
         let mut progress = TransientProgress::default();
         match op(&mut progress) {
-            Ok(value) => return Ok(Some(value)),
+            Ok(value) => {
+                dst::assert_reachable!("stressgres: completed a database operation");
+                if rode_out_fault {
+                    dst::assert_reachable!(
+                        "stressgres: made forward progress after riding out a transient database fault"
+                    );
+                }
+                return Ok(Some(value));
+            }
             Err(e) if !is_transient_error(&e) => return Err(e),
             Err(e) => {
                 let grace = grace.current();
@@ -280,6 +283,7 @@ pub(crate) fn tolerate_transient<T>(
                     )));
                 }
                 dst::assert_reachable!("stressgres retried a transient database fault");
+                rode_out_fault = true;
                 eprintln!("stressgres: transient database fault, retrying: {e:#}");
                 interruptible_sleep(alive, backoff);
                 backoff = (backoff * 2).min(MAX_RECONNECT_BACKOFF);

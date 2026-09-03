@@ -50,7 +50,7 @@ INSERT INTO logs (description, severity, category, response_time, unindexed_metr
     ('Invalid authentication token', 'error', 'security', 15, 170, 401, '2024-01-01 10:14:00'),
     ('Suspicious activity detected', 'critical', 'security', 25, 171, 403, '2024-01-01 10:19:00');
 
-CREATE INDEX logs_idx ON logs USING bm25 (id, description, severity, category, response_time, status_code, timestamp)
+CREATE INDEX logs_idx ON logs USING paradedb (id, description, severity, category, response_time, status_code, timestamp)
 WITH (
     key_field = 'id',
     text_fields = '{"description": {}, "severity": {"fast": true}, "category": {"fast": true}}',
@@ -742,8 +742,7 @@ SET paradedb.enable_custom_scan TO on;
 
 -- Test 48: pdb.agg() as window function with WHERE clause when filter_pushdown is disabled
 -- The custom scan will reject queries where quals can't be extracted
--- Result: Query executes correctly via PostgreSQL (not custom scan), returns filtered results
--- This is SAFE behavior - WHERE clause is applied correctly, no silent data loss
+-- Result: Planner throws an error because the custom scan is required to execute pdb.agg()
 SET paradedb.enable_filter_pushdown TO off;
 EXPLAIN SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
 FROM logs
@@ -758,8 +757,8 @@ ORDER BY timestamp DESC
 LIMIT 1;
 
 -- Test 49: pdb.agg() with exact text match WHERE clause and filter_pushdown enabled
--- With filter_pushdown ON, the custom scan should handle this via Qual::All + PostgreSQL filtering
--- Result: Custom scan uses Qual::All, PostgreSQL applies WHERE clause filter, returns correct results
+-- With filter_pushdown ON, the custom scan should handle this via HeapExpr retention
+-- Result: Custom scan evaluates the WHERE clause via Tantivy's heap_filter
 SET paradedb.enable_filter_pushdown TO on;
 EXPLAIN SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
 FROM logs
@@ -804,13 +803,29 @@ ORDER BY timestamp DESC
 LIMIT 1;
 SET paradedb.enable_filter_pushdown TO off;
 
--- Test 51: pdb.agg() as window function with @@@ WHERE clause
+-- Test 53: pdb.agg() as window function with @@@ WHERE clause
 -- Currently requires filter_pushdown because we can't determine at planner time
 -- if ALL predicates are pushable (conservative approach to prevent silent data loss)
 SET paradedb.enable_filter_pushdown TO on;
 SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
 FROM logs
 WHERE description @@@ 'error'
+ORDER BY timestamp DESC
+LIMIT 1;
+
+-- Test 54: pdb.agg() as window function with volatile function in WHERE clause
+-- Result: Planner throws an error because volatile functions cannot be pushed down safely
+SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+FROM logs
+WHERE description = 'Database connection error' AND random() > -1
+ORDER BY timestamp DESC
+LIMIT 1;
+
+-- Test 55: pdb.agg() as window function with subplan in WHERE clause
+-- Result: Planner throws an error because subqueries cannot be evaluated inside a custom scan
+SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+FROM logs
+WHERE description = (SELECT description FROM logs l2 WHERE l2.id = logs.id ORDER BY id LIMIT 1)
 ORDER BY timestamp DESC
 LIMIT 1;
 
@@ -874,7 +889,7 @@ INSERT INTO products (description, category, brand, rating, price) VALUES
     ('Toy laptop', 'Toys', 'Fisher Price', 3, 29.99);
 
 CREATE INDEX products_idx ON products
-USING bm25 (id, description, category, brand, rating, price)
+USING paradedb (id, description, category, brand, rating, price)
 WITH (
     key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}, "brand": {"fast": true}}',
@@ -1106,7 +1121,7 @@ INSERT INTO mvcc_test (description, category, value) VALUES
 
 -- Create index BEFORE deleting - so deleted docs remain in the index
 CREATE INDEX mvcc_test_idx ON mvcc_test
-USING bm25 (id, description, category, value)
+USING paradedb (id, description, category, value)
 WITH (
     key_field = 'id',
     text_fields = '{"description": {}, "category": {"fast": true}}',
@@ -1274,7 +1289,7 @@ INSERT INTO test_window_order VALUES
 (2, 'B', 10),
 (3, 'C', 20);
 
-CREATE INDEX idx_window_order ON test_window_order USING bm25 (id, name, group_id) WITH (key_field='id');
+CREATE INDEX idx_window_order ON test_window_order USING paradedb (id, name, group_id) WITH (key_field='id');
 
 -- NOTE: This query can _not_ be pushed down, because `name` is not fast/columnar.
 SELECT
@@ -1315,7 +1330,7 @@ INSERT INTO agg_param_test (description, category)
 SELECT 'document ' || i, (ARRAY['a','b','c'])[1 + (i % 3)]
 FROM generate_series(1, 100) AS i;
 CREATE INDEX agg_param_test_idx ON agg_param_test
-USING bm25 (id, description, category)
+USING paradedb (id, description, category)
 WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
 
 -- Baseline: constant JSON literal pushes through AggregateScan.
@@ -1344,3 +1359,24 @@ SELECT 1 AS backend_still_alive;
 DEALLOCATE agg_param_g;
 RESET plan_cache_mode;
 DROP TABLE agg_param_test;
+
+\echo '--- pdb.agg inside CTE with outer GROUP BY on non-BM25 table ---'
+CREATE TABLE cte_bm25_logs (id INT, description TEXT, category TEXT);
+INSERT INTO cte_bm25_logs VALUES (1, 'error event', 'cat1'), (2, 'warning event', 'cat2');
+CREATE INDEX cte_bm25_logs_idx ON cte_bm25_logs USING bm25 (id, description, category) WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
+
+CREATE TABLE cte_plain_tbl (cat TEXT);
+INSERT INTO cte_plain_tbl VALUES ('cat1'), ('cat2');
+
+WITH facets AS (
+    SELECT id, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () AS agg
+    FROM cte_bm25_logs WHERE description @@@ 'error' ORDER BY id DESC LIMIT 1
+)
+SELECT p.cat, count(*), (SELECT f.agg FROM facets f LIMIT 1)
+FROM cte_plain_tbl p
+GROUP BY p.cat
+ORDER BY p.cat;
+
+DROP TABLE cte_bm25_logs;
+DROP TABLE cte_plain_tbl;
+

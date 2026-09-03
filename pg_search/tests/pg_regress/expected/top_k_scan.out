@@ -68,7 +68,7 @@ SELECT
 FROM generate_series(1, 10000) i;
 -- Create a search index with various field types
 CREATE INDEX records_search_idx ON records
-USING bm25 (
+USING paradedb (
     id, notes, flow_type, tenant_id, state, source_id, 
     is_active, metadata, value_range, time_period, created_at, updated_at, 
     tags, process_method, currency_code, recipient_id, 
@@ -99,7 +99,6 @@ USING bm25 (
 ======== EXECUTION METHOD TESTS ========
 \echo 'Tests to identify when TopKScanExecState vs NormalScanExecState is used'
 Tests to identify when TopKScanExecState vs NormalScanExecState is used
--- TODO: Many queries won't get Top K due to https://github.com/paradedb/paradedb/issues/2688
 -- Test 1: Simple query with LIMIT (should use TopKScanExecState)
 \echo 'Test 1: Simple query with LIMIT (should use TopKScanExecState)'
 Test 1: Simple query with LIMIT (should use TopKScanExecState)
@@ -137,18 +136,17 @@ WHERE tenant_id = 'tenant-1'
   AND (id @@@ paradedb.all())
 ORDER BY time_period DESC
 LIMIT 25;
-WARNING:  Query has LIMIT 25 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: records)
-                                                                                                                                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                              
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: time_period DESC
-         ->  Custom Scan (ParadeDB Base Scan) on records
-               Table: records
-               Index: records_search_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true}},{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"source_id"}},"score":0.0}}],"must_not":[{"parse_with_field":{"field":"source_id","query_string":"IN [source-1 source-2 source-3]","lenient":null,"conjunction_mode":null}}]}}}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"removed_at"}}]}}}},{"with_index":{"query":"all"}},{"term":{"field":"tenant_id","value":"tenant-1"}}]}}
+   ->  Custom Scan (ParadeDB Base Scan) on records
+         Table: records
+         Index: records_search_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: time_period desc
+            TopK Limit: 25
+         Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true}},{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"source_id"}},"score":0.0}}],"must_not":[{"parse_with_field":{"field":"source_id","query_string":"IN [source-1 source-2 source-3]","lenient":null,"conjunction_mode":null}}]}}}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"removed_at"}}]}}}},{"with_index":{"query":"all"}},{"term":{"field":"tenant_id","value":"tenant-1"}}]}}
 (9 rows)
 
 -- Test 3: Same query without paradedb.all() operator
@@ -165,18 +163,17 @@ WHERE tenant_id = 'tenant-1'
   AND (NOT id @@@ paradedb.exists('removed_at'))
 ORDER BY time_period DESC
 LIMIT 25;
-WARNING:  Query has LIMIT 25 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: records)
-                                                                                                                                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: time_period DESC
-         ->  Custom Scan (ParadeDB Base Scan) on records
-               Table: records
-               Index: records_search_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true}},{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"source_id"}},"score":0.0}}],"must_not":[{"parse_with_field":{"field":"source_id","query_string":"IN [source-1 source-2 source-3]","lenient":null,"conjunction_mode":null}}]}}}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"removed_at"}}]}}}},{"term":{"field":"tenant_id","value":"tenant-1"}}]}}
+   ->  Custom Scan (ParadeDB Base Scan) on records
+         Table: records
+         Index: records_search_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: time_period desc
+            TopK Limit: 25
+         Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true}},{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"source_id"}},"score":0.0}}],"must_not":[{"parse_with_field":{"field":"source_id","query_string":"IN [source-1 source-2 source-3]","lenient":null,"conjunction_mode":null}}]}}}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"removed_at"}}]}}}},{"term":{"field":"tenant_id","value":"tenant-1"}}]}}
 (9 rows)
 
 -- Test 4: Testing the impact of paradedb.all() alone
@@ -257,18 +254,17 @@ WHERE tenant_id = 'tenant-1'
   AND id @@@ paradedb.match('notes', 'check')
 ORDER BY time_period DESC
 LIMIT 25;
-WARNING:  Query has LIMIT 25 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: records)
-                                                                                                                                                         QUERY PLAN                                                                                                                                                          
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                      QUERY PLAN                                                                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: time_period DESC
-         ->  Custom Scan (ParadeDB Base Scan) on records
-               Table: records
-               Index: records_search_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}},{"term":{"field":"tenant_id","value":"tenant-1"}}]}}
+   ->  Custom Scan (ParadeDB Base Scan) on records
+         Table: records
+         Index: records_search_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: time_period desc
+            TopK Limit: 25
+         Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}},{"term":{"field":"tenant_id","value":"tenant-1"}}]}}
 (9 rows)
 
 -- Test 8: Testing with each complex component isolated
@@ -314,18 +310,17 @@ WHERE tenant_id = 'tenant-1'
   AND (id @@@ paradedb.all())
 ORDER BY time_period DESC
 LIMIT 25;
-WARNING:  Query has LIMIT 25 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: records)
-                                                                                                                                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                              
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: time_period DESC
-         ->  Custom Scan (ParadeDB Base Scan) on records
-               Table: records
-               Index: records_search_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true}},{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"source_id"}},"score":0.0}}],"must_not":[{"parse_with_field":{"field":"source_id","query_string":"IN [source-1 source-2 source-3]","lenient":null,"conjunction_mode":null}}]}}}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"removed_at"}}]}}}},{"with_index":{"query":"all"}},{"term":{"field":"tenant_id","value":"tenant-1"}}]}}
+   ->  Custom Scan (ParadeDB Base Scan) on records
+         Table: records
+         Index: records_search_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: time_period desc
+            TopK Limit: 25
+         Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true}},{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"source_id"}},"score":0.0}}],"must_not":[{"parse_with_field":{"field":"source_id","query_string":"IN [source-1 source-2 source-3]","lenient":null,"conjunction_mode":null}}]}}}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"removed_at"}}]}}}},{"with_index":{"query":"all"}},{"term":{"field":"tenant_id","value":"tenant-1"}}]}}
 (9 rows)
 
 -- Test 10: Fast-field only solution - selecting only indexed fast fields
@@ -339,18 +334,17 @@ WHERE tenant_id = 'tenant-1'
   AND (id @@@ paradedb.match('notes', 'check'))
 ORDER BY time_period DESC
 LIMIT 25;
-WARNING:  Query has LIMIT 25 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: records)
-                                                                                                                                                         QUERY PLAN                                                                                                                                                          
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                      QUERY PLAN                                                                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: time_period DESC
-         ->  Custom Scan (ParadeDB Base Scan) on records
-               Table: records
-               Index: records_search_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}},{"term":{"field":"tenant_id","value":"tenant-1"}}]}}
+   ->  Custom Scan (ParadeDB Base Scan) on records
+         Table: records
+         Index: records_search_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: time_period desc
+            TopK Limit: 25
+         Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}},{"term":{"field":"tenant_id","value":"tenant-1"}}]}}
 (9 rows)
 
 -- Test 11: ORDER BY on column containing NULL.
@@ -433,7 +427,7 @@ FROM records
 WHERE id @@@ paradedb.all()
 ORDER BY state, flow_type, currency_code, tenant_id, source_id, id
     LIMIT 25;
-WARNING:  Query has LIMIT 25 but is not using Top K scan (using Normal instead). Reason: ORDER BY has 6 columns but Top K supports maximum 5. This may cause poor performance on large datasets. Remedies: Reduce ORDER BY columns to 5 or fewer. To disable this warning: SET paradedb.check_topk_scan = false (table: records)
+WARNING:  Query has LIMIT 25 but is not using Top K scan (using Normal instead). Reason: ORDER BY has 6 columns but Top K supports maximum 5. This may cause poor performance on large datasets. Remedies: Reduce ORDER BY columns to 5 or fewer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: records)
                                  QUERY PLAN                                  
 -----------------------------------------------------------------------------
  Limit

@@ -58,6 +58,37 @@ pub fn init() {
 #[cfg(not(feature = "enabled"))]
 pub fn init() {}
 
+/// Whether a Postgres SQLSTATE means the connection is gone and reconnecting is the right
+/// response: class 08 (connection exception), operator/crash shutdown, "cannot connect now"
+/// (server starting up or shutting down), and idle-session timeout. Shared by the stressgres and
+/// qgen workloads so their transient-fault classifications cannot drift. (stressgres additionally
+/// keeps a stringified-needle fallback in `fault_tolerance::TRANSIENT_ERROR_NEEDLES`, which must
+/// mirror this list.)
+pub fn is_connection_lost_sqlstate(code: &str) -> bool {
+    code.starts_with("08") || matches!(code, "57P01" | "57P02" | "57P03" | "57P05")
+}
+
+#[cfg(test)]
+mod sqlstate_tests {
+    use super::is_connection_lost_sqlstate;
+
+    #[test]
+    fn connection_class_and_shutdown_codes_are_lost() {
+        for code in [
+            "08000", "08006", "08P01", "57P01", "57P02", "57P03", "57P05",
+        ] {
+            assert!(is_connection_lost_sqlstate(code), "{code}");
+        }
+    }
+
+    #[test]
+    fn query_and_data_errors_are_not_lost() {
+        for code in ["57014", "40001", "40P01", "23505", "42601", ""] {
+            assert!(!is_connection_lost_sqlstate(code), "{code}");
+        }
+    }
+}
+
 // The leading `debug_assert` / `type_only` keyword selects the SDK-off lowering (see crate docs).
 // `$d` is bound to `$` so a generated macro can name its own metavariables (the escape for a macro
 // that defines a macro).
@@ -107,7 +138,7 @@ macro_rules! define_condition_assert {
         #[macro_export]
         macro_rules! $name {
             ($d condition:expr, $d message:literal, $d details:expr) => {
-                ::core::debug_assert!($d condition, "{}: {:?}", $d message, $d details)
+                ::core::debug_assert!($d condition, "{}: {}", $d message, $d details)
             };
             ($d condition:expr, $d message:literal) => {
                 ::core::debug_assert!($d condition, "{}", $d message)
@@ -164,7 +195,7 @@ macro_rules! define_message_assert {
         #[macro_export]
         macro_rules! $name {
             ($d message:literal, $d details:expr) => {
-                ::core::debug_assert!(false, "{}: {:?}", $d message, $d details)
+                ::core::debug_assert!(false, "{}: {}", $d message, $d details)
             };
             ($d message:literal) => {
                 ::core::debug_assert!(false, "{}", $d message)
@@ -353,10 +384,26 @@ mod tests {
 
     #[cfg(all(not(feature = "enabled"), debug_assertions))]
     #[test]
-    #[should_panic(expected = "reached an impossible state")]
-    fn reached_unreachable_panics_in_debug() {
+    #[should_panic(expected = "always-false correctness assert: {\"key\":\"value\"}")]
+    fn failing_assert_always_with_details_panics_in_debug() {
         crate::observe!(|| {
-            assert_unreachable!("reached an impossible state");
+            assert_always!(
+                false,
+                "always-false correctness assert",
+                &::serde_json::json!({ "key": "value" })
+            );
+        });
+    }
+
+    #[cfg(all(not(feature = "enabled"), debug_assertions))]
+    #[test]
+    #[should_panic(expected = "reached an impossible state: {\"key\":\"value\"}")]
+    fn reached_unreachable_with_details_panics_in_debug() {
+        crate::observe!(|| {
+            assert_unreachable!(
+                "reached an impossible state",
+                &::serde_json::json!({ "key": "value" })
+            );
         });
     }
 }

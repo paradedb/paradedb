@@ -35,7 +35,7 @@ FROM generate_series(1, 100) i;
 -- Create search index with multiple fast fields
 DROP INDEX IF EXISTS limit_topk_idx;
 CREATE INDEX limit_topk_idx ON limit_topk_test
-USING bm25 (id, title, description, rating, price, category, is_available)
+USING paradedb (id, title, description, rating, price, category, is_available)
 WITH (
     key_field = 'id',
     text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}, "fast": true}, "category": {"tokenizer": {"type": "keyword"}, "fast": true}}',

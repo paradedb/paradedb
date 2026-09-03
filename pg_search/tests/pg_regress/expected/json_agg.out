@@ -21,7 +21,7 @@ INSERT INTO json_test (metadata_json) VALUES
     ('{"value": "banana", "count": 8}'::JSONB);
 -- Create BM25 index with JSON field as fast field
 CREATE INDEX json_test_idx ON json_test
-USING bm25 (id, metadata_json)
+USING paradedb (id, metadata_json)
 WITH (
     key_field = 'id',
     json_fields = '{"metadata_json": {"indexed": true, "fast": true, "expand_dots": true}}'
@@ -128,7 +128,7 @@ FROM json_test
 WHERE id @@@ paradedb.exists('metadata_json.value')
 GROUP BY metadata_json->>'value'
 ORDER BY value;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_test)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test)
  value  | count | min_count | max_count 
 --------+-------+-----------+-----------
  apple  |     3 |         2 |         5
@@ -148,7 +148,7 @@ SELECT * FROM paradedb.aggregate(
     index=>'json_test_idx',
     query=>paradedb.exists('metadata_json.value'),
     agg=>'{"buckets": { "terms": { "field": "metadata_json.value" }}}',
-    solve_mvcc=>true
+    visibility=>'transaction'
 ) ORDER BY 1;
                                                                                                              aggregate                                                                                                             
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------

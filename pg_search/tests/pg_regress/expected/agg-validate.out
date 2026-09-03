@@ -34,7 +34,7 @@ INSERT INTO mock_items (description, rating, created_at) VALUES
     ('Laptop bag', 4, '2024-01-05 14:00:00');
 -- Create index with specific fields
 CREATE INDEX mock_items_idx ON mock_items
-USING bm25 (id, description, rating, created_at)
+USING paradedb (id, description, rating, created_at)
 WITH (
     key_field = 'id',
     text_fields = '{"description": {}}',
@@ -124,12 +124,12 @@ SELECT *, pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER ()
 FROM mock_items
 WHERE id @@@ pdb.all()
 ORDER BY id DESC LIMIT 3;
-                                                                                                                                    QUERY PLAN                                                                                                                                    
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                      QUERY PLAN                                                                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, description, rating, created_at, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   Output: id, description, rating, created_at, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Transaction"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Base Scan) on public.mock_items
-         Output: id, description, rating, created_at, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Output: id, description, rating, created_at, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Transaction"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: mock_items
          Index: mock_items_idx
          Worker Selection: Cost model

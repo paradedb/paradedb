@@ -26,6 +26,7 @@ mod tests {
     use crate::query::SearchQueryInput;
     use crate::scan::execution_plan::PgSearchScanPlan;
     use crate::schema::SearchFieldType;
+    use datafusion::common::stats::Precision;
     use datafusion::execution::TaskContext;
     use datafusion::physical_plan::ExecutionPlan;
     use futures::StreamExt;
@@ -38,7 +39,7 @@ mod tests {
         Spi::run("INSERT INTO t (data) SELECT 'test ' || i FROM generate_series(1, 100) i;")
             .unwrap();
         Spi::run(
-            "CREATE INDEX t_idx ON t USING bm25(id, (data::pdb.simple)) WITH (key_field = 'id')",
+            "CREATE INDEX t_idx ON t USING paradedb (id, (data::pdb.simple)) WITH (key_field = 'id')",
         )
         .unwrap();
 
@@ -97,6 +98,7 @@ mod tests {
                 heap_relid: heap_oid.into(),
                 batch_size_hint: None,
                 score_needed: false,
+                scan_mode: crate::scan::ScanMode::all(),
             },
             ffhelper: ffhelper.into(),
             visibility: Box::new(visibility),
@@ -188,7 +190,7 @@ mod tests {
 
         Spi::run(
             "CREATE INDEX filter_test_idx ON filter_test
-             USING bm25(id, price, quantity)
+             USING paradedb (id, price, quantity)
              WITH (
                  key_field = 'id',
                  numeric_fields = '{\"price\": {\"fast\": true}, \"quantity\": {\"fast\": true}}'
@@ -235,7 +237,7 @@ mod tests {
         use filter_analyzer_helpers::{assert_exact, assert_unsupported};
 
         let fields = test_fields();
-        let analyzer = FilterAnalyzer::new(&fields, pgrx::pg_sys::InvalidOid);
+        let analyzer = FilterAnalyzer::new(&fields);
 
         // Equality
         assert_exact(&analyzer, &col("id").eq(lit(1i64)), "id = 1");
@@ -313,13 +315,7 @@ mod tests {
             index_oid: pg_sys::Oid,
             fields: Vec<WhichFastField>,
         ) -> Arc<PgSearchTableProvider> {
-            let mut scan_info = ScanInfo {
-                heap_rti: 1,
-                heaprelid: heap_oid,
-                indexrelid: index_oid,
-                query: crate::query::SearchQueryInput::All,
-                ..Default::default()
-            };
+            let mut scan_info = ScanInfo::new(1, heap_oid, index_oid, crate::scan::ScanMode::all());
 
             for (i, field) in fields.iter().enumerate() {
                 scan_info.add_field(i as pg_sys::AttrNumber, field.clone());
@@ -488,57 +484,57 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_range_partitioning_sample_build() {
+    fn test_range_partitioning_points_build() {
         use crate::api::FieldName;
         use crate::postgres::pdb_owned_value::PdbOwnedValue;
-        use crate::scan::range_partitioning::RangePartitioningSample;
+        use crate::scan::range_partitioning::RangeSplitPoints;
 
-        let sample = RangePartitioningSample {
+        let split_points = RangeSplitPoints {
             partition_by: FieldName::from("id"),
-            sample_points: vec![
+            points: vec![
                 PdbOwnedValue::I64(10),
                 PdbOwnedValue::I64(20),
                 PdbOwnedValue::I64(30),
             ],
         };
 
-        // Down-sample: target partitions (2) < sample size (4)
+        // Down-sample: target partitions (2) < points (4)
         // 2 partitions requires 1 split point.
-        // i=1: (1 * 3) / 2 = 1. sample_points[1] is 20.
-        let build_2 = sample.build(2);
+        // i=1: (1 * 3) / 2 = 1. points[1] is 20.
+        let build_2 = split_points.build(2);
         assert_eq!(build_2.split_points.len(), 1);
         assert_eq!(build_2.split_points[0], PdbOwnedValue::I64(20));
 
-        // Exact match: target partitions (4) == sample size (4)
+        // Exact match: target partitions (4) == points (4)
         // 4 partitions requires 3 split points.
-        let build_4 = sample.build(4);
+        let build_4 = split_points.build(4);
         assert_eq!(build_4.split_points.len(), 3);
-        assert_eq!(build_4.split_points, sample.sample_points);
+        assert_eq!(build_4.split_points, split_points.points);
 
-        // Up-sample / Pad: target partitions (6) > sample size (4)
-        // Since we cap at sample_points.len() + 1, it will generate 3 split points (4 partitions).
+        // Capped: target partitions (6) > points (4)
+        // Since we cap at points.len() + 1, it will generate 3 split points (4 partitions).
         // The remaining 2 partitions will yield empty streams at execution time.
-        let build_6 = sample.build(6);
+        let build_6 = split_points.build(6);
         assert_eq!(build_6.split_points.len(), 3);
         assert_eq!(build_6.split_points[0], PdbOwnedValue::I64(10));
         assert_eq!(build_6.split_points[1], PdbOwnedValue::I64(20));
         assert_eq!(build_6.split_points[2], PdbOwnedValue::I64(30));
 
         // Single partition (no splits)
-        let build_1 = sample.build(1);
+        let build_1 = split_points.build(1);
         assert_eq!(build_1.split_points.len(), 0);
     }
 
     #[pg_test]
-    fn test_range_partitioning_sample_nulls() {
+    fn test_range_partitioning_points_nulls() {
         use crate::api::FieldName;
         use crate::postgres::pdb_owned_value::PdbOwnedValue;
         use crate::query::SearchQueryInput;
-        use crate::scan::range_partitioning::RangePartitioningSample;
+        use crate::scan::range_partitioning::RangeSplitPoints;
 
-        let sample = RangePartitioningSample {
+        let split_points = RangeSplitPoints {
             partition_by: FieldName::from("id"),
-            sample_points: vec![
+            points: vec![
                 PdbOwnedValue::Null,
                 PdbOwnedValue::Null,
                 PdbOwnedValue::I64(10),
@@ -546,7 +542,7 @@ mod tests {
         };
 
         // Down-sample to 4 partitions: 3 split points
-        let build = sample.build(4);
+        let build = split_points.build(4);
         assert_eq!(build.split_points.len(), 3);
         assert_eq!(build.split_points[0], PdbOwnedValue::Null);
         assert_eq!(build.split_points[1], PdbOwnedValue::Null);
@@ -570,18 +566,18 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_range_partitioning_sample_all_nulls() {
+    fn test_range_partitioning_points_all_nulls() {
         use crate::api::FieldName;
         use crate::postgres::pdb_owned_value::PdbOwnedValue;
         use crate::query::SearchQueryInput;
-        use crate::scan::range_partitioning::RangePartitioningSample;
+        use crate::scan::range_partitioning::RangeSplitPoints;
 
-        let sample = RangePartitioningSample {
+        let split_points = RangeSplitPoints {
             partition_by: FieldName::from("id"),
-            sample_points: vec![PdbOwnedValue::Null, PdbOwnedValue::Null],
+            points: vec![PdbOwnedValue::Null, PdbOwnedValue::Null],
         };
 
-        let build = sample.build(3);
+        let build = split_points.build(3);
         assert_eq!(build.split_points.len(), 2);
         assert_eq!(build.split_points[0], PdbOwnedValue::Null);
         assert_eq!(build.split_points[1], PdbOwnedValue::Null);
@@ -600,22 +596,22 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_range_partitioning_sample_identical_values() {
+    fn test_range_partitioning_points_identical_values() {
         use crate::api::FieldName;
         use crate::postgres::pdb_owned_value::PdbOwnedValue;
         use crate::query::SearchQueryInput;
-        use crate::scan::range_partitioning::RangePartitioningSample;
+        use crate::scan::range_partitioning::RangeSplitPoints;
 
-        let sample = RangePartitioningSample {
+        let split_points = RangeSplitPoints {
             partition_by: FieldName::from("id"),
-            sample_points: vec![
+            points: vec![
                 PdbOwnedValue::I64(10),
                 PdbOwnedValue::I64(10),
                 PdbOwnedValue::I64(10),
             ],
         };
 
-        let build = sample.build(4);
+        let build = split_points.build(4);
         assert_eq!(build.split_points.len(), 3);
         assert_eq!(build.split_points[0], PdbOwnedValue::I64(10));
         assert_eq!(build.split_points[1], PdbOwnedValue::I64(10));
@@ -639,6 +635,7 @@ mod tests {
     }
 
     #[pg_test]
+    #[allow(deprecated)] // Exercises PgSearchScanPlan's DataFusion partition-statistics contract.
     fn test_range_partitioning_repartition() {
         let (heap_oid, index_oid) = get_relation_oids();
         let heap_rel = PgSearchRelation::open(heap_oid);
@@ -668,21 +665,22 @@ mod tests {
 
         let partition = crate::scan::execution_plan::ScanState {
             source_idx: None,
-            planner_estimated_rows: 0,
+            planner_estimated_rows: 100,
             scanner_config: crate::scan::execution_plan::ScannerConfig {
                 which_fast_fields: fields.clone(),
                 heap_relid: heap_oid.into(),
                 batch_size_hint: None,
                 score_needed: false,
+                scan_mode: crate::scan::ScanMode::all(),
             },
             ffhelper: ffhelper.into(),
             visibility: Box::new(visibility),
             reader: reader.clone(),
         };
 
-        let sample = crate::scan::range_partitioning::RangePartitioningSample {
+        let split_points = crate::scan::range_partitioning::RangeSplitPoints {
             partition_by: crate::api::FieldName::from("id"),
-            sample_points: vec![
+            points: vec![
                 crate::postgres::pdb_owned_value::PdbOwnedValue::I64(10),
                 crate::postgres::pdb_owned_value::PdbOwnedValue::I64(20),
                 crate::postgres::pdb_owned_value::PdbOwnedValue::I64(30),
@@ -701,7 +699,7 @@ mod tests {
             None,
             5,
             None,
-            Some(sample),
+            Some(split_points),
         );
 
         use datafusion::physical_plan::Partitioning;
@@ -724,18 +722,25 @@ mod tests {
             Partitioning::Range(_)
         ));
 
-        // 10 partitions exceed what the 4-point sample can bound: the plan keeps
-        // the requested count as UnknownPartitioning and the extra partitions
-        // execute as empty streams.
+        // 10 partitions exceed what 4 split points seat: the plan caps itself at 5 and still
+        // declares `Partitioning::Range`, so no task is empty.
         let plan_10 = plan.repartition(10).unwrap();
         assert_eq!(
             plan_10.properties().output_partitioning().partition_count(),
-            10
+            5
         );
         assert!(matches!(
             plan_10.properties().output_partitioning(),
-            Partitioning::UnknownPartitioning(_)
+            Partitioning::Range(_)
         ));
+        assert_eq!(
+            plan_10.partition_statistics(Some(0)).unwrap().num_rows,
+            Precision::Inexact(20)
+        );
+        assert_eq!(
+            plan_10.partition_statistics(Some(4)).unwrap().num_rows,
+            Precision::Inexact(20)
+        );
     }
 
     #[pg_test]
@@ -784,8 +789,8 @@ mod tests {
         };
         assert!(with_null.to_datafusion(&schema).is_none());
 
-        // The sampler's FFType-driven integer classification can yield U64 for an
-        // Int64 column; the lossless cross-representation is accepted.
+        // A split point can arrive as U64 for an Int64 column; the lossless
+        // cross-representation is accepted.
         let cross_int = RangePartitioning {
             partition_by: FieldName::from("id"),
             split_points: vec![PdbOwnedValue::U64(10)],
@@ -815,8 +820,11 @@ mod tests {
     }
 
     #[pg_test]
+    #[allow(deprecated)] // Exercises PgSearchScanPlan's DataFusion partition-statistics contract.
     fn test_range_partitioned_assigned_execution() {
+        use arrow_array::Int64Array;
         use datafusion::physical_plan::Partitioning;
+        use datafusion_proto::physical_plan::DefaultPhysicalProtoConverter;
 
         let (heap_oid, index_oid) = get_relation_oids();
         let heap_rel = PgSearchRelation::open(heap_oid);
@@ -846,12 +854,13 @@ mod tests {
 
         let scan_state = crate::scan::execution_plan::ScanState {
             source_idx: None,
-            planner_estimated_rows: 0,
+            planner_estimated_rows: 100,
             scanner_config: crate::scan::execution_plan::ScannerConfig {
                 which_fast_fields: fields.clone(),
                 heap_relid: heap_oid.into(),
                 batch_size_hint: None,
                 score_needed: false,
+                scan_mode: crate::scan::ScanMode::all(),
             },
             ffhelper: ffhelper.into(),
             visibility: Box::new(visibility),
@@ -860,16 +869,16 @@ mod tests {
 
         // Table t has ids 1..=100; split points [25, 50, 75] give partitions
         // (-inf, 25), [25, 50), [50, 75), [75, inf).
-        let sample = crate::scan::range_partitioning::RangePartitioningSample {
+        let split_points = crate::scan::range_partitioning::RangeSplitPoints {
             partition_by: crate::api::FieldName::from("id"),
-            sample_points: vec![
+            points: vec![
                 crate::postgres::pdb_owned_value::PdbOwnedValue::I64(25),
                 crate::postgres::pdb_owned_value::PdbOwnedValue::I64(50),
                 crate::postgres::pdb_owned_value::PdbOwnedValue::I64(75),
             ],
         };
 
-        let mut plan = PgSearchScanPlan::new(
+        let plan = PgSearchScanPlan::new(
             Some(scan_state),
             build_arrow_schema(&fields),
             SearchQueryInput::All,
@@ -880,41 +889,95 @@ mod tests {
             None,
             4,
             None,
-            Some(sample),
+            Some(split_points),
         );
-        // As one of four task variants: this one owns partition 1 alone.
-        plan.assigned_partition = Some(1);
 
+        // The planner-facing original retains all four global ranges. Only the variant sent to
+        // one distributed task advertises a single local partition.
         assert_eq!(plan.properties().output_partitioning().partition_count(), 4);
         assert!(matches!(
             plan.properties().output_partitioning(),
             Partitioning::Range(_)
         ));
+        assert_eq!(
+            plan.partition_statistics(None).unwrap().num_rows,
+            Precision::Inexact(100)
+        );
+        assert_eq!(
+            plan.partition_statistics(Some(1)).unwrap().num_rows,
+            Precision::Inexact(25)
+        );
+
+        // As one of four task variants: this one owns partition 1 alone.
+        let plan = plan.with_assigned_partition(1);
+
+        assert!(plan.repartition(2).is_err());
+        assert_eq!(plan.properties().output_partitioning().partition_count(), 1);
+        assert!(matches!(
+            plan.properties().output_partitioning(),
+            Partitioning::UnknownPartitioning(1)
+        ));
+        assert_eq!(
+            plan.partition_statistics(None).unwrap().num_rows,
+            Precision::Inexact(25)
+        );
+        assert_eq!(
+            plan.partition_statistics(Some(0)).unwrap().num_rows,
+            Precision::Inexact(25)
+        );
+        assert!(plan.partition_statistics(Some(1)).is_err());
+
+        // Dispatch must preserve the four global ranges even though this task-specialized
+        // variant advertises one local partition to DataFusion.
+        let proto_converter = DefaultPhysicalProtoConverter {};
+        let encoded = plan.encode_for_dispatch(&proto_converter).unwrap();
+        let task_context = TaskContext::default();
+        let plan = PgSearchScanPlan::decode_for_dispatch(
+            &encoded,
+            None,
+            None,
+            &task_context,
+            &proto_converter,
+        )
+        .unwrap();
+
+        assert_eq!(plan.properties().output_partitioning().partition_count(), 1);
+        assert!(matches!(
+            plan.properties().output_partitioning(),
+            Partitioning::UnknownPartitioning(1)
+        ));
+
+        // The specialized plan exposes only local partition 0. Rejecting another local
+        // partition must not consume the assigned global partition's execution state.
+        assert!(plan.execute(1, Arc::new(TaskContext::default())).is_err());
 
         let runtime = tokio::runtime::Builder::new_current_thread()
             .build()
             .unwrap();
-        let count_rows = |partition: usize| {
+        let collect_ids = |partition: usize| {
             let mut stream = plan
                 .execute(partition, Arc::new(TaskContext::default()))
                 .unwrap();
-            let mut rows = 0;
+            let mut ids = Vec::new();
             runtime.block_on(async {
                 while let Some(batch) = stream.next().await {
-                    rows += batch.unwrap().num_rows();
+                    let batch = batch.unwrap();
+                    let id_array = batch
+                        .column(1)
+                        .as_any()
+                        .downcast_ref::<Int64Array>()
+                        .expect("id should be an Int64Array");
+                    ids.extend(id_array.values().iter().copied());
                 }
             });
-            rows
+            ids.sort_unstable();
+            ids
         };
 
-        // Non-assigned partitions yield empty streams without touching the state, so
-        // the assigned partition still consumes it afterwards.
-        assert_eq!(count_rows(0), 0);
-        assert_eq!(count_rows(2), 0);
-        assert_eq!(count_rows(3), 0);
-        assert_eq!(count_rows(1), 25); // ids 25..=49
+        // Local partition 0 must map to global partition 1, not merely any 25-row range.
+        assert_eq!(collect_ids(0), (25_i64..50).collect::<Vec<_>>());
 
         // The state is consumed exactly once.
-        assert!(plan.execute(1, Arc::new(TaskContext::default())).is_err());
+        assert!(plan.execute(0, Arc::new(TaskContext::default())).is_err());
     }
 }

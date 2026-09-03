@@ -5,7 +5,7 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
 CREATE TABLE mock_items (id SERIAL PRIMARY KEY, description TEXT);
-CREATE INDEX search_idx ON mock_items USING bm25 (id, description) WITH (key_field = 'id');
+CREATE INDEX search_idx ON mock_items USING paradedb (id, description) WITH (key_field = 'id');
 
 INSERT INTO mock_items (description) VALUES ('keyboard');
 INSERT INTO mock_items (description) VALUES ('keyboard');

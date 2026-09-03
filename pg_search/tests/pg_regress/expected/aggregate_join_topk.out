@@ -45,14 +45,14 @@ INSERT INTO topk_tags (product_id, tag_name) VALUES
     (9, 'kids'), (9, 'education'),
     (10, 'cooking');
 CREATE INDEX topk_products_idx ON topk_products
-USING bm25 (id, description, category, price, rating)
+USING paradedb (id, description, category, price, rating)
 WITH (
     key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}',
     numeric_fields='{"price": {"fast": true}, "rating": {"fast": true}}'
 );
 CREATE INDEX topk_tags_idx ON topk_tags
-USING bm25 (id, product_id, tag_name)
+USING paradedb (id, product_id, tag_name)
 WITH (
     key_field='id',
     numeric_fields='{"product_id": {"fast": true}}',
@@ -67,8 +67,8 @@ FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
 GROUP BY p.category;
-                                                                                                                QUERY PLAN                                                                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                              QUERY PLAN                                                                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: p.category, (count(*))
    Backend: DataFusion
@@ -79,9 +79,9 @@ GROUP BY p.category;
      : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1]
      :     CooperativeExec
-     :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook","lenient":null,"conjunction_mode":null}}}}
+     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
-     :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
+     :       PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (13 rows)
 
 SELECT p.category, COUNT(*)
@@ -109,8 +109,8 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 3;
-                                                                                                                       QUERY PLAN                                                                                                                        
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                     QUERY PLAN                                                                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.category, (count(*))
    ->  Sort
@@ -127,9 +127,9 @@ LIMIT 3;
                  :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
                  :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1]
                  :       CooperativeExec
-                 :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook","lenient":null,"conjunction_mode":null}}}}
+                 :         PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook","lenient":null,"conjunction_mode":null}}}}
                  :       CooperativeExec
-                 :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+                 :         PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (19 rows)
 
 SELECT p.category, COUNT(*)
@@ -157,8 +157,8 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY SUM(p.price) DESC
 LIMIT 2;
-                                                                                                                       QUERY PLAN                                                                                                                        
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                     QUERY PLAN                                                                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.category, (sum(p.price))
    ->  Sort
@@ -175,9 +175,9 @@ LIMIT 2;
                  :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[sum(p_0.price) as agg_0]
                  :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, price@2]
                  :       CooperativeExec
-                 :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook","lenient":null,"conjunction_mode":null}}}}
+                 :         PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook","lenient":null,"conjunction_mode":null}}}}
                  :       CooperativeExec
-                 :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+                 :         PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (19 rows)
 
 SELECT p.category, SUM(p.price)
@@ -284,8 +284,8 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 1;
-                                                                                                                       QUERY PLAN                                                                                                                        
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                     QUERY PLAN                                                                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.category, (count(*))
    ->  Sort
@@ -302,9 +302,9 @@ LIMIT 1;
                  :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
                  :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1]
                  :       CooperativeExec
-                 :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook","lenient":null,"conjunction_mode":null}}}}
+                 :         PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook","lenient":null,"conjunction_mode":null}}}}
                  :       CooperativeExec
-                 :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+                 :         PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (19 rows)
 
 SELECT p.category, COUNT(*)
@@ -459,8 +459,8 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY p.category
 LIMIT 3;
-                                                                                                                                 QUERY PLAN                                                                                                                                 
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                              QUERY PLAN                                                                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: p.category
@@ -474,9 +474,9 @@ LIMIT 3;
                  :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
                  :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1]
                  :       CooperativeExec
-                 :         PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook","lenient":null,"conjunction_mode":null}}}}
+                 :         PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook","lenient":null,"conjunction_mode":null}}}}
                  :       CooperativeExec
-                 :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+                 :         PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (16 rows)
 
 SELECT p.category, COUNT(*)
@@ -561,8 +561,8 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY MIN(p.price) ASC
 LIMIT 3;
-                                                                                                                       QUERY PLAN                                                                                                                        
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                     QUERY PLAN                                                                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: (min(p.price))
@@ -576,9 +576,9 @@ LIMIT 3;
                  :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[min(p_0.price) as agg_0, max(p_0.price) as agg_1]
                  :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, price@2]
                  :       CooperativeExec
-                 :         PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook","lenient":null,"conjunction_mode":null}}}}
+                 :         PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook","lenient":null,"conjunction_mode":null}}}}
                  :       CooperativeExec
-                 :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+                 :         PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (16 rows)
 
 SELECT p.category, MIN(p.price), MAX(p.price)

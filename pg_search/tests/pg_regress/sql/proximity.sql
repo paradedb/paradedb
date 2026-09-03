@@ -9,7 +9,7 @@ INSERT INTO prox (text) VALUES ('bbq chicken is delicious');
 INSERT INTO prox (text) VALUES ('bbq ribs are delicious');
 INSERT INTO prox (text) VALUES ('chicken will be served at the bbq party');
 INSERT INTO prox (text) VALUES ('ribs will be served at the party bbq');
-CREATE INDEX idxprox ON prox USING bm25 (id, text) WITH (key_field = 'id');
+CREATE INDEX idxprox ON prox USING paradedb (id, text) WITH (key_field = 'id');
 
 -- no match
 SELECT * FROM prox WHERE text @@@ pdb.proximity('a', 23, 'z');

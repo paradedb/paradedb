@@ -10,6 +10,7 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.enable_join_custom_scan TO on;
+SET paradedb.enable_range_partitioned_join TO on;
 SET max_parallel_workers_per_gather TO 3;
 SET max_parallel_workers TO 8;
 -- Force parallel even on this tiny dataset; otherwise the cost-based
@@ -31,21 +32,6 @@ CREATE TABLE mpp_join_pages (
     page_text TEXT,
     size_bytes INTEGER
 );
-CREATE INDEX mpp_join_files_idx ON mpp_join_files
-USING bm25 (id, title, content)
-WITH (
-    key_field='id',
-    partition_by='id',
-    text_fields='{"title": {"fast": true}, "content": {}}'
-);
-CREATE INDEX mpp_join_pages_idx ON mpp_join_pages
-USING bm25 (id, file_id, page_text, size_bytes)
-WITH (
-    key_field='id',
-    partition_by='file_id',
-    numeric_fields='{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
-    text_fields='{"page_text": {}}'
-);
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO mpp_join_files (title, content)
 SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
@@ -66,6 +52,27 @@ FROM generate_series(501, 1000) AS g;
 RESET paradedb.global_mutable_segment_rows;
 ANALYZE mpp_join_files;
 ANALYZE mpp_join_pages;
+-- A serial build keeps the worker-count warning deterministic.
+SET max_parallel_maintenance_workers TO 0;
+CREATE INDEX mpp_join_files_idx ON mpp_join_files
+USING paradedb (id, title, content)
+WITH (
+    key_field='id',
+    target_segment_count=3,
+    partition_by='id',
+    text_fields='{"title": {"fast": true}, "content": {}}'
+);
+WARNING:  only 0 parallel workers were available for index build
+CREATE INDEX mpp_join_pages_idx ON mpp_join_pages
+USING paradedb (id, file_id, page_text, size_bytes)
+WITH (
+    key_field='id',
+    target_segment_count=3,
+    partition_by='file_id',
+    numeric_fields='{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
+    text_fields='{"page_text": {}}'
+);
+WARNING:  only 0 parallel workers were available for index build
 -- =====================================================================
 -- Pass 1: serial baseline (max_parallel_workers_per_gather = 0)
 --
@@ -79,8 +86,8 @@ FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section'
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
-                                                                                       QUERY PLAN                                                                                        
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                            QUERY PLAN                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.title, p.size_bytes
    ->  Custom Scan (ParadeDB Join Scan)
@@ -95,9 +102,9 @@ LIMIT 10;
            :     SegmentedTopKExec: expr=[title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], k=10, visibility_checks=[p, f]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)], projection=[ctid_0@3, size_bytes@5, ctid_1@0, title@2]
            :         CooperativeExec
-           :           PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=f, segments=3, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: segments=2, dynamic_filters=1, query="all"
+           :           PgSearchScan: table=p, segments=3, dynamic_filters=1, query="all"
 (17 rows)
 
 SELECT f.title, p.size_bytes
@@ -121,9 +128,8 @@ LIMIT 10;
 
 -- =====================================================================
 -- Pass 2: MPP path (max_parallel_workers_per_gather = 3). Same query, same results.
--- EXPLAIN tree should switch to a `Gather -> Parallel Custom Scan`
--- shape, exercising the JoinScan MPP wiring (DSM init, shm_mq mesh,
--- fragment dispatch, leader-side NetworkCoalesceExec gather).
+-- The Custom Scan should contain a DataFusion DistributedExec, exercising
+-- DSM initialization, fragment dispatch, and leader-side network coalescing.
 -- =====================================================================
 SET max_parallel_workers_per_gather TO 3;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -132,8 +138,8 @@ FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section'
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
-                                                                                                       QUERY PLAN                                                                                                       
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.title, p.size_bytes
    ->  Custom Scan (ParadeDB Join Scan)
@@ -146,21 +152,21 @@ LIMIT 10;
            : ┌───── DistributedExec
            : │ ProjectionExec: expr=[title@3 as col_1, size_bytes@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            : │   SortPreservingMergeExec: [title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], fetch=10
-           : │     [Stage 1] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
+           : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
            : └──────────────────────────────────────────────────
-           :   ┌───── Stage 1 ── tasks=3, partitions=9
+           :   ┌───── Stage 1 ── tasks=3, partitions=3
            :   │ LocalLimitExec: fetch=10
            :   │   TantivyLookupExec: decode=[title]
            :   │     SegmentedTopKExec: expr=[title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], k=10, visibility_checks=[p, f]
            :   │       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, file_id@1)], projection=[ctid_0@3, size_bytes@5, ctid_1@0, title@2]
            :   │         DistributedLeafExec:
-           :   │           t0: PgSearchScan: segments=2, partition=id[-∞..51), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
-           :   │           t1: PgSearchScan: segments=2, partition=id[51..101), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
-           :   │           t2: PgSearchScan: segments=2, partition=id[101..∞), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+           :   │           t0: PgSearchScan: table=f, segments=3, partition=id[-∞..68), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+           :   │           t1: PgSearchScan: table=f, segments=3, partition=id[68..134), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+           :   │           t2: PgSearchScan: table=f, segments=3, partition=id[134..∞), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
            :   │         DistributedLeafExec:
-           :   │           t0: PgSearchScan: segments=2, partition=file_id[-∞..51), dynamic_filters=1, query="all"
-           :   │           t1: PgSearchScan: segments=2, partition=file_id[51..101), dynamic_filters=1, query="all"
-           :   │           t2: PgSearchScan: segments=2, partition=file_id[101..∞), dynamic_filters=1, query="all"
+           :   │           t0: PgSearchScan: table=p, segments=3, partition=file_id[-∞..68), dynamic_filters=1, query="all"
+           :   │           t1: PgSearchScan: table=p, segments=3, partition=file_id[68..134), dynamic_filters=1, query="all"
+           :   │           t2: PgSearchScan: table=p, segments=3, partition=file_id[134..∞), dynamic_filters=1, query="all"
            :   └──────────────────────────────────────────────────
 (28 rows)
 
@@ -184,10 +190,11 @@ LIMIT 10;
 (10 rows)
 
 -- =====================================================================
--- Pass 3: worker metrics reach the leader's EXPLAIN ANALYZE display.
--- Asserts presence, not content: how many workers launch and how they
--- split the rows isn't pinned, so per-fragment metrics vary run to run.
--- A fragment's row counts appear only once its TaskMetrics crossed the mesh.
+-- Pass 3: worker metrics and dynamic-filter pruning reach the leader's
+-- EXPLAIN ANALYZE display. Asserts presence, not exact counts: how many
+-- workers launch and how they split the rows isn't pinned, so per-fragment
+-- metrics vary run to run. A fragment's row counts appear only once its
+-- TaskMetrics crossed the mesh.
 -- =====================================================================
 CREATE OR REPLACE FUNCTION mpp_explain_analyze_lines(q text) RETURNS SETOF text AS $$
 DECLARE r record;
@@ -196,21 +203,51 @@ BEGIN
     RETURN NEXT r."QUERY PLAN";
   END LOOP;
 END $$ LANGUAGE plpgsql;
-SELECT count(*) > 0 AS worker_metrics_shown
+CREATE TEMP TABLE mpp_explain_analyze_output AS
+SELECT line
 FROM mpp_explain_analyze_lines(
   'SELECT f.title, p.size_bytes
    FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
    WHERE f.content @@@ ''Section''
+     AND f.id <= 20
    ORDER BY f.title, p.size_bytes
    LIMIT 10'
-) AS line
+) AS line;
+SELECT count(*) > 0 AS worker_metrics_shown
+FROM mpp_explain_analyze_output
 WHERE line LIKE '%output_rows%';
  worker_metrics_shown 
 ----------------------
  t
 (1 row)
 
-DROP FUNCTION mpp_explain_analyze_lines(text);
+-- Assigned range variants expose one local partition, satisfying DataFusion's
+-- dynamic-filter routing condition. A worker may apply the resulting filter
+-- either in the batch pre-filter or by pushing it directly into Tantivy.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM mpp_explain_analyze_output
+    WHERE line LIKE '%DistributedExec%'
+  ) OR NOT EXISTS (
+    SELECT 1
+    FROM mpp_explain_analyze_output
+    WHERE line LIKE '%partition=%'
+  ) THEN
+    RAISE EXCEPTION 'expected an MPP range-partitioned join';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM mpp_explain_analyze_output
+    WHERE line ~ 'rows_pruned=\{[^}]*:[1-9][0-9]*'
+       OR line LIKE '%dynamic_filter_pushdown=%'
+  ) THEN
+    RAISE EXCEPTION 'expected an MPP range-join worker to apply a dynamic filter';
+  END IF;
+END $$;
+DROP TABLE mpp_explain_analyze_output;
 -- =====================================================================
 -- Pass 4: MPP with heap filter
 --
@@ -226,8 +263,8 @@ WHERE f.content @@@ 'Section'
   AND length(f.title) > 6
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
-                                                                                                                                                                  QUERY PLAN                                                                                                                                                                   
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                       QUERY PLAN                                                                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.title, p.size_bytes
    ->  Custom Scan (ParadeDB Join Scan)
@@ -240,21 +277,21 @@ LIMIT 10;
            : ┌───── DistributedExec
            : │ ProjectionExec: expr=[title@3 as col_1, size_bytes@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            : │   SortPreservingMergeExec: [title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], fetch=10
-           : │     [Stage 1] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
+           : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
            : └──────────────────────────────────────────────────
-           :   ┌───── Stage 1 ── tasks=3, partitions=9
+           :   ┌───── Stage 1 ── tasks=3, partitions=3
            :   │ LocalLimitExec: fetch=10
            :   │   TantivyLookupExec: decode=[title]
            :   │     SegmentedTopKExec: expr=[title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], k=10, visibility_checks=[p, f]
            :   │       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, file_id@1)], projection=[ctid_0@3, size_bytes@5, ctid_1@0, title@2]
            :   │         DistributedLeafExec:
-           :   │           t0: PgSearchScan: segments=2, partition=id[-∞..51), query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(length(title) > 6)"}]}}]}}
-           :   │           t1: PgSearchScan: segments=2, partition=id[51..101), query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(length(title) > 6)"}]}}]}}
-           :   │           t2: PgSearchScan: segments=2, partition=id[101..∞), query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(length(title) > 6)"}]}}]}}
+           :   │           t0: PgSearchScan: table=f, segments=3, partition=id[-∞..68), query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(length(title) > 6)"}]}}]}}
+           :   │           t1: PgSearchScan: table=f, segments=3, partition=id[68..134), query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(length(title) > 6)"}]}}]}}
+           :   │           t2: PgSearchScan: table=f, segments=3, partition=id[134..∞), query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(length(title) > 6)"}]}}]}}
            :   │         DistributedLeafExec:
-           :   │           t0: PgSearchScan: segments=2, partition=file_id[-∞..51), dynamic_filters=1, query="all"
-           :   │           t1: PgSearchScan: segments=2, partition=file_id[51..101), dynamic_filters=1, query="all"
-           :   │           t2: PgSearchScan: segments=2, partition=file_id[101..∞), dynamic_filters=1, query="all"
+           :   │           t0: PgSearchScan: table=p, segments=3, partition=file_id[-∞..68), dynamic_filters=1, query="all"
+           :   │           t1: PgSearchScan: table=p, segments=3, partition=file_id[68..134), dynamic_filters=1, query="all"
+           :   │           t2: PgSearchScan: table=p, segments=3, partition=file_id[134..∞), dynamic_filters=1, query="all"
            :   └──────────────────────────────────────────────────
 (28 rows)
 
@@ -291,8 +328,8 @@ WHERE f.content @@@ 'Section'
   AND length(f.title) > 6
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
-                                                                                                                                                   QUERY PLAN                                                                                                                                                   
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                        QUERY PLAN                                                                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.title, p.size_bytes
    ->  Custom Scan (ParadeDB Join Scan)
@@ -307,9 +344,9 @@ LIMIT 10;
            :     SegmentedTopKExec: expr=[title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], k=10, visibility_checks=[p, f]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)], projection=[ctid_0@3, size_bytes@5, ctid_1@0, title@2]
            :         CooperativeExec
-           :           PgSearchScan: segments=2, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(length(title) > 6)"}]}}]}}
+           :           PgSearchScan: table=f, segments=3, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(length(title) > 6)"}]}}]}}
            :         CooperativeExec
-           :           PgSearchScan: segments=2, dynamic_filters=1, query="all"
+           :           PgSearchScan: table=p, segments=3, dynamic_filters=1, query="all"
 (17 rows)
 
 SELECT f.title, p.size_bytes
@@ -345,8 +382,8 @@ FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section'
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
-                                                                                                     QUERY PLAN                                                                                                     
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.title, p.size_bytes
    ->  Custom Scan (ParadeDB Join Scan)
@@ -359,34 +396,32 @@ LIMIT 10;
            : ┌───── DistributedExec
            : │ ProjectionExec: expr=[title@3 as col_1, size_bytes@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            : │   SortPreservingMergeExec: [title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], fetch=10
-           : │     [Stage 3] => NetworkCoalesceExec: output_partitions=16, input_tasks=4
+           : │     [Stage 3] => NetworkCoalesceExec: output_partitions=12, input_tasks=3
            : └──────────────────────────────────────────────────
-           :   ┌───── Stage 3 ── tasks=4, partitions=4
+           :   ┌───── Stage 3 ── tasks=3, partitions=4
            :   │ LocalLimitExec: fetch=10
            :   │   TantivyLookupExec: decode=[title]
            :   │     SegmentedTopKExec: expr=[title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], k=10, visibility_checks=[f]
            :   │       HashJoinExec: mode=Partitioned, join_type=Left, on=[(id@1, file_id@1)], projection=[ctid_0@3, size_bytes@5, ctid_1@0, title@2]
-           :   │         [Stage 1] => NetworkShuffleExec: output_partitions=4, input_tasks=4
-           :   │         [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=4
+           :   │         [Stage 1] => NetworkShuffleExec: output_partitions=4, input_tasks=3
+           :   │         [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=3
            :   └──────────────────────────────────────────────────
-           :     ┌───── Stage 1 ── tasks=4, partitions=16
-           :     │ RepartitionExec: partitioning=Hash([id@1], 16), input_partitions=4
+           :     ┌───── Stage 1 ── tasks=3, partitions=12
+           :     │ RepartitionExec: partitioning=Hash([id@1], 12), input_partitions=1
            :     │   DistributedLeafExec:
-           :     │     t0: PgSearchScan: segments=2, partition=id[-∞..38), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
-           :     │     t1: PgSearchScan: segments=2, partition=id[38..76), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
-           :     │     t2: PgSearchScan: segments=2, partition=id[76..126), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
-           :     │     t3: PgSearchScan: segments=2, partition=id[126..∞), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+           :     │     t0: PgSearchScan: table=f, segments=3, partition=id[-∞..68), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+           :     │     t1: PgSearchScan: table=f, segments=3, partition=id[68..134), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+           :     │     t2: PgSearchScan: table=f, segments=3, partition=id[134..∞), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
            :     └──────────────────────────────────────────────────
-           :     ┌───── Stage 2 ── tasks=4, partitions=16
-           :     │ RepartitionExec: partitioning=Hash([file_id@1], 16), input_partitions=4
-           :     │   VisibilityFilterExec: tables=[p]
+           :     ┌───── Stage 2 ── tasks=3, partitions=12
+           :     │ RepartitionExec: partitioning=Hash([file_id@1], 12), input_partitions=4
+           :     │   RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
            :     │     DistributedLeafExec:
-           :     │       t0: PgSearchScan: segments=2, partition=file_id[-∞..38), dynamic_filters=1, query="all"
-           :     │       t1: PgSearchScan: segments=2, partition=file_id[38..76), dynamic_filters=1, query="all"
-           :     │       t2: PgSearchScan: segments=2, partition=file_id[76..126), dynamic_filters=1, query="all"
-           :     │       t3: PgSearchScan: segments=2, partition=file_id[126..∞), dynamic_filters=1, query="all"
+           :     │       t0: PgSearchScan: table=p, segments=3, partition=file_id[-∞..68), dynamic_filters=1, visibility=eager, query="all"
+           :     │       t1: PgSearchScan: table=p, segments=3, partition=file_id[68..134), dynamic_filters=1, visibility=eager, query="all"
+           :     │       t2: PgSearchScan: table=p, segments=3, partition=file_id[134..∞), dynamic_filters=1, visibility=eager, query="all"
            :     └──────────────────────────────────────────────────
-(39 rows)
+(37 rows)
 
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id
@@ -427,6 +462,537 @@ LIMIT 10;
  file-10 |       3553
 (10 rows)
 
+-- =====================================================================
+-- Pass 7: aggregate-on-join range co-partitioning
+--
+-- Inner join with aggregate scan must also range co-partition.
+-- =====================================================================
+SET max_parallel_workers_per_gather TO 3;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+GROUP BY f.title
+ORDER BY f.title
+LIMIT 5;
+                                                                                                                                 QUERY PLAN                                                                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: f.title, (count(*)), (sum(p.size_bytes))
+   ->  Sort
+         Output: f.title, (count(*)), (sum(p.size_bytes))
+         Sort Key: f.title
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: f.title, (count(*)), (sum(p.size_bytes))
+               Backend: DataFusion
+               Indexes: mpp_join_files_idx (f), mpp_join_pages_idx (p)
+               Group By: title
+               Aggregates: COUNT(*), SUM(size_bytes)
+               DataFusion Physical Plan: 
+                 : ┌───── DistributedExec
+                 : │ SortPreservingMergeExec: [title@0 ASC NULLS LAST], fetch=5
+                 : │   [Stage 2] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
+                 : └──────────────────────────────────────────────────
+                 :   ┌───── Stage 2 ── tasks=3, partitions=3
+                 :   │ SortExec: TopK(fetch=5), expr=[title@0 ASC NULLS LAST], preserve_partitioning=[true]
+                 :   │   AggregateExec: mode=FinalPartitioned, gby=[title@0 as title], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
+                 :   │     [Stage 1] => NetworkShuffleExec: output_partitions=3, input_tasks=3
+                 :   └──────────────────────────────────────────────────
+                 :     ┌───── Stage 1 ── tasks=3, partitions=9
+                 :     │ RepartitionExec: partitioning=Hash([title@0], 9), input_partitions=1
+                 :     │   AggregateExec: mode=Partial, gby=[title@0 as title], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
+                 :     │     HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, size_bytes@3]
+                 :     │       DistributedLeafExec:
+                 :     │         t0: PgSearchScan: table=f, segments=3, partition=id[-∞..68), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+                 :     │         t1: PgSearchScan: table=f, segments=3, partition=id[68..134), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+                 :     │         t2: PgSearchScan: table=f, segments=3, partition=id[134..∞), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+                 :     │       DistributedLeafExec:
+                 :     │         t0: PgSearchScan: table=p, segments=3, partition=file_id[-∞..68), dynamic_filters=1, visibility=eager, query="all"
+                 :     │         t1: PgSearchScan: table=p, segments=3, partition=file_id[68..134), dynamic_filters=1, visibility=eager, query="all"
+                 :     │         t2: PgSearchScan: table=p, segments=3, partition=file_id[134..∞), dynamic_filters=1, visibility=eager, query="all"
+                 :     └──────────────────────────────────────────────────
+(34 rows)
+
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+GROUP BY f.title
+ORDER BY f.title
+LIMIT 5;
+  title   | count |  sum  
+----------+-------+-------
+ file-1   |     5 | 10040
+ file-10  |     5 | 10189
+ file-100 |     5 |  9647
+ file-101 |     5 |  9732
+ file-102 |     5 |  9817
+(5 rows)
+
+-- =====================================================================
+-- Pass 8: MPP with a parameterized search predicate (issue #5445)
+--
+-- length(f.title) > $1, with plan_cache_mode=force_generic_plan, keeps
+-- $1 unresolved in SearchQueryInput. Compared against the same query run
+-- serially (max_parallel_workers_per_gather = 0) so MPP-vs-serial divergence
+-- surfaces as a diff, not just a missing worker_metrics_shown flag (see #5167).
+-- =====================================================================
+SET max_parallel_workers_per_gather TO 4;
+SET plan_cache_mode = force_generic_plan;
+PREPARE mpp_join_heapfilter_param(int) AS
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+  AND length(f.title) > $1
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+EXECUTE mpp_join_heapfilter_param(6);
+                                                        QUERY PLAN                                                        
+--------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: f.title, p.size_bytes
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: f.title, p.size_bytes
+         Relation Tree: p INNER f
+         Join Cond: f.id = p.file_id
+         Limit: 10
+         Order By: f.title asc, p.size_bytes asc
+         DataFusion Physical Plan: omitted for EXPLAIN because source queries require executor-time expression resolution
+(9 rows)
+
+EXECUTE mpp_join_heapfilter_param(6);
+  title   | size_bytes 
+----------+------------
+ file-10  |        153
+ file-10  |       1465
+ file-10  |       2161
+ file-10  |       2857
+ file-10  |       3553
+ file-100 |        291
+ file-100 |        987
+ file-100 |       1683
+ file-100 |       2995
+ file-100 |       3691
+(10 rows)
+
+-- Reuse the cached generic plan with a value that changes the result set. This
+-- proves execution-time rebaking binds the current value, not the first one.
+EXECUTE mpp_join_heapfilter_param(7);
+  title   | size_bytes 
+----------+------------
+ file-100 |        291
+ file-100 |        987
+ file-100 |       1683
+ file-100 |       2995
+ file-100 |       3691
+ file-101 |        308
+ file-101 |       1004
+ file-101 |       1700
+ file-101 |       3012
+ file-101 |       3708
+(10 rows)
+
+SELECT count(*) > 0 AS worker_metrics_shown
+FROM mpp_explain_analyze_lines(
+  $$EXECUTE mpp_join_heapfilter_param(7)$$
+) AS line
+WHERE line LIKE '%output_rows%';
+ worker_metrics_shown 
+----------------------
+ t
+(1 row)
+
+SELECT count(*) > 0 AS distributed_exec_shown
+FROM mpp_explain_analyze_lines(
+  $$EXECUTE mpp_join_heapfilter_param(7)$$
+) AS line
+WHERE line LIKE '%DistributedExec%';
+ distributed_exec_shown 
+------------------------
+ t
+(1 row)
+
+-- JoinScan owns MPP execution; PostgreSQL must not add a second Gather path.
+SELECT count(*) = 0 AS no_postgres_gather
+FROM mpp_explain_analyze_lines(
+  $$EXECUTE mpp_join_heapfilter_param(7)$$
+) AS line
+WHERE line LIKE '%Gather%';
+ no_postgres_gather 
+--------------------
+ t
+(1 row)
+
+DEALLOCATE mpp_join_heapfilter_param;
+-- Same query, run serially, to diff against the MPP result above.
+SET max_parallel_workers_per_gather TO 0;
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+  AND length(f.title) > 6
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+  title   | size_bytes 
+----------+------------
+ file-10  |        153
+ file-10  |       1465
+ file-10  |       2161
+ file-10  |       2857
+ file-10  |       3553
+ file-100 |        291
+ file-100 |        987
+ file-100 |       1683
+ file-100 |       2995
+ file-100 |       3691
+(10 rows)
+
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+  AND length(f.title) > 7
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+  title   | size_bytes 
+----------+------------
+ file-100 |        291
+ file-100 |        987
+ file-100 |       1683
+ file-100 |       2995
+ file-100 |       3691
+ file-101 |        308
+ file-101 |       1004
+ file-101 |       1700
+ file-101 |       3012
+ file-101 |       3708
+(10 rows)
+
+SET max_parallel_workers_per_gather TO 4;
+SET plan_cache_mode = auto;
+-- =====================================================================
+-- Pass 9: MPP with InitPlan/Subquery Parameter
+--
+-- Pulling from a table forces an InitPlan rather than a folded constant.
+-- The leader must evaluate and solve this before dispatching to workers.
+-- ORDER BY id in the subquery keeps the picked row stable across runs.
+-- =====================================================================
+SET max_parallel_workers_per_gather TO 4;
+SELECT count(*) > 0 AS worker_metrics_shown
+FROM mpp_explain_analyze_lines(
+  $$SELECT f.title, p.size_bytes
+    FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+    WHERE f.content @@@ (SELECT content FROM mpp_join_files ORDER BY id LIMIT 1)
+    ORDER BY f.title, p.size_bytes
+    LIMIT 10$$
+) AS line
+WHERE line LIKE '%output_rows%';
+ worker_metrics_shown 
+----------------------
+ t
+(1 row)
+
+SELECT count(*) > 0 AS distributed_exec_shown
+FROM mpp_explain_analyze_lines(
+  $$SELECT f.title, p.size_bytes
+    FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+    WHERE f.content @@@ (SELECT content FROM mpp_join_files ORDER BY id LIMIT 1)
+    ORDER BY f.title, p.size_bytes
+    LIMIT 10$$
+) AS line
+WHERE line LIKE '%DistributedExec%';
+ distributed_exec_shown 
+------------------------
+ t
+(1 row)
+
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ (SELECT content FROM mpp_join_files ORDER BY id LIMIT 1)
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+  title  | size_bytes 
+---------+------------
+ file-1  |        616
+ file-1  |       1312
+ file-1  |       2008
+ file-1  |       2704
+ file-1  |       3400
+ file-10 |        153
+ file-10 |       1465
+ file-10 |       2161
+ file-10 |       2857
+ file-10 |       3553
+(10 rows)
+
+-- Execute the identical InitPlan query serially so the expected output directly
+-- checks MPP/serial result equivalence, not only MPP worker activity.
+SET max_parallel_workers_per_gather TO 0;
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ (SELECT content FROM mpp_join_files ORDER BY id LIMIT 1)
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+  title  | size_bytes 
+---------+------------
+ file-1  |        616
+ file-1  |       1312
+ file-1  |       2008
+ file-1  |       2704
+ file-1  |       3400
+ file-10 |        153
+ file-10 |       1465
+ file-10 |       2161
+ file-10 |       2857
+ file-10 |       3553
+(10 rows)
+
+SET max_parallel_workers_per_gather TO 4;
+-- =====================================================================
+-- Pass 10: MPP with two parameterized source queries (review: mithuncy)
+--
+-- Solving multiple parameterized source queries must preserve all
+-- rewritten PostgreSQL expression trees until rebaking is complete.
+-- Exercises both sources having a rewritten Param-to-Const tree, so it
+-- fails regardless of which source the JoinScan traversal visits first.
+-- =====================================================================
+SET max_parallel_workers_per_gather TO 4;
+SET plan_cache_mode = force_generic_plan;
+PREPARE mpp_join_two_source_params(int, int) AS
+SELECT f.id AS file_id, p.id AS page_id
+FROM mpp_join_files f
+JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+  AND length(f.title) > $1
+  AND p.page_text @@@ 'Page'
+  AND length(p.page_text) > $2
+ORDER BY f.id, p.id
+LIMIT 5;
+EXECUTE mpp_join_two_source_params(6, 6);
+ file_id | page_id 
+---------+---------
+      10 |       9
+      10 |     209
+      10 |     409
+      10 |     609
+      10 |     809
+(5 rows)
+
+-- Change both source-local parameter values under the same generic plan.
+EXECUTE mpp_join_two_source_params(7, 21);
+ file_id | page_id 
+---------+---------
+     100 |     299
+     100 |     499
+     100 |     699
+     100 |     899
+     101 |     100
+(5 rows)
+
+SELECT count(*) > 0 AS distributed_exec_shown
+FROM mpp_explain_analyze_lines(
+  $$EXECUTE mpp_join_two_source_params(7, 21)$$
+) AS line
+WHERE line LIKE '%DistributedExec%';
+ distributed_exec_shown 
+------------------------
+ t
+(1 row)
+
+DEALLOCATE mpp_join_two_source_params;
+SET plan_cache_mode = auto;
+-- =====================================================================
+-- Pass 11: MPP with a join-level parameterized predicate (review: mithuncy)
+--
+-- A cross-relation OR lives in join_level_predicates rather than either
+-- source's scan_info.query, so the clause-wide has_parameters()/
+-- has_postgres_expressions() traversal is required to catch $1 here.
+-- =====================================================================
+SET max_parallel_workers_per_gather TO 4;
+SET plan_cache_mode = force_generic_plan;
+PREPARE mpp_join_level_param(text) AS
+SELECT f.id AS file_id, p.id AS page_id
+FROM mpp_join_files f
+JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ $1
+   OR p.page_text @@@ 'zzzznotpresent'
+ORDER BY f.id, p.id
+LIMIT 5;
+EXECUTE mpp_join_level_param('1');
+ file_id | page_id 
+---------+---------
+       1 |     200
+       1 |     400
+       1 |     600
+       1 |     800
+       1 |    1000
+(5 rows)
+
+-- Rebind the join-level predicate to a value with a different result set.
+EXECUTE mpp_join_level_param('101');
+ file_id | page_id 
+---------+---------
+     101 |     100
+     101 |     300
+     101 |     500
+     101 |     700
+     101 |     900
+(5 rows)
+
+SELECT count(*) > 0 AS distributed_exec_shown
+FROM mpp_explain_analyze_lines(
+  $$EXECUTE mpp_join_level_param('101')$$
+) AS line
+WHERE line LIKE '%DistributedExec%';
+ distributed_exec_shown 
+------------------------
+ t
+(1 row)
+
+DEALLOCATE mpp_join_level_param;
+SET plan_cache_mode = auto;
+-- =====================================================================
+-- Pass 12: MPP under a correlated re-execution (review: mithuncy)
+--
+-- A JoinScan with a Param-backed predicate, driven per-row from a LATERAL
+-- subquery, must re-solve against each outer row's value rather than
+-- reusing whatever the previous row's exec_custom_scan already solved and
+-- rebaked (JoinScanState::reset() previously left join_clause untouched on
+-- rescan, so the second row silently reused the first row's resolved
+-- plan). Expects the first file matching each term, not the same file
+-- twice.
+-- =====================================================================
+SET max_parallel_workers_per_gather TO 4;
+SET plan_cache_mode = force_generic_plan;
+CREATE TEMP TABLE mpp_join_rescan_terms(q text);
+INSERT INTO mpp_join_rescan_terms VALUES ('1'), ('101');
+SELECT t.q, sub.title
+FROM mpp_join_rescan_terms t,
+LATERAL (
+    SELECT f.title
+    FROM mpp_join_files f
+    JOIN mpp_join_pages p ON f.id = p.file_id
+    WHERE f.content @@@ t.q
+    ORDER BY f.title, p.id
+    LIMIT 1
+) sub
+ORDER BY t.q;
+  q  |  title   
+-----+----------
+ 1   | file-1
+ 101 | file-101
+(2 rows)
+
+SELECT count(*) > 0 AS distributed_exec_shown
+FROM mpp_explain_analyze_lines(
+  $$SELECT t.q, sub.title
+    FROM mpp_join_rescan_terms t,
+    LATERAL (
+      SELECT f.title
+      FROM mpp_join_files f
+      JOIN mpp_join_pages p ON f.id = p.file_id
+      WHERE f.content @@@ t.q
+      ORDER BY f.title, p.id
+      LIMIT 1
+    ) sub
+    ORDER BY t.q$$
+) AS line
+WHERE line LIKE '%DistributedExec%';
+ distributed_exec_shown 
+------------------------
+ t
+(1 row)
+
+DROP TABLE mpp_join_rescan_terms;
+SET plan_cache_mode = auto;
+-- =====================================================================
+-- Pass 13: the size gate falls back to a plain serial run. The plan was
+-- built while MPP was eligible, so the fallback must not carry per-source
+-- claim markers that have no shared scan state to draw from. The gate is
+-- shared with the plain-EXPLAIN rebuild, so the rendered plan is serial
+-- too; the EXPLAIN ANALYZE asserts below pin the executed mode.
+-- =====================================================================
+SET max_parallel_workers_per_gather TO 3;
+SET paradedb.mpp_min_rows TO 1000000000;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: f.title, p.size_bytes
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: f.title, p.size_bytes
+         Relation Tree: p INNER f
+         Join Cond: f.id = p.file_id
+         Limit: 10
+         Order By: f.title asc, p.size_bytes asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[title@3 as col_1, size_bytes@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           :   TantivyLookupExec: decode=[title]
+           :     SegmentedTopKExec: expr=[title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], k=10, visibility_checks=[p, f]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)], projection=[ctid_0@3, size_bytes@5, ctid_1@0, title@2]
+           :         CooperativeExec
+           :           PgSearchScan: table=f, segments=3, partition_by=id, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+           :         CooperativeExec
+           :           PgSearchScan: table=p, segments=3, partition_by=file_id, dynamic_filters=1, query="all"
+(17 rows)
+
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+  title  | size_bytes 
+---------+------------
+ file-1  |        616
+ file-1  |       1312
+ file-1  |       2008
+ file-1  |       2704
+ file-1  |       3400
+ file-10 |        153
+ file-10 |       1465
+ file-10 |       2161
+ file-10 |       2857
+ file-10 |       3553
+(10 rows)
+
+-- Executed serially: no DistributedExec root and no network boundary nodes.
+-- (Serial DataFusion nodes also render `output_rows` metrics, so those lines
+-- can't stand in for worker metrics here.)
+SELECT count(*) = 0 AS gated_no_distributed_exec
+FROM mpp_explain_analyze_lines(
+  $$SELECT f.title, p.size_bytes
+    FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+    WHERE f.content @@@ 'Section'
+    ORDER BY f.title, p.size_bytes
+    LIMIT 10$$
+) AS line
+WHERE line LIKE '%DistributedExec%';
+ gated_no_distributed_exec 
+---------------------------
+ t
+(1 row)
+
+SELECT count(*) = 0 AS gated_no_network_boundaries
+FROM mpp_explain_analyze_lines(
+  $$SELECT f.title, p.size_bytes
+    FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+    WHERE f.content @@@ 'Section'
+    ORDER BY f.title, p.size_bytes
+    LIMIT 10$$
+) AS line
+WHERE line LIKE '%NetworkCoalesceExec%'
+   OR line LIKE '%NetworkShuffleExec%'
+   OR line LIKE '%NetworkBroadcastExec%';
+ gated_no_network_boundaries 
+-----------------------------
+ t
+(1 row)
+
+RESET paradedb.mpp_min_rows;
+DROP FUNCTION mpp_explain_analyze_lines(text);
 -- =====================================================================
 -- Cleanup
 -- =====================================================================

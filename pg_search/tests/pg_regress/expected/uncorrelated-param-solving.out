@@ -8,7 +8,7 @@ CREATE TABLE items (
 );
 ALTER TABLE ONLY items
     ADD CONSTRAINT items_pkey PRIMARY KEY (id);
-CREATE INDEX items_idx ON items USING bm25 (
+CREATE INDEX items_idx ON items USING paradedb (
     id,
     group_id,
     status,

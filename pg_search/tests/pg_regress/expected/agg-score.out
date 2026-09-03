@@ -3,7 +3,7 @@
 -- The fix uses PlaceHolderVar to ensure scores are passed through Gather nodes in parallel plans.
 CREATE EXTENSION IF NOT EXISTS pg_search;
 CREATE TABLE mock_items (id SERIAL PRIMARY KEY, description TEXT);
-CREATE INDEX search_idx ON mock_items USING bm25 (id, description) WITH (key_field = 'id');
+CREATE INDEX search_idx ON mock_items USING paradedb (id, description) WITH (key_field = 'id');
 INSERT INTO mock_items (description) VALUES ('keyboard');
 INSERT INTO mock_items (description) VALUES ('keyboard');
 INSERT INTO mock_items (description) VALUES ('keyboard');
@@ -21,7 +21,7 @@ SET min_parallel_table_scan_size = 0;
 -- Test case 1: Basic max(score) - should work with parallel execution
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT max(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: mock_items)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
                                                                                 QUERY PLAN                                                                                 
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Finalize Aggregate
@@ -42,7 +42,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 (15 rows)
 
 SELECT max(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: mock_items)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
      max     
 -------------
  0.057158466
@@ -51,7 +51,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 -- Test case 2: min(score) - should work with parallel execution
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT min(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: mock_items)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
                                                                                 QUERY PLAN                                                                                 
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Finalize Aggregate
@@ -72,7 +72,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 (15 rows)
 
 SELECT min(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: mock_items)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
      min     
 -------------
  0.057158466
@@ -81,7 +81,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 -- Test case 3: avg(score) - should work with parallel execution
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT avg(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: mock_items)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
                                                                                 QUERY PLAN                                                                                 
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Finalize Aggregate
@@ -102,7 +102,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 (15 rows)
 
 SELECT avg(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: mock_items)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
          avg          
 ----------------------
  0.057158466428518295
@@ -131,7 +131,7 @@ SELECT count(*) FROM mock_items WHERE description @@@ 'keyboard' AND paradedb.sc
 -- Test case 5: sum(score) - should work with parallel execution
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT sum(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: mock_items)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
                                                                                 QUERY PLAN                                                                                 
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Finalize Aggregate
@@ -152,7 +152,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 (15 rows)
 
 SELECT sum(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: mock_items)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
     sum     
 ------------
  0.45726773
@@ -163,7 +163,7 @@ SET debug_parallel_query = off;
 SET max_parallel_workers_per_gather = 0;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT max(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: mock_items)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
                                                                           QUERY PLAN                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -179,7 +179,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 (10 rows)
 
 SELECT max(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: mock_items)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
      max     
 -------------
  0.057158466
@@ -191,7 +191,7 @@ SET max_parallel_workers_per_gather = 2;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT min(paradedb.score(id)), max(paradedb.score(id)), avg(paradedb.score(id)) 
 FROM mock_items WHERE description @@@ 'keyboard';
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: mock_items)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
                                                                                 QUERY PLAN                                                                                 
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Finalize Aggregate
@@ -213,7 +213,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 
 SELECT min(paradedb.score(id)), max(paradedb.score(id)), avg(paradedb.score(id)) 
 FROM mock_items WHERE description @@@ 'keyboard';
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: mock_items)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
      min     |     max     |         avg          
 -------------+-------------+----------------------
  0.057158466 | 0.057158466 | 0.057158466428518295

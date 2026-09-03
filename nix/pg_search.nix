@@ -25,7 +25,7 @@ let
 
   # pg_search's tokenizer uses several language dictionaries used by the Lindera crate
   dictionaries = {
-    # https://github.com/lindera/lindera/blob/v1.4.1/lindera-ko-dic/build.rs#L15-L22
+    # https://github.com/lindera/lindera/blob/v5.0.1/lindera-ko-dic/build.rs#L15-L22
     lindera-ko-dic = rec {
       language = "Korean";
       filename = "mecab-ko-dic-2.1.1-20180720.tar.gz";
@@ -35,7 +35,7 @@ let
       };
     };
 
-    # https://github.com/lindera/lindera/blob/v1.4.1/lindera-cc-cedict/build.rs#L15-L22
+    # https://github.com/lindera/lindera/blob/v5.0.1/lindera-cc-cedict/build.rs#L15-L22
     lindera-cc-cedict = rec {
       language = "Chinese";
       filename = "CC-CEDICT-MeCab-0.1.0-20200409.tar.gz";
@@ -45,7 +45,7 @@ let
       };
     };
 
-    # https://github.com/lindera/lindera/blob/v1.4.1/lindera-ipadic/build.rs#L15-L22
+    # https://github.com/lindera/lindera/blob/v5.0.1/lindera-ipadic/build.rs#L15-L22
     lindera-ipadic = rec {
       language = "Japanese";
       filename = "mecab-ipadic-2.7.0-20250920.tar.gz";
@@ -65,24 +65,24 @@ buildPgrxExtension (finalAttrs: {
   # If maintainers forget to do so, Nix will throw an error message that begins
   # like this and then provides the correct new hash:
   # error: hash mismatch in fixed-output derivation '...'
-  cargoHash = "sha256-vW8NFEztktp2vE2Bt2d3MAQqMONsjy/rhkZUFB0yOoE=";
+  cargoHash = "sha256-1hb8BiWhG4iRKWYGKCsh9i8d8wKm2N4UawaN7O17aCE=";
 
   inherit cargo-pgrx postgresql;
 
   # Lindera dictionaries are copied to a temporary directory and the
-  # LINDERA_CACHE environment variable prevents the build.rs files in
-  # the Lindera crates from downloading their dictionary from an
-  # external URL, which doesn't work in the Nix sandbox
+  # LINDERA_BUILD_DICTIONARY_CACHE_DIR environment variable prevents the
+  # build.rs files in the Lindera crates from downloading their dictionary
+  # from an external URL, which doesn't work in the Nix sandbox.
   preConfigure = ''
-    export LINDERA_CACHE=$TMPDIR/lindera-cache
-    mkdir -p $LINDERA_CACHE/${linderaVersion}
+    export LINDERA_BUILD_DICTIONARY_CACHE_DIR=$TMPDIR/lindera-cache
+    mkdir -p $LINDERA_BUILD_DICTIONARY_CACHE_DIR/${linderaVersion}
 
     ${lib.concatMapStringsSep "\n" (dict: ''
       echo "Copying ${dict.language} dictionary to Lindera cache"
-      cp ${dict.source} $LINDERA_CACHE/${linderaVersion}/${dict.filename}
+      cp ${dict.source} $LINDERA_BUILD_DICTIONARY_CACHE_DIR/${linderaVersion}/${dict.filename}
     '') (lib.attrValues dictionaries)}
 
-    echo "Lindera cache prepared at $LINDERA_CACHE"
+    echo "Lindera cache prepared at $LINDERA_BUILD_DICTIONARY_CACHE_DIR"
   '';
 
   cargoPgrxFlags = [

@@ -27,7 +27,7 @@ INSERT INTO products (description, rating, category, price, in_stock) VALUES
     ('Winter jacket warm', 4, 'Clothing', 129.99, true),
     ('Summer jacket light', 3, 'Clothing', 59.99, true);
 CREATE INDEX products_idx ON products
-USING bm25 (id, description, rating, category, price)
+USING paradedb (id, description, rating, category, price)
 WITH (
     key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}',
@@ -376,7 +376,7 @@ INSERT INTO type_test (int_val, bigint_val, smallint_val, numeric_val, float_val
     (200, 2000000, 20, 199.99, 2.5, 6.28318, 'test2'),
     (300, 3000000, 30, 299.99, 3.5, 9.42477, 'test3');
 CREATE INDEX type_test_idx ON type_test
-USING bm25 (id, text_val, int_val, bigint_val, smallint_val, numeric_val, float_val, double_val)
+USING paradedb (id, text_val, int_val, bigint_val, smallint_val, numeric_val, float_val, double_val)
 WITH (
     key_field='id',
     text_fields='{"text_val": {"fast": true}}',
@@ -432,7 +432,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(DISTINCT category), SUM(price)
 FROM products
 WHERE description @@@ 'laptop';
-WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/paradedb/paradedb/issues/new/choose). To disable this warning: SET paradedb.check_aggregate_scan = false (table: products)
+WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/paradedb/paradedb/issues/new/choose). To disable this warning: SET paradedb.planner_warnings = 'off' (table: products)
                                                                             QUERY PLAN                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -454,7 +454,7 @@ WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github
 SELECT COUNT(DISTINCT category), SUM(price)
 FROM products
 WHERE description @@@ 'laptop';
-WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/paradedb/paradedb/issues/new/choose). To disable this warning: SET paradedb.check_aggregate_scan = false (table: products)
+WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/paradedb/paradedb/issues/new/choose). To disable this warning: SET paradedb.planner_warnings = 'off' (table: products)
  count |        sum         
 -------+--------------------
      2 | 2799.9700000000003
@@ -466,7 +466,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG(LENGTH(description))
 FROM products
 WHERE category @@@ 'Electronics';
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: products)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: products)
                                                                           QUERY PLAN                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -484,7 +484,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 SELECT AVG(LENGTH(description))
 FROM products
 WHERE category @@@ 'Electronics';
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: products)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: products)
          avg         
 ---------------------
  24.5000000000000000

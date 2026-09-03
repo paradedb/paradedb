@@ -5,11 +5,11 @@ SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 SET paradedb.enable_columnar_exec = true;
 SET paradedb.enable_aggregate_custom_scan TO on;
-CALL paradedb.create_bm25_test_table(
+CALL paradedb.create_paradedb_test_table(
   schema_name => 'public',
   table_name => 'mock_items'
 );
-CREATE INDEX on mock_items USING bm25 (id, description, rating, category, metadata) WITH (key_field='id', json_fields = '{"metadata": {"fast": true, "tokenizer": {"type": "raw", "lowercase": true}}}');
+CREATE INDEX on mock_items USING paradedb (id, description, rating, category, metadata) WITH (key_field='id', json_fields = '{"metadata": {"fast": true, "tokenizer": {"type": "raw", "lowercase": true}}}');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, rating, COUNT(*)
 FROM mock_items
@@ -17,7 +17,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id, rating
 ORDER BY id, rating
 LIMIT 5;
-WARNING:  Aggregate Scan not used: Field 'rating' is not a grouping column. To disable this warning: SET paradedb.check_aggregate_scan = false (table: mock_items)
+WARNING:  Aggregate Scan not used: Field 'rating' is not a grouping column. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
  Limit
@@ -41,7 +41,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id, rating
 ORDER BY id, rating
 LIMIT 5;
-WARNING:  Aggregate Scan not used: Field 'rating' is not a grouping column. To disable this warning: SET paradedb.check_aggregate_scan = false (table: mock_items)
+WARNING:  Aggregate Scan not used: Field 'rating' is not a grouping column. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
  id | rating | count 
 ----+--------+-------
   1 |      4 |     1

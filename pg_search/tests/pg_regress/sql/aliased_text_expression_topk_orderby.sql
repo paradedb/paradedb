@@ -1,12 +1,12 @@
 \i common/common_setup.sql
 
-CALL paradedb.create_bm25_test_table(
+CALL paradedb.create_paradedb_test_table(
   schema_name => 'public',
   table_name => 'mock_items'
 );
 
 CREATE INDEX search_idx ON mock_items
-USING bm25 (
+USING paradedb (
   id,
   (lower(description)::pdb.literal),
   rating
@@ -29,7 +29,7 @@ LIMIT 5;
 DROP INDEX search_idx;
 
 CREATE INDEX search_idx ON mock_items
-USING bm25 (
+USING paradedb (
   id,
   (lower(description)::pdb.literal('alias=literal_description')),
   rating
@@ -65,7 +65,7 @@ LIMIT 5;
 DROP INDEX search_idx;
 
 CREATE INDEX search_idx ON mock_items
-USING bm25 (
+USING paradedb (
   id,
   (description::pdb.simple('alias=simple_description')),
   (lower(description)::pdb.literal('alias=literal_description')),

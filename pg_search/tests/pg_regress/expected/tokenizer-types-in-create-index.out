@@ -7,7 +7,7 @@ CREATE TABLE tok_in_ci
 );
 INSERT INTO tok_in_ci (t)
 VALUES ('this is a test');
-CREATE INDEX idxtok_in_ci ON tok_in_ci USING bm25
+CREATE INDEX idxtok_in_ci ON tok_in_ci USING paradedb
     (
      id,
      t,

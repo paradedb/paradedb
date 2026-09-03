@@ -18,9 +18,7 @@
 use crate::api::AsCStr;
 use crate::customscan::aggregatescan::build::AggregateCSClause;
 use crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList;
-use crate::postgres::customscan::joinscan::build::{
-    JoinLevelSearchPredicate, MultiTablePredicateInfo, RelNode, RelationAlias,
-};
+use crate::postgres::customscan::joinscan::build::{RelNode, RelationAlias};
 use pgrx::PgList;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::prelude::*;
@@ -61,6 +59,30 @@ pub enum FilterExpr {
     Not(Box<FilterExpr>),
     IsNull(Box<FilterExpr>),
     IsNotNull(Box<FilterExpr>),
+}
+
+impl FilterExpr {
+    /// True if any [`FilterExpr::AggRef`] in this tree satisfies `pred`.
+    pub fn any_agg_ref(&self, pred: &impl Fn(usize) -> bool) -> bool {
+        match self {
+            FilterExpr::AggRef(idx) => pred(*idx),
+            FilterExpr::GroupRef(_)
+            | FilterExpr::ColumnRef { .. }
+            | FilterExpr::LitInt(_)
+            | FilterExpr::LitFloat(_)
+            | FilterExpr::LitBool(_)
+            | FilterExpr::LitString(_) => false,
+            FilterExpr::BinOp { left, right, .. } => {
+                left.any_agg_ref(pred) || right.any_agg_ref(pred)
+            }
+            FilterExpr::And(children) | FilterExpr::Or(children) => {
+                children.iter().any(|c| c.any_agg_ref(pred))
+            }
+            FilterExpr::Not(inner) | FilterExpr::IsNull(inner) | FilterExpr::IsNotNull(inner) => {
+                inner.any_agg_ref(pred)
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -151,15 +173,6 @@ pub enum PrivateData {
         targetlist: JoinAggregateTargetList,
         /// Optional TopK sort+limit pushed down from Postgres.
         topk: Option<DataFusionTopK>,
-        /// Cross-table search predicates extracted from WHERE quals.
-        /// These are @@@ predicates that reference multiple tables and cannot
-        /// be pushed to individual table scans.
-        #[serde(default)]
-        join_level_predicates: Vec<JoinLevelSearchPredicate>,
-        /// Non-@@@ cross-table predicates (like `b.id > 5`) that reference
-        /// fast fields and can be evaluated by DataFusion at join time.
-        #[serde(default)]
-        multi_table_predicates: Vec<MultiTablePredicateInfo>,
         /// Number of raw PG Expr pointers stored in custom_private after the
         /// serialized PrivateData. These are moved to custom_exprs during
         /// plan_custom_path so setrefs transforms their Var nodes.
@@ -168,6 +181,8 @@ pub enum PrivateData {
         /// HAVING clause filter applied after aggregation.
         #[serde(default)]
         having_filter: Option<FilterExpr>,
+        /// PostgreSQL's statement-wide `PlannerGlobal.parallelModeOK` decision.
+        parallel_mode_ok: bool,
     },
 }
 

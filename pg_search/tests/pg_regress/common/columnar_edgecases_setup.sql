@@ -34,7 +34,7 @@ CREATE TABLE corner_case_test (
 );
 
 -- Create BM25 index with fast fields for all columns
-CREATE INDEX corner_case_search ON corner_case_test USING bm25 (
+CREATE INDEX corner_case_search ON corner_case_test USING paradedb (
     id,
     empty_string,
     very_long_string,
@@ -100,7 +100,7 @@ CREATE TABLE nullable_test (
     content TEXT
 );
 
-CREATE INDEX nullable_search ON nullable_test USING bm25 (
+CREATE INDEX nullable_search ON nullable_test USING paradedb (
     id, string_field, numeric_field, content
 ) WITH (
     key_field = 'id',
@@ -123,7 +123,7 @@ CREATE TABLE mixed_numeric_string_test (
     content TEXT
 );
 
-CREATE INDEX mixed_string_edge_search ON mixed_numeric_string_test USING bm25 (
+CREATE INDEX mixed_string_edge_search ON mixed_numeric_string_test USING paradedb (
     id,
     numeric_field1,
     numeric_field2,

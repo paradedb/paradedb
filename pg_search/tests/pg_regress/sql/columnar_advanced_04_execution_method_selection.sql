@@ -38,7 +38,7 @@ FROM generate_series(1, 50) i;
 -- Create index with columnar storage
 DROP INDEX IF EXISTS exec_method_idx;
 CREATE INDEX exec_method_idx ON exec_method_test
-USING bm25 (
+USING paradedb (
     id, text_field1, text_field2, text_field3,
     num_field1, num_field2, num_field3,
     bool_field

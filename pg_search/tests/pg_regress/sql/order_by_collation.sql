@@ -10,7 +10,7 @@
 --
 -- Tests cover:
 -- 1. TopK (base scan ORDER BY ... LIMIT) with C vs non-C collation
--- 2. Aggregate scan ORDER BY with C vs non-C collation
+-- 2. Aggregate scan grouping and ordering with C vs non-C collation
 -- 3. Sorted index scan (sort_by) with C vs non-C collation
 -- 4. Non-text columns (integers) are unaffected by collation checks
 -- 5. Result correctness
@@ -31,12 +31,19 @@ CREATE COLLATION IF NOT EXISTS test_icu (
     locale = 'en-US'
 );
 
+CREATE COLLATION IF NOT EXISTS test_icu_case_insensitive (
+    provider = icu,
+    locale = 'und-u-ks-level2',
+    deterministic = false
+);
+
 DROP TABLE IF EXISTS collation_test CASCADE;
 
 CREATE TABLE collation_test (
     id SERIAL PRIMARY KEY,
     name_c TEXT COLLATE "C",
     name_icu TEXT COLLATE "test_icu",
+    name_case_insensitive TEXT COLLATE "test_icu_case_insensitive",
     name_default TEXT,
     priority INTEGER
 );
@@ -45,40 +52,45 @@ INSERT INTO
     collation_test (
         name_c,
         name_icu,
+        name_case_insensitive,
         name_default,
         priority
     )
-VALUES ('apple', 'apple', 'apple', 10),
+VALUES ('apple', 'apple', 'Electronics', 'apple', 10),
     (
         'Banana',
         'Banana',
+        'electronics',
         'Banana',
         20
     ),
     (
         'cherry',
         'cherry',
+        'Clothing',
         'cherry',
         30
     ),
-    ('Date', 'Date', 'Date', 40),
+    ('Date', 'Date', 'Home', 'Date', 40),
     (
         'elderberry',
         'elderberry',
+        'home',
         'elderberry',
         50
     );
 
-CREATE INDEX collation_test_idx ON collation_test USING bm25 (
+CREATE INDEX collation_test_idx ON collation_test USING paradedb (
     id,
     name_c,
     name_icu,
+    name_case_insensitive,
     name_default,
     priority
 )
 WITH (
         key_field = 'id',
-        text_fields = '{"name_c": {"indexed": true, "fast": true}, "name_icu": {"indexed": true, "fast": true}, "name_default": {"indexed": true, "fast": true}}',
+        text_fields = '{"name_c": {"indexed": true, "fast": true}, "name_icu": {"indexed": true, "fast": true}, "name_case_insensitive": {"indexed": true, "fast": true}, "name_default": {"indexed": true, "fast": true}}',
         numeric_fields = '{"priority": {"indexed": true, "fast": true}}'
     );
 
@@ -142,9 +154,18 @@ WHERE id @@@ paradedb.all()
 GROUP BY name_c
 ORDER BY name_c;
 
-\echo 'Test 2.2: GROUP BY + ORDER BY ICU-collation text -> Sort node expected'
+\echo 'Test 2.2: deterministic ICU GROUP BY stays pushed down; ORDER BY stays above'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_icu, COUNT(*) FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_icu
+ORDER BY name_icu;
+
+-- Deterministic ICU equality is compatible with byte-based grouping. Keep
+-- pdb.agg() on AggregateScan rather than falling back to PostgreSQL, which
+-- cannot execute its placeholder.
+SELECT name_icu, pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
+FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY name_icu
 ORDER BY name_icu;
@@ -155,6 +176,92 @@ SELECT priority, COUNT(*) FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY priority
 ORDER BY priority;
+
+\echo 'Test 2.4: safe GROUP BY + unsafe ORDER BY -> Sort above AggregateScan'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT name_c, COUNT(*) FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_c
+ORDER BY name_c COLLATE "test_icu";
+
+\echo 'Test 2.5: nondeterministic ICU GROUP BY -> PostgreSQL combines equivalent values'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT lower(name_case_insensitive) AS name, COUNT(*)
+FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_case_insensitive
+ORDER BY name;
+
+SELECT lower(name_case_insensitive) AS name, COUNT(*)
+FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_case_insensitive
+ORDER BY name;
+
+\echo 'Test 2.6: GROUPING SETS with a deterministic key -> AggregateScan declined'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT name_c, COUNT(*)
+FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY GROUPING SETS ((name_c), ());
+
+SELECT COUNT(*) AS group_count
+FROM (
+    SELECT name_c
+    FROM collation_test
+    WHERE id @@@ paradedb.all()
+    GROUP BY GROUPING SETS ((name_c), ())
+) AS grouped;
+
+SELECT name_c, pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
+FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY GROUPING SETS ((name_c), ());
+
+\echo 'Test 2.7: constant-equality GROUP BY key with no pathkeys -> AggregateScan declined'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT name_c, COUNT(*)
+FROM collation_test
+WHERE name_c = 'apple' AND id @@@ paradedb.all()
+GROUP BY name_c;
+
+SELECT name_c, pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
+FROM collation_test
+WHERE name_c = 'apple' AND id @@@ paradedb.all()
+GROUP BY name_c;
+
+\echo 'Test 2.8: hash aggregation with a nondeterministic collation -> AggregateScan declined'
+SET enable_sort TO off;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT name_case_insensitive, COUNT(*)
+FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_case_insensitive;
+
+SELECT COUNT(*) AS group_count
+FROM (
+    SELECT name_case_insensitive
+    FROM collation_test
+    WHERE id @@@ paradedb.all()
+    GROUP BY name_case_insensitive
+) AS grouped;
+
+RESET enable_sort;
+
+\echo 'Test 2.9: pdb.agg() with a nondeterministic grouping collation warns before failing'
+SELECT lower(name_case_insensitive) AS name,
+       pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
+FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_case_insensitive;
+
+\echo 'Test 2.10: mixed safe and unsafe GROUP BY keys -> AggregateScan declined'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT name_c, name_case_insensitive, COUNT(*) FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_c, name_case_insensitive
+ORDER BY name_c, name_case_insensitive;
 
 RESET paradedb.enable_aggregate_custom_scan;
 
@@ -181,7 +288,7 @@ VALUES ('berlin', 3600000),
     ('Delhi', 32000000),
     ('edmonton', 1000000);
 
-CREATE INDEX collation_sortby_test_idx ON collation_sortby_test USING bm25 (id, city, population)
+CREATE INDEX collation_sortby_test_idx ON collation_sortby_test USING paradedb (id, city, population)
 WITH (
         key_field = 'id',
         text_fields = '{"city": {"indexed": true, "fast": true}}',
@@ -291,7 +398,7 @@ VALUES (1, 1, 'TechCorp'),
     (4, 4, 'FurniPro'),
     (5, 5, 'TechCorp');
 
-CREATE INDEX collation_join_products_idx ON collation_join_products USING bm25 (
+CREATE INDEX collation_join_products_idx ON collation_join_products USING paradedb (
     id,
     name_c,
     name_icu,
@@ -302,7 +409,7 @@ WITH (
         text_fields = '{"name_c": {"fast": true}, "name_icu": {"fast": true}, "description": {}}'
     );
 
-CREATE INDEX collation_join_suppliers_idx ON collation_join_suppliers USING bm25 (id, product_id, supplier_name)
+CREATE INDEX collation_join_suppliers_idx ON collation_join_suppliers USING paradedb (id, product_id, supplier_name)
 WITH (
         key_field = 'id',
         text_fields = '{"supplier_name": {"fast": true}}',
@@ -358,13 +465,15 @@ GROUP BY name_c
 ORDER BY name_c
 LIMIT 3;
 
-\echo 'Test 6.2: GROUP BY + ORDER BY ICU-collation text + LIMIT -> no TopK (Sort node expected)'
+\echo 'Test 6.2: deterministic ICU GROUP BY + LIMIT -> grouping pushed down, ordering remains above'
+SET paradedb.max_term_agg_buckets = 1;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_icu, COUNT(*) FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY name_icu
 ORDER BY name_icu
 LIMIT 3;
+RESET paradedb.max_term_agg_buckets;
 
 \echo 'Test 6.3: GROUP BY + ORDER BY integer + LIMIT -> aggregate TopK pushdown'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -457,6 +566,8 @@ DROP TABLE IF EXISTS collation_sortby_test CASCADE;
 DROP TABLE IF EXISTS collation_join_products CASCADE;
 
 DROP TABLE IF EXISTS collation_join_suppliers CASCADE;
+
+DROP COLLATION IF EXISTS test_icu_case_insensitive;
 
 DROP COLLATION IF EXISTS test_icu;
 

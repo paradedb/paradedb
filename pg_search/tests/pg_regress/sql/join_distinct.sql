@@ -86,7 +86,7 @@ VALUES (201, 'Wireless Mouse', 'Ergonomic wireless mouse with Bluetooth connecti
 -- Create BM25 indexes with fast fields on join keys and ORDER BY columns
 -- All columns that appear in DISTINCT target lists must be fast fields
 CREATE INDEX dist_products_bm25_idx ON dist_products
-    USING bm25 (id, name, description, supplier_id, category_id, price)
+    USING paradedb (id, name, description, supplier_id, category_id, price)
     WITH (
     key_field = 'id',
     text_fields = '{"name": {"fast": true}}',
@@ -94,14 +94,14 @@ CREATE INDEX dist_products_bm25_idx ON dist_products
     );
 
 CREATE INDEX dist_suppliers_bm25_idx ON dist_suppliers
-    USING bm25 (id, name, contact_info, country)
+    USING paradedb (id, name, contact_info, country)
     WITH (
     key_field = 'id',
     text_fields = '{"name": {"fast": true}}'
     );
 
 CREATE INDEX dist_categories_bm25_idx ON dist_categories
-    USING bm25 (id, name, description)
+    USING paradedb (id, name, description)
     WITH (
     key_field = 'id',
     text_fields = '{"name": {"fast": true}}'
@@ -371,11 +371,11 @@ WHERE p.description @@@ 'wireless'
     LIMIT 3;
 
 -- =============================================================================
--- TEST 13: Fallback — DISTINCT without LIMIT
+-- TEST 13: DISTINCT without LIMIT — AggregateScan owns the dedup
 -- =============================================================================
--- DISTINCT without a LIMIT clause. JoinScan requires a LIMIT to activate,
--- so this should fall back to native PG execution with the standard
--- "JoinScan not used: query must have a LIMIT clause" warning.
+-- JoinScan requires a top-level LIMIT, so it declines (emitting its
+-- "LIMIT is required" warning). AggregateScan then pushes the JOIN + DISTINCT
+-- into DataFusion rather than letting it fall back to native PG.
 
 EXPLAIN
 (COSTS OFF, VERBOSE, TIMING OFF)
@@ -547,8 +547,8 @@ INSERT INTO jobs VALUES
   (4, 2, 'Recruiter'),         -- Bob  ← should exclude Bob
   (5, 3, 'Recruiter');         -- Charlie
 
-CREATE INDEX jobs_bm25 ON jobs USING bm25 (id, person_id, title) WITH (key_field='id');
-CREATE INDEX persons_bm25 ON persons USING bm25 (id, name) WITH (key_field='id', text_fields='{"name": {"fast": true}}');
+CREATE INDEX jobs_bm25 ON jobs USING paradedb (id, person_id, title) WITH (key_field='id');
+CREATE INDEX persons_bm25 ON persons USING paradedb (id, name) WITH (key_field='id', text_fields='{"name": {"fast": true}}');
 
 SET paradedb.enable_join_custom_scan = on;
 
@@ -622,7 +622,7 @@ INSERT INTO profiles_positions (profile_id, group_id, deleted_at, title) VALUES
   (2, 'c624233d-2c2c-43ab-976e-0847bfd58387', NULL, 'Recruiter'),
   (3, 'c624233d-2c2c-43ab-976e-0847bfd58387', NULL, 'Recruiter');
 
-CREATE INDEX profiles_positions_bm25 ON profiles_positions USING bm25 (id, profile_id, group_id, deleted_at, title) WITH (key_field='id');
+CREATE INDEX profiles_positions_bm25 ON profiles_positions USING paradedb (id, profile_id, group_id, deleted_at, title) WITH (key_field='id');
 
 SET paradedb.enable_join_custom_scan = on;
 

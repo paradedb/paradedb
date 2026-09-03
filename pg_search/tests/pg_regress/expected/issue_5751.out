@@ -19,10 +19,10 @@ INSERT INTO issue_5751_entries VALUES
     (3, 2, 'u1'),
     (4, 3, 'u1');
 CREATE INDEX issue_5751_series_idx
-ON issue_5751_series USING bm25 (id, ((state)::pdb.literal))
+ON issue_5751_series USING paradedb (id, ((state)::pdb.literal))
 WITH (key_field = 'id');
 CREATE INDEX issue_5751_entries_idx
-ON issue_5751_entries USING bm25 (id, series_id, ((user_id)::pdb.literal))
+ON issue_5751_entries USING paradedb (id, series_id, ((user_id)::pdb.literal))
 WITH (key_field = 'id');
 -- Keep the plan assertion stable without recording DataFusion's physical plan.
 CREATE FUNCTION issue_5751_plan_uses(q text, needle text) RETURNS boolean AS $$
@@ -356,10 +356,10 @@ INSERT INTO issue_5751_ppi_entries VALUES
     (4, 2, 15),
     (5, 2, 25);
 CREATE INDEX issue_5751_ppi_series_bm25
-ON issue_5751_ppi_series USING bm25 (id, threshold)
+ON issue_5751_ppi_series USING paradedb (id, threshold)
 WITH (key_field = 'id');
 CREATE INDEX issue_5751_ppi_entries_bm25
-ON issue_5751_ppi_entries USING bm25 (id, series_id, amount)
+ON issue_5751_ppi_entries USING paradedb (id, series_id, amount)
 WITH (key_field = 'id');
 CREATE INDEX issue_5751_ppi_lookup
 ON issue_5751_ppi_series (id, threshold);
@@ -501,9 +501,9 @@ CREATE TABLE issue_5751_js_right (id bigint PRIMARY KEY, left_id bigint, body te
 INSERT INTO issue_5751_js_left SELECT g, 'alpha beta' FROM generate_series(1, 20) g;
 INSERT INTO issue_5751_js_right SELECT g, g, 'gamma delta' FROM generate_series(1, 20) g;
 CREATE INDEX issue_5751_js_left_bm25
-ON issue_5751_js_left USING bm25 (id, body) WITH (key_field = 'id');
+ON issue_5751_js_left USING paradedb (id, body) WITH (key_field = 'id');
 CREATE INDEX issue_5751_js_right_bm25
-ON issue_5751_js_right USING bm25 (id, left_id, body) WITH (key_field = 'id');
+ON issue_5751_js_right USING paradedb (id, left_id, body) WITH (key_field = 'id');
 SET paradedb.enable_join_custom_scan = on;
 -- Both enabled: AggregateScan claims the query outright.
 SELECT issue_5751_plan_uses(
@@ -570,9 +570,9 @@ CREATE TABLE issue_5751_pw_b2 PARTITION OF issue_5751_pw_b FOR VALUES FROM (100)
 INSERT INTO issue_5751_pw_a SELECT g, g, 'x' FROM generate_series(1, 199) g;
 INSERT INTO issue_5751_pw_b SELECT g, g, 'y' FROM generate_series(1, 199) g;
 CREATE INDEX issue_5751_pw_a_bm25
-ON issue_5751_pw_a USING bm25 (id, k, ((s)::pdb.literal)) WITH (key_field = 'id');
+ON issue_5751_pw_a USING paradedb (id, k, ((s)::pdb.literal)) WITH (key_field = 'id');
 CREATE INDEX issue_5751_pw_b_bm25
-ON issue_5751_pw_b USING bm25 (id, k, ((t)::pdb.literal)) WITH (key_field = 'id');
+ON issue_5751_pw_b USING paradedb (id, k, ((t)::pdb.literal)) WITH (key_field = 'id');
 SET enable_partitionwise_join = on;
 SELECT issue_5751_plan_uses(
   $$SELECT count(*)

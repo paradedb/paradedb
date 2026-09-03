@@ -8,7 +8,8 @@
 --   - 1 segment per table produces no distributable stages: the query
 --     runs serially ("MPP Launch" line absent), and under
 --     paradedb.mpp_debug no "spawning" trace appears — no launch is
---     even attempted.
+--     even attempted. Plain EXPLAIN must also render the serial shape
+--     (#5784), not a cap-sized distributed plan.
 --   - 4 segments per table under a cap of 2 launch exactly 2 producers;
 --     the extra tasks multiplex and results match the serial run.
 --   - AggregateScan rides the same launch: a 2-segment GROUP BY join
@@ -30,9 +31,9 @@ CREATE TABLE mpp_ws_outcome (line text);
 -- Two segments per index: two bulk inserts with the mutable segment disabled.
 CREATE TABLE mpp_ws_users    (id bigserial PRIMARY KEY, name text, age int);
 CREATE TABLE mpp_ws_products (id bigserial PRIMARY KEY, name text, age int);
-CREATE INDEX mpp_ws_users_idx ON mpp_ws_users USING bm25 (id, name, age)
+CREATE INDEX mpp_ws_users_idx ON mpp_ws_users USING paradedb (id, name, age)
 WITH (key_field='id', text_fields='{"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
-CREATE INDEX mpp_ws_products_idx ON mpp_ws_products USING bm25 (id, name, age)
+CREATE INDEX mpp_ws_products_idx ON mpp_ws_products USING paradedb (id, name, age)
 WITH (key_field='id', text_fields='{"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO mpp_ws_users (name, age)
@@ -49,9 +50,9 @@ ANALYZE mpp_ws_products;
 -- One segment per index: a single insert each.
 CREATE TABLE mpp_ws1_users    (id bigserial PRIMARY KEY, name text, age int);
 CREATE TABLE mpp_ws1_products (id bigserial PRIMARY KEY, name text, age int);
-CREATE INDEX mpp_ws1_users_idx ON mpp_ws1_users USING bm25 (id, name, age)
+CREATE INDEX mpp_ws1_users_idx ON mpp_ws1_users USING paradedb (id, name, age)
 WITH (key_field='id', text_fields='{"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
-CREATE INDEX mpp_ws1_products_idx ON mpp_ws1_products USING bm25 (id, name, age)
+CREATE INDEX mpp_ws1_products_idx ON mpp_ws1_products USING paradedb (id, name, age)
 WITH (key_field='id', text_fields='{"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO mpp_ws1_users (name, age)
@@ -106,6 +107,47 @@ BEGIN
         INSERT INTO mpp_ws_outcome VALUES ('1-segment join: ran serially (no MPP launch recorded)');
     END IF;
 END$$;
+-- #5784: plain EXPLAIN must match the serial ANALYZE shape when launch
+-- will not run — no cap-sized RoundRobin / SortPreservingMerge.
+DO $$
+DECLARE
+    r record;
+    plan text := '';
+BEGIN
+    FOR r IN EXECUTE 'EXPLAIN (VERBOSE, COSTS OFF)
+        SELECT u.id FROM mpp_ws1_users u JOIN mpp_ws1_products p ON u.age = p.age
+        WHERE u.name @@@ ''bob'' ORDER BY u.id LIMIT 10'
+    LOOP
+        plan := plan || E'\n' || r."QUERY PLAN";
+    END LOOP;
+    IF plan LIKE '%RoundRobinBatch%' OR plan LIKE '%SortPreservingMergeExec%' THEN
+        INSERT INTO mpp_ws_outcome
+        VALUES ('1-segment join plain EXPLAIN: UNEXPECTED distributed shape');
+    ELSE
+        INSERT INTO mpp_ws_outcome
+        VALUES ('1-segment join plain EXPLAIN: serial shape (no distributed merge/repartition)');
+    END IF;
+END$$;
+DO $$
+DECLARE
+    r record;
+    plan text := '';
+BEGIN
+    FOR r IN EXECUTE 'EXPLAIN (VERBOSE, COSTS OFF)
+        SELECT p.age, count(*) FROM mpp_ws1_users u JOIN mpp_ws1_products p ON u.age = p.age
+        WHERE u.name @@@ ''bob'' GROUP BY p.age ORDER BY p.age LIMIT 5'
+    LOOP
+        plan := plan || E'\n' || r."QUERY PLAN";
+    END LOOP;
+    IF plan LIKE '%RoundRobinBatch%' OR plan LIKE '%SortPreservingMergeExec%'
+       OR plan LIKE '%NetworkShuffle%' OR plan LIKE '%DistributedExec%' THEN
+        INSERT INTO mpp_ws_outcome
+        VALUES ('1-segment aggregate plain EXPLAIN: UNEXPECTED distributed shape');
+    ELSE
+        INSERT INTO mpp_ws_outcome
+        VALUES ('1-segment aggregate plain EXPLAIN: serial shape (no distributed merge/repartition)');
+    END IF;
+END$$;
 -- AggregateScan rides the same plan-first launch: same 2-segment tables under
 -- a cap of 8 must also launch exactly 2 producers.
 DO $$
@@ -130,14 +172,141 @@ BEGIN
         VALUES ('2-segment aggregate: UNEXPECTED worker count ' || launched);
     END IF;
 END$$;
+-- #6157: a DataFusion scan below ModifyTable must honor PostgreSQL's query-wide
+-- parallelModeOK=false decision. The equivalent standalone SELECT above proves
+-- that this dataset and plan shape really do launch MPP; beneath INSERT the
+-- custom scan must remain selected but build a serial DataFusion plan.
+CREATE TABLE mpp_ws_agg_insert_out (age int, n bigint);
+DO $$
+DECLARE
+    r record;
+    plan text := '';
+BEGIN
+    FOR r IN EXECUTE 'EXPLAIN (VERBOSE, COSTS OFF)
+        INSERT INTO mpp_ws_agg_insert_out
+        SELECT p.age, count(*)
+        FROM mpp_ws_users u JOIN mpp_ws_products p ON u.age = p.age
+        WHERE u.name @@@ ''bob''
+        GROUP BY p.age ORDER BY p.age LIMIT 5'
+    LOOP
+        plan := plan || E'\n' || r."QUERY PLAN";
+    END LOOP;
+    IF plan LIKE '%ParadeDB Aggregate Scan%'
+       AND plan LIKE '%DataFusion Physical Plan:%'
+       AND plan LIKE '%PgSearchScan:%'
+       AND plan NOT LIKE '%DistributedExec%'
+       AND plan NOT LIKE '%NetworkShuffle%' THEN
+        INSERT INTO mpp_ws_outcome
+        VALUES ('INSERT aggregate plan: DataFusion custom scan stayed serial');
+    ELSE
+        INSERT INTO mpp_ws_outcome
+        VALUES ('INSERT aggregate plan: UNEXPECTED custom-scan or distributed shape');
+    END IF;
+END$$;
+INSERT INTO mpp_ws_agg_insert_out
+SELECT p.age, count(*)
+FROM mpp_ws_users u JOIN mpp_ws_products p ON u.age = p.age
+WHERE u.name @@@ 'bob'
+GROUP BY p.age ORDER BY p.age LIMIT 5;
+INSERT INTO mpp_ws_outcome
+SELECT CASE
+    WHEN count(*) = 5 AND min(n) = 40000 AND max(n) = 40000
+    THEN 'INSERT aggregate execution: inserted correct rows without parallel-mode error'
+    ELSE 'INSERT aggregate execution: UNEXPECTED result'
+END
+FROM mpp_ws_agg_insert_out;
+-- JoinScan shares the same self-launching MPP machinery and must obey the same
+-- statement-wide invariant.
+CREATE TABLE mpp_ws_join_insert_out (id bigint);
+DO $$
+DECLARE
+    r record;
+    plan text := '';
+BEGIN
+    FOR r IN EXECUTE 'EXPLAIN (VERBOSE, COSTS OFF)
+        INSERT INTO mpp_ws_join_insert_out
+        SELECT u.id
+        FROM mpp_ws_users u JOIN mpp_ws_products p ON u.age = p.age
+        WHERE u.name @@@ ''bob'' ORDER BY u.id LIMIT 10'
+    LOOP
+        plan := plan || E'\n' || r."QUERY PLAN";
+    END LOOP;
+    IF plan LIKE '%ParadeDB Join Scan%'
+       AND plan LIKE '%DataFusion Physical Plan:%'
+       AND plan LIKE '%PgSearchScan:%'
+       AND plan NOT LIKE '%DistributedExec%'
+       AND plan NOT LIKE '%NetworkShuffle%' THEN
+        INSERT INTO mpp_ws_outcome
+        VALUES ('INSERT join plan: DataFusion custom scan stayed serial');
+    ELSE
+        INSERT INTO mpp_ws_outcome
+        VALUES ('INSERT join plan: UNEXPECTED custom-scan or distributed shape');
+    END IF;
+END$$;
+INSERT INTO mpp_ws_join_insert_out
+SELECT u.id
+FROM mpp_ws_users u JOIN mpp_ws_products p ON u.age = p.age
+WHERE u.name @@@ 'bob' ORDER BY u.id LIMIT 10;
+INSERT INTO mpp_ws_outcome
+SELECT CASE
+    WHEN count(*) = 10 AND min(id) = 2 AND max(id) = 2
+    THEN 'INSERT join execution: inserted correct rows without parallel-mode error'
+    ELSE 'INSERT join execution: UNEXPECTED result'
+END
+FROM mpp_ws_join_insert_out;
+-- Force a generic prepared plan so the search predicate remains a Param until
+-- executor startup. This exercises JoinScan's unsafe-statement serial rebake,
+-- not just the static logical plan used by the INSERT above.
+TRUNCATE mpp_ws_join_insert_out;
+SET plan_cache_mode TO force_generic_plan;
+PREPARE mpp_ws_prepared_join_insert(text) AS
+INSERT INTO mpp_ws_join_insert_out
+SELECT u.id
+FROM mpp_ws_users u JOIN mpp_ws_products p ON u.age = p.age
+WHERE u.name @@@ $1 ORDER BY u.id LIMIT 10;
+DO $$
+DECLARE
+    r record;
+    plan text := '';
+BEGIN
+    FOR r IN EXECUTE 'EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF)
+        EXECUTE mpp_ws_prepared_join_insert(''bob'')'
+    LOOP
+        plan := plan || E'\n' || r."QUERY PLAN";
+    END LOOP;
+    IF plan LIKE '%ParadeDB Join Scan%'
+       AND plan LIKE '%DataFusion Physical Plan:%'
+       AND plan LIKE '%PgSearchScan:%'
+       AND plan NOT LIKE '%DistributedExec%'
+       AND plan NOT LIKE '%NetworkShuffle%'
+       AND plan NOT LIKE '%MPP Launch:%' THEN
+        INSERT INTO mpp_ws_outcome
+        VALUES ('prepared INSERT join plan: parameterized custom scan stayed serial');
+    ELSE
+        INSERT INTO mpp_ws_outcome
+        VALUES ('prepared INSERT join plan: UNEXPECTED custom-scan or distributed shape');
+    END IF;
+END$$;
+EXECUTE mpp_ws_prepared_join_insert('alice');
+INSERT INTO mpp_ws_outcome
+SELECT CASE
+    WHEN count(*) FILTER (WHERE id = 1) = 10
+         AND count(*) FILTER (WHERE id = 2) = 10
+         AND count(*) = 20
+    THEN 'prepared INSERT join execution: runtime parameter changed results'
+    ELSE 'prepared INSERT join execution: UNEXPECTED result'
+END
+FROM mpp_ws_join_insert_out;
+DEALLOCATE mpp_ws_prepared_join_insert;
+RESET plan_cache_mode;
 -- Four segments per index, cap of 2 (per_gather = 2): more tasks than workers.
 -- The launch must clamp to the cap and the extra tasks multiplex onto the two
 -- producers (dispatch::push_owned_tasks), returning the same results as serial.
 CREATE TABLE mpp_ws4_users    (id bigserial PRIMARY KEY, name text, age int);
 CREATE TABLE mpp_ws4_products (id bigserial PRIMARY KEY, name text, age int);
-CREATE INDEX mpp_ws4_users_idx ON mpp_ws4_users USING bm25 (id, name, age)
+CREATE INDEX mpp_ws4_users_idx ON mpp_ws4_users USING paradedb (id, name, age)
 WITH (key_field='id', text_fields='{"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
-CREATE INDEX mpp_ws4_products_idx ON mpp_ws4_products USING bm25 (id, name, age)
+CREATE INDEX mpp_ws4_products_idx ON mpp_ws4_products USING paradedb (id, name, age)
 WITH (key_field='id', text_fields='{"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO mpp_ws4_users (name, age)
@@ -218,16 +387,24 @@ BEGIN
 END$$;
 SET paradedb.mpp_debug TO off;
 SELECT line FROM mpp_ws_outcome ORDER BY line;
-                                line                                 
----------------------------------------------------------------------
+                                        line                                        
+------------------------------------------------------------------------------------
+ 1-segment aggregate plain EXPLAIN: serial shape (no distributed merge/repartition)
+ 1-segment join plain EXPLAIN: serial shape (no distributed merge/repartition)
  1-segment join: ran serially (no MPP launch recorded)
  2-segment aggregate: launched exactly 2 producers
  2-segment join: launched exactly 2 producers
  4-segment join at cap 2: launched 2 producers, results match serial
-(4 rows)
+ INSERT aggregate execution: inserted correct rows without parallel-mode error
+ INSERT aggregate plan: DataFusion custom scan stayed serial
+ INSERT join execution: inserted correct rows without parallel-mode error
+ INSERT join plan: DataFusion custom scan stayed serial
+ prepared INSERT join execution: runtime parameter changed results
+ prepared INSERT join plan: parameterized custom scan stayed serial
+(12 rows)
 
 DROP TABLE mpp_ws_outcome, mpp_ws_users, mpp_ws_products, mpp_ws1_users, mpp_ws1_products,
-           mpp_ws4_users, mpp_ws4_products;
+           mpp_ws4_users, mpp_ws4_products, mpp_ws_agg_insert_out, mpp_ws_join_insert_out;
 RESET paradedb.mpp_debug;
 RESET paradedb.enable_aggregate_custom_scan;
 RESET paradedb.enable_join_custom_scan;

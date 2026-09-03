@@ -18,6 +18,7 @@
 use tests::fixtures::querygen::groupbygen::arb_group_by;
 use tests::fixtures::querygen::joingen::{arb_joins, arb_semi_joins, JoinType};
 use tests::fixtures::querygen::numericgen::arb_numeric_expr;
+use tests::fixtures::querygen::orderbygen::arb_joinscan_order_parts;
 use tests::fixtures::querygen::pagegen::arb_paging_exprs;
 use tests::fixtures::querygen::wheregen::arb_wheres;
 use tests::fixtures::querygen::wheregen::Expr as WhereExpr;
@@ -566,7 +567,7 @@ async fn generated_subquery(database: Db) {
 /// - 2 or 3 table joins and arbitrary boolean WHERE trees (AND, OR, NOT) across tables
 /// - Optional cross-relation predicates (like a.age > b.age)
 /// - Optional DISTINCT keyword (deduplication of result rows)
-/// - Score-based ordering vs regular column ordering (currently skipped, see prop_assume!)
+/// - Indexed expression and NULL-predicate ordering vs regular column ordering
 ///
 /// This verifies that JoinScan produces the same results as PostgreSQL's
 /// native join implementation across all these variations.
@@ -593,24 +594,29 @@ async fn generated_joinscan(database: Db) {
     let where_and_join_columns = columns_named(vec!["id", "name", "color", "age", "uuid"]);
 
     proptest!(|(
-        (join_expr, where_expr, heap_condition) in arb_joins_and_wheres(
-            Just(JoinType::Inner),
-            all_tables.clone(),
-            &where_and_join_columns,
-        ),
-        // Optional DISTINCT keyword
-        include_distinct in proptest::bool::ANY,
-        // Indexed expression ORDER BY (e.g. ORDER BY upper(category))
-        include_expr_ordering in proptest::bool::ANY,
+        ((join_expr, where_expr, heap_condition), include_distinct, order_parts) in (
+            arb_joins_and_wheres(
+                Just(JoinType::Inner),
+                all_tables.clone(),
+                &where_and_join_columns,
+            ),
+            proptest::bool::ANY,
+        ).prop_flat_map(|((join_expr, where_expr, heap_condition), include_distinct)| {
+            let used_tables = join_expr
+                .used_tables()
+                .into_iter()
+                .map(str::to_string)
+                .collect();
+            (
+                Just((join_expr, where_expr, heap_condition)),
+                Just(include_distinct),
+                arb_joinscan_order_parts(used_tables, include_distinct),
+            )
+        }),
         // Result limit
         limit in 1..=50usize,
         mut gucs in any::<PgGucs>(),
     )| {
-        // DISTINCT + expression ORDER BY requires projecting the expression in SELECT,
-        // which JoinScan doesn't support yet. Skip this combination.
-        prop_assume!(!(include_distinct && include_expr_ordering));
-
-
         let join_clause = join_expr.to_sql();
         let used_tables = join_expr.used_tables();
 
@@ -643,21 +649,6 @@ async fn generated_joinscan(database: Db) {
         let bm25_where = bm25_where_parts.join(" AND ");
         let pg_where = pg_where_parts.join(" AND ");
 
-        // Build deterministic ORDER BY with tie-breaker columns
-        // When joins produce multiple matching rows, we need to include columns from both sides
-        // to ensure deterministic results when LIMIT is applied
-        let mut order_parts = Vec::new();
-        if include_expr_ordering {
-            order_parts.push(format!("upper({}.category)", used_tables[0]));
-        }
-        order_parts.push(format!("{}.id", used_tables[0]));
-        // Only add inner table tiebreakers when NOT using expression ordering,
-        // because SegmentedTopKExec may not project all sort keys from inner tables.
-        if !include_expr_ordering {
-            for table in &used_tables[1..] {
-                order_parts.push(format!("{}.id", table));
-            }
-        }
         let order_by = order_parts.join(", ");
 
         // GUCs with JoinScan enabled

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788387096098,
+  "lastUpdate": 1788398354933,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -314412,6 +314412,90 @@ window.BENCHMARK_DATA = {
             "value": 574.6138907034452,
             "unit": "median tps",
             "extra": "avg tps: 573.5844022931818, max tps: 656.6031124635476, count: 55417"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "zey8840@naver.com",
+            "name": "Tal",
+            "username": "taljeon"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8af80204b038b585a96131b5b21522493263afca",
+          "message": "test: cover JoinScan NULL predicate ordering in qgen (#6199)\n\n# Ticket(s) Closed\n\n- Progresses #6194. This is an umbrella issue and should remain open.\n\n## What\n\n- Add nullable `quantity IS NULL` and `quantity IS NOT NULL` ordering\nvariants to the existing `generated_joinscan` property test.\n- Move JoinScan ordering generation into a dedicated helper that emits\nonly valid combinations.\n- Remove the superseded `join_order_by_is_null` SQL and expected-output\nfiles.\n\n## Why\n\nThe fixed regression's NULL-valued companies have no matching rows, so\nits result blocks do not exercise joined NULL values. The qgen test\ndoes: it verifies both that the generated query uses `ParadeDB Join\nScan` and that its results match PostgreSQL over randomized joins,\npredicates, limits, GUCs, and data.\n\nThe property test uses the indexed nullable integer `quantity` column,\navoiding text-collation constraints while covering both NULL predicate\nforms with deterministic `quantity` and ID tie-breakers.\n\n## How\n\n`arb_joinscan_order_parts` explicitly represents all six previously\nvalid non-DISTINCT ordering states: regular columns, `upper(category)`,\nboth quantity NULL predicates, and both combinations of\n`upper(category)` with a NULL predicate. Each state includes the\nappropriate deterministic tie-breakers.\n\nDISTINCT is passed directly to the generator as a projection\nrestriction, which emits ordinary projected columns only. This removes\nthe intertwined booleans and rejected cases from the test body. Because\nqgen now owns both plan selection and result parity for #4751, the fixed\nSQL and expected-output files are removed entirely.\n\n## Tests\n\n- `cargo fmt --all -- --check`\n- `cargo clippy --package tests --test qgen -- -D warnings`\n- `cargo test --package tests --lib` — 16 passed\n- `cargo test --package tests --test qgen --no-run`\n- Focused local property validation of the NULL-ordering path, excluding\nthe pre-existing cross-relation planner path — 128/128 cases passed\nagainst the official ParadeDB 0.25.6 image in a C-locale PostgreSQL\ncluster. The temporary local filter is not part of the commit.\n- `rg -n 'join_order_by_is_null' pg_search tests` — no remaining\nreferences\n- `git diff --check`\n\nUnfiltered runs against the published image reached the existing\ncross-relation planner error (`variable not found in subplan target\nlist`) with both regular and nullable ordering. The focused run excluded\nthat unchanged heap-condition path; this PR does not alter\ncross-relation generation or planner behavior.\n\nAI assistance: OpenAI Codex helped prepare and validate this change.\n\n---------\n\nCo-authored-by: taljeon <taljeon@users.noreply.github.com>",
+          "timestamp": "2026-09-02T18:00:43-07:00",
+          "tree_id": "0ee699e6d518c7698e80492a223f374757b9062b",
+          "url": "https://github.com/paradedb/paradedb/commit/8af80204b038b585a96131b5b21522493263afca"
+        },
+        "date": 1788398349792,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 191.7410203281895,
+            "unit": "median tps",
+            "extra": "avg tps: 195.64830593662782, max tps: 217.97122502203203, count: 55288"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 194.50606535510695,
+            "unit": "median tps",
+            "extra": "avg tps: 198.24220252618895, max tps: 221.85422610712612, count: 55288"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 171.5865359668427,
+            "unit": "median tps",
+            "extra": "avg tps: 174.1952996636147, max tps: 202.72533752713977, count: 55288"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 448.6329032545689,
+            "unit": "median tps",
+            "extra": "avg tps: 470.6635193960726, max tps: 705.5481057515011, count: 55288"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 327.77221147516025,
+            "unit": "median tps",
+            "extra": "avg tps: 339.19851929770203, max tps: 448.74171391264485, count: 55288"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.853952756905596,
+            "unit": "median tps",
+            "extra": "avg tps: 14.877290893971479, max tps: 15.929481514310037, count: 55288"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Subscriber - tps",
+            "value": 651.8743639430859,
+            "unit": "median tps",
+            "extra": "avg tps: 662.1611301376776, max tps: 815.063667899336, count: 55288"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 661.2074635180531,
+            "unit": "median tps",
+            "extra": "avg tps: 673.2294414878266, max tps: 829.6089719444952, count: 55288"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 262.83773402068493,
+            "unit": "median tps",
+            "extra": "avg tps: 269.74036932765216, max tps: 339.65847139993457, count: 55288"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 570.7143689537814,
+            "unit": "median tps",
+            "extra": "avg tps: 578.4652184425673, max tps: 676.9575730656543, count: 55288"
           }
         ]
       }

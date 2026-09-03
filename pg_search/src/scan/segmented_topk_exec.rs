@@ -1871,15 +1871,6 @@ impl SegmentedTopKState {
             })
             .collect();
 
-        let materialized_sort_fields: Vec<SortField> = sort_cols
-            .iter()
-            .map(|sort_col| {
-                SortField::new_with_options(sort_col.mat_type.clone(), sort_col.expr.options)
-            })
-            .collect();
-
-        let mat_row_converter = RowConverter::new(materialized_sort_fields)?;
-
         // A NULL must match the RowConverter's declared field type:
         // convert_columns rejects mismatches ("expected BinaryView got
         // Utf8View" for a NULL in a Bytes-backed NUMERIC sort key).
@@ -1933,7 +1924,8 @@ impl SegmentedTopKState {
             .into_iter()
             .map(|col| ScalarValue::iter_to_array(col))
             .collect::<Result<Vec<_>>>()?;
-        let converted = mat_row_converter
+        let converted = self
+            .mat_row_converter
             .convert_columns(&arrays)
             .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
         let mut mat_rows: Vec<(usize, OwnedRow)> = Vec::with_capacity(candidates.len());

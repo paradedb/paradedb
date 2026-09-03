@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788399559351,
+  "lastUpdate": 1788400596216,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -157208,6 +157208,66 @@ window.BENCHMARK_DATA = {
             "value": 17.953179896455563,
             "unit": "median tps",
             "extra": "avg tps: 18.143570517284903, max tps: 34.67672707872674, count: 59306"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "isaacjvandoren@gmail.com",
+            "name": "Isaac Van Doren",
+            "username": "isaacvando"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "16e0303417a0da7f025620a3398b2e013f7c5ea5",
+          "message": "ci: Use runs-on/action to properly configure runs-on's caching (#6195)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThis is the proper way to configure runs-on's cache that makes it work\nwithout us having to use workarounds for artifact uploads.\nhttps://runs-on.com/docs/performance/caching/actions/\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-09-02T18:38:12-07:00",
+          "tree_id": "eb77cd149f35313e59ebac99cca0a58dbc2991a7",
+          "url": "https://github.com/paradedb/paradedb/commit/16e0303417a0da7f025620a3398b2e013f7c5ea5"
+        },
+        "date": 1788400592665,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 77.31970845238949,
+            "unit": "median tps",
+            "extra": "avg tps: 77.21099348869804, max tps: 84.22112948158652, count: 59311"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 129.85921587686104,
+            "unit": "median tps",
+            "extra": "avg tps: 200.4830165820191, max tps: 5687.272102106938, count: 59311"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 781.8449435083716,
+            "unit": "median tps",
+            "extra": "avg tps: 777.0458279598988, max tps: 1284.151587098445, count: 59311"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 181.48078735883215,
+            "unit": "median tps",
+            "extra": "avg tps: 180.65567710733396, max tps: 200.1276902955714, count: 59311"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 216.1012057525126,
+            "unit": "median tps",
+            "extra": "avg tps: 181.4603928894346, max tps: 1548.1457539417875, count: 118622"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.62561316793861,
+            "unit": "median tps",
+            "extra": "avg tps: 19.492681112688373, max tps: 34.3119560697164, count: 59311"
           }
         ]
       }

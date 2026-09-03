@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788470149122,
+  "lastUpdate": 1788470187411,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -309962,6 +309962,126 @@ window.BENCHMARK_DATA = {
             "value": 10.88497361225822,
             "unit": "median tps",
             "extra": "avg tps: 21.161717821185317, max tps: 788.0518727264703, count: 57446"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f728c746ce9f7251a83e2a0f6ee30f27e1776085",
+          "message": "feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185)\n\n## Ticket(s) Closed\n\n- Closes #5250\n\n## What\n\nThis PR adds `pdb.agg()` to the DataFusion aggregate backend, so it runs\nover joins and on a single table routed past the Tantivy bucket cap.\n\nSupported: `terms` (`size`, `min_doc_count`, `missing`, `order` by\n`_count`, `_key`, or a metric sub-aggregation), `sum`, `avg`, `min`,\n`max`, `value_count`, `cardinality`, nested `aggs`, NUMERIC fields,\nper-aggregate `FILTER`, `HAVING`, and `visibility`. A field name must\nresolve to one table; `alias.field` disambiguates.\n\nOver a join, `range`, `histogram`, `date_histogram`, `filter`,\n`composite`, `multi_terms`, `stats`, `percentiles`, `top_hits`, terms\n`include`/`exclude`, and array fields raise an error, since `pdb.agg()`\nhas no Postgres fallback. On a single table such a spec stays on\nTantivy. `pdb.agg(...) OVER ()` above joins is #5637.\n\n## Why\n\nThe DataFusion backend declined every `pdb.agg()`: no joins, and a\nsingle-table query pushed there by the bucket cap failed with the join\nmessage. `raw` visibility, only reachable through `pdb.agg()`, had no\neffect on DataFusion scans either.\n\n## How\n\nThe spec is lowered to one DataFusion aggregate with grouping sets, one\nset per `terms` level. After execution the grouped rows are handed back\nto Tantivy as its own intermediate results, so Tantivy does the\nordering, the `size` cut, and the output shape, and the result reads the\nsame as on a single table. `cardinality` uses Tantivy's HLL sketch as\nwell, so the estimate matches too.\n\nThis depends on paradedb/tantivy#225. It also makes Tantivy order\nbuckets with equal counts by key on every path, which moved a few\nexisting expected outputs.\n\nKnown gaps: the leader materializes every grouped row before the first\noutput row, and the pre-existing Tantivy panic on `GROUP BY` plus nested\n`aggs` is untouched.\n\n## Tests\n\nAdded `pdb_agg_datafusion` . Also unit tests checks the `__grouping_id`\nencoding, the column layout, stat sharing, and the NULL sentinels.",
+          "timestamp": "2026-09-03T13:37:33-07:00",
+          "tree_id": "78f5230d92bc5473bfb3c4332db55d5344f7f7e2",
+          "url": "https://github.com/paradedb/paradedb/commit/f728c746ce9f7251a83e2a0f6ee30f27e1776085"
+        },
+        "date": 1788470183780,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 183.07706945115183,
+            "unit": "median tps",
+            "extra": "avg tps: 187.58463536617276, max tps: 222.77498604988426, count: 57444"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 333.1172106472467,
+            "unit": "median tps",
+            "extra": "avg tps: 353.5891651261014, max tps: 509.547494458213, count: 57444"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 4030.7036057827354,
+            "unit": "median tps",
+            "extra": "avg tps: 4025.247985803482, max tps: 4125.524683381522, count: 57444"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 190.06775118742527,
+            "unit": "median tps",
+            "extra": "avg tps: 195.31641992852818, max tps: 234.90548177110156, count: 57444"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3435.74576139525,
+            "unit": "median tps",
+            "extra": "avg tps: 3420.9166047435056, max tps: 3455.4441234896667, count: 57444"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3416.5481202502133,
+            "unit": "median tps",
+            "extra": "avg tps: 3415.5593291673663, max tps: 3449.975652580303, count: 57444"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 158.90616687884807,
+            "unit": "median tps",
+            "extra": "avg tps: 161.7456216065439, max tps: 181.94852891147173, count: 57444"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 285.47102082463823,
+            "unit": "median tps",
+            "extra": "avg tps: 295.6356547943371, max tps: 381.12778908399883, count: 57444"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Primary - tps",
+            "value": 523.4757975235858,
+            "unit": "median tps",
+            "extra": "avg tps: 532.3005994398452, max tps: 614.4835598689747, count: 57444"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 597.862841025571,
+            "unit": "median tps",
+            "extra": "avg tps: 608.4236978021223, max tps: 705.3690413674695, count: 57444"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1283.048116634173,
+            "unit": "median tps",
+            "extra": "avg tps: 1285.1906233051823, max tps: 1296.4439243466397, count: 57444"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 349.82606072192254,
+            "unit": "median tps",
+            "extra": "avg tps: 375.72424109224534, max tps: 583.5057890095582, count: 57444"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 547.7226874305745,
+            "unit": "median tps",
+            "extra": "avg tps: 555.6478036974983, max tps: 628.1174305568444, count: 57444"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2330.1198777242857,
+            "unit": "median tps",
+            "extra": "avg tps: 2326.0701034284707, max tps: 2356.9358806169676, count: 57444"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1771.2839315590338,
+            "unit": "median tps",
+            "extra": "avg tps: 1793.4902789094494, max tps: 2092.3067302717386, count: 57444"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 6.996866755723501,
+            "unit": "median tps",
+            "extra": "avg tps: 29.022283768709823, max tps: 794.3284945489207, count: 57444"
           }
         ]
       }

@@ -593,14 +593,6 @@ pub trait Mergeable {
     /// Will panic if a segment_id has already been merged or if our internal tantivy communications
     /// channels fail for some reason.
     fn merge_segments(&mut self, segment_ids: &[SegmentId]) -> Result<Option<SegmentMeta>>;
-
-    /// Releases the pins on `segment_ids` after a rewrite outside this merger replaced them,
-    /// so garbage collection can recycle them.
-    ///
-    /// # Safety
-    ///
-    /// The segments must not be read through this merger afterwards.
-    unsafe fn drop_pins(&mut self, segment_ids: &[SegmentId]) -> Result<()>;
 }
 
 impl Mergeable for SearchIndexMerger {
@@ -672,14 +664,6 @@ impl Mergeable for SearchIndexMerger {
         }
 
         Ok(new_segment)
-    }
-
-    unsafe fn drop_pins(&mut self, segment_ids: &[SegmentId]) -> Result<()> {
-        unsafe {
-            self.directory.drop_pins(segment_ids)?;
-        }
-        self.merged_segment_ids.extend(segment_ids.iter().cloned());
-        Ok(())
     }
 }
 

@@ -22,8 +22,8 @@
 //! stamped with its box. The rows it writes are the rows it read, so it keeps the visibility
 //! its sources recorded, unlike a rebuild from the heap.
 //!
-//! That is what a `partition_by` index needs to keep its layout after the build: rows arriving
-//! through `INSERT` land in unrouted segments, and only a build could route them until now.
+//! A concurrent build cannot route during its scan, so it runs this once over the segments it
+//! wrote, by a tree planned over them, after its workers are done.
 
 use anyhow::{Result, bail};
 use tantivy::index::{Index, Segment, SegmentId, SegmentMeta, SegmentReader};
@@ -34,13 +34,10 @@ use tantivy::{BitSet, DocId};
 use pgrx::pg_sys;
 
 use crate::api::FieldName;
-use crate::api::HashSet;
-use crate::index::directory::utils::{load_partitioning, save_partitioning};
 use crate::index::fast_fields_helper::FFType;
 use crate::index::kdtree::{KdTree, Point};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::stats;
-use crate::index::stats::SegmentStats;
 use crate::index::writer::index::{SearchIndexMerger, swap_segment_metas};
 use crate::postgres::merge::garbage_collect_index;
 use crate::postgres::rel::PgSearchRelation;
@@ -58,9 +55,6 @@ const NO_ROUTE: u16 = u16::MAX;
 
 /// Merges `segment_ids` into one segment per partition of `tree`, and returns the segments
 /// it wrote.
-///
-/// Every routing path shares the index's one tree (see [`resolve_tree`]), so the split points
-/// a reader collects are that tree's own boundaries, not a union of per-merge plans.
 pub(crate) fn demux_merge(
     indexrel: &PgSearchRelation,
     segment_ids: &[SegmentId],
@@ -149,18 +143,12 @@ fn dim_routable(schema: &Schema, dim: &FieldName) -> bool {
     fast && stats::logical_bounds_hold(schema, field)
 }
 
-/// The tree every routing path shares: the stored one when it exists, else one planned over
-/// `segment_ids` and stored. A tree with no boundary is not stored, so an index that starts
-/// empty, or under the size floor, takes its function from the first merge that can plan a
-/// real one. Must run under the merge lock, so exactly one tree is ever stored.
-pub(crate) fn resolve_tree(
+/// Plans the tree a rewrite routes by, over a sample of `segment_ids`.
+fn plan_tree(
     indexrel: &PgSearchRelation,
     segment_ids: &[SegmentId],
     target_partitions: usize,
 ) -> Result<KdTree> {
-    if let Some(tree) = load_partitioning(indexrel)? {
-        return Ok(tree);
-    }
     let schema = indexrel.schema()?;
     let dims = routable_dims(schema.tantivy_schema(), &indexrel.options().partition_by())?;
     let field_types = dims
@@ -175,11 +163,7 @@ pub(crate) fn resolve_tree(
         .map(SegmentReader::open)
         .collect::<tantivy::Result<Vec<_>>>()?;
     let points = sample(&readers, &dims, &field_types);
-    let tree = KdTree::from_sample(dims, points, target_partitions);
-    if tree.partition_count() > 1 {
-        save_partitioning(indexrel, &tree)?;
-    }
-    Ok(tree)
+    Ok(KdTree::from_sample(dims, points, target_partitions))
 }
 
 /// The `partition_by` dimensions, checked: every one must have a fast column in raw order,
@@ -189,8 +173,8 @@ pub(crate) fn resolve_tree(
 /// build and the demux take the same set.
 ///
 /// The build refuses an index that fails this, and `ALTER INDEX` refuses to change
-/// `partition_by`, so only an index from before those checks can fail it here; its merges
-/// decline instead of failing the `INSERT` or `VACUUM` they run under.
+/// `partition_by`, so only an index from before those checks can fail it here, and a
+/// concurrent rebuild of one warns instead of routing.
 pub(crate) fn routable_dims(schema: &Schema, dims: &[FieldName]) -> Result<Vec<FieldName>> {
     for dim in dims {
         if !dim_routable(schema, dim) {
@@ -200,48 +184,6 @@ pub(crate) fn routable_dims(schema: &Schema, dims: &[FieldName]) -> Result<Vec<F
         }
     }
     Ok(dims.to_vec())
-}
-
-/// The mergeable segments of `indexrel` that carry no box, so nothing routed them.
-///
-/// A build stamps every segment it writes. A segment without a box came in afterwards, through
-/// an `INSERT` or a merge that could not prove one. An index with no [`routable_dims`] reports
-/// no unrouted segments, so its merges stay ordinary.
-pub(crate) fn unrouted_segments(indexrel: &PgSearchRelation) -> Result<HashSet<SegmentId>> {
-    let index_schema = indexrel.schema()?;
-    let dims = routable_dims(
-        index_schema.tantivy_schema(),
-        &indexrel.options().partition_by(),
-    )?;
-    let Some(dim) = dims.first() else {
-        return Ok(HashSet::default());
-    };
-    let directory = MvccSatisfies::Mergeable.directory(indexrel);
-    let index = Index::open(directory.clone())?;
-    let Ok(field) = index.schema().get_field(dim.as_ref()) else {
-        return Ok(HashSet::default());
-    };
-    let mut unrouted = HashSet::default();
-    for segment in index.searchable_segments()? {
-        // Opening a component of a mutable segment materializes the whole segment first, and
-        // its entry already says it has no `.stats`.
-        let has_stats = directory
-            .segment_meta_entry(&segment.id())
-            .is_some_and(|entry| entry.stats().is_some());
-        if !has_stats {
-            unrouted.insert(segment.id());
-            continue;
-        }
-        let boxed = SegmentStats::of_segment(&segment)?
-            .map(|stats| stats.logical(field))
-            .transpose()?
-            .flatten()
-            .is_some();
-        if !boxed {
-            unrouted.insert(segment.id());
-        }
-    }
-    Ok(unrouted)
 }
 
 /// Rewrites every mergeable segment of `indexrel` into one segment per partition, and returns
@@ -287,7 +229,7 @@ pub(crate) unsafe fn route_index(
     let next_xid = pg_sys::ReadNextFullTransactionId();
     let mut merge_list = merge_lock.merge_list();
     let merge_entry = merge_list.add_segment_ids(segment_ids.iter(), current_xid)?;
-    let written = resolve_tree(indexrel, &segment_ids, target_partitions)
+    let written = plan_tree(indexrel, &segment_ids, target_partitions)
         .and_then(|tree| demux_merge(indexrel, &segment_ids, &tree));
     merge_list.remove_entry(merge_entry)?;
     drop(merge_lock);
@@ -447,7 +389,6 @@ fn write_partition(
 mod tests {
     use pgrx::prelude::*;
 
-    use crate::index::directory::utils::load_partitioning;
     use crate::index::stats::persisted_split_points;
     use crate::postgres::rel::PgSearchRelation;
 
@@ -503,71 +444,6 @@ mod tests {
                 .unwrap(),
             before,
             "the rewrite keeps every row"
-        );
-    }
-
-    /// Nothing routes the rows an `INSERT` adds, so the merge that takes those segments has to.
-    /// No explicit call: an ordinary insert-time merge heals the layout.
-    #[pg_test]
-    fn a_merge_routes_what_no_build_routed() {
-        Spi::run(
-            r#"
-            CREATE TABLE demux_merged (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
-            SET paradedb.global_mutable_segment_rows = 0;
-            CREATE INDEX demux_merged_idx ON demux_merged USING bm25 (id, tenant_id, name)
-                WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 4,
-                      numeric_fields = '{"tenant_id": {"fast": true}}');
-            "#,
-        )
-        .unwrap();
-        for batch in 0..5 {
-            Spi::run(&format!(
-                r#"
-                INSERT INTO demux_merged (tenant_id, name)
-                SELECT (i * 7919) % 100, 'lorem ipsum ' || i || ' ' || repeat('padding here ', 20)
-                FROM generate_series({} , {}) i;
-                "#,
-                batch * 1000 + 1,
-                (batch + 1) * 1000
-            ))
-            .unwrap();
-        }
-
-        let indexrel = open_index("demux_merged_idx");
-        assert!(
-            persisted_split_points(&indexrel, "tenant_id")
-                .unwrap()
-                .is_none(),
-            "an insert cannot route"
-        );
-        drop(indexrel);
-
-        // A layer closes a candidate once its segments fill it by a third over, so a layer of
-        // 3.4 times the largest segment takes all five in one. Background layers would hand the
-        // merge to a worker that cannot see this transaction's segments.
-        let largest: i64 = Spi::get_one(
-            "SELECT max(byte_size)::bigint FROM paradedb.index_info('demux_merged_idx');",
-        )
-        .unwrap()
-        .unwrap();
-        Spi::run(&format!(
-            "ALTER INDEX demux_merged_idx SET (layer_sizes = '{}', background_layer_sizes = '0');",
-            largest * 17 / 5
-        ))
-        .unwrap();
-        Spi::run("INSERT INTO demux_merged (tenant_id, name) VALUES (42, 'late row');").unwrap();
-
-        let indexrel = open_index("demux_merged_idx");
-        let split_points = persisted_split_points(&indexrel, "tenant_id")
-            .unwrap()
-            .expect("the merge routed the segments it took");
-        assert_eq!(split_points.len(), 3);
-        assert_eq!(
-            Spi::get_one::<i64>("SELECT count(*) FROM demux_merged WHERE id @@@ pdb.all();")
-                .unwrap()
-                .unwrap(),
-            5001,
-            "the merge keeps every row"
         );
     }
 
@@ -685,130 +561,6 @@ mod tests {
             "#,
         )
         .unwrap();
-    }
-
-    /// An index on an empty table stores no tree: there is nothing to plan over. The first
-    /// merge that can plan a real one stores it, and every later routing reuses it, so rows
-    /// far outside the first batch add no new boundaries.
-    #[pg_test]
-    fn an_empty_index_takes_its_tree_from_the_first_merge() {
-        Spi::run(
-            r#"
-            CREATE TABLE demux_grown (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
-            SET paradedb.global_mutable_segment_rows = 0;
-            CREATE INDEX demux_grown_idx ON demux_grown USING bm25 (id, tenant_id, name)
-                WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 4,
-                      numeric_fields = '{"tenant_id": {"fast": true}}');
-            "#,
-        )
-        .unwrap();
-
-        let indexrel = open_index("demux_grown_idx");
-        assert!(
-            load_partitioning(&indexrel).unwrap().is_none(),
-            "an empty build has nothing to plan over"
-        );
-        drop(indexrel);
-
-        Spi::run(
-            r#"
-            INSERT INTO demux_grown (tenant_id, name)
-            SELECT (i * 7919) % 100, 'lorem ipsum ' || i FROM generate_series(1, 4000) i;
-            "#,
-        )
-        .unwrap();
-        let indexrel = open_index("demux_grown_idx");
-        let written = unsafe { super::route_index(&indexrel, 4) }.unwrap();
-        assert_eq!(written.len(), 4, "one segment per partition");
-        drop(indexrel);
-
-        let indexrel = open_index("demux_grown_idx");
-        let tree = load_partitioning(&indexrel)
-            .unwrap()
-            .expect("the first routing stores the tree");
-        assert_eq!(tree.partition_count(), 4);
-        let before = persisted_split_points(&indexrel, "tenant_id")
-            .unwrap()
-            .expect("the routing recorded split points");
-        drop(indexrel);
-
-        Spi::run(
-            r#"
-            INSERT INTO demux_grown (tenant_id, name)
-            SELECT 1000 + (i * 31) % 100, 'dolor sit ' || i FROM generate_series(1, 2000) i;
-            "#,
-        )
-        .unwrap();
-        let indexrel = open_index("demux_grown_idx");
-        unsafe { super::route_index(&indexrel, 4) }.unwrap();
-        drop(indexrel);
-
-        let indexrel = open_index("demux_grown_idx");
-        let after = persisted_split_points(&indexrel, "tenant_id")
-            .unwrap()
-            .expect("the split points survive");
-        assert_eq!(
-            after, before,
-            "the stored tree routes new rows, so no boundary moves"
-        );
-        assert_eq!(
-            Spi::get_one::<i64>("SELECT count(*) FROM demux_grown WHERE id @@@ pdb.all();")
-                .unwrap()
-                .unwrap(),
-            6000
-        );
-    }
-
-    /// A partitioned build stores its tree, and later routings reuse it instead of planning
-    /// their own, so the boxes a merge stamps line up with the boxes the build stamped.
-    #[pg_test]
-    fn the_build_stores_the_tree_and_merges_reuse_it() {
-        Spi::run(
-            r#"
-            CREATE TABLE demux_built (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
-            INSERT INTO demux_built (tenant_id, name)
-            SELECT (i * 7919) % 100, 'lorem ipsum ' || i FROM generate_series(1, 4000) i;
-            SET paradedb.global_mutable_segment_rows = 0;
-            SET max_parallel_maintenance_workers = 0;
-            CREATE INDEX demux_built_idx ON demux_built USING bm25 (id, tenant_id, name)
-                WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 4,
-                      numeric_fields = '{"tenant_id": {"fast": true}}');
-            "#,
-        )
-        .unwrap();
-
-        let indexrel = open_index("demux_built_idx");
-        let tree = load_partitioning(&indexrel)
-            .unwrap()
-            .expect("the build stores its tree");
-        assert_eq!(tree.partition_count(), 4);
-        let before = persisted_split_points(&indexrel, "tenant_id")
-            .unwrap()
-            .expect("the build recorded split points");
-        drop(indexrel);
-
-        Spi::run(
-            r#"
-            INSERT INTO demux_built (tenant_id, name)
-            SELECT 1000 + (i * 31) % 100, 'dolor sit ' || i FROM generate_series(1, 2000) i;
-            "#,
-        )
-        .unwrap();
-        let indexrel = open_index("demux_built_idx");
-        unsafe { super::route_index(&indexrel, 4) }.unwrap();
-        drop(indexrel);
-
-        let indexrel = open_index("demux_built_idx");
-        let after = persisted_split_points(&indexrel, "tenant_id")
-            .unwrap()
-            .expect("the split points survive");
-        assert_eq!(after, before, "the rewrite routes by the build's tree");
-        assert_eq!(
-            Spi::get_one::<i64>("SELECT count(*) FROM demux_built WHERE id @@@ pdb.all();")
-                .unwrap()
-                .unwrap(),
-            6000
-        );
     }
 
     /// Nothing reroutes a built index when its `partition_by` changes, so the change is

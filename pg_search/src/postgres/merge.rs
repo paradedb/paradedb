@@ -15,13 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::gucs;
 use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::writer::demux::{demux_merge, resolve_tree, unrouted_segments};
 use crate::index::writer::index::{Mergeable, SearchIndexMerger};
 use crate::postgres::PgSearchRelation;
-use crate::postgres::build_parallel::plan;
 use crate::postgres::delete::VacuumSignal;
 use crate::postgres::locks::AdvisoryLock;
 use crate::postgres::ps_status::{MERGING, set_ps_display_suffix};
@@ -486,46 +483,6 @@ unsafe fn merge_index(
             .merge_list()
             .add_segment_ids(merge_policy.mergeable_segments(), current_xid)
             .expect("should be able to write current merge segment_id list");
-
-        // A `partition_by` index routes its rows only at build time, so anything that arrives
-        // later holds no partition. A merge is where the layout heals: the candidates that
-        // are entirely unrouted come out as one segment per partition instead of one. The
-        // tree is read, or stored, under the merge lock we still hold, so every merge routes
-        // by the index's one tree.
-        let routing = if gucs::enable_merge_routing() {
-            (|| {
-                let unrouted = unrouted_segments(indexrel)
-                    .map_err(|e| {
-                        pgrx::debug1!("merge_index: could not read the routed segments: {e}");
-                    })
-                    .ok()?;
-                let routed_candidates = merge_candidates
-                    .iter()
-                    .filter(|candidate| {
-                        !unrouted.is_empty() && candidate.0.iter().all(|id| unrouted.contains(id))
-                    })
-                    .flat_map(|candidate| candidate.0.iter().cloned())
-                    .collect::<Vec<_>>();
-                if routed_candidates.is_empty() {
-                    return None;
-                }
-                // The same target a build would cut, so a small heap does not come out in
-                // more partitions than a rebuild would give it.
-                let target_partitions = indexrel
-                    .heap_relation()
-                    .map(|heaprel| plan::adjusted_target_segment_count(&heaprel, indexrel))
-                    .unwrap_or_else(|| indexrel.options().target_segment_count());
-                match resolve_tree(indexrel, &routed_candidates, target_partitions) {
-                    Ok(tree) => Some((unrouted, tree)),
-                    Err(e) => {
-                        pgrx::debug1!("merge_index: could not resolve the partitioning: {e}");
-                        None
-                    }
-                }
-            })()
-        } else {
-            None
-        };
         drop(merge_lock);
 
         // we are NOT under the MergeLock at this point, which allows concurrent backends to also merge
@@ -543,23 +500,7 @@ unsafe fn merge_index(
 
             pgrx::debug1!("merging candidate with {} segments", candidate.0.len());
 
-            let route = routing
-                .as_ref()
-                .is_some_and(|(unrouted, _)| candidate.0.iter().all(|id| unrouted.contains(id)));
-            merge_result = if route {
-                let (_, tree) = routing.as_ref().unwrap();
-                demux_merge(indexrel, &candidate.0, tree).and_then(|written| {
-                    // The demux replaced the sources itself; dropping the merger's pins on
-                    // them lets the collection below recycle them.
-                    unsafe { merger.drop_pins(&candidate.0) }?;
-                    pgrx::debug1!("routed a candidate into {} partitions", written.len());
-                    // The demux writes one segment per partition, so it has no single output
-                    // for the caller's accounting.
-                    Ok(None)
-                })
-            } else {
-                merger.merge_segments(&candidate.0)
-            };
+            merge_result = merger.merge_segments(&candidate.0);
             if merge_result.is_err() {
                 break;
             }

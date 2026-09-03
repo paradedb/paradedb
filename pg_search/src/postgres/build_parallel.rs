@@ -17,7 +17,6 @@
 
 use crate::api::version::Version;
 use crate::gucs;
-use crate::index::directory::utils::save_partitioning;
 use crate::index::kdtree::KdTree;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::stats::partition_box;
@@ -1363,14 +1362,6 @@ pub(super) fn build_index(
             partitioning.bounds_listing()
         );
     }
-    // The build's tree is the index's one partitioning function: every later merge routes
-    // with it. A single-partition tree holds no boundary, so it is left unstored for a later
-    // merge, over real rows, to plan a real one.
-    if let Some(partitioning) = &partitioning
-        && partitioning.partition_count() > 1
-    {
-        save_partitioning(&indexrel, partitioning)?;
-    }
     let partitioning_bytes = match &partitioning {
         Some(partitioning) => postcard::to_allocvec(partitioning)?,
         None => Vec::new(),
@@ -1478,8 +1469,8 @@ pub(super) fn build_index(
     // The scan above indexed without routing, so the layout it left holds no partitions. The
     // rewrite reads only the segments the build wrote, so the snapshot correspondence that
     // ruled the scan out does not apply to it. The index is complete and correct without it,
-    // and a later merge can still route, so a failure here must not take down the build.
-    if concurrent && gucs::enable_merge_routing() && !indexrel.options().partition_by().is_empty() {
+    // so a failure here must not take down the build.
+    if concurrent && !indexrel.options().partition_by().is_empty() {
         let routed = unsafe {
             route_index(
                 &indexrel,

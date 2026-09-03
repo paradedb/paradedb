@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788401805282,
+  "lastUpdate": 1788401813891,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -139882,6 +139882,108 @@ window.BENCHMARK_DATA = {
             "value": 45.46875,
             "unit": "median mem",
             "extra": "avg mem: 45.2775659441073, max mem: 48.96484375, count: 59404"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "isaacjvandoren@gmail.com",
+            "name": "Isaac Van Doren",
+            "username": "isaacvando"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "16e0303417a0da7f025620a3398b2e013f7c5ea5",
+          "message": "ci: Use runs-on/action to properly configure runs-on's caching (#6195)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThis is the proper way to configure runs-on's cache that makes it work\nwithout us having to use workarounds for artifact uploads.\nhttps://runs-on.com/docs/performance/caching/actions/\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-09-02T18:38:12-07:00",
+          "tree_id": "eb77cd149f35313e59ebac99cca0a58dbc2991a7",
+          "url": "https://github.com/paradedb/paradedb/commit/16e0303417a0da7f025620a3398b2e013f7c5ea5"
+        },
+        "date": 1788401810019,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08551080880867398, max background_merging: 2.0, count: 59396"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6943765,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.746502979435566, max cpu: 9.547489, count: 59396"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 19.54296875,
+            "unit": "median mem",
+            "extra": "avg mem: 19.540018411909053, max mem: 19.54296875, count: 59396"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6966734,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.995138861078207, max cpu: 9.751143, count: 59396"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 33.9296875,
+            "unit": "median mem",
+            "extra": "avg mem: 33.89945733666829, max mem: 33.97265625, count: 59396"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 52483,
+            "unit": "median block_count",
+            "extra": "avg block_count: 52303.133847397134, max block_count: 52483.0, count: 59396"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 72,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 70.12327429456529, max segment_count: 105.0, count: 59396"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.483368,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.01298601473015, max cpu: 33.768845, count: 59396"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 83.6484375,
+            "unit": "median mem",
+            "extra": "avg mem: 80.05707494507206, max mem: 83.890625, count: 59396"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.701273,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.576039379014649, max cpu: 4.868154, count: 59396"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 33.37890625,
+            "unit": "median mem",
+            "extra": "avg mem: 33.352895318076975, max mem: 33.3984375, count: 59396"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6943765,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.842020032801268, max cpu: 28.001944, count: 59396"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 48.859375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.777676724337496, max mem: 51.66015625, count: 59396"
           }
         ]
       }

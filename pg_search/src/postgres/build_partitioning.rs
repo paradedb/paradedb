@@ -27,16 +27,19 @@
 //! only describe marginals, while a recursive split needs the joint distribution of the
 //! `partition_by` fields.
 
+use anyhow::{Result, bail};
 use std::ptr::addr_of_mut;
 
 use pgrx::itemptr::item_pointer_set_all;
 use pgrx::{PgMemoryContexts, check_for_interrupts, pg_sys};
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
+use tantivy::schema::{FieldType, Schema};
 
 use crate::api::FieldName;
 use crate::api::version::Version;
 use crate::index::kdtree::{KdTree, Point};
+use crate::index::stats;
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::{ExpressionState, HeapBufferPin};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
@@ -92,6 +95,40 @@ pub(super) fn plan_partition_boundaries(
         sample,
         target_partitions,
     )))
+}
+
+/// Whether one dimension can be read back and stamped: a fast column in raw order.
+fn dim_routable(schema: &Schema, dim: &FieldName) -> bool {
+    let Ok(field) = schema.get_field(dim.as_ref()) else {
+        return false;
+    };
+    let fast = match schema.get_field_entry(field).field_type() {
+        FieldType::Str(options) => options.get_fast_field_tokenizer_name().is_some(),
+        FieldType::U64(options) | FieldType::I64(options) | FieldType::F64(options) => {
+            options.is_fast()
+        }
+        FieldType::Bool(options) => options.is_fast(),
+        FieldType::Date(options) => options.is_fast(),
+        FieldType::Bytes(options) => options.is_fast(),
+        _ => false,
+    };
+    fast && stats::logical_bounds_hold(schema, field)
+}
+
+/// The `partition_by` dimensions, checked: every one must have a fast column in raw order,
+/// because a partition's range query runs on the fast column and a box holds only where the
+/// raw order does (see [`stats::logical_bounds_hold`]). The build could cut on any
+/// single-valued field, but a dimension whose box cannot hold buys no pruning, and a merge
+/// that reads the fast columns could never route on it.
+pub(crate) fn routable_dims(schema: &Schema, dims: &[FieldName]) -> Result<Vec<FieldName>> {
+    for dim in dims {
+        if !dim_routable(schema, dim) {
+            bail!(
+                "`{dim}` cannot be used in `partition_by` because it does not have a fast column in raw order"
+            );
+        }
+    }
+    Ok(dims.to_vec())
 }
 
 /// Where a `partition_by` field's value comes from for a heap tuple, plus what it takes to

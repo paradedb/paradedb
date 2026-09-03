@@ -46,7 +46,7 @@ mod pruning;
 mod tests;
 
 use plugin::stats_component;
-pub(crate) use plugin::{StatsWriter, logical_bounds_hold, register, register_with_bounds};
+pub(crate) use plugin::{StatsWriter, logical_bounds_hold, register};
 pub(crate) use pruning::{persisted_split_points, segments_for_partition};
 
 const EMPIRICAL_IDX: usize = 0;
@@ -72,9 +72,6 @@ pub(crate) struct LogicalBounds {
 pub(crate) type LogicalBoundsByField = BTreeMap<String, LogicalBounds>;
 
 /// The box of `partition`, keyed by field name, the way the `.stats` component records it.
-///
-/// Both writers of a box go through here: the build that routes rows into partitions, and the
-/// merge that re-routes them.
 pub(crate) fn partition_box(
     tree: &crate::index::kdtree::KdTree,
     partition: usize,

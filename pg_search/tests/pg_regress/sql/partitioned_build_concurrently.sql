@@ -1,8 +1,8 @@
 -- =====================================================================
--- A `partition_by` index built with CREATE INDEX CONCURRENTLY. The scan
--- of a concurrent build cannot route, so a pass after it rewrites the
--- segments into partitions, and a range-partitioned join cuts on the
--- split points it recorded. Results must match the serial baseline.
+-- A `partition_by` index built with CREATE INDEX CONCURRENTLY. It cuts
+-- its partitions the way a plain build does, and a range-partitioned
+-- join cuts on the split points it recorded. Results must match the
+-- serial baseline.
 -- =====================================================================
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
@@ -47,7 +47,7 @@ FROM cic_users u JOIN cic_posts p ON u.id = p.owner_user_id
 WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
 
 -- =====================================================================
--- MPP: the scans show the boundaries the post-build pass recorded, and
+-- MPP: the scans show the boundaries the build recorded, and
 -- the rows match.
 -- =====================================================================
 

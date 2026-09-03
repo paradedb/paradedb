@@ -49,6 +49,28 @@ FROM (
      3 | 991 | 999
 (1 row)
 
+EXPLAIN (VERBOSE, COSTS OFF)
+SELECT count((custom->>'score')::bigint)
+FROM issue_6197_json_fast_field_repro
+WHERE id @@@ paradedb.parse('custom.score:>990');
+                                                           QUERY PLAN                                                            
+---------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.issue_6197_json_fast_field_repro
+   Output: pdb.agg_fn('COUNT'::text)
+   Index: issue_6197_json_fast_field_repro_idx
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"custom.score:>990","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(custom.score)
+     Aggregate Definition: {"0":{"value_count":{"field":"custom.score","missing":null}}}
+(6 rows)
+
+SELECT count((custom->>'score')::bigint)
+FROM issue_6197_json_fast_field_repro
+WHERE id @@@ paradedb.parse('custom.score:>990');
+ count 
+-------
+     3
+(1 row)
+
 SET paradedb.enable_aggregate_custom_scan = off;
 EXPLAIN (VERBOSE, COSTS OFF)
 SELECT count(*), min(s), max(s)
@@ -126,6 +148,28 @@ FROM (
  count | min | max 
 -------+-----+-----
      3 | 991 | 999
+(1 row)
+
+EXPLAIN (VERBOSE, COSTS OFF)
+SELECT count((custom->>'score')::bigint)
+FROM issue_6197_json_fast_field_repro
+WHERE id @@@ paradedb.parse('score:>990');
+                                                        QUERY PLAN                                                        
+--------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.issue_6197_json_fast_field_repro
+   Output: pdb.agg_fn('COUNT'::text)
+   Index: issue_6197_json_path_repro_idx
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"score:>990","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(score)
+     Aggregate Definition: {"0":{"value_count":{"field":"score","missing":null}}}
+(6 rows)
+
+SELECT count((custom->>'score')::bigint)
+FROM issue_6197_json_fast_field_repro
+WHERE id @@@ paradedb.parse('score:>990');
+ count 
+-------
+     3
 (1 row)
 
 DROP TABLE issue_6197_json_fast_field_repro;

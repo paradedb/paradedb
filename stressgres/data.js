@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788470139778,
+  "lastUpdate": 1788470149122,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -329418,6 +329418,96 @@ window.BENCHMARK_DATA = {
             "value": 44.84375,
             "unit": "median mem",
             "extra": "avg mem: 44.6657520843968, max mem: 50.90234375, count: 58770"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f728c746ce9f7251a83e2a0f6ee30f27e1776085",
+          "message": "feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185)\n\n## Ticket(s) Closed\n\n- Closes #5250\n\n## What\n\nThis PR adds `pdb.agg()` to the DataFusion aggregate backend, so it runs\nover joins and on a single table routed past the Tantivy bucket cap.\n\nSupported: `terms` (`size`, `min_doc_count`, `missing`, `order` by\n`_count`, `_key`, or a metric sub-aggregation), `sum`, `avg`, `min`,\n`max`, `value_count`, `cardinality`, nested `aggs`, NUMERIC fields,\nper-aggregate `FILTER`, `HAVING`, and `visibility`. A field name must\nresolve to one table; `alias.field` disambiguates.\n\nOver a join, `range`, `histogram`, `date_histogram`, `filter`,\n`composite`, `multi_terms`, `stats`, `percentiles`, `top_hits`, terms\n`include`/`exclude`, and array fields raise an error, since `pdb.agg()`\nhas no Postgres fallback. On a single table such a spec stays on\nTantivy. `pdb.agg(...) OVER ()` above joins is #5637.\n\n## Why\n\nThe DataFusion backend declined every `pdb.agg()`: no joins, and a\nsingle-table query pushed there by the bucket cap failed with the join\nmessage. `raw` visibility, only reachable through `pdb.agg()`, had no\neffect on DataFusion scans either.\n\n## How\n\nThe spec is lowered to one DataFusion aggregate with grouping sets, one\nset per `terms` level. After execution the grouped rows are handed back\nto Tantivy as its own intermediate results, so Tantivy does the\nordering, the `size` cut, and the output shape, and the result reads the\nsame as on a single table. `cardinality` uses Tantivy's HLL sketch as\nwell, so the estimate matches too.\n\nThis depends on paradedb/tantivy#225. It also makes Tantivy order\nbuckets with equal counts by key on every path, which moved a few\nexisting expected outputs.\n\nKnown gaps: the leader materializes every grouped row before the first\noutput row, and the pre-existing Tantivy panic on `GROUP BY` plus nested\n`aggs` is untouched.\n\n## Tests\n\nAdded `pdb_agg_datafusion` . Also unit tests checks the `__grouping_id`\nencoding, the column layout, stat sharing, and the NULL sentinels.",
+          "timestamp": "2026-09-03T13:37:33-07:00",
+          "tree_id": "78f5230d92bc5473bfb3c4332db55d5344f7f7e2",
+          "url": "https://github.com/paradedb/paradedb/commit/f728c746ce9f7251a83e2a0f6ee30f27e1776085"
+        },
+        "date": 1788470145158,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 62.515625,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 69.65499338272812, max partition_index_size:MB: 104.8203125, count: 58795"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.35228396398675, max cpu: 33.38301, count: 58795"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 45.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 46.73356033144825, max mem: 53.62109375, count: 58795"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.49486,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.0061281048765, max cpu: 33.366436, count: 58795"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 56.1171875,
+            "unit": "median mem",
+            "extra": "avg mem: 64.28767061399779, max mem: 100.79296875, count: 58795"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.504951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.67631674721518, max cpu: 33.250866, count: 58795"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 54.02734375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.61121341897695, max mem: 67.26953125, count: 58795"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.483368,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.90485495219755, max cpu: 33.333336, count: 58795"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 53.6171875,
+            "unit": "median mem",
+            "extra": "avg mem: 53.36096606854324, max mem: 62.03125, count: 58795"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.214653713466475, max cpu: 33.0546, count: 58795"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 44.89453125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.606438153754574, max mem: 51.8359375, count: 58795"
           }
         ]
       }

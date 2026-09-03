@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788401757422,
+  "lastUpdate": 1788401766111,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -326802,6 +326802,96 @@ window.BENCHMARK_DATA = {
             "value": 44.90625,
             "unit": "median mem",
             "extra": "avg mem: 45.70271842990165, max mem: 52.48828125, count: 58771"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "isaacjvandoren@gmail.com",
+            "name": "Isaac Van Doren",
+            "username": "isaacvando"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "16e0303417a0da7f025620a3398b2e013f7c5ea5",
+          "message": "ci: Use runs-on/action to properly configure runs-on's caching (#6195)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThis is the proper way to configure runs-on's cache that makes it work\nwithout us having to use workarounds for artifact uploads.\nhttps://runs-on.com/docs/performance/caching/actions/\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-09-02T18:38:12-07:00",
+          "tree_id": "eb77cd149f35313e59ebac99cca0a58dbc2991a7",
+          "url": "https://github.com/paradedb/paradedb/commit/16e0303417a0da7f025620a3398b2e013f7c5ea5"
+        },
+        "date": 1788401753009,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 61.5703125,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 64.77485946541015, max partition_index_size:MB: 90.671875, count: 58760"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.312288,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.311116452988763, max cpu: 33.185184, count: 58760"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 45.546875,
+            "unit": "median mem",
+            "extra": "avg mem: 46.264053791375936, max mem: 53.11328125, count: 58760"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.4375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.973326277713394, max cpu: 33.267326, count: 58760"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 55.921875,
+            "unit": "median mem",
+            "extra": "avg mem: 59.276393047460004, max mem: 81.78125, count: 58760"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.448819,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.469772801994859, max cpu: 32.941177, count: 58760"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 54.9453125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.141023934755786, max mem: 66.8515625, count: 58760"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.4375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.903477617050065, max cpu: 33.300297, count: 58760"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 53.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 52.634696554309905, max mem: 61.296875, count: 58760"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.289665,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.205958884758093, max cpu: 33.217995, count: 58760"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 45.19921875,
+            "unit": "median mem",
+            "extra": "avg mem: 45.72896308872958, max mem: 52.71484375, count: 58760"
           }
         ]
       }

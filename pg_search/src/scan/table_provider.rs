@@ -422,19 +422,17 @@ impl PgSearchTableProvider {
     /// The fields as the SQL planner sees them: every named column eager,
     /// whatever physical delivery the scan will use.
     fn eager_view(&self) -> Vec<WhichFastField> {
-        self.fields
-            .iter()
-            .map(|wff| {
-                if let WhichFastField::Named {
-                    name, field_type, ..
-                } = wff
-                {
-                    WhichFastField::eager(name.clone(), *field_type)
-                } else {
-                    wff.clone()
-                }
-            })
-            .collect()
+        self.fields.iter().map(WhichFastField::to_eager).collect()
+    }
+
+    /// The fields as the scan will actually deliver them: deferred where late
+    /// materialization is on, eager everywhere else.
+    fn active_fields(&self) -> Vec<WhichFastField> {
+        if self.late_materialization_active.load(Ordering::Relaxed) {
+            self.fields.clone()
+        } else {
+            self.eager_view()
+        }
     }
 
     fn get_schema(&self) -> SchemaRef {
@@ -455,11 +453,7 @@ impl PgSearchTableProvider {
         &self,
         projection: Option<&Vec<usize>>,
     ) -> Result<(Vec<WhichFastField>, SchemaRef)> {
-        let active_fields: Vec<_> = if self.late_materialization_active.load(Ordering::Relaxed) {
-            self.fields.clone()
-        } else {
-            self.eager_view()
-        };
+        let active_fields = self.active_fields();
 
         let schema = self.get_schema();
         match projection {
@@ -706,23 +700,7 @@ impl PgSearchTableProvider {
         // TODO: We should support limit pushdown here to allow providing a batch size hint
         // to the Scanner.
 
-        let active_fields: Vec<_> = if self.late_materialization_active.load(Ordering::Relaxed) {
-            self.fields.clone()
-        } else {
-            self.fields
-                .iter()
-                .map(|wff| {
-                    if let WhichFastField::Named {
-                        name, field_type, ..
-                    } = wff
-                    {
-                        WhichFastField::eager(name.clone(), *field_type)
-                    } else {
-                        wff.clone()
-                    }
-                })
-                .collect()
-        };
+        let active_fields = self.active_fields();
 
         let (projected_fields, projected_schema) = self.projected_fields_and_schema(projection)?;
         let heap_relid = self.scan_info.heaprelid;

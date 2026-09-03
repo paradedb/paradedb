@@ -623,6 +623,27 @@ impl WhichFastField {
         )
     }
 
+    /// The same column with deferred delivery collapsed to eager.
+    ///
+    /// Schemas and plans that read decoded values need the eager view of a
+    /// column that the scan may still choose to defer. Non-named columns carry
+    /// no delivery mode and are returned unchanged.
+    pub fn to_eager(&self) -> Self {
+        match self {
+            WhichFastField::Named {
+                name,
+                field_type,
+                cardinality,
+                ..
+            } => Self::named(
+                name.clone(),
+                *field_type,
+                *cardinality,
+                FieldDelivery::Eager,
+            ),
+            other => other.clone(),
+        }
+    }
 
     /// Whether this is a named fast field with eager delivery.
     pub fn is_eager_named(&self) -> bool {

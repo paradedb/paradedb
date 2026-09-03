@@ -19,6 +19,7 @@ use tests::fixtures::querygen::groupbygen::arb_group_by;
 use tests::fixtures::querygen::joingen::{JoinType, arb_joins, arb_semi_joins};
 use tests::fixtures::querygen::numericgen::arb_numeric_expr;
 use tests::fixtures::querygen::pagegen::arb_paging_exprs;
+use tests::fixtures::querygen::pdbagggen::arb_pdb_agg_join;
 use tests::fixtures::querygen::wheregen::Expr as WhereExpr;
 use tests::fixtures::querygen::wheregen::arb_wheres;
 use tests::fixtures::querygen::{
@@ -1566,6 +1567,59 @@ async fn generated_numeric_range_precision(database: Db) {
             &pool,
             &setup_sql,
             |query, conn| Ok(query.fetch_one_result::<(i64,)>(conn)?.0),
+        ))?;
+    });
+}
+
+/// Property test for `pdb.agg()` over joins: the buckets and metrics the DataFusion backend
+/// assembles must equal the rows of the equivalent SQL `GROUP BY` run by PostgreSQL, which is
+/// the oracle since `pdb.agg()` itself has no native fallback. Covers nested `terms`, a
+/// `size` cut under the default count order, NULL buckets, NUMERIC metrics, `cardinality`,
+/// a SQL `GROUP BY` beside the call, and MPP when the parallel GUCs are on.
+#[rstest]
+#[tokio::test]
+async fn generated_pdb_agg_join(database: Db) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || block_on(async { database.connection().await }),
+        |_| {},
+    );
+
+    let tables_and_sizes = [("users", 50), ("products", 50), ("orders", 50)];
+    let all_tables: Vec<String> = tables_and_sizes
+        .iter()
+        .map(|(table, _)| table.to_string())
+        .collect();
+    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
+
+    let text_columns = columns_named(vec!["name"]);
+    let join_key_columns = vec!["id".to_string(), "age".to_string()];
+
+    proptest!(qgen_proptest_config(), |(
+        outer_bm25 in arb_wheres(vec![all_tables[0].clone()], &text_columns),
+        (join_expr, agg) in arb_pdb_agg_join(all_tables.clone(), join_key_columns.clone()),
+        mut gucs in any::<PgGucs>(),
+    )| {
+        let join_clause = join_expr.to_sql();
+        let pg_query = agg.pg_query(&join_clause, &outer_bm25.to_sql(" = "));
+        let bm25_query = agg.pdb_query(&join_clause, &outer_bm25.to_sql("@@@"));
+
+        // `pdb.agg()` over a join only runs on the DataFusion backend.
+        gucs.aggregate_custom_scan = true;
+        gucs.join_custom_scan = true;
+        gucs.custom_scan = true;
+
+        qgen_oracle!("qgen: generated_pdb_agg_join - pdb.agg() buckets match PostgreSQL GROUP BY", compare_outcome_retrying(
+            &pg_query,
+            &bm25_query,
+            &gucs,
+            &pool,
+            &setup_sql,
+            |query, conn| {
+                let rows = query.fetch_dynamic_result(conn)?;
+                let mut rows = agg.rows(rows)?;
+                rows.sort();
+                Ok(rows)
+            },
         ))?;
     });
 }

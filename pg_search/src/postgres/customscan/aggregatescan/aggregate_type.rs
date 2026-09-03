@@ -20,6 +20,7 @@ use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
 use crate::postgres::PgSearchRelation;
+use crate::postgres::customscan::joinscan::build::lookup_base_rel_info;
 use crate::postgres::customscan::opexpr::UnwrapFromExpr;
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
@@ -148,17 +149,24 @@ impl AggregateType {
             // Without the spec the scan declines, and Postgres runs the
             // aggregate itself.
             let arg = args.get_ptr(0).expect("pdb.agg missing argument");
-            let (json_value, mvcc_visibility) = pdb_agg_spec(
+            let (mut json_value, mvcc_visibility) = pdb_agg_spec(
                 aggfnoid,
                 (*arg).expr as *mut pg_sys::Node,
                 args.get_ptr(1).map(|arg| (*arg).expr as *mut pg_sys::Node),
             )
             .ok_or("pdb.agg argument must be a constant for aggregate pushdown")?;
+            let schema = bm25_index.schema().expect("could not get index schema");
+
+            // A spec written for a join names its fields `alias.field`, and the
+            // planner can reduce that join to this one relation. A qualifier
+            // naming it is dropped so the spec runs the same on either path.
+            if let Some((_, Some(alias), _)) = lookup_base_rel_info(root, heap_rti) {
+                strip_relation_qualifier(&mut json_value, &alias, &schema);
+            }
 
             // Check if any existing fields in the custom aggregate are NUMERIC
             // NUMERIC fields do not support aggregate pushdown
             // Note: Non-existent fields are caught by validate_fields() with proper error
-            let schema = bm25_index.schema().expect("could not get index schema");
             let mut fields = HashSet::default();
             extract_fields_from_agg_json(&json_value, &mut fields);
             for field_name in &fields {
@@ -541,6 +549,34 @@ fn collect_top_hits_sort_field_names(json: &serde_json::Value, fields: &mut Hash
         serde_json::Value::Array(arr) => {
             for item in arr {
                 collect_top_hits_sort_field_names(item, fields);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Rewrite every `"field": "alias.name"` to `"name"` when `alias.name` is no
+/// index field itself and `name` is.
+fn strip_relation_qualifier(json: &mut serde_json::Value, alias: &str, schema: &SearchIndexSchema) {
+    match json {
+        serde_json::Value::Object(map) => {
+            if let Some(serde_json::Value::String(field)) = map.get_mut("field")
+                && schema
+                    .search_field(FieldName::from(field.as_str()).root())
+                    .is_none()
+                && let Some((prefix, rest)) = field.split_once('.')
+                && prefix == alias
+                && schema.search_field(FieldName::from(rest).root()).is_some()
+            {
+                *field = rest.to_string();
+            }
+            for value in map.values_mut() {
+                strip_relation_qualifier(value, alias, schema);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr {
+                strip_relation_qualifier(item, alias, schema);
             }
         }
         _ => {}

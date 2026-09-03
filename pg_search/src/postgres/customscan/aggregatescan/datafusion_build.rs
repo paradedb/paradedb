@@ -511,6 +511,19 @@ unsafe fn build_join_node(
 ) -> Result<RelNode, String> {
     let join = &*join_expr;
 
+    // The planner removes an outer join whose nullable side is unique on the
+    // join key and read by nothing, but the parse tree still carries it. That
+    // side contributes no rows, so the join is its other side.
+    match join.jointype {
+        pg_sys::JoinType::JOIN_LEFT if is_removed_rel(root, join.rarg) => {
+            return build_relnode_from_node(root, join.larg, sources);
+        }
+        pg_sys::JoinType::JOIN_RIGHT if is_removed_rel(root, join.larg) => {
+            return build_relnode_from_node(root, join.rarg, sources);
+        }
+        _ => {}
+    }
+
     let outer = build_relnode_from_node(root, join.larg, sources)?;
     let inner = build_relnode_from_node(root, join.rarg, sources)?;
 
@@ -561,6 +574,25 @@ unsafe fn build_join_node(
         subplan_id: None,
         absorbed_search_clauses: Vec::new(),
     })))
+}
+
+/// True for a base relation the planner removed from the query.
+unsafe fn is_removed_rel(root: *mut pg_sys::PlannerInfo, node: *mut pg_sys::Node) -> bool {
+    if node.is_null() || (*node).type_ != pg_sys::NodeTag::T_RangeTblRef {
+        return false;
+    }
+    let rti = (*(node as *mut pg_sys::RangeTblRef)).rtindex as isize;
+    let rel_array = (*root).simple_rel_array;
+    if rel_array.is_null() || rti >= (*root).simple_rel_array_size as isize {
+        return false;
+    }
+    let rel = *rel_array.offset(rti);
+    // Postgres 15 keeps the entry and marks it dead; later versions clear it.
+    #[cfg(feature = "pg15")]
+    let dead = !rel.is_null() && (*rel).reloptkind == pg_sys::RelOptKind::RELOPT_DEADREL;
+    #[cfg(not(feature = "pg15"))]
+    let dead = false;
+    rel.is_null() || dead
 }
 
 /// Extract equi-join keys from an expression tree (ON clause or WHERE clause).

@@ -21,6 +21,7 @@ pub mod joingen;
 pub mod numericgen;
 pub mod opexprgen;
 pub mod pagegen;
+pub mod pdbagggen;
 pub mod wheregen;
 
 use std::fmt::{Debug, Write};

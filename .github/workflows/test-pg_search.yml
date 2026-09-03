@@ -82,6 +82,9 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v7
 
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
+
       # Cache notes:
       # - Do NOT add hashFiles('**/Cargo.lock') to shared-key — the action
       #   already hashes it internally. Putting it in shared-key defeats the
@@ -314,16 +317,8 @@ jobs:
         if: matrix.pg_impl == 'pgrx' && (github.event_name != 'pull_request' || matrix.pg_version == 18) && always()
         run: cargo llvm-cov report --lcov --output-path coverage-combined-pgrx-${{ matrix.pg_version }}.lcov
 
-      # runs-on's extras=s3-cache proxies ACTIONS_RESULTS_URL to its local cache
-      # server (for s3-backed actions/cache), but actions/upload-artifact@v4+ uses
-      # the same env var and ends up POSTing artifacts to the cache proxy. Pin the
-      # env vars back to GitHub's canonical artifact endpoint just for this step
-      # so the upload bypasses the proxy.
       - name: Upload Coverage Artifact
         if: (github.event_name != 'pull_request' || matrix.pg_version == 18) && always()
-        env:
-          ACTIONS_RESULTS_URL: https://results-receiver.actions.githubusercontent.com/
-          ACTIONS_CACHE_SERVICE_V2: ""
         uses: actions/upload-artifact@v7
         with:
           name: coverage-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}
@@ -353,10 +348,6 @@ jobs:
 
       - name: Upload Postgres Log Artifact
         if: failure()
-        env:
-          # Same runs-on s3-cache workaround as the coverage upload above.
-          ACTIONS_RESULTS_URL: https://results-receiver.actions.githubusercontent.com/
-          ACTIONS_CACHE_SERVICE_V2: ""
         uses: actions/upload-artifact@v7
         with:
           name: postgres-log-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}

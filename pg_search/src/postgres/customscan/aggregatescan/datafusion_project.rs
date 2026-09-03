@@ -49,7 +49,7 @@ pub unsafe fn project_aggregate_row_to_slot(
     row_idx: usize,
     targetlist: &JoinAggregateTargetList,
     group_df_indices: &[usize],
-    pdb_agg_json: &[serde_json::Value],
+    pdb_agg_json: Vec<serde_json::Value>,
 ) -> *mut pg_sys::TupleTableSlot {
     let tupdesc = (*slot).tts_tupleDescriptor;
     let natts = (*tupdesc).natts as usize;
@@ -108,7 +108,7 @@ pub unsafe fn project_aggregate_row_to_slot(
     // unique indices in group_df_indices.
     let num_unique_group_cols = group_df_indices.iter().max().map(|&m| m + 1).unwrap_or(0);
     let mut df_col_idx = num_unique_group_cols;
-    let mut pdb_agg_json = pdb_agg_json.iter();
+    let mut pdb_agg_json = pdb_agg_json.into_iter();
 
     for agg in &targetlist.aggregates {
         let pg_idx = agg.output_index;
@@ -117,7 +117,7 @@ pub unsafe fn project_aggregate_row_to_slot(
                 .next()
                 .expect("one assembled document per pdb.agg entry");
             if pg_idx < natts {
-                datums[pg_idx] = JsonB(document.clone()).into_datum().expect("jsonb datum");
+                datums[pg_idx] = JsonB(document).into_datum().expect("jsonb datum");
                 isnull[pg_idx] = false;
             }
             continue;

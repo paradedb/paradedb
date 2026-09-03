@@ -18,7 +18,9 @@
 //! Generates `pdb.agg()` specs over joins together with the SQL `GROUP BY` that
 //! computes the same buckets. `pdb.agg()` has no Postgres fallback, so the SQL
 //! query is the oracle: its rows, and the JSON buckets flattened the same way,
-//! must be equal.
+//! must be equal. `missing`, `min_doc_count`, `order` by a metric, and a `size`
+//! on a nested level have no SQL translation here and are left to the
+//! regression tests.
 
 use proptest::prelude::*;
 use serde_json::{Value, json};
@@ -33,6 +35,7 @@ const NO_CUT: u32 = 1000;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MetricKind {
     Sum,
+    Avg,
     Min,
     Max,
     ValueCount,
@@ -43,6 +46,7 @@ impl MetricKind {
     fn spec_name(self) -> &'static str {
         match self {
             MetricKind::Sum => "sum",
+            MetricKind::Avg => "avg",
             MetricKind::Min => "min",
             MetricKind::Max => "max",
             MetricKind::ValueCount => "value_count",
@@ -55,6 +59,7 @@ impl MetricKind {
     fn sql(self, field: &str) -> String {
         match self {
             MetricKind::Sum => format!("COALESCE(SUM({field}), 0)::float8"),
+            MetricKind::Avg => format!("AVG({field})::float8"),
             MetricKind::Min => format!("MIN({field})::float8"),
             MetricKind::Max => format!("MAX({field})::float8"),
             MetricKind::ValueCount => format!("COUNT({field})::float8"),
@@ -279,10 +284,16 @@ fn arb_pdb_agg(tables: Vec<String>) -> impl Strategy<Value = PdbAggExpr> {
         MetricKind::ValueCount,
         MetricKind::Cardinality,
     ];
-    let metric = (
-        proptest::sample::select(kinds.to_vec()),
-        proptest::sample::select(metric_fields),
-    );
+    // An average divides in floating point on both sides only for an integer
+    // field; Postgres averages NUMERIC exactly, where the join path rounds twice.
+    let int_fields = qualify(&["age", "quantity"]);
+    let metric = prop_oneof![
+        3 => (
+            proptest::sample::select(kinds.to_vec()),
+            proptest::sample::select(metric_fields),
+        ),
+        1 => (Just(MetricKind::Avg), proptest::sample::select(int_fields)),
+    ];
 
     (
         proptest::option::weighted(0.3, proptest::sample::select(key_fields.clone())),

@@ -356,10 +356,8 @@ fn apply_pdb_aggregate(
         .metrics
         .iter()
         .enumerate()
-        .map(|(j, metric)| {
-            pdb_metric_expr(metric, plan, pdb_filters).map(|e| e.alias(format!("__pdb_m{j}")))
-        })
-        .collect::<Result<_>>()?;
+        .map(|(j, metric)| pdb_metric_expr(metric, plan, pdb_filters).alias(format!("__pdb_m{j}")))
+        .collect();
 
     let num_std_aggs = agg_exprs.len();
     let mut all_group_exprs = group_exprs.clone();
@@ -447,12 +445,17 @@ fn pdb_metric_expr(
     metric: &PdbMetricSpec,
     plan: &RelNode,
     pdb_filters: &HashMap<usize, Expr>,
-) -> Result<Expr> {
-    let expr = match (metric.stat, &metric.field) {
-        (None, _) => count(lit(1)),
-        (Some(stat), Some(field)) => {
+) -> Expr {
+    let (expr, entry_filter) = match metric {
+        PdbMetricSpec::DocCount { entry_filter } => (count(lit(1)), entry_filter),
+        PdbMetricSpec::Stat {
+            stat,
+            field,
+            missing,
+            entry_filter,
+        } => {
             let mut column = make_plan_position_col(plan, field.plan_position, &field.field_name);
-            if let Some(missing) = &metric.missing {
+            if let Some(missing) = missing {
                 column = coalesce(vec![column, pdb_missing_lit(missing, field)]);
             }
             // A sum runs in f64 like Tantivy's, which also keeps an integer sum
@@ -465,7 +468,7 @@ fn pdb_metric_expr(
                 };
                 Expr::Cast(Cast::new(Box::new(column), DataType::Float64))
             };
-            match stat {
+            let expr = match stat {
                 PdbStat::Count => count(column),
                 // NUMERIC takes the decimal accumulator the SQL aggregates use; the
                 // assembler decodes its blob.
@@ -481,20 +484,14 @@ fn pdb_metric_expr(
                     column,
                     lit(ScalarValue::UInt8(Some(field.column_type().to_code()))),
                 ]),
-            }
-        }
-        (Some(stat), None) => {
-            return Err(DataFusionError::Internal(format!(
-                "pdb.agg stat {stat:?} has no field"
-            )));
+            };
+            (expr, entry_filter)
         }
     };
-    Ok(
-        match metric.entry_filter.and_then(|i| pdb_filters.get(&i)) {
-            Some(filter) => with_filter(expr, filter.clone()),
-            None => expr,
-        },
-    )
+    match entry_filter.and_then(|i| pdb_filters.get(&i)) {
+        Some(filter) => with_filter(expr, filter.clone()),
+        None => expr,
+    }
 }
 
 /// `SUM` over a NUMERIC column: the scaled-Int64 or the decimal-bytes accumulator,

@@ -97,16 +97,16 @@ pub struct VisibilityChecker {
     pub heap_tuple_check_count: usize,
     pub invisible_tuple_count: usize,
 
-    /// Treat every ctid as visible. Set for a `visibility => 'raw'` aggregate,
-    /// which trades snapshot accuracy for skipping the heap.
-    skip_checks: bool,
+    /// False for a `visibility => 'raw'` aggregate, which trades snapshot
+    /// accuracy for skipping the heap: every ctid then passes as-is.
+    check_visibility: bool,
 }
 
 // TODO: Use of clone results in new metrics in the clone. Should put them in `Rc<RefCell<usize>>`.
 impl Clone for VisibilityChecker {
     fn clone(&self) -> Self {
         let mut checker = Self::with_rel_and_snap(&self.heaprel, self.snapshot);
-        checker.skip_checks = self.skip_checks;
+        checker.check_visibility = self.check_visibility;
         checker
     }
 }
@@ -143,22 +143,21 @@ impl VisibilityChecker {
                 cached_heap_pin: None,
                 heap_tuple_check_count: 0,
                 invisible_tuple_count: 0,
-                skip_checks: false,
+                check_visibility: true,
             }
         }
     }
 
-    /// Stop checking the heap: every ctid passes as-is. `check_visibility = false`
-    /// selects it, mirroring the `solve_mvcc` decision of the Tantivy backend.
-    /// Only `check_one` and `check_batch` honor it; the tuple-fetching helpers
-    /// always check.
+    /// Whether the heap is checked at all, the `solve_mvcc` decision of the
+    /// Tantivy backend. Only `check_one` and `check_batch` honor a `false`; the
+    /// tuple-fetching helpers always check.
     pub fn with_check_visibility(mut self, check_visibility: bool) -> Self {
-        self.skip_checks = !check_visibility;
+        self.check_visibility = check_visibility;
         self
     }
 
     pub fn checks_visibility(&self) -> bool {
-        !self.skip_checks
+        self.check_visibility
     }
 
     /// If the specified `ctid` is visible in the heap, run the provided closure and return its
@@ -273,7 +272,7 @@ impl VisibilityChecker {
     /// Single-ctid visibility check for callers probing one doc at a time
     /// (e.g. the cardinality fast path's visibility filter).
     pub fn check_one(&mut self, ctid: u64) -> bool {
-        self.skip_checks || self.resolve_visible(ctid, None).is_some()
+        !self.check_visibility || self.resolve_visible(ctid, None).is_some()
     }
 
     /// Checks if a batch of rows are visible, and computes their updated ctid (by following a HOT
@@ -285,7 +284,7 @@ impl VisibilityChecker {
             return;
         }
         assert_eq!(ctids.len(), results.len());
-        if self.skip_checks {
+        if !self.check_visibility {
             results.copy_from_slice(ctids);
             return;
         }

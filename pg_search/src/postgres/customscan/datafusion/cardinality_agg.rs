@@ -32,9 +32,10 @@ use datafusion::logical_expr::function::{AccumulatorArgs, StateFieldsArgs};
 use datafusion::logical_expr::{
     Accumulator, AggregateUDF, AggregateUDFImpl, Signature, Volatility,
 };
-use datafusion::physical_plan::expressions::Literal;
 use tantivy::aggregation::metric::CardinalityCollector;
 use tantivy::columnar::{ColumnType, MonotonicallyMappableToU64};
+
+use super::{literal_arg, reject_distinct};
 
 pub const TANTIVY_CARDINALITY_NAME: &str = "tantivy_cardinality";
 
@@ -61,22 +62,11 @@ fn encode_sketch(collector: &CardinalityCollector) -> Result<Vec<u8>> {
         .map_err(|e| DataFusionError::Internal(format!("cardinality sketch does not encode: {e}")))
 }
 
-/// The column type travels as a plan literal so it survives plan serialization
-/// for parallel and MPP execution. It salts numeric values the way segment
-/// collection does, so a sketch from here merges with one collected from an
-/// index.
+/// The Tantivy column type of the field, the second UDAF argument. It salts
+/// numeric values the way segment collection does, so a sketch from here merges
+/// with one collected from an index.
 fn column_type_from_args(args: &AccumulatorArgs) -> Result<ColumnType> {
-    let expr = args.exprs.get(1).ok_or_else(|| {
-        DataFusionError::Internal(format!(
-            "{TANTIVY_CARDINALITY_NAME} requires a column type argument"
-        ))
-    })?;
-    let literal = expr.as_ref().downcast_ref::<Literal>().ok_or_else(|| {
-        DataFusionError::Internal(format!(
-            "{TANTIVY_CARDINALITY_NAME} column type must be a literal"
-        ))
-    })?;
-    match literal.value() {
+    match literal_arg(args, 1, TANTIVY_CARDINALITY_NAME, "column type")? {
         ScalarValue::UInt8(Some(code)) => ColumnType::try_from_code(*code).map_err(|_| {
             DataFusionError::Internal(format!("unknown tantivy column type code {code}"))
         }),
@@ -225,11 +215,7 @@ impl AggregateUDFImpl for TantivyCardinality {
     }
 
     fn accumulator(&self, args: AccumulatorArgs) -> Result<Box<dyn Accumulator>> {
-        if args.is_distinct {
-            return Err(DataFusionError::NotImplemented(format!(
-                "{TANTIVY_CARDINALITY_NAME} does not support DISTINCT"
-            )));
-        }
+        reject_distinct(&args, TANTIVY_CARDINALITY_NAME)?;
         let column_type = column_type_from_args(&args)?;
         Ok(Box::new(CardinalityAccumulator {
             collector: CardinalityCollector::for_column_type(column_type),

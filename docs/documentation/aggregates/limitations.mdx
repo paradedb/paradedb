@@ -118,9 +118,9 @@ The following join shapes are supported:
 | `GROUP BY` | Columns from any table in the join, including JSON sub-fields via `metadata->>'key'` and the supported `DATE(timestamp)` form described above |
 | `HAVING` clause | Comparisons against aggregate results and group columns |
 | Per-aggregate `FILTER (WHERE ...)` | Yes |
-| `ORDER BY ... LIMIT K` | Pushed down as TopK when there is a single `ORDER BY` column targeting an aggregate, a group column, or `MIN(col)` / `MAX(col)` |
+| `ORDER BY ... LIMIT K` | Pushed down as TopK when there is a single `ORDER BY` column targeting an aggregate, a group column, or `MIN(col)` / `MAX(col)`, and no `pdb.agg()` in the query uses `terms` |
 | `ORDER BY` inside `STRING_AGG` / `ARRAY_AGG` | Yes (produces deterministic element ordering) |
-| `pdb.agg()` | `terms` (with `size`, `min_doc_count` of 1 or more, `missing`, and `order` by `_count`, `_key`, or a metric sub-aggregation), `sum`, `avg`, `min`, `max`, `value_count`, `cardinality`, and nested `aggs` built from these. The `visibility` argument is honored; over a join, `threshold` makes one decision for every table, judged on the largest table's estimate. |
+| `pdb.agg()` | `terms` (with `size`, `min_doc_count` of 1 or more, `missing`, and `order` by `_count`, `_key`, or a metric sub-aggregation, but not `include` or `exclude`), `sum`, `avg`, `min`, `max`, `value_count`, `cardinality`, and nested `aggs` built from these. The `visibility` argument is honored; over a join, `threshold` makes one decision for every table, judged on the largest table's estimate. |
 
 A `pdb.agg()` field name must belong to exactly one indexed table in the join. When the same field name exists in several tables, qualify it with the table alias, as in `"field": "p.category"`. The qualifier is also accepted when the planner reduces the join to that one table. Postgres cannot see the fields inside a spec, so an outer join whose table is read only there is removed as unused and the spec fails with an unknown field; reference such a table outside the spec, or use an inner join.
 

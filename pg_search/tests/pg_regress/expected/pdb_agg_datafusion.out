@@ -270,7 +270,7 @@ WHERE p.description @@@ 'laptop';
 SELECT pdb.agg('{"terms": {"field": "rating", "missing": "none"}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
-ERROR:  Cannot execute pdb.agg: `missing` for numeric field 'rating' must be a number
+ERROR:  Cannot execute pdb.agg: `missing` for field 'rating' must be a number
 -- Test 1.11: cardinality on a float field counts exactly; bool and datetime
 -- take the HLL
 SELECT pdb.agg('{"cardinality": {"field": "price"}}'),

@@ -81,7 +81,7 @@ use crate::postgres::customscan::aggregatescan::exec::{
 };
 use crate::postgres::customscan::aggregatescan::groupby::GroupByClause;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
-    AggKind, GroupingTransform, extract_aggregate_targetlist, pdb_agg_route,
+    AggKind, GroupingTransform, PdbAggRoute, extract_aggregate_targetlist, pdb_agg_route,
 };
 use crate::postgres::customscan::aggregatescan::pdb_agg::assemble_pdb_agg_rows;
 use crate::postgres::customscan::aggregatescan::privdat::PrivateData;
@@ -526,7 +526,7 @@ impl CustomScan for AggregateScan {
                             // backend: Tantivy aggregations compute in f64 and cannot
                             // read the decimal-bytes storage.
                             || builder.args().has_numeric_aggregate()
-                            || pdb_route.as_ref().is_some_and(|route| route.references_numeric)
+                            || pdb_route.as_ref().is_some_and(PdbAggRoute::references_numeric)
                             // Route DATE grouping to DataFusion for exact integer day conversion
                             // and explicit handling of PostgreSQL infinities. Tantivy histograms
                             // use f64 arithmetic, which can round timestamps near midnight into
@@ -541,7 +541,12 @@ impl CustomScan for AggregateScan {
                     if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg_recursive {
                         return Vec::new();
                     }
-                    return Self::build_datafusion_aggregate_path(builder, has_paradedb_agg, shape);
+                    return Self::build_datafusion_aggregate_path(
+                        builder,
+                        has_paradedb_agg,
+                        shape,
+                        pdb_route,
+                    );
                 }
                 Self::build_tantivy_aggregate_path(builder, has_paradedb_agg, shape)
             }
@@ -558,7 +563,7 @@ impl CustomScan for AggregateScan {
                 if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg_recursive {
                     return Vec::new();
                 }
-                Self::build_datafusion_aggregate_path(builder, has_paradedb_agg, shape)
+                Self::build_datafusion_aggregate_path(builder, has_paradedb_agg, shape, None)
             }
             _ => Vec::new(),
         }
@@ -1455,9 +1460,10 @@ impl AggregateScan {
         builder: CustomPathBuilder<Self>,
         has_paradedb_agg: bool,
         shape: GroupingShape,
+        pdb_route: Option<PdbAggRoute>,
     ) -> Vec<pg_sys::CustomPath> {
         let alias = unsafe { resolve_decline_alias(builder.args()) };
-        match Self::try_build_datafusion_aggregate_path(builder, shape) {
+        match Self::try_build_datafusion_aggregate_path(builder, shape, pdb_route) {
             Ok(path) => vec![path],
             Err(AggregatePathDecline::Quiet) => Vec::new(),
             Err(AggregatePathDecline::Warn(reason)) => {
@@ -1479,6 +1485,7 @@ impl AggregateScan {
     fn try_build_datafusion_aggregate_path(
         builder: CustomPathBuilder<Self>,
         shape: GroupingShape,
+        pdb_route: Option<PdbAggRoute>,
     ) -> Result<pg_sys::CustomPath, AggregatePathDecline> {
         let root = builder.args().root;
         let input_rel = builder.args().input_rel();
@@ -1587,9 +1594,10 @@ impl AggregateScan {
                 .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
         // Extract aggregate target list (GROUP BY + aggregates)
-        let targetlist =
-            unsafe { extract_aggregate_targetlist(builder.args(), &sources, &plan, shape) }
-                .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
+        let targetlist = unsafe {
+            extract_aggregate_targetlist(builder.args(), &sources, &plan, shape, pdb_route)
+        }
+        .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
         // Reject plans with any join node that has no equi-keys (CROSS JOIN).
         // Without join keys, PgSearchTableProvider has no Named fields,
@@ -2071,11 +2079,12 @@ impl AggregateScan {
                     let row_idx = df_state.batch_row_idx;
                     let targetlist = &df_state.targetlist;
                     let group_df_indices = &df_state.group_df_indices;
+                    // Each row is projected once, so its documents move out.
                     let pdb_agg_json = df_state
                         .pdb_agg_json
-                        .as_ref()
-                        .map(|rows| rows[row_idx].as_slice())
-                        .unwrap_or(&[]);
+                        .as_mut()
+                        .map(|rows| std::mem::take(&mut rows[row_idx]))
+                        .unwrap_or_default();
                     let result = unsafe {
                         project_aggregate_row_to_slot(
                             scan_slot,
@@ -2180,9 +2189,6 @@ impl AggregateScan {
             .as_ref()
             .expect("physical plan set with the stream")
             .schema();
-        let num_root_cols = pdb_plan
-            .grouping_id_col()
-            .unwrap_or(schema.fields().len() - pdb_plan.metrics.len());
         // A scalar aggregate answers with one row even over no input, and its
         // counts read 0 there, not NULL, so `HAVING` sees what Postgres would.
         // Only a scalar query synthesizes, so its aggregate columns start at 0.
@@ -2193,23 +2199,18 @@ impl AggregateScan {
                 .iter()
                 .filter(|agg| !matches!(agg.agg_kind, AggKind::PdbAgg(_)))
                 .enumerate()
-                .filter(|(_, agg)| {
+                .filter_map(|(col, agg)| {
                     matches!(
                         agg.agg_kind,
                         AggKind::CountStar | AggKind::Count | AggKind::CountDistinct
                     )
+                    .then_some(col)
                 })
-                .map(|(col, _)| col)
                 .collect::<Vec<_>>()
         });
-        let mut assembled = assemble_pdb_agg_rows(
-            schema,
-            &batches,
-            pdb_plan,
-            num_root_cols,
-            synthesize_empty_root.as_deref(),
-        )
-        .unwrap_or_else(|e| pgrx::error!("Failed to assemble pdb.agg result: {}", e));
+        let mut assembled =
+            assemble_pdb_agg_rows(schema, &batches, pdb_plan, synthesize_empty_root.as_deref())
+                .unwrap_or_else(|e| pgrx::error!("Failed to assemble pdb.agg result: {}", e));
         if let Some(having) = df_state.pdb_root_having.as_ref() {
             let runtime = df_state
                 .runtime

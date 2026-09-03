@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788399479266,
+  "lastUpdate": 1788399490195,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -326414,6 +326414,60 @@ window.BENCHMARK_DATA = {
             "value": 23.18614062487163,
             "unit": "median tps",
             "extra": "avg tps: 39.686806939027306, max tps: 573.1164813399005, count: 59240"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "zey8840@naver.com",
+            "name": "Tal",
+            "username": "taljeon"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8af80204b038b585a96131b5b21522493263afca",
+          "message": "test: cover JoinScan NULL predicate ordering in qgen (#6199)\n\n# Ticket(s) Closed\n\n- Progresses #6194. This is an umbrella issue and should remain open.\n\n## What\n\n- Add nullable `quantity IS NULL` and `quantity IS NOT NULL` ordering\nvariants to the existing `generated_joinscan` property test.\n- Move JoinScan ordering generation into a dedicated helper that emits\nonly valid combinations.\n- Remove the superseded `join_order_by_is_null` SQL and expected-output\nfiles.\n\n## Why\n\nThe fixed regression's NULL-valued companies have no matching rows, so\nits result blocks do not exercise joined NULL values. The qgen test\ndoes: it verifies both that the generated query uses `ParadeDB Join\nScan` and that its results match PostgreSQL over randomized joins,\npredicates, limits, GUCs, and data.\n\nThe property test uses the indexed nullable integer `quantity` column,\navoiding text-collation constraints while covering both NULL predicate\nforms with deterministic `quantity` and ID tie-breakers.\n\n## How\n\n`arb_joinscan_order_parts` explicitly represents all six previously\nvalid non-DISTINCT ordering states: regular columns, `upper(category)`,\nboth quantity NULL predicates, and both combinations of\n`upper(category)` with a NULL predicate. Each state includes the\nappropriate deterministic tie-breakers.\n\nDISTINCT is passed directly to the generator as a projection\nrestriction, which emits ordinary projected columns only. This removes\nthe intertwined booleans and rejected cases from the test body. Because\nqgen now owns both plan selection and result parity for #4751, the fixed\nSQL and expected-output files are removed entirely.\n\n## Tests\n\n- `cargo fmt --all -- --check`\n- `cargo clippy --package tests --test qgen -- -D warnings`\n- `cargo test --package tests --lib` — 16 passed\n- `cargo test --package tests --test qgen --no-run`\n- Focused local property validation of the NULL-ordering path, excluding\nthe pre-existing cross-relation planner path — 128/128 cases passed\nagainst the official ParadeDB 0.25.6 image in a C-locale PostgreSQL\ncluster. The temporary local filter is not part of the commit.\n- `rg -n 'join_order_by_is_null' pg_search tests` — no remaining\nreferences\n- `git diff --check`\n\nUnfiltered runs against the published image reached the existing\ncross-relation planner error (`variable not found in subplan target\nlist`) with both regular and nullable ordering. The focused run excluded\nthat unchanged heap-condition path; this PR does not alter\ncross-relation generation or planner behavior.\n\nAI assistance: OpenAI Codex helped prepare and validate this change.\n\n---------\n\nCo-authored-by: taljeon <taljeon@users.noreply.github.com>",
+          "timestamp": "2026-09-02T18:00:43-07:00",
+          "tree_id": "0ee699e6d518c7698e80492a223f374757b9062b",
+          "url": "https://github.com/paradedb/paradedb/commit/8af80204b038b585a96131b5b21522493263afca"
+        },
+        "date": 1788399468622,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3866.9474843964945,
+            "unit": "median tps",
+            "extra": "avg tps: 3866.8352253342, max tps: 4525.058591795596, count: 59236"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4514.241258290283,
+            "unit": "median tps",
+            "extra": "avg tps: 4551.192244937552, max tps: 6514.46919768022, count: 59236"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 95.46071739880074,
+            "unit": "median tps",
+            "extra": "avg tps: 186.9671797157029, max tps: 2635.87504098104, count: 59236"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 23.16850517288369,
+            "unit": "median tps",
+            "extra": "avg tps: 39.6540917144917, max tps: 576.8913654149234, count: 59236"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 23.058780744464084,
+            "unit": "median tps",
+            "extra": "avg tps: 39.05826085964291, max tps: 528.2224432560283, count: 59236"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788399550932,
+  "lastUpdate": 1788399559351,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -139732,6 +139732,108 @@ window.BENCHMARK_DATA = {
             "value": 100.02734375,
             "unit": "median mem",
             "extra": "avg mem: 99.49785452725843, max mem: 104.47265625, count: 59422"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "zey8840@naver.com",
+            "name": "Tal",
+            "username": "taljeon"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8af80204b038b585a96131b5b21522493263afca",
+          "message": "test: cover JoinScan NULL predicate ordering in qgen (#6199)\n\n# Ticket(s) Closed\n\n- Progresses #6194. This is an umbrella issue and should remain open.\n\n## What\n\n- Add nullable `quantity IS NULL` and `quantity IS NOT NULL` ordering\nvariants to the existing `generated_joinscan` property test.\n- Move JoinScan ordering generation into a dedicated helper that emits\nonly valid combinations.\n- Remove the superseded `join_order_by_is_null` SQL and expected-output\nfiles.\n\n## Why\n\nThe fixed regression's NULL-valued companies have no matching rows, so\nits result blocks do not exercise joined NULL values. The qgen test\ndoes: it verifies both that the generated query uses `ParadeDB Join\nScan` and that its results match PostgreSQL over randomized joins,\npredicates, limits, GUCs, and data.\n\nThe property test uses the indexed nullable integer `quantity` column,\navoiding text-collation constraints while covering both NULL predicate\nforms with deterministic `quantity` and ID tie-breakers.\n\n## How\n\n`arb_joinscan_order_parts` explicitly represents all six previously\nvalid non-DISTINCT ordering states: regular columns, `upper(category)`,\nboth quantity NULL predicates, and both combinations of\n`upper(category)` with a NULL predicate. Each state includes the\nappropriate deterministic tie-breakers.\n\nDISTINCT is passed directly to the generator as a projection\nrestriction, which emits ordinary projected columns only. This removes\nthe intertwined booleans and rejected cases from the test body. Because\nqgen now owns both plan selection and result parity for #4751, the fixed\nSQL and expected-output files are removed entirely.\n\n## Tests\n\n- `cargo fmt --all -- --check`\n- `cargo clippy --package tests --test qgen -- -D warnings`\n- `cargo test --package tests --lib` — 16 passed\n- `cargo test --package tests --test qgen --no-run`\n- Focused local property validation of the NULL-ordering path, excluding\nthe pre-existing cross-relation planner path — 128/128 cases passed\nagainst the official ParadeDB 0.25.6 image in a C-locale PostgreSQL\ncluster. The temporary local filter is not part of the commit.\n- `rg -n 'join_order_by_is_null' pg_search tests` — no remaining\nreferences\n- `git diff --check`\n\nUnfiltered runs against the published image reached the existing\ncross-relation planner error (`variable not found in subplan target\nlist`) with both regular and nullable ordering. The focused run excluded\nthat unchanged heap-condition path; this PR does not alter\ncross-relation generation or planner behavior.\n\nAI assistance: OpenAI Codex helped prepare and validate this change.\n\n---------\n\nCo-authored-by: taljeon <taljeon@users.noreply.github.com>",
+          "timestamp": "2026-09-02T18:00:43-07:00",
+          "tree_id": "0ee699e6d518c7698e80492a223f374757b9062b",
+          "url": "https://github.com/paradedb/paradedb/commit/8af80204b038b585a96131b5b21522493263afca"
+        },
+        "date": 1788399555154,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08406841290148812, max background_merging: 2.0, count: 59404"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.698972,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.745783153186107, max cpu: 9.876543, count: 59404"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 19.5546875,
+            "unit": "median mem",
+            "extra": "avg mem: 19.547945858549088, max mem: 19.59765625, count: 59404"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.701273,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.009862012856701, max cpu: 19.094978, count: 59404"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 45.5390625,
+            "unit": "median mem",
+            "extra": "avg mem: 40.23366087510942, max mem: 49.296875, count: 59404"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 54023,
+            "unit": "median block_count",
+            "extra": "avg block_count: 53860.9189448522, max block_count: 54023.0, count: 59404"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 73,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 70.8675005050165, max segment_count: 105.0, count: 59404"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.506365,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.084473703278952, max cpu: 34.146343, count: 59404"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 83.640625,
+            "unit": "median mem",
+            "extra": "avg mem: 80.05572436199583, max mem: 83.91015625, count: 59404"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.701273,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7937065451302185, max cpu: 28.699553, count: 59404"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 47.2265625,
+            "unit": "median mem",
+            "extra": "avg mem: 47.1599237977451, max mem: 52.796875, count: 59404"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.703577,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.815698854100869, max cpu: 23.517885, count: 59404"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 45.46875,
+            "unit": "median mem",
+            "extra": "avg mem: 45.2775659441073, max mem: 48.96484375, count: 59404"
           }
         ]
       }

@@ -67,18 +67,17 @@
 //! LIMIT 10;
 //! ```
 
-use crate::api::FieldName;
 use crate::api::window_aggregate::window_agg_oid;
 use crate::api::{is_agg_funcoid, visibility_from_agg_arg};
 use crate::nodecast;
 use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::aggregatescan::aggregate_type::{
-    AggregateType, create_aggregate_from_oid, parse_coalesce_expression,
+    AggregateType, ParsedAggregateField,
 };
 use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
-use crate::postgres::var::{VarContext, fieldname_from_var};
+use crate::postgres::var::VarContext;
 use crate::query::{PostgresExpression, SearchQueryInput};
 use pgrx::{PgList, pg_sys};
 use serde::{Deserialize, Serialize};
@@ -382,44 +381,18 @@ unsafe fn convert_window_func_to_aggregate_type(
 
     let first_arg = args.get_ptr(0)?;
 
-    // Extract field name and missing value using the same logic as aggregatescan
-    let (field, missing) = extract_field_name_from_aggregate_arg(parse, first_arg)?;
+    let aggregate_field =
+        ParsedAggregateField::from_query(first_arg, VarContext::from_query(parse)).ok()?;
+    let missing = aggregate_field.missing().ok()?;
 
-    let agg_type = create_aggregate_from_oid(
+    let agg_type = AggregateType::from_oid(
         aggfnoid,
-        field.into_inner(),
+        aggregate_field.field_name().clone(),
         missing,
         filter,
         pg_sys::InvalidOid, // Will be filled in during planning
     )?;
     Some(agg_type)
-}
-
-/// Extract the field name and missing value from an aggregate function's argument node
-/// Handles Var nodes (column references) and COALESCE expressions (for missing values)
-/// Returns: (field_name, optional_missing_value)
-unsafe fn extract_field_name_from_aggregate_arg(
-    parse: *mut pg_sys::Query,
-    arg_node: *mut pg_sys::Node,
-) -> Option<(FieldName, Option<f64>)> {
-    let (var, missing) =
-        if let Some(coalesce_node) = nodecast!(CoalesceExpr, T_CoalesceExpr, arg_node) {
-            parse_coalesce_expression(coalesce_node).ok()?
-        } else {
-            let var = nodecast!(Var, T_Var, arg_node)?;
-            (var, None)
-        };
-
-    // Get heaprelid from the rtable using VarContext
-    let var_context = VarContext::from_query(parse);
-    let (heaprelid, varattno) = var_context.var_relation(var);
-
-    if heaprelid == pg_sys::InvalidOid {
-        return None;
-    }
-
-    let field = fieldname_from_var(heaprelid, var, varattno)?;
-    Some((field, missing))
 }
 
 /// Convert a FILTER clause expression to SearchQueryInput by serializing it for later conversion

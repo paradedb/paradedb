@@ -34,8 +34,12 @@ use pgrx::{
 };
 
 pub use aggregate::{
+<<<<<<< HEAD
     agg_fn_oid, agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const,
     MvccVisibility,
+=======
+    MvccVisibility, agg_fn_oid, agg_funcoid, agg_funcoids, is_agg_funcoid, pdb_agg_spec,
+>>>>>>> f728c746 (feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185))
 };
 pub use rustc_hash::FxHashMap as HashMap;
 pub use rustc_hash::FxHashSet as HashSet;

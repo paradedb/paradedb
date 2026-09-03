@@ -49,10 +49,11 @@ use datafusion::logical_expr::function::{AccumulatorArgs, StateFieldsArgs};
 use datafusion::logical_expr::{
     Accumulator, AggregateUDF, AggregateUDFImpl, Signature, Volatility,
 };
-use datafusion::physical_plan::expressions::Literal;
 use decimal_bytes::{
     decode_parts_into, decode_special_value, Decimal, Decimal64NoScale, SpecialValue,
 };
+
+use super::{literal_arg, reject_distinct};
 
 pub const NUMERIC64_SUM_NAME: &str = "numeric64_sum";
 pub const NUMERIC64_AVG_NAME: &str = "numeric64_avg";
@@ -269,33 +270,14 @@ fn accumulate_binary_array(state: &mut NumericSumState, array: &ArrayRef) -> Res
     Ok(non_null)
 }
 
-/// Extract the constant scale argument (second UDAF argument) at accumulator
-/// creation time. The scale travels as a plan literal so it survives
-/// serialization for parallel and MPP execution.
+/// The scale of a `Numeric64` column, the second UDAF argument.
 fn scale_from_args(args: &AccumulatorArgs, name: &str) -> Result<i32> {
-    let expr = args
-        .exprs
-        .get(1)
-        .ok_or_else(|| DataFusionError::Internal(format!("{name} requires a scale argument")))?;
-    let literal = expr
-        .as_ref()
-        .downcast_ref::<Literal>()
-        .ok_or_else(|| DataFusionError::Internal(format!("{name} scale must be a literal")))?;
-    match literal.value() {
+    match literal_arg(args, 1, name, "scale")? {
         ScalarValue::Int32(Some(scale)) => Ok(*scale),
         other => Err(DataFusionError::Internal(format!(
             "{name} scale must be a non-null Int32 literal, got {other}"
         ))),
     }
-}
-
-fn reject_distinct(args: &AccumulatorArgs, name: &str) -> Result<()> {
-    if args.is_distinct {
-        return Err(DataFusionError::NotImplemented(format!(
-            "{name} does not support DISTINCT"
-        )));
-    }
-    Ok(())
 }
 
 fn sum_state_fields(args: StateFieldsArgs) -> Vec<FieldRef> {

@@ -68,10 +68,14 @@
 //! ```
 
 use crate::api::window_aggregate::window_agg_oid;
+<<<<<<< HEAD
 use crate::api::FieldName;
 use crate::api::{
     agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const, MvccVisibility,
 };
+=======
+use crate::api::{is_agg_funcoid, pdb_agg_spec};
+>>>>>>> f728c746 (feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185))
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::aggregate_type::{
     create_aggregate_from_oid, parse_coalesce_expression, AggregateType,
@@ -329,6 +333,7 @@ unsafe fn convert_window_func_to_aggregate_type(
             return None;
         }
 
+<<<<<<< HEAD
         // Extract the jsonb argument (first arg)
         let first_arg = args.get_ptr(0)?;
         let const_node = nodecast!(Const, T_Const, first_arg)?;
@@ -356,6 +361,10 @@ unsafe fn convert_window_func_to_aggregate_type(
         } else {
             MvccVisibility::Disabled
         };
+=======
+        let (json_value, mvcc_visibility) =
+            pdb_agg_spec(aggfnoid, args.get_ptr(0)?, args.get_ptr(1))?;
+>>>>>>> f728c746 (feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185))
 
         // Validate that the JSON is a valid Tantivy aggregation
         // It should be a single aggregation definition (e.g., {"terms": {...}}, {"avg": {...}})

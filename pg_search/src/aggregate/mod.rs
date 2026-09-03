@@ -768,6 +768,20 @@ fn set_missing_on_terms(
     }
 }
 
+/// True for a bucket key that stands in for NULL: the sentinels
+/// [`set_missing_on_terms`] chooses per column type.
+fn is_missing_sentinel(key: &serde_json::Value) -> bool {
+    match key {
+        serde_json::Value::String(s) => s == NULL_SENTINEL_MAX || s == NULL_SENTINEL_MIN,
+        serde_json::Value::Number(n) => {
+            n.as_i64().is_some_and(|v| v == i64::MAX || v == i64::MIN)
+                || n.as_u64().is_some_and(|v| v == u64::MAX)
+                || n.as_f64().is_some_and(|v| v == f64::MAX || v == f64::MIN)
+        }
+        _ => false,
+    }
+}
+
 /// Walk the json value looking for NULL sentinel "key" values where they would be in a
 /// `pdb.agg('{"terms":{...` agg query, and if found, replace the sentinel with null
 pub(crate) fn scrub_missing_sentinel_value(val: &mut serde_json::Value) {
@@ -775,9 +789,7 @@ pub(crate) fn scrub_missing_sentinel_value(val: &mut serde_json::Value) {
         for bucket in buckets.iter_mut().filter_map(|b| b.as_object_mut()) {
             for (k, v) in bucket {
                 match (k.as_str(), &v) {
-                    ("key", serde_json::Value::String(s))
-                        if s == NULL_SENTINEL_MAX || s == NULL_SENTINEL_MIN =>
-                    {
+                    ("key", key) if is_missing_sentinel(key) => {
                         *v = serde_json::Value::Null;
                     }
                     (_, serde_json::Value::Object(_)) => {

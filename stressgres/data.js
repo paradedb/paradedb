@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788470118457,
+  "lastUpdate": 1788470127421,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -333790,6 +333790,108 @@ window.BENCHMARK_DATA = {
             "value": 47.4765625,
             "unit": "median mem",
             "extra": "avg mem: 45.98128799492311, max mem: 56.78515625, count: 59239"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f728c746ce9f7251a83e2a0f6ee30f27e1776085",
+          "message": "feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185)\n\n## Ticket(s) Closed\n\n- Closes #5250\n\n## What\n\nThis PR adds `pdb.agg()` to the DataFusion aggregate backend, so it runs\nover joins and on a single table routed past the Tantivy bucket cap.\n\nSupported: `terms` (`size`, `min_doc_count`, `missing`, `order` by\n`_count`, `_key`, or a metric sub-aggregation), `sum`, `avg`, `min`,\n`max`, `value_count`, `cardinality`, nested `aggs`, NUMERIC fields,\nper-aggregate `FILTER`, `HAVING`, and `visibility`. A field name must\nresolve to one table; `alias.field` disambiguates.\n\nOver a join, `range`, `histogram`, `date_histogram`, `filter`,\n`composite`, `multi_terms`, `stats`, `percentiles`, `top_hits`, terms\n`include`/`exclude`, and array fields raise an error, since `pdb.agg()`\nhas no Postgres fallback. On a single table such a spec stays on\nTantivy. `pdb.agg(...) OVER ()` above joins is #5637.\n\n## Why\n\nThe DataFusion backend declined every `pdb.agg()`: no joins, and a\nsingle-table query pushed there by the bucket cap failed with the join\nmessage. `raw` visibility, only reachable through `pdb.agg()`, had no\neffect on DataFusion scans either.\n\n## How\n\nThe spec is lowered to one DataFusion aggregate with grouping sets, one\nset per `terms` level. After execution the grouped rows are handed back\nto Tantivy as its own intermediate results, so Tantivy does the\nordering, the `size` cut, and the output shape, and the result reads the\nsame as on a single table. `cardinality` uses Tantivy's HLL sketch as\nwell, so the estimate matches too.\n\nThis depends on paradedb/tantivy#225. It also makes Tantivy order\nbuckets with equal counts by key on every path, which moved a few\nexisting expected outputs.\n\nKnown gaps: the leader materializes every grouped row before the first\noutput row, and the pre-existing Tantivy panic on `GROUP BY` plus nested\n`aggs` is untouched.\n\n## Tests\n\nAdded `pdb_agg_datafusion` . Also unit tests checks the `__grouping_id`\nencoding, the column layout, stat sharing, and the NULL sentinels.",
+          "timestamp": "2026-09-03T13:37:33-07:00",
+          "tree_id": "78f5230d92bc5473bfb3c4332db55d5344f7f7e2",
+          "url": "https://github.com/paradedb/paradedb/commit/f728c746ce9f7251a83e2a0f6ee30f27e1776085"
+        },
+        "date": 1788470123064,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.685212,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.525273799602202, max cpu: 4.7619047, count: 59247"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 17.31640625,
+            "unit": "median mem",
+            "extra": "avg mem: 17.30438315969585, max mem: 17.328125, count: 59247"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.6943765,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.634013389045833, max cpu: 4.7952046, count: 59247"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 17.18359375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.159236504063497, max mem: 17.18359375, count: 59247"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.37958,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.580059940375138, max cpu: 28.249142, count: 59247"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 17.62109375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.64650009968859, max mem: 17.8203125, count: 59247"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.913548365317, max document_count: 10002.0, count: 59247"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.908569210256, max document_count: 10002.0, count: 59247"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59247"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.622696,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.70046527580997, max cpu: 33.119766, count: 59247"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 47.22265625,
+            "unit": "median mem",
+            "extra": "avg mem: 45.675331068978174, max mem: 56.02734375, count: 59247"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.595642,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.58829549570643, max cpu: 33.20158, count: 59247"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 47.4375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.80056031318041, max mem: 56.94140625, count: 59247"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788401720476,
+  "lastUpdate": 1788401729304,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -330514,6 +330514,108 @@ window.BENCHMARK_DATA = {
             "value": 47.44921875,
             "unit": "median mem",
             "extra": "avg mem: 45.92373488039368, max mem: 57.03125, count: 59236"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "isaacjvandoren@gmail.com",
+            "name": "Isaac Van Doren",
+            "username": "isaacvando"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "16e0303417a0da7f025620a3398b2e013f7c5ea5",
+          "message": "ci: Use runs-on/action to properly configure runs-on's caching (#6195)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThis is the proper way to configure runs-on's cache that makes it work\nwithout us having to use workarounds for artifact uploads.\nhttps://runs-on.com/docs/performance/caching/actions/\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-09-02T18:38:12-07:00",
+          "tree_id": "eb77cd149f35313e59ebac99cca0a58dbc2991a7",
+          "url": "https://github.com/paradedb/paradedb/commit/16e0303417a0da7f025620a3398b2e013f7c5ea5"
+        },
+        "date": 1788401724952,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.6669908,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.738990422204664, max cpu: 9.199808, count: 59245"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 17.2890625,
+            "unit": "median mem",
+            "extra": "avg mem: 17.282614368828593, max mem: 17.2890625, count: 59245"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.672771901761958, max cpu: 9.481482, count: 59245"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 17.21484375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.205784704932906, max mem: 17.21484375, count: 59245"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.37958,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.641212037013421, max cpu: 33.549675, count: 59245"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 17.58984375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.60610758291839, max mem: 17.7890625, count: 59245"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.925900919909, max document_count: 10002.0, count: 59245"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.917157566038, max document_count: 10002.0, count: 59245"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59245"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.60170359246642, max cpu: 36.338608, count: 59245"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 47.17578125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.671824560616926, max mem: 56.48828125, count: 59245"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.551356897150903, max cpu: 39.64212, count: 59245"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 47.41015625,
+            "unit": "median mem",
+            "extra": "avg mem: 45.84880138883028, max mem: 57.22265625, count: 59245"
           }
         ]
       }

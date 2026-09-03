@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788400710544,
+  "lastUpdate": 1788435176410,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -2242,6 +2242,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.1,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cce20d6d0bc7b2f5947c0cabc203f279bec7cbcc",
+          "message": "fix: Join Scan composite ORDER BY on nullable key returned wrong top-K rows (#5981)\n\n# Ticket(s) Closed\n\n- Closes #5567\n\n## What\n\nComposite ORDER BY with a nullable deferred first key returned the wrong\ntop-K rows in ParadeDB Join Scan (rows emitted in insertion order\ninstead of the correct lex sort).\n\n## Why\n\nIn `SegmentedTopKExec::collect_batch`, one `pass_through_scratch` bitmap\nis shared across every deferred sort column. A NULL in any single\ndeferred column marks the whole row pass-through, and `emit_final_topk`\nthen substitutes `typed_null(sort_col)` for every deferred column,\ncollapsing the sort key to `(NULL, NULL, ...)`. Stable sort of identical\nkeys emits in insertion order.\n\n## How\n\nSplit `pass_through_rows` from `Vec<(usize, usize)>` into a struct\ncarrying per-column term ordinals + source `SegmentOrdinal`.\n`collect_batch` captures the ordinals from the already-computed\n`deferred_ords` map. `emit_final_topk` resolves each deferred column\nindependently via a shared `materialize_deferred_ordinal` helper.\n\n`resolve_global_threshold_values` is left alone (returns Err instead of\ntyped_null; different semantics, out of scope).\n\n## Tests\n\n`pg_search/tests/pg_regress/sql/issue_5567.sql` runs the ticket's\nminimal repro under `paradedb.enable_join_custom_scan = off` (baseline)\nand `= on` (fix path); post-fix the two outputs agree.\n\n---------\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2026-09-03T16:42:18+05:30",
+          "tree_id": "d80fc57f9fd2cce8448e0e54298ccce3effe7c75",
+          "url": "https://github.com/paradedb/paradedb/commit/cce20d6d0bc7b2f5947c0cabc203f279bec7cbcc"
+        },
+        "date": 1788435172775,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6590066912010526,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.588,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.936,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.021,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.171,
             "unit": "ms"
           }
         ]

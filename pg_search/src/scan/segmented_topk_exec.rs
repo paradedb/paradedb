@@ -1492,34 +1492,7 @@ impl SegmentedTopKState {
                         )
                     })?
                     .value(0);
-                let col = self.ffhelper.column(seg_ord, deferred.canonical.ff_index);
-                match col {
-                    FFType::Text(str_col) => {
-                        let mut s = String::new();
-                        str_col.ord_to_str(term_ord, &mut s).map_err(|e| {
-                            datafusion::error::DataFusionError::Internal(format!(
-                                "Failed to resolve string ordinal: {}",
-                                e
-                            ))
-                        })?;
-                        ScalarValue::Utf8View(Some(s))
-                    }
-                    FFType::Bytes(bytes_col) => {
-                        let mut b = Vec::new();
-                        bytes_col.ord_to_bytes(term_ord, &mut b).map_err(|e| {
-                            datafusion::error::DataFusionError::Internal(format!(
-                                "Failed to resolve bytes ordinal: {}",
-                                e
-                            ))
-                        })?;
-                        ScalarValue::BinaryView(Some(b))
-                    }
-                    _ => {
-                        return Err(datafusion::error::DataFusionError::Internal(
-                            "Unexpected column type for deferred field".to_string(),
-                        ));
-                    }
-                }
+                self.materialize_deferred_ordinal(seg_ord, term_ord, deferred)?
             } else {
                 ScalarValue::try_from_array(&arrays[i], 0)?
             };
@@ -1739,28 +1712,36 @@ impl SegmentedTopKState {
     }
 
     /// Resolve a `(seg_ord, term_ord)` pair on a deferred sort column to the
-    /// materialized `ScalarValue` that `mat_row_converter` expects. Returns
-    /// `None` if the column is not a dictionary type, or if the dictionary
-    /// lookup fails; callers substitute a typed NULL in that case.
+    /// materialized `ScalarValue` that `mat_row_converter` expects.
+    ///
+    /// A failed lookup, or a column that is not a dictionary, is an error
+    /// rather than a NULL: a NULL here would sort as a NULL and silently
+    /// change the order of the result.
     fn materialize_deferred_ordinal(
         &self,
         seg_ord: SegmentOrdinal,
         term_ord: TermOrdinal,
         deferred: &DeferredSortColumn,
-    ) -> Option<datafusion::common::ScalarValue> {
+    ) -> Result<datafusion::common::ScalarValue> {
         use datafusion::common::ScalarValue;
         match self.ffhelper.column(seg_ord, deferred.canonical.ff_index) {
             FFType::Text(str_col) => {
                 let mut s = String::new();
-                str_col.ord_to_str(term_ord, &mut s).ok()?;
-                Some(ScalarValue::Utf8View(Some(s)))
+                str_col.ord_to_str(term_ord, &mut s).map_err(|e| {
+                    DataFusionError::Internal(format!("Failed to resolve string ordinal: {e}"))
+                })?;
+                Ok(ScalarValue::Utf8View(Some(s)))
             }
             FFType::Bytes(bytes_col) => {
                 let mut b = Vec::new();
-                bytes_col.ord_to_bytes(term_ord, &mut b).ok()?;
-                Some(ScalarValue::BinaryView(Some(b)))
+                bytes_col.ord_to_bytes(term_ord, &mut b).map_err(|e| {
+                    DataFusionError::Internal(format!("Failed to resolve bytes ordinal: {e}"))
+                })?;
+                Ok(ScalarValue::BinaryView(Some(b)))
             }
-            _ => None,
+            _ => Err(DataFusionError::Internal(
+                "Unexpected column type for deferred field".to_string(),
+            )),
         }
     }
 
@@ -1931,9 +1912,9 @@ impl SegmentedTopKState {
                         .filter(|a| a.is_valid(cand_idx))
                         .map(|a| a.value(cand_idx));
                     match term_ord {
-                        Some(term_ord) => self
-                            .materialize_deferred_ordinal(*seg_ord, term_ord, deferred)
-                            .map_or_else(|| typed_null(sort_col), Ok)?,
+                        Some(term_ord) => {
+                            self.materialize_deferred_ordinal(*seg_ord, term_ord, deferred)?
+                        }
                         None => typed_null(sort_col)?,
                     }
                 } else {

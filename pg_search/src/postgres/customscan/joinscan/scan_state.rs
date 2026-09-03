@@ -32,17 +32,23 @@
 use std::sync::Arc;
 
 use datafusion::catalog::Session;
-use datafusion::common::{DataFusionError, Result};
-use datafusion::logical_expr::{Expr, col};
+use datafusion::common::{
+    DataFusionError, Result, assert_eq_or_internal_err, internal_datafusion_err,
+};
+use datafusion::logical_expr::expr::WindowFunction;
+use datafusion::logical_expr::{Expr, WindowFunctionDefinition, col};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
 use pgrx::pg_sys;
 
+use super::build::ChildProjection;
 use super::planning::get_source_attno_by_name;
 use crate::api::{NullTestKind, OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
+use crate::postgres::customscan::aggregatescan::{AggregateType, TargetListEntry};
+use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use crate::postgres::customscan::joinscan::build::{
     self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias,
@@ -587,7 +593,7 @@ fn build_clause_df<'a>(
         };
         let df = build_relnode_df(&rctx, &join_clause.plan).await?;
 
-        // TODO: Apply window aggs
+        let df = apply_window_aggs(df, join_clause)?;
 
         // 4. Apply DISTINCT via GROUP BY
         let (df, distinct_col_map) = apply_distinct_group_by(df, join_clause)?;
@@ -649,6 +655,102 @@ fn surviving_ctid_columns<'a>(
             None
         }
     })
+}
+
+/// Apply the join clauses window aggs.
+fn apply_window_aggs(df: DataFrame, join_clause: &JoinCSClause) -> Result<DataFrame> {
+    let Some(projection) = &join_clause.output_projection else {
+        return Ok(df);
+    };
+
+    let info_indices = projection.iter().filter_map(|info| {
+        if let ChildProjection::WindowAggregate { index } = info {
+            Some(index)
+        } else {
+            None
+        }
+    });
+
+    let window_exprs: Vec<Expr> = info_indices
+        .map(|info_index| {
+            let info = join_clause
+                .window_agg_infos
+                .get(*info_index)
+                .expect("should always be a valid window agg info index");
+
+            let expr = window_expr(info)?.alias(info_index.as_col_name());
+            Ok(expr)
+        })
+        .collect::<Result<Vec<Expr>>>()?;
+
+    if window_exprs.is_empty() {
+        return Ok(df);
+    }
+    df.window(window_exprs)
+}
+
+fn window_expr(info: &WindowAggregateInfo) -> Result<Expr> {
+    use datafusion::functions_aggregate::{average, count, min_max, sum};
+
+    assert_eq_or_internal_err!(info.targetlist.entries().count(), 1);
+    let te = info.targetlist.entries().next().unwrap();
+
+    // match only basic aggregate functions. Missing and filters are not supported in global window
+    // functions
+    match te {
+        TargetListEntry::Aggregate(AggregateType::Sum {
+            field,
+            missing: None,
+            filter: None,
+            indexrelid: _indexrelid,
+        }) => Ok(Expr::from(WindowFunction::new(
+            WindowFunctionDefinition::AggregateUDF(sum::sum_udaf()),
+            vec![col(field)],
+        ))),
+        TargetListEntry::Aggregate(AggregateType::Avg {
+            field,
+            missing: None,
+            filter: None,
+            indexrelid: _indexrelid,
+        }) => Ok(Expr::from(WindowFunction::new(
+            WindowFunctionDefinition::AggregateUDF(average::avg_udaf()),
+            vec![col(field)],
+        ))),
+        TargetListEntry::Aggregate(AggregateType::Min {
+            field,
+            missing: None,
+            filter: None,
+            indexrelid: _indexrelid,
+        }) => Ok(Expr::from(WindowFunction::new(
+            WindowFunctionDefinition::AggregateUDF(min_max::min_udaf()),
+            vec![col(field)],
+        ))),
+        TargetListEntry::Aggregate(AggregateType::Max {
+            field,
+            missing: None,
+            filter: None,
+            indexrelid: _indexrelid,
+        }) => Ok(Expr::from(WindowFunction::new(
+            WindowFunctionDefinition::AggregateUDF(min_max::max_udaf()),
+            vec![col(field)],
+        ))),
+        TargetListEntry::Aggregate(AggregateType::Count {
+            field,
+            missing: None,
+            filter: None,
+            indexrelid: _indexrelid,
+        }) => Ok(Expr::from(WindowFunction::new(
+            WindowFunctionDefinition::AggregateUDF(count::count_udaf()),
+            vec![col(field)],
+        ))),
+        TargetListEntry::Aggregate(AggregateType::CountAny {
+            filter: None,
+            indexrelid: _indexrelid,
+        }) => Ok(count::count_all_window()),
+        _ => Err(internal_datafusion_err!(
+            "Unsupported target shape for window expression: {te:?}"
+        )),
+    }
 }
 
 /// Apply a DISTINCT rewrite as `GROUP BY` over `output_projection`, taking the

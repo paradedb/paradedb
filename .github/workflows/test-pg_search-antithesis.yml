@@ -126,7 +126,8 @@ jobs:
       COMMIT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
     steps:
-      - uses: runs-on/action@v2
+      - name: Configure RunsOn caching
+        uses: runs-on/action@v2
 
       - name: Install Dependencies
         run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo git ca-certificates curl gnupg lsb-release binutils
@@ -251,7 +252,8 @@ jobs:
         workload: ${{ fromJSON(needs.setup.outputs.workloads) }}
 
     steps:
-      - uses: runs-on/action@v2
+      - name: Configure RunsOn caching
+        uses: runs-on/action@v2
 
       - name: Checkout Git Repository
         uses: actions/checkout@v7

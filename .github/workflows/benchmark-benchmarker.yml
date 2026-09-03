@@ -65,7 +65,8 @@ jobs:
       IMAGE_TAG: paradedb-source:ci
 
     steps:
-      - uses: runs-on/action@v2
+      - name: Configure RunsOn caching
+        uses: runs-on/action@v2
 
       # The label triggers this run; remove it so it can be re-applied to re-run.
       - name: Maybe Remove Label

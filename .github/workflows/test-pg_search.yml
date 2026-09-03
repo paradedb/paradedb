@@ -79,7 +79,8 @@ jobs:
             arch: amd64
 
     steps:
-      - uses: runs-on/action@v2
+      - name: Configure RunsOn caching
+        uses: runs-on/action@v2
 
       - name: Checkout Git Repository
         uses: actions/checkout@v7

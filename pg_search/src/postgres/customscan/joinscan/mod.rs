@@ -156,6 +156,7 @@ use self::planning::{
 };
 use self::predicate::{all_vars_are_fast_fields_recursive, extract_join_level_conditions};
 use self::privdat::PrivateData;
+use crate::api::window_aggregate::window_agg_oid;
 use crate::postgres::customscan::datafusion::explain::{
     explain_physical_plan, format_join_level_expr, get_attname_safe, get_plan_with_merged_metrics,
 };
@@ -190,12 +191,12 @@ use arrow_array::Array;
 use datafusion_distributed::shm::MppMesh;
 
 use crate::DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE;
-use crate::postgres::ParallelScanArgs;
 use crate::postgres::customscan::parameterized_value::ParameterizedValue;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::{ParallelScanArgs, types_arrow};
 use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logical_plan};
 
 use datafusion::physical_plan::ExecutionPlan;
@@ -1050,14 +1051,23 @@ impl CustomScan for JoinScan {
                 pg_sys::copyObjectImpl(node.scan.plan.targetlist.cast()).cast(),
             );
 
-            // If the parent plan (`processed_tlist` or `pathkeys`) needs `pdb.score(...)` but the
-            // planner didn't push it down into the target list, we must add it. Otherwise,
-            // the parent node will attempt to evaluate `pdb.score(...)` natively, which fails.
+            // If the parent plan (`processed_tlist` or `pathkeys`) needs a pdb operator, (for
+            // instance`pdb.score(...)`but the planner didn't push it down into the target list,
+            // we must add it. Otherwise, the parent node will attempt to evaluate the operator
+            // natively, which fails.
+            //
+            // This list covers `pdb.score(...)` and the `pdb.window_agg(...)` placeholder
+            let mut supported_funcoids: Vec<_> =
+                crate::postgres::customscan::score_funcoids().to_vec();
+            let window_agg_funcoid = window_agg_oid();
+            assert_ne!(window_agg_funcoid, pg_sys::InvalidOid);
+            supported_funcoids.push(window_agg_funcoid);
+
             crate::postgres::utils::add_missing_search_operators_to_tlist(
                 root,
                 best_path as *mut pg_sys::Path,
                 &mut tlist,
-                &crate::postgres::customscan::score_funcoids(),
+                &supported_funcoids,
             );
 
             // Update node.scan.plan.targetlist so parent nodes can reference the outputs.
@@ -2357,6 +2367,7 @@ impl JoinScan {
                 privdat::OutputColumnInfo::Var { plan_position, .. } => *plan_position,
                 privdat::OutputColumnInfo::Score { plan_position, .. } => *plan_position,
                 privdat::OutputColumnInfo::Pruned => continue,
+                privdat::OutputColumnInfo::WindowAggregate { .. } => continue,
             };
             if !fetched_sources.contains(&plan_position)
                 && !null_extended_sources.contains(&plan_position)
@@ -2427,6 +2438,23 @@ impl JoinScan {
                     } else {
                         *nulls.add(i) = true;
                     }
+                }
+                privdat::OutputColumnInfo::WindowAggregate { index } => {
+                    let window_agg_infos = &state.custom_state().join_clause.window_agg_infos;
+                    let agg_col = batch.column(i);
+                    let agg_info = window_agg_infos
+                        .get(*index)
+                        .expect("A window agg output column should always have a valid index");
+                    let datum = types_arrow::arrow_array_to_datum(
+                        agg_col.as_ref(),
+                        row_idx,
+                        agg_info.result_type_oid().into(),
+                        None, // TODO: Fill with actual val,
+                    )
+                    .expect("We should always be able to convert")
+                    .expect("This should always produce a datum");
+                    *datums.add(i) = datum;
+                    *nulls.add(i) = false;
                 }
                 privdat::OutputColumnInfo::Pruned => {
                     *nulls.add(i) = true;

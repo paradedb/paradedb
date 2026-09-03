@@ -680,6 +680,11 @@ fn apply_distinct_group_by(
                 // Expressions don't participate in sort-step column mapping
                 (e, None)
             }
+            build::ChildProjection::WindowAggregate { .. } => {
+                let e = build_projection_expr(proj, join_clause);
+                // window aggregates must run before the group by, so no column mapping needed
+                (e, None)
+            }
             build::ChildProjection::Score { rti } => {
                 let e = build_projection_expr(proj, join_clause);
                 (e, Some((*rti, 0)))
@@ -898,7 +903,8 @@ fn apply_output_projection(
             let col_alias = format!("col_{}", i + 1);
             let expr = if !distinct_col_map.is_empty() {
                 match proj {
-                    build::ChildProjection::Expression { .. } => col(&col_alias),
+                    build::ChildProjection::Expression { .. }
+                    | build::ChildProjection::WindowAggregate { .. } => col(&col_alias),
                     build::ChildProjection::Score { rti } => {
                         resolve_distinct_col(distinct_col_map, true, *rti, 0)
                             .unwrap_or_else(|| col(&col_alias))
@@ -952,6 +958,10 @@ fn build_projection_expr(
                     return make_source_score_col(source);
                 }
             }
+        }
+        ChildProjection::WindowAggregate { index } => {
+            todo!();
+            // Something like: col(&window_agg_col_name(index))
         }
         ChildProjection::Column { rti, attno }
         | ChildProjection::IndexedExpression { rti, attno } => {

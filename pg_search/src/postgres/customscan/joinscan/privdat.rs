@@ -22,6 +22,8 @@ use pgrx::pg_sys;
 use pgrx::pg_sys::AsPgCStr;
 use serde::{Deserialize, Serialize};
 
+use super::build::WindowAggInfosIndex;
+
 pub const SCORE_COL_NAME: &str = "score";
 
 /// Describes how a single output column of the JoinScan CustomScan is produced.
@@ -37,6 +39,9 @@ pub enum OutputColumnInfo {
     Score {
         plan_position: usize,
         rti: pg_sys::Index,
+    },
+    WindowAggregate {
+        index: WindowAggInfosIndex,
     },
     /// A column pruned by a semi/anti join or a non-Var, non-score expression.
     /// Always emits NULL at execution time.
@@ -55,6 +60,9 @@ impl From<&OutputColumnInfo> for ChildProjection {
                 rti: *rti,
                 attno: *original_attno,
             },
+            OutputColumnInfo::WindowAggregate { index } => {
+                ChildProjection::WindowAggregate { index: *index }
+            }
             OutputColumnInfo::Pruned => ChildProjection::Column { rti: 0, attno: 0 },
         }
     }

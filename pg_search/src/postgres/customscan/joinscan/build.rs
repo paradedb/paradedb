@@ -26,6 +26,7 @@
 //! time. See `pathkey_uses_scores_from_source()` in planning.rs.
 
 use crate::api::OrderByInfo;
+use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 pub use crate::scan::ScanInfo;
@@ -329,6 +330,8 @@ pub enum ChildProjection {
         rti: pg_sys::Index,
         attno: pg_sys::AttrNumber,
     },
+    /// WindowAggregate function
+    WindowAggregate { index: WindowAggInfosIndex },
     /// Arbitrary PG expression evaluated via PgExprUdf
     Expression {
         rti: pg_sys::Index,
@@ -1636,6 +1639,8 @@ pub struct JoinCSClause {
     pub output_projection: Option<Vec<ChildProjection>>,
     /// Whether the join has DISTINCT specified.
     pub has_distinct: bool,
+    /// Extracted global window functions pushed down into the join scan
+    pub window_agg_infos: WindowAggInfos,
 }
 
 impl JoinCSClause {
@@ -1646,6 +1651,7 @@ impl JoinCSClause {
             order_by: Vec::new(),
             output_projection: None,
             has_distinct: false,
+            window_agg_infos: WindowAggInfos(Vec::new()),
         };
         for (i, source) in clause.plan.sources_mut().into_iter().enumerate() {
             source.plan_position = i;
@@ -1944,6 +1950,17 @@ pub unsafe fn lookup_base_rel_info(
     let bm25_index = rel_get_bm25_index(relid).map(|(_, idx)| idx);
 
     Some((relid, alias, bm25_index))
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Copy)]
+pub struct WindowAggInfosIndex(usize);
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct WindowAggInfos(Vec<WindowAggregateInfo>);
+
+impl WindowAggInfos {
+    pub fn get(&self, index: WindowAggInfosIndex) -> Option<&WindowAggregateInfo> {
+        self.0.get(index.0)
+    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]

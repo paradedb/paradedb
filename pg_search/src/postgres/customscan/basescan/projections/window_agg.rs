@@ -128,6 +128,13 @@ impl WindowAggregateInfo {
         self.targetlist.singleton_result_type_oid()
     }
 
+    pub fn source_field_name(&self) -> Option<String> {
+        self.targetlist
+            .aggregates()
+            .next()
+            .and_then(|agg| agg.field_name())
+    }
+
     /// Check if we can handle this aggregation specification
     ///
     /// This is primarily used by window functions to check feature flag support.

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788400618908,
+  "lastUpdate": 1788400628652,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -298878,6 +298878,54 @@ window.BENCHMARK_DATA = {
             "value": 24.417828379150297,
             "unit": "median tps",
             "extra": "avg tps: 38.71542245667636, max tps: 407.741295673915, count: 59244"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "isaacjvandoren@gmail.com",
+            "name": "Isaac Van Doren",
+            "username": "isaacvando"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "16e0303417a0da7f025620a3398b2e013f7c5ea5",
+          "message": "ci: Use runs-on/action to properly configure runs-on's caching (#6195)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThis is the proper way to configure runs-on's cache that makes it work\nwithout us having to use workarounds for artifact uploads.\nhttps://runs-on.com/docs/performance/caching/actions/\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-09-02T18:38:12-07:00",
+          "tree_id": "eb77cd149f35313e59ebac99cca0a58dbc2991a7",
+          "url": "https://github.com/paradedb/paradedb/commit/16e0303417a0da7f025620a3398b2e013f7c5ea5"
+        },
+        "date": 1788400602146,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 23.39035037049249,
+            "unit": "median tps",
+            "extra": "avg tps: 34.53050950908206, max tps: 196.44325106552824, count: 59284"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 23.96861362277763,
+            "unit": "median tps",
+            "extra": "avg tps: 38.97804882776957, max tps: 438.5870697760834, count: 59284"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 26.99811509301567,
+            "unit": "median tps",
+            "extra": "avg tps: 45.59036062436183, max tps: 583.245476795346, count: 59284"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 23.943032320953865,
+            "unit": "median tps",
+            "extra": "avg tps: 38.838156441606785, max tps: 432.73095450301264, count: 59284"
           }
         ]
       }

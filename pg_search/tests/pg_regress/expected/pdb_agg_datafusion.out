@@ -616,41 +616,41 @@ ERROR:  pdb.agg() calls have contradicting visibility settings: 'raw' and 'trans
 -- =====================================================================
 -- SECTION 4: single table routed to DataFusion
 -- =====================================================================
--- Test 4.1: reference result on the Tantivy backend. A nested `aggs` under
--- GROUP BY does not run there, so the metric is a second call.
+-- Test 4.1: reference result on the Tantivy backend, with a nested `aggs`
+-- under the GROUP BY
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
-SELECT category, pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'), pdb.agg('{"sum": {"field": "price"}}'), COUNT(*)
+SELECT category, pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}, "aggs": {"total": {"sum": {"field": "price"}}}}'), pdb.agg('{"sum": {"field": "price"}}'), COUNT(*)
 FROM pa_products
 WHERE description @@@ 'laptop OR shoes'
 GROUP BY category
 ORDER BY category;
-                                                                                                                 QUERY PLAN                                                                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                              QUERY PLAN                                                                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.pa_products
    Output: category, pdb.agg_fn('pdb.agg'::text), pdb.agg_fn('pdb.agg'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: pa_products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"brand","order":{"_key":"asc"}}}), CUSTOM_AGG({"sum":{"field":"price"}}), COUNT(*)
+     Applies to Aggregates: CUSTOM_AGG({"aggs":{"total":{"sum":{"field":"price"}}},"terms":{"field":"brand","order":{"_key":"asc"}}}), CUSTOM_AGG({"sum":{"field":"price"}}), COUNT(*)
      Group By: category
-     Aggregate Definition: {"grouped":{"aggs":{"0":{"terms":{"field":"brand","order":{"_key":"asc"}}},"1":{"sum":{"field":"price","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"aggs":{"total":{"sum":{"field":"price","missing":null}}},"terms":{"field":"brand","order":{"_key":"asc"}}},"1":{"sum":{"field":"price","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
 (7 rows)
 
-SELECT category, pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'), pdb.agg('{"sum": {"field": "price"}}'), COUNT(*)
+SELECT category, pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}, "aggs": {"total": {"sum": {"field": "price"}}}}'), pdb.agg('{"sum": {"field": "price"}}'), COUNT(*)
 FROM pa_products
 WHERE description @@@ 'laptop OR shoes'
 GROUP BY category
 ORDER BY category;
-  category   |                                                                    agg                                                                    |              agg              | count 
--------------+-------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------+-------
- Electronics | {"buckets": [{"key": "Apple", "doc_count": 1}, {"key": "Dell", "doc_count": 1}, {"key": "HP", "doc_count": 1}], "sum_other_doc_count": 0} | {"value": 3299.9700000000003} |     3
- Sports      | {"buckets": [{"key": "Adidas", "doc_count": 1}, {"key": "Nike", "doc_count": 1}], "sum_other_doc_count": 0}                               | {"value": 209.98}             |     2
- Toys        | {"buckets": [{"key": "Fisher Price", "doc_count": 1}], "sum_other_doc_count": 0}                                                          | {"value": 29.99}              |     1
+  category   |                                                                                                               agg                                                                                                               |              agg              | count 
+-------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------+-------
+ Electronics | {"buckets": [{"key": "Apple", "total": {"value": 1299.99}, "doc_count": 1}, {"key": "Dell", "total": {"value": 1499.99}, "doc_count": 1}, {"key": "HP", "total": {"value": 499.99}, "doc_count": 1}], "sum_other_doc_count": 0} | {"value": 3299.9700000000003} |     3
+ Sports      | {"buckets": [{"key": "Adidas", "total": {"value": 119.99}, "doc_count": 1}, {"key": "Nike", "total": {"value": 89.99}, "doc_count": 1}], "sum_other_doc_count": 0}                                                              | {"value": 209.98}             |     2
+ Toys        | {"buckets": [{"key": "Fisher Price", "total": {"value": 29.99}, "doc_count": 1}], "sum_other_doc_count": 0}                                                                                                                     | {"value": 29.99}              |     1
 (3 rows)
 
 -- Test 4.2: the same query on DataFusion, forced through the bucket cap
 SET paradedb.max_term_agg_buckets TO 1;
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
-SELECT category, pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'), pdb.agg('{"sum": {"field": "price"}}'), COUNT(*)
+SELECT category, pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}, "aggs": {"total": {"sum": {"field": "price"}}}}'), pdb.agg('{"sum": {"field": "price"}}'), COUNT(*)
 FROM pa_products
 WHERE description @@@ 'laptop OR shoes'
 GROUP BY category
@@ -658,14 +658,14 @@ ORDER BY category;
                                                                                                                            QUERY PLAN                                                                                                                           
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Output: category, (pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'::jsonb)), (pdb.agg('{"sum": {"field": "price"}}'::jsonb)), (count(*))
+   Output: category, (pdb.agg('{"aggs": {"total": {"sum": {"field": "price"}}}, "terms": {"field": "brand", "order": {"_key": "asc"}}}'::jsonb)), (pdb.agg('{"sum": {"field": "price"}}'::jsonb)), (count(*))
    Sort Key: pa_products.category
    ->  Custom Scan (ParadeDB Aggregate Scan)
-         Output: category, (pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'::jsonb)), (pdb.agg('{"sum": {"field": "price"}}'::jsonb)), (count(*))
+         Output: category, (pdb.agg('{"aggs": {"total": {"sum": {"field": "price"}}}, "terms": {"field": "brand", "order": {"_key": "asc"}}}'::jsonb)), (pdb.agg('{"sum": {"field": "price"}}'::jsonb)), (count(*))
          Backend: DataFusion
          Indexes: pa_products_idx (pa_products)
          Group By: category
-         Aggregates: pdb.agg({"terms":{"field":"brand","order":{"_key":"asc"}}}), pdb.agg({"sum":{"field":"price"}}), COUNT(*)
+         Aggregates: pdb.agg({"aggs":{"total":{"sum":{"field":"price"}}},"terms":{"field":"brand","order":{"_key":"asc"}}}), pdb.agg({"sum":{"field":"price"}}), COUNT(*)
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[category@0 as category, __common_expr_1@3 as agg_2, __grouping_id@2 as __grouping_id, __pdb_k0@1 as __pdb_k0, __common_expr_1@3 as __pdb_m0, __pdb_m1@4 as __pdb_m1, __pdb_m2@5 as __pdb_m2]
            :   AggregateExec: mode=Final, gby=[category@0 as category, __pdb_k0@1 as __pdb_k0, __grouping_id@2 as __grouping_id], aggr=[count(1) as __common_expr_1, count(pa_products_0.price) as __pdb_m1, sum(pa_products_0.price) as __pdb_m2]
@@ -674,16 +674,16 @@ ORDER BY category;
            :         PgSearchScan: table=pa_products, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
-SELECT category, pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'), pdb.agg('{"sum": {"field": "price"}}'), COUNT(*)
+SELECT category, pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}, "aggs": {"total": {"sum": {"field": "price"}}}}'), pdb.agg('{"sum": {"field": "price"}}'), COUNT(*)
 FROM pa_products
 WHERE description @@@ 'laptop OR shoes'
 GROUP BY category
 ORDER BY category;
-  category   |                                                                    agg                                                                    |              agg              | count 
--------------+-------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------+-------
- Electronics | {"buckets": [{"key": "Apple", "doc_count": 1}, {"key": "Dell", "doc_count": 1}, {"key": "HP", "doc_count": 1}], "sum_other_doc_count": 0} | {"value": 3299.9700000000003} |     3
- Sports      | {"buckets": [{"key": "Adidas", "doc_count": 1}, {"key": "Nike", "doc_count": 1}], "sum_other_doc_count": 0}                               | {"value": 209.98}             |     2
- Toys        | {"buckets": [{"key": "Fisher Price", "doc_count": 1}], "sum_other_doc_count": 0}                                                          | {"value": 29.99}              |     1
+  category   |                                                                                                               agg                                                                                                               |              agg              | count 
+-------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------+-------
+ Electronics | {"buckets": [{"key": "Apple", "total": {"value": 1299.99}, "doc_count": 1}, {"key": "Dell", "total": {"value": 1499.99}, "doc_count": 1}, {"key": "HP", "total": {"value": 499.99}, "doc_count": 1}], "sum_other_doc_count": 0} | {"value": 3299.9700000000003} |     3
+ Sports      | {"buckets": [{"key": "Adidas", "total": {"value": 119.99}, "doc_count": 1}, {"key": "Nike", "total": {"value": 89.99}, "doc_count": 1}], "sum_other_doc_count": 0}                                                              | {"value": 209.98}             |     2
+ Toys        | {"buckets": [{"key": "Fisher Price", "total": {"value": 29.99}, "doc_count": 1}], "sum_other_doc_count": 0}                                                                                                                     | {"value": 29.99}              |     1
 (3 rows)
 
 -- Test 4.3: a spec that does not lower stays on the single-table path, whether

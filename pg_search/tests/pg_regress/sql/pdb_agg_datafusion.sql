@@ -373,16 +373,16 @@ WHERE p.description @@@ 'laptop';
 -- SECTION 4: single table routed to DataFusion
 -- =====================================================================
 
--- Test 4.1: reference result on the Tantivy backend. A nested `aggs` under
--- GROUP BY does not run there, so the metric is a second call.
+-- Test 4.1: reference result on the Tantivy backend, with a nested `aggs`
+-- under the GROUP BY
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
-SELECT category, pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'), pdb.agg('{"sum": {"field": "price"}}'), COUNT(*)
+SELECT category, pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}, "aggs": {"total": {"sum": {"field": "price"}}}}'), pdb.agg('{"sum": {"field": "price"}}'), COUNT(*)
 FROM pa_products
 WHERE description @@@ 'laptop OR shoes'
 GROUP BY category
 ORDER BY category;
 
-SELECT category, pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'), pdb.agg('{"sum": {"field": "price"}}'), COUNT(*)
+SELECT category, pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}, "aggs": {"total": {"sum": {"field": "price"}}}}'), pdb.agg('{"sum": {"field": "price"}}'), COUNT(*)
 FROM pa_products
 WHERE description @@@ 'laptop OR shoes'
 GROUP BY category
@@ -392,13 +392,13 @@ ORDER BY category;
 SET paradedb.max_term_agg_buckets TO 1;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
-SELECT category, pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'), pdb.agg('{"sum": {"field": "price"}}'), COUNT(*)
+SELECT category, pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}, "aggs": {"total": {"sum": {"field": "price"}}}}'), pdb.agg('{"sum": {"field": "price"}}'), COUNT(*)
 FROM pa_products
 WHERE description @@@ 'laptop OR shoes'
 GROUP BY category
 ORDER BY category;
 
-SELECT category, pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'), pdb.agg('{"sum": {"field": "price"}}'), COUNT(*)
+SELECT category, pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}, "aggs": {"total": {"sum": {"field": "price"}}}}'), pdb.agg('{"sum": {"field": "price"}}'), COUNT(*)
 FROM pa_products
 WHERE description @@@ 'laptop OR shoes'
 GROUP BY category

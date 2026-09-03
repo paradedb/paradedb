@@ -38,7 +38,7 @@ use pgrx::pg_sys::{
     F_SUM_INT2, F_SUM_INT4, F_SUM_INT8, F_SUM_NUMERIC,
 };
 use pgrx::prelude::*;
-use tantivy::aggregation::agg_req::AggregationVariants;
+use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
 use tantivy::aggregation::metric::{
     AverageAggregation, CountAggregation, MaxAggregation, MinAggregation, SingleMetricResult,
     SumAggregation,
@@ -616,6 +616,21 @@ impl std::fmt::Display for AggregateType {
             AggregateType::Min { .. } => write!(f, "MIN({})", self.field_name().unwrap()),
             AggregateType::Max { .. } => write!(f, "MAX({})", self.field_name().unwrap()),
             AggregateType::Custom { agg_json, .. } => write!(f, "CUSTOM_AGG({})", agg_json),
+        }
+    }
+}
+
+/// The request node of an aggregate. A `pdb.agg()` spec carries its own `aggs`,
+/// which only survive here and not in a bare [`AggregationVariants`].
+impl From<AggregateType> for Aggregation {
+    fn from(val: AggregateType) -> Self {
+        match val {
+            AggregateType::Custom { agg_json, .. } => serde_json::from_value(agg_json)
+                .unwrap_or_else(|e| panic!("Failed to deserialize custom aggregate: {}", e)),
+            other => Aggregation {
+                agg: other.into(),
+                sub_aggregation: Default::default(),
+            },
         }
     }
 }

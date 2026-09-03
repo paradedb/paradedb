@@ -123,6 +123,9 @@ impl BaseScan {
     ///    In this case, every worker executes the full scan independently using its own
     ///    transaction snapshot (`MvccSatisfies::Snapshot`).
     pub(crate) fn init_search_reader(state: &mut CustomScanStateWrapper<Self>) {
+        let wrapper_start = std::time::Instant::now();
+        let executor_scan_init_ns =
+            std::mem::take(&mut state.custom_state_mut().executor_scan_init_ns);
         let planstate = state.planstate();
         let expr_context = state.runtime_context;
         state
@@ -235,6 +238,15 @@ impl BaseScan {
         unsafe {
             inject_pdb_placeholders(state);
         }
+
+        let wrapper_ns = wrapper_start.elapsed().as_nanos() as u64;
+        let reader = state
+            .custom_state_mut()
+            .search_reader
+            .as_mut()
+            .expect("search reader was initialized above");
+        let wrapper_residual_ns = wrapper_ns.saturating_sub(reader.scan_init_ns());
+        reader.add_scan_init_ns(executor_scan_init_ns.saturating_add(wrapper_residual_ns));
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -649,6 +661,24 @@ unsafe fn is_limit_pushdown_safe(
     (rel_is_single_or_partitioned || is_left_driven_lateral)
         && has_non_pushable_predicates(rel, quals).is_ok()
         && !classify_target_list_srf(root).is_unsafe()
+}
+
+fn finish_result_assembly_accounting(
+    state: &mut CustomScanStateWrapper<BaseScan>,
+    accounting: Option<(std::time::Instant, u64)>,
+) {
+    let Some((start, stages_before)) = accounting else {
+        return;
+    };
+    let stage_delta = state
+        .custom_state()
+        .telemetry
+        .stage_elapsed_ns()
+        .saturating_sub(stages_before);
+    state
+        .custom_state_mut()
+        .telemetry
+        .add_result_assembly_ns((start.elapsed().as_nanos() as u64).saturating_sub(stage_delta));
 }
 
 impl CustomScan for BaseScan {
@@ -1620,6 +1650,9 @@ impl CustomScan for BaseScan {
         estate: *mut pg_sys::EState,
         eflags: i32,
     ) {
+        let begin_start = std::time::Instant::now();
+        let explain_analyze = unsafe { (*estate).es_instrument != 0 };
+        state.custom_state_mut().explain_stage_accounting = explain_analyze;
         unsafe {
             // open the heap and index relations with the proper locks
             let rte = pg_sys::exec_rt_fetch(state.custom_state().execution_rti, estate);
@@ -1691,6 +1724,10 @@ impl CustomScan for BaseScan {
                 .init_expr_context(estate, planstate);
             state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
         }
+        let begin_ns = begin_start.elapsed().as_nanos() as u64;
+        let custom_state = state.custom_state_mut();
+        custom_state.executor_scan_init_ns =
+            custom_state.executor_scan_init_ns.saturating_add(begin_ns);
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
@@ -1713,17 +1750,25 @@ impl CustomScan for BaseScan {
 
     #[allow(clippy::blocks_in_conditions)]
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
+        let result_assembly_accounting = state.custom_state().explain_stage_accounting.then(|| {
+            (
+                std::time::Instant::now(),
+                state.custom_state().telemetry.stage_elapsed_ns(),
+            )
+        });
         if state.custom_state().search_reader.is_none() {
             Self::init_search_reader(state);
         }
 
         loop {
             let exec_method = state.custom_state_mut().exec_method_mut();
+            let next = exec_method.next(state.custom_state_mut());
 
             // get the next matching document from our search results and look for it in the heap
-            match exec_method.next(state.custom_state_mut()) {
+            match next {
                 // reached the end of the SearchResults
                 ExecState::Eof => {
+                    finish_result_assembly_accounting(state, result_assembly_accounting);
                     return std::ptr::null_mut();
                 }
 
@@ -1766,7 +1811,9 @@ impl CustomScan for BaseScan {
                             //
 
                             (*(*state.projection_info()).pi_exprContext).ecxt_scantuple = slot;
-                            return pg_sys::ExecProject(state.projection_info());
+                            let projected = pg_sys::ExecProject(state.projection_info());
+                            finish_result_assembly_accounting(state, result_assembly_accounting);
+                            return projected;
                         } else {
                             //
                             // we do need scores or snippets
@@ -1804,7 +1851,7 @@ impl CustomScan for BaseScan {
                             }
 
                             // finally, do the projection
-                            return per_tuple_context.switch_to(|_| {
+                            let projected = per_tuple_context.switch_to(|_| {
                                 // TODO: We go _back_ to the heap to get snippet information here
                                 // inside of `make_snippet` and `get_snippet_positions`. It's possible
                                 // that we could use a wider tuple slot to fetch the extra columns that
@@ -1828,12 +1875,15 @@ impl CustomScan for BaseScan {
                                 );
                                 pg_sys::ExecProject(proj_info)
                             });
+                            finish_result_assembly_accounting(state, result_assembly_accounting);
+                            return projected;
                         }
                     }
                 }
 
                 ExecState::Virtual { slot } => {
                     state.custom_state_mut().virtual_tuple_count += 1;
+                    finish_result_assembly_accounting(state, result_assembly_accounting);
                     return slot;
                 }
             }

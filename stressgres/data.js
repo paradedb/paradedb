@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788401740196,
+  "lastUpdate": 1788401748529,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -324358,6 +324358,60 @@ window.BENCHMARK_DATA = {
             "value": 37.230473794413236,
             "unit": "median tps",
             "extra": "avg tps: 58.55392185835313, max tps: 557.5810914865929, count: 58771"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "isaacjvandoren@gmail.com",
+            "name": "Isaac Van Doren",
+            "username": "isaacvando"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "16e0303417a0da7f025620a3398b2e013f7c5ea5",
+          "message": "ci: Use runs-on/action to properly configure runs-on's caching (#6195)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThis is the proper way to configure runs-on's cache that makes it work\nwithout us having to use workarounds for artifact uploads.\nhttps://runs-on.com/docs/performance/caching/actions/\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-09-02T18:38:12-07:00",
+          "tree_id": "eb77cd149f35313e59ebac99cca0a58dbc2991a7",
+          "url": "https://github.com/paradedb/paradedb/commit/16e0303417a0da7f025620a3398b2e013f7c5ea5"
+        },
+        "date": 1788401744760,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 35.27524010022309,
+            "unit": "median tps",
+            "extra": "avg tps: 54.903339953743256, max tps: 537.9331818554161, count: 58760"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 18.581943492066063,
+            "unit": "median tps",
+            "extra": "avg tps: 29.789026168655166, max tps: 353.0020513911939, count: 58760"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 84.09543950700707,
+            "unit": "median tps",
+            "extra": "avg tps: 145.9204726156832, max tps: 1209.3526740269078, count: 58760"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 19.41784483974854,
+            "unit": "median tps",
+            "extra": "avg tps: 29.922314361644165, max tps: 279.1190364639305, count: 58760"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 37.18937883905619,
+            "unit": "median tps",
+            "extra": "avg tps: 58.47190406307008, max tps: 561.8000168849569, count: 58760"
           }
         ]
       }

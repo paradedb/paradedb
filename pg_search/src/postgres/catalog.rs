@@ -290,24 +290,3 @@ pub fn lookup_collation_locale(collation: pg_sys::Oid) -> Option<CollationLocale
         })
     }
 }
-
-/// Returns `true` when `collation` is a valid, nondeterministic collation.
-/// `InvalidOid` and the default collation are treated as deterministic
-/// because their equality is byte exact.
-pub fn is_nondeterministic_collation(collation: pg_sys::Oid) -> bool {
-    if collation == pg_sys::InvalidOid || collation == pg_sys::DEFAULT_COLLATION_OID {
-        return false;
-    }
-    unsafe {
-        let Some(entry) = SysCacheEntry::search1(
-            pg_sys::SysCacheIdentifier::COLLOID,
-            pg_sys::Datum::from(collation),
-        ) else {
-            return false;
-        };
-        entry
-            .attr::<bool>(pg_sys::Anum_pg_collation_collisdeterministic)
-            .map(|is_det| !is_det)
-            .unwrap_or(false)
-    }
-}

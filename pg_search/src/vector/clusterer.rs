@@ -15,323 +15,275 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::sync::{Arc, Mutex};
+//! CREATE INDEX-time centroid training.
+//!
+//! Centroids are an index-level artifact under tantivy's V3 vector format:
+//! trained ONCE, over a sample of the whole corpus, installed at index
+//! creation like the schema and settings, and never retrained — segments
+//! only assign against them (at commit and merge, inside tantivy). This
+//! module owns the training side: a reservoir sampler fed by the
+//! CREATE INDEX heap scan, the hierarchical-superkmeans run per vector
+//! field, and the [`CentroidProducer`] handed to
+//! `IndexBuilder::centroid_index`.
 
-use superkmeans::{HierarchicalSuperKMeans, HierarchicalSuperKMeansConfig};
-use tantivy::vector::{
-    IvfCentroids, IvfClusterer, IvfMatrix, IvfMergeSettings, IvfTrainingVectors, IvfVectors,
-    Metric, VectorOptions,
-};
-use tantivy::{Index, TantivyError};
-
+use crate::api::HashMap;
 use crate::postgres::options::BM25IndexOptions;
+use crate::vector::PgVector;
+use anyhow::{Result, bail};
+use pgrx::{FromDatum, pg_sys};
+use superkmeans::{HierarchicalSuperKMeans, HierarchicalSuperKMeansConfig};
+use tantivy::TantivyError;
+use tantivy::schema::Field;
+use tantivy::vector::{CentroidProducer, IvfCentroids, IvfMatrix, Metric, VectorOptions};
 
-const DEFAULT_ASSIGN_BATCH_SIZE: usize = 40_960;
+/// Floor on reservoir capacity, so a tiny table still trains on whatever
+/// it has rather than on a couple of rows.
+const MIN_RESERVOIR_ROWS: usize = 1024;
 
-/// A `HierarchicalSuperKMeans` built for assignment, tagged with the
-/// `(dim, angular)` it was constructed for. `assign` never reads the clusterer's
-/// centroids, pruner, or cluster count — it derives everything from the vectors
-/// and centroids handed to it per call — so one instance is valid for every
-/// batch (and every merge) sharing the same `(dim, angular)`.
-struct AssignClusterer {
+/// The frozen training result for every vector field of the schema,
+/// pulled by tantivy exactly once at index creation.
+pub struct TrainedCentroidProducer {
+    fields: HashMap<Field, TrainedField>,
+}
+
+struct TrainedField {
+    values: Vec<f32>,
+    rows: usize,
     dim: usize,
-    angular: bool,
-    clusterer: Arc<HierarchicalSuperKMeans>,
 }
 
-#[derive(Clone)]
-pub struct SuperKMeansIvfClusterer {
-    config: HierarchicalSuperKMeansConfig,
-    centroid_ratio: f32,
-    training_samples_per_centroid: usize,
-    assign_batch_size: usize,
-    /// Total cells a vector is written into (SPANN `ReplicaCount`). `1` (the
-    /// default) is primary-only Phase 1; `> 1` adds up to `replicas - 1`
-    /// next-nearest cells at merge time, selected by tantivy's centroid
-    /// selector (exact scan or `RelativeNeighborhoodGraph`).
-    replicas: usize,
-    /// Lazily-built clusterer reused across `assign` batches.
-    assign_cache: Arc<Mutex<Option<AssignClusterer>>>,
-}
-
-impl std::fmt::Debug for SuperKMeansIvfClusterer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SuperKMeansIvfClusterer")
-            .field("config", &self.config)
-            .field("centroid_ratio", &self.centroid_ratio)
-            .field(
-                "training_samples_per_centroid",
-                &self.training_samples_per_centroid,
-            )
-            .field("assign_batch_size", &self.assign_batch_size)
-            .field("replicas", &self.replicas)
-            .finish_non_exhaustive()
-    }
-}
-
-impl Default for SuperKMeansIvfClusterer {
-    fn default() -> Self {
-        // Per-run knobs live on the nested `base` config in superkmeans-rs.
-        let mut config = HierarchicalSuperKMeansConfig::default();
-        config.base.suppress_warnings = true;
-        config.base.sampling_fraction = 1.0;
-        Self {
-            config,
-            centroid_ratio: 0.01,
-            training_samples_per_centroid: 32,
-            assign_batch_size: DEFAULT_ASSIGN_BATCH_SIZE,
-            replicas: 1,
-            assign_cache: Arc::new(Mutex::new(None)),
-        }
-    }
-}
-
-impl SuperKMeansIvfClusterer {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_centroid_ratio(mut self, centroid_ratio: f32) -> Self {
-        self.centroid_ratio = centroid_ratio;
-        self
-    }
-
-    pub fn with_training_samples_per_centroid(
-        mut self,
-        training_samples_per_centroid: usize,
-    ) -> Self {
-        self.training_samples_per_centroid = training_samples_per_centroid;
-        self
-    }
-
-    pub fn with_replicas(mut self, replicas: usize) -> Self {
-        self.replicas = replicas.max(1);
-        self
-    }
-}
-
-impl IvfClusterer for SuperKMeansIvfClusterer {
-    fn centroid_ratio(&self) -> f32 {
-        self.centroid_ratio
-    }
-
-    fn training_samples_per_centroid(&self) -> usize {
-        self.training_samples_per_centroid
-    }
-
-    fn assign_batch_size(&self) -> usize {
-        self.assign_batch_size
-    }
-
-    fn merge_settings(&self, total_target_docs: usize) -> tantivy::Result<IvfMergeSettings> {
-        let centroid_ratio = self.centroid_ratio;
-        let training_samples_per_centroid = self.training_samples_per_centroid;
-        let assign_batch_size = self.assign_batch_size;
-
-        assert!(
-            centroid_ratio > 0.0 && centroid_ratio <= 1.0,
-            "centroid_ratio must be in (0, 1], got {centroid_ratio}"
-        );
-        assert!(
-            training_samples_per_centroid > 1,
-            "training_samples_per_centroid must be > 1, got {training_samples_per_centroid}"
-        );
-        assert!(assign_batch_size > 0, "assign_batch_size must be > 0");
-
-        let num_centroids =
-            ((total_target_docs as f64) * f64::from(centroid_ratio)).ceil() as usize;
-        let num_centroids = num_centroids.clamp(1, total_target_docs);
-
-        Ok(IvfMergeSettings {
-            num_centroids,
-            training_samples_per_centroid,
-            assign_batch_size,
-            // Replica cells (the `replicas - 1` non-primary cells per vector)
-            // are selected by tantivy in the field's raw metric —
-            // router-consistent with query-time `rank_centroids`. No angular
-            // assumption on this clusterer remains.
-            replicas: self.replicas.max(1),
-        })
-    }
-
-    fn train(
-        &self,
-        options: &VectorOptions,
-        vectors: IvfTrainingVectors,
-        num_centroids: usize,
-    ) -> tantivy::Result<IvfCentroids> {
-        let IvfTrainingVectors::F32(vectors) = vectors;
-        let dim = options.dim();
-        if vectors.matrix.dims != dim {
-            return Err(TantivyError::InvalidArgument(format!(
-                "vector dimensionality mismatch: expected {dim}, got {}",
-                vectors.matrix.dims
-            )));
-        }
-        if vectors.doc_ids.len() != vectors.matrix.rows {
-            return Err(TantivyError::InvalidArgument(format!(
-                "vector doc_id count mismatch: expected {}, got {}",
-                vectors.matrix.rows,
-                vectors.doc_ids.len()
-            )));
-        }
-        if vectors.matrix.values.len() != vectors.matrix.rows * dim {
-            return Err(TantivyError::InvalidArgument(format!(
-                "vector value count mismatch: expected {}, got {}",
-                vectors.matrix.rows * dim,
-                vectors.matrix.values.len()
-            )));
-        }
-
-        let mut config = self.config.clone();
-        if matches!(options.metric(), Metric::Cosine | Metric::Dot) {
-            config.base.angular = true;
-        }
-        let mut clusterer = HierarchicalSuperKMeans::with_config(num_centroids, dim, config);
-        let rows = vectors.matrix.rows;
-        // Hand the buffer to superkmeans so it can rotate in place instead of
-        // keeping a second full-size copy alive through training.
-        let centroids = clusterer.train_owned(vectors.matrix.values, rows);
-        if centroids.len() != num_centroids * dim {
+impl CentroidProducer for TrainedCentroidProducer {
+    fn centroids(&self, field: Field, options: &VectorOptions) -> tantivy::Result<IvfCentroids> {
+        let Some(trained) = self.fields.get(&field) else {
             return Err(TantivyError::InternalError(format!(
-                "SuperKMeans returned {} centroid floats, expected {}",
-                centroids.len(),
-                num_centroids * dim
+                "no centroids were trained for vector field {field:?}"
             )));
-        }
+        };
+        debug_assert_eq!(trained.dim, options.dim());
         Ok(IvfCentroids::F32(IvfMatrix {
-            values: centroids,
-            rows: num_centroids,
-            dims: dim,
+            values: trained.values.clone(),
+            rows: trained.rows,
+            dims: trained.dim,
         }))
     }
+}
 
-    fn assign(
-        &self,
-        options: &VectorOptions,
-        vectors: IvfVectors<'_>,
-        centroids: &IvfCentroids,
-    ) -> tantivy::Result<Vec<u32>> {
-        let IvfVectors::F32(vectors) = vectors;
-        let IvfCentroids::F32(centroids) = centroids;
-        let dim = options.dim();
-        let vector_matrix = vectors.matrix;
-        let centroid_matrix = centroids;
-        if vector_matrix.dims != dim {
-            return Err(TantivyError::InvalidArgument(format!(
-                "vector dimensionality mismatch: expected {dim}, got {}",
-                vector_matrix.dims
-            )));
-        }
-        if vectors.doc_ids.len() != vector_matrix.rows {
-            return Err(TantivyError::InvalidArgument(format!(
-                "vector doc_id count mismatch: expected {}, got {}",
-                vector_matrix.rows,
-                vectors.doc_ids.len()
-            )));
-        }
-        if vector_matrix.values.len() != vector_matrix.rows * dim {
-            return Err(TantivyError::InvalidArgument(format!(
-                "vector value count mismatch: expected {}, got {}",
-                vector_matrix.rows * dim,
-                vector_matrix.values.len()
-            )));
-        }
-        if centroid_matrix.rows == 0 {
-            return Err(TantivyError::InvalidArgument(
-                "cannot assign with zero centroids".to_string(),
-            ));
-        }
-        if centroid_matrix.dims != dim {
-            return Err(TantivyError::InvalidArgument(format!(
-                "centroid dimensionality mismatch: expected {dim}, got {}",
-                centroid_matrix.dims
-            )));
-        }
-        if centroid_matrix.values.len() != centroid_matrix.rows * dim {
-            return Err(TantivyError::InvalidArgument(format!(
-                "centroid value count mismatch: expected {}, got {}",
-                centroid_matrix.rows * dim,
-                centroid_matrix.values.len()
-            )));
-        }
-        if vector_matrix.rows == 0 {
-            return Ok(Vec::new());
-        }
+/// One vector field of the index being built, as `create_index`'s schema
+/// loop discovered it: the tantivy [`Field`] it was assigned, and its
+/// position within the index's column order (the build callback's
+/// `values` array).
+pub struct SampledFieldSpec {
+    pub ordinal: usize,
+    pub field: Field,
+    pub field_name: String,
+    pub dim: usize,
+    pub metric: Metric,
+}
 
-        let angular = matches!(options.metric(), Metric::Cosine | Metric::Dot);
+/// One vector field's reservoir during the sampling heap scan.
+struct SampledField {
+    spec: SampledFieldSpec,
+    /// Reservoir capacity, in rows.
+    cap: usize,
+    /// Vector-bearing rows seen (not sampled) — the training-floor count
+    /// and the reservoir's algorithm-R denominator.
+    seen: usize,
+    /// The reservoir: `min(seen, cap)` rows, `dim`-strided.
+    rows: Vec<f32>,
+}
 
-        // Build the clusterer once per `(dim, angular)` and reuse it across every batch.
-        let clusterer = {
-            let mut cache = self
-                .assign_cache
-                .lock()
-                .expect("assign clusterer cache mutex poisoned");
-            match cache.as_ref() {
-                Some(entry) if entry.dim == dim && entry.angular == angular => {
-                    entry.clusterer.clone()
-                }
-                _ => {
-                    let mut config = self.config.clone();
-                    config.base.angular = angular;
-                    let clusterer = Arc::new(HierarchicalSuperKMeans::with_config(
-                        centroid_matrix.rows,
-                        dim,
-                        config,
-                    ));
-                    *cache = Some(AssignClusterer {
-                        dim,
-                        angular,
-                        clusterer: clusterer.clone(),
-                    });
-                    clusterer
+/// Uniform reservoir sampler over the CREATE INDEX heap scan, one
+/// reservoir per vector field. Capacity is bounded by
+/// `maintenance_work_mem` (half of it, split across vector fields) — the
+/// same knob pgvector builds are sized with.
+pub struct VectorSampler {
+    fields: Vec<SampledField>,
+    /// `centroid_ratio * training_samples_per_centroid`: the fraction of
+    /// the corpus the reservoirs retain. Capacity is derived from the
+    /// rows SEEN SO FAR rather than a row estimate, so it needs no
+    /// ANALYZE and lands at `num_centroids * training_samples_per_centroid`
+    /// exactly when the scan ends.
+    sample_fraction: f64,
+    /// xorshift64* state; fixed seed, so a rebuild of the same data
+    /// samples the same rows.
+    rng: u64,
+}
+
+impl VectorSampler {
+    /// Reservoirs for the given vector fields (from `create_index`'s
+    /// schema loop). `specs` must be non-empty. Sizing honors
+    /// `training_samples_per_centroid`: each reservoir retains
+    /// `centroid_ratio * training_samples_per_centroid` of the corpus, so
+    /// training ends up with that many samples per centroid.
+    pub fn from_specs(specs: Vec<SampledFieldSpec>, options: &BM25IndexOptions) -> Self {
+        assert!(!specs.is_empty(), "sampling requires vector fields");
+        let sample_fraction =
+            f64::from(options.centroid_ratio()) * options.training_samples_per_centroid() as f64;
+        let fields = specs
+            .into_iter()
+            .map(|spec| SampledField {
+                spec,
+                cap: MIN_RESERVOIR_ROWS,
+                seen: 0,
+                rows: Vec::new(),
+            })
+            .collect();
+        VectorSampler {
+            fields,
+            sample_fraction,
+            rng: 0x9E37_79B9_7F4A_7C15,
+        }
+    }
+
+    fn next_rng(&mut self) -> u64 {
+        let mut x = self.rng;
+        x ^= x >> 12;
+        x ^= x << 25;
+        x ^= x >> 27;
+        self.rng = x;
+        x.wrapping_mul(0x2545_F491_4F6C_DD1D)
+    }
+
+    /// Offer one heap row (the build callback's `values`/`isnull` arrays,
+    /// in index-column order) to every field's reservoir.
+    ///
+    /// # Safety
+    ///
+    /// `values` and `isnull` must be the arrays Postgres passes to an
+    /// `IndexBuildCallback`, valid for the index's column count.
+    pub unsafe fn offer(&mut self, values: *mut pg_sys::Datum, isnull: *mut bool) {
+        for i in 0..self.fields.len() {
+            let ordinal = self.fields[i].spec.ordinal;
+            if *isnull.add(ordinal) {
+                continue;
+            }
+            let datum = *values.add(ordinal);
+            let Some(vector) = PgVector::from_datum(datum, false) else {
+                continue;
+            };
+            let field = &self.fields[i];
+            if vector.0.len() != field.spec.dim {
+                panic!(
+                    "vector field '{}' expects {} dimensions, got {}",
+                    field.spec.field_name,
+                    field.spec.dim,
+                    vector.0.len()
+                );
+            }
+            // Capacity tracks the rows seen so far, so it converges on
+            // `num_centroids * training_samples_per_centroid` without
+            // needing to know the row count up front. It only ever grows;
+            // the freed slots are filled by subsequent rows.
+            let dim = field.spec.dim;
+            let seen = field.seen;
+            let cap = (((seen + 1) as f64 * self.sample_fraction).ceil() as usize)
+                .max(MIN_RESERVOIR_ROWS);
+            // Occupied slots, which must stay DENSE: appending is the only
+            // way the reservoir grows, so a widened capacity is filled by
+            // subsequent rows instead of leaving zero-filled holes for
+            // k-means to train on.
+            let filled = field.rows.len() / dim;
+            let slot = if filled < cap {
+                Some(filled)
+            } else {
+                // Algorithm R: replace a random resident with probability
+                // cap / (seen + 1).
+                let j = (self.next_rng() % (seen as u64 + 1)) as usize;
+                (j < cap).then_some(j)
+            };
+            let field = &mut self.fields[i];
+            field.cap = cap;
+            if let Some(slot) = slot {
+                let start = slot * dim;
+                debug_assert!(start <= field.rows.len(), "reservoir must stay dense");
+                if field.rows.len() == start {
+                    field.rows.extend_from_slice(&vector.0);
+                } else {
+                    field.rows[start..start + dim].copy_from_slice(&vector.0);
                 }
             }
-        };
-        // Primary (nearest-centroid) assignment via superkmeans, angular-aware
-        // for cosine/dot. One cluster per vector — no replication. `n_centroids`
-        // is derived from the centroid slice length.
-        let primaries = clusterer.assign(
-            vector_matrix.values,
-            centroid_matrix.values.as_slice(),
-            vector_matrix.rows,
-        );
-        Ok(primaries)
+            field.seen += 1;
+        }
     }
-}
 
-pub fn set_ivf_clusterer(index: &mut Index, options: &BM25IndexOptions) {
-    let clusterer = SuperKMeansIvfClusterer::new()
-        .with_centroid_ratio(options.centroid_ratio())
-        .with_training_samples_per_centroid(options.training_samples_per_centroid())
-        .with_replicas(options.cluster_replication());
-    index.set_ivf_clusterer(Arc::new(clusterer));
-}
+    /// Vector-bearing rows seen per field, for the training floor.
+    pub fn rows_seen(&self) -> impl Iterator<Item = (&str, usize)> {
+        self.fields
+            .iter()
+            .map(|field| (field.spec.field_name.as_str(), field.seen))
+    }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+    /// Train each field's centroids over its reservoir. `centroid_ratio`
+    /// and the target centroid count are resolved against the TRUE row
+    /// count (`seen`), not the reservoir size.
+    pub fn train(self, options: &BM25IndexOptions) -> Result<TrainedCentroidProducer> {
+        let centroid_ratio = options.centroid_ratio();
+        let mut fields = HashMap::default();
+        for sampled in self.fields {
+            let spec = sampled.spec;
+            // The reservoir is dense, so its length IS the sample size.
+            let sampled_rows = sampled.rows.len() / spec.dim;
+            if sampled_rows == 0 {
+                bail!(
+                    "vector field '{}' has no vectors to train on",
+                    spec.field_name
+                );
+            }
+            let num_centroids = ((sampled.seen as f64) * f64::from(centroid_ratio))
+                .ceil()
+                .max(1.0) as usize;
+            let num_centroids = num_centroids.clamp(1, sampled_rows);
 
-    /// Replication is off by default (`replicas = 1`), and non-positive
-    /// configured values clamp to `1` rather than disabling clustering.
-    #[test]
-    fn replicas_default_and_clamp() {
-        let total = 100_000;
-        let settings = SuperKMeansIvfClusterer::new()
-            .merge_settings(total)
-            .unwrap();
-        assert_eq!(settings.replicas, 1, "primary-only by default");
+            let mut values = sampled.rows;
+            debug_assert_eq!(values.len(), sampled_rows * spec.dim);
+            let angular = matches!(spec.metric, Metric::Cosine | Metric::Dot);
+            if spec.metric == Metric::Cosine {
+                // Mirror the stored-row contract: rows are unit-normalized
+                // at ingest, so train in the same space.
+                for row in values.chunks_exact_mut(spec.dim) {
+                    let norm = row
+                        .iter()
+                        .map(|x| f64::from(*x) * f64::from(*x))
+                        .sum::<f64>()
+                        .sqrt();
+                    if norm.is_finite() && norm > 0.0 {
+                        for x in row {
+                            *x = (f64::from(*x) / norm) as f32;
+                        }
+                    }
+                }
+            }
 
-        let replicated = SuperKMeansIvfClusterer::new()
-            .with_replicas(4)
-            .merge_settings(total)
-            .unwrap();
-        assert_eq!(replicated.replicas, 4);
-
-        let clamped = SuperKMeansIvfClusterer::new()
-            .with_replicas(0)
-            .merge_settings(total)
-            .unwrap();
-        assert_eq!(clamped.replicas, 1, "non-positive clamps to primary-only");
+            let mut config = HierarchicalSuperKMeansConfig::default();
+            config.base.suppress_warnings = true;
+            config.base.sampling_fraction = 1.0;
+            config.base.angular = angular;
+            let mut clusterer =
+                HierarchicalSuperKMeans::with_config(num_centroids, spec.dim, config);
+            let centroids = clusterer.train(&values, sampled_rows);
+            if centroids.len() != num_centroids * spec.dim {
+                bail!(
+                    "SuperKMeans returned {} centroid floats for field '{}', expected {}",
+                    centroids.len(),
+                    spec.field_name,
+                    num_centroids * spec.dim
+                );
+            }
+            pgrx::debug1!(
+                "trained {num_centroids} centroids for vector field '{}' over {sampled_rows} \
+                 sampled rows ({} seen)",
+                spec.field_name,
+                sampled.seen,
+            );
+            fields.insert(
+                spec.field,
+                TrainedField {
+                    values: centroids,
+                    rows: num_centroids,
+                    dim: spec.dim,
+                },
+            );
+        }
+        Ok(TrainedCentroidProducer { fields })
     }
 }

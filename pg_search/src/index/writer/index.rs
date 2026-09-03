@@ -31,10 +31,9 @@ use thiserror::Error;
 
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::stats::{self, LogicalBoundsByField, StatsWriter};
-use crate::index::{index_settings, setup_tokenizers};
+use crate::index::{index_settings, open_index, setup_tokenizers};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{STATS_EXT, SegmentMetaEntry};
-use crate::vector::clusterer::set_ivf_clusterer;
 use crate::{postgres::types::TantivyValueError, schema::SearchIndexSchema};
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{IntoDatum, PgLogLevel, PgSqlErrorCode, direct_function_call, function_name};
@@ -110,6 +109,10 @@ pub struct IndexWriterConfig {
     pub max_docs_per_segment: Option<u32>,
 }
 
+/// Legacy per-segment doc ceiling. The vector-specific cap it once
+/// enforced is gone — commit segments assign against the index-level
+/// centroid index at any size — so this survives only as a fixture size.
+#[cfg(any(test, feature = "pg_test"))]
 pub const DEFAULT_MAX_DOCS_PER_SEGMENT: u32 = 1000;
 
 impl IndexWriterConfig {
@@ -271,26 +274,6 @@ impl SerialIndexWriter {
         worker_number: i32,
     ) -> Result<Self> {
         let schema = index_relation.schema()?;
-        let has_vector_field = schema.has_vector_field();
-        // The IVF backend needs a doc-count ceiling, so vector indexes cap at
-        // `DEFAULT_MAX_DOCS_PER_SEGMENT`. Non-vector indexes honor the caller's
-        // value verbatim (the parallel-build planner sets it to hit
-        // `target_segment_count`).
-        let max_docs_per_segment = if has_vector_field {
-            Some(
-                config
-                    .max_docs_per_segment
-                    .map_or(DEFAULT_MAX_DOCS_PER_SEGMENT, |n| {
-                        n.min(DEFAULT_MAX_DOCS_PER_SEGMENT)
-                    }),
-            )
-        } else {
-            config.max_docs_per_segment
-        };
-        let config = IndexWriterConfig {
-            max_docs_per_segment,
-            ..config
-        };
 
         if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) } {
             pgrx::debug1!(
@@ -302,11 +285,8 @@ impl SerialIndexWriter {
         }
 
         let directory = mvcc_satisfies.directory(index_relation);
-        let mut index = Index::open(directory)?;
+        let mut index = open_index(directory)?;
         stats::register(&mut index);
-        if has_vector_field {
-            set_ivf_clusterer(&mut index, index_relation.options());
-        }
         setup_tokenizers(index_relation, &mut index)?;
         let ctid_field = schema.ctid_field();
 
@@ -340,10 +320,11 @@ impl SerialIndexWriter {
         let settings = index_settings(index_relation.options(), &tantivy_schema);
         // No stats plugin here: the segment is a throwaway materialization that nothing
         // reads statistics from, and it is rebuilt per reader.
-        let mut index = Index::create(directory, tantivy_schema, settings)?;
-        if schema.has_vector_field() {
-            set_ivf_clusterer(&mut index, index_relation.options());
-        }
+        // No centroid index: the staged mutable segment stores its vectors
+        // flat (doc-ordered) and is searched exhaustively; it clusters at
+        // its first merge inside the real index.
+        let builder = Index::builder().schema(tantivy_schema).settings(settings);
+        let mut index = builder.create(directory)?;
         setup_tokenizers(index_relation, &mut index)?;
         let ctid_field = schema.ctid_field();
         // We bound the input size instead: see the method doc.
@@ -535,12 +516,8 @@ impl SearchIndexMerger {
         mvcc_satisfies: MvccSatisfies,
     ) -> Result<SearchIndexMerger> {
         let directory = mvcc_satisfies.directory(indexrel);
-        let schema = indexrel.schema()?;
-        let mut index = Index::open(directory.clone())?;
+        let mut index = open_index(directory.clone())?;
         stats::register(&mut index);
-        if schema.has_vector_field() {
-            set_ivf_clusterer(&mut index, indexrel.options());
-        }
         Ok(Self {
             index,
             merged_segment_ids: Default::default(),
@@ -695,6 +672,7 @@ mod tests {
         Spi::run("SET client_min_messages = 'debug1';").unwrap();
         if with_vector {
             Spi::run("CREATE EXTENSION IF NOT EXISTS vector;").unwrap();
+            Spi::run("SET paradedb.vector_min_training_rows = 1;").unwrap();
             Spi::run("CREATE TABLE t_vec (id SERIAL, data TEXT, embedding vector(3));").unwrap();
             Spi::run("INSERT INTO t_vec (data, embedding) VALUES ('test', '[1,0,0]');").unwrap();
             Spi::run(

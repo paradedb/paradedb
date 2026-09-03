@@ -30,7 +30,7 @@ use std::ops::Deref;
 use std::ptr::NonNull;
 use std::rc::Rc;
 use tantivy::TantivyError;
-use tantivy::index::{Index, Order};
+use tantivy::index::Order;
 
 type NeedClose = bool;
 
@@ -452,7 +452,7 @@ impl PgSearchRelation {
     /// exist.
     pub fn is_ctid_sorted_asc(&self) -> bool {
         let directory = MvccSatisfies::Snapshot.directory(self);
-        let Ok(underlying) = Index::open(directory) else {
+        let Ok(underlying) = crate::index::open_index(directory) else {
             return false;
         };
         matches!(

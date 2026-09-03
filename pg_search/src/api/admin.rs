@@ -389,9 +389,11 @@ fn index_info(
 /// explicitly rather than only the first one an index happens to carry. `segno`
 /// aligns with [`index_info`]'s so the two can be joined.
 ///
-/// The cluster columns are IVF-only (`NULL` for flat segments). `*_cluster_size`
-/// and `vector_total_memberships` count posting rows, so under replication their
-/// totals exceed `vector_num_vectors`, which counts distinct docs.
+/// Flushed segments cluster against the index-level centroid index; mutable
+/// segments store flat and report `vector_num_centroids = 0`.
+/// `*_cluster_size` and `vector_total_memberships` count posting rows, so
+/// under replication their totals exceed `vector_num_vectors`, which counts
+/// distinct docs.
 #[allow(clippy::type_complexity)]
 #[pg_extern]
 fn vector_info(
@@ -403,14 +405,13 @@ fn vector_info(
         (
             name!(segno, String),
             name!(vector_field, String),
-            name!(vector_format, String),
             name!(vector_num_vectors, AnyNumeric),
-            name!(vector_num_centroids, Option<AnyNumeric>),
-            name!(vector_min_cluster_size, Option<AnyNumeric>),
-            name!(vector_max_cluster_size, Option<AnyNumeric>),
-            name!(vector_avg_cluster_size, Option<f64>),
-            name!(vector_empty_clusters, Option<AnyNumeric>),
-            name!(vector_total_memberships, Option<AnyNumeric>),
+            name!(vector_num_centroids, AnyNumeric),
+            name!(vector_min_cluster_size, AnyNumeric),
+            name!(vector_max_cluster_size, AnyNumeric),
+            name!(vector_avg_cluster_size, f64),
+            name!(vector_empty_clusters, AnyNumeric),
+            name!(vector_total_memberships, AnyNumeric),
         ),
     >,
 > {
@@ -450,27 +451,23 @@ fn vector_info(
             let Some(info) = vector_index.info() else {
                 continue;
             };
-            let cluster_stats = info.cluster_stats.as_ref();
+            let cluster_stats = &info.cluster_stats;
             // Summed here rather than read off `cluster_stats`, which only
             // carries the average: this keeps the membership total exact.
             let total_memberships = vector_index
                 .cluster_sizes()
-                .map(|sizes| sizes.iter().map(|size| *size as u64).sum::<u64>());
+                .map(|sizes| sizes.iter().map(|size| *size as u64).sum::<u64>())
+                .unwrap_or(0);
             rows.push((
                 segment_reader.segment_id().short_uuid_string(),
                 field.clone(),
-                match info.format {
-                    tantivy::vector::VectorStorageFormat::Flat => "flat",
-                    tantivy::vector::VectorStorageFormat::Ivf => "ivf",
-                }
-                .to_string(),
                 info.num_vectors.into(),
-                info.num_centroids.map(Into::into),
-                cluster_stats.map(|stats| stats.min_cluster_size.into()),
-                cluster_stats.map(|stats| stats.max_cluster_size.into()),
-                cluster_stats.map(|stats| stats.avg_cluster_size),
-                cluster_stats.map(|stats| stats.empty_clusters.into()),
-                total_memberships.map(Into::into),
+                info.num_centroids.into(),
+                cluster_stats.min_cluster_size.into(),
+                cluster_stats.max_cluster_size.into(),
+                cluster_stats.avg_cluster_size,
+                cluster_stats.empty_clusters.into(),
+                total_memberships.into(),
             ));
         }
     }
@@ -535,7 +532,7 @@ fn vector_clusters(
             let sizes = vector_index
                 .cluster_sizes()
                 .map(|sizes| sizes.into_iter().map(i64::from).collect());
-            let radii = vector_index.index().map(|ivf| {
+            let radii = vector_index.clusters().map(|ivf| {
                 let bounds = ivf.bounds();
                 (0..ivf.num_clusters()).map(|c| bounds.ball_r(c)).collect()
             });

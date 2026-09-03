@@ -41,6 +41,7 @@ use crate::api::{HashMap, HashSet, Varno};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
+use crate::index::open_index;
 use crate::index::reader::index::{MAX_TOPK_FEATURES, SearchIndexReader};
 use crate::postgres::customscan::basescan::exec_methods::{
     ExecState, fast_fields, normal::NormalScanExecState,
@@ -97,7 +98,6 @@ use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use pgrx::{FromDatum, IntoDatum, PgList, PgMemoryContexts, pg_sys};
-use tantivy::Index;
 use tantivy::snippet::SnippetGenerator;
 
 #[derive(Default)]
@@ -776,7 +776,7 @@ impl CustomScan for BaseScan {
             let segment_count = {
                 let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
                 let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
-                Index::open(directory).expect("custom_scan: should be able to open index");
+                open_index(directory).expect("custom_scan: should be able to open index");
                 segment_count.load(Ordering::Relaxed)
             };
             let schema = bm25_index
@@ -993,10 +993,20 @@ impl CustomScan for BaseScan {
                 let is_sorted = method.declares_sorted_output();
                 let consider_parallel_local = (*builder.args().rel).consider_parallel;
                 let prunability = topk_can_prune_for_method(&method, builder.args().root, &quals);
+                let is_vector_orderby = matches!(
+                    &method,
+                    ExecMethodType::TopK {
+                        orderby_info: Some(infos),
+                        ..
+                    } if infos
+                        .first()
+                        .is_some_and(|info| info.is_vector_distance())
+                );
 
                 // Decide the policy first: its reason gates the path cost below.
                 let policy = decide_scan_parallelism(ScanParallelismInputs {
                     prunability,
+                    is_vector_orderby,
                     query: &query,
                     drive_cost,
                     row_estimate,
@@ -1019,6 +1029,10 @@ impl CustomScan for BaseScan {
                 // applied to the cost.)
                 let path_drive_cost = match reason {
                     WorkerDecisionReason::BlockWandPrunable => None,
+                    // A vector top-k's cost is dominated by its probe
+                    // budget, not the filter drive; like the prunable
+                    // case, the full-docset drive cost would overstate it.
+                    WorkerDecisionReason::GlobalVectorSearch => None,
                     WorkerDecisionReason::CostModel
                     | WorkerDecisionReason::CostModelLimited
                     | WorkerDecisionReason::SortedPerSegment
@@ -1070,11 +1084,10 @@ impl CustomScan for BaseScan {
                         )
                         .set_force_path(forced);
 
-                        // Our BaseScan is always parallel-safe (can run in a worker), even when it's not
-                        // parallel-aware (splitting segments).
-                        if consider_parallel_local {
-                            path_builder = path_builder.set_parallel_safe(true);
-                        }
+                        path_builder = path_builder.set_parallel_safe(
+                            consider_parallel_local
+                                && !matches!(reason, WorkerDecisionReason::GlobalVectorSearch),
+                        );
                         if let Some(nworkers) = nworkers {
                             path_builder = path_builder.set_parallel(nworkers.get());
                         }
@@ -1103,6 +1116,11 @@ impl CustomScan for BaseScan {
                         method_private.set_worker_selection_reason(reason);
                         path_builder.build(method_private)
                     };
+
+                if is_vector_orderby {
+                    custom_paths.push(make_path(None, false, force));
+                    continue;
+                }
 
                 match policy {
                     WorkerPathPolicy::SerialOnly { .. } => {
@@ -1156,6 +1174,24 @@ impl CustomScan for BaseScan {
             let processed_tlist = (*builder.args().root).processed_tlist;
 
             let mut window_aggregates = deserialize_window_agg_placeholders(processed_tlist);
+
+            if !window_aggregates.is_empty()
+                && builder
+                    .custom_private()
+                    .maybe_orderby_info()
+                    .as_ref()
+                    .is_some_and(|infos| {
+                        infos.first().is_some_and(|info| info.is_vector_distance())
+                    })
+            {
+                // The global vector probe loop cannot ride the per-segment
+                // collector wrappers an in-scan aggregation needs; run the
+                // aggregate as its own query instead.
+                pgrx::error!(
+                    "window aggregates cannot be combined with a vector distance ORDER BY in the \
+                     same query; compute the aggregate in a separate query"
+                );
+            }
 
             if !window_aggregates.is_empty() {
                 // Convert PostgresExpression filters to SearchQueryInput now that we have root
@@ -1517,6 +1553,9 @@ impl CustomScan for BaseScan {
                 );
                 if let Some(explain_data) = state.custom_state().telemetry.parallel_explain() {
                     explainer.add_json("Parallel Workers", &explain_data.workers);
+                }
+                if let Some(vector_search) = &state.custom_state().vector_search_info {
+                    explainer.add_json("Vector Search", vector_search);
                 }
                 let segment_info = state.custom_state().segment_info_for_explain();
                 if !segment_info.is_empty() {

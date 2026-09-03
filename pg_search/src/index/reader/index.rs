@@ -118,6 +118,10 @@ pub struct TopKSearchResults {
 pub struct TopKSearch {
     pub results: TopKSearchResults,
     pub segment_info: BTreeMap<SegmentId, serde_json::Value>,
+    /// Vector searches run ONE global probe loop across every segment, so
+    /// their instrumentation is a single JSON blob rather than a
+    /// per-segment map.
+    pub vector_search: Option<serde_json::Value>,
 }
 
 impl TopKSearch {
@@ -125,16 +129,19 @@ impl TopKSearch {
         Self {
             results,
             segment_info: BTreeMap::new(),
+            vector_search: None,
         }
     }
 
-    fn with_segment_info(
+    fn with_vector_search(
         results: TopKSearchResults,
         segment_info: BTreeMap<SegmentId, serde_json::Value>,
+        vector_search: serde_json::Value,
     ) -> Self {
         Self {
             results,
             segment_info,
+            vector_search: Some(vector_search),
         }
     }
 }
@@ -145,23 +152,9 @@ impl From<TopKSearchResults> for TopKSearch {
     }
 }
 
-fn probe_stats_to_segment_info(
-    segment_ids: &[SegmentId],
-    stats: &[ProbeStats],
-) -> BTreeMap<SegmentId, serde_json::Value> {
-    assert_eq!(
-        segment_ids.len(),
-        stats.len(),
-        "vector Fruit must yield one ProbeStats per collected segment"
-    );
-    segment_ids
-        .iter()
-        .zip(stats.iter())
-        .map(|(id, s)| {
-            let value = serde_json::to_value(s).expect("ProbeStats should serialize to JSON");
-            (*id, value)
-        })
-        .collect()
+/// The global probe loop's instrumentation, as the EXPLAIN-facing JSON.
+fn probe_stats_to_json(stats: &ProbeStats) -> serde_json::Value {
+    serde_json::to_value(stats).expect("ProbeStats should serialize to JSON")
 }
 
 impl TopKSearchResults {
@@ -501,7 +494,7 @@ impl SearchIndexReader {
         let cleanup_lock = Arc::new(MetaPage::open(index_relation).cleanup_lock_pinned());
 
         let directory = mvcc_style.directory(index_relation);
-        let mut index = Index::open(directory.clone())?;
+        let mut index = crate::index::open_index(directory.clone())?;
         let total_segment_count = directory
             .total_segment_count()
             .load(std::sync::atomic::Ordering::Relaxed);
@@ -1242,7 +1235,7 @@ impl SearchIndexReader {
                 tantivy::vector::set_fixed_probe_cost_rows(
                     crate::gucs::vector_fixed_probe_cost_rows(),
                 );
-                let collector = TopDocs::with_limit(n)
+                let vector_search = TopDocs::with_limit(n)
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
                     .with_adaptive_params(AdaptiveProbeParams {
@@ -1261,48 +1254,52 @@ impl SearchIndexReader {
                     tie_breaks.remove(i);
                 }
 
-                // Record SegmentIds as the (possibly lazy) iterator is consumed so
-                // we can zip them with per-segment ProbeStats from the Fruit.
-                let collected_ids = std::cell::RefCell::new(Vec::new());
-                let segment_ids = segment_ids.inspect(|id| collected_ids.borrow_mut().push(*id));
-                // Fruit is `VectorSimilarityFruit` — hits plus per-segment
+                // Vector search is ONE global probe loop across every
+                // segment of the searcher's snapshot, so it cannot ride
+                // the per-segment wrappers: window aggregates are rejected
+                // at plan time, and the parallel path never claims vector scans.
+                assert!(
+                    aux_collector.is_none(),
+                    "vector ORDER BY cannot run with an auxiliary aggregation collector; this \
+                     combination is rejected at plan time"
+                );
+                let consumed: Vec<SegmentId> = segment_ids.collect();
+                assert_eq!(
+                    consumed.len(),
+                    self.searcher.segment_readers().len(),
+                    "vector ORDER BY must run serially over the full segment snapshot"
+                );
+                // Fruit is `VectorSimilarityFruit` — hits plus ONE global
                 // ProbeStats — for every tie-break shape.
                 let tie_break_count = tie_breaks.len();
                 let mut tie_breaks = tie_breaks.into_iter();
                 let mut next = || tie_breaks.next().expect("tie-break feature should exist");
-                let (fruit, aggregation_results) = match tie_break_count {
-                    0 => self.collect_maybe_auxiliary(segment_ids, collector, aux_collector),
-                    1 => self.collect_maybe_auxiliary(
-                        segment_ids,
-                        collector.with_tie_break(next()),
-                        aux_collector,
-                    ),
-                    2 => self.collect_maybe_auxiliary(
-                        segment_ids,
-                        collector.with_tie_break((next(), next())),
-                        aux_collector,
-                    ),
-                    3 => self.collect_maybe_auxiliary(
-                        segment_ids,
-                        collector.with_tie_break((next(), next(), next())),
-                        aux_collector,
-                    ),
-                    4 => self.collect_maybe_auxiliary(
-                        segment_ids,
-                        collector.with_tie_break((next(), next(), next(), next())),
-                        aux_collector,
-                    ),
+                let fruit = match tie_break_count {
+                    0 => vector_search.search(&self.searcher, self.query()),
+                    1 => vector_search
+                        .with_tie_break(next())
+                        .search(&self.searcher, self.query()),
+                    2 => vector_search
+                        .with_tie_break((next(), next()))
+                        .search(&self.searcher, self.query()),
+                    3 => vector_search
+                        .with_tie_break((next(), next(), next()))
+                        .search(&self.searcher, self.query()),
+                    4 => vector_search
+                        .with_tie_break((next(), next(), next(), next()))
+                        .search(&self.searcher, self.query()),
                     x => panic!(
                         "Unsupported sort-field count: {}. At most {MAX_TOPK_FEATURES} are supported.",
                         x + 1
                     ),
-                };
-                let segment_ids = collected_ids.into_inner();
-                let mut segment_info = probe_stats_to_segment_info(&segment_ids, &fruit.stats);
+                }
+                .expect("vector search should not fail");
+                let mut segment_info = BTreeMap::new();
                 io_stats::attach(&mut segment_info);
-                TopKSearch::with_segment_info(
-                    TopKSearchResults::new_for_score(fruit.results, aggregation_results),
+                TopKSearch::with_vector_search(
+                    TopKSearchResults::new_for_score(fruit.results, None),
                     segment_info,
+                    probe_stats_to_json(&fruit.stats),
                 )
             }
         }

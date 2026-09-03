@@ -17,6 +17,7 @@
 
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
+use crate::index::open_index;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::locks::AdvisoryLock;
 use crate::postgres::rel::PgSearchRelation;
@@ -165,7 +166,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     let mut new_metas = Vec::new();
 
     let directory = MvccSatisfies::Vacuum.directory(&index_relation);
-    let index = Index::open(directory.clone()).unwrap();
+    let index = open_index(directory.clone()).unwrap();
     let searchable_segment_metas = index.searchable_segment_metas().unwrap();
     let mut did_delete = false;
 

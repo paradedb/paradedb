@@ -1777,12 +1777,16 @@ mod tests {
         cleanup_parallel_build_large_table();
     }
 
-    /// A row count that is an exact multiple of the vector doc-count cap leaves the writer with
-    /// no pending segment at commit; the final merge must still run.
+    /// A row count that is an exact multiple of the per-segment doc target
+    /// leaves the writer with no pending segment at commit; the final merge
+    /// must still run. (The vector-specific doc cap is gone — commit
+    /// segments assign against the index-level set at any size — so the
+    /// old cap constant now only shapes this fixture's size.)
     #[pg_test]
     fn test_single_segment_build_exact_doc_cap_multiple() {
         let nrows = crate::index::writer::index::DEFAULT_MAX_DOCS_PER_SEGMENT * 5;
         Spi::run("CREATE EXTENSION IF NOT EXISTS vector;").unwrap();
+        Spi::run("SET paradedb.vector_min_training_rows = 1;").unwrap();
         Spi::run(&format!(
             r#"
             CREATE TABLE exact_cap_multiple (id SERIAL8, emb vector(8));

@@ -19,7 +19,6 @@ mod tests {
     use std::ops::Bound;
 
     use pgrx::prelude::*;
-    use tantivy::Index;
     use tantivy::index::SegmentId;
 
     use super::super::*;
@@ -40,7 +39,7 @@ mod tests {
     /// Every persisted segment's `.stats`, with the tantivy field for `field_name`.
     fn segment_stats(indexrel: &PgSearchRelation, field_name: &str) -> (Field, Vec<SegmentStats>) {
         let directory = MvccSatisfies::Snapshot.directory(indexrel);
-        let index = Index::open(directory.clone()).unwrap();
+        let index = crate::index::open_index(directory.clone()).unwrap();
         let field = index.schema().get_field(field_name).unwrap();
         let stats = index
             .searchable_segments()
@@ -84,7 +83,7 @@ mod tests {
         )
         .unwrap();
         let indexrel = open_index("stats_src_idx");
-        let index = Index::open(MvccSatisfies::Snapshot.directory(&indexrel)).unwrap();
+        let index = crate::index::open_index(MvccSatisfies::Snapshot.directory(&indexrel)).unwrap();
         let schema = index.schema();
         let (_, stats) = segment_stats(&indexrel, "id");
         let [stats] = stats.as_slice() else {

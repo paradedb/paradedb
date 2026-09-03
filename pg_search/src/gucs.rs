@@ -276,21 +276,14 @@ pub fn vector_fixed_probe_cost_rows() -> f64 {
     VECTOR_FIXED_PROBE_COST_ROWS.get()
 }
 
-/// Doc-count boundary at which a merged segment's vector storage switches
-/// from flat (exact scan) to IVF (clustered). Captured into the index's
-/// stored `IndexSettings` at CREATE INDEX time, so it applies to every merge
-/// of that index for its lifetime.
-///
-/// Default 500, overriding tantivy's 10,000: a single-segment flat-vs-IVF
-/// sweep (dim 768, default probe settings) put the latency crossover between
-/// 500 and 1,000 docs — IVF roughly ties flat at 500 docs, is 1.6x faster at
-/// 1,000, and 7x+ faster from 2,000 up, at recall@10 >= 0.99. 10,000 left
-/// mid-size segments (e.g. 100k rows split across CPU-count segments)
-/// brute-forcing their vectors.
-static VECTOR_CLUSTERING_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(500);
+/// Minimum vector-bearing rows a table must hold for CREATE INDEX to train
+/// index-level centroids. Below the floor the build errors: too little data
+/// to train a meaningful clustering (or to warrant a vector index at all).
+/// Tests lower it to exercise small fixtures.
+static VECTOR_MIN_TRAINING_ROWS: GucSetting<i32> = GucSetting::<i32>::new(10_000);
 
-pub fn vector_clustering_threshold() -> usize {
-    VECTOR_CLUSTERING_THRESHOLD.get().max(1) as usize
+pub fn vector_min_training_rows() -> usize {
+    VECTOR_MIN_TRAINING_ROWS.get().max(1) as usize
 }
 
 pub fn init() {
@@ -550,10 +543,10 @@ pub fn init() {
     );
 
     GucRegistry::define_int_guc(
-        c"paradedb.vector_clustering_threshold",
-        c"Doc-count boundary at which merged segments switch from flat to IVF vector storage",
-        c"A merge whose target segment has at least this many docs writes clustered (IVF) vector storage; below it, flat. Captured into the index's stored settings at CREATE INDEX time.",
-        &VECTOR_CLUSTERING_THRESHOLD,
+        c"paradedb.vector_min_training_rows",
+        c"Minimum vector rows required to train a vector index",
+        c"CREATE INDEX errors when a vector field has fewer rows than this: too little data to train index-level centroids. Lower it only for testing.",
+        &VECTOR_MIN_TRAINING_ROWS,
         1,
         i32::MAX,
         GucContext::Userset,

@@ -49,6 +49,9 @@ unsafe fn add_path(rel: *mut pg_sys::RelOptInfo, mut path: pg_sys::CustomPath) {
     if forced {
         (*rel).pathlist = std::ptr::null_mut();
         (*rel).partial_pathlist = std::ptr::null_mut();
+        if !path.path.parallel_safe {
+            (*rel).consider_parallel = false;
+        }
     }
 
     let custom_path = PgMemoryContexts::CurrentMemoryContext

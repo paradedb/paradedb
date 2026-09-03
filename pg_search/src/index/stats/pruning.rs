@@ -21,11 +21,11 @@
 use std::cmp::Ordering;
 use std::ops::Bound;
 
-use tantivy::Index;
 use tantivy::index::{SegmentId, SegmentReader};
 
 use super::SegmentStats;
 use crate::index::mvcc::MvccSatisfies;
+use crate::index::open_index;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
@@ -44,7 +44,7 @@ pub(crate) fn persisted_split_points(
         return Ok(None);
     }
     let directory = MvccSatisfies::Snapshot.directory(indexrel);
-    let index = Index::open(directory.clone())?;
+    let index = open_index(directory.clone())?;
     let Ok(field) = index.schema().get_field(partition_by) else {
         return Ok(None);
     };

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788401729304,
+  "lastUpdate": 1788401740196,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -308462,6 +308462,126 @@ window.BENCHMARK_DATA = {
             "value": 4.949535650445035,
             "unit": "median tps",
             "extra": "avg tps: 14.463409778699248, max tps: 239.42346828836162, count: 57408"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "isaacjvandoren@gmail.com",
+            "name": "Isaac Van Doren",
+            "username": "isaacvando"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "16e0303417a0da7f025620a3398b2e013f7c5ea5",
+          "message": "ci: Use runs-on/action to properly configure runs-on's caching (#6195)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThis is the proper way to configure runs-on's cache that makes it work\nwithout us having to use workarounds for artifact uploads.\nhttps://runs-on.com/docs/performance/caching/actions/\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-09-02T18:38:12-07:00",
+          "tree_id": "eb77cd149f35313e59ebac99cca0a58dbc2991a7",
+          "url": "https://github.com/paradedb/paradedb/commit/16e0303417a0da7f025620a3398b2e013f7c5ea5"
+        },
+        "date": 1788401721870,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 173.63582168746186,
+            "unit": "median tps",
+            "extra": "avg tps: 178.48626875049126, max tps: 218.56377639174346, count: 57405"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 279.5978852823989,
+            "unit": "median tps",
+            "extra": "avg tps: 308.7599595463292, max tps: 519.0413073775744, count: 57405"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 4023.140866910553,
+            "unit": "median tps",
+            "extra": "avg tps: 4013.7661426948875, max tps: 4225.901541448589, count: 57405"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 177.59660132740404,
+            "unit": "median tps",
+            "extra": "avg tps: 183.15752211899417, max tps: 233.3413948464116, count: 57405"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3383.432379353395,
+            "unit": "median tps",
+            "extra": "avg tps: 3381.095237364427, max tps: 3623.4540901611185, count: 57405"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3387.135407156487,
+            "unit": "median tps",
+            "extra": "avg tps: 3372.2031629649396, max tps: 3699.9090731117612, count: 57405"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 154.59902692231304,
+            "unit": "median tps",
+            "extra": "avg tps: 157.65870432280502, max tps: 185.7370902962755, count: 57405"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 266.27938745183377,
+            "unit": "median tps",
+            "extra": "avg tps: 277.7106066967314, max tps: 386.25768139714785, count: 57405"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Primary - tps",
+            "value": 511.5631610767701,
+            "unit": "median tps",
+            "extra": "avg tps: 522.3162248754448, max tps: 612.2258575720426, count: 57405"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 589.9596100693423,
+            "unit": "median tps",
+            "extra": "avg tps: 600.4584165640963, max tps: 713.7151989572417, count: 57405"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1287.7322522302861,
+            "unit": "median tps",
+            "extra": "avg tps: 1287.796031570993, max tps: 1304.332863338725, count: 57405"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 311.5524176337297,
+            "unit": "median tps",
+            "extra": "avg tps: 337.4583689453238, max tps: 584.9204854005882, count: 57405"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 536.0257139463409,
+            "unit": "median tps",
+            "extra": "avg tps: 546.0201765989191, max tps: 644.244335611808, count: 57405"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2340.039401319831,
+            "unit": "median tps",
+            "extra": "avg tps: 2339.548051437084, max tps: 2473.292743155593, count: 57405"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1810.9592484603486,
+            "unit": "median tps",
+            "extra": "avg tps: 1801.9711757931918, max tps: 1982.0475772843206, count: 57405"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 13.21072020068117,
+            "unit": "median tps",
+            "extra": "avg tps: 22.47224338711899, max tps: 770.3062352438211, count: 57405"
           }
         ]
       }

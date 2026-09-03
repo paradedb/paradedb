@@ -2193,7 +2193,12 @@ impl AggregateScan {
                 .iter()
                 .filter(|agg| !matches!(agg.agg_kind, AggKind::PdbAgg(_)))
                 .enumerate()
-                .filter(|(_, agg)| matches!(agg.agg_kind, AggKind::CountStar | AggKind::Count))
+                .filter(|(_, agg)| {
+                    matches!(
+                        agg.agg_kind,
+                        AggKind::CountStar | AggKind::Count | AggKind::CountDistinct
+                    )
+                })
                 .map(|(col, _)| col)
                 .collect::<Vec<_>>()
         });

@@ -61,7 +61,7 @@ INSERT INTO pa_products (description, category, brand, price, rating, created_at
     ('Running shoes', 'Sports', 'Nike', 89.99, 5, '2024-01-05 10:00:00', true, '{"color": "red", "qty": 2}', 89.99),
     ('Basketball shoes', 'Sports', 'Adidas', 119.99, 4, '2024-01-06 10:00:00', false, '{"color": "red", "qty": 1}', 119.99),
     ('Winter jacket', 'Clothing', 'North Face', 199.99, 4, '2024-01-07 10:00:00', true, '{"color": "blue", "qty": 4}', 199.99),
-    ('Toy laptop', 'Toys', 'Fisher Price', 29.99, NULL, '2024-01-08 10:00:00', true, NULL, NULL);
+    ('Toy laptop', 'Toys', 'Fisher Price', 29.99, NULL, NULL, true, NULL, NULL);
 
 INSERT INTO pa_tags (product_id, tag_name, weight) VALUES
     (1, 'tech', 10), (1, 'computer', 5),
@@ -129,8 +129,8 @@ SELECT pdb.agg('{"terms": {"field": "tag_name", "order": {"total_w": "desc"}, "m
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard';
 
--- Test 1.5: per-aggregate FILTER
-SELECT p.category, pdb.agg('{"terms": {"field": "tag_name"}}') FILTER (WHERE t.weight > 5)
+-- Test 1.5: per-aggregate FILTER, applied to the buckets and their metrics alike
+SELECT p.category, pdb.agg('{"terms": {"field": "tag_name"}, "aggs": {"w": {"sum": {"field": "weight"}}}}') FILTER (WHERE t.weight > 5)
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard'
 GROUP BY p.category
@@ -155,9 +155,8 @@ GROUP BY p.category
 ORDER BY COUNT(*) DESC, p.category
 LIMIT 2;
 
--- Test 1.9: a NULL key gets its own bucket. The Tantivy backend gives it one
--- too through its `missing` sentinel, rendered as `null` for text keys and
--- leaked as an extreme value for numeric ones.
+-- Test 1.9: a NULL key gets its own bucket, rendered as `null`, the way the
+-- Tantivy backend's `missing` sentinel gives it one
 SELECT pdb.agg('{"terms": {"field": "rating", "order": {"_key": "asc"}}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes';
@@ -258,12 +257,28 @@ WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY DATE(p.created_at)
 ORDER BY day;
 
+-- Test 1.20: a NULL datetime key renders as `null` on both backends; the
+-- sentinel is a valid timestamp and must not be rewritten into one
+SELECT pdb.agg('{"terms": {"field": "created_at", "order": {"_key": "asc"}}}')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes';
+
+SELECT pdb.agg('{"terms": {"field": "created_at", "order": {"_key": "asc"}}}')
+FROM pa_products
+WHERE description @@@ 'laptop OR shoes';
+
+-- Test 1.21: `missing` on metrics fills in the NULL rating
+SELECT pdb.agg('{"terms": {"field": "category", "order": {"_key": "asc"}}, "aggs": {"mean": {"avg": {"field": "rating", "missing": 1}}, "lo": {"min": {"field": "rating", "missing": 1}}, "hi": {"max": {"field": "rating", "missing": 9}}, "n": {"value_count": {"field": "rating", "missing": 1}}}}')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes';
+
 -- =====================================================================
 -- SECTION 2: empty inputs
 -- =====================================================================
 
--- Test 2.1: scalar query over no rows answers with one row
-SELECT pdb.agg('{"terms": {"field": "tag_name"}}'), pdb.agg('{"sum": {"field": "weight"}}'), pdb.agg('{"avg": {"field": "weight"}}'), COUNT(*)
+-- Test 2.1: scalar query over no rows answers with one row, with every count
+-- at 0 and the other aggregates NULL
+SELECT pdb.agg('{"terms": {"field": "tag_name"}}'), pdb.agg('{"sum": {"field": "weight"}}'), pdb.agg('{"avg": {"field": "weight"}}'), COUNT(*), COUNT(DISTINCT t.weight), SUM(t.weight)
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'nonexistent';
 

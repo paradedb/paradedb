@@ -994,10 +994,12 @@ impl Assembler<'_> {
             .get_mut(ENTRY_NAME)
             .map(serde_json::Value::take)
             .unwrap_or(serde_json::Value::Null);
+        // The datetime sentinel is a valid timestamp, so it has to go before the
+        // rewrite would turn it into one.
+        scrub_missing_sentinel_value(&mut json);
         rewrite_aggregate_result_json_timestamps_with(&mut json, &entry.agg_json, &|name| {
             entry.datetime_fields.contains(name)
         });
-        scrub_missing_sentinel_value(&mut json);
         Ok(json)
     }
 }

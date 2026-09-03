@@ -1954,12 +1954,48 @@ pub unsafe fn lookup_base_rel_info(
 
 #[derive(Debug, Clone, Deserialize, Serialize, Copy)]
 pub struct WindowAggInfosIndex(usize);
+impl WindowAggInfosIndex {
+    pub fn as_col_name(&self) -> String {
+        WindowAggColumn::new(*self).to_string()
+    }
+}
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct WindowAggInfos(Vec<WindowAggregateInfo>);
 
 impl WindowAggInfos {
     pub fn get(&self, index: WindowAggInfosIndex) -> Option<&WindowAggregateInfo> {
         self.0.get(index.0)
+    }
+}
+
+pub struct WindowAggColumn(WindowAggInfosIndex);
+impl WindowAggColumn {
+    const PREFIX: &'static str = "window_agg_";
+
+    pub fn new(index: WindowAggInfosIndex) -> Self {
+        WindowAggColumn(index)
+    }
+
+    #[allow(dead_code)]
+    pub fn index(&self) -> WindowAggInfosIndex {
+        self.0
+    }
+}
+impl fmt::Display for WindowAggColumn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}{}", Self::PREFIX, self.0.0)
+    }
+}
+impl TryFrom<&str> for WindowAggColumn {
+    type Error = ();
+
+    fn try_from(col_name: &str) -> Result<Self, Self::Error> {
+        let index = col_name
+            .strip_prefix(Self::PREFIX)
+            .ok_or(())?
+            .parse::<usize>()
+            .map_err(|_| ())?;
+        Ok(Self::new(WindowAggInfosIndex(index)))
     }
 }
 

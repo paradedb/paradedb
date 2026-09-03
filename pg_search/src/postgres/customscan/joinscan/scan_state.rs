@@ -587,6 +587,8 @@ fn build_clause_df<'a>(
         };
         let df = build_relnode_df(&rctx, &join_clause.plan).await?;
 
+        // TODO: Apply window aggs
+
         // 4. Apply DISTINCT via GROUP BY
         let (df, distinct_col_map) = apply_distinct_group_by(df, join_clause)?;
 
@@ -959,10 +961,7 @@ fn build_projection_expr(
                 }
             }
         }
-        ChildProjection::WindowAggregate { index } => {
-            todo!();
-            // Something like: col(&window_agg_col_name(index))
-        }
+        ChildProjection::WindowAggregate { index } => return col(index.as_col_name()),
         ChildProjection::Column { rti, attno }
         | ChildProjection::IndexedExpression { rti, attno } => {
             if let Some(expr) = resolve_var_to_df_col(join_clause, *rti, *attno) {

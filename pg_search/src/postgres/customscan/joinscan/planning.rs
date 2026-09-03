@@ -1433,7 +1433,7 @@ pub(super) unsafe fn collect_required_fields(
                         // succeed, error.
                         let mut matched_sources = 0;
                         for source in plan_sources.iter_mut() {
-                            match ensure_expression_field(*source, &field_name) {
+                            match ensure_expression_field(source, &field_name) {
                                 Ok(()) => matched_sources += 1,
                                 Err(EnsureExpressionRejection::NotInSchema(_)) => continue,
                                 Err(EnsureExpressionRejection::Other(reason)) => {

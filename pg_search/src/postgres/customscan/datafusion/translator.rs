@@ -642,7 +642,7 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
                     ..
                 } => (*rti, *original_attno, false),
                 OutputColumnInfo::Score { rti, .. } => (*rti, 0, true),
-                OutputColumnInfo::Pruned => return None,
+                OutputColumnInfo::WindowAggregate { .. } | OutputColumnInfo::Pruned => return None,
             }
         } else {
             (varno, varattno, false)

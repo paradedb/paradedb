@@ -731,6 +731,9 @@ impl F64Lossless for i64 {
     }
 }
 
+/// A supported aggregate argument together with the Tantivy field it resolves to.
+/// The resolved name may come from a direct column, a JSON subpath, or a matching indexed
+/// expression, while the original expression is retained to derive `COALESCE` semantics.
 pub(crate) struct ParsedAggregateField {
     expression: AggregateFieldExpression,
     field_name: FieldName,
@@ -781,6 +784,10 @@ impl ParsedAggregateField {
         &self.field_name
     }
 
+    /// Returns the Tantivy `missing` value for `COALESCE(field, default)` aggregates.
+    /// Tantivy substitutes this value when a document has no value for the field, preserving the
+    /// SQL `COALESCE` behavior during aggregate pushdown. Direct fields and `COALESCE(..., NULL)`
+    /// do not need a substitution and return `None`.
     pub(crate) unsafe fn missing(&self) -> anyhow::Result<Option<f64>> {
         let AggregateFieldExpression::Coalesce { default, .. } = &self.expression else {
             return Ok(None);
@@ -802,6 +809,9 @@ impl ParsedAggregateField {
     }
 }
 
+/// The SQL expression shapes supported as aggregate arguments.
+/// `Coalesce` keeps the field and constant default separate so they can become the Tantivy field
+/// and `missing` value independently.
 enum AggregateFieldExpression {
     Direct(*mut pg_sys::Node),
     Coalesce {

@@ -109,8 +109,10 @@ impl PdbAggExpr {
         let mut node = Value::Null;
         for (level, field) in self.terms.iter().enumerate().rev() {
             let terms = match self.size {
+                // Every segment keeps every term, so the cut is exact and its
+                // error bound zero, the same as a backend that has every group.
                 Some((cut_level, size)) if level == cut_level => {
-                    json!({ "field": field, "size": size })
+                    json!({ "field": field, "size": size, "segment_size": NO_CUT })
                 }
                 _ => json!({ "field": field, "size": NO_CUT, "order": { "_key": "asc" } }),
             };

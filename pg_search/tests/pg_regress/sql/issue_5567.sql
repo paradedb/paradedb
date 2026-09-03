@@ -48,9 +48,10 @@ SET enable_hashjoin = off;
 SET enable_mergejoin = off;
 SET enable_nestloop = off;
 
--- Baseline: Join Scan disabled. This path was already correct; the smallest
--- names among NULL-category rows come first because ORDER BY name ASC is
--- honored even when category is NULL.
+-- Case 1: the nullable key sorts first. Among the NULL-category rows the
+-- smallest names lead, because `name ASC` still orders them.
+--
+-- Join Scan off is the reference result.
 SET paradedb.enable_join_custom_scan = off;
 
 SELECT p.id, p.category, p.name
@@ -59,17 +60,48 @@ WHERE p.id @@@ paradedb.term('kind', 'manga') AND c.id @@@ paradedb.all()
 ORDER BY p.category DESC NULLS FIRST, p.name ASC
 LIMIT 5;
 
--- Fix path: Join Scan enabled. Before #5567 this returned the first 5
--- NULL-category rows in insertion order (n001997, n001993, ...) because
--- SegmentedTopKExec's shared pass-through bitmap forced every deferred
--- column to NULL when any one column was NULL. After the fix each deferred
--- column resolves independently, so the two paths return identical rows.
 SET paradedb.enable_join_custom_scan = on;
 
+-- The plan must reach SegmentedTopKExec under the Join Scan: enabling the
+-- GUC only permits the custom plan, it does not select it, and the rows
+-- below only test the fix if that is the plan that produced them.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.category, p.name
 FROM issue_5567_parent p JOIN issue_5567_child c ON c.parent_id = p.id
 WHERE p.id @@@ paradedb.term('kind', 'manga') AND c.id @@@ paradedb.all()
 ORDER BY p.category DESC NULLS FIRST, p.name ASC
+LIMIT 5;
+
+-- Same rows as the reference result above.
+SELECT p.id, p.category, p.name
+FROM issue_5567_parent p JOIN issue_5567_child c ON c.parent_id = p.id
+WHERE p.id @@@ paradedb.term('kind', 'manga') AND c.id @@@ paradedb.all()
+ORDER BY p.category DESC NULLS FIRST, p.name ASC
+LIMIT 5;
+
+-- Case 2: the nullable key sorts second, behind a non-null deferred key.
+-- A NULL in `category` must leave `kind` and `name` ordering intact.
+SET paradedb.enable_join_custom_scan = off;
+
+SELECT p.id, p.kind, p.category, p.name
+FROM issue_5567_parent p JOIN issue_5567_child c ON c.parent_id = p.id
+WHERE p.id @@@ paradedb.term('kind', 'manga') AND c.id @@@ paradedb.all()
+ORDER BY p.kind ASC, p.category ASC NULLS FIRST, p.name ASC
+LIMIT 5;
+
+SET paradedb.enable_join_custom_scan = on;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.kind, p.category, p.name
+FROM issue_5567_parent p JOIN issue_5567_child c ON c.parent_id = p.id
+WHERE p.id @@@ paradedb.term('kind', 'manga') AND c.id @@@ paradedb.all()
+ORDER BY p.kind ASC, p.category ASC NULLS FIRST, p.name ASC
+LIMIT 5;
+
+SELECT p.id, p.kind, p.category, p.name
+FROM issue_5567_parent p JOIN issue_5567_child c ON c.parent_id = p.id
+WHERE p.id @@@ paradedb.term('kind', 'manga') AND c.id @@@ paradedb.all()
+ORDER BY p.kind ASC, p.category ASC NULLS FIRST, p.name ASC
 LIMIT 5;
 
 RESET paradedb.enable_join_custom_scan;

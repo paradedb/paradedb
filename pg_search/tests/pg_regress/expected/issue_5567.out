@@ -36,9 +36,10 @@ ANALYZE issue_5567_child;
 SET enable_hashjoin = off;
 SET enable_mergejoin = off;
 SET enable_nestloop = off;
--- Baseline: Join Scan disabled. This path was already correct; the smallest
--- names among NULL-category rows come first because ORDER BY name ASC is
--- honored even when category is NULL.
+-- Case 1: the nullable key sorts first. Among the NULL-category rows the
+-- smallest names lead, because `name ASC` still orders them.
+--
+-- Join Scan off is the reference result.
 SET paradedb.enable_join_custom_scan = off;
 SELECT p.id, p.category, p.name
 FROM issue_5567_parent p JOIN issue_5567_child c ON c.parent_id = p.id
@@ -54,12 +55,38 @@ LIMIT 5;
  1976 |          | n000025
 (5 rows)
 
--- Fix path: Join Scan enabled. Before #5567 this returned the first 5
--- NULL-category rows in insertion order (n001997, n001993, ...) because
--- SegmentedTopKExec's shared pass-through bitmap forced every deferred
--- column to NULL when any one column was NULL. After the fix each deferred
--- column resolves independently, so the two paths return identical rows.
 SET paradedb.enable_join_custom_scan = on;
+-- The plan must reach SegmentedTopKExec under the Join Scan: enabling the
+-- GUC only permits the custom plan, it does not select it, and the rows
+-- below only test the fix if that is the plan that produced them.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.category, p.name
+FROM issue_5567_parent p JOIN issue_5567_child c ON c.parent_id = p.id
+WHERE p.id @@@ paradedb.term('kind', 'manga') AND c.id @@@ paradedb.all()
+ORDER BY p.category DESC NULLS FIRST, p.name ASC
+LIMIT 5;
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.category, p.name
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: p.id, p.category, p.name
+         Relation Tree: c INNER p
+         Join Cond: p.id = c.parent_id
+         Limit: 5
+         Order By: p.category desc, p.name asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, category@3 as col_2, name@4 as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+           :   TantivyLookupExec: decode=[category, name]
+           :     SegmentedTopKExec: expr=[category@3 DESC, name@4 ASC NULLS LAST], k=5, visibility_checks=[c, p]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, parent_id@1)], projection=[ctid_0@4, ctid_1@0, id@1, category@2, name@3]
+           :         CooperativeExec
+           :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"term":{"field":"kind","value":"manga"}}}}
+           :         CooperativeExec
+           :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":"all"}}
+(17 rows)
+
+-- Same rows as the reference result above.
 SELECT p.id, p.category, p.name
 FROM issue_5567_parent p JOIN issue_5567_child c ON c.parent_id = p.id
 WHERE p.id @@@ paradedb.term('kind', 'manga') AND c.id @@@ paradedb.all()
@@ -72,6 +99,65 @@ LIMIT 5;
  1988 |          | n000013
  1984 |          | n000017
  1976 |          | n000025
+(5 rows)
+
+-- Case 2: the nullable key sorts second, behind a non-null deferred key.
+-- A NULL in `category` must leave `kind` and `name` ordering intact.
+SET paradedb.enable_join_custom_scan = off;
+SELECT p.id, p.kind, p.category, p.name
+FROM issue_5567_parent p JOIN issue_5567_child c ON c.parent_id = p.id
+WHERE p.id @@@ paradedb.term('kind', 'manga') AND c.id @@@ paradedb.all()
+ORDER BY p.kind ASC, p.category ASC NULLS FIRST, p.name ASC
+LIMIT 5;
+  id  | kind  | category |  name   
+------+-------+----------+---------
+ 2000 | manga |          | n000001
+ 1996 | manga |          | n000005
+ 1988 | manga |          | n000013
+ 1984 | manga |          | n000017
+ 1976 | manga |          | n000025
+(5 rows)
+
+SET paradedb.enable_join_custom_scan = on;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.kind, p.category, p.name
+FROM issue_5567_parent p JOIN issue_5567_child c ON c.parent_id = p.id
+WHERE p.id @@@ paradedb.term('kind', 'manga') AND c.id @@@ paradedb.all()
+ORDER BY p.kind ASC, p.category ASC NULLS FIRST, p.name ASC
+LIMIT 5;
+                                                                           QUERY PLAN                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.kind, p.category, p.name
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: p.id, p.kind, p.category, p.name
+         Relation Tree: c INNER p
+         Join Cond: p.id = c.parent_id
+         Limit: 5
+         Order By: p.kind asc, p.category asc nulls first, p.name asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, kind@3 as col_2, category@4 as col_3, name@5 as col_4, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+           :   TantivyLookupExec: decode=[kind, category, name]
+           :     SegmentedTopKExec: expr=[kind@3 ASC NULLS LAST, category@4 ASC, name@5 ASC NULLS LAST], k=5, visibility_checks=[c, p]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, parent_id@1)], projection=[ctid_0@5, ctid_1@0, id@1, kind@2, category@3, name@4]
+           :         CooperativeExec
+           :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"term":{"field":"kind","value":"manga"}}}}
+           :         CooperativeExec
+           :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":"all"}}
+(17 rows)
+
+SELECT p.id, p.kind, p.category, p.name
+FROM issue_5567_parent p JOIN issue_5567_child c ON c.parent_id = p.id
+WHERE p.id @@@ paradedb.term('kind', 'manga') AND c.id @@@ paradedb.all()
+ORDER BY p.kind ASC, p.category ASC NULLS FIRST, p.name ASC
+LIMIT 5;
+  id  | kind  | category |  name   
+------+-------+----------+---------
+ 2000 | manga |          | n000001
+ 1996 | manga |          | n000005
+ 1988 | manga |          | n000013
+ 1984 | manga |          | n000017
+ 1976 | manga |          | n000025
 (5 rows)
 
 RESET paradedb.enable_join_custom_scan;

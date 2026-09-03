@@ -28,6 +28,7 @@ pub mod json_rewrite;
 pub mod limit_offset;
 pub mod orderby;
 use crate::postgres::customscan::orderby::validate_topk_compatibility;
+pub mod pdb_agg;
 pub mod privdat;
 pub mod scan_state;
 pub mod searchquery;
@@ -59,8 +60,7 @@ use crate::postgres::customscan::mpp::launch::mpp_eligible;
 use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parallelism;
 
 use crate::PARAMETERIZED_SELECTIVITY;
-use crate::api::SortDirection;
-use crate::api::agg_funcoid;
+use crate::api::{MvccVisibility, SortDirection, agg_funcoid};
 use crate::gucs;
 
 use crate::aggregate::{NULL_SENTINEL_MAX, NULL_SENTINEL_MIN};
@@ -81,8 +81,9 @@ use crate::postgres::customscan::aggregatescan::exec::{
 };
 use crate::postgres::customscan::aggregatescan::groupby::GroupByClause;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
-    GroupingTransform, extract_aggregate_targetlist,
+    AggKind, GroupingTransform, PdbAggRoute, extract_aggregate_targetlist, pdb_agg_route,
 };
+use crate::postgres::customscan::aggregatescan::pdb_agg::assemble_pdb_agg_rows;
 use crate::postgres::customscan::aggregatescan::privdat::PrivateData;
 use crate::postgres::customscan::aggregatescan::scan_state::{
     AggregateScanState, ExecutionState, WrappedAggregateProjection,
@@ -115,6 +116,9 @@ use crate::postgres::types::{TantivyValue, is_datetime_type};
 use crate::postgres::utils::{
     ExprContextGuard, add_vars_to_tlist, is_unnest_func, make_text_const,
 };
+use crate::query::SearchQueryInput;
+use arrow_array::cast::AsArray;
+use arrow_array::{BooleanArray, RecordBatch};
 use pgrx::{PgList, PgMemoryContexts, PgTupleDesc, pg_sys};
 use std::ffi::CStr;
 
@@ -487,6 +491,12 @@ impl CustomScan for AggregateScan {
                 // Tantivy's TermsAggregation is faster for low-cardinality
                 // GROUP BY but has a hard bucket cap that would silently
                 // truncate a high-cardinality DISTINCT.
+                // A `pdb.agg()` spec the DataFusion backend cannot lower stays on
+                // Tantivy, which runs every Tantivy aggregation and reports a
+                // bucket-cap overflow at execution time instead.
+                let pdb_route = has_paradedb_agg
+                    .then(|| unsafe { pdb_agg_route(builder.args().root, input_rel, shape) })
+                    .flatten();
                 let use_datafusion = shape.is_distinct()
                     || unsafe {
                         // If the estimated number of groups exceeds Tantivy's bucket
@@ -511,17 +521,12 @@ impl CustomScan for AggregateScan {
                             // ORDER BY aggregate + LIMIT: route to DataFusion which has
                             // no bucket cap and provides native TopK via SortExec(fetch=K).
                             || build::has_aggregate_orderby_with_limit(builder.args())
-                            // NUMERIC aggregates and NUMERIC group keys only work on
-                            // the DataFusion backend: Tantivy aggregations compute in
-                            // f64 and cannot read the decimal-bytes storage.
-                            //
-                            // `pdb.agg()` is excluded because its argument is a
-                            // Tantivy aggregation spec, and only the Tantivy backend
-                            // can execute that JSON. Routing it here would produce a
-                            // plan with no way to run the spec. A `pdb.agg()` over a
-                            // NUMERIC field therefore keeps declining until the spec
-                            // gains a DataFusion translation.
-                            || (!has_paradedb_agg && builder.args().has_numeric_aggregate())
+                            // NUMERIC aggregates, NUMERIC group keys, and NUMERIC fields
+                            // inside a `pdb.agg()` spec only work on the DataFusion
+                            // backend: Tantivy aggregations compute in f64 and cannot
+                            // read the decimal-bytes storage.
+                            || builder.args().has_numeric_aggregate()
+                            || pdb_route.as_ref().is_some_and(PdbAggRoute::references_numeric)
                             // Route DATE grouping to DataFusion for exact integer day conversion
                             // and explicit handling of PostgreSQL infinities. Tantivy histograms
                             // use f64 arithmetic, which can round timestamps near midnight into
@@ -531,11 +536,17 @@ impl CustomScan for AggregateScan {
                             // rejects DATE(timestamptz) and non-bare timestamp expressions.
                             || (!has_paradedb_agg && builder.args().has_date_group())
                     };
+                let use_datafusion = use_datafusion && (!has_paradedb_agg || pdb_route.is_some());
                 if use_datafusion {
                     if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg_recursive {
                         return Vec::new();
                     }
-                    return Self::build_datafusion_aggregate_path(builder, has_paradedb_agg, shape);
+                    return Self::build_datafusion_aggregate_path(
+                        builder,
+                        has_paradedb_agg,
+                        shape,
+                        pdb_route,
+                    );
                 }
                 Self::build_tantivy_aggregate_path(builder, has_paradedb_agg, shape)
             }
@@ -552,7 +563,7 @@ impl CustomScan for AggregateScan {
                 if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg_recursive {
                     return Vec::new();
                 }
-                Self::build_datafusion_aggregate_path(builder, has_paradedb_agg, shape)
+                Self::build_datafusion_aggregate_path(builder, has_paradedb_agg, shape, None)
             }
             _ => Vec::new(),
         }
@@ -728,6 +739,9 @@ impl CustomScan for AggregateScan {
                     current_batch: None,
                     batch_row_idx: 0,
                     group_df_indices: Vec::new(),
+                    pdb_plan: None,
+                    pdb_root_having: None,
+                    pdb_agg_json: None,
                     mpp: MppLifecycle::Inactive,
                     parallel_mode_ok,
                     launch_timing: None,
@@ -956,6 +970,7 @@ impl CustomScan for AggregateScan {
         if let Some(ref mut df_state) = state.custom_state_mut().datafusion_state {
             df_state.stream = None;
             df_state.current_batch = None;
+            df_state.pdb_agg_json = None;
             df_state.batch_row_idx = 0;
             df_state.runtime = None;
         }
@@ -1201,7 +1216,7 @@ impl AggregateScan {
         let custom_exprs = df_state.custom_exprs;
         let custom_scan_tlist = df_state.custom_scan_tlist;
         let built = runtime.block_on(async {
-            let (logical, group_df_indices) = build_join_aggregate_plan(
+            let built = build_join_aggregate_plan(
                 &df_state.plan,
                 &df_state.targetlist,
                 df_state.topk.as_ref(),
@@ -1214,8 +1229,10 @@ impl AggregateScan {
                 mpp_manifests,
             )
             .await?;
-            df_state.group_df_indices = group_df_indices;
-            build_physical_plan(ctx, logical).await
+            df_state.group_df_indices = built.group_df_indices;
+            df_state.pdb_plan = built.pdb_plan;
+            df_state.pdb_root_having = built.pdb_root_having;
+            build_physical_plan(ctx, built.logical).await
         });
         match built {
             Ok(p) => p,
@@ -1276,7 +1293,7 @@ impl AggregateScan {
             };
             let build_with = |ctx: &datafusion::prelude::SessionContext| {
                 runtime.block_on(async {
-                    let (logical, _) = build_join_aggregate_plan(
+                    let built = build_join_aggregate_plan(
                         &df_state.plan,
                         &df_state.targetlist,
                         df_state.topk.as_ref(),
@@ -1289,7 +1306,7 @@ impl AggregateScan {
                         None,
                     )
                     .await?;
-                    build_physical_plan(ctx, logical).await
+                    build_physical_plan(ctx, built.logical).await
                 })
             };
             let plan_result = if mpp_eligible(df_state.parallel_mode_ok, &df_state.plan) {
@@ -1443,9 +1460,10 @@ impl AggregateScan {
         builder: CustomPathBuilder<Self>,
         has_paradedb_agg: bool,
         shape: GroupingShape,
+        pdb_route: Option<PdbAggRoute>,
     ) -> Vec<pg_sys::CustomPath> {
         let alias = unsafe { resolve_decline_alias(builder.args()) };
-        match Self::try_build_datafusion_aggregate_path(builder, shape) {
+        match Self::try_build_datafusion_aggregate_path(builder, shape, pdb_route) {
             Ok(path) => vec![path],
             Err(AggregatePathDecline::Quiet) => Vec::new(),
             Err(AggregatePathDecline::Warn(reason)) => {
@@ -1467,6 +1485,7 @@ impl AggregateScan {
     fn try_build_datafusion_aggregate_path(
         builder: CustomPathBuilder<Self>,
         shape: GroupingShape,
+        pdb_route: Option<PdbAggRoute>,
     ) -> Result<pg_sys::CustomPath, AggregatePathDecline> {
         let root = builder.args().root;
         let input_rel = builder.args().input_rel();
@@ -1575,9 +1594,10 @@ impl AggregateScan {
                 .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
         // Extract aggregate target list (GROUP BY + aggregates)
-        let targetlist =
-            unsafe { extract_aggregate_targetlist(builder.args(), &sources, &plan, shape) }
-                .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
+        let targetlist = unsafe {
+            extract_aggregate_targetlist(builder.args(), &sources, &plan, shape, pdb_route)
+        }
+        .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
         // Reject plans with any join node that has no equi-keys (CROSS JOIN).
         // Without join keys, PgSearchTableProvider has no Named fields,
@@ -1596,6 +1616,14 @@ impl AggregateScan {
             datafusion_build::populate_required_fields(&mut plan, &targetlist, &multi_table_clauses)
         }
         .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
+
+        // `pdb.agg()` decides the visibility check for the whole query, so every
+        // source scans under the one resolved mode.
+        let visibility =
+            MvccVisibility::resolve_shared(targetlist.pdb_agg_requests().map(|r| r.visibility));
+        for source in plan.sources_mut() {
+            source.scan_info.mvcc_visibility = visibility;
+        }
 
         // Detect ORDER BY on aggregate + LIMIT for TopK pushdown into DataFusion.
         // DataFusion's SortExec(fetch=K) uses a bounded TopK heap internally.
@@ -1937,6 +1965,7 @@ impl AggregateScan {
                     .datafusion_state
                     .as_mut()
                     .expect("DataFusion state must be initialized");
+                Self::resolve_threshold_visibility(df_state);
                 Self::build_agg_physical_plan(
                     df_state,
                     &runtime,
@@ -2027,6 +2056,10 @@ impl AggregateScan {
             df_state.runtime = Some(runtime);
             df_state.physical_plan = Some(physical_plan);
             df_state.stream = Some(stream);
+
+            if df_state.pdb_plan.is_some() {
+                Self::assemble_pdb_agg_output(df_state);
+            }
         }
 
         let df_state = state
@@ -2046,6 +2079,12 @@ impl AggregateScan {
                     let row_idx = df_state.batch_row_idx;
                     let targetlist = &df_state.targetlist;
                     let group_df_indices = &df_state.group_df_indices;
+                    // Each row is projected once, so its documents move out.
+                    let pdb_agg_json = df_state
+                        .pdb_agg_json
+                        .as_mut()
+                        .map(|rows| std::mem::take(&mut rows[row_idx]))
+                        .unwrap_or_default();
                     let result = unsafe {
                         project_aggregate_row_to_slot(
                             scan_slot,
@@ -2053,6 +2092,7 @@ impl AggregateScan {
                             row_idx,
                             targetlist,
                             group_df_indices,
+                            pdb_agg_json,
                         )
                     };
                     df_state.batch_row_idx += 1;
@@ -2062,11 +2102,12 @@ impl AggregateScan {
                 df_state.current_batch = None;
             }
 
-            // Fetch next batch from stream
-            let next = block_on_next(
-                df_state.runtime.as_ref().unwrap(),
-                df_state.stream.as_mut().unwrap(),
-            );
+            // Fetch next batch from stream. A `pdb.agg()` query drained it up front,
+            // so its rows all came from `current_batch`.
+            let Some(stream) = df_state.stream.as_mut() else {
+                return std::ptr::null_mut();
+            };
+            let next = block_on_next(df_state.runtime.as_ref().unwrap(), stream);
 
             match next {
                 Some(Ok(batch)) => {
@@ -2082,6 +2123,144 @@ impl AggregateScan {
                 }
             }
         }
+    }
+}
+
+impl AggregateScan {
+    /// Settle a `threshold` visibility for the whole query before the providers
+    /// are built, so every source scans under the same decision. Resolved per
+    /// execution, like the Tantivy backend, because the row estimate can move
+    /// between executions of a prepared plan.
+    fn resolve_threshold_visibility(df_state: &mut scan_state::DataFusionAggState) {
+        let mode = df_state
+            .plan
+            .sources()
+            .first()
+            .map(|source| source.scan_info.mvcc_visibility)
+            .unwrap_or_default();
+        if mode != MvccVisibility::Threshold {
+            return;
+        }
+        let sources: Vec<(PgSearchRelation, SearchQueryInput)> = df_state
+            .plan
+            .sources()
+            .iter()
+            .map(|source| {
+                (
+                    PgSearchRelation::open(source.scan_info.indexrelid),
+                    source.scan_info.mode.query().clone(),
+                )
+            })
+            .collect();
+        let check = mode.resolve_filtering_for_sources(sources.iter().map(|(rel, q)| (rel, q)));
+        let resolved = if check {
+            MvccVisibility::Transaction
+        } else {
+            MvccVisibility::Raw
+        };
+        for source in df_state.plan.sources_mut() {
+            source.scan_info.mvcc_visibility = resolved;
+        }
+    }
+
+    /// A `pdb.agg()` result nests bucket levels under each SQL group, so the whole
+    /// grouped stream has to land before the first output row can be built. Leaves
+    /// the SQL-level rows in `current_batch` with their documents alongside.
+    fn assemble_pdb_agg_output(df_state: &mut scan_state::DataFusionAggState) {
+        let mut batches = Vec::new();
+        {
+            let runtime = df_state
+                .runtime
+                .as_ref()
+                .expect("runtime set with the stream");
+            let stream = df_state.stream.as_mut().expect("stream set on first call");
+            while let Some(next) = block_on_next(runtime, stream) {
+                match next {
+                    Ok(batch) => batches.push(batch),
+                    Err(e) => pgrx::error!("DataFusion aggregate execution failed: {}", e),
+                }
+            }
+        }
+        df_state.stream = None;
+
+        let pdb_plan = df_state.pdb_plan.as_ref().expect("checked by the caller");
+        let schema = df_state
+            .physical_plan
+            .as_ref()
+            .expect("physical plan set with the stream")
+            .schema();
+        // A scalar aggregate answers with one row even over no input, and its
+        // counts read 0 there, not NULL, so `HAVING` sees what Postgres would.
+        // Only a scalar query synthesizes, so its aggregate columns start at 0.
+        let synthesize_empty_root = df_state.targetlist.group_columns.is_empty().then(|| {
+            df_state
+                .targetlist
+                .aggregates
+                .iter()
+                .filter(|agg| !matches!(agg.agg_kind, AggKind::PdbAgg(_)))
+                .enumerate()
+                .filter_map(|(col, agg)| {
+                    matches!(
+                        agg.agg_kind,
+                        AggKind::CountStar | AggKind::Count | AggKind::CountDistinct
+                    )
+                    .then_some(col)
+                })
+                .collect::<Vec<_>>()
+        });
+        let mut assembled =
+            assemble_pdb_agg_rows(schema, &batches, pdb_plan, synthesize_empty_root.as_deref())
+                .unwrap_or_else(|e| pgrx::error!("Failed to assemble pdb.agg result: {}", e));
+        if let Some(having) = df_state.pdb_root_having.as_ref() {
+            let runtime = df_state
+                .runtime
+                .as_ref()
+                .expect("runtime set with the stream");
+            let keep = Self::evaluate_root_having(runtime, &assembled.root_batch, having);
+            assembled.root_batch =
+                arrow_select::filter::filter_record_batch(&assembled.root_batch, &keep)
+                    .unwrap_or_else(|e| pgrx::error!("Failed to apply HAVING: {}", e));
+            let mut rows = assembled.json.into_iter();
+            assembled.json = keep
+                .iter()
+                .filter_map(|keep| {
+                    let row = rows.next()?;
+                    keep.unwrap_or(false).then_some(row)
+                })
+                .collect();
+        }
+        df_state.current_batch = Some(assembled.root_batch);
+        df_state.pdb_agg_json = Some(assembled.json);
+        df_state.batch_row_idx = 0;
+    }
+
+    /// The `HAVING` verdict per root row of a scalar `pdb.agg()` query. The plan
+    /// cannot judge the row itself: grouping sets emit nothing for an empty input,
+    /// and the row the executor makes in that case still has to pass `HAVING`, the
+    /// way Postgres keeps a `HAVING COUNT(*) = 0` row.
+    fn evaluate_root_having(
+        runtime: &tokio::runtime::Runtime,
+        root_batch: &RecordBatch,
+        having: &datafusion::logical_expr::Expr,
+    ) -> BooleanArray {
+        let verdicts = runtime.block_on(async {
+            create_aggregate_session_context()
+                .read_batch(root_batch.clone())?
+                .select(vec![having.clone().alias("keep")])?
+                .collect()
+                .await
+        });
+        let verdicts = match verdicts {
+            Ok(batches) => batches,
+            Err(e) => pgrx::error!("Failed to evaluate HAVING on the pdb.agg result: {}", e),
+        };
+        // NULL is not true, so a NULL verdict drops the row like a false one.
+        BooleanArray::from_iter(
+            verdicts
+                .iter()
+                .flat_map(|batch| batch.column(0).as_boolean().iter())
+                .map(|verdict| Some(verdict.unwrap_or(false))),
+        )
     }
 }
 
@@ -2376,6 +2555,12 @@ unsafe fn detect_join_aggregate_topk(
     }
     let pos = match_pos?;
 
+    // Grouping sets carry every bucket level in one stream; a sort + limit over
+    // that stream would cut across levels.
+    if targetlist.pdb_agg_requests().any(|r| r.has_terms()) {
+        return None;
+    }
+
     // Try aggregate target: ORDER BY COUNT(*), SUM(x), MIN(x), etc.
     if let Some(agg_idx) = targetlist
         .aggregates
@@ -2397,6 +2582,10 @@ unsafe fn detect_join_aggregate_topk(
         // sort fine: decimal-bytes ordering matches numeric ordering.
         let agg = &targetlist.aggregates[agg_idx];
         if matches!(agg.agg_kind, join_targetlist::AggKind::Avg) && agg.numeric.is_some() {
+            return None;
+        }
+        // A jsonb document has no ordering DataFusion could reproduce.
+        if matches!(agg.agg_kind, AggKind::PdbAgg(_)) {
             return None;
         }
         return Some(privdat::DataFusionTopK {

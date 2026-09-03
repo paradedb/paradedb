@@ -22,6 +22,7 @@ pub mod numericgen;
 pub mod opexprgen;
 pub mod orderbygen;
 pub mod pagegen;
+pub mod pdbagggen;
 pub mod wheregen;
 
 use std::fmt::{Debug, Write};
@@ -701,6 +702,22 @@ impl CaseOutcome {
     }
 }
 
+/// The session settings each side of a comparison runs under.
+pub struct Sides {
+    pub baseline: String,
+    pub candidate: String,
+}
+
+impl Sides {
+    /// Plain Postgres, the known-correct baseline, against the custom scans under `gucs`.
+    pub fn postgres_vs(gucs: &PgGucs) -> Self {
+        Self {
+            baseline: PgGucs::pg_search_disabled().set(),
+            candidate: gucs.set(),
+        }
+    }
+}
+
 /// Run one generated case on `conn`: execute `pg_query` (custom scan off, the known-correct
 /// baseline) and `bm25_query` (with `gucs`), then compare their results.
 pub fn compare_outcome<R, F>(
@@ -715,10 +732,33 @@ where
     R: Eq + Debug,
     F: Fn(&str, &mut PgConnection) -> Result<R, sqlx::Error>,
 {
+    let sides = Sides::postgres_vs(gucs);
+    compare_outcome_on(
+        &sides, pg_query, bm25_query, gucs, conn, setup_sql, run_query,
+    )
+}
+
+/// [`compare_outcome`] with the two sessions spelled out, for a baseline other than plain
+/// Postgres, such as one backend of pg_search against another.
+pub fn compare_outcome_on<R, F>(
+    sides: &Sides,
+    pg_query: &str,
+    bm25_query: &str,
+    gucs: &PgGucs,
+    conn: &mut PgConnection,
+    setup_sql: &str,
+    run_query: F,
+) -> CaseOutcome
+where
+    R: Eq + Debug,
+    F: Fn(&str, &mut PgConnection) -> Result<R, sqlx::Error>,
+{
     // A panic (vs a returned sqlx::Error) still becomes a Failure, so it trips the oracle and
     // carries a repro script instead of aborting the driver.
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        compare_outcome_inner(pg_query, bm25_query, gucs, conn, setup_sql, run_query)
+        compare_outcome_inner(
+            sides, pg_query, bm25_query, gucs, conn, setup_sql, run_query,
+        )
     }));
     match outcome {
         Ok(o) => o,
@@ -756,6 +796,26 @@ where
     R: Eq + Debug,
     F: Fn(&str, &mut PgConnection) -> Result<R, sqlx::Error>,
 {
+    let sides = Sides::postgres_vs(gucs);
+    compare_outcome_retrying_on(
+        &sides, pg_query, bm25_query, gucs, pool, setup_sql, run_query,
+    )
+}
+
+/// [`compare_outcome_retrying`] with the two sessions spelled out; see [`compare_outcome_on`].
+pub fn compare_outcome_retrying_on<R, F>(
+    sides: &Sides,
+    pg_query: &str,
+    bm25_query: &str,
+    gucs: &PgGucs,
+    pool: &MutexObjectPool<PgConnection>,
+    setup_sql: &str,
+    run_query: F,
+) -> CaseOutcome
+where
+    R: Eq + Debug,
+    F: Fn(&str, &mut PgConnection) -> Result<R, sqlx::Error>,
+{
     use crate::fixtures::fault_grace::{Attempt, RetryError};
     let fail = |msg: String| {
         CaseOutcome::Failure(handle_compare_error(
@@ -767,7 +827,9 @@ where
         ))
     };
     let outcome = crate::fixtures::fault_grace::retry_transient(pool, "qgen case", |conn| {
-        match compare_outcome(pg_query, bm25_query, gucs, conn, setup_sql, &run_query) {
+        match compare_outcome_on(
+            sides, pg_query, bm25_query, gucs, conn, setup_sql, &run_query,
+        ) {
             CaseOutcome::Transient(kind, e) => Attempt::Transient(kind, e),
             verdict => Attempt::Done(verdict),
         }
@@ -783,6 +845,7 @@ where
 }
 
 fn compare_outcome_inner<R, F>(
+    sides: &Sides,
     pg_query: &str,
     bm25_query: &str,
     gucs: &PgGucs,
@@ -795,15 +858,16 @@ where
     F: Fn(&str, &mut PgConnection) -> Result<R, sqlx::Error>,
 {
     let mut queries = || -> Result<(R, R), sqlx::Error> {
-        // The pg query runs with the paradedb custom scan off, so we compare against Postgres'
-        // known-correct plan rather than our own pushdown.
-        PgGucs::pg_search_disabled()
-            .set()
+        sides
+            .baseline
+            .as_str()
             .execute_result(conn)
             .and_then(|()| conn.deallocate_all())?;
         let pg_result = run_query(pg_query, conn)?;
 
-        gucs.set()
+        sides
+            .candidate
+            .as_str()
             .execute_result(conn)
             .and_then(|()| conn.deallocate_all())?;
         let bm25_result = run_query(bm25_query, conn)?;

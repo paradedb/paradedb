@@ -42,7 +42,7 @@ use crate::api::HashMap;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::SegmentView;
 use crate::postgres::ParallelScanState;
-use crate::postgres::customscan::datafusion::numeric_agg;
+use crate::postgres::customscan::datafusion::udaf_by_name;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
@@ -195,10 +195,10 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
         name: &str,
         _buf: &[u8],
     ) -> Result<Arc<datafusion::logical_expr::AggregateUDF>> {
-        // The numeric aggregate UDAFs are stateless singletons resolved by
-        // name; they are not in any session registry, so a dispatched plan
-        // that references them must decode through here.
-        numeric_agg::udaf_by_name(name).ok_or_else(|| {
+        // The pg_search UDAFs are stateless singletons resolved by name; they
+        // are not in any session registry, so a dispatched plan that references
+        // them must decode through here.
+        udaf_by_name(name).ok_or_else(|| {
             DataFusionError::NotImplemented(format!(
                 "UDAF '{name}' deserialization not implemented"
             ))
@@ -328,9 +328,9 @@ impl PhysicalExtensionCodec for DistributedCodecHostingPgSearchUdfs {
     ) -> Result<()> {
         // Same shadowing hazard as `try_encode_udf`: accepting the encode here
         // would record this codec's index, and its decode has no resolver for
-        // the numeric aggregate UDAFs. Decline ours so composition falls
+        // the pg_search UDAFs. Decline ours so composition falls
         // through to `PgSearchPhysicalExtensionCodec`.
-        if numeric_agg::udaf_by_name(node.name()).is_some() {
+        if udaf_by_name(node.name()).is_some() {
             return Err(DataFusionError::NotImplemented(format!(
                 "UDAF '{}' is encoded by the pg_search codec",
                 node.name()

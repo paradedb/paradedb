@@ -2,4 +2,4 @@
 header: features
 ---
 
-`CREATE INDEX CONCURRENTLY` and `REINDEX CONCURRENTLY` now partition an index with `partition_by`: a pass after the build routes the segments into partitions, so a concurrently built index no longer starts unpartitioned.
+`CREATE INDEX CONCURRENTLY` and `REINDEX CONCURRENTLY` now partition an index with `partition_by` the way a plain build does, so a concurrently built index no longer starts unpartitioned.

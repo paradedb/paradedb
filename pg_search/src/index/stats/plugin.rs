@@ -51,27 +51,13 @@ use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 
 /// The plugin that writes and merges the `.stats` component.
-pub(crate) struct StatsPlugin {
-    /// The box every segment this plugin merges takes, when the caller routed the documents
-    /// itself and already knows it.
-    logical: Option<Arc<LogicalBoundsByField>>,
-}
+pub(crate) struct StatsPlugin;
 
 /// Attaches the plugin to an index. Every `Index` pg_search writes or merges through must call
 /// this: tantivy restores only its built-in plugins, and the index metadata lists `stats` as
 /// required. A read-only `Index` has no use for it.
 pub(crate) fn register(index: &mut Index) {
-    index.register_plugin(Arc::new(StatsPlugin { logical: None }));
-}
-
-/// Attaches the plugin so that every segment this index merges takes `logical` as its box.
-///
-/// A demux merge routes its documents, so it knows the box of its output before it runs. An
-/// ordinary merge cannot claim one and derives it from its sources instead.
-pub(crate) fn register_with_bounds(index: &mut Index, logical: Arc<LogicalBoundsByField>) {
-    index.register_plugin(Arc::new(StatsPlugin {
-        logical: Some(logical),
-    }));
+    index.register_plugin(Arc::new(StatsPlugin));
 }
 
 impl SegmentPlugin for StatsPlugin {
@@ -84,10 +70,7 @@ impl SegmentPlugin for StatsPlugin {
     }
 
     fn merge(&self, ctx: PluginMergeContext) -> tantivy::Result<()> {
-        let logical = match &self.logical {
-            Some(logical) => Some(logical.as_ref().clone()),
-            None => merged_logical_bounds(ctx.readers, ctx.schema)?,
-        };
+        let logical = merged_logical_bounds(ctx.readers, ctx.schema)?;
         write_stats(ctx.target_segment, ctx.schema, logical.as_ref())
     }
 }

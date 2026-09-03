@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788401766111,
+  "lastUpdate": 1788401805282,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -107202,6 +107202,54 @@ window.BENCHMARK_DATA = {
             "value": 2166.575848759718,
             "unit": "median tps",
             "extra": "avg tps: 2126.2824002339794, max tps: 2330.760672695162, count: 59404"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "isaacjvandoren@gmail.com",
+            "name": "Isaac Van Doren",
+            "username": "isaacvando"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "16e0303417a0da7f025620a3398b2e013f7c5ea5",
+          "message": "ci: Use runs-on/action to properly configure runs-on's caching (#6195)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThis is the proper way to configure runs-on's cache that makes it work\nwithout us having to use workarounds for artifact uploads.\nhttps://runs-on.com/docs/performance/caching/actions/\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-09-02T18:38:12-07:00",
+          "tree_id": "eb77cd149f35313e59ebac99cca0a58dbc2991a7",
+          "url": "https://github.com/paradedb/paradedb/commit/16e0303417a0da7f025620a3398b2e013f7c5ea5"
+        },
+        "date": 1788401800850,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1341.2222590341594,
+            "unit": "median tps",
+            "extra": "avg tps: 1358.9709145001414, max tps: 1448.2319627436752, count: 59396"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 2.7144630695302574,
+            "unit": "median tps",
+            "extra": "avg tps: 2.97616730158544, max tps: 5.140870730970179, count: 59396"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1887.6390525204474,
+            "unit": "median tps",
+            "extra": "avg tps: 1880.7398069590897, max tps: 1900.369982041808, count: 59396"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2129.1841490169973,
+            "unit": "median tps",
+            "extra": "avg tps: 2095.141908038808, max tps: 2313.4357235450707, count: 59396"
           }
         ]
       }

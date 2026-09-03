@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788400644455,
+  "lastUpdate": 1788400652857,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -305520,6 +305520,66 @@ window.BENCHMARK_DATA = {
             "value": 170,
             "unit": "median segment_count",
             "extra": "avg segment_count: 196.20013461214876, max segment_count: 360.0, count: 59430"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "isaacjvandoren@gmail.com",
+            "name": "Isaac Van Doren",
+            "username": "isaacvando"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "16e0303417a0da7f025620a3398b2e013f7c5ea5",
+          "message": "ci: Use runs-on/action to properly configure runs-on's caching (#6195)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThis is the proper way to configure runs-on's cache that makes it work\nwithout us having to use workarounds for artifact uploads.\nhttps://runs-on.com/docs/performance/caching/actions/\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-09-02T18:38:12-07:00",
+          "tree_id": "eb77cd149f35313e59ebac99cca0a58dbc2991a7",
+          "url": "https://github.com/paradedb/paradedb/commit/16e0303417a0da7f025620a3398b2e013f7c5ea5"
+        },
+        "date": 1788400648546,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 23.552504,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.97368352523531, max cpu: 33.532936, count: 59504"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 44.6640625,
+            "unit": "median mem",
+            "extra": "avg mem: 44.26611374077793, max mem: 44.875, count: 59504"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 19.066534,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.063165622393523, max cpu: 43.59233, count: 59504"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 102.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 101.68705406096649, max mem: 102.72265625, count: 59504"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 26582,
+            "unit": "median block_count",
+            "extra": "avg block_count: 25397.677399838667, max block_count: 29662.0, count: 59504"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 170,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 196.3149536165636, max segment_count: 360.0, count: 59504"
           }
         ]
       }

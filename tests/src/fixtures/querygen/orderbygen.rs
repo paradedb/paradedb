@@ -55,17 +55,8 @@ fn order_parts(kind: JoinScanOrderKind, tables: &[String]) -> Vec<String> {
     };
 
     parts.push(format!("{first_table}.id"));
-
-    // SegmentedTopKExec may not project inner-table sort keys alongside an indexed
-    // expression. The other variants use every table's ID to make LIMIT deterministic.
-    if matches!(
-        kind,
-        JoinScanOrderKind::Columns
-            | JoinScanOrderKind::QuantityIsNull
-            | JoinScanOrderKind::QuantityIsNotNull
-    ) {
-        parts.extend(tables.iter().skip(1).map(|table| format!("{table}.id")));
-    }
+    // Use every table's ID to make LIMIT deterministic across joined rows.
+    parts.extend(tables.iter().skip(1).map(|table| format!("{table}.id")));
 
     parts
 }
@@ -73,8 +64,9 @@ fn order_parts(kind: JoinScanOrderKind, tables: &[String]) -> Vec<String> {
 /// Generate deterministic JoinScan `ORDER BY` parts that are valid for the selected projection.
 ///
 /// When restricted, only projected ID columns are used. Unrestricted cases preserve all six
-/// combinations previously produced by the independent expression and nullable-predicate
-/// properties, including both NULL predicate forms from #4751.
+/// combinations (regular columns, indexed expression, and nullable predicates). When DISTINCT
+/// is active, the caller projects any expression present in `ORDER BY` to satisfy PostgreSQL's
+/// projection requirements.
 pub fn arb_joinscan_order_parts(
     tables: Vec<String>,
     restrict_to_projected_columns: bool,

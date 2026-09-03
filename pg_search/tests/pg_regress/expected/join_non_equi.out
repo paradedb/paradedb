@@ -74,6 +74,7 @@ LIMIT 10;
          ->  Custom Scan (ParadeDB Join Scan)
                Output: i.id, i.name, i.price, o.promo_name, o.max_price, o.id
                Relation Tree: o INNER i
+               Join Filter: (i.price <= o.max_price)
                Limit: 10
                Order By: i.id asc, o.id asc
                DataFusion Physical Plan: 
@@ -86,7 +87,7 @@ LIMIT 10;
                  :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"ergonomic","lenient":null,"conjunction_mode":null}}}}
                  :           CooperativeExec
                  :             PgSearchScan: table=o, segments=1, query="all"
-(19 rows)
+(20 rows)
 
 SELECT i.id, i.name, o.promo_name, i.price, o.max_price
 FROM nonequi_items i
@@ -121,6 +122,7 @@ LIMIT 10;
          ->  Custom Scan (ParadeDB Join Scan)
                Output: i.id, i.name, i.rating, o.promo_name, o.min_rating, o.id
                Relation Tree: o INNER i
+               Join Filter: (i.rating >= o.min_rating)
                Limit: 10
                Order By: i.id asc, o.id asc
                DataFusion Physical Plan: 
@@ -133,7 +135,7 @@ LIMIT 10;
                  :             PgSearchScan: table=o, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"exclusive OR value","lenient":null,"conjunction_mode":null}}}}
                  :           CooperativeExec
                  :             PgSearchScan: table=i, segments=1, query="all"
-(19 rows)
+(20 rows)
 
 SELECT i.id, i.name, o.promo_name, i.rating, o.min_rating
 FROM nonequi_items i
@@ -168,6 +170,7 @@ LIMIT 10;
          ->  Custom Scan (ParadeDB Join Scan)
                Output: i.id, i.name, i.price, o.promo_name, o.min_price, o.max_price, o.id
                Relation Tree: o INNER i
+               Join Filter: ((i.price >= o.min_price) AND (i.price <= o.max_price))
                Limit: 10
                Order By: i.id asc, o.id asc
                DataFusion Physical Plan: 
@@ -180,7 +183,7 @@ LIMIT 10;
                  :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard OR mouse OR headset","lenient":null,"conjunction_mode":null}}}}
                  :           CooperativeExec
                  :             PgSearchScan: table=o, segments=1, query="all"
-(19 rows)
+(20 rows)
 
 SELECT i.id, i.name, o.promo_name, i.price, o.min_price, o.max_price
 FROM nonequi_items i
@@ -215,6 +218,7 @@ LIMIT 10;
          ->  Custom Scan (ParadeDB Join Scan)
                Output: i.id, i.name, i.category, o.promo_name, o.target_category, o.id
                Relation Tree: o INNER i
+               Join Filter: (i.category <> o.target_category)
                Limit: 10
                Order By: i.id asc, o.id asc
                DataFusion Physical Plan: 
@@ -227,7 +231,7 @@ LIMIT 10;
                  :             PgSearchScan: table=o, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"budget","lenient":null,"conjunction_mode":null}}}}
                  :           CooperativeExec
                  :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+(20 rows)
 
 SELECT i.id, i.name, o.promo_name, i.category, o.target_category
 FROM nonequi_items i
@@ -358,6 +362,7 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: i.id, i.name, i.price, o.promo_name, o.max_price, o.id
          Relation Tree: o RIGHT i
+         Join Filter: (i.price > o.max_price)
          Limit: 10
          Order By: i.id asc, o.id asc
          DataFusion Physical Plan: 
@@ -370,7 +375,7 @@ LIMIT 10;
            :             PgSearchScan: table=o, segments=1, visibility=eager, query={"range":{"field":"min_rating","lower_bound":{"included":4},"upper_bound":null}}
            :           CooperativeExec
            :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard OR cable OR headset","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
+(18 rows)
 
 SELECT i.id, i.name, i.price, o.promo_name, o.max_price
 FROM nonequi_items i
@@ -403,6 +408,7 @@ LIMIT 10;
                Output: i.id, i.name, i.price, o.promo_name, o.min_price, o.id
                Relation Tree: o RIGHT i
                Join Cond: i.category = o.target_category
+               Join Filter: (i.price < o.min_price)
                Limit: 10
                Order By: i.id asc, o.id asc
                DataFusion Physical Plan: 
@@ -415,7 +421,7 @@ LIMIT 10;
                  :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable OR mat OR mouse","lenient":null,"conjunction_mode":null}}}}
                  :           CooperativeExec
                  :             PgSearchScan: table=o, segments=1, dynamic_filters=1, visibility=eager, query="all"
-(20 rows)
+(21 rows)
 
 SELECT i.id, i.name, o.promo_name, i.price, o.min_price
 FROM nonequi_items i
@@ -448,6 +454,7 @@ LIMIT 10;
                Output: o.promo_name, o.max_price, o.id, i.id, i.name
                Relation Tree: i RIGHT o
                Join Cond: i.category = o.target_category
+               Join Filter: (i.price <= o.max_price)
                Limit: 10
                Order By: o.id asc, i.id asc
                DataFusion Physical Plan: 
@@ -460,7 +467,7 @@ LIMIT 10;
                  :             PgSearchScan: table=o, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"exclusive OR budget","lenient":null,"conjunction_mode":null}}}}
                  :           CooperativeExec
                  :             PgSearchScan: table=i, segments=1, dynamic_filters=1, visibility=eager, query="all"
-(20 rows)
+(21 rows)
 
 SELECT i.id, i.name, o.promo_name, o.max_price
 FROM nonequi_items i
@@ -495,6 +502,7 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: i.id, i.name, o.promo_name, o.id
          Relation Tree: o INNER i
+         Join Filter: (i.price <= o.max_price)
          Join Predicate: (i:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"gaming","lenient":null,"conjunction_mode":null}}}} OR o:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"clearance","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
          Order By: i.id asc, o.id asc
@@ -508,7 +516,7 @@ LIMIT 10;
            :             PgSearchScan: table=o, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"clearance","lenient":null,"conjunction_mode":null}}}}
            :           CooperativeExec
            :             PgSearchScan: table=i, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"gaming","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+(19 rows)
 
 SELECT i.id, i.name, o.promo_name
 FROM nonequi_items i
@@ -591,6 +599,39 @@ LIMIT 10;
  103 | USB-C Cable    | 
  106 | Desk Mat       | 
 (3 rows)
+
+-- Test 5.3: Keyless non-equi left join parity with non-strict WHERE predicate
+SET paradedb.enable_join_custom_scan = off;
+SELECT i.id, o.id
+FROM nonequi_items i
+LEFT JOIN nonequi_offers o ON i.price > o.min_price
+WHERE i.description @@@ 'ergonomic' AND (i.price < o.max_price OR o.max_price IS NULL)
+ORDER BY i.id, o.id NULLS LAST
+LIMIT 10;
+ id  | id  
+-----+-----
+ 101 | 202
+ 101 | 203
+ 102 | 201
+ 102 | 202
+ 102 | 204
+(5 rows)
+
+SET paradedb.enable_join_custom_scan = on;
+SELECT i.id, o.id
+FROM nonequi_items i
+LEFT JOIN nonequi_offers o ON i.price > o.min_price
+WHERE i.description @@@ 'ergonomic' AND (i.price < o.max_price OR o.max_price IS NULL)
+ORDER BY i.id, o.id NULLS LAST
+LIMIT 10;
+ id  | id  
+-----+-----
+ 101 | 202
+ 101 | 203
+ 102 | 201
+ 102 | 202
+ 102 | 204
+(5 rows)
 
 -- =============================================================================
 -- SECTION 6: Fallback / Rejection

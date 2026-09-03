@@ -46,7 +46,7 @@ use crate::postgres::customscan::pullup::{
     field_type_for_pullup, get_attno_by_name, resolve_fast_field,
 };
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
-use crate::postgres::customscan::range_table::bms_iter;
+use crate::postgres::customscan::range_table::{bms_iter, get_rte};
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
@@ -137,6 +137,7 @@ pub(super) struct JoinConditions {
 /// - Other conditions that need post-join evaluation
 /// - Whether any condition contains our @@@ search operator
 pub(super) unsafe fn extract_join_conditions(
+    root: *mut pg_sys::PlannerInfo,
     extra: *mut pg_sys::JoinPathExtraData,
     sources: &[&JoinSource],
 ) -> JoinConditions {
@@ -155,7 +156,7 @@ pub(super) unsafe fn extract_join_conditions(
         return result;
     }
 
-    extract_join_conditions_from_list(restrictlist, sources)
+    extract_join_conditions_from_list(root, restrictlist, sources)
 }
 
 /// Get type length and pass-by-value info for a given type OID.
@@ -637,29 +638,58 @@ unsafe fn collect_join_sources_join_rel(
         // Extract keys for this level
         let join_restrict_info = (*join_path).joinrestrictinfo;
         let mut join_conditions =
-            extract_join_conditions_from_list(join_restrict_info, &all_sources);
+            extract_join_conditions_from_list(root, join_restrict_info, &all_sources);
 
-        // PG drops a join clause from `joinrestrictinfo` when a parameterized
-        // inner index lookup already enforces it (the inner index's `ppi`
-        // clauses become the join condition for the `NestPath`). The clause
-        // still lives on `inner_path->param_info->ppi_clauses` for the base
-        // rel. Pull it in here so we can recover the equi-key. Without this
-        // the 3-way `JoinScan` declines whenever PG picks a parameterized
-        // inner bitmap-index plan.
-        if join_conditions.equi_keys.is_empty() {
-            let inner_param = (*inner_path).param_info;
-            if !inner_param.is_null() {
-                let ppi_clauses = (*inner_param).ppi_clauses;
-                if !ppi_clauses.is_null() {
-                    let extra = extract_join_conditions_from_list(ppi_clauses, &all_sources);
-                    join_conditions.equi_keys.extend(extra.equi_keys);
-                    join_conditions
-                        .other_conditions
-                        .extend(extra.other_conditions);
-                    join_conditions.has_search_predicate =
-                        join_conditions.has_search_predicate || extra.has_search_predicate;
+        // Also inspect inner/outer param_info and joininfo to recover any join conditions
+        // that PostgreSQL placed in PPI clauses or rel joininfo rather than on joinrestrictinfo
+        // (e.g. multi-table joins where a parameterized index scan enforces one of the join keys).
+        let mut merge_extra = |extra: JoinConditions| {
+            for k in extra.equi_keys {
+                if !join_conditions
+                    .equi_keys
+                    .iter()
+                    .any(|existing| existing.is_same_key(&k))
+                {
+                    join_conditions.equi_keys.push(k);
                 }
             }
+            for c in extra.other_conditions {
+                if !join_conditions.other_conditions.contains(&c) {
+                    join_conditions.other_conditions.push(c);
+                }
+            }
+            join_conditions.has_search_predicate |= extra.has_search_predicate;
+        };
+
+        let inner_param = (*inner_path).param_info;
+        if !inner_param.is_null() && !(*inner_param).ppi_clauses.is_null() {
+            merge_extra(extract_join_conditions_from_list(
+                root,
+                (*inner_param).ppi_clauses,
+                &all_sources,
+            ));
+        }
+        let outer_param = (*outer_path).param_info;
+        if !outer_param.is_null() && !(*outer_param).ppi_clauses.is_null() {
+            merge_extra(extract_join_conditions_from_list(
+                root,
+                (*outer_param).ppi_clauses,
+                &all_sources,
+            ));
+        }
+        if !(*inner_rel).joininfo.is_null() {
+            merge_extra(extract_join_conditions_from_list(
+                root,
+                (*inner_rel).joininfo,
+                &all_sources,
+            ));
+        }
+        if !(*outer_rel).joininfo.is_null() {
+            merge_extra(extract_join_conditions_from_list(
+                root,
+                (*outer_rel).joininfo,
+                &all_sources,
+            ));
         }
 
         let jointype = (*join_path).jointype;
@@ -770,13 +800,21 @@ unsafe fn collect_join_sources_join_rel(
             }
         };
 
-        // Absorbed search clauses must lower to `RelNode::Filter` sitting
-        // immediately above the absorbing `JoinNode`. Outer joins
-        // (Left/Right/Full) would drop outer-fill rows the post-Filter
-        // shouldn't see; pruned-side joins (Semi/Anti/Mark, both directions)
-        // would leave Vars unresolved against the pruned schema;
-        // UniqueOuter/UniqueInner aren't lowerable to DataFusion at all.
-        if !absorbed_search_clauses.is_empty() && !matches!(parsed_jointype, build::JoinType::Inner)
+        // Absorbed search clauses lower to `RelNode::Filter` sitting immediately
+        // above the absorbing `JoinNode`. With predicate tagging (#6010), both sides
+        // of Inner and Outer (Left/Right/Full) joins preserve their match-tag columns,
+        // allowing DataFusion to evaluate the filter with 3-valued boolean logic.
+        // Pruned-side joins (Semi/Anti/Mark, both directions) would leave Vars/tags
+        // unresolved against the pruned schema; UniqueOuter/UniqueInner aren't
+        // lowerable to DataFusion at all.
+        if !absorbed_search_clauses.is_empty()
+            && !matches!(
+                parsed_jointype,
+                build::JoinType::Inner
+                    | build::JoinType::Left
+                    | build::JoinType::Right
+                    | build::JoinType::Full
+            )
         {
             return None;
         }
@@ -883,6 +921,12 @@ pub(crate) unsafe fn transparent_path_subpath(
         pg_sys::NodeTag::T_SortPath => Some((*(path as *mut pg_sys::SortPath)).subpath),
         // Cached materialisation for inner-side replay: same rows, same schema.
         pg_sys::NodeTag::T_MaterialPath => Some((*(path as *mut pg_sys::MaterialPath)).subpath),
+        // Cached parameterised execution for inner-side replay: same rows, same schema.
+        pg_sys::NodeTag::T_MemoizePath => Some((*(path as *mut pg_sys::MemoizePath)).subpath),
+        // Incremental sort wrapper: same rows, only adds ordering.
+        pg_sys::NodeTag::T_IncrementalSortPath => {
+            Some((*(path as *mut pg_sys::IncrementalSortPath)).spath.subpath)
+        }
         // Adjusts the target list above the underlying path; the join
         // structure (RTIs, equi-keys, jointype) remains unchanged.
         pg_sys::NodeTag::T_ProjectionPath => Some((*(path as *mut pg_sys::ProjectionPath)).subpath),
@@ -1223,6 +1267,7 @@ unsafe fn resolve_subplan_output_var(
 /// Iterates over the given restrict list and groups conditions according to whether they are
 /// standard join keys or general functional predicates.
 unsafe fn extract_join_conditions_from_list(
+    root: *mut pg_sys::PlannerInfo,
     restrictlist: *mut pg_sys::List,
     sources: &[&JoinSource],
 ) -> JoinConditions {
@@ -1239,6 +1284,36 @@ unsafe fn extract_join_conditions_from_list(
         let clause = (*ri).clause;
         if clause.is_null() {
             continue;
+        }
+
+        // Only consider clauses whose referenced relations are a subset of `valid_rtis`.
+        // Clauses from `joininfo` or `ppi_clauses` that reference relations outside of `valid_rtis`
+        // belong to higher-level joins, not this join.
+        // Non-base relations like `RTE_JOIN` (which PostgreSQL adds to clause_relids to track
+        // outer-join evaluation boundaries) are not external relations and should not disqualify the clause.
+        let clause_relids = (*ri).clause_relids;
+        if !clause_relids.is_null() {
+            let mut all_in_valid_rtis = true;
+            for rti in bms_iter(clause_relids) {
+                if valid_rtis.contains(&rti) {
+                    continue;
+                }
+                if let Some(rte_ptr) = get_rte(
+                    (*root).simple_rel_array_size as usize,
+                    (*root).simple_rte_array,
+                    rti,
+                ) {
+                    let rtekind = (*rte_ptr).rtekind;
+                    if rtekind == pg_sys::RTEKind::RTE_JOIN {
+                        continue;
+                    }
+                }
+                all_in_valid_rtis = false;
+                break;
+            }
+            if !all_in_valid_rtis {
+                continue;
+            }
         }
 
         let has_search_op = expr_contains_any_operator(clause.cast(), &[search_op]);

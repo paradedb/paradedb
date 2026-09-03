@@ -45,6 +45,14 @@ impl Display for JoinType {
 }
 
 #[derive(Clone, Debug)]
+pub struct LateralUnnestStep {
+    pub is_left: bool,
+    pub table: String,
+    pub array_col: String,
+    pub alias: String,
+}
+
+#[derive(Clone, Debug)]
 struct JoinStep {
     join_type: JoinType,
     table: String,
@@ -57,6 +65,7 @@ struct JoinStep {
 pub struct JoinExpr {
     initial_table: String,
     steps: Vec<JoinStep>,
+    unnests: Vec<LateralUnnestStep>,
 }
 
 impl JoinExpr {
@@ -67,6 +76,22 @@ impl JoinExpr {
             v.push(s.table.as_str());
         }
         v
+    }
+
+    pub fn unnest_aliases(&self) -> Vec<&str> {
+        self.unnests.iter().map(|u| u.alias.as_str()).collect()
+    }
+
+    pub fn has_only_inner(&self) -> bool {
+        self.steps
+            .iter()
+            .all(|s| matches!(s.join_type, JoinType::Inner))
+    }
+
+    pub fn has_no_cross(&self) -> bool {
+        self.steps
+            .iter()
+            .all(|s| !matches!(s.join_type, JoinType::Cross))
     }
 
     /// Render as a SQL fragment, e.g.
@@ -86,6 +111,21 @@ impl JoinExpr {
                 let lc = step.on_left_col.as_ref().unwrap();
                 let rc = step.on_right_col.as_ref().unwrap();
                 join_clause.push_str(&format!(" ON {}.{} = {}.{}", lt, lc, step.table, rc));
+            }
+        }
+
+        for unnest in &self.unnests {
+            join_clause.push(' ');
+            if unnest.is_left {
+                join_clause.push_str(&format!(
+                    "LEFT JOIN LATERAL unnest({}.{}) AS {} ON true",
+                    unnest.table, unnest.array_col, unnest.alias
+                ));
+            } else {
+                join_clause.push_str(&format!(
+                    "CROSS JOIN LATERAL unnest({}.{}) AS {}",
+                    unnest.table, unnest.array_col, unnest.alias
+                ));
             }
         }
 
@@ -122,8 +162,11 @@ impl SemiJoinExpr {
     }
 }
 
+/// Temporary toggle to disable generation of lateral unnests.
+pub const ENABLE_UNNEST: bool = false;
+
 ///
-/// Generate all possible joins involving exactly the given tables.
+/// Generate all possible joins involving exactly the given tables, with optional lateral unnest steps.
 ///
 pub fn arb_joins(
     join_types: impl Strategy<Value = JoinType>,
@@ -141,21 +184,35 @@ pub fn arb_joins(
 
     // Choose joins and join columns.
     let join_count = tables_to_join.len() - 1;
+    let tables_len = tables_to_join.len();
+
+    let unnest_strategy = if ENABLE_UNNEST {
+        proptest::collection::vec(
+            proptest::option::of((
+                proptest::bool::ANY,
+                proptest::strategy::Just("tags".to_string()),
+            )),
+            tables_len,
+        )
+        .boxed()
+    } else {
+        proptest::strategy::Just(vec![None; tables_len]).boxed()
+    };
+
     (
         proptest::collection::vec(join_types, join_count),
         proptest::sample::subsequence(table_cols, join_count),
+        unnest_strategy,
     )
-        .prop_map(move |(join_types, join_columns)| {
+        .prop_map(move |(join_types, join_columns, unnest_choices)| {
             // Construct a JoinExpr for the tables and joins.
-            let mut tables_to_join = tables_to_join.clone().into_iter();
-            let initial_table = tables_to_join
-                .next()
-                .expect("At least one table in a join.");
+            let mut tables_iter = tables_to_join.clone().into_iter();
+            let initial_table = tables_iter.next().expect("At least one table in a join.");
 
             let mut previous_table = initial_table.clone();
             let mut steps = Vec::with_capacity(join_types.len());
             for ((join_type, join_column), table_to_join) in
-                join_types.into_iter().zip(join_columns).zip(tables_to_join)
+                join_types.into_iter().zip(join_columns).zip(tables_iter)
             {
                 match join_type {
                     JoinType::Cross => {
@@ -180,9 +237,22 @@ pub fn arb_joins(
                 previous_table = table_to_join;
             }
 
+            let mut unnests = Vec::new();
+            for (i, table) in tables_to_join.iter().enumerate() {
+                if let Some(Some((is_left, array_col))) = unnest_choices.get(i) {
+                    unnests.push(LateralUnnestStep {
+                        is_left: *is_left,
+                        table: table.clone(),
+                        array_col: array_col.clone(),
+                        alias: format!("{table}_tag"),
+                    });
+                }
+            }
+
             JoinExpr {
                 initial_table,
                 steps,
+                unnests,
             }
         })
 }

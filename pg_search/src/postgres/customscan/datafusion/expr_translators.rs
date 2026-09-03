@@ -32,6 +32,7 @@ use std::ffi::CStr;
 use std::sync::Arc;
 
 use crate::api::HashSet;
+use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::datafusion::translator::{
     PredicateTranslator, node_tag_debug, type_name,
 };
@@ -559,6 +560,27 @@ impl<'a> PredicateTranslator<'a> {
                 return None;
             }
         };
+
+        let collid = (*op_expr).inputcollid;
+        if collid != pg_sys::Oid::INVALID {
+            let required_op = match op_str {
+                "=" | "<>" | "!=" => Some(CollationOperation::Equality),
+                "<" | "<=" | ">" | ">=" => Some(CollationOperation::Ordering),
+                _ => None,
+            };
+            if let Some(op_type) = required_op
+                && !collation_supports(collid, op_type)
+            {
+                pgrx::debug1!(
+                    "PredicateTranslator: collation does not support operation {:?} [OpExpr] op=\"{}\", collation={} | {}",
+                    op_type,
+                    op_str,
+                    collid.to_u32(),
+                    self.deparse_for_debug(node)
+                );
+                return None;
+            }
+        }
 
         Some(Expr::BinaryExpr(BinaryExpr::new(
             Box::new(left),

@@ -235,32 +235,32 @@ ORDER BY p.category;
 (3 rows)
 
 -- =====================================================================
--- Test 2: CROSS JOIN → should fall back to Postgres native
+-- Test 2: CROSS JOIN → uses ParadeDB Aggregate Scan
 -- =====================================================================
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*)
 FROM fb_products p
 CROSS JOIN fb_tags t
 WHERE p.description @@@ 'laptop';
-WARNING:  Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no join conditions) (table: join)
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Nested Loop
-         ->  Custom Scan (ParadeDB Base Scan) on fb_products p
-               Table: fb_products
-               Index: fb_products_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-         ->  Seq Scan on fb_tags t
-(9 rows)
+                                                                                                 QUERY PLAN                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: fb_products_idx (p), fb_tags_idx (t)
+   Aggregates: COUNT(*)
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0]
+     :   CrossJoinExec
+     :     CooperativeExec
+     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+     :     CooperativeExec
+     :       PgSearchScan: table=t, segments=1, visibility=eager, query="all"
+(11 rows)
 
 SELECT COUNT(*)
 FROM fb_products p
 CROSS JOIN fb_tags t
 WHERE p.description @@@ 'laptop';
-WARNING:  Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no join conditions) (table: join)
  count 
 -------
      3

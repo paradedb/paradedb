@@ -228,6 +228,7 @@ enum JoinPathDecline {
 /// Specific reason a `JoinPathDecline::Warn` was raised. Wraps a specific
 /// warning message and any optional details (e.g., unsupported join types)
 /// to be emitted as a planner warning.
+#[derive(Clone, Debug)]
 pub enum JoinDeclineReason {
     ContainsAggregate,
     Message {
@@ -1214,16 +1215,43 @@ impl CustomScan for JoinScan {
             }
         }
 
+        fn collect_join_filter_strings(
+            node: &RelNode,
+            join_clause: &JoinCSClause,
+            explainer: &Explainer,
+            acc: &mut Vec<String>,
+        ) {
+            match node {
+                RelNode::Scan(_) => {}
+                RelNode::Filter(filter) => {
+                    collect_join_filter_strings(&filter.input, join_clause, explainer, acc);
+                }
+                RelNode::Join(join) => {
+                    if let Some(filter) = &join.filter {
+                        acc.push(format_join_level_expr(filter, join_clause, explainer));
+                    }
+                    collect_join_filter_strings(&join.left, join_clause, explainer, acc);
+                    collect_join_filter_strings(&join.right, join_clause, explainer, acc);
+                }
+            }
+        }
+
         let mut keys_str = Vec::new();
         collect_join_cond_strings(&join_clause.plan, &mut keys_str);
         if !keys_str.is_empty() {
             explainer.add_text("Join Cond", keys_str.join(", "));
         }
 
+        let mut filters_str = Vec::new();
+        collect_join_filter_strings(&join_clause.plan, join_clause, explainer, &mut filters_str);
+        if !filters_str.is_empty() {
+            explainer.add_text("Join Filter", filters_str.join(" AND "));
+        }
+
         if let Some(expr) = join_clause.plan.join_level_expr() {
             explainer.add_text(
                 "Join Predicate",
-                format_join_level_expr(expr, join_clause, Some(explainer)),
+                format_join_level_expr(expr, join_clause, explainer),
             );
         }
 
@@ -2075,7 +2103,7 @@ impl JoinScan {
         let join_conditions = {
             let mut all_sources = outer_node.sources();
             all_sources.extend(inner_node.sources());
-            extract_join_conditions(extra, &all_sources)
+            extract_join_conditions(root, extra, &all_sources)
         };
 
         // The minimum requirement for considering the join scan is that a
@@ -2130,8 +2158,10 @@ impl JoinScan {
             )));
         }
 
-        // When equi_keys is empty and there were join conditions, at least one non-equi condition must have been absorbed into filter.
-        if join_conditions.equi_keys.is_empty() && has_other_conditions && initial_filter.is_none()
+        // When equi_keys is empty and there were join conditions (or outer join), at least one non-equi condition must have been absorbed into filter.
+        if join_conditions.equi_keys.is_empty()
+            && (has_other_conditions || is_outer)
+            && initial_filter.is_none()
         {
             return Err(warn(JoinDeclineReason::new(
                 "JoinScan not used: join conditions must reference columnar indexed fields",

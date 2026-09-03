@@ -261,6 +261,18 @@ pub struct JoinKeyPair {
 }
 
 impl JoinKeyPair {
+    /// Returns whether two join key pairs represent the same column equality (in either orientation).
+    pub fn is_same_key(&self, other: &Self) -> bool {
+        (self.outer_rti == other.outer_rti
+            && self.outer_attno == other.outer_attno
+            && self.inner_rti == other.inner_rti
+            && self.inner_attno == other.inner_attno)
+            || (self.outer_rti == other.inner_rti
+                && self.outer_attno == other.inner_attno
+                && self.inner_rti == other.outer_rti
+                && self.inner_attno == other.outer_attno)
+    }
+
     pub fn resolve_against<'a>(
         &self,
         left: &'a RelNode,
@@ -665,22 +677,19 @@ pub enum JoinLevelExpr {
         null_test_attno: pgrx::pg_sys::AttrNumber,
     },
     /// A PostgreSQL expression serialized via `nodeToString`, evaluated as a
-    /// join filter.
-    ///
-    /// During planning the raw `pg_sys::Expr` is validated for DataFusion
-    /// translatability via `PredicateTranslator::translate` and serialized with
-    /// `nodeToString`. At execution time `stringToNode` rehydrates the tree,
-    /// which `PredicateTranslator` then translates to a DataFusion `Expr`
+    /// Arbitrary PostgreSQL expression serialized to nodeToString format.
+    /// Lowered at execution time via stringToNode and PredicateTranslator
     /// (Var nodes resolve via `CombinedMapper` against the join's sources).
     ///
     /// `input_vars` describes each Var dependency (RTI, attno, plus the type
     /// metadata captured at planning time so execution avoids catalog
     /// lookups). The projection pass uses `(rti, attno)` to register the
     /// required columns; the type metadata is also serialized through
-    /// `JoinCSClause` and available to any future consumer. Used for
-    /// Semi/Anti join filters because the MultiTablePredicate / custom_exprs
-    /// pipeline would fail in setrefs: Semi/Anti prunes the inner relation
-    /// from the scan tlist, leaving inner-side Vars unresolvable.
+    /// `JoinCSClause` and available to any future consumer.
+    ///
+    /// Used for non-equi join filters, outer join ON-clause filters, and
+    /// Semi/Anti join filters (where the MultiTablePredicate / custom_exprs
+    /// pipeline cannot be used because inner-side Vars are pruned from the tlist).
     PgExpression {
         pg_node_string: String,
         input_vars: Vec<InputVarInfo>,
@@ -1004,14 +1013,14 @@ impl RelNode {
         predicates.into_iter().cloned().collect()
     }
 
-    /// Offset plan_position on all SingleTablePredicate expressions in this tree.
+    /// Offset plan_position on all Scan nodes and SingleTablePredicate expressions in this tree.
     pub fn offset_plan_positions(self, offset: usize) -> Self {
         if offset == 0 {
             return self;
         }
         self.transform_down(|mut node| {
             match &mut node {
-                Self::Scan(_) => {}
+                Self::Scan(s) => s.plan_position += offset,
                 Self::Filter(f) => f.predicate.offset_plan_positions(offset),
                 Self::Join(j) => {
                     if let Some(ref mut filter) = j.filter {
@@ -1424,16 +1433,16 @@ impl RelNode {
     }
 
     /// Returns true if any `JoinNode` in the tree has neither equi-keys nor a join filter.
-    /// Used to reject unconstrained CROSS JOINs that have no join conditions.
-    pub fn has_join_without_keys(&self) -> bool {
+    /// Used to identify unconstrained joins that have no join conditions.
+    pub fn has_unconstrained_join(&self) -> bool {
         match self {
             RelNode::Scan(_) => false,
             RelNode::Join(j) => {
                 (j.equi_keys.is_empty() && j.filter.is_none())
-                    || j.left.has_join_without_keys()
-                    || j.right.has_join_without_keys()
+                    || j.left.has_unconstrained_join()
+                    || j.right.has_unconstrained_join()
             }
-            RelNode::Filter(f) => f.input.has_join_without_keys(),
+            RelNode::Filter(f) => f.input.has_unconstrained_join(),
         }
     }
 

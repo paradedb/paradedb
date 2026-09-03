@@ -57,7 +57,7 @@ pub fn get_attname_safe(
 pub fn format_join_level_expr(
     expr: &JoinLevelExpr,
     join_clause: &JoinCSClause,
-    explainer: Option<&Explainer>,
+    explainer: &Explainer,
 ) -> String {
     match expr {
         JoinLevelExpr::SingleTablePredicate {
@@ -76,21 +76,12 @@ pub fn format_join_level_expr(
                 .unwrap_or_else(|| RelationAlias::new(None).display(*plan_position));
             format!("{}:{}", label, predicate.query.explain_format())
         }
-        JoinLevelExpr::MultiTablePredicate { predicate } => unsafe {
-            let Ok(c_str) = std::ffi::CString::new(predicate.pg_node_string.as_str()) else {
-                return format!("heap:{}", predicate.pg_node_string);
-            };
-            let node = pg_sys::stringToNode(c_str.as_ptr().cast_mut());
-            if node.is_null() {
-                return format!("heap:{}", predicate.pg_node_string);
-            }
-            if let Some(explainer) = explainer
-                && let Some(deparsed) = explainer.deparse_expr(node.cast())
-            {
-                return format!("heap:{}", deparsed);
-            }
-            format!("heap:{}", predicate.pg_node_string)
-        },
+        JoinLevelExpr::MultiTablePredicate { predicate } => {
+            format!(
+                "heap:{}",
+                explainer.deparse_serialized(&predicate.pg_node_string)
+            )
+        }
         JoinLevelExpr::And(children) => {
             let parts: Vec<_> = children
                 .iter()
@@ -126,21 +117,9 @@ pub fn format_join_level_expr(
                 "(mark = true OR col IS NULL)".to_string()
             }
         }
-        JoinLevelExpr::PgExpression { pg_node_string, .. } => unsafe {
-            let Ok(c_str) = std::ffi::CString::new(pg_node_string.as_str()) else {
-                return pg_node_string.clone();
-            };
-            let node = pg_sys::stringToNode(c_str.as_ptr().cast_mut());
-            if node.is_null() {
-                return pg_node_string.clone();
-            }
-            if let Some(explainer) = explainer
-                && let Some(deparsed) = explainer.deparse_expr(node.cast())
-            {
-                return deparsed;
-            }
-            pg_node_string.clone()
-        },
+        JoinLevelExpr::PgExpression { pg_node_string, .. } => {
+            explainer.deparse_serialized(pg_node_string)
+        }
     }
 }
 

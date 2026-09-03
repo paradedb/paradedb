@@ -34,7 +34,9 @@ use crate::api::operator::anyelement_query_input_opoid;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::pullup::resolve_fast_field;
-use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
+use crate::postgres::customscan::qual_inspect::{
+    PlannerContext, QualExtractState, contains_exec_param, extract_quals,
+};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{expr_collect_rtis, expr_collect_vars, expr_contains_any_operator};
@@ -120,10 +122,8 @@ pub unsafe fn extract_join_level_conditions(
             ) {
                 expr_trees.push(expr);
             } else {
-                let formatted = crate::postgres::deparse::deparse_planner_expr(root, clause.cast())
-                    .unwrap_or_else(|| {
-                        crate::postgres::deparse::node_to_string_without_context(clause.cast())
-                    });
+                let formatted =
+                    crate::postgres::deparse::deparse_planner_expr_or_raw(root, clause.cast());
                 return Err(format!(
                     "Failed to transform search predicate into expression tree: {}",
                     formatted
@@ -133,22 +133,18 @@ pub unsafe fn extract_join_level_conditions(
             // This is a top-level heap condition (cross-relation, no search operator)
             // Only accept if all referenced columns are fast fields
             if !all_vars_are_fast_fields_recursive(clause.cast(), sources) {
-                let formatted = crate::postgres::deparse::deparse_planner_expr(root, clause.cast())
-                    .unwrap_or_else(|| {
-                        crate::postgres::deparse::node_to_string_without_context(clause.cast())
-                    });
+                let formatted =
+                    crate::postgres::deparse::deparse_planner_expr_or_raw(root, clause.cast());
                 return Err(format!(
-                    "Multi-table predicate '{}' references non-fast-field columns",
+                    "Multi-table predicate '{}' references non-columnar columns",
                     formatted
                 ));
             }
 
             // Check if the predicate can be translated to DataFusion
             if !PredicateTranslator::can_translate(Some(root), sources, clause.cast()) {
-                let formatted = crate::postgres::deparse::deparse_planner_expr(root, clause.cast())
-                    .unwrap_or_else(|| {
-                        crate::postgres::deparse::node_to_string_without_context(clause.cast())
-                    });
+                let formatted =
+                    crate::postgres::deparse::deparse_planner_expr_or_raw(root, clause.cast());
                 return Err(format!(
                     "Multi-table predicate '{}' cannot be executed by DataFusion (unsupported operator or type)",
                     formatted
@@ -156,12 +152,8 @@ pub unsafe fn extract_join_level_conditions(
             }
 
             // Create a MultiTablePredicate leaf node
-            let pg_node_string = {
-                let node_str = pg_sys::nodeToString(clause.cast());
-                std::ffi::CStr::from_ptr(node_str)
-                    .to_string_lossy()
-                    .into_owned()
-            };
+            let pg_node_string =
+                crate::postgres::deparse::node_to_string_owned(clause.cast()).unwrap_or_default();
             multi_table_predicate_clauses.push(clause);
             expr_trees.push(JoinLevelExpr::MultiTablePredicate {
                 predicate: Box::new(
@@ -269,12 +261,8 @@ pub unsafe fn transform_to_search_expr(
         let translator = PredicateTranslator::new(sources).with_planner_info(root);
         translator.translate(node)?;
 
-        let pg_node_string = {
-            let node_str = pg_sys::nodeToString(node.cast());
-            std::ffi::CStr::from_ptr(node_str)
-                .to_string_lossy()
-                .into_owned()
-        };
+        let pg_node_string =
+            crate::postgres::deparse::node_to_string_owned(node.cast()).unwrap_or_default();
         multi_table_predicate_clauses.push(node as *mut pg_sys::Expr);
         return Some(JoinLevelExpr::MultiTablePredicate {
             predicate: Box::new(
@@ -564,13 +552,14 @@ pub unsafe fn try_absorb_join_filter(
             remaining.push(ri);
             continue;
         }
-        // For outer joins with equi-keys, only absorb ON-clause conditions (is_pushed_down == false);
+        // For outer joins, only absorb ON-clause conditions (is_pushed_down == false);
         // WHERE-clause conditions (is_pushed_down == true) stay as post-join filters.
-        if is_outer && has_equi_keys && (*ri).is_pushed_down {
+        if is_outer && (*ri).is_pushed_down {
             remaining.push(ri);
             continue;
         }
         if clause.is_null()
+            || contains_exec_param(clause.cast())
             || !all_vars_are_fast_fields_recursive(clause.cast(), sources)
             || !PredicateTranslator::can_translate(Some(root), sources, clause.cast())
         {
@@ -594,12 +583,9 @@ pub unsafe fn try_absorb_join_filter(
                 }
                 pg_sys::make_andclause(list.into_pg()).cast()
             };
-            let pg_node_string = {
-                let node_str = pg_sys::nodeToString(combined_node.cast());
-                std::ffi::CStr::from_ptr(node_str)
-                    .to_string_lossy()
-                    .into_owned()
-            };
+            let pg_node_string =
+                crate::postgres::deparse::node_to_string_owned(combined_node.cast())
+                    .unwrap_or_default();
             let input_vars =
                 crate::postgres::customscan::joinscan::collect_input_vars(combined_node);
             Some(JoinLevelExpr::PgExpression {

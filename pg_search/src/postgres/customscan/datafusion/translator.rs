@@ -505,6 +505,12 @@ pub fn build_join_df_with_filter(
         }
     };
 
+    if matches!(join.join_type, PgJoinType::Anti { null_aware: true }) {
+        return Err(DataFusionError::NotImplemented(
+            "null_aware NOT IN anti join does not support non-equi join filters".into(),
+        ));
+    }
+
     if join.equi_keys.is_empty() {
         return left.join(right, df_join_type, &[], &[], Some(filter_expr));
     }
@@ -627,26 +633,20 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
             (varno, varattno, false)
         };
 
-        let (plan_position, source) = self
-            .sources
-            .iter()
-            .enumerate()
-            .find(|(_, s)| s.contains_rti(rti))?;
-
-        let alias = RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
+        let source = self.sources.iter().find(|s| s.contains_rti(rti))?;
 
         if is_score {
             if let Some(col_idx) = source.map_var(rti, 0)
                 && let Some(name) = source.column_name(col_idx)
             {
-                return Some(make_col(&alias, &name));
+                return Some(make_source_col(source, &name));
             }
-            return Some(make_col(&alias, SCORE_COL_NAME));
+            return Some(make_source_score_col(source));
         }
 
         let mapped_attno = source.map_var(rti, attno)?;
         let col_name = source.column_name(mapped_attno)?;
-        Some(make_col(&alias, &col_name))
+        Some(make_source_col(source, &col_name))
     }
 }
 

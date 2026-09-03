@@ -203,6 +203,7 @@ SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND a.id 
          Output: a.id, b.id
          Relation Tree: b RIGHT a
          Join Cond: a.dim_id = b.id
+         Join Filter: (a.id < b.price)
          Limit: 8
          Order By: a.id asc
          DataFusion Physical Plan: 
@@ -215,7 +216,7 @@ SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND a.id 
            :             PgSearchScan: table=b, segments=1, visibility=eager, query="all"
            :           CooperativeExec
            :             PgSearchScan: table=a, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+(19 rows)
 
 SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND a.id < b.price WHERE a.txt @@@ 'alpha' ORDER BY a.id LIMIT 8;
  id | id 

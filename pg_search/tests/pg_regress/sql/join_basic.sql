@@ -178,7 +178,7 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id >= s.id AND p.supplier_id <= s.id + 1
 WHERE p.description @@@ 'wireless'
-ORDER BY p.id
+ORDER BY p.id, s.name
 LIMIT 10;
 
 -- =============================================================================

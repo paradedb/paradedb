@@ -85,11 +85,11 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket';
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: agg_nonequi_products_idx (p), agg_nonequi_promos_idx (pr)
-   Multi-Table Filter: (p.price >= pr.min_price) AND (p.price <= pr.max_price)
+   Join Filter: ((p.price >= pr.min_price) AND (p.price <= pr.max_price))
    Aggregates: COUNT(*), SUM(price), AVG(rating)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0, sum(p_0.price) as agg_1, avg(p_0.rating) as agg_2]
-     :   NestedLoopJoinExec: join_type=Inner, filter=price@0 >= min_price@1 AND price@0 <= max_price@2 AND min_price@1 <= price@0 AND max_price@2 >= price@0, projection=[price@2, rating@3]
+     :   NestedLoopJoinExec: join_type=Inner, filter=price@0 >= min_price@1 AND price@0 <= max_price@2, projection=[price@2, rating@3]
      :     CooperativeExec
      :       PgSearchScan: table=pr, segments=1, visibility=eager, query="all"
      :     CooperativeExec
@@ -116,11 +116,11 @@ WHERE pr.description @@@ 'tech OR gala';
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: agg_nonequi_products_idx (p), agg_nonequi_promos_idx (pr)
-   Multi-Table Filter: (p.rating >= pr.min_rating)
+   Join Filter: (p.rating >= pr.min_rating)
    Aggregates: MIN(price), MAX(price), COUNT(*)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[min(p_0.price) as agg_0, max(p_0.price) as agg_1, count(1) as agg_2]
-     :   NestedLoopJoinExec: join_type=Inner, filter=rating@0 >= min_rating@1 AND min_rating@1 <= rating@0, projection=[price@1]
+     :   NestedLoopJoinExec: join_type=Inner, filter=rating@0 >= min_rating@1, projection=[price@1]
      :     CooperativeExec
      :       PgSearchScan: table=pr, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"tech OR gala","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
@@ -186,11 +186,11 @@ ORDER BY pr.promo_code;
          Backend: DataFusion
          Indexes: agg_nonequi_products_idx (p), agg_nonequi_promos_idx (pr)
          Group By: promo_code
-         Multi-Table Filter: (p.price >= pr.min_price) AND (p.price <= pr.max_price)
+         Join Filter: ((p.price >= pr.min_price) AND (p.price <= pr.max_price))
          Aggregates: COUNT(*), SUM(price)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[promo_code@1 as promo_code], aggr=[count(1) as agg_0, sum(p_0.price) as agg_1]
-           :   NestedLoopJoinExec: join_type=Inner, filter=price@0 >= min_price@1 AND price@0 <= max_price@2 AND min_price@1 <= price@0 AND max_price@2 >= price@0, projection=[price@3, promo_code@0]
+           :   NestedLoopJoinExec: join_type=Inner, filter=price@0 >= min_price@1 AND price@0 <= max_price@2, projection=[price@3, promo_code@0]
            :     CooperativeExec
            :       PgSearchScan: table=pr, segments=1, visibility=eager, query="all"
            :     CooperativeExec
@@ -227,12 +227,12 @@ ORDER BY p.category;
          Backend: DataFusion
          Indexes: agg_nonequi_products_idx (p), agg_nonequi_promos_idx (pr)
          Group By: category
-         Multi-Table Filter: (p.price <= pr.max_price)
+         Join Filter: (p.price <= pr.max_price)
          Aggregates: COUNT(*), AVG(price)
          DataFusion Physical Plan: 
            : FilterExec: agg_0@1 > 1
            :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, avg(p_0.price) as agg_1]
-           :     NestedLoopJoinExec: join_type=Inner, filter=price@0 <= max_price@1 AND max_price@1 >= price@0, projection=[category@1, price@2]
+           :     NestedLoopJoinExec: join_type=Inner, filter=price@0 <= max_price@1, projection=[category@1, price@2]
            :       CooperativeExec
            :         PgSearchScan: table=pr, segments=1, visibility=eager, query="all"
            :       CooperativeExec
@@ -267,6 +267,7 @@ WHERE p.description @@@ 'laptop OR jacket OR keyboard';
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: agg_nonequi_products_idx (p), agg_nonequi_promos_idx (pr)
+   Join Filter: (p.price > pr.max_price)
    Aggregates: COUNT(*), COUNT(id), SUM(price)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0, count(pr_1.id) as agg_1, sum(p_0.price) as agg_2]
@@ -275,7 +276,7 @@ WHERE p.description @@@ 'laptop OR jacket OR keyboard';
      :       PgSearchScan: table=pr, segments=1, visibility=eager, query="all"
      :     CooperativeExec
      :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR jacket OR keyboard","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 SELECT COUNT(*), COUNT(pr.id), SUM(p.price)
 FROM agg_nonequi_products p
@@ -302,6 +303,7 @@ ORDER BY p.category;
          Backend: DataFusion
          Indexes: agg_nonequi_products_idx (p), agg_nonequi_promos_idx (pr)
          Group By: category
+         Join Filter: (p.price > pr.max_price)
          Aggregates: COUNT(*), COUNT(id)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, count(pr_1.id) as agg_1]
@@ -310,7 +312,7 @@ ORDER BY p.category;
            :       PgSearchScan: table=pr, segments=1, visibility=eager, query="all"
            :     CooperativeExec
            :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
+(15 rows)
 
 SELECT p.category, COUNT(*), COUNT(pr.id)
 FROM agg_nonequi_products p
@@ -345,11 +347,12 @@ ORDER BY t.tier_name;
          Backend: DataFusion
          Indexes: agg_nonequi_products_idx (p), agg_nonequi_promos_idx (pr), agg_nonequi_tiers_idx (t)
          Group By: tier_name
-         Multi-Table Filter: (p.price >= t.threshold_price) AND (p.price <= pr.max_price)
+         Multi-Table Filter: (p.price <= pr.max_price)
+         Join Filter: (p.price >= t.threshold_price)
          Aggregates: COUNT(*), SUM(price)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[tier_name@1 as tier_name], aggr=[count(1) as agg_0, sum(p_0.price) as agg_1]
-           :   NestedLoopJoinExec: join_type=Inner, filter=price@0 >= threshold_price@1 AND threshold_price@1 <= price@0, projection=[price@0, tier_name@1]
+           :   NestedLoopJoinExec: join_type=Inner, filter=price@0 >= threshold_price@1, projection=[price@0, tier_name@1]
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, promo_code@0)], filter=max_price@1 >= price@0, projection=[price@1]
            :       CooperativeExec
            :         PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
@@ -357,7 +360,7 @@ ORDER BY t.tier_name;
            :         PgSearchScan: table=pr, segments=1, dynamic_filters=1, visibility=eager, query="all"
            :     CooperativeExec
            :       PgSearchScan: table=t, segments=1, visibility=eager, query="all"
-(18 rows)
+(19 rows)
 
 SELECT t.tier_name, COUNT(*), SUM(p.price)
 FROM agg_nonequi_products p

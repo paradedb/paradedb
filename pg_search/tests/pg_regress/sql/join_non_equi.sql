@@ -285,6 +285,23 @@ WHERE i.description @@@ 'cable OR mat OR mouse'
 ORDER BY i.id, o.id NULLS LAST
 LIMIT 10;
 
+-- Test 5.3: Keyless non-equi left join parity with non-strict WHERE predicate
+SET paradedb.enable_join_custom_scan = off;
+SELECT i.id, o.id
+FROM nonequi_items i
+LEFT JOIN nonequi_offers o ON i.price > o.min_price
+WHERE i.description @@@ 'ergonomic' AND (i.price < o.max_price OR o.max_price IS NULL)
+ORDER BY i.id, o.id NULLS LAST
+LIMIT 10;
+
+SET paradedb.enable_join_custom_scan = on;
+SELECT i.id, o.id
+FROM nonequi_items i
+LEFT JOIN nonequi_offers o ON i.price > o.min_price
+WHERE i.description @@@ 'ergonomic' AND (i.price < o.max_price OR o.max_price IS NULL)
+ORDER BY i.id, o.id NULLS LAST
+LIMIT 10;
+
 -- =============================================================================
 -- SECTION 6: Fallback / Rejection
 -- =============================================================================

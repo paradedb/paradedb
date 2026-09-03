@@ -148,7 +148,11 @@ pub unsafe fn deparse_planner_expr(
     expr: *mut pg_sys::Node,
 ) -> Option<String> {
     use std::panic::AssertUnwindSafe;
-    if root.is_null() || expr.is_null() || (*root).parse.is_null() {
+    if root.is_null()
+        || expr.is_null()
+        || (*root).parse.is_null()
+        || crate::postgres::customscan::qual_inspect::contains_exec_param(expr)
+    {
         return None;
     }
 
@@ -291,4 +295,18 @@ pub unsafe fn node_to_string_without_context(expr: *mut pg_sys::Node) -> String 
     pgrx::node_to_string(expr)
         .unwrap_or("<unknown>")
         .to_string()
+}
+
+/// Deparse a planner expression using `deparse_planner_expr`, falling back to
+/// `node_to_string_without_context` if deparsing returns `None`.
+pub unsafe fn deparse_planner_expr_or_raw(
+    root: *mut pg_sys::PlannerInfo,
+    expr: *mut pg_sys::Node,
+) -> String {
+    deparse_planner_expr(root, expr).unwrap_or_else(|| node_to_string_without_context(expr))
+}
+
+/// Serialize a node via `nodeToString` into an owned Rust `Option<String>`.
+pub unsafe fn node_to_string_owned(node: *mut pg_sys::Node) -> Option<String> {
+    pgrx::node_to_string(node).map(|s| s.to_string())
 }

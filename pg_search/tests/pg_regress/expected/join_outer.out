@@ -374,6 +374,7 @@ LIMIT 10;
          Output: p.id, p.file_id, f.title
          Relation Tree: f RIGHT p
          Join Cond: f.id = p.file_id
+         Join Filter: (p.size_bytes > 2048)
          Limit: 10
          Order By: p.id asc
          DataFusion Physical Plan: 
@@ -386,7 +387,7 @@ LIMIT 10;
            :             PgSearchScan: table=f, segments=2, visibility=eager, query="all"
            :           CooperativeExec
            :             PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+(19 rows)
 
 SELECT p.id, p.file_id, f.title
 FROM outer_pages p LEFT JOIN outer_files f

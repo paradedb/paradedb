@@ -62,6 +62,7 @@ use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parall
 use crate::PARAMETERIZED_SELECTIVITY;
 use crate::api::{MvccVisibility, SortDirection, agg_funcoid};
 use crate::gucs;
+use crate::postgres::customscan::joinscan::build::{JoinLevelExpr, RelNode};
 
 use crate::aggregate::{NULL_SENTINEL_MAX, NULL_SENTINEL_MIN};
 use crate::customscan::aggregatescan::build::AggregateCSClause;
@@ -238,7 +239,6 @@ enum AggregatePathDecline {
 enum AggregateDeclineReason {
     NotAllBm25,
     JoinPredicate(datafusion_build::PathPredicateDeclineReason),
-    CrossJoin,
     DistinctOn,
     NondeterministicCollation,
     /// Errors carrying a free-form message (parse-tree extraction, target-list
@@ -266,7 +266,6 @@ impl AggregateDeclineReason {
                     "the selected lower join path contains a predicate that AggregateScan cannot classify".into()
                 }
             },
-            Self::CrossJoin => "CROSS JOINs are not supported (no join conditions)".into(),
             Self::DistinctOn => "DISTINCT ON is not supported".into(),
             Self::NondeterministicCollation => {
                 "DISTINCT on a nondeterministic collation is not supported".into()
@@ -815,21 +814,37 @@ impl CustomScan for AggregateScan {
                 if !mt_predicates.is_empty() {
                     let preds: Vec<String> = mt_predicates
                         .into_iter()
-                        .map(|p| unsafe {
-                            let Ok(c_str) = std::ffi::CString::new(p.pg_node_string.as_str())
-                            else {
-                                return p.pg_node_string;
-                            };
-                            let node = pg_sys::stringToNode(c_str.as_ptr().cast_mut());
-                            if node.is_null() {
-                                return p.pg_node_string;
-                            }
-                            explainer
-                                .deparse_expr(node.cast())
-                                .unwrap_or(p.pg_node_string)
-                        })
+                        .map(|p| explainer.deparse_serialized(&p.pg_node_string))
                         .collect();
                     explainer.add_text("Multi-Table Filter", preds.join(" AND "));
+                }
+
+                // Show join filters (non-equi join conditions)
+                fn collect_join_filter_strings(
+                    node: &RelNode,
+                    explainer: &Explainer,
+                    acc: &mut Vec<String>,
+                ) {
+                    match node {
+                        RelNode::Scan(_) => {}
+                        RelNode::Filter(filter) => {
+                            collect_join_filter_strings(&filter.input, explainer, acc);
+                        }
+                        RelNode::Join(join) => {
+                            if let Some(JoinLevelExpr::PgExpression { pg_node_string, .. }) =
+                                &join.filter
+                            {
+                                acc.push(explainer.deparse_serialized(pg_node_string));
+                            }
+                            collect_join_filter_strings(&join.left, explainer, acc);
+                            collect_join_filter_strings(&join.right, explainer, acc);
+                        }
+                    }
+                }
+                let mut join_filters = Vec::new();
+                collect_join_filter_strings(&df_state.plan, explainer, &mut join_filters);
+                if !join_filters.is_empty() {
+                    explainer.add_text("Join Filter", join_filters.join(" AND "));
                 }
 
                 // Show aggregates
@@ -1612,17 +1627,6 @@ impl AggregateScan {
             extract_aggregate_targetlist(builder.args(), &sources, &plan, shape, pdb_route)
         }
         .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
-
-        // Reject plans with any join node that has no equi-keys (CROSS JOIN).
-        // Without join keys, PgSearchTableProvider has no Named fields,
-        // producing empty RecordBatches or DataFusion "join condition should
-        // not be empty" errors. Single-table scans (sources.len() == 1) have
-        // no join keys by definition and are allowed — they reach this path
-        // when routed from RELOPT_BASEREL (e.g., max_buckets overflow or
-        // ORDER BY aggregate + LIMIT).
-        if sources.len() > 1 && plan.has_join_without_keys() {
-            return Err(warn(AggregateDeclineReason::CrossJoin));
-        }
 
         // Populate the fast fields on each source so PgSearchTableProvider exposes them.
         // This fails if join key fields aren't indexed as fast fields.

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788400652857,
+  "lastUpdate": 1788401720476,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -327806,6 +327806,60 @@ window.BENCHMARK_DATA = {
             "value": 23.058780744464084,
             "unit": "median tps",
             "extra": "avg tps: 39.05826085964291, max tps: 528.2224432560283, count: 59236"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "isaacjvandoren@gmail.com",
+            "name": "Isaac Van Doren",
+            "username": "isaacvando"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "16e0303417a0da7f025620a3398b2e013f7c5ea5",
+          "message": "ci: Use runs-on/action to properly configure runs-on's caching (#6195)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThis is the proper way to configure runs-on's cache that makes it work\nwithout us having to use workarounds for artifact uploads.\nhttps://runs-on.com/docs/performance/caching/actions/\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-09-02T18:38:12-07:00",
+          "tree_id": "eb77cd149f35313e59ebac99cca0a58dbc2991a7",
+          "url": "https://github.com/paradedb/paradedb/commit/16e0303417a0da7f025620a3398b2e013f7c5ea5"
+        },
+        "date": 1788401716429,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3840.1148169670214,
+            "unit": "median tps",
+            "extra": "avg tps: 3832.6207425481293, max tps: 4768.481441948632, count: 59245"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4585.721200755012,
+            "unit": "median tps",
+            "extra": "avg tps: 4591.629630642693, max tps: 6177.579940780174, count: 59245"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 95.38195362606515,
+            "unit": "median tps",
+            "extra": "avg tps: 188.24217654376784, max tps: 3086.754151452827, count: 59245"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 23.306476801000358,
+            "unit": "median tps",
+            "extra": "avg tps: 39.934099491506075, max tps: 589.8470554627094, count: 59245"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 23.309950641354625,
+            "unit": "median tps",
+            "extra": "avg tps: 39.99416639922608, max tps: 580.2015669703461, count: 59245"
           }
         ]
       }

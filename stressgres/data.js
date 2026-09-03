@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788399471357,
+  "lastUpdate": 1788399479266,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -324972,6 +324972,96 @@ window.BENCHMARK_DATA = {
             "value": 45.0234375,
             "unit": "median mem",
             "extra": "avg mem: 45.79278226422785, max mem: 52.85546875, count: 58881"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "zey8840@naver.com",
+            "name": "Tal",
+            "username": "taljeon"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8af80204b038b585a96131b5b21522493263afca",
+          "message": "test: cover JoinScan NULL predicate ordering in qgen (#6199)\n\n# Ticket(s) Closed\n\n- Progresses #6194. This is an umbrella issue and should remain open.\n\n## What\n\n- Add nullable `quantity IS NULL` and `quantity IS NOT NULL` ordering\nvariants to the existing `generated_joinscan` property test.\n- Move JoinScan ordering generation into a dedicated helper that emits\nonly valid combinations.\n- Remove the superseded `join_order_by_is_null` SQL and expected-output\nfiles.\n\n## Why\n\nThe fixed regression's NULL-valued companies have no matching rows, so\nits result blocks do not exercise joined NULL values. The qgen test\ndoes: it verifies both that the generated query uses `ParadeDB Join\nScan` and that its results match PostgreSQL over randomized joins,\npredicates, limits, GUCs, and data.\n\nThe property test uses the indexed nullable integer `quantity` column,\navoiding text-collation constraints while covering both NULL predicate\nforms with deterministic `quantity` and ID tie-breakers.\n\n## How\n\n`arb_joinscan_order_parts` explicitly represents all six previously\nvalid non-DISTINCT ordering states: regular columns, `upper(category)`,\nboth quantity NULL predicates, and both combinations of\n`upper(category)` with a NULL predicate. Each state includes the\nappropriate deterministic tie-breakers.\n\nDISTINCT is passed directly to the generator as a projection\nrestriction, which emits ordinary projected columns only. This removes\nthe intertwined booleans and rejected cases from the test body. Because\nqgen now owns both plan selection and result parity for #4751, the fixed\nSQL and expected-output files are removed entirely.\n\n## Tests\n\n- `cargo fmt --all -- --check`\n- `cargo clippy --package tests --test qgen -- -D warnings`\n- `cargo test --package tests --lib` — 16 passed\n- `cargo test --package tests --test qgen --no-run`\n- Focused local property validation of the NULL-ordering path, excluding\nthe pre-existing cross-relation planner path — 128/128 cases passed\nagainst the official ParadeDB 0.25.6 image in a C-locale PostgreSQL\ncluster. The temporary local filter is not part of the commit.\n- `rg -n 'join_order_by_is_null' pg_search tests` — no remaining\nreferences\n- `git diff --check`\n\nUnfiltered runs against the published image reached the existing\ncross-relation planner error (`variable not found in subplan target\nlist`) with both regular and nullable ordering. The focused run excluded\nthat unchanged heap-condition path; this PR does not alter\ncross-relation generation or planner behavior.\n\nAI assistance: OpenAI Codex helped prepare and validate this change.\n\n---------\n\nCo-authored-by: taljeon <taljeon@users.noreply.github.com>",
+          "timestamp": "2026-09-02T18:00:43-07:00",
+          "tree_id": "0ee699e6d518c7698e80492a223f374757b9062b",
+          "url": "https://github.com/paradedb/paradedb/commit/8af80204b038b585a96131b5b21522493263afca"
+        },
+        "date": 1788399475627,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 63.9375,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 63.852416184215, max partition_index_size:MB: 99.3828125, count: 58771"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.334953,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.297986508694216, max cpu: 33.168808, count: 58771"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 45.5546875,
+            "unit": "median mem",
+            "extra": "avg mem: 46.3361939242994, max mem: 53.73046875, count: 58771"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.460411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.970879111994435, max cpu: 33.300297, count: 58771"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 54.30078125,
+            "unit": "median mem",
+            "extra": "avg mem: 58.282910377248136, max mem: 84.0625, count: 58771"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.453471,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.64072361857138, max cpu: 28.642467, count: 58771"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 54.05859375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.823404612819246, max mem: 68.59375, count: 58771"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.44895,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.896978294630287, max cpu: 33.217995, count: 58771"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 52.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.82512447678277, max mem: 60.53125, count: 58771"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.205629712644935, max cpu: 32.973503, count: 58771"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 44.90625,
+            "unit": "median mem",
+            "extra": "avg mem: 45.70271842990165, max mem: 52.48828125, count: 58771"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788436173282,
+  "lastUpdate": 1788436185487,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -325630,6 +325630,60 @@ window.BENCHMARK_DATA = {
             "value": 37.18937883905619,
             "unit": "median tps",
             "extra": "avg tps: 58.47190406307008, max tps: 561.8000168849569, count: 58760"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cce20d6d0bc7b2f5947c0cabc203f279bec7cbcc",
+          "message": "fix: Join Scan composite ORDER BY on nullable key returned wrong top-K rows (#5981)\n\n# Ticket(s) Closed\n\n- Closes #5567\n\n## What\n\nComposite ORDER BY with a nullable deferred first key returned the wrong\ntop-K rows in ParadeDB Join Scan (rows emitted in insertion order\ninstead of the correct lex sort).\n\n## Why\n\nIn `SegmentedTopKExec::collect_batch`, one `pass_through_scratch` bitmap\nis shared across every deferred sort column. A NULL in any single\ndeferred column marks the whole row pass-through, and `emit_final_topk`\nthen substitutes `typed_null(sort_col)` for every deferred column,\ncollapsing the sort key to `(NULL, NULL, ...)`. Stable sort of identical\nkeys emits in insertion order.\n\n## How\n\nSplit `pass_through_rows` from `Vec<(usize, usize)>` into a struct\ncarrying per-column term ordinals + source `SegmentOrdinal`.\n`collect_batch` captures the ordinals from the already-computed\n`deferred_ords` map. `emit_final_topk` resolves each deferred column\nindependently via a shared `materialize_deferred_ordinal` helper.\n\n`resolve_global_threshold_values` is left alone (returns Err instead of\ntyped_null; different semantics, out of scope).\n\n## Tests\n\n`pg_search/tests/pg_regress/sql/issue_5567.sql` runs the ticket's\nminimal repro under `paradedb.enable_join_custom_scan = off` (baseline)\nand `= on` (fix path); post-fix the two outputs agree.\n\n---------\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2026-09-03T16:42:18+05:30",
+          "tree_id": "d80fc57f9fd2cce8448e0e54298ccce3effe7c75",
+          "url": "https://github.com/paradedb/paradedb/commit/cce20d6d0bc7b2f5947c0cabc203f279bec7cbcc"
+        },
+        "date": 1788436172025,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 35.116622795117564,
+            "unit": "median tps",
+            "extra": "avg tps: 54.60244183225073, max tps: 532.1714687854085, count: 58770"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 18.267679208110955,
+            "unit": "median tps",
+            "extra": "avg tps: 29.233390174822286, max tps: 349.06916779379645, count: 58770"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 84.71530594054741,
+            "unit": "median tps",
+            "extra": "avg tps: 145.74781321820822, max tps: 1169.1883558738884, count: 58770"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 19.04692684758233,
+            "unit": "median tps",
+            "extra": "avg tps: 29.327387302590562, max tps: 274.84596366899024, count: 58770"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 36.73526015715255,
+            "unit": "median tps",
+            "extra": "avg tps: 57.61715765410654, max tps: 541.7839870866561, count: 58770"
           }
         ]
       }

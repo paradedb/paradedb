@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788398410276,
+  "lastUpdate": 1788398418580,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -191694,6 +191694,126 @@ window.BENCHMARK_DATA = {
             "value": 27.99609375,
             "unit": "median mem",
             "extra": "avg mem: 27.972724358906802, max mem: 28.546875, count: 59303"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "zey8840@naver.com",
+            "name": "Tal",
+            "username": "taljeon"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8af80204b038b585a96131b5b21522493263afca",
+          "message": "test: cover JoinScan NULL predicate ordering in qgen (#6199)\n\n# Ticket(s) Closed\n\n- Progresses #6194. This is an umbrella issue and should remain open.\n\n## What\n\n- Add nullable `quantity IS NULL` and `quantity IS NOT NULL` ordering\nvariants to the existing `generated_joinscan` property test.\n- Move JoinScan ordering generation into a dedicated helper that emits\nonly valid combinations.\n- Remove the superseded `join_order_by_is_null` SQL and expected-output\nfiles.\n\n## Why\n\nThe fixed regression's NULL-valued companies have no matching rows, so\nits result blocks do not exercise joined NULL values. The qgen test\ndoes: it verifies both that the generated query uses `ParadeDB Join\nScan` and that its results match PostgreSQL over randomized joins,\npredicates, limits, GUCs, and data.\n\nThe property test uses the indexed nullable integer `quantity` column,\navoiding text-collation constraints while covering both NULL predicate\nforms with deterministic `quantity` and ID tie-breakers.\n\n## How\n\n`arb_joinscan_order_parts` explicitly represents all six previously\nvalid non-DISTINCT ordering states: regular columns, `upper(category)`,\nboth quantity NULL predicates, and both combinations of\n`upper(category)` with a NULL predicate. Each state includes the\nappropriate deterministic tie-breakers.\n\nDISTINCT is passed directly to the generator as a projection\nrestriction, which emits ordinary projected columns only. This removes\nthe intertwined booleans and rejected cases from the test body. Because\nqgen now owns both plan selection and result parity for #4751, the fixed\nSQL and expected-output files are removed entirely.\n\n## Tests\n\n- `cargo fmt --all -- --check`\n- `cargo clippy --package tests --test qgen -- -D warnings`\n- `cargo test --package tests --lib` — 16 passed\n- `cargo test --package tests --test qgen --no-run`\n- Focused local property validation of the NULL-ordering path, excluding\nthe pre-existing cross-relation planner path — 128/128 cases passed\nagainst the official ParadeDB 0.25.6 image in a C-locale PostgreSQL\ncluster. The temporary local filter is not part of the commit.\n- `rg -n 'join_order_by_is_null' pg_search tests` — no remaining\nreferences\n- `git diff --check`\n\nUnfiltered runs against the published image reached the existing\ncross-relation planner error (`variable not found in subplan target\nlist`) with both regular and nullable ordering. The focused run excluded\nthat unchanged heap-condition path; this PR does not alter\ncross-relation generation or planner behavior.\n\nAI assistance: OpenAI Codex helped prepare and validate this change.\n\n---------\n\nCo-authored-by: taljeon <taljeon@users.noreply.github.com>",
+          "timestamp": "2026-09-02T18:00:43-07:00",
+          "tree_id": "0ee699e6d518c7698e80492a223f374757b9062b",
+          "url": "https://github.com/paradedb/paradedb/commit/8af80204b038b585a96131b5b21522493263afca"
+        },
+        "date": 1788398398720,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 14.069371,
+            "unit": "median cpu",
+            "extra": "avg cpu: 15.420511127525007, max cpu: 38.114143, count: 59306"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 42.3203125,
+            "unit": "median mem",
+            "extra": "avg mem: 42.29079787194803, max mem: 42.3203125, count: 59306"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.685212,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.768996606123254, max cpu: 38.076355, count: 59306"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 20.76171875,
+            "unit": "median mem",
+            "extra": "avg mem: 20.758750432081072, max mem: 20.76171875, count: 59306"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.68979,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.385120147825867, max cpu: 18.805092, count: 59306"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 43.17578125,
+            "unit": "median mem",
+            "extra": "avg mem: 43.144740045273664, max mem: 43.17578125, count: 59306"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16475,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17149.24002630425, max block_count: 33982.0, count: 59306"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6624575,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.608277193492991, max cpu: 4.6624575, count: 59306"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 21.44140625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.435201210143155, max mem: 21.44140625, count: 59306"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 27.35097629244933, max segment_count: 51.0, count: 59306"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.384164,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.913252845270625, max cpu: 28.444445, count: 59306"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 41.50390625,
+            "unit": "median mem",
+            "extra": "avg mem: 41.498385096996934, max mem: 41.50390625, count: 59306"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.315866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.894972261875793, max cpu: 38.076355, count: 118612"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 43.796875,
+            "unit": "median mem",
+            "extra": "avg mem: 42.963273372424375, max mem: 45.609375, count: 118612"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.411765,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.791626081511986, max cpu: 23.199614, count: 59306"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 28.546875,
+            "unit": "median mem",
+            "extra": "avg mem: 28.189463992892794, max mem: 28.83984375, count: 59306"
           }
         ]
       }

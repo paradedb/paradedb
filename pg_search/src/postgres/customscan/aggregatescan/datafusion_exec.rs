@@ -287,7 +287,8 @@ pub async fn build_join_aggregate_plan(
 
     // Step 4: Apply aggregate, then HAVING (post-aggregate)
     let pdb_plan = (!pdb_entries.is_empty())
-        .then(|| PdbAggPlan::build(&pdb_entries, group_exprs.len(), agg_exprs.len()));
+        .then(|| PdbAggPlan::build(&pdb_entries, group_exprs.len(), agg_exprs.len()))
+        .transpose()?;
     let (having_expr, pdb_root_having) = match (&pdb_plan, group_exprs.is_empty()) {
         (Some(_), true) => (None, having_expr),
         _ => (having_expr, None),

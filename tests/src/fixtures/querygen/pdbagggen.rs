@@ -15,12 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Generates `pdb.agg()` specs over joins together with the SQL `GROUP BY` that
-//! computes the same buckets. `pdb.agg()` has no Postgres fallback, so the SQL
+//! Generates `pdb.agg()` specs together with the SQL `GROUP BY` that computes the
+//! same buckets. `pdb.agg()` has no Postgres fallback, so over a join the SQL
 //! query is the oracle: its rows, and the JSON buckets flattened the same way,
-//! must be equal. `missing`, `min_doc_count`, `order` by a metric, and a `size`
-//! on a nested level have no SQL translation here and are left to the
-//! regression tests.
+//! must be equal. On a single table the other backend is the oracle instead, and
+//! the documents themselves are compared. `missing`, `min_doc_count`, and `order`
+//! by a metric have no SQL translation here and are left to the regression tests.
 
 use proptest::prelude::*;
 use serde_json::{Value, json};
@@ -82,9 +82,8 @@ pub struct PdbAggExpr {
     pub outer_group: Option<String>,
     /// `terms` levels, outermost first. Empty for a spec that is one metric.
     pub terms: Vec<String>,
-    /// A `size` cut under the default `_count desc` order. Only on a single level
-    /// without an outer group, where SQL can express the same top-N.
-    pub size: Option<u32>,
+    /// A `size` cut on one level, under the default `_count desc` order.
+    pub size: Option<(usize, u32)>,
     /// Metrics under the innermost level; the whole spec when there are no levels.
     pub metrics: Vec<Metric>,
 }
@@ -110,7 +109,9 @@ impl PdbAggExpr {
         let mut node = Value::Null;
         for (level, field) in self.terms.iter().enumerate().rev() {
             let terms = match self.size {
-                Some(size) if level == 0 => json!({ "field": field, "size": size }),
+                Some((cut_level, size)) if level == cut_level => {
+                    json!({ "field": field, "size": size })
+                }
                 _ => json!({ "field": field, "size": NO_CUT, "order": { "_key": "asc" } }),
             };
             let aggs = if node.is_null() {
@@ -127,19 +128,27 @@ impl PdbAggExpr {
         format!("level{level}")
     }
 
-    pub fn pdb_query(&self, join_clause: &str, where_clause: &str) -> String {
-        let spec = self.spec().to_string().replace('\'', "''");
+    /// The `pdb.agg()` call with the spec as its literal.
+    pub fn call(&self) -> String {
+        format!("pdb.agg('{}')", self.spec().to_string().replace('\'', "''"))
+    }
+
+    pub fn pdb_query(&self, from_clause: &str, where_clause: &str) -> String {
+        let call = self.call();
         match &self.outer_group {
-            Some(group) => format!(
-                "SELECT {group}, pdb.agg('{spec}') {join_clause} WHERE {where_clause} GROUP BY {group}"
-            ),
-            None => format!("SELECT pdb.agg('{spec}') {join_clause} WHERE {where_clause}"),
+            Some(group) => {
+                format!(
+                    "SELECT {group}, {call} {from_clause} WHERE {where_clause} GROUP BY {group}"
+                )
+            }
+            None => format!("SELECT {call} {from_clause} WHERE {where_clause}"),
         }
     }
 
     /// The `GROUP BY` that yields one row per innermost bucket, in the column order
-    /// [`Self::rows`] flattens the JSON into.
-    pub fn pg_query(&self, join_clause: &str, where_clause: &str) -> String {
+    /// [`Self::rows`] flattens the JSON into. Only a cut on a lone top level has a
+    /// SQL form.
+    pub fn pg_query(&self, from_clause: &str, where_clause: &str) -> String {
         let keys: Vec<&str> = self
             .outer_group
             .iter()
@@ -152,13 +161,14 @@ impl PdbAggExpr {
         }
         select.extend(self.metrics.iter().map(|m| m.kind.sql(&m.field)));
         let mut sql = format!(
-            "SELECT {} {join_clause} WHERE {where_clause}",
+            "SELECT {} {from_clause} WHERE {where_clause}",
             select.join(", ")
         );
         if !keys.is_empty() {
             sql.push_str(&format!(" GROUP BY {}", keys.join(", ")));
         }
-        if let Some(size) = self.size {
+        if let Some((cut_level, size)) = self.size {
+            assert_eq!(cut_level, 0, "SQL can only mirror a cut on the top level");
             // Tantivy breaks count ties on the key and puts the NULL bucket last.
             sql.push_str(&format!(
                 " ORDER BY COUNT(*) DESC, {} ASC NULLS LAST LIMIT {size}",
@@ -187,6 +197,21 @@ impl PdbAggExpr {
             }
         }
         Ok(out)
+    }
+
+    /// The SQL group value and the `pdb.agg()` document of each row of
+    /// [`Self::pdb_query`], as they are.
+    pub fn documents(&self, rows: Vec<PgRow>) -> Result<Vec<(String, Value)>, sqlx::Error> {
+        rows.iter()
+            .map(|row| {
+                let group = if self.outer_group.is_some() {
+                    column_string(row, 0)
+                } else {
+                    String::new()
+                };
+                Ok((group, row.try_get::<Value, _>(row.len() - 1)?))
+            })
+            .collect()
     }
 
     fn flatten(&self, node: &Value, level: usize, prefix: &mut Vec<String>, out: &mut Vec<String>) {
@@ -249,6 +274,17 @@ fn json_string(value: &Value) -> String {
     }
 }
 
+/// What the oracle of a test can express, which bounds the specs it gets.
+#[derive(Clone, Copy)]
+struct SpecShape {
+    /// A SQL `GROUP BY` always sits beside the call.
+    grouped: bool,
+    /// NUMERIC columns may be metric fields.
+    numeric_metrics: bool,
+    /// A `size` may cut any level, not only a lone top level under no group.
+    size_anywhere: bool,
+}
+
 /// A join over a prefix of `tables` and a `pdb.agg()` whose fields belong to
 /// those tables. `key_columns` are the join keys; `terms` keys come from the
 /// text and integer columns, metrics from the integer and NUMERIC ones.
@@ -256,19 +292,42 @@ pub fn arb_pdb_agg_join(
     tables: Vec<String>,
     key_columns: Vec<String>,
 ) -> impl Strategy<Value = (JoinExpr, PdbAggExpr)> {
+    let shape = SpecShape {
+        grouped: false,
+        numeric_metrics: true,
+        size_anywhere: false,
+    };
     (2..=tables.len()).prop_flat_map(move |num_tables| {
         let joined: Vec<String> = tables[..num_tables].to_vec();
         // The planner cannot see the fields inside a spec, so it removes an outer
         // join whose table nothing else reads, and the spec then names a table
         // that is gone. Inner joins are never removed.
         let join = arb_joins(Just(JoinType::Inner), joined.clone(), key_columns.clone());
-        (join, arb_pdb_agg(joined))
+        (join, arb_pdb_agg(joined, shape))
     })
 }
 
-fn arb_pdb_agg(tables: Vec<String>) -> impl Strategy<Value = PdbAggExpr> {
-    let first_table = tables[0].clone();
+/// A `pdb.agg()` over one table, with bare field names, beside a SQL `GROUP BY`.
+/// The group is what lets a query be routed to either backend, and with the
+/// backends as each other's oracle a `size` may cut any level. NUMERIC fields
+/// stay out, since only one backend reads them.
+pub fn arb_pdb_agg_single_table() -> impl Strategy<Value = PdbAggExpr> {
+    arb_pdb_agg(
+        Vec::new(),
+        SpecShape {
+            grouped: true,
+            numeric_metrics: false,
+            size_anywhere: true,
+        },
+    )
+}
+
+/// Fields are qualified by each of `tables`, or bare when there are none.
+fn arb_pdb_agg(tables: Vec<String>, shape: SpecShape) -> impl Strategy<Value = PdbAggExpr> {
     let qualify = |columns: &[&str]| -> Vec<String> {
+        if tables.is_empty() {
+            return columns.iter().map(|c| c.to_string()).collect();
+        }
         tables
             .iter()
             .flat_map(|t| columns.iter().map(move |c| format!("{t}.{c}")))
@@ -276,7 +335,13 @@ fn arb_pdb_agg(tables: Vec<String>) -> impl Strategy<Value = PdbAggExpr> {
     };
     // `color` and `quantity` carry NULLs, which become a bucket of their own.
     let key_fields = qualify(&["color", "age", "quantity"]);
-    let metric_fields = qualify(&["age", "quantity", "price"]);
+    let int_fields = qualify(&["age", "quantity"]);
+    let metric_fields = if shape.numeric_metrics {
+        qualify(&["age", "quantity", "price"])
+    } else {
+        int_fields.clone()
+    };
+    let default_metric_field = int_fields[0].clone();
     let kinds = [
         MetricKind::Sum,
         MetricKind::Min,
@@ -286,7 +351,6 @@ fn arb_pdb_agg(tables: Vec<String>) -> impl Strategy<Value = PdbAggExpr> {
     ];
     // An average divides in floating point on both sides only for an integer
     // field; Postgres averages NUMERIC exactly, where the join path rounds twice.
-    let int_fields = qualify(&["age", "quantity"]);
     let metric = prop_oneof![
         3 => (
             proptest::sample::select(kinds.to_vec()),
@@ -294,11 +358,18 @@ fn arb_pdb_agg(tables: Vec<String>) -> impl Strategy<Value = PdbAggExpr> {
         ),
         1 => (Just(MetricKind::Avg), proptest::sample::select(int_fields)),
     ];
+    let outer_group = if shape.grouped {
+        proptest::sample::select(key_fields.clone())
+            .prop_map(Some)
+            .boxed()
+    } else {
+        proptest::option::weighted(0.3, proptest::sample::select(key_fields.clone())).boxed()
+    };
 
     (
-        proptest::option::weighted(0.3, proptest::sample::select(key_fields.clone())),
+        outer_group,
         proptest::sample::subsequence(key_fields, 0..=2),
-        proptest::option::weighted(0.4, 1..4u32),
+        proptest::option::weighted(0.4, (0..2usize, 1..4u32)),
         proptest::collection::vec(metric, 0..=3),
     )
         .prop_map(move |(outer_group, terms, size, metrics)| {
@@ -318,11 +389,15 @@ fn arb_pdb_agg(tables: Vec<String>) -> impl Strategy<Value = PdbAggExpr> {
                     metrics.push(Metric {
                         name: "m0".to_string(),
                         kind: MetricKind::ValueCount,
-                        field: format!("{first_table}.age"),
+                        field: default_metric_field.clone(),
                     });
                 }
             }
-            let size = size.filter(|_| terms.len() == 1 && outer_group.is_none());
+            let size = size.filter(|&(level, _)| {
+                level < terms.len()
+                    && (shape.size_anywhere
+                        || (level == 0 && terms.len() == 1 && outer_group.is_none()))
+            });
             PdbAggExpr {
                 outer_group,
                 terms,

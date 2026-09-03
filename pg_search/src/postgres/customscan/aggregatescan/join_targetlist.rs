@@ -23,20 +23,16 @@
 //! of [`super::targetlist::TargetList`] (which assumes a single base relation).
 
 use super::GroupingShape;
-use super::datafusion_build::{FilterExprBuildContext, JoinAggSource, collect_join_agg_sources};
+use super::datafusion_build::{
+    FilterExprBuildContext, JoinAggSource, collect_join_agg_sources, resolve_source_field,
+};
 use super::pdb_agg::{PdbAggFieldRef, PdbAggRequest};
 use super::privdat::FilterExpr;
-use crate::api::{FieldName, HashMap, SortDirection, pdb_agg_spec};
-use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::SearchIndexReader;
+use crate::api::{HashMap, SortDirection, pdb_agg_spec};
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::customscan::datafusion::explain::get_attname_safe;
 use crate::postgres::customscan::joinscan::build::RelationAlias;
-use crate::postgres::customscan::pullup::field_type_for_pullup;
-use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::utils::FieldSource;
 use crate::postgres::var::{VarContext, find_one_aggref, find_one_var_and_fieldname};
-use crate::query::SearchQueryInput;
 use crate::schema::SearchFieldType;
 use pgrx::PgList;
 use pgrx::pg_sys;
@@ -48,7 +44,6 @@ use pgrx::pg_sys::{
     F_MIN_TIME, F_MIN_TIMESTAMP, F_MIN_TIMESTAMPTZ, F_MIN_TIMETZ, F_SUM_FLOAT4, F_SUM_FLOAT8,
     F_SUM_INT2, F_SUM_INT4, F_SUM_INT8, F_SUM_NUMERIC,
 };
-use tantivy::columnar::ColumnType;
 
 /// Look up a join source by RTI, returning a uniform error message that
 /// names the calling context (e.g. "GROUP BY column", "aggregate argument").
@@ -699,158 +694,15 @@ unsafe fn lower_pdb_agg(
         .and_then(|spec_arg| pdb_agg_spec((*aggref).aggfnoid.to_u32(), spec_arg, arg_expr(1)))
         .ok_or("pdb.agg argument must be a constant for aggregate pushdown")?;
     PdbAggRequest::lower(spec, visibility, &|field| {
-        resolve_join_field(sources, field)
+        let resolved = resolve_source_field(sources, field)?;
+        Ok(PdbAggFieldRef {
+            rti: resolved.source.rti,
+            attno: resolved.attno,
+            field_name: resolved.field_name,
+            field_type: resolved.field_type,
+            plan_position: 0,
+        })
     })
-}
-
-/// The field as `source`'s index knows it. `Ok(None)` when the index has no
-/// such fast field, `Err` when it has one the backend cannot read, so the
-/// user learns why rather than being told the field does not exist.
-/// Resolution goes through the index schema, since a spec names index
-/// fields and those can be aliases of a column. The gates match the GROUP BY
-/// column resolver: expression-indexed and array columns are turned down,
-/// and a JSON column is only reachable through a dotted sub-field.
-fn lookup_join_field(
-    source: &JoinAggSource,
-    field: &str,
-) -> Result<Option<(pg_sys::AttrNumber, SearchFieldType)>, String> {
-    let Some(indexrel) = source.bm25_index.as_ref() else {
-        return Ok(None);
-    };
-    let Some(schema) = indexrel.schema().ok() else {
-        return Ok(None);
-    };
-    let root = FieldName::from(field).root();
-    let categorized = schema.categorized_fields();
-    let Some((search_field, data)) = categorized
-        .iter()
-        .find(|(sf, _)| sf.field_name().as_ref() == root && sf.is_fast())
-    else {
-        return Ok(None);
-    };
-    let FieldSource::Heap { attno } = data.source else {
-        return Err(format!(
-            "Aggregation field '{field}' is an expression index, which cannot be read \
-             back as a column"
-        ));
-    };
-    if data.is_array {
-        return Err(format!(
-            "Aggregation field '{field}' is an array, which is not supported over joins"
-        ));
-    }
-    let field_type = if field == root {
-        match field_type_for_pullup(search_field.field_type(), false) {
-            Some(field_type) => field_type,
-            None if data.is_json => {
-                return Err(format!(
-                    "Aggregation field '{field}' is a JSON column; name a sub-field, as in \
-                     '{field}.key'"
-                ));
-            }
-            None => return Ok(None),
-        }
-    } else {
-        check_json_sub_field_is_text(indexrel, field)?;
-        search_field.field_type()
-    };
-    Ok(Some((attno as pg_sys::AttrNumber + 1, field_type)))
-}
-
-/// The scan reads every JSON sub-field as text, while the index stores each
-/// sub-field in the type of its values. A numeric sub-field would come back
-/// as numbers and fail the scan's schema at execution, so it is turned down
-/// here. Only the column metadata is read; no values are loaded.
-fn check_json_sub_field_is_text(indexrel: &PgSearchRelation, field: &str) -> Result<(), String> {
-    let reader = SearchIndexReader::open(
-        indexrel,
-        SearchQueryInput::All,
-        false,
-        MvccSatisfies::Snapshot,
-    )
-    .map_err(|e| format!("could not open index to inspect field '{field}': {e}"))?;
-    for segment in reader.segment_readers() {
-        let handles = segment
-            .fast_fields()
-            .dynamic_column_handles(field)
-            .map_err(|e| format!("could not inspect field '{field}': {e}"))?;
-        if let Some(handle) = handles
-            .iter()
-            .find(|handle| handle.column_type() != ColumnType::Str)
-        {
-            return Err(format!(
-                "Aggregation field '{field}' is a JSON sub-field holding {} values, which is \
-                 not supported over joins",
-                handle.column_type()
-            ));
-        }
-    }
-    Ok(())
-}
-
-/// The sources that carry `field`, and the reasons the others turned it down.
-fn join_field_candidates<'a>(
-    sources: &'a [JoinAggSource],
-    field: &str,
-) -> (
-    Vec<(&'a JoinAggSource, pg_sys::AttrNumber, SearchFieldType)>,
-    Vec<String>,
-) {
-    let mut matches = Vec::new();
-    let mut reasons = Vec::new();
-    for source in sources {
-        match lookup_join_field(source, field) {
-            Ok(Some((attno, field_type))) => matches.push((source, attno, field_type)),
-            Ok(None) => {}
-            Err(reason) => reasons.push(reason),
-        }
-    }
-    (matches, reasons)
-}
-
-/// Resolve a spec field name against the join sources.
-///
-/// A bare name must match exactly one indexed table. `alias.field` picks the
-/// table when the same field name exists in several; the bare lookup runs first
-/// because an index field name can itself contain a dot (a JSON sub-field).
-fn resolve_join_field(sources: &[JoinAggSource], field: &str) -> Result<PdbAggFieldRef, String> {
-    let (mut candidates, mut reasons) = join_field_candidates(sources, field);
-    let mut field_name = field.to_string();
-    if candidates.is_empty()
-        && let Some((prefix, rest)) = field.split_once('.')
-    {
-        let (qualified, qualified_reasons) = join_field_candidates(sources, rest);
-        candidates = qualified
-            .into_iter()
-            .filter(|(source, _, _)| {
-                RelationAlias::new(source.alias.as_deref()).display(source.rti as usize) == prefix
-            })
-            .collect();
-        reasons.extend(qualified_reasons);
-        field_name = rest.to_string();
-    }
-    match candidates.len() {
-        0 => Err(reasons.into_iter().next().unwrap_or_else(|| {
-            format!(
-                "Aggregation references invalid field '{field}'. The field must be a fast \
-                 field of an indexed table in the query."
-            )
-        })),
-        1 => {
-            let (source, attno, field_type) = candidates.remove(0);
-            Ok(PdbAggFieldRef {
-                rti: source.rti,
-                attno,
-                field_name,
-                field_type,
-                plan_position: 0,
-            })
-        }
-        _ => Err(format!(
-            "Aggregation field '{field}' exists in more than one table. Qualify it with the \
-             table alias, as in 'alias.{field}'."
-        )),
-    }
 }
 
 /// Extract the separator string from a STRING_AGG's second argument.

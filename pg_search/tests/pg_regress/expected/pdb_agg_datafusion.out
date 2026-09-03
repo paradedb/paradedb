@@ -351,7 +351,7 @@ ORDER BY color;
 SELECT pdb.agg('{"terms": {"field": "metadata.qty"}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes';
-ERROR:  Cannot execute pdb.agg: Aggregation field 'metadata.qty' is a JSON sub-field holding i64 values, which is not supported over joins
+ERROR:  Cannot execute pdb.agg: Field 'metadata.qty' is a JSON sub-field holding i64 values; only a text sub-field can be read as a column
 -- Test 1.17: NUMERIC fields as metrics and as terms keys
 SELECT pdb.agg('{"terms": {"field": "category", "order": {"_key": "asc"}}, "aggs": {"total": {"sum": {"field": "price_num"}}, "mean": {"avg": {"field": "price_num"}}, "lo": {"min": {"field": "price_num"}}, "hi": {"max": {"field": "price_num"}}, "n": {"cardinality": {"field": "price_num"}}}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id

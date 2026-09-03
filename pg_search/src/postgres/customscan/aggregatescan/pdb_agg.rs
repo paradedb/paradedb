@@ -132,7 +132,7 @@ fn check_field_type(
 /// The metric aggregations this backend runs, by the Tantivy intermediate each
 /// one finalizes through.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum PdbMetricKind {
+enum PdbMetricKind {
     Sum,
     Avg,
     Min,
@@ -200,7 +200,7 @@ fn metric_of(agg: &AggregationVariants) -> Option<(PdbMetricKind, &str, Option<K
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PdbAggRequest {
     pub agg: Aggregation,
-    pub fields: HashMap<String, PdbAggFieldRef>,
+    fields: HashMap<String, PdbAggFieldRef>,
     pub visibility: MvccVisibility,
     /// The spec as written, beside its parsed form: EXPLAIN prints it, and the
     /// result rewrites look their fields up by path in it.
@@ -408,7 +408,7 @@ pub enum PdbMetricSpec {
 
 /// Column bindings of one spec node into the DataFusion output.
 #[derive(Debug, Clone)]
-pub enum PdbAggNodeLayout {
+enum PdbAggNodeLayout {
     Terms {
         node_id: usize,
         level: usize,
@@ -432,8 +432,8 @@ pub enum PdbAggNodeLayout {
 /// One lowered `pdb.agg()` entry: its layout plus the request and what the
 /// result rewrites need.
 #[derive(Debug, Clone)]
-pub struct PdbAggEntryLayout {
-    pub root: PdbAggNodeLayout,
+struct PdbAggEntryLayout {
+    root: PdbAggNodeLayout,
     agg: Aggregation,
     agg_json: serde_json::Value,
     datetime_fields: HashSet<String>,
@@ -450,11 +450,15 @@ pub struct PdbAggPlan {
     /// Per level, positions into `[SQL group keys ++ keys]`. Level 0 is the SQL level.
     pub levels: Vec<Vec<usize>>,
     /// Per `pdb.agg()` entry, in target-list order.
-    pub entries: Vec<PdbAggEntryLayout>,
+    entries: Vec<PdbAggEntryLayout>,
     num_outer_group_cols: usize,
     num_std_aggs: usize,
     num_terms_nodes: usize,
 }
+
+/// One bit per grouping expression makes up `__grouping_id`, in DataFusion as
+/// well as here, so a query cannot group by more expressions than a `u64` holds.
+const MAX_GROUP_EXPRS: usize = 64;
 
 /// The index of `item` in `list`, appended when it is new.
 fn intern<T: Clone + Eq + Hash>(list: &mut Vec<T>, ids: &mut HashMap<T, usize>, item: T) -> usize {
@@ -560,7 +564,7 @@ impl PdbAggPlan {
         entries: &[(usize, &PdbAggRequest, bool)],
         num_outer_group_cols: usize,
         num_std_aggs: usize,
-    ) -> Self {
+    ) -> Result<Self> {
         let mut builder = PlanBuilder {
             plan: PdbAggPlan {
                 keys: Vec::new(),
@@ -596,9 +600,16 @@ impl PdbAggPlan {
                     .collect(),
             });
         }
+        let mut plan = builder.plan;
+        if plan.num_group_exprs() > MAX_GROUP_EXPRS {
+            return Err(DataFusionError::Plan(format!(
+                "the query groups by {} columns and pdb.agg() terms fields together; at most \
+                 {MAX_GROUP_EXPRS} are supported",
+                plan.num_group_exprs()
+            )));
+        }
         // Key and metric indices were interned relative to their own lists; rebase
         // them onto the final output columns now that every list is complete.
-        let mut plan = builder.plan;
         let entries = std::mem::take(&mut plan.entries);
         plan.entries = entries
             .into_iter()
@@ -607,7 +618,7 @@ impl PdbAggPlan {
                 ..entry
             })
             .collect();
-        plan
+        Ok(plan)
     }
 
     fn rebase(&self, layout: PdbAggNodeLayout) -> PdbAggNodeLayout {
@@ -654,7 +665,7 @@ impl PdbAggPlan {
     }
 
     /// Width of the SQL-level projection: the group keys and standard aggregates.
-    pub fn num_root_cols(&self) -> usize {
+    fn num_root_cols(&self) -> usize {
         self.num_outer_group_cols + self.num_std_aggs
     }
 
@@ -672,18 +683,18 @@ impl PdbAggPlan {
         self.has_grouping_sets().then_some(self.num_root_cols())
     }
 
-    pub fn key_col(&self, key_idx: usize) -> usize {
+    fn key_col(&self, key_idx: usize) -> usize {
         self.num_root_cols() + 1 + key_idx
     }
 
-    pub fn metric_col(&self, metric_idx: usize) -> usize {
+    fn metric_col(&self, metric_idx: usize) -> usize {
         let grouping_id = usize::from(self.has_grouping_sets());
         self.num_root_cols() + grouping_id + self.keys.len() + metric_idx
     }
 
     /// The `__grouping_id` DataFusion assigns to a level: one bit per grouping
     /// expression, most significant first, set when the expression is absent.
-    pub fn grouping_id_for_level(&self, level: usize) -> u64 {
+    fn grouping_id_for_level(&self, level: usize) -> u64 {
         let n = self.num_group_exprs();
         (0..n)
             .filter(|position| !self.levels[level].contains(position))
@@ -1130,7 +1141,7 @@ mod tests {
             }),
             &["a", "b", "v"],
         );
-        PdbAggPlan::build(&[(1, &spec, false)], 1, 1)
+        PdbAggPlan::build(&[(1, &spec, false)], 1, 1).expect("fits the grouping id")
     }
 
     #[test]
@@ -1175,7 +1186,8 @@ mod tests {
             &["a", "v"],
         );
         let filtered = request(json!({"sum": {"field": "v"}}), &["v"]);
-        let plan = PdbAggPlan::build(&[(0, &spec, false), (1, &filtered, true)], 0, 0);
+        let plan = PdbAggPlan::build(&[(0, &spec, false), (1, &filtered, true)], 0, 0)
+            .expect("fits the grouping id");
         let stat = |stat, entry_filter| PdbMetricSpec::Stat {
             stat,
             field: field("v"),
@@ -1199,10 +1211,17 @@ mod tests {
     #[test]
     fn metrics_without_terms_need_no_grouping_sets() {
         let spec = request(json!({"sum": {"field": "v"}}), &["v"]);
-        let plan = PdbAggPlan::build(&[(0, &spec, false)], 1, 0);
+        let plan = PdbAggPlan::build(&[(0, &spec, false)], 1, 0).expect("fits the grouping id");
         assert!(!plan.has_grouping_sets());
         assert_eq!(plan.grouping_id_col(), None);
         assert_eq!(plan.metric_col(0), 1);
+    }
+
+    #[test]
+    fn grouping_expressions_are_capped_at_the_id_width() {
+        let spec = request(json!({"terms": {"field": "a"}}), &["a"]);
+        assert!(PdbAggPlan::build(&[(0, &spec, false)], MAX_GROUP_EXPRS - 1, 0).is_ok());
+        assert!(PdbAggPlan::build(&[(0, &spec, false)], MAX_GROUP_EXPRS, 0).is_err());
     }
 
     #[test]

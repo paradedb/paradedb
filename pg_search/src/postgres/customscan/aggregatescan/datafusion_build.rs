@@ -30,14 +30,14 @@ use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::joinscan::build::{
     FilterNode, JoinKeyPair, JoinLevelExpr, JoinNode, JoinSource, JoinSourceCandidate, JoinType,
-    PlannerRootId, RelNode, lookup_base_rel_info, try_extract_equi_key,
+    PlannerRootId, RelNode, RelationAlias, lookup_base_rel_info, try_extract_equi_key,
 };
 use crate::postgres::customscan::joinscan::planning::{
     ClassifiedBaseRestrictInfo, classify_base_restrictinfo, transparent_path_subpath,
     wrap_with_semi_anti,
 };
 use crate::postgres::customscan::pullup::{
-    get_attno_by_name, resolve_fast_field, resolve_fast_field_by_name,
+    get_attno_by_name, resolve_fast_field, resolve_fast_field_by_name, resolve_index_field_by_name,
 };
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, QualExtractState, collect_implicit_and_conjuncts, contains_extern_param,
@@ -52,6 +52,7 @@ use crate::postgres::utils::{
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
 use crate::scan::info::FieldInfo;
+use crate::schema::SearchFieldType;
 use pgrx::{PgList, pg_sys};
 
 /// Result type for `extract_join_tree_from_parse`: the plan tree and raw PG Expr clause pointers.
@@ -98,6 +99,85 @@ impl JoinAggSource {
                 _ => Some(f.field.name()),
             })
     }
+}
+
+/// An index field name resolved to one of the join sources.
+pub struct ResolvedSourceField<'a> {
+    pub source: &'a JoinAggSource,
+    pub attno: pg_sys::AttrNumber,
+    /// The name as the index knows it, without a table qualifier.
+    pub field_name: String,
+    pub field_type: SearchFieldType,
+}
+
+/// Resolve an index field name against the join sources.
+///
+/// A bare name must match exactly one indexed table. `alias.field` picks the
+/// table when the same field name exists in several; the bare lookup runs first
+/// because an index field name can itself contain a dot (a JSON sub-field).
+pub fn resolve_source_field<'a>(
+    sources: &'a [JoinAggSource],
+    field: &str,
+) -> Result<ResolvedSourceField<'a>, String> {
+    let (mut candidates, mut reasons) = source_field_candidates(sources, field);
+    let mut field_name = field.to_string();
+    if candidates.is_empty()
+        && let Some((prefix, rest)) = field.split_once('.')
+    {
+        let (qualified, qualified_reasons) = source_field_candidates(sources, rest);
+        candidates = qualified
+            .into_iter()
+            .filter(|(source, _, _)| {
+                RelationAlias::new(source.alias.as_deref()).display(source.rti as usize) == prefix
+            })
+            .collect();
+        reasons.extend(qualified_reasons);
+        field_name = rest.to_string();
+    }
+    match candidates.len() {
+        0 => Err(reasons.into_iter().next().unwrap_or_else(|| {
+            format!(
+                "Aggregation references invalid field '{field}'. The field must be a fast \
+                 field of an indexed table in the query."
+            )
+        })),
+        1 => {
+            let (source, attno, field_type) = candidates.remove(0);
+            Ok(ResolvedSourceField {
+                source,
+                attno,
+                field_name,
+                field_type,
+            })
+        }
+        _ => Err(format!(
+            "Aggregation field '{field}' exists in more than one table. Qualify it with the \
+             table alias, as in 'alias.{field}'."
+        )),
+    }
+}
+
+/// The sources that carry `field`, and the reasons the others turned it down.
+fn source_field_candidates<'a>(
+    sources: &'a [JoinAggSource],
+    field: &str,
+) -> (
+    Vec<(&'a JoinAggSource, pg_sys::AttrNumber, SearchFieldType)>,
+    Vec<String>,
+) {
+    let mut matches = Vec::new();
+    let mut reasons = Vec::new();
+    for source in sources {
+        let Some(index) = source.bm25_index.as_ref() else {
+            continue;
+        };
+        match resolve_index_field_by_name(index, field) {
+            Ok(Some((attno, field_type))) => matches.push((source, attno, field_type)),
+            Ok(None) => {}
+            Err(reason) => reasons.push(reason),
+        }
+    }
+    (matches, reasons)
 }
 
 /// Walk every column in the heap tuple descriptor, resolving each through the

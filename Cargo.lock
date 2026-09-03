@@ -849,7 +849,7 @@ checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
 name = "benchmarks"
-version = "0.25.6"
+version = "0.25.7"
 dependencies = [
  "anyhow",
  "approx",
@@ -1206,6 +1206,19 @@ checksum = "374b7c592d9c00c1f4972ea58390ac6b18cbb6ab79011f3bdc90a0b82ca06b77"
 dependencies = [
  "serde",
  "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
+name = "cascade"
+version = "0.1.0"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e445bf90cb35e2befb6d046d65716d9faddfa340#e445bf90cb35e2befb6d046d65716d9faddfa340"
+dependencies = [
+ "fht",
+ "grid-plane",
+ "quant-model",
+ "rand_chacha 0.3.1",
+ "rand_core 0.6.4",
+ "sign-plane",
 ]
 
 [[package]]
@@ -2753,7 +2766,7 @@ checksum = "117240f60069e65410b3ae1bb213295bd828f707b5bec6596a1afc8793ce0cbc"
 
 [[package]]
 name = "dst"
-version = "0.25.6"
+version = "0.25.7"
 dependencies = [
  "antithesis-instrumentation",
  "antithesis_sdk",
@@ -3065,6 +3078,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e6853b52649d4ac5c0bd02320cddc5ba956bdb407c4b75a2c6b75bf51500f8c"
 dependencies = [
  "simd-adler32",
+]
+
+[[package]]
+name = "fht"
+version = "0.1.0"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e445bf90cb35e2befb6d046d65716d9faddfa340#e445bf90cb35e2befb6d046d65716d9faddfa340"
+dependencies = [
+ "rand_chacha 0.3.1",
+ "rand_core 0.6.4",
 ]
 
 [[package]]
@@ -3443,6 +3465,14 @@ dependencies = [
  "futures-core",
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "grid-plane"
+version = "0.1.0"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e445bf90cb35e2befb6d046d65716d9faddfa340#e445bf90cb35e2befb6d046d65716d9faddfa340"
+dependencies = [
+ "quant-model",
 ]
 
 [[package]]
@@ -4454,7 +4484,7 @@ dependencies = [
 
 [[package]]
 name = "macros"
-version = "0.25.6"
+version = "0.25.7"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4958,7 +4988,7 @@ dependencies = [
 [[package]]
 name = "ownedbytes"
 version = "0.9.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=c3caae3f613d5906c8080a3c3c2845190e749b64#c3caae3f613d5906c8080a3c3c2845190e749b64"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e445bf90cb35e2befb6d046d65716d9faddfa340#e445bf90cb35e2befb6d046d65716d9faddfa340"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -5068,7 +5098,7 @@ dependencies = [
 
 [[package]]
 name = "pg_search"
-version = "0.25.6"
+version = "0.25.7"
 dependencies = [
  "antithesis-instrumentation",
  "anyhow",
@@ -5762,7 +5792,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -5844,6 +5874,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f6d64c71eb498fe9eae14ce4ec935c555749aef511cca85b5568910d6e48001"
 dependencies = [
  "bytemuck",
+]
+
+[[package]]
+name = "quant-model"
+version = "0.1.0"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e445bf90cb35e2befb6d046d65716d9faddfa340#e445bf90cb35e2befb6d046d65716d9faddfa340"
+dependencies = [
+ "rand_chacha 0.3.1",
+ "rand_core 0.6.4",
 ]
 
 [[package]]
@@ -6590,6 +6629,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6057adedbec913419c92996f395ba69931acbd50b7d56955394cd3f7bedbfa45"
 
 [[package]]
+name = "sign-plane"
+version = "0.1.0"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e445bf90cb35e2befb6d046d65716d9faddfa340#e445bf90cb35e2befb6d046d65716d9faddfa340"
+dependencies = [
+ "quant-model",
+]
+
+[[package]]
 name = "signal-hook"
 version = "0.3.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6944,7 +6991,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "stressgres"
-version = "0.25.6"
+version = "0.25.7"
 dependencies = [
  "anyhow",
  "clap",
@@ -7041,8 +7088,8 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "superkmeans-rs"
-version = "0.1.0"
-source = "git+https://github.com/paradedb/superkmeans-rs?rev=b89e83196143acd518f1d8212ec1f53474e936d4#b89e83196143acd518f1d8212ec1f53474e936d4"
+version = "0.2.0"
+source = "git+https://github.com/paradedb/superkmeans-rs?rev=c06dc2b6e9bd15fb5c4a0627178bebbe1fb37a64#c06dc2b6e9bd15fb5c4a0627178bebbe1fb37a64"
 dependencies = [
  "matrixmultiply",
  "pkg-config",
@@ -7130,7 +7177,7 @@ checksum = "7b2093cf4c8eb1e67749a6762251bc9cd836b6fc171623bd0a9d324d37af2417"
 [[package]]
 name = "tantivy"
 version = "0.27.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=c3caae3f613d5906c8080a3c3c2845190e749b64#c3caae3f613d5906c8080a3c3c2845190e749b64"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e445bf90cb35e2befb6d046d65716d9faddfa340#e445bf90cb35e2befb6d046d65716d9faddfa340"
 dependencies = [
  "aho-corasick",
  "arc-swap",
@@ -7138,6 +7185,7 @@ dependencies = [
  "bitpacking",
  "bon",
  "byteorder",
+ "cascade",
  "census",
  "crc32fast",
  "crossbeam-channel",
@@ -7160,6 +7208,7 @@ dependencies = [
  "once_cell",
  "oneshot",
  "parking_lot",
+ "quant-model",
  "rayon",
  "regex",
  "rustc-hash",
@@ -7167,6 +7216,7 @@ dependencies = [
  "serde_json",
  "sketches-ddsketch 0.4.1",
  "smallvec",
+ "superkmeans-rs",
  "tantivy-bitpacker",
  "tantivy-columnar",
  "tantivy-common",
@@ -7187,7 +7237,7 @@ dependencies = [
 [[package]]
 name = "tantivy-bitpacker"
 version = "0.10.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=c3caae3f613d5906c8080a3c3c2845190e749b64#c3caae3f613d5906c8080a3c3c2845190e749b64"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e445bf90cb35e2befb6d046d65716d9faddfa340#e445bf90cb35e2befb6d046d65716d9faddfa340"
 dependencies = [
  "bitpacking",
 ]
@@ -7195,7 +7245,7 @@ dependencies = [
 [[package]]
 name = "tantivy-columnar"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=c3caae3f613d5906c8080a3c3c2845190e749b64#c3caae3f613d5906c8080a3c3c2845190e749b64"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e445bf90cb35e2befb6d046d65716d9faddfa340#e445bf90cb35e2befb6d046d65716d9faddfa340"
 dependencies = [
  "downcast-rs",
  "fastdivide",
@@ -7210,7 +7260,7 @@ dependencies = [
 [[package]]
 name = "tantivy-common"
 version = "0.11.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=c3caae3f613d5906c8080a3c3c2845190e749b64#c3caae3f613d5906c8080a3c3c2845190e749b64"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e445bf90cb35e2befb6d046d65716d9faddfa340#e445bf90cb35e2befb6d046d65716d9faddfa340"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -7243,7 +7293,7 @@ dependencies = [
 [[package]]
 name = "tantivy-query-grammar"
 version = "0.26.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=c3caae3f613d5906c8080a3c3c2845190e749b64#c3caae3f613d5906c8080a3c3c2845190e749b64"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e445bf90cb35e2befb6d046d65716d9faddfa340#e445bf90cb35e2befb6d046d65716d9faddfa340"
 dependencies = [
  "fnv",
  "nom 7.1.3",
@@ -7255,7 +7305,7 @@ dependencies = [
 [[package]]
 name = "tantivy-sstable"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=c3caae3f613d5906c8080a3c3c2845190e749b64#c3caae3f613d5906c8080a3c3c2845190e749b64"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e445bf90cb35e2befb6d046d65716d9faddfa340#e445bf90cb35e2befb6d046d65716d9faddfa340"
 dependencies = [
  "futures-util",
  "itertools 0.14.0",
@@ -7268,7 +7318,7 @@ dependencies = [
 [[package]]
 name = "tantivy-stacker"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=c3caae3f613d5906c8080a3c3c2845190e749b64#c3caae3f613d5906c8080a3c3c2845190e749b64"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e445bf90cb35e2befb6d046d65716d9faddfa340#e445bf90cb35e2befb6d046d65716d9faddfa340"
 dependencies = [
  "fixedbitset",
  "murmurhash32",
@@ -7305,7 +7355,7 @@ dependencies = [
 [[package]]
 name = "tantivy-tokenizer-api"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=c3caae3f613d5906c8080a3c3c2845190e749b64#c3caae3f613d5906c8080a3c3c2845190e749b64"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e445bf90cb35e2befb6d046d65716d9faddfa340#e445bf90cb35e2befb6d046d65716d9faddfa340"
 dependencies = [
  "serde",
 ]
@@ -7334,7 +7384,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",
@@ -7342,7 +7392,7 @@ dependencies = [
 
 [[package]]
 name = "tests"
-version = "0.25.6"
+version = "0.25.7"
 dependencies = [
  "anyhow",
  "approx",
@@ -7506,7 +7556,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokenizers"
-version = "0.25.6"
+version = "0.25.7"
 dependencies = [
  "anyhow",
  "emojis",

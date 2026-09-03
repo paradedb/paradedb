@@ -110,17 +110,63 @@ pub enum SearchFieldConfig {
         fast: bool,
     },
     Facet,
+    /// A vector field.
     Vector {
-        dims: usize,
+        /// Quantization schedule.
+        #[serde(default)]
+        quantization: Option<VectorQuantizationConfig>,
     },
+}
+
+/// Minimum vector dimension for default or explicitly enabled quantization.
+pub const MIN_QUANTIZATION_DIMENSIONS: usize = 64;
+
+/// A vector field's quantization schedule.
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum VectorQuantizationConfig {
+    /// Enables the default schedule when true.
+    Enabled(bool),
+    /// Specifies layer widths in scoring order.
+    Explicit { layers: Vec<u8> },
+}
+
+impl VectorQuantizationConfig {
+    /// Returns the enabled layer widths.
+    pub fn layers(&self) -> Option<Vec<u8>> {
+        match self {
+            Self::Enabled(false) => None,
+            Self::Enabled(true) => Some(vec![1, 1]),
+            Self::Explicit { layers } => Some(layers.clone()),
+        }
+    }
+
+    fn validate(&self) -> Result<()> {
+        let Some(layers) = self.layers() else {
+            return Ok(());
+        };
+        if !(1..=3).contains(&layers.len()) {
+            anyhow::bail!("quantization layer count {} must be in 1..=3", layers.len());
+        }
+        for (layer, bits) in layers.into_iter().enumerate() {
+            if !(1..=4).contains(&bits) {
+                anyhow::bail!(
+                    "quantization layer {layer} has {bits} bits; supported range is 1..=4"
+                );
+            }
+        }
+        Ok(())
+    }
 }
 
 impl SearchFieldConfig {
     pub fn set_normalizer(&mut self, normalizer: Option<SearchNormalizer>) {
-        if let Some(new_normalizer) = normalizer {
+        if let Some(replacement_normalizer) = normalizer {
             match self {
                 SearchFieldConfig::Text { normalizer, .. }
-                | SearchFieldConfig::Json { normalizer, .. } => *normalizer = new_normalizer,
+                | SearchFieldConfig::Json { normalizer, .. } => {
+                    *normalizer = replacement_normalizer
+                }
                 _ => {}
             }
         }
@@ -209,6 +255,39 @@ impl SearchFieldConfig {
         match config {
             SearchFieldConfig::Date { .. } => Ok(config),
             _ => Err(anyhow::anyhow!("Expected Date configuration")),
+        }
+    }
+
+    /// Parses a vector-field configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the JSON shape or quantization schedule is invalid.
+    pub fn vector_from_json(value: serde_json::Value) -> Result<Self> {
+        let config: Self = serde_json::from_value(json!({
+            "Vector": value
+        }))?;
+        match &config {
+            SearchFieldConfig::Vector {
+                quantization: Some(quantization),
+                ..
+            } => {
+                quantization.validate()?;
+                Ok(config)
+            }
+            SearchFieldConfig::Vector { .. } => Ok(config),
+            _ => Err(anyhow::anyhow!("Expected Vector configuration")),
+        }
+    }
+
+    /// Returns the configured quantization layer widths.
+    pub fn quantization_layers(&self) -> Option<Vec<u8>> {
+        match self {
+            SearchFieldConfig::Vector {
+                quantization: Some(quantization),
+                ..
+            } => quantization.layers(),
+            _ => None,
         }
     }
 
@@ -309,8 +388,21 @@ impl SearchFieldConfig {
         Self::from_json(json!({"Json": {"fast": true}}))
     }
 
+    /// Applies the dimension-dependent default to an explicit vector configuration.
+    pub fn resolve_vector_defaults(self, dims: usize) -> Self {
+        match self {
+            Self::Vector { quantization } => Self::Vector {
+                quantization: quantization.or_else(|| default_vector_quantization(dims)),
+            },
+            config => config,
+        }
+    }
+
+    /// Creates the default configuration for a vector field.
     pub fn default_vector(dims: usize) -> Self {
-        Self::Vector { dims }
+        Self::Vector {
+            quantization: default_vector_quantization(dims),
+        }
     }
 }
 
@@ -584,6 +676,79 @@ fn default_as_true() -> bool {
     true
 }
 
+fn default_vector_quantization(dims: usize) -> Option<VectorQuantizationConfig> {
+    Some(VectorQuantizationConfig::Enabled(
+        dims >= MIN_QUANTIZATION_DIMENSIONS,
+    ))
+}
+
 fn default_as_freqs_and_positions() -> IndexRecordOption {
     IndexRecordOption(tantivy::schema::IndexRecordOption::WithFreqsAndPositions)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vector_quantization_accepts_default_and_explicit_schedules() {
+        let omitted = SearchFieldConfig::vector_from_json(json!({})).unwrap();
+        assert_eq!(omitted.clone().quantization_layers(), None);
+        assert_eq!(
+            omitted
+                .clone()
+                .resolve_vector_defaults(MIN_QUANTIZATION_DIMENSIONS)
+                .quantization_layers(),
+            Some(vec![1, 1])
+        );
+        assert_eq!(
+            omitted
+                .resolve_vector_defaults(MIN_QUANTIZATION_DIMENSIONS - 1)
+                .quantization_layers(),
+            None
+        );
+
+        let defaults = SearchFieldConfig::vector_from_json(json!({
+            "quantization": true
+        }))
+        .unwrap();
+        assert_eq!(defaults.quantization_layers(), Some(vec![1, 1]));
+
+        let disabled = SearchFieldConfig::vector_from_json(json!({
+            "quantization": false
+        }))
+        .unwrap();
+        assert_eq!(disabled.quantization_layers(), None);
+
+        let explicit = SearchFieldConfig::vector_from_json(json!({
+            "quantization": { "layers": [1, 4, 3] }
+        }))
+        .unwrap();
+        assert_eq!(explicit.quantization_layers(), Some(vec![1, 4, 3]));
+    }
+
+    #[test]
+    fn vector_quantization_validates_layer_count_width_and_order() {
+        let too_many = SearchFieldConfig::vector_from_json(json!({
+            "quantization": { "layers": [1, 1, 1, 1] }
+        }))
+        .unwrap_err();
+        assert!(
+            too_many
+                .to_string()
+                .contains("layer count 4 must be in 1..=3")
+        );
+
+        let grid_first = SearchFieldConfig::vector_from_json(json!({
+            "quantization": { "layers": [4, 1] }
+        }))
+        .unwrap();
+        assert_eq!(grid_first.quantization_layers(), Some(vec![4, 1]));
+
+        let wide = SearchFieldConfig::vector_from_json(json!({
+            "quantization": { "layers": [1, 5] }
+        }))
+        .unwrap_err();
+        assert!(wide.to_string().contains("supported range is 1..=4"));
+    }
 }

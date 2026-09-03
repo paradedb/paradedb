@@ -15,6 +15,5 @@ USING bm25 (
 ) WITH (
     key_field = '_id',
     centroid_ratio = 0.01,
-    target_segment_count = 8,
-    cluster_replication = 1
+    target_segment_count = 8
 );

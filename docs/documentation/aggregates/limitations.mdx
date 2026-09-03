@@ -101,7 +101,7 @@ Aggregate pushdown works across joins as well as single tables. When every parti
 SET paradedb.enable_aggregate_custom_scan TO on;
 ```
 
-The following join shapes are supported:
+### Supported shapes
 
 | Feature | Supported |
 | --- | --- |
@@ -110,8 +110,21 @@ The following join shapes are supported:
 | `GROUP BY` | Columns from any table in the join, including JSON sub-fields via `metadata->>'key'` |
 | `HAVING` clause | Comparisons against aggregate results and group columns |
 | Per-aggregate `FILTER (WHERE ...)` | Yes |
-| `ORDER BY ... LIMIT K` | Pushed down as TopK when there is a single `ORDER BY` column targeting an aggregate, a group column, or `MIN(col)` / `MAX(col)` |
+| `ORDER BY ... LIMIT K` | Pushed down as TopK when there is a single `ORDER BY` column targeting an aggregate, a group column, or `MIN(col)` / `MAX(col)`, and no `pdb.agg()` in the query uses `terms` |
 | `ORDER BY` inside `STRING_AGG` / `ARRAY_AGG` | Yes (produces deterministic element ordering) |
+| `pdb.agg()` | `terms` (with `size`, `min_doc_count` of 1 or more, `missing`, and `order` by `_count`, `_key`, or a metric sub-aggregation, but not `include` or `exclude`), `sum`, `avg`, `min`, `max`, `value_count`, `cardinality`, and nested `aggs` built from these. The `solve_mvcc` argument is honored over a join as well. |
+
+### `pdb.agg()` over joins
+
+A `pdb.agg()` field name must belong to exactly one indexed table in the join. When the same field name exists in several tables, qualify it with the table alias, as in `"field": "p.category"`. The qualifier is also accepted when the planner reduces the join to that one table. Postgres cannot see the fields inside a spec, so an outer join whose table is read only there is removed as unused and the spec fails with an unknown field; reference such a table outside the spec, or use an inner join.
+
+`pdb.agg()` over a NUMERIC field runs on this path as well, on a single table or over a join, while a `missing` value is not accepted for such a field.
+
+A few `pdb.agg()` shapes run on a single table but not over a join: metric aggregations over JSON sub-fields, such as `{"sum": {"field": "metadata.qty"}}`, `terms` on an array field or on a JSON sub-field that holds numbers, and `min_doc_count: 0`, which lists every term of the column.
+
+`pdb.agg()` has no native Postgres implementation, so it cannot fall back. A `pdb.agg()` over a join that uses an aggregation outside the list above, such as `range`, `histogram`, `date_histogram`, `filter`, `composite`, `stats`, `percentiles`, or `top_hits`, raises an error.
+
+### Fallback to Postgres
 
 ParadeDB falls back to native Postgres execution when any of the following are true:
 
@@ -121,6 +134,5 @@ ParadeDB falls back to native Postgres execution when any of the following are t
 - The query uses window functions (`OVER ...`), `ROLLUP`, `CUBE`, `GROUPING SETS`, `LATERAL`, or `DISTINCT ON`
 - `GROUP BY` uses a scalar function like `date_trunc(...)` or `lower(...)` (JSON sub-field access via `->>` is supported)
 - The aggregate argument or result is wrapped in an expression such as `COALESCE(SUM(...), 0)` or a cast
-- The query uses `pdb.agg()` (use standard SQL aggregate functions instead)
 
 When a fallback happens, the query still runs correctly through Postgres' native planner. ParadeDB simply does not accelerate it.

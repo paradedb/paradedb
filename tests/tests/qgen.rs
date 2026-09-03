@@ -20,10 +20,11 @@ use tests::fixtures::querygen::joingen::{arb_joins, arb_semi_joins, JoinType};
 use tests::fixtures::querygen::numericgen::arb_numeric_expr;
 use tests::fixtures::querygen::orderbygen::arb_joinscan_order_parts;
 use tests::fixtures::querygen::pagegen::arb_paging_exprs;
+use tests::fixtures::querygen::pdbagggen::{arb_pdb_agg_join, arb_pdb_agg_single_table};
 use tests::fixtures::querygen::wheregen::arb_wheres;
 use tests::fixtures::querygen::wheregen::Expr as WhereExpr;
 use tests::fixtures::querygen::{
-    arb_joins_and_wheres, compare, generated_queries_setup, Column, PgGucs,
+    arb_joins_and_wheres, compare, compare_on, generated_queries_setup, Column, PgGucs, Sides,
 };
 
 use tests::fixtures::*;
@@ -1575,6 +1576,109 @@ async fn generated_numeric_range_precision(database: Db) {
             &mut pool.pull(),
             &setup_sql,
             |query, conn| query.fetch_one::<(i64,)>(conn).0,
+        )?;
+    });
+}
+
+/// Property test for `pdb.agg()` over joins: the buckets and metrics the DataFusion backend
+/// assembles must equal the rows of the equivalent SQL `GROUP BY` run by PostgreSQL, which is
+/// the oracle since `pdb.agg()` itself has no native fallback. Covers nested `terms`, a
+/// `size` cut under the default count order, NULL buckets, NUMERIC metrics, `cardinality`,
+/// a SQL `GROUP BY` beside the call, and MPP when the parallel GUCs are on.
+#[rstest]
+#[tokio::test]
+async fn generated_pdb_agg_join(database: Db) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || block_on(async { database.connection().await }),
+        |_| {},
+    );
+
+    let tables_and_sizes = [("users", 50), ("products", 50), ("orders", 50)];
+    let all_tables: Vec<String> = tables_and_sizes
+        .iter()
+        .map(|(table, _)| table.to_string())
+        .collect();
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes, COLUMNS);
+
+    let text_columns = columns_named(vec!["name"]);
+    let join_key_columns = vec!["id".to_string(), "age".to_string()];
+
+    proptest!(|(
+        outer_bm25 in arb_wheres(vec![all_tables[0].clone()], &text_columns),
+        (join_expr, agg) in arb_pdb_agg_join(all_tables.clone(), join_key_columns.clone()),
+        mut gucs in any::<PgGucs>(),
+    )| {
+        let join_clause = join_expr.to_sql();
+        let pg_query = agg.pg_query(&join_clause, &outer_bm25.to_sql(" = "));
+        let bm25_query = agg.pdb_query(&join_clause, &outer_bm25.to_sql("@@@"));
+
+        // `pdb.agg()` over a join only runs on the DataFusion backend.
+        gucs.aggregate_custom_scan = true;
+        gucs.join_custom_scan = true;
+        gucs.custom_scan = true;
+
+        compare(
+            &pg_query,
+            &bm25_query,
+            &gucs,
+            &mut pool.pull(),
+            &setup_sql,
+            |query, conn| {
+                let mut rows = agg.rows(query.fetch_dynamic(conn)).unwrap();
+                rows.sort();
+                rows
+            },
+        )?;
+    });
+}
+
+/// The same single-table `pdb.agg()` answered by Tantivy and by DataFusion. The documents must
+/// be equal as they are: bucket order, `sum_other_doc_count`, NULL buckets, and metric values
+/// alike. A grouped query sorted by an aggregate under a `LIMIT` is routed to DataFusion whatever
+/// the planner's group estimate, and the limit sits above any group count, so it cuts nothing.
+#[rstest]
+#[tokio::test]
+async fn generated_pdb_agg_single_table(database: Db) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || block_on(async { database.connection().await }),
+        |_| {},
+    );
+
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &[("users", 50)], COLUMNS);
+    let text_columns = columns_named(vec!["name"]);
+
+    proptest!(|(
+        outer_bm25 in arb_wheres(vec!["users".to_string()], &text_columns),
+        agg in arb_pdb_agg_single_table(),
+        mut gucs in any::<PgGucs>(),
+    )| {
+        let group = agg.outer_group.as_deref().expect("a single-table spec sits beside a GROUP BY");
+        let tantivy_query = format!(
+            "SELECT {group}, COUNT(*), {} FROM users WHERE {} GROUP BY {group}",
+            agg.call(),
+            outer_bm25.to_sql("@@@")
+        );
+        let datafusion_query = format!("{tantivy_query} ORDER BY COUNT(*) DESC LIMIT 1000");
+
+        gucs.aggregate_custom_scan = true;
+        gucs.custom_scan = true;
+        let sides = Sides {
+            baseline: gucs.set(),
+            candidate: gucs.set(),
+        };
+
+        compare_on(
+            &sides,
+            &tantivy_query,
+            &datafusion_query,
+            &gucs,
+            &mut pool.pull(),
+            &setup_sql,
+            |query, conn| {
+                let mut documents = agg.documents(query.fetch_dynamic(conn)).unwrap();
+                documents.sort_by(|a, b| a.0.cmp(&b.0));
+                documents
+            },
         )?;
     });
 }

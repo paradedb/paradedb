@@ -51,12 +51,13 @@
 
 use std::error::Error;
 
-use pgrx::{default, pg_extern, Json, JsonB, PgRelation};
+use pgrx::{default, pg_extern, FromDatum, Json, JsonB, PgRelation};
 use serde::{Deserialize, Serialize};
 
 use crate::aggregate::{execute_aggregate, AggregateRequest};
 use crate::api::version::VersionInfo;
 use crate::gucs;
+use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::aggregate_type::validate_agg_json_fields;
 use crate::postgres::customscan::aggregatescan::json_rewrite::rewrite_aggregate_result_json_timestamps;
 use crate::postgres::rel::PgSearchRelation;
@@ -281,6 +282,46 @@ pub fn agg_with_solve_mvcc_funcoid() -> pgrx::pg_sys::Oid {
     lookup_pdb_function("agg", &[pgrx::pg_sys::JSONBOID, pgrx::pg_sys::BOOLOID])
 }
 
+/// True for either `pdb.agg()` overload: the one-argument form and the
+/// `(jsonb, bool)` form.
+pub fn is_agg_funcoid(aggfnoid: u32) -> bool {
+    aggfnoid == agg_funcoid().to_u32() || aggfnoid == agg_with_solve_mvcc_funcoid().to_u32()
+}
+
+/// The spec and visibility of a `pdb.agg()` call, or `None` when the spec is not
+/// a non-null constant. Field validation and the plan shape both need the spec at
+/// plan time, so a parameter cannot stand in for it.
+///
+/// `solve_mvcc_arg` is the second argument's expression, or `None` for the
+/// one-argument overload. A non-`Const` or NULL argument yields the default: an
+/// undecodable setting must not silently downgrade accuracy.
+///
+/// # Safety
+/// The caller must ensure `spec_arg` and `solve_mvcc_arg`, when present, are valid
+/// `Node` pointers.
+pub unsafe fn pdb_agg_spec(
+    aggfnoid: u32,
+    spec_arg: *mut pgrx::pg_sys::Node,
+    solve_mvcc_arg: Option<*mut pgrx::pg_sys::Node>,
+) -> Option<(serde_json::Value, MvccVisibility)> {
+    let const_node = nodecast!(Const, T_Const, spec_arg)?;
+    let spec = JsonB::from_datum((*const_node).constvalue, (*const_node).constisnull)?.0;
+    let solve_mvcc = if aggfnoid == agg_with_solve_mvcc_funcoid().to_u32() {
+        solve_mvcc_arg
+            .and_then(|node| nodecast!(Const, T_Const, node))
+            .map(|const_node| extract_solve_mvcc_from_const(const_node))
+            .unwrap_or(true)
+    } else {
+        true
+    };
+    let visibility = if solve_mvcc {
+        MvccVisibility::Enabled
+    } else {
+        MvccVisibility::Disabled
+    };
+    Some((spec, visibility))
+}
+
 /// Extract solve_mvcc boolean from a Const node.
 /// Returns true (MVCC enabled) if the value can't be extracted or is null.
 ///
@@ -336,5 +377,25 @@ impl MvccVisibility {
     /// Returns true if MVCC filtering should be applied
     pub fn should_filter(&self) -> bool {
         matches!(self, MvccVisibility::Enabled)
+    }
+
+    /// The single visibility a query runs under, given every `pdb.agg()` setting in
+    /// it. Two different settings are an error even when one of them came from an
+    /// omitted argument, since an omitted argument is indistinguishable from an
+    /// explicit `true` by the time it is seen here.
+    pub fn resolve_shared(settings: impl Iterator<Item = MvccVisibility>) -> MvccVisibility {
+        let mut resolved: Option<MvccVisibility> = None;
+        for visibility in settings {
+            match resolved {
+                None => resolved = Some(visibility),
+                Some(previous) if previous == visibility => {}
+                Some(_) => pgrx::error!(
+                    "pdb.agg() calls have contradicting solve_mvcc settings. \
+                     All pdb.agg() calls in a query must use the same solve_mvcc value. \
+                     Either use solve_mvcc=true (or omit) for all, or solve_mvcc=false for all."
+                ),
+            }
+        }
+        resolved.unwrap_or_default()
     }
 }

@@ -261,7 +261,7 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
     }
 
     fn try_decode_udaf(&self, name: &str, _buf: &[u8]) -> Result<Arc<AggregateUDF>> {
-        use crate::postgres::customscan::datafusion::numeric_agg;
+        use crate::postgres::customscan::datafusion::udaf_by_name;
 
         match name {
             "min" => Ok(dfa::min_max::min_udaf()),
@@ -269,7 +269,7 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
             "count" => Ok(dfa::count::count_udaf()),
             "sum" => Ok(dfa::sum::sum_udaf()),
             "avg" => Ok(dfa::average::avg_udaf()),
-            _ => numeric_agg::udaf_by_name(name).ok_or_else(|| {
+            _ => udaf_by_name(name).ok_or_else(|| {
                 DataFusionError::NotImplemented(format!(
                     "LogicalExtensionCodec is not provided for aggregate function {name}"
                 ))

@@ -22,9 +22,12 @@
 //! column and aggregate argument belongs to. This is the join-aware counterpart
 //! of [`super::targetlist::TargetList`] (which assumes a single base relation).
 
-use super::datafusion_build::{FilterExprBuildContext, JoinAggSource};
+use super::datafusion_build::{
+    collect_join_agg_sources, resolve_source_field, FilterExprBuildContext, JoinAggSource,
+};
+use super::pdb_agg::{PdbAggFieldRef, PdbAggRequest};
 use super::privdat::FilterExpr;
-use crate::api::SortDirection;
+use crate::api::{pdb_agg_spec, HashMap, SortDirection};
 use crate::postgres::customscan::datafusion::explain::get_attname_safe;
 use crate::postgres::customscan::joinscan::build::RelationAlias;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
@@ -78,6 +81,8 @@ pub enum AggKind {
     ArrayAgg,
     /// STRING_AGG(col, separator) - stores the separator string.
     StringAgg(String),
+    /// `pdb.agg(jsonb)`, lowered to grouping sets and metric expressions.
+    PdbAgg(Box<PdbAggRequest>),
 }
 
 impl std::fmt::Display for AggKind {
@@ -98,6 +103,7 @@ impl std::fmt::Display for AggKind {
             AggKind::BoolOr => write!(f, "BOOL_OR"),
             AggKind::ArrayAgg => write!(f, "ARRAY_AGG"),
             AggKind::StringAgg(_) => write!(f, "STRING_AGG"),
+            AggKind::PdbAgg(request) => write!(f, "pdb.agg({})", request.agg_json),
         }
     }
 }
@@ -230,9 +236,27 @@ pub struct JoinAggregateTargetList {
     pub aggregates: Vec<JoinAggregateEntry>,
 }
 
+impl JoinAggregateTargetList {
+    /// The lowered `pdb.agg()` calls, in target-list order.
+    pub fn pdb_agg_requests(&self) -> impl Iterator<Item = &PdbAggRequest> {
+        self.aggregates
+            .iter()
+            .filter_map(|agg| match &agg.agg_kind {
+                AggKind::PdbAgg(request) => Some(request.as_ref()),
+                _ => None,
+            })
+    }
+
+    /// Every fast field a `pdb.agg()` spec reads.
+    pub fn pdb_agg_field_refs(&self) -> impl Iterator<Item = &PdbAggFieldRef> {
+        self.pdb_agg_requests().flat_map(PdbAggRequest::fields)
+    }
+}
+
 /// Classify an aggregate function OID into an [`AggKind`].
 ///
-/// Returns `None` for unsupported or unknown OIDs (including `pdb.agg()`).
+/// Returns `None` for unsupported or unknown OIDs. `pdb.agg()` is handled before
+/// this is reached.
 fn classify_aggregate_oid(aggfnoid: u32, aggstar: bool, has_distinct: bool) -> Option<AggKind> {
     if aggfnoid == F_COUNT_ && aggstar {
         return Some(AggKind::CountStar);
@@ -293,7 +317,7 @@ fn classify_aggregate_by_name(aggfnoid: u32) -> Option<AggKind> {
 /// Returns an error if:
 /// - An expression is neither a `Var` nor an `Aggref`
 /// - An aggregate uses DISTINCT (`aggdistinct` is set)
-/// - An aggregate is `pdb.agg()` (not supported on joins)
+/// - A `pdb.agg()` spec cannot be lowered (see [`lower_pdb_agg`])
 /// - An aggregate OID is unknown/unsupported
 /// - A `Var` references a table not in `sources`
 /// - A field name cannot be resolved
@@ -302,6 +326,7 @@ pub unsafe fn extract_aggregate_targetlist(
     args: &CreateUpperPathsHookArgs,
     sources: &[JoinAggSource],
     plan: &crate::postgres::customscan::joinscan::build::RelNode,
+    mut pdb_route: Option<PdbAggRoute>,
 ) -> Result<JoinAggregateTargetList, String> {
     let output_rel = args.output_rel();
     let target_exprs = PgList::<pg_sys::Expr>::from_pg((*output_rel.reltarget).exprs);
@@ -443,13 +468,32 @@ pub unsafe fn extract_aggregate_targetlist(
                 )
             };
 
-            // Reject pdb.agg()
-            let pdb_agg_oid = crate::api::agg_funcoid().to_u32();
-            let pdb_agg_mvcc_oid = crate::api::agg_with_solve_mvcc_funcoid().to_u32();
-            if aggfnoid == pdb_agg_oid || aggfnoid == pdb_agg_mvcc_oid {
-                return Err(
-                    "pdb.agg() is not supported on joins - use standard SQL aggregates (COUNT, SUM, AVG, MIN, MAX)".into()
-                );
+            if crate::api::is_agg_funcoid(aggfnoid) {
+                if has_distinct || !(*aggref).aggorder.is_null() {
+                    return Err("pdb.agg() does not accept DISTINCT or ORDER BY".into());
+                }
+                let mut request = match pdb_route
+                    .as_mut()
+                    .and_then(|route| route.requests.remove(&idx))
+                {
+                    Some(request) => request,
+                    None => lower_pdb_agg(aggref, sources)?,
+                };
+                request.assign_plan_positions(|field| {
+                    plan.plan_position(outer_root_id, field.rti, field.attno)
+                })?;
+                aggregates.push(JoinAggregateEntry {
+                    func_oid: aggfnoid,
+                    agg_kind: AggKind::PdbAgg(Box::new(request)),
+                    field_refs: Vec::new(),
+                    output_index: idx,
+                    result_type_oid: (*aggref).aggtype,
+                    filter,
+                    distinct: false,
+                    order_by: Vec::new(),
+                    numeric: None,
+                });
+                continue;
             }
 
             let mut agg_kind = classify_aggregate_oid(aggfnoid, (*aggref).aggstar, has_distinct)
@@ -501,6 +545,70 @@ pub unsafe fn extract_aggregate_targetlist(
     Ok(JoinAggregateTargetList {
         group_columns,
         aggregates,
+    })
+}
+
+/// The `pdb.agg()` calls of the grouping output, lowered to decide the route, by
+/// target-list index. Their plan positions are assigned once the plan tree exists.
+pub struct PdbAggRoute {
+    pub requests: HashMap<usize, PdbAggRequest>,
+}
+
+impl PdbAggRoute {
+    /// A spec reads a NUMERIC field, which only the DataFusion backend can
+    /// aggregate.
+    pub fn references_numeric(&self) -> bool {
+        self.requests
+            .values()
+            .flat_map(PdbAggRequest::fields)
+            .any(|field| field.field_type.is_numeric())
+    }
+}
+
+/// Lower every `pdb.agg()` in the grouping output, fields included, to decide
+/// the route. `None` when a spec does not lower: a single-table query then stays
+/// on the Tantivy path, which runs every Tantivy aggregation, so the user never
+/// sees an error for a query the index can answer.
+pub unsafe fn pdb_agg_route(
+    args: &CreateUpperPathsHookArgs,
+    input_rel: &pg_sys::RelOptInfo,
+) -> Option<PdbAggRoute> {
+    let sources = collect_join_agg_sources(args.root, input_rel);
+    let target_exprs = PgList::<pg_sys::Expr>::from_pg((*args.output_rel().reltarget).exprs);
+    let mut requests = HashMap::default();
+    for (idx, expr) in target_exprs.iter_ptr().enumerate() {
+        let Some(aggref) = find_one_aggref(expr as *mut pg_sys::Node) else {
+            continue;
+        };
+        if !crate::api::is_agg_funcoid((*aggref).aggfnoid.to_u32()) {
+            continue;
+        }
+        requests.insert(idx, lower_pdb_agg(aggref, &sources).ok()?);
+    }
+    Some(PdbAggRoute { requests })
+}
+
+/// Lower a `pdb.agg()` call into its DataFusion request. The spec must be a
+/// constant: field validation and the grouping-set layout both need it at plan
+/// time, the same as on the Tantivy backend.
+unsafe fn lower_pdb_agg(
+    aggref: *mut pg_sys::Aggref,
+    sources: &[JoinAggSource],
+) -> Result<PdbAggRequest, String> {
+    let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
+    let arg_expr = |i: usize| args.get_ptr(i).map(|arg| (*arg).expr as *mut pg_sys::Node);
+    let (spec, visibility) = arg_expr(0)
+        .and_then(|spec_arg| pdb_agg_spec((*aggref).aggfnoid.to_u32(), spec_arg, arg_expr(1)))
+        .ok_or("pdb.agg argument must be a constant for aggregate pushdown")?;
+    PdbAggRequest::lower(spec, visibility, &|field| {
+        let resolved = resolve_source_field(sources, field)?;
+        Ok(PdbAggFieldRef {
+            rti: resolved.source.rti,
+            attno: resolved.attno,
+            field_name: resolved.field_name,
+            field_type: resolved.field_type,
+            plan_position: 0,
+        })
     })
 }
 

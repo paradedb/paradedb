@@ -28,12 +28,14 @@ use crate::postgres::customscan::datafusion::numeric_agg::decode_avg_blob;
 use crate::postgres::types_arrow::decimal_bytes_to_anynumeric;
 use arrow_array::cast::AsArray;
 use arrow_array::{Array, RecordBatch};
-use pgrx::{pg_sys, AnyNumeric, IntoDatum};
+use pgrx::{pg_sys, AnyNumeric, IntoDatum, JsonB};
 
 /// Project a single row from an aggregate `RecordBatch` into a Postgres `TupleTableSlot`.
 ///
 /// The DataFusion output schema is: `[group_col_0, ..., group_col_N, agg_0, ..., agg_M]`.
 /// Each column is mapped to the correct position in the Postgres tuple via `output_index`.
+/// `pdb.agg()` entries have no column of their own; their assembled documents come
+/// in `pdb_agg_json`, one per entry in target-list order.
 ///
 /// # Safety
 ///
@@ -47,6 +49,7 @@ pub unsafe fn project_aggregate_row_to_slot(
     row_idx: usize,
     targetlist: &JoinAggregateTargetList,
     group_df_indices: &[usize],
+    pdb_agg_json: Vec<serde_json::Value>,
 ) -> *mut pg_sys::TupleTableSlot {
     let tupdesc = (*slot).tts_tupleDescriptor;
     let natts = (*tupdesc).natts as usize;
@@ -105,9 +108,20 @@ pub unsafe fn project_aggregate_row_to_slot(
     // unique indices in group_df_indices.
     let num_unique_group_cols = group_df_indices.iter().max().map(|&m| m + 1).unwrap_or(0);
     let mut df_col_idx = num_unique_group_cols;
+    let mut pdb_agg_json = pdb_agg_json.into_iter();
 
     for agg in &targetlist.aggregates {
         let pg_idx = agg.output_index;
+        if let AggKind::PdbAgg(_) = agg.agg_kind {
+            let document = pdb_agg_json
+                .next()
+                .expect("one assembled document per pdb.agg entry");
+            if pg_idx < natts {
+                datums[pg_idx] = JsonB(document).into_datum().expect("jsonb datum");
+                isnull[pg_idx] = false;
+            }
+            continue;
+        }
         if pg_idx >= natts {
             df_col_idx += 1;
             continue;

@@ -22,6 +22,7 @@ pub mod numericgen;
 pub mod opexprgen;
 pub mod orderbygen;
 pub mod pagegen;
+pub mod pdbagggen;
 pub mod wheregen;
 
 use std::fmt::{Debug, Write};
@@ -630,6 +631,22 @@ impl PgGucs {
     }
 }
 
+/// The session settings each side of a comparison runs under.
+pub struct Sides {
+    pub baseline: String,
+    pub candidate: String,
+}
+
+impl Sides {
+    /// Plain Postgres, the known-correct baseline, against the custom scans under `gucs`.
+    pub fn postgres_vs(gucs: &PgGucs) -> Self {
+        Self {
+            baseline: PgGucs::pg_search_disabled().set(),
+            candidate: gucs.set(),
+        }
+    }
+}
+
 /// Run the given pg and bm25 queries on the given connection, and compare their results when run
 /// with the given GUCs.
 pub fn compare<R, F>(
@@ -644,8 +661,29 @@ where
     R: Eq + Debug,
     F: Fn(&str, &mut PgConnection) -> R,
 {
+    let sides = Sides::postgres_vs(gucs);
+    compare_on(
+        &sides, pg_query, bm25_query, gucs, conn, setup_sql, run_query,
+    )
+}
+
+/// [`compare`] with the two sessions spelled out, for a baseline other than plain
+/// Postgres, such as one backend of pg_search against another.
+pub fn compare_on<R, F>(
+    sides: &Sides,
+    pg_query: &str,
+    bm25_query: &str,
+    gucs: &PgGucs,
+    conn: &mut PgConnection,
+    setup_sql: &str,
+    run_query: F,
+) -> Result<(), TestCaseError>
+where
+    R: Eq + Debug,
+    F: Fn(&str, &mut PgConnection) -> R,
+{
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        inner_compare(pg_query, bm25_query, gucs, conn, run_query)
+        inner_compare(sides, pg_query, bm25_query, gucs, conn, run_query)
     }));
 
     let inner_result = match result {
@@ -671,6 +709,7 @@ where
 }
 
 fn inner_compare<R, F>(
+    sides: &Sides,
     pg_query: &str,
     bm25_query: &str,
     gucs: &PgGucs,
@@ -681,17 +720,13 @@ where
     R: Eq + Debug,
     F: Fn(&str, &mut PgConnection) -> R,
 {
-    // the postgres query is always run with the paradedb custom scan turned off
-    // this ensures we get the actual, known-to-be-correct result from Postgres'
-    // plan, and not from ours where we did some kind of pushdown
-    PgGucs::pg_search_disabled().set().execute(conn);
+    sides.baseline.as_str().execute(conn);
 
     conn.deallocate_all()?;
 
     let pg_result = run_query(pg_query, conn);
 
-    // and for the "bm25" query, we run it with the given GUCs set.
-    gucs.set().execute(conn);
+    sides.candidate.as_str().execute(conn);
 
     conn.deallocate_all()?;
 

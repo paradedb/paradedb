@@ -26,8 +26,52 @@
 //! Future phases of the dedup work will move the shared session-builder helpers
 //! and the `RelNode` family of relation-tree types into this module as well.
 
+use datafusion::common::ScalarValue;
+use datafusion::error::{DataFusionError, Result};
+use datafusion::logical_expr::function::AccumulatorArgs;
+use datafusion::logical_expr::AggregateUDF;
+use datafusion::physical_plan::expressions::Literal;
+use std::sync::Arc;
+
+pub mod cardinality_agg;
 pub mod explain;
 mod expr_translators;
 pub mod memory;
 pub mod numeric_agg;
 pub mod translator;
+
+/// Resolve a pg_search aggregate UDAF by name, for the plan codecs. These
+/// functions are not in any session registry, so serialized plans (parallel
+/// and MPP dispatch) decode them through here.
+pub fn udaf_by_name(name: &str) -> Option<Arc<AggregateUDF>> {
+    numeric_agg::udaf_by_name(name).or_else(|| cardinality_agg::udaf_by_name(name))
+}
+
+/// The literal argument at `index` of a UDAF call. A per-call setting travels
+/// as a plan literal so it survives plan serialization for parallel and MPP
+/// execution.
+pub(crate) fn literal_arg<'a>(
+    args: &'a AccumulatorArgs,
+    index: usize,
+    name: &str,
+    what: &str,
+) -> Result<&'a ScalarValue> {
+    let expr = args
+        .exprs
+        .get(index)
+        .ok_or_else(|| DataFusionError::Internal(format!("{name} requires a {what} argument")))?;
+    let literal = expr
+        .as_ref()
+        .downcast_ref::<Literal>()
+        .ok_or_else(|| DataFusionError::Internal(format!("{name} {what} must be a literal")))?;
+    Ok(literal.value())
+}
+
+pub(crate) fn reject_distinct(args: &AccumulatorArgs, name: &str) -> Result<()> {
+    if args.is_distinct {
+        return Err(DataFusionError::NotImplemented(format!(
+            "{name} does not support DISTINCT"
+        )));
+    }
+    Ok(())
+}

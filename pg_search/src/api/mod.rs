@@ -34,7 +34,7 @@ use pgrx::{
 };
 
 pub use aggregate::{
-    agg_fn_oid, agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const,
+    agg_fn_oid, agg_funcoid, agg_with_solve_mvcc_funcoid, is_agg_funcoid, pdb_agg_spec,
     MvccVisibility,
 };
 pub use rustc_hash::FxHashMap as HashMap;

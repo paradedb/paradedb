@@ -30,14 +30,14 @@ use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::joinscan::build::{
     lookup_base_rel_info, try_extract_equi_key, FilterNode, JoinKeyPair, JoinLevelExpr, JoinNode,
-    JoinSource, JoinSourceCandidate, JoinType, PlannerRootId, RelNode,
+    JoinSource, JoinSourceCandidate, JoinType, PlannerRootId, RelNode, RelationAlias,
 };
 use crate::postgres::customscan::joinscan::planning::{
     classify_base_restrictinfo, transparent_path_subpath, wrap_with_semi_anti,
     ClassifiedBaseRestrictInfo,
 };
 use crate::postgres::customscan::pullup::{
-    get_attno_by_name, resolve_fast_field, resolve_fast_field_by_name,
+    get_attno_by_name, resolve_fast_field, resolve_fast_field_by_name, resolve_index_field_by_name,
 };
 use crate::postgres::customscan::qual_inspect::{
     collect_implicit_and_conjuncts, contains_extern_param, extract_quals, PlannerContext,
@@ -52,6 +52,7 @@ use crate::postgres::utils::{
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
 use crate::scan::info::FieldInfo;
+use crate::schema::SearchFieldType;
 use pgrx::{pg_sys, PgList};
 
 /// Result type for `extract_join_tree_from_parse`: the plan tree and raw PG Expr clause pointers.
@@ -98,6 +99,83 @@ impl JoinAggSource {
                 _ => Some(f.field.name()),
             })
     }
+}
+
+/// An index field name resolved to one of the join sources.
+pub struct ResolvedSourceField<'a> {
+    pub source: &'a JoinAggSource,
+    pub attno: pg_sys::AttrNumber,
+    /// The name as the index knows it, without a table qualifier.
+    pub field_name: String,
+    pub field_type: SearchFieldType,
+}
+
+/// Resolve an index field name against the join sources.
+///
+/// A bare name must match exactly one indexed table. `alias.field` picks the
+/// table when the same field name exists in several; the bare lookup runs first
+/// because an index field name can itself contain a dot (a JSON sub-field).
+pub fn resolve_source_field<'a>(
+    sources: &'a [JoinAggSource],
+    field: &str,
+) -> Result<ResolvedSourceField<'a>, String> {
+    let (mut candidates, mut reasons) = source_field_candidates(sources, field);
+    let mut field_name = field.to_string();
+    if let Some((prefix, rest)) = field.split_once('.').filter(|_| candidates.is_empty()) {
+        let (qualified, qualified_reasons) = source_field_candidates(sources, rest);
+        candidates = qualified
+            .into_iter()
+            .filter(|(source, _, _)| {
+                RelationAlias::new(source.alias.as_deref()).display(source.rti as usize) == prefix
+            })
+            .collect();
+        reasons.extend(qualified_reasons);
+        field_name = rest.to_string();
+    }
+    match candidates.len() {
+        0 => Err(reasons.into_iter().next().unwrap_or_else(|| {
+            format!(
+                "Aggregation references invalid field '{field}'. The field must be a fast \
+                 field of an indexed table in the query."
+            )
+        })),
+        1 => {
+            let (source, attno, field_type) = candidates.remove(0);
+            Ok(ResolvedSourceField {
+                source,
+                attno,
+                field_name,
+                field_type,
+            })
+        }
+        _ => Err(format!(
+            "Aggregation field '{field}' exists in more than one table. Qualify it with the \
+             table alias, as in 'alias.{field}'."
+        )),
+    }
+}
+
+/// The sources that carry `field`, and the reasons the others turned it down.
+fn source_field_candidates<'a>(
+    sources: &'a [JoinAggSource],
+    field: &str,
+) -> (
+    Vec<(&'a JoinAggSource, pg_sys::AttrNumber, SearchFieldType)>,
+    Vec<String>,
+) {
+    let mut matches = Vec::new();
+    let mut reasons = Vec::new();
+    for source in sources {
+        let Some(index) = source.bm25_index.as_ref() else {
+            continue;
+        };
+        match resolve_index_field_by_name(index, field) {
+            Ok(Some((attno, field_type))) => matches.push((source, attno, field_type)),
+            Ok(None) => {}
+            Err(reason) => reasons.push(reason),
+        }
+    }
+    (matches, reasons)
 }
 
 /// Walk every column in the heap tuple descriptor, resolving each through the
@@ -511,6 +589,19 @@ unsafe fn build_join_node(
 ) -> Result<RelNode, String> {
     let join = &*join_expr;
 
+    // The planner removes an outer join whose nullable side is unique on the
+    // join key and read by nothing, but the parse tree still carries it. That
+    // side contributes no rows, so the join is its other side.
+    match join.jointype {
+        pg_sys::JoinType::JOIN_LEFT if is_removed_rel(root, join.rarg) => {
+            return build_relnode_from_node(root, join.larg, sources);
+        }
+        pg_sys::JoinType::JOIN_RIGHT if is_removed_rel(root, join.larg) => {
+            return build_relnode_from_node(root, join.rarg, sources);
+        }
+        _ => {}
+    }
+
     let outer = build_relnode_from_node(root, join.larg, sources)?;
     let inner = build_relnode_from_node(root, join.rarg, sources)?;
 
@@ -561,6 +652,25 @@ unsafe fn build_join_node(
         subplan_id: None,
         absorbed_search_clauses: Vec::new(),
     })))
+}
+
+/// True for a base relation the planner removed from the query.
+unsafe fn is_removed_rel(root: *mut pg_sys::PlannerInfo, node: *mut pg_sys::Node) -> bool {
+    if node.is_null() || (*node).type_ != pg_sys::NodeTag::T_RangeTblRef {
+        return false;
+    }
+    let rti = (*(node as *mut pg_sys::RangeTblRef)).rtindex as isize;
+    let rel_array = (*root).simple_rel_array;
+    if rel_array.is_null() || rti >= (*root).simple_rel_array_size as isize {
+        return false;
+    }
+    let rel = *rel_array.offset(rti);
+    // Postgres 15 keeps the entry and marks it dead; later versions clear it.
+    #[cfg(feature = "pg15")]
+    let dead = !rel.is_null() && (*rel).reloptkind == pg_sys::RelOptKind::RELOPT_DEADREL;
+    #[cfg(not(feature = "pg15"))]
+    let dead = false;
+    rel.is_null() || dead
 }
 
 /// Extract equi-join keys from an expression tree (ON clause or WHERE clause).
@@ -1315,9 +1425,41 @@ unsafe fn require_fast_field(
     }
 }
 
+/// Resolve a column known by its index field name and add it to `source`'s
+/// scan info. A dotted name is a JSON sub-field: it shares the parent column's
+/// attno but is stored under its own name, so the name lookup runs first. The
+/// attno lookup then covers plain columns, and the name lookup runs once more
+/// as a backup before declaring failure. `describe` names the column for the
+/// error, the same contract as [`require_fast_field`].
+unsafe fn require_named_fast_field(
+    source: &mut JoinSource,
+    tupdesc: &pgrx::PgTupleDesc<'_>,
+    indexrel: &PgSearchRelation,
+    attno: pg_sys::AttrNumber,
+    field_name: &str,
+    describe: impl FnOnce() -> String,
+) -> Result<(), String> {
+    if field_name.contains('.') {
+        if let Some(field) = resolve_fast_field_by_name(field_name, indexrel) {
+            source.scan_info.add_field_by_name(attno, field);
+            return Ok(());
+        }
+    }
+    if let Some(field) = resolve_fast_field(attno as i32, tupdesc, indexrel) {
+        source.scan_info.add_field(attno, field);
+        return Ok(());
+    }
+    if let Some(field) = resolve_fast_field_by_name(field_name, indexrel) {
+        source.scan_info.add_field_by_name(attno, field);
+        return Ok(());
+    }
+    Err(format!("{} is not a fast field", describe()))
+}
+
 /// Populate the `fields` on each `JoinSource` in the `RelNode` tree based on
-/// columns referenced in the target list (GROUP BY + aggregate arguments) and
-/// join keys. Without this, `PgSearchTableProvider` exposes an empty schema.
+/// columns referenced in the target list (GROUP BY + aggregate arguments), the
+/// fields `pdb.agg()` specs read, and join keys. Without this,
+/// `PgSearchTableProvider` exposes an empty schema.
 pub unsafe fn populate_required_fields(
     plan: &mut RelNode,
     targetlist: &super::join_targetlist::JoinAggregateTargetList,
@@ -1379,34 +1521,9 @@ pub unsafe fn populate_required_fields(
             if source.plan_position != gc.plan_position {
                 continue;
             }
-
-            let mut resolved_field = None;
-            // For dotted names (JSON sub-fields), try resolving by name first.
-            // This is more specific than attno-based resolution which might
-            // find the parent JSON column if it's also indexed as text.
-            if gc.field_name.contains('.') {
-                if let Some(field) = resolve_fast_field_by_name(&gc.field_name, indexrel) {
-                    source.scan_info.add_field_by_name(gc.attno, field.clone());
-                    resolved_field = Some(field);
-                }
-            }
-
-            if resolved_field.is_none() {
-                if let Some(field) = resolve_fast_field(gc.attno as i32, &tupdesc, indexrel) {
-                    source.scan_info.add_field(gc.attno, field.clone());
-                    resolved_field = Some(field);
-                } else if let Some(field) = resolve_fast_field_by_name(&gc.field_name, indexrel) {
-                    source.scan_info.add_field_by_name(gc.attno, field.clone());
-                    resolved_field = Some(field);
-                }
-            }
-
-            if resolved_field.is_none() {
-                return Err(format!(
-                    "GROUP BY column '{}' (attno={}) is not a fast field",
-                    gc.field_name, gc.attno,
-                ));
-            }
+            require_named_fast_field(source, &tupdesc, indexrel, gc.attno, &gc.field_name, || {
+                format!("GROUP BY column '{}' (attno={})", gc.field_name, gc.attno)
+            })?;
         }
 
         // Aggregate arguments - match by plan_position.
@@ -1470,6 +1587,21 @@ pub unsafe fn populate_required_fields(
                     format!("multi-table predicate column (attno={attno})")
                 })?;
             }
+        }
+
+        // `pdb.agg()` names index fields, which can be aliases of a column, so
+        // they register by name. Last, so a column the join needs under its own
+        // name is registered by attno first and an alias of it adds a second
+        // entry instead of taking its place.
+        for field in targetlist.pdb_agg_field_refs() {
+            if source.plan_position != field.plan_position {
+                continue;
+            }
+            let resolved =
+                resolve_fast_field_by_name(&field.field_name, indexrel).ok_or_else(|| {
+                    format!("pdb.agg field '{}' is not a fast field", field.field_name)
+                })?;
+            source.scan_info.add_field_by_name(field.attno, resolved);
         }
     }
 

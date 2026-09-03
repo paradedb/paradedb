@@ -223,8 +223,11 @@ impl AggregateUDFImpl for TantivyCardinality {
     }
 
     fn state_fields(&self, args: StateFieldsArgs) -> Result<Vec<FieldRef>> {
-        Ok(vec![
-            Field::new(format!("{}[sketch]", args.name), DataType::Binary, true).into(),
-        ])
+        Ok(vec![Field::new(
+            format!("{}[sketch]", args.name),
+            DataType::Binary,
+            true,
+        )
+        .into()])
     }
 }

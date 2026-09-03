@@ -23,11 +23,11 @@
 //! by a metric have no SQL translation here and are left to the regression tests.
 
 use proptest::prelude::*;
-use serde_json::{Value, json};
-use sqlx::Row;
+use serde_json::{json, Value};
 use sqlx::postgres::PgRow;
+use sqlx::Row;
 
-use crate::fixtures::querygen::joingen::{JoinExpr, JoinType, arb_joins};
+use crate::fixtures::querygen::joingen::{arb_joins, JoinExpr, JoinType};
 
 /// Size that no generated bucket count reaches, so a level is never cut.
 const NO_CUT: u32 = 1000;

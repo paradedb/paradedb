@@ -28,11 +28,7 @@ use crate::postgres::customscan::datafusion::numeric_agg::decode_avg_blob;
 use crate::postgres::types_arrow::decimal_bytes_to_anynumeric;
 use arrow_array::cast::AsArray;
 use arrow_array::{Array, RecordBatch};
-<<<<<<< HEAD
-use pgrx::{pg_sys, AnyNumeric, IntoDatum};
-=======
-use pgrx::{AnyNumeric, IntoDatum, JsonB, pg_sys};
->>>>>>> f728c746 (feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185))
+use pgrx::{pg_sys, AnyNumeric, IntoDatum, JsonB};
 
 /// Project a single row from an aggregate `RecordBatch` into a Postgres `TupleTableSlot`.
 ///

@@ -242,21 +242,6 @@ WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category, p.in_stock
 ORDER BY p.category, p.in_stock;
 
--- Test 1.19: a GROUP BY DATE() key is a call rather than a column, so the
--- output is read back by position
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT DATE(p.created_at) AS day, COUNT(*), pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}')
-FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
-GROUP BY DATE(p.created_at)
-ORDER BY day;
-
-SELECT DATE(p.created_at) AS day, COUNT(*), pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}')
-FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
-GROUP BY DATE(p.created_at)
-ORDER BY day;
-
 -- Test 1.20: a NULL datetime key renders as `null` on both backends; the
 -- sentinel is a valid timestamp and must not be rewritten into one
 SELECT pdb.agg('{"terms": {"field": "created_at", "order": {"_key": "asc"}}}')
@@ -328,44 +313,27 @@ SELECT pdb.agg('{"range": {"field": "price", "ranges": [{"to": 100}]}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
 
--- Test 3.3: raw visibility skips the heap check; nothing is deleted here so the
--- result matches
-SELECT p.category, pdb.agg('{"terms": {"field": "tag_name"}}'::jsonb, 'raw')
+-- Test 3.3: solve_mvcc = false skips the heap check; nothing is deleted here so
+-- the result matches
+SELECT p.category, pdb.agg('{"terms": {"field": "tag_name"}}'::jsonb, false)
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
 
--- Test 3.4: raw visibility sees a row deleted in this transaction
+-- Test 3.4: solve_mvcc = false sees a row deleted in this transaction
 BEGIN;
 DELETE FROM pa_tags WHERE tag_name = 'gaming';
 SELECT pdb.agg('{"terms": {"field": "tag_name"}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
-SELECT pdb.agg('{"terms": {"field": "tag_name"}}'::jsonb, 'raw')
+SELECT pdb.agg('{"terms": {"field": "tag_name"}}'::jsonb, false)
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
 ROLLBACK;
 
--- Test 3.5: `threshold` is one decision for the whole join, judged on the
--- largest table's estimate
-BEGIN;
-DELETE FROM pa_tags WHERE tag_name = 'gaming';
-DELETE FROM pa_products WHERE brand = 'HP';
-SET LOCAL paradedb.visibility_threshold TO 10;
-SELECT pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}'::jsonb, 'threshold'),
-       pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'::jsonb, 'threshold')
-FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop';
-SET LOCAL paradedb.visibility_threshold TO 1000;
-SELECT pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}'::jsonb, 'threshold'),
-       pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'::jsonb, 'threshold')
-FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop';
-ROLLBACK;
-
--- Test 3.6: conflicting visibility settings are rejected
-SELECT pdb.agg('{"sum": {"field": "weight"}}'::jsonb, 'raw'), pdb.agg('{"sum": {"field": "price"}}'::jsonb)
+-- Test 3.6: conflicting solve_mvcc settings are rejected
+SELECT pdb.agg('{"sum": {"field": "weight"}}'::jsonb, false), pdb.agg('{"sum": {"field": "price"}}'::jsonb)
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
 
@@ -501,10 +469,10 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard';
 -- The leader's visibility decision reaches the workers
 BEGIN;
 DELETE FROM pa_tags WHERE tag_name = 'gaming';
-SELECT pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}'::jsonb, 'transaction')
+SELECT pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}'::jsonb, true)
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard';
-SELECT pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}'::jsonb, 'raw')
+SELECT pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}'::jsonb, false)
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard';
 ROLLBACK;

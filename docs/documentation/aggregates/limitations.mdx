@@ -112,7 +112,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 | Per-aggregate `FILTER (WHERE ...)` | Yes |
 | `ORDER BY ... LIMIT K` | Pushed down as TopK when there is a single `ORDER BY` column targeting an aggregate, a group column, or `MIN(col)` / `MAX(col)`, and no `pdb.agg()` in the query uses `terms` |
 | `ORDER BY` inside `STRING_AGG` / `ARRAY_AGG` | Yes (produces deterministic element ordering) |
-| `pdb.agg()` | `terms` (with `size`, `min_doc_count` of 1 or more, `missing`, and `order` by `_count`, `_key`, or a metric sub-aggregation, but not `include` or `exclude`), `sum`, `avg`, `min`, `max`, `value_count`, `cardinality`, and nested `aggs` built from these. The `visibility` argument is honored; over a join, `threshold` makes one decision for every table, judged on the largest table's estimate. |
+| `pdb.agg()` | `terms` (with `size`, `min_doc_count` of 1 or more, `missing`, and `order` by `_count`, `_key`, or a metric sub-aggregation, but not `include` or `exclude`), `sum`, `avg`, `min`, `max`, `value_count`, `cardinality`, and nested `aggs` built from these. The `solve_mvcc` argument is honored over a join as well. |
 
 ### `pdb.agg()` over joins
 
@@ -134,9 +134,5 @@ ParadeDB falls back to native Postgres execution when any of the following are t
 - The query uses window functions (`OVER ...`), `ROLLUP`, `CUBE`, `GROUPING SETS`, `LATERAL`, or `DISTINCT ON`
 - `GROUP BY` uses a scalar function like `date_trunc(...)` or `lower(...)` (JSON sub-field access via `->>` is supported)
 - The aggregate argument or result is wrapped in an expression such as `COALESCE(SUM(...), 0)` or a cast
-<<<<<<< HEAD
-- The query uses `pdb.agg()` (use standard SQL aggregate functions instead)
-=======
->>>>>>> f728c746 (feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185))
 
 When a fallback happens, the query still runs correctly through Postgres' native planner. ParadeDB simply does not accelerate it.

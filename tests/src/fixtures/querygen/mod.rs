@@ -631,36 +631,6 @@ impl PgGucs {
     }
 }
 
-<<<<<<< HEAD
-/// Run the given pg and bm25 queries on the given connection, and compare their results when run
-/// with the given GUCs.
-=======
-/// Fully-resolved outcome of a single qgen comparison case: good, transient, or bad.
-pub enum CaseOutcome {
-    /// Good: PostgreSQL and ParadeDB produced identical results.
-    Match,
-    /// Transient: a query hit a classified fault-induced error. Ride it out by retrying (see
-    /// [`crate::fixtures::fault_grace::retry_transient`]); never a verdict.
-    Transient(TransientKind, sqlx::Error),
-    /// Bad: a result mismatch, a panic during comparison, or a hard SQL error. Carries a
-    /// `TestCaseError` with the reproduction script embedded.
-    Failure(TestCaseError),
-}
-
-impl CaseOutcome {
-    pub fn into_test_result(self) -> Result<(), TestCaseError> {
-        match self {
-            CaseOutcome::Match => Ok(()),
-            CaseOutcome::Failure(e) => Err(e),
-            // Unreachable through the retrying path, and a plain `cargo test` never classifies
-            // anything transient; kept total for direct `compare_outcome` callers.
-            CaseOutcome::Transient(_, e) => Err(TestCaseError::fail(format!(
-                "{e}: transient database fault"
-            ))),
-        }
-    }
-}
-
 /// The session settings each side of a comparison runs under.
 pub struct Sides {
     pub baseline: String,
@@ -677,221 +647,8 @@ impl Sides {
     }
 }
 
-/// Run one generated case on `conn`: execute `pg_query` (custom scan off, the known-correct
-/// baseline) and `bm25_query` (with `gucs`), then compare their results.
-pub fn compare_outcome<R, F>(
-    pg_query: &str,
-    bm25_query: &str,
-    gucs: &PgGucs,
-    conn: &mut PgConnection,
-    setup_sql: &str,
-    run_query: F,
-) -> CaseOutcome
-where
-    R: Eq + Debug,
-    F: Fn(&str, &mut PgConnection) -> Result<R, sqlx::Error>,
-{
-    let sides = Sides::postgres_vs(gucs);
-    compare_outcome_on(
-        &sides, pg_query, bm25_query, gucs, conn, setup_sql, run_query,
-    )
-}
-
-/// [`compare_outcome`] with the two sessions spelled out, for a baseline other than plain
-/// Postgres, such as one backend of pg_search against another.
-pub fn compare_outcome_on<R, F>(
-    sides: &Sides,
-    pg_query: &str,
-    bm25_query: &str,
-    gucs: &PgGucs,
-    conn: &mut PgConnection,
-    setup_sql: &str,
-    run_query: F,
-) -> CaseOutcome
-where
-    R: Eq + Debug,
-    F: Fn(&str, &mut PgConnection) -> Result<R, sqlx::Error>,
-{
-    // A panic (vs a returned sqlx::Error) still becomes a Failure, so it trips the oracle and
-    // carries a repro script instead of aborting the driver.
-    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        compare_outcome_inner(
-            sides, pg_query, bm25_query, gucs, conn, setup_sql, run_query,
-        )
-    }));
-    match outcome {
-        Ok(o) => o,
-        Err(panic) => {
-            let msg = if let Some(s) = panic.downcast_ref::<&str>() {
-                format!("Panic: {s}")
-            } else if let Some(s) = panic.downcast_ref::<String>() {
-                format!("Panic: {s}")
-            } else {
-                "Panic occurred".to_string()
-            };
-            CaseOutcome::Failure(handle_compare_error(
-                TestCaseError::fail(msg),
-                pg_query,
-                bm25_query,
-                gucs,
-                setup_sql,
-            ))
-        }
-    }
-}
-
-/// Runs one case, retrying transient faults until it completes, so every case in the proptest
-/// budget ends in a real verdict. Bounding and liveness are [`crate::fixtures::fault_grace`]'s
-/// job. Takes the pool because a fault usually kills the connection in use.
-pub fn compare_outcome_retrying<R, F>(
-    pg_query: &str,
-    bm25_query: &str,
-    gucs: &PgGucs,
-    pool: &MutexObjectPool<PgConnection>,
-    setup_sql: &str,
-    run_query: F,
-) -> CaseOutcome
-where
-    R: Eq + Debug,
-    F: Fn(&str, &mut PgConnection) -> Result<R, sqlx::Error>,
-{
-    let sides = Sides::postgres_vs(gucs);
-    compare_outcome_retrying_on(
-        &sides, pg_query, bm25_query, gucs, pool, setup_sql, run_query,
-    )
-}
-
-/// [`compare_outcome_retrying`] with the two sessions spelled out; see [`compare_outcome_on`].
-pub fn compare_outcome_retrying_on<R, F>(
-    sides: &Sides,
-    pg_query: &str,
-    bm25_query: &str,
-    gucs: &PgGucs,
-    pool: &MutexObjectPool<PgConnection>,
-    setup_sql: &str,
-    run_query: F,
-) -> CaseOutcome
-where
-    R: Eq + Debug,
-    F: Fn(&str, &mut PgConnection) -> Result<R, sqlx::Error>,
-{
-    use crate::fixtures::fault_grace::{Attempt, RetryError};
-    let fail = |msg: String| {
-        CaseOutcome::Failure(handle_compare_error(
-            TestCaseError::fail(msg),
-            pg_query,
-            bm25_query,
-            gucs,
-            setup_sql,
-        ))
-    };
-    let outcome = crate::fixtures::fault_grace::retry_transient(pool, "qgen case", |conn| {
-        match compare_outcome_on(
-            sides, pg_query, bm25_query, gucs, conn, setup_sql, &run_query,
-        ) {
-            CaseOutcome::Transient(kind, e) => Attempt::Transient(kind, e),
-            verdict => Attempt::Done(verdict),
-        }
-    });
-    match outcome {
-        Ok(o) => o,
-        Err(RetryError::TimedOutUnderPause(e)) => fail(format!(
-            "statement timed out while faults were paused for the whole attempt \
-             (the query cannot finish inside statement_timeout on a healthy database): {e}"
-        )),
-        Err(RetryError::GraceExpired(reason)) => fail(reason),
-    }
-}
-
-fn compare_outcome_inner<R, F>(
-    sides: &Sides,
-    pg_query: &str,
-    bm25_query: &str,
-    gucs: &PgGucs,
-    conn: &mut PgConnection,
-    setup_sql: &str,
-    run_query: F,
-) -> CaseOutcome
-where
-    R: Eq + Debug,
-    F: Fn(&str, &mut PgConnection) -> Result<R, sqlx::Error>,
-{
-    let mut queries = || -> Result<(R, R), sqlx::Error> {
-        sides
-            .baseline
-            .as_str()
-            .execute_result(conn)
-            .and_then(|()| conn.deallocate_all())?;
-        let pg_result = run_query(pg_query, conn)?;
-
-        sides
-            .candidate
-            .as_str()
-            .execute_result(conn)
-            .and_then(|()| conn.deallocate_all())?;
-        let bm25_result = run_query(bm25_query, conn)?;
-        Ok((pg_result, bm25_result))
-    };
-    let (pg_result, bm25_result) = match queries() {
-        Ok(results) => results,
-        Err(e) => match classify_transient(&e) {
-            Some(kind) => return CaseOutcome::Transient(kind, e),
-            None => {
-                return CaseOutcome::Failure(handle_compare_error(
-                    TestCaseError::fail(format!("{e}: error in query execution")),
-                    pg_query,
-                    bm25_query,
-                    gucs,
-                    setup_sql,
-                ));
-            }
-        },
-    };
-    match assert_results_match(&pg_result, &bm25_result, pg_query, bm25_query, gucs, conn) {
-        Ok(()) => CaseOutcome::Match,
-        Err(e) => CaseOutcome::Failure(handle_compare_error(
-            e, pg_query, bm25_query, gucs, setup_sql,
-        )),
-    }
-}
-
-/// Assert the two result sets are equal, attaching the ParadeDB plan to the failure message. The
-/// EXPLAIN is built lazily inside the assert message so it runs only on mismatch, and best-effort
-/// so a fault while composing it cannot itself panic.
-fn assert_results_match<R>(
-    pg_result: &R,
-    bm25_result: &R,
-    pg_query: &str,
-    bm25_query: &str,
-    gucs: &PgGucs,
-    conn: &mut PgConnection,
-) -> Result<(), TestCaseError>
-where
-    R: Eq + Debug,
-{
-    prop_assert_eq!(
-        pg_result,
-        bm25_result,
-        "\ngucs={:?}\npg:\n  {}\nbm25:\n  {}\nexplain:\n{}\n",
-        gucs,
-        pg_query,
-        bm25_query,
-        format!("EXPLAIN {bm25_query}")
-            .fetch_result::<(String,)>(conn)
-            .map(|rows| rows
-                .into_iter()
-                .map(|(s,)| s)
-                .collect::<Vec<_>>()
-                .join("\n"))
-            .unwrap_or_else(|e| format!("<EXPLAIN unavailable: {e}>"))
-    );
-    Ok(())
-}
-
-/// Panic-based comparison kept for the non-Antithesis generator tests (`json_pushdown`,
-/// `scalar_array_pushdown`), whose `run_query` closures panic on DB errors. Thin wrapper over
-/// [`compare_outcome`].
->>>>>>> f728c746 (feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185))
+/// Run the given pg and bm25 queries on the given connection, and compare their results when run
+/// with the given GUCs.
 pub fn compare<R, F>(
     pg_query: &str,
     bm25_query: &str,
@@ -904,8 +661,29 @@ where
     R: Eq + Debug,
     F: Fn(&str, &mut PgConnection) -> R,
 {
+    let sides = Sides::postgres_vs(gucs);
+    compare_on(
+        &sides, pg_query, bm25_query, gucs, conn, setup_sql, run_query,
+    )
+}
+
+/// [`compare`] with the two sessions spelled out, for a baseline other than plain
+/// Postgres, such as one backend of pg_search against another.
+pub fn compare_on<R, F>(
+    sides: &Sides,
+    pg_query: &str,
+    bm25_query: &str,
+    gucs: &PgGucs,
+    conn: &mut PgConnection,
+    setup_sql: &str,
+    run_query: F,
+) -> Result<(), TestCaseError>
+where
+    R: Eq + Debug,
+    F: Fn(&str, &mut PgConnection) -> R,
+{
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        inner_compare(pg_query, bm25_query, gucs, conn, run_query)
+        inner_compare(sides, pg_query, bm25_query, gucs, conn, run_query)
     }));
 
     let inner_result = match result {
@@ -931,6 +709,7 @@ where
 }
 
 fn inner_compare<R, F>(
+    sides: &Sides,
     pg_query: &str,
     bm25_query: &str,
     gucs: &PgGucs,
@@ -941,17 +720,13 @@ where
     R: Eq + Debug,
     F: Fn(&str, &mut PgConnection) -> R,
 {
-    // the postgres query is always run with the paradedb custom scan turned off
-    // this ensures we get the actual, known-to-be-correct result from Postgres'
-    // plan, and not from ours where we did some kind of pushdown
-    PgGucs::pg_search_disabled().set().execute(conn);
+    sides.baseline.as_str().execute(conn);
 
     conn.deallocate_all()?;
 
     let pg_result = run_query(pg_query, conn);
 
-    // and for the "bm25" query, we run it with the given GUCs set.
-    gucs.set().execute(conn);
+    sides.candidate.as_str().execute(conn);
 
     conn.deallocate_all()?;
 

@@ -97,7 +97,7 @@ pub struct VisibilityChecker {
     pub heap_tuple_check_count: usize,
     pub invisible_tuple_count: usize,
 
-    /// False for a `visibility => 'raw'` aggregate, which trades snapshot
+    /// False for a `solve_mvcc => false` aggregate, which trades snapshot
     /// accuracy for skipping the heap: every ctid then passes as-is.
     check_visibility: bool,
 }

@@ -15,22 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-<<<<<<< HEAD
-use crate::api::{
-    agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const, FieldName, HashSet,
-    MvccVisibility,
-};
+use crate::api::{is_agg_funcoid, pdb_agg_spec, FieldName, HashSet, MvccVisibility};
 use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
-=======
-use crate::api::{FieldName, HashSet, MvccVisibility, is_agg_funcoid, pdb_agg_spec};
-use crate::customscan::builders::custom_path::RestrictInfoType;
-use crate::customscan::solve_expr::SolvePostgresExpressions;
-use crate::nodecast;
-use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::joinscan::build::lookup_base_rel_info;
->>>>>>> f728c746 (feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185))
 use crate::postgres::customscan::opexpr::UnwrapFromExpr;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
@@ -48,12 +37,8 @@ use pgrx::pg_sys::{
     F_SUM_INT2, F_SUM_INT4, F_SUM_INT8, F_SUM_NUMERIC,
 };
 use pgrx::prelude::*;
-<<<<<<< HEAD
 use pgrx::PgList;
-use tantivy::aggregation::agg_req::AggregationVariants;
-=======
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
->>>>>>> f728c746 (feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185))
 use tantivy::aggregation::metric::{
     AverageAggregation, CountAggregation, MaxAggregation, MinAggregation, SingleMetricResult,
     SumAggregation,
@@ -159,46 +144,6 @@ impl AggregateType {
         };
         let filter_query = filter_expr.map(|qual| SearchQueryInput::from(&qual));
 
-<<<<<<< HEAD
-        // Check for pdb.agg() custom aggregate (both overloads)
-        let agg_oid = agg_funcoid().to_u32();
-        let agg_with_mvcc_oid = agg_with_solve_mvcc_funcoid().to_u32();
-
-        if aggfnoid == agg_oid || aggfnoid == agg_with_mvcc_oid {
-            // Extract JSON argument (first arg)
-            let arg = args.get_ptr(0).expect("pdb.agg missing argument");
-            let expr = (*arg).expr;
-            let json_value = if let Some(const_node) = nodecast!(Const, T_Const, expr) {
-                let json_datum = (*const_node).constvalue;
-                pgrx::JsonB::from_datum(json_datum, false)
-                    .expect("invalid JSON in pdb.agg")
-                    .0
-            } else {
-                // Parameterized pdb.agg() can't be lowered into the aggregate
-                // pushdown plan because we need the JSON spec at planning time
-                // to validate fields and choose a strategy. Return Err so the
-                // AggregateScan path declines and PG falls back to standard
-                // aggregate processing — same behaviour as a query without
-                // pdb.agg() pushdown.
-                return Err("pdb.agg argument must be a constant for aggregate pushdown".into());
-            };
-
-            // Extract solve_mvcc bool argument (second arg) if using the two-arg overload
-            let solve_mvcc = if aggfnoid == agg_with_mvcc_oid {
-                args.get_ptr(1)
-                    .and_then(|mvcc_arg| nodecast!(Const, T_Const, (*mvcc_arg).expr))
-                    .map(|const_node| extract_solve_mvcc_from_const(const_node))
-                    .unwrap_or(true)
-            } else {
-                true // Single-arg overload: default to solve_mvcc = true
-            };
-
-            let mvcc_visibility = if solve_mvcc {
-                MvccVisibility::Enabled
-            } else {
-                MvccVisibility::Disabled
-            };
-=======
         // Check for pdb.agg() custom aggregate (any overload)
         if is_agg_funcoid(aggfnoid) {
             // Without the spec the scan declines, and Postgres runs the
@@ -218,7 +163,6 @@ impl AggregateType {
             if let Some((_, Some(alias), _)) = lookup_base_rel_info(root, heap_rti) {
                 strip_relation_qualifier(&mut json_value, &alias, &schema);
             }
->>>>>>> f728c746 (feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185))
 
             // Check if any existing fields in the custom aggregate are NUMERIC
             // NUMERIC fields do not support aggregate pushdown
@@ -393,49 +337,16 @@ impl AggregateType {
         }
     }
 
-<<<<<<< HEAD
     /// Determines if MVCC filtering should be enabled for a group of aggregates.
-    /// Validates that there are no contradicting solve_mvcc settings among custom aggregates.
-    pub fn resolve_mvcc_enabled<'a>(aggregates: impl Iterator<Item = &'a AggregateType>) -> bool {
-        let custom_mvcc_settings: Vec<MvccVisibility> = aggregates
-            .filter_map(|agg_type| {
-                if let AggregateType::Custom {
-                    mvcc_visibility, ..
-                } = agg_type
-                {
-                    Some(*mvcc_visibility)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        if !custom_mvcc_settings.is_empty() {
-            let has_enabled = custom_mvcc_settings.contains(&MvccVisibility::Enabled);
-            let has_disabled = custom_mvcc_settings.contains(&MvccVisibility::Disabled);
-            if has_enabled && has_disabled {
-                pgrx::error!(
-                    "pdb.agg() calls have contradicting solve_mvcc settings. \
-                     All pdb.agg() calls in a query must use the same solve_mvcc value. \
-                     Either use solve_mvcc=true (or omit) for all, or solve_mvcc=false for all."
-                );
-            }
-        }
-
-        !custom_mvcc_settings.contains(&MvccVisibility::Disabled)
-=======
-    /// Determines the single query-level visibility setting for a group of aggregates.
     /// Standard SQL aggregates carry no setting of their own.
-    pub fn resolve_visibility<'a>(
-        aggregates: impl Iterator<Item = &'a AggregateType>,
-    ) -> MvccVisibility {
+    pub fn resolve_mvcc_enabled<'a>(aggregates: impl Iterator<Item = &'a AggregateType>) -> bool {
         MvccVisibility::resolve_shared(aggregates.filter_map(|agg_type| match agg_type {
             AggregateType::Custom {
                 mvcc_visibility, ..
             } => Some(*mvcc_visibility),
             _ => None,
         }))
->>>>>>> f728c746 (feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185))
+        .should_filter()
     }
 
     pub fn result_type_oid(&self) -> pg_sys::Oid {
@@ -648,15 +559,20 @@ fn collect_top_hits_sort_field_names(json: &serde_json::Value, fields: &mut Hash
 fn strip_relation_qualifier(json: &mut serde_json::Value, alias: &str, schema: &SearchIndexSchema) {
     match json {
         serde_json::Value::Object(map) => {
-            if let Some(serde_json::Value::String(field)) = map.get_mut("field")
-                && schema
+            if let Some(serde_json::Value::String(field)) = map.get_mut("field") {
+                let unqualified = schema
                     .search_field(FieldName::from(field.as_str()).root())
                     .is_none()
-                && let Some((prefix, rest)) = field.split_once('.')
-                && prefix == alias
-                && schema.search_field(FieldName::from(rest).root()).is_some()
-            {
-                *field = rest.to_string();
+                    .then(|| field.split_once('.'))
+                    .flatten()
+                    .filter(|(prefix, rest)| {
+                        *prefix == alias
+                            && schema.search_field(FieldName::from(*rest).root()).is_some()
+                    })
+                    .map(|(_, rest)| rest.to_string());
+                if let Some(rest) = unqualified {
+                    *field = rest;
+                }
             }
             for value in map.values_mut() {
                 strip_relation_qualifier(value, alias, schema);

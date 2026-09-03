@@ -58,13 +58,7 @@ debug-assertions = false
 inherits = "dev"
 
 [workspace.dependencies]
-<<<<<<< HEAD
-tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "c3caae3f613d5906c8080a3c3c2845190e749b64", features = [
-=======
-pgrx = "=0.19.2"
-pgrx-tests = "=0.19.2"
 tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "de9405aaadcd9378bdeeea7a4247c7f72e25bbd5", features = [
->>>>>>> f728c746 (feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185))
   "columnar-zstd-compression",
   "lz4-compression",
   "paradedb",

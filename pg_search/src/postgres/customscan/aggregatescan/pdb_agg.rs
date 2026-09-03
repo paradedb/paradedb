@@ -25,7 +25,7 @@
 //! order, `size`, `min_doc_count`, `sum_other_doc_count`, and the result shape are its
 //! own, so a query reads the same on either backend.
 
-use crate::aggregate::{NULL_SENTINEL_MAX, scrub_missing_sentinel_value};
+use crate::aggregate::{scrub_missing_sentinel_value, NULL_SENTINEL_MAX};
 use crate::api::{HashMap, HashSet, MvccVisibility};
 use crate::postgres::customscan::aggregatescan::json_rewrite::rewrite_aggregate_result_json_timestamps_with;
 use crate::postgres::customscan::datafusion::cardinality_agg::decode_sketch;
@@ -33,7 +33,7 @@ use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::is_pgoid_datetime_type;
 use crate::schema::SearchFieldType;
 use arrow_array::cast::AsArray;
-use arrow_array::{Array, ArrayRef, Int64Array, RecordBatch, UInt64Array, new_null_array};
+use arrow_array::{new_null_array, Array, ArrayRef, Int64Array, RecordBatch, UInt64Array};
 use arrow_schema::{DataType, Schema, SchemaRef};
 use datafusion::common::{DataFusionError, Result};
 use decimal_bytes::Decimal;
@@ -41,8 +41,6 @@ use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
 use std::sync::Arc;
-use tantivy::aggregation::AggregationLimitsGuard;
-use tantivy::aggregation::Key;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants, Aggregations};
 use tantivy::aggregation::bucket::{CustomOrder, OrderTarget};
 use tantivy::aggregation::intermediate_agg_result::{
@@ -54,6 +52,8 @@ use tantivy::aggregation::metric::{
     CardinalityCollector, IntermediateAverage, IntermediateCount, IntermediateMax, IntermediateMin,
     IntermediateStats, IntermediateSum,
 };
+use tantivy::aggregation::AggregationLimitsGuard;
+use tantivy::aggregation::Key;
 use tantivy::columnar::ColumnType;
 
 /// A fast field referenced by a `pdb.agg()` spec, resolved to its join source.
@@ -1048,15 +1048,12 @@ pub fn assemble_pdb_agg_rows(
         .collect();
 
     let num_root_cols = plan.num_root_cols();
-    if root_rows.is_empty()
-        && let Some(zero_on_empty) = synthesize_empty_root
-    {
-        let json = vec![
-            plan.entries
-                .iter()
-                .map(|entry| assembler.render(entry, &[], None))
-                .collect::<Result<Vec<_>>>()?,
-        ];
+    if let Some(zero_on_empty) = synthesize_empty_root.filter(|_| root_rows.is_empty()) {
+        let json = vec![plan
+            .entries
+            .iter()
+            .map(|entry| assembler.render(entry, &[], None))
+            .collect::<Result<Vec<_>>>()?];
         let fields: Vec<_> = schema
             .fields()
             .iter()

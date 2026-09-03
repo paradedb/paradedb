@@ -22,20 +22,12 @@
 //! column and aggregate argument belongs to. This is the join-aware counterpart
 //! of [`super::targetlist::TargetList`] (which assumes a single base relation).
 
-<<<<<<< HEAD
-use super::datafusion_build::{FilterExprBuildContext, JoinAggSource};
-use super::privdat::FilterExpr;
-use crate::api::SortDirection;
-=======
-use super::GroupingShape;
 use super::datafusion_build::{
-    FilterExprBuildContext, JoinAggSource, collect_join_agg_sources, resolve_source_field,
+    collect_join_agg_sources, resolve_source_field, FilterExprBuildContext, JoinAggSource,
 };
 use super::pdb_agg::{PdbAggFieldRef, PdbAggRequest};
 use super::privdat::FilterExpr;
-use crate::api::{HashMap, SortDirection, pdb_agg_spec};
-use crate::postgres::customscan::CreateUpperPathsHookArgs;
->>>>>>> f728c746 (feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185))
+use crate::api::{pdb_agg_spec, HashMap, SortDirection};
 use crate::postgres::customscan::datafusion::explain::get_attname_safe;
 use crate::postgres::customscan::joinscan::build::RelationAlias;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
@@ -334,11 +326,7 @@ pub unsafe fn extract_aggregate_targetlist(
     args: &CreateUpperPathsHookArgs,
     sources: &[JoinAggSource],
     plan: &crate::postgres::customscan::joinscan::build::RelNode,
-<<<<<<< HEAD
-=======
-    shape: GroupingShape,
     mut pdb_route: Option<PdbAggRoute>,
->>>>>>> f728c746 (feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185))
 ) -> Result<JoinAggregateTargetList, String> {
     let output_rel = args.output_rel();
     let target_exprs = PgList::<pg_sys::Expr>::from_pg((*output_rel.reltarget).exprs);
@@ -480,15 +468,6 @@ pub unsafe fn extract_aggregate_targetlist(
                 )
             };
 
-<<<<<<< HEAD
-            // Reject pdb.agg()
-            let pdb_agg_oid = crate::api::agg_funcoid().to_u32();
-            let pdb_agg_mvcc_oid = crate::api::agg_with_solve_mvcc_funcoid().to_u32();
-            if aggfnoid == pdb_agg_oid || aggfnoid == pdb_agg_mvcc_oid {
-                return Err(
-                    "pdb.agg() is not supported on joins - use standard SQL aggregates (COUNT, SUM, AVG, MIN, MAX)".into()
-                );
-=======
             if crate::api::is_agg_funcoid(aggfnoid) {
                 if has_distinct || !(*aggref).aggorder.is_null() {
                     return Err("pdb.agg() does not accept DISTINCT or ORDER BY".into());
@@ -515,7 +494,6 @@ pub unsafe fn extract_aggregate_targetlist(
                     numeric: None,
                 });
                 continue;
->>>>>>> f728c746 (feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185))
             }
 
             let mut agg_kind = classify_aggregate_oid(aggfnoid, (*aggref).aggstar, has_distinct)
@@ -592,13 +570,13 @@ impl PdbAggRoute {
 /// on the Tantivy path, which runs every Tantivy aggregation, so the user never
 /// sees an error for a query the index can answer.
 pub unsafe fn pdb_agg_route(
-    root: *mut pg_sys::PlannerInfo,
+    args: &CreateUpperPathsHookArgs,
     input_rel: &pg_sys::RelOptInfo,
-    shape: GroupingShape,
 ) -> Option<PdbAggRoute> {
-    let sources = collect_join_agg_sources(root, input_rel);
+    let sources = collect_join_agg_sources(args.root, input_rel);
+    let target_exprs = PgList::<pg_sys::Expr>::from_pg((*args.output_rel().reltarget).exprs);
     let mut requests = HashMap::default();
-    for (idx, expr) in shape.target_exprs().iter_ptr().enumerate() {
+    for (idx, expr) in target_exprs.iter_ptr().enumerate() {
         let Some(aggref) = find_one_aggref(expr as *mut pg_sys::Node) else {
             continue;
         };

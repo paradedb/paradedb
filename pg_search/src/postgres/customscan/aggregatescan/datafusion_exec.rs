@@ -24,15 +24,11 @@
 //! materialization, no SegmentedTopK — aggregates run entirely on fast fields
 //! and the result is aggregate rows, not individual tuples.
 
-<<<<<<< HEAD
 use super::join_targetlist::AggOrderByEntry;
-=======
-use super::join_targetlist::{AggOrderByEntry, GroupingTransform};
 use super::pdb_agg::{
     PdbAggFieldRef, PdbAggPlan, PdbAggRequest, PdbKeySpec, PdbMetricSpec, PdbStat,
 };
 use crate::api::HashMap;
->>>>>>> f728c746 (feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185))
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
@@ -66,13 +62,9 @@ use datafusion::functions_aggregate::expr_fn::{
 };
 use datafusion::functions_aggregate::string_agg::string_agg_udaf;
 use datafusion::logical_expr::expr::{AggregateFunction, Sort};
-<<<<<<< HEAD
-use datafusion::logical_expr::{lit, Expr};
-=======
 use datafusion::logical_expr::{
-    Aggregate, Cast, Expr, GroupingSet, LogicalPlanBuilder, LogicalPlanBuilderOptions, col, lit,
+    col, lit, Aggregate, Cast, Expr, GroupingSet, LogicalPlanBuilder, LogicalPlanBuilderOptions,
 };
->>>>>>> f728c746 (feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185))
 use datafusion::prelude::{DataFrame, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
 use pgrx::pg_sys;

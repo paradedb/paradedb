@@ -29,7 +29,7 @@ use datafusion::physical_plan::ExecutionPlan;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 
-use crate::api::{HashSet, MvccVisibility};
+use crate::api::HashSet;
 use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{SearchIndexManifest, SearchIndexReader};
@@ -779,10 +779,9 @@ impl PgSearchTableProvider {
         let scan_ffhelper = Arc::new(FFHelper::with_fields(&reader, &projected_fields));
         let table_ffhelper = Arc::new(FFHelper::with_fields(&reader, &active_fields));
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
-        // The aggregate scan settles a `threshold` for the whole query before
-        // execution; one that reaches here unsettled, as on an EXPLAIN build,
-        // checks. A dispatched worker inherits the decision.
-        let check_visibility = self.scan_info.mvcc_visibility != MvccVisibility::Raw;
+        // The aggregate scan resolves one setting for the whole query, and a
+        // dispatched worker inherits it.
+        let check_visibility = self.scan_info.mvcc_visibility.should_filter();
         let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot)
             .with_check_visibility(check_visibility);
 

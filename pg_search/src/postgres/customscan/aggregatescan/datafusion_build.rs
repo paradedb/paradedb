@@ -29,13 +29,8 @@ use crate::api::operator::anyelement_query_input_opoid;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::joinscan::build::{
-<<<<<<< HEAD
     lookup_base_rel_info, try_extract_equi_key, FilterNode, JoinKeyPair, JoinLevelExpr, JoinNode,
-    JoinSource, JoinSourceCandidate, JoinType, PlannerRootId, RelNode,
-=======
-    FilterNode, JoinKeyPair, JoinLevelExpr, JoinNode, JoinSource, JoinSourceCandidate, JoinType,
-    PlannerRootId, RelNode, RelationAlias, lookup_base_rel_info, try_extract_equi_key,
->>>>>>> f728c746 (feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185))
+    JoinSource, JoinSourceCandidate, JoinType, PlannerRootId, RelNode, RelationAlias,
 };
 use crate::postgres::customscan::joinscan::planning::{
     classify_base_restrictinfo, transparent_path_subpath, wrap_with_semi_anti,
@@ -57,12 +52,8 @@ use crate::postgres::utils::{
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
 use crate::scan::info::FieldInfo;
-<<<<<<< HEAD
-use pgrx::{pg_sys, PgList};
-=======
 use crate::schema::SearchFieldType;
-use pgrx::{PgList, pg_sys};
->>>>>>> f728c746 (feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185))
+use pgrx::{pg_sys, PgList};
 
 /// Result type for `extract_join_tree_from_parse`: the plan tree and raw PG Expr clause pointers.
 type JoinTreeResult = (RelNode, Vec<*mut pg_sys::Expr>);
@@ -130,9 +121,7 @@ pub fn resolve_source_field<'a>(
 ) -> Result<ResolvedSourceField<'a>, String> {
     let (mut candidates, mut reasons) = source_field_candidates(sources, field);
     let mut field_name = field.to_string();
-    if candidates.is_empty()
-        && let Some((prefix, rest)) = field.split_once('.')
-    {
+    if let Some((prefix, rest)) = field.split_once('.').filter(|_| candidates.is_empty()) {
         let (qualified, qualified_reasons) = source_field_candidates(sources, rest);
         candidates = qualified
             .into_iter()
@@ -1450,11 +1439,11 @@ unsafe fn require_named_fast_field(
     field_name: &str,
     describe: impl FnOnce() -> String,
 ) -> Result<(), String> {
-    if field_name.contains('.')
-        && let Some(field) = resolve_fast_field_by_name(field_name, indexrel)
-    {
-        source.scan_info.add_field_by_name(attno, field);
-        return Ok(());
+    if field_name.contains('.') {
+        if let Some(field) = resolve_fast_field_by_name(field_name, indexrel) {
+            source.scan_info.add_field_by_name(attno, field);
+            return Ok(());
+        }
     }
     if let Some(field) = resolve_fast_field(attno as i32, tupdesc, indexrel) {
         source.scan_info.add_field(attno, field);
@@ -1532,40 +1521,9 @@ pub unsafe fn populate_required_fields(
             if source.plan_position != gc.plan_position {
                 continue;
             }
-<<<<<<< HEAD
-
-            let mut resolved_field = None;
-            // For dotted names (JSON sub-fields), try resolving by name first.
-            // This is more specific than attno-based resolution which might
-            // find the parent JSON column if it's also indexed as text.
-            if gc.field_name.contains('.') {
-                if let Some(field) = resolve_fast_field_by_name(&gc.field_name, indexrel) {
-                    source.scan_info.add_field_by_name(gc.attno, field.clone());
-                    resolved_field = Some(field);
-                }
-            }
-
-            if resolved_field.is_none() {
-                if let Some(field) = resolve_fast_field(gc.attno as i32, &tupdesc, indexrel) {
-                    source.scan_info.add_field(gc.attno, field.clone());
-                    resolved_field = Some(field);
-                } else if let Some(field) = resolve_fast_field_by_name(&gc.field_name, indexrel) {
-                    source.scan_info.add_field_by_name(gc.attno, field.clone());
-                    resolved_field = Some(field);
-                }
-            }
-
-            if resolved_field.is_none() {
-                return Err(format!(
-                    "GROUP BY column '{}' (attno={}) is not a fast field",
-                    gc.field_name, gc.attno,
-                ));
-            }
-=======
             require_named_fast_field(source, &tupdesc, indexrel, gc.attno, &gc.field_name, || {
                 format!("GROUP BY column '{}' (attno={})", gc.field_name, gc.attno)
             })?;
->>>>>>> f728c746 (feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185))
         }
 
         // Aggregate arguments - match by plan_position.

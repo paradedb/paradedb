@@ -28,8 +28,8 @@
 
 use datafusion::common::ScalarValue;
 use datafusion::error::{DataFusionError, Result};
-use datafusion::logical_expr::AggregateUDF;
 use datafusion::logical_expr::function::AccumulatorArgs;
+use datafusion::logical_expr::AggregateUDF;
 use datafusion::physical_plan::expressions::Literal;
 use std::sync::Arc;
 

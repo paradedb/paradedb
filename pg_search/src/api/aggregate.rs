@@ -51,16 +51,13 @@
 
 use std::error::Error;
 
-<<<<<<< HEAD
-use pgrx::{default, pg_extern, Json, JsonB, PgRelation};
-=======
-use pgrx::{FromDatum, Json, JsonB, PgRelation, default, pg_extern};
->>>>>>> f728c746 (feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185))
+use pgrx::{default, pg_extern, FromDatum, Json, JsonB, PgRelation};
 use serde::{Deserialize, Serialize};
 
 use crate::aggregate::{execute_aggregate, AggregateRequest};
 use crate::api::version::VersionInfo;
 use crate::gucs;
+use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::aggregate_type::validate_agg_json_fields;
 use crate::postgres::customscan::aggregatescan::json_rewrite::rewrite_aggregate_result_json_timestamps;
 use crate::postgres::rel::PgSearchRelation;
@@ -285,81 +282,46 @@ pub fn agg_with_solve_mvcc_funcoid() -> pgrx::pg_sys::Oid {
     lookup_pdb_function("agg", &[pgrx::pg_sys::JSONBOID, pgrx::pg_sys::BOOLOID])
 }
 
-<<<<<<< HEAD
-=======
-/// Get the OID of the pdb.agg(jsonb, text) aggregate function with the `visibility` parameter
-/// Returns InvalidOid if the function doesn't exist yet (e.g., during extension creation)
-fn agg_with_visibility_funcoid() -> pgrx::pg_sys::Oid {
-    lookup_pdb_function("agg", &[pgrx::pg_sys::JSONBOID, pgrx::pg_sys::TEXTOID])
-}
-
-/// The OIDs of every `pdb.agg()` overload: the one-argument form, the deprecated
-/// `(jsonb, bool)` form, and the `(jsonb, text)` form.
-///
-/// Each entry is a catalog lookup, so hoist this out of any loop that walks an
-/// expression tree rather than calling `is_agg_funcoid` per node.
-pub fn agg_funcoids() -> [u32; 3] {
-    [
-        agg_funcoid().to_u32(),
-        agg_with_solve_mvcc_funcoid().to_u32(),
-        agg_with_visibility_funcoid().to_u32(),
-    ]
-}
-
-/// True for any `pdb.agg()` overload. Convenient for a one-off check; use
-/// `agg_funcoids()` when the check is inside a tree walk.
+/// True for either `pdb.agg()` overload: the one-argument form and the
+/// `(jsonb, bool)` form.
 pub fn is_agg_funcoid(aggfnoid: u32) -> bool {
-    agg_funcoids().contains(&aggfnoid)
-}
-
-/// Decode the visibility argument of a `pdb.agg()` call.
-///
-/// `second_arg` is the second argument's expression, or `None` for the one-argument
-/// overload. A non-`Const` or NULL argument, and any overload without a visibility
-/// argument, yield the default: an undecodable mode must not silently downgrade
-/// accuracy.
-///
-/// # Safety
-/// The caller must ensure `second_arg`, when present, is a valid `Node` pointer.
-pub unsafe fn visibility_from_agg_arg(
-    aggfnoid: u32,
-    second_arg: Option<*mut pgrx::pg_sys::Node>,
-) -> MvccVisibility {
-    let Some(const_node) = second_arg.and_then(|node| nodecast!(Const, T_Const, node)) else {
-        return MvccVisibility::default();
-    };
-
-    if aggfnoid == agg_with_solve_mvcc_funcoid().to_u32() {
-        if extract_solve_mvcc_from_const(const_node) {
-            MvccVisibility::Transaction
-        } else {
-            MvccVisibility::Raw
-        }
-    } else if aggfnoid == agg_with_visibility_funcoid().to_u32() {
-        extract_visibility_from_const(const_node)
-    } else {
-        MvccVisibility::default()
-    }
+    aggfnoid == agg_funcoid().to_u32() || aggfnoid == agg_with_solve_mvcc_funcoid().to_u32()
 }
 
 /// The spec and visibility of a `pdb.agg()` call, or `None` when the spec is not
 /// a non-null constant. Field validation and the plan shape both need the spec at
 /// plan time, so a parameter cannot stand in for it.
 ///
+/// `solve_mvcc_arg` is the second argument's expression, or `None` for the
+/// one-argument overload. A non-`Const` or NULL argument yields the default: an
+/// undecodable setting must not silently downgrade accuracy.
+///
 /// # Safety
-/// The caller must ensure `spec_arg` and `visibility_arg`, when present, are valid
+/// The caller must ensure `spec_arg` and `solve_mvcc_arg`, when present, are valid
 /// `Node` pointers.
 pub unsafe fn pdb_agg_spec(
     aggfnoid: u32,
     spec_arg: *mut pgrx::pg_sys::Node,
-    visibility_arg: Option<*mut pgrx::pg_sys::Node>,
+    solve_mvcc_arg: Option<*mut pgrx::pg_sys::Node>,
 ) -> Option<(serde_json::Value, MvccVisibility)> {
     let const_node = nodecast!(Const, T_Const, spec_arg)?;
     let spec = JsonB::from_datum((*const_node).constvalue, (*const_node).constisnull)?.0;
-    Some((spec, visibility_from_agg_arg(aggfnoid, visibility_arg)))
+    let solve_mvcc = if aggfnoid == agg_with_solve_mvcc_funcoid().to_u32() {
+        solve_mvcc_arg
+            .and_then(|node| nodecast!(Const, T_Const, node))
+            .map(|const_node| extract_solve_mvcc_from_const(const_node))
+            .unwrap_or(true)
+    } else {
+        true
+    };
+    let visibility = if solve_mvcc {
+        MvccVisibility::Enabled
+    } else {
+        MvccVisibility::Disabled
+    };
+    Some((spec, visibility))
 }
 
->>>>>>> f728c746 (feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185))
 /// Extract solve_mvcc boolean from a Const node.
 /// Returns true (MVCC enabled) if the value can't be extracted or is null.
 ///
@@ -395,7 +357,6 @@ pub enum MvccVisibility {
 }
 
 impl MvccVisibility {
-<<<<<<< HEAD
     /// Parse from a string value (case-insensitive).
     /// Returns the default (Enabled) for unrecognized values with a warning.
     pub fn from_str_or_default(s: &str) -> Self {
@@ -411,122 +372,30 @@ impl MvccVisibility {
                 MvccVisibility::Enabled
             }
         }
-=======
-    /// Parse a SQL-level `visibility` value (case-insensitive), or `None` when the
-    /// value is not one of the recognized spellings.
-    ///
-    /// The legacy `solve_mvcc` spellings are accepted as aliases so that queries
-    /// written against the old parameter keep working.
-    ///
-    /// Kept free of `pgrx::error!` so it stays a pure function. Reporting the error
-    /// is `from_sql_value`'s job: a unit test that reached the reporting path would
-    /// pull Postgres's `ereport` symbols into the test binary, which does not link
-    /// on Linux.
-    pub fn try_from_sql_value(value: &str) -> Option<Self> {
-        Some(match value.trim().to_lowercase().as_str() {
-            // The boolean spellings are the ones Postgres itself accepts for a
-            // `boolean` input, since this value used to be one.
-            "transaction" | "true" | "t" | "yes" | "y" | "on" | "1" | "enabled" | "always" => {
-                MvccVisibility::Transaction
-            }
-            "raw" | "false" | "f" | "no" | "n" | "off" | "0" | "disabled" | "never" => {
-                MvccVisibility::Raw
-            }
-            "threshold" | "estimated" => MvccVisibility::Threshold,
-            _ => return None,
-        })
     }
 
-    /// Parse a SQL-level `visibility` value, erroring on an unrecognized one rather
-    /// than guessing. Guessing wrong either costs accuracy silently or costs the
-    /// performance the caller asked for.
-    pub fn from_sql_value(value: &str) -> Self {
-        Self::try_from_sql_value(value).unwrap_or_else(|| {
-            pgrx::error!(
-                "unrecognized visibility mode '{value}'. \
-                 Valid values: 'transaction' (default), 'raw', 'threshold'."
-            )
-        })
-    }
-
-    /// Resolve to whether visibility checking actually runs for an execution
-    /// that scans the given indexes. One decision covers all of them: a
-    /// per-source decision could hide a deleted row on one side of a join and
-    /// show it on the other.
-    ///
-    /// `Threshold` estimates each query's matching row count, which costs one
-    /// extra single-segment index open per source. The largest estimate stands
-    /// for the query, since that is where a heap check costs and where a dead
-    /// tuple hides best. Anything that cannot be estimated falls back to
-    /// checking: an unknown row count must not silently downgrade accuracy.
-    ///
-    /// The estimate opens the index without an expression context, so a query
-    /// carrying heap filters or unsolved Postgres expressions is not estimated at
-    /// all. Building a Tantivy query for those shapes requires the context, and
-    /// the accurate side of the branch is the safe place to land.
-    pub fn resolve_filtering_for_sources<'a>(
-        &self,
-        sources: impl IntoIterator<Item = (&'a PgSearchRelation, &'a SearchQueryInput)>,
-    ) -> bool {
-        match self {
-            MvccVisibility::Transaction => true,
-            MvccVisibility::Raw => false,
-            MvccVisibility::Threshold => {
-                let mut largest = 0;
-                for (indexrel, query) in sources {
-                    if query.has_heap_filters() || query.has_postgres_expressions() {
-                        return true;
-                    }
-                    match estimate_matching_rows(indexrel, query.clone()) {
-                        Some(rows) => largest = largest.max(rows),
-                        None => return true,
-                    }
-                }
-                largest < gucs::visibility_threshold()
-            }
-        }
+    /// Returns true if MVCC filtering should be applied
+    pub fn should_filter(&self) -> bool {
+        matches!(self, MvccVisibility::Enabled)
     }
 
     /// The single visibility a query runs under, given every `pdb.agg()` setting in
     /// it. Two different settings are an error even when one of them came from an
     /// omitted argument, since an omitted argument is indistinguishable from an
-    /// explicit `'transaction'` by the time it is seen here.
+    /// explicit `true` by the time it is seen here.
     pub fn resolve_shared(settings: impl Iterator<Item = MvccVisibility>) -> MvccVisibility {
         let mut resolved: Option<MvccVisibility> = None;
         for visibility in settings {
             match resolved {
                 None => resolved = Some(visibility),
                 Some(previous) if previous == visibility => {}
-                Some(previous) => pgrx::error!(
-                    "pdb.agg() calls have contradicting visibility settings: \
-                     '{}' and '{}'. All pdb.agg() calls in a query must use the same \
-                     visibility value, and omitting the argument selects '{}'.",
-                    previous.as_sql_value(),
-                    visibility.as_sql_value(),
-                    MvccVisibility::default().as_sql_value()
+                Some(_) => pgrx::error!(
+                    "pdb.agg() calls have contradicting solve_mvcc settings. \
+                     All pdb.agg() calls in a query must use the same solve_mvcc value. \
+                     Either use solve_mvcc=true (or omit) for all, or solve_mvcc=false for all."
                 ),
             }
         }
         resolved.unwrap_or_default()
-    }
-
-    /// The canonical SQL spelling, for error and deprecation messages.
-    pub fn as_sql_value(&self) -> &'static str {
-        match self {
-            MvccVisibility::Transaction => "transaction",
-            MvccVisibility::Raw => "raw",
-            MvccVisibility::Threshold => "threshold",
-        }
-    }
-
-    /// [`Self::resolve_filtering_for_sources`] for a single index.
-    pub fn resolve_filtering(&self, indexrel: &PgSearchRelation, query: &SearchQueryInput) -> bool {
-        self.resolve_filtering_for_sources(std::iter::once((indexrel, query)))
->>>>>>> f728c746 (feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185))
-    }
-
-    /// Returns true if MVCC filtering should be applied
-    pub fn should_filter(&self) -> bool {
-        matches!(self, MvccVisibility::Enabled)
     }
 }

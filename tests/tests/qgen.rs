@@ -20,20 +20,11 @@ use tests::fixtures::querygen::joingen::{arb_joins, arb_semi_joins, JoinType};
 use tests::fixtures::querygen::numericgen::arb_numeric_expr;
 use tests::fixtures::querygen::orderbygen::arb_joinscan_order_parts;
 use tests::fixtures::querygen::pagegen::arb_paging_exprs;
-<<<<<<< HEAD
-=======
 use tests::fixtures::querygen::pdbagggen::{arb_pdb_agg_join, arb_pdb_agg_single_table};
-use tests::fixtures::querygen::wheregen::Expr as WhereExpr;
->>>>>>> f728c746 (feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185))
 use tests::fixtures::querygen::wheregen::arb_wheres;
 use tests::fixtures::querygen::wheregen::Expr as WhereExpr;
 use tests::fixtures::querygen::{
-<<<<<<< HEAD
-    arb_joins_and_wheres, compare, generated_queries_setup, Column, PgGucs,
-=======
-    Column, PgGucs, Sides, arb_joins_and_wheres, compare_outcome_retrying,
-    compare_outcome_retrying_on, generated_queries_setup,
->>>>>>> f728c746 (feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185))
+    arb_joins_and_wheres, compare, compare_on, generated_queries_setup, Column, PgGucs, Sides,
 };
 
 use tests::fixtures::*;
@@ -1607,12 +1598,12 @@ async fn generated_pdb_agg_join(database: Db) {
         .iter()
         .map(|(table, _)| table.to_string())
         .collect();
-    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes, COLUMNS);
 
     let text_columns = columns_named(vec!["name"]);
     let join_key_columns = vec!["id".to_string(), "age".to_string()];
 
-    proptest!(qgen_proptest_config(), |(
+    proptest!(|(
         outer_bm25 in arb_wheres(vec![all_tables[0].clone()], &text_columns),
         (join_expr, agg) in arb_pdb_agg_join(all_tables.clone(), join_key_columns.clone()),
         mut gucs in any::<PgGucs>(),
@@ -1626,19 +1617,18 @@ async fn generated_pdb_agg_join(database: Db) {
         gucs.join_custom_scan = true;
         gucs.custom_scan = true;
 
-        qgen_oracle!("qgen: generated_pdb_agg_join - pdb.agg() buckets match PostgreSQL GROUP BY", compare_outcome_retrying(
+        compare(
             &pg_query,
             &bm25_query,
             &gucs,
-            &pool,
+            &mut pool.pull(),
             &setup_sql,
             |query, conn| {
-                let rows = query.fetch_dynamic_result(conn)?;
-                let mut rows = agg.rows(rows)?;
+                let mut rows = agg.rows(query.fetch_dynamic(conn)).unwrap();
                 rows.sort();
-                Ok(rows)
+                rows
             },
-        ))?;
+        )?;
     });
 }
 
@@ -1654,10 +1644,10 @@ async fn generated_pdb_agg_single_table(database: Db) {
         |_| {},
     );
 
-    let setup_sql = generated_queries_setup(&pool, &[("users", 50)], COLUMNS);
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &[("users", 50)], COLUMNS);
     let text_columns = columns_named(vec!["name"]);
 
-    proptest!(qgen_proptest_config(), |(
+    proptest!(|(
         outer_bm25 in arb_wheres(vec!["users".to_string()], &text_columns),
         agg in arb_pdb_agg_single_table(),
         mut gucs in any::<PgGucs>(),
@@ -1677,18 +1667,18 @@ async fn generated_pdb_agg_single_table(database: Db) {
             candidate: gucs.set(),
         };
 
-        qgen_oracle!("qgen: generated_pdb_agg_single_table - both backends answer pdb.agg() alike", compare_outcome_retrying_on(
+        compare_on(
             &sides,
             &tantivy_query,
             &datafusion_query,
             &gucs,
-            &pool,
+            &mut pool.pull(),
             &setup_sql,
             |query, conn| {
-                let mut documents = agg.documents(query.fetch_dynamic_result(conn)?)?;
+                let mut documents = agg.documents(query.fetch_dynamic(conn)).unwrap();
                 documents.sort_by(|a, b| a.0.cmp(&b.0));
-                Ok(documents)
+                documents
             },
-        ))?;
+        )?;
     });
 }

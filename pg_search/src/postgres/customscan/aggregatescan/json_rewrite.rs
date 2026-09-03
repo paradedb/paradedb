@@ -118,9 +118,8 @@ pub fn rewrite_aggregate_result_json_timestamps_with(
     // mirroring the bucket `key_as_string` convention.
     let single_metric_field_paths = ["/min/field", "/max/field", "/sum/field", "/avg/field"];
     for path in single_metric_field_paths {
-<<<<<<< HEAD
         if let Some(field_name) = agg_json.pointer(path).and_then(|v| v.as_str()) {
-            if is_a_datetime_field(field_name, schema) {
+            if is_datetime_field(field_name) {
                 if let Some(obj) = output_json.as_object_mut() {
                     if let Some(v) = obj.get("value") {
                         if let Some(key_as_str) = i64_value_to_timestamp_string(v) {
@@ -133,19 +132,6 @@ pub fn rewrite_aggregate_result_json_timestamps_with(
                 }
                 // a given agg is only ever one of these variants — stop checking
                 break;
-=======
-        if let Some(field_name) = agg_json.pointer(path).and_then(|v| v.as_str())
-            && is_datetime_field(field_name)
-        {
-            if let Some(obj) = output_json.as_object_mut()
-                && let Some(v) = obj.get("value")
-                && let Some(key_as_str) = i64_value_to_timestamp_string(v)
-            {
-                obj.insert(
-                    "key_as_string".to_string(),
-                    serde_json::Value::String(key_as_str),
-                );
->>>>>>> f728c746 (feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185))
             }
         }
     }

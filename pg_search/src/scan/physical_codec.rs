@@ -41,12 +41,7 @@ use datafusion_proto::protobuf::PhysicalPlanNode;
 use crate::api::HashMap;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::SegmentView;
-<<<<<<< HEAD
-use crate::postgres::customscan::datafusion::numeric_agg;
-=======
-use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::datafusion::udaf_by_name;
->>>>>>> f728c746 (feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185))
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
 use crate::postgres::ParallelScanState;
 use crate::scan::execution_plan::PgSearchScanPlan;

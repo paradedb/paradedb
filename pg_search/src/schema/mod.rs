@@ -223,6 +223,27 @@ impl SearchFieldType {
             SearchFieldType::Vector(..) => arrow_schema::DataType::BinaryView,
         }
     }
+
+    /// Whether values of this type are stored in a bytes column, so a deferred
+    /// term ordinal resolves against the bytes dictionary rather than the string one.
+    pub fn is_bytes_storage(&self) -> bool {
+        matches!(
+            self.arrow_data_type(),
+            arrow_schema::DataType::BinaryView | arrow_schema::DataType::LargeBinary
+        )
+    }
+
+    /// Whether values of this type are stored in a dictionary-backed column.
+    /// Only these carry term ordinals, so only these can have their decoding deferred.
+    pub fn is_dictionary_storage(&self) -> bool {
+        matches!(
+            self.arrow_data_type(),
+            arrow_schema::DataType::Utf8View
+                | arrow_schema::DataType::BinaryView
+                | arrow_schema::DataType::LargeUtf8
+                | arrow_schema::DataType::LargeBinary
+        )
+    }
 }
 
 /// Derive the SearchFieldType from the tantivy schema, using PostgreSQL metadata for OID/scale.

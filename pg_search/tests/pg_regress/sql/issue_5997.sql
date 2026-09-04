@@ -19,7 +19,11 @@ INSERT INTO issue_5997 (title, n, title_vc, span) VALUES
     ('doc', 9, 'b', '[1,2)'),
     ('doc', 10, 'a', '[10,11)'),
     ('doc', 100, 'c', '[2,3)'),
-    ('doc', 2, 'd', '[100,101)');
+    ('doc', 2, 'd', '[100,101)'),
+    ('doc', 1, 'e', '[3,4)'),
+    ('doc', 3, 'f', '[4,5)'),
+    ('doc', 4, 'g', '[5,6)'),
+    ('doc', 11, 'h', '[6,7)');
 
 CREATE INDEX issue_5997_idx ON issue_5997
 USING paradedb (id, title, n, title_vc, span)
@@ -28,7 +32,7 @@ WITH (
     text_fields = '{"title_vc": {"fast": true, "tokenizer": {"type": "raw"}}}'
 );
 
--- bigint::text: text order is 10, 100, 2, 9 — not numeric 2, 9, 10, 100.
+-- bigint::text: text order is 1, 10, 100, 11 — not numeric 1, 2, 3, 4.
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT n FROM issue_5997
 WHERE title @@@ 'doc'
@@ -83,5 +87,22 @@ SELECT span FROM issue_5997
 WHERE title @@@ 'doc'
 ORDER BY span::text COLLATE "C"
 LIMIT 4;
+
+-- AggregateScan shares the sort classifier. More distinct n than LIMIT so a
+-- numeric pushdown would return the wrong set (1, 2, 3, 4), not only order.
+SET paradedb.enable_aggregate_custom_scan = on;
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT n::text AS t, count(*) FROM issue_5997
+WHERE title @@@ 'doc'
+GROUP BY n::text
+ORDER BY n::text COLLATE "C"
+LIMIT 4;
+
+SELECT n::text AS t, count(*) FROM issue_5997
+WHERE title @@@ 'doc'
+GROUP BY n::text
+ORDER BY n::text COLLATE "C"
+LIMIT 4;
+RESET paradedb.enable_aggregate_custom_scan;
 
 DROP TABLE issue_5997 CASCADE;

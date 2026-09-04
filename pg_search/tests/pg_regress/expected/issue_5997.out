@@ -21,14 +21,18 @@ INSERT INTO issue_5997 (title, n, title_vc, span) VALUES
     ('doc', 9, 'b', '[1,2)'),
     ('doc', 10, 'a', '[10,11)'),
     ('doc', 100, 'c', '[2,3)'),
-    ('doc', 2, 'd', '[100,101)');
+    ('doc', 2, 'd', '[100,101)'),
+    ('doc', 1, 'e', '[3,4)'),
+    ('doc', 3, 'f', '[4,5)'),
+    ('doc', 4, 'g', '[5,6)'),
+    ('doc', 11, 'h', '[6,7)');
 CREATE INDEX issue_5997_idx ON issue_5997
 USING paradedb (id, title, n, title_vc, span)
 WITH (
     key_field = 'id',
     text_fields = '{"title_vc": {"fast": true, "tokenizer": {"type": "raw"}}}'
 );
--- bigint::text: text order is 10, 100, 2, 9 — not numeric 2, 9, 10, 100.
+-- bigint::text: text order is 1, 10, 100, 11 — not numeric 1, 2, 3, 4.
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT n FROM issue_5997
 WHERE title @@@ 'doc'
@@ -55,10 +59,10 @@ LIMIT 4;
 WARNING:  Query has LIMIT 4 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: issue_5997)
   n  
 -----
+   1
   10
  100
-   2
-   9
+  11
 (4 rows)
 
 SET paradedb.enable_custom_scan = off;
@@ -66,12 +70,14 @@ SELECT n FROM issue_5997
 WHERE title @@@ 'doc'
 ORDER BY n::text COLLATE "C"
 LIMIT 4;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
   n  
 -----
+   1
   10
  100
-   2
-   9
+  11
 (4 rows)
 
 SET paradedb.enable_custom_scan = on;
@@ -98,12 +104,12 @@ SELECT n FROM issue_5997
 WHERE title @@@ 'doc'
 ORDER BY n
 LIMIT 4;
-  n  
------
-   2
-   9
-  10
- 100
+ n 
+---
+ 1
+ 2
+ 3
+ 4
 (4 rows)
 
 -- RelabelType varchar::text is still a raw sort on the varchar column.
@@ -171,4 +177,41 @@ WARNING:  Query has LIMIT 4 but is not using Top K scan (using Normal instead). 
  [2,3)
 (4 rows)
 
+-- AggregateScan shares the sort classifier. More distinct n than LIMIT so a
+-- numeric pushdown would return the wrong set (1, 2, 3, 4), not only order.
+SET paradedb.enable_aggregate_custom_scan = on;
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT n::text AS t, count(*) FROM issue_5997
+WHERE title @@@ 'doc'
+GROUP BY n::text
+ORDER BY n::text COLLATE "C"
+LIMIT 4;
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: ((n)::text) COLLATE "C"
+         ->  Custom Scan (ParadeDB Aggregate Scan) on issue_5997
+               Index: issue_5997_idx
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"doc","lenient":null,"conjunction_mode":null}}}}
+                 Applies to Aggregates: COUNT(*)
+                 Group By: n
+                 Limit: 4
+                 Aggregate Definition: {"grouped":{"terms":{"field":"n","segment_size":65000,"size":65000}}}
+(10 rows)
+
+SELECT n::text AS t, count(*) FROM issue_5997
+WHERE title @@@ 'doc'
+GROUP BY n::text
+ORDER BY n::text COLLATE "C"
+LIMIT 4;
+  t  | count 
+-----+-------
+ 1   |     1
+ 10  |     1
+ 100 |     1
+ 11  |     1
+(4 rows)
+
+RESET paradedb.enable_aggregate_custom_scan;
 DROP TABLE issue_5997 CASCADE;

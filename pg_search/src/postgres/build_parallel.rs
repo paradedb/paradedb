@@ -435,6 +435,15 @@ impl<'a> BuildWorker<'a> {
     }
 }
 
+/// Pops the snapshot a partitioned drain made active, on every path out of it.
+struct ActiveSnapshotGuard;
+
+crate::impl_safe_drop!(ActiveSnapshotGuard, |self| {
+    unsafe {
+        pg_sys::PopActiveSnapshot();
+    }
+});
+
 /// One spill record: a ctid as 8 bytes.
 const CTID_RECORD_LEN: usize = 8;
 
@@ -1112,9 +1121,11 @@ impl<'a> WorkerBuildState<'a> {
         // The scan callback spilled HOT chain root ctids; index the member of each chain the
         // inline callback would have delivered for the root.
         .with_root_ctids();
-        if let Some(snapshot) = self.build_snapshot {
-            unsafe { pg_sys::PushActiveSnapshot(snapshot) };
-        }
+        // The drain returns early on an error, so the pop has to ride a guard.
+        let _active_snapshot = self.build_snapshot.map(|snapshot| unsafe {
+            pg_sys::PushActiveSnapshot(snapshot);
+            ActiveSnapshotGuard
+        });
 
         let prefetch_distance = unsafe { pg_sys::maintenance_io_concurrency }.max(0) as usize;
         let (first_partition, owned_partitions) =
@@ -1172,9 +1183,6 @@ impl<'a> WorkerBuildState<'a> {
             // A partition merge leaves the status at garbage collecting while the drain goes on
             // indexing the next partition.
             unsafe { set_ps_display_suffix(INDEXING.as_ptr()) };
-        }
-        if self.build_snapshot.is_some() {
-            unsafe { pg_sys::PopActiveSnapshot() };
         }
         pgrx::debug1!(
             "build_worker {}: drained {owned_partitions} partitions in {:.3}s",

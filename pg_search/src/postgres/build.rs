@@ -569,16 +569,15 @@ mod tests {
         );
     }
 
-    /// A key a demux cannot read holds no values to route on, so the build refuses it up
-    /// front instead of leaving an index that no merge can ever heal.
+    /// A key with no fast column has no values to cut on, so the build refuses it up front.
     #[pg_test(
         error = "`tenant_id` cannot be used in `partition_by` because it does not have a fast column in raw order"
     )]
     fn a_non_fast_partition_key_is_rejected() {
         Spi::run(
             r#"
-            CREATE TABLE demux_slow (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
-            CREATE INDEX demux_slow_idx ON demux_slow USING bm25 (id, tenant_id, name)
+            CREATE TABLE unroutable_key (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            CREATE INDEX unroutable_key_idx ON unroutable_key USING bm25 (id, tenant_id, name)
                 WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 4,
                       numeric_fields = '{"tenant_id": {"fast": false}}');
             "#,
@@ -586,16 +585,16 @@ mod tests {
         .unwrap();
     }
 
-    /// Every `partition_by` dimension must be one a demux can read back, so a key that
-    /// mixes a routable dimension with a plain text one is refused as a whole.
+    /// Every dimension has to carry its own box, so a key that mixes a usable dimension
+    /// with a plain text one is refused as a whole.
     #[pg_test(
         error = "`name` cannot be used in `partition_by` because it does not have a fast column in raw order"
     )]
     fn a_partly_unroutable_key_is_rejected() {
         Spi::run(
             r#"
-            CREATE TABLE demux_subset (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
-            CREATE INDEX demux_subset_idx ON demux_subset USING bm25 (id, tenant_id, name)
+            CREATE TABLE mixed_key (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            CREATE INDEX mixed_key_idx ON mixed_key USING bm25 (id, tenant_id, name)
                 WITH (key_field = 'id', partition_by = 'tenant_id, name', target_segment_count = 4,
                       numeric_fields = '{"tenant_id": {"fast": true}}');
             "#,
@@ -603,7 +602,7 @@ mod tests {
         .unwrap();
     }
 
-    /// Nothing reroutes a built index when its `partition_by` changes, so the change is
+    /// Nothing re-cuts a built index when its `partition_by` changes, so the change is
     /// refused outright.
     #[pg_test(
         error = "`partition_by` cannot be changed by `ALTER INDEX` because the segments keep the layout it was built with; recreate the index to change it"
@@ -611,36 +610,36 @@ mod tests {
     fn altering_partition_by_is_rejected() {
         Spi::run(
             r#"
-            CREATE TABLE demux_altered (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
-            CREATE INDEX demux_altered_idx ON demux_altered USING bm25 (id, tenant_id, name)
+            CREATE TABLE altered_key (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            CREATE INDEX altered_key_idx ON altered_key USING bm25 (id, tenant_id, name)
                 WITH (key_field = 'id', target_segment_count = 4,
                       numeric_fields = '{"tenant_id": {"fast": true}}');
-            ALTER INDEX demux_altered_idx SET (partition_by = 'tenant_id');
+            ALTER INDEX altered_key_idx SET (partition_by = 'tenant_id');
             "#,
         )
         .unwrap();
     }
 
     /// Clearing `partition_by` is the way out: an empty value reads as "not partitioned"
-    /// everywhere, so no segment layout is betrayed and writes keep working.
+    /// everywhere, so no segment layout is betrayed.
     #[pg_test]
     fn clearing_partition_by_is_allowed() {
         Spi::run(
             r#"
-            CREATE TABLE demux_cleared (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            CREATE TABLE cleared_key (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
             SET paradedb.global_mutable_segment_rows = 0;
-            CREATE INDEX demux_cleared_idx ON demux_cleared USING bm25 (id, tenant_id, name)
+            CREATE INDEX cleared_key_idx ON cleared_key USING bm25 (id, tenant_id, name)
                 WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 4,
                       numeric_fields = '{"tenant_id": {"fast": true}}');
-            INSERT INTO demux_cleared (tenant_id, name)
+            INSERT INTO cleared_key (tenant_id, name)
             SELECT (i * 7919) % 100, 'lorem ipsum ' || i FROM generate_series(1, 2000) i;
-            ALTER INDEX demux_cleared_idx RESET (partition_by);
-            INSERT INTO demux_cleared (tenant_id, name) VALUES (7, 'late row');
+            ALTER INDEX cleared_key_idx RESET (partition_by);
+            INSERT INTO cleared_key (tenant_id, name) VALUES (7, 'late row');
             "#,
         )
         .unwrap();
         assert_eq!(
-            Spi::get_one::<i64>("SELECT count(*) FROM demux_cleared WHERE id @@@ pdb.all();")
+            Spi::get_one::<i64>("SELECT count(*) FROM cleared_key WHERE id @@@ pdb.all();")
                 .unwrap()
                 .unwrap(),
             2001

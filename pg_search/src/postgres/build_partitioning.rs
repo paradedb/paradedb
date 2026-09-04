@@ -118,8 +118,7 @@ fn dim_routable(schema: &Schema, dim: &FieldName) -> bool {
 /// The `partition_by` dimensions, checked: every one must have a fast column in raw order,
 /// because a partition's range query runs on the fast column and a box holds only where the
 /// raw order does (see [`stats::logical_bounds_hold`]). The build could cut on any
-/// single-valued field, but a dimension whose box cannot hold buys no pruning, and a merge
-/// that reads the fast columns could never route on it.
+/// single-valued field, but a dimension whose box cannot hold buys no pruning at all.
 pub(crate) fn routable_dims(schema: &Schema, dims: &[FieldName]) -> Result<Vec<FieldName>> {
     for dim in dims {
         if !dim_routable(schema, dim) {

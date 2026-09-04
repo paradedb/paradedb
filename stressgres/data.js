@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788503500838,
+  "lastUpdate": 1788504550280,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -332414,6 +332414,60 @@ window.BENCHMARK_DATA = {
             "value": 23.04025435317778,
             "unit": "median tps",
             "extra": "avg tps: 39.267481689137334, max tps: 545.2775025833387, count: 59247"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c74bcde7bf6f6e44516d81f18350f2725d14fd5f",
+          "message": "feat: Add support for non-equi JOINs in the join and aggregate scan (#6196)\n\n## What\n\nAdds support for pushing down non-equi join conditions (e.g. `<`, `<=`,\n`>`, `>=`, `<>`) and mixed equi/non-equi joins to DataFusion.\n\nImproves expression deparsing during planning and `EXPLAIN` in order to\nbetter render join conditions.\n\n## Why\n\nThe Postgres optimizer frequently produces non-equi joins in #6149 while\nreorganizing joins in property tests. To avoid users encountering\nplanning failures non-deterministically based on estimate changes, it\nwas easiest to extend support.\n\n## How\n\n- `pg_search/src/postgres/customscan/joinscan/predicate.rs`: Absorbs\ntranslatable non-equi conditions into join-level filters\n(`JoinLevelExpr::PgExpression`), respecting outer join ON vs WHERE\nclause semantics.\n- `pg_search/src/postgres/customscan/aggregatescan/`: Recursively\nhandles non-equi joins in aggregate pushdown planning.\n- `pg_search/src/postgres/deparse.rs` &\n`pg_search/src/postgres/customscan/explainer.rs`: Added\n`deparse_planner_expr` using `PlannerInfo` range table contexts for\nreadable multi-relation expression deparsing.\n\n## Tests\n\nAdded regression tests. Additional property test coverage is provided by\nthe changes in https://github.com/paradedb/paradedb/pull/6149.",
+          "timestamp": "2026-09-03T23:12:12-07:00",
+          "tree_id": "1f536f91fd3793c3b54f93cb2ffeefa3337100af",
+          "url": "https://github.com/paradedb/paradedb/commit/c74bcde7bf6f6e44516d81f18350f2725d14fd5f"
+        },
+        "date": 1788504546321,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3859.002052019715,
+            "unit": "median tps",
+            "extra": "avg tps: 3864.567280237986, max tps: 4469.594188782622, count: 59244"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4576.845624655169,
+            "unit": "median tps",
+            "extra": "avg tps: 4590.447301187456, max tps: 6971.940032949388, count: 59244"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 95.3344050039016,
+            "unit": "median tps",
+            "extra": "avg tps: 187.6601721912815, max tps: 3179.8639145439133, count: 59244"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 23.114029999925243,
+            "unit": "median tps",
+            "extra": "avg tps: 39.534382349435965, max tps: 573.3672024786307, count: 59244"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 23.146351668855775,
+            "unit": "median tps",
+            "extra": "avg tps: 39.7456446682233, max tps: 579.2027803556522, count: 59244"
           }
         ]
       }

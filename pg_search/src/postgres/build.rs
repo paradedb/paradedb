@@ -20,6 +20,7 @@ use crate::api::FieldName;
 use crate::index::index_settings;
 use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::build_parallel::build_index;
+use crate::postgres::build_partitioning::{check_fast_dims, normalized_dims};
 use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::custom_rmgr;
@@ -218,11 +219,38 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
         }
     };
 
-    for sort_field in options.sort_by() {
-        check_single_valued(&sort_field.field_name, "sort_by");
+    let sort_by = options
+        .sort_by()
+        .into_iter()
+        .map(|field| field.field_name)
+        .collect::<Vec<_>>();
+    for sort_field in &sort_by {
+        check_single_valued(sort_field, "sort_by");
     }
     for partition_field in options.partition_by() {
         check_single_valued(&partition_field, "partition_by");
+    }
+    // The stored schema does not exist yet, so the checks read the one this build will write.
+    let schema = planned_schema(index_relation);
+    let partition_by = options.partition_by();
+    for (dims, reloption) in [(&sort_by, "sort_by"), (&partition_by, "partition_by")] {
+        if let Err(e) = check_fast_dims(&schema, dims, reloption) {
+            panic!("{e}");
+        }
+    }
+
+    // `partition_by` cuts on the raw heap value and prunes on the columnar field, so a
+    // normalized one leaves it with boundaries nothing can test against. `sort_by` only lays the
+    // segment out, and a normalized one still orders it, so that costs pruning alone.
+    if let Some(dim) = normalized_dims(&schema, &partition_by).first() {
+        panic!(
+            "partition_by field '{dim}' must have a columnar field in raw order. Add it to the index with the 'raw' normalizer"
+        );
+    }
+    for dim in normalized_dims(&schema, &sort_by) {
+        warning!(
+            "sort_by field '{dim}' has a columnar field in normalized order, so its segments carry no bounds to prune on"
+        );
     }
 }
 
@@ -308,6 +336,17 @@ fn am_handler_oid(amname: &CStr) -> Option<pg_sys::Oid> {
 }
 
 fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
+    let schema = planned_schema(index_relation);
+    let directory = MvccSatisfies::Snapshot.directory(index_relation);
+
+    let settings = index_settings(index_relation.options(), &schema);
+    let _ = Index::create(directory, schema, settings)?;
+    Ok(())
+}
+
+/// The tantivy schema this index will carry, from its reloptions and heap attributes. The
+/// stored copy exists only after [`create_index`], so validation reads the schema from here.
+fn planned_schema(index_relation: &PgSearchRelation) -> Schema {
     let options = index_relation.options();
     let mut builder = Schema::builder();
 
@@ -370,12 +409,7 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
         options.field_config_or_default(&FieldName::from("ctid")),
     );
 
-    let schema = builder.build();
-    let directory = MvccSatisfies::Snapshot.directory(index_relation);
-
-    let settings = index_settings(options, &schema);
-    let _ = Index::create(directory, schema, settings)?;
-    Ok(())
+    builder.build()
 }
 
 #[cfg(any(test, feature = "pg_test"))]
@@ -544,6 +578,62 @@ mod tests {
         assert_eq!(
             stored.columnar_codec_types(),
             &[CodecType::Bitpacked, CodecType::BlockwiseLinearV2]
+        );
+    }
+
+    /// A key with no columnar field has no values to cut on, so the build refuses it up front.
+    #[pg_test(
+        error = "partition_by field 'tenant_id' must be a columnar field. Add it to the index with 'fast: true'"
+    )]
+    fn a_non_fast_partition_key_is_rejected() {
+        Spi::run(
+            r#"
+            CREATE TABLE unroutable_key (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            CREATE INDEX unroutable_key_idx ON unroutable_key USING bm25 (id, tenant_id, name)
+                WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 4,
+                      numeric_fields = '{"tenant_id": {"fast": false}}');
+            "#,
+        )
+        .unwrap();
+    }
+
+    /// Every dimension has to carry its own box, so a key that mixes a usable dimension
+    /// with a plain text one is refused as a whole.
+    #[pg_test(
+        error = "partition_by field 'name' must be a columnar field. Add it to the index with 'fast: true'"
+    )]
+    fn a_partly_unroutable_key_is_rejected() {
+        Spi::run(
+            r#"
+            CREATE TABLE mixed_key (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            CREATE INDEX mixed_key_idx ON mixed_key USING bm25 (id, tenant_id, name)
+                WITH (key_field = 'id', partition_by = 'tenant_id, name', target_segment_count = 4,
+                      numeric_fields = '{"tenant_id": {"fast": true}}');
+            "#,
+        )
+        .unwrap();
+    }
+
+    /// A normalized columnar field still orders a segment, so `sort_by` keeps it and gives up
+    /// only the bounds a scan would have pruned with.
+    #[pg_test]
+    fn a_normalized_sort_key_is_allowed() {
+        Spi::run(
+            r#"
+            CREATE TABLE normalized_sort (id BIGSERIAL PRIMARY KEY, name TEXT);
+            CREATE INDEX normalized_sort_idx ON normalized_sort USING bm25 (id, name)
+                WITH (key_field = 'id', sort_by = 'name ASC NULLS FIRST',
+                      text_fields = '{"name": {"fast": true, "normalizer": "lowercase"}}');
+            INSERT INTO normalized_sort (name)
+            SELECT 'Lorem Ipsum ' || i FROM generate_series(1, 500) i;
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            Spi::get_one::<i64>("SELECT count(*) FROM normalized_sort WHERE id @@@ pdb.all();")
+                .unwrap()
+                .unwrap(),
+            500
         );
     }
 }

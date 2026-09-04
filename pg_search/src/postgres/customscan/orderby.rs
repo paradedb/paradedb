@@ -264,8 +264,9 @@ pub unsafe fn analyze_sort_expression(
         return Some((SortExpressionType::Lower, var, field_name));
     }
 
-    // `n::text` is not a raw sort on `n`. RelabelType is already stripped.
-    if is_type_changing_coerce_via_io(node) {
+    // An I/O cast reorders the values (`n::text` sorts `10` before `2`), so it is
+    // never a raw sort on the inner column. `RelabelType` was already stripped above.
+    if nodecast!(CoerceViaIO, T_CoerceViaIO, node).is_some() {
         return None;
     }
 
@@ -274,20 +275,6 @@ pub unsafe fn analyze_sort_expression(
     }
 
     None
-}
-
-/// True when `node` is a `CoerceViaIO` whose result type differs from its
-/// argument type (`bigint::text`, `int4range::text`, …). Those casts change
-/// the physical value, so the inner column is not a valid raw sort key.
-unsafe fn is_type_changing_coerce_via_io(node: *mut pg_sys::Node) -> bool {
-    let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, node) else {
-        return false;
-    };
-    let arg = (*coerce).arg as *mut pg_sys::Node;
-    if arg.is_null() {
-        return false;
-    }
-    pg_sys::exprType(arg) != (*coerce).resulttype
 }
 
 /// Try to interpret `node` as a reference to an indexed vector

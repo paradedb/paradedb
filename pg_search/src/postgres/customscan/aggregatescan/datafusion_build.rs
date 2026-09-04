@@ -26,7 +26,7 @@
 
 use super::privdat::{CompareOp, FilterExpr};
 use crate::api::operator::anyelement_query_input_opoid;
-use crate::index::fast_fields_helper::WhichFastField;
+use crate::index::fast_fields_helper::{FieldCardinality, FieldDelivery, WhichFastField};
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::joinscan::build::{
@@ -216,7 +216,12 @@ unsafe fn collect_source_fields(
             {
                 fields.push(FieldInfo {
                     attno: attno as pg_sys::AttrNumber,
-                    field: WhichFastField::Array(col_name.to_string(), search_field.field_type()),
+                    field: WhichFastField::named(
+                        col_name,
+                        search_field.field_type(),
+                        FieldCardinality::List,
+                        FieldDelivery::Eager,
+                    ),
                 });
             }
         }

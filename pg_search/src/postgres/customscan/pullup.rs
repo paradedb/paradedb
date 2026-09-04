@@ -21,7 +21,7 @@
 //! column can be resolved using Tantivy fast fields.
 
 use crate::api::FieldName;
-use crate::index::fast_fields_helper::WhichFastField;
+use crate::index::fast_fields_helper::{FieldCardinality, FieldDelivery, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
@@ -147,14 +147,17 @@ pub fn resolve_fast_field_by_name(
             .find(|(sf, _)| sf == &search_field)
             .map(|(_, data)| data.is_array)
             .unwrap_or(false);
-        if is_array {
-            Some(WhichFastField::Array(
-                field_name.to_string(),
-                search_field.field_type(),
-            ))
+        let cardinality = if is_array {
+            FieldCardinality::List
         } else {
-            Some(WhichFastField::eager(field_name, search_field.field_type()))
-        }
+            FieldCardinality::Scalar
+        };
+        Some(WhichFastField::named(
+            field_name,
+            search_field.field_type(),
+            cardinality,
+            FieldDelivery::Eager,
+        ))
     } else {
         None
     }

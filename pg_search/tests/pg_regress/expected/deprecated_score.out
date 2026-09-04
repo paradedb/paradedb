@@ -124,7 +124,7 @@ JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') AND a.age > 70
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
-ERROR:  pdb.score() / pdb.snippet() require a ParadeDB search operator (@@@, |||, &&&, ===, or ###) in the WHERE clause. If this query already has one, please report it at https://github.com/paradedb/paradedb/issues/new/choose
+ERROR:  pdb.score() / pdb.snippet() cannot be evaluated for this query shape. A common cause is a top-level join without LIMIT, which prevents JoinScan. If this looks like a bug, please report it at https://github.com/paradedb/paradedb/issues/new/choose
 SELECT
     b.id as book_id,
     a.name as author_name,
@@ -151,7 +151,7 @@ JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') AND a.age > 60
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
-ERROR:  pdb.score() / pdb.snippet() require a ParadeDB search operator (@@@, |||, &&&, ===, or ###) in the WHERE clause. If this query already has one, please report it at https://github.com/paradedb/paradedb/issues/new/choose
+ERROR:  pdb.score() / pdb.snippet() cannot be evaluated for this query shape. A common cause is a top-level join without LIMIT, which prevents JoinScan. If this looks like a bug, please report it at https://github.com/paradedb/paradedb/issues/new/choose
 SELECT
     b.id as book_id,
     a.name as author_name,
@@ -236,7 +236,7 @@ RIGHT JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'Christie' OR b.content @@@ 'test') AND a.age > 60
 ORDER BY a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
-ERROR:  pdb.score() / pdb.snippet() require a ParadeDB search operator (@@@, |||, &&&, ===, or ###) in the WHERE clause. If this query already has one, please report it at https://github.com/paradedb/paradedb/issues/new/choose
+ERROR:  pdb.score() / pdb.snippet() cannot be evaluated for this query shape. A common cause is a top-level join without LIMIT, which prevents JoinScan. If this looks like a bug, please report it at https://github.com/paradedb/paradedb/issues/new/choose
 -- Test multiple score functions in same query
 -- This tests if score calculation is consistent across multiple score calls
 SELECT

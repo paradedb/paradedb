@@ -462,6 +462,7 @@ pub unsafe fn strip_unnest_and_relabel(mut node: *mut pg_sys::Node) -> (*mut pg_
             node = (*phv).phexpr.cast();
             continue;
         }
+<<<<<<< HEAD
         if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, node) {
             if is_unnest_func((*func).funcid) {
                 found_unnest = true;
@@ -470,6 +471,19 @@ pub unsafe fn strip_unnest_and_relabel(mut node: *mut pg_sys::Node) -> (*mut pg_
                     node = arg;
                     continue;
                 }
+=======
+        if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, node)
+            && is_unnest_func((*func).funcid)
+        {
+            let args = PgList::<pg_sys::Node>::from_pg((*func).args);
+            if args.len() != 1 {
+                return (std::ptr::null_mut(), false);
+            }
+            found_unnest = true;
+            if let Some(arg) = args.get_ptr(0) {
+                node = arg;
+                continue;
+>>>>>>> e51119bc (feat: Support `JOIN LATERAL unnest` pushdown in the join and aggregate scans (#6149))
             }
         }
         break;

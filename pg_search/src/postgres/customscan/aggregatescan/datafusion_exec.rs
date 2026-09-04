@@ -40,10 +40,20 @@ use crate::postgres::customscan::datafusion::numeric_agg::{
     numeric64_avg_udaf, numeric64_sum_udaf, numeric_bytes_avg_udaf, numeric_bytes_sum_udaf,
 };
 use crate::postgres::customscan::datafusion::translator::{
+<<<<<<< HEAD
     apply_join_level_filter, build_join_df_with_filter, make_col, make_source_col, ColumnMapper,
     PredicateTranslator,
 };
 use crate::postgres::customscan::joinscan::build::{JoinSource, RelNode, RelationAlias};
+=======
+    ColumnMapper, PredicateTranslator, apply_join_level_filter, apply_relnode_unnest,
+    build_join_df_with_filter, make_col, make_source_col,
+};
+use crate::postgres::customscan::joinscan::CtidColumn;
+use crate::postgres::customscan::joinscan::build::{
+    JoinSource, LateralUnnestInfo, RelNode, RelationAlias,
+};
+>>>>>>> e51119bc (feat: Support `JOIN LATERAL unnest` pushdown in the join and aggregate scans (#6149))
 use crate::postgres::customscan::joinscan::privdat::SCORE_COL_NAME;
 use crate::postgres::customscan::joinscan::scan_state::{
     create_datafusion_session_context, register_source_table,
@@ -510,9 +520,9 @@ fn numeric_avg(col: Expr, field_type: &SearchFieldType) -> Expr {
     }
 }
 
-/// Recursively lower a [`RelNode`] tree into a DataFusion [`DataFrame`].
+/// Recursively lower a [`RelNode`] tree into a DataFusion [`DataFrame`] for AggregateScan.
 ///
-/// Unlike JoinScan's `build_relnode_df`, this version:
+/// Handles Scan, Join, Filter, and Unnest operators. Unlike JoinScan's variant, this:
 /// - Does NOT handle LIMIT, ORDER BY, DISTINCT, or output projection
 ///   (those are handled by the aggregate layer above)
 /// - Is single-threaded (no partitioning logic)
@@ -571,7 +581,7 @@ fn build_relnode_df<'a>(
 
                 let mut sources = join.left.sources();
                 sources.extend(join.right.sources());
-                build_join_df_with_filter(left_df, right_df, join, &sources, &[])
+                build_join_df_with_filter(left_df, right_df, join, &sources, &[], &[])
             }
             RelNode::Filter(filter) => {
                 let df = build_relnode_df(
@@ -595,9 +605,11 @@ fn build_relnode_df<'a>(
                 // them back to the correct DataFusion column names.
                 let mut translated_exprs = Vec::new();
                 if !custom_exprs.is_null() {
+                    let lateral_unnests = filter.input.lateral_unnests();
                     let mapper = AggregateIndexVarMapper {
                         sources: &sources,
                         custom_scan_tlist,
+                        lateral_unnests,
                     };
                     let translator =
                         PredicateTranslator::new(&sources).with_mapper(Box::new(mapper));
@@ -623,6 +635,20 @@ fn build_relnode_df<'a>(
                     /* handle_mark = */ false,
                 )
             }
+            RelNode::Unnest(unnest) => {
+                let df = build_relnode_df(
+                    ctx,
+                    &unnest.input,
+                    top_level_plan,
+                    custom_exprs,
+                    custom_scan_tlist,
+                    expr_context,
+                    planstate,
+                    mpp_manifests,
+                )
+                .await?;
+                apply_relnode_unnest(df, unnest)
+            }
         }
     }
     .boxed_local()
@@ -636,6 +662,7 @@ fn build_relnode_df<'a>(
 struct AggregateIndexVarMapper<'a> {
     sources: &'a [&'a JoinSource],
     custom_scan_tlist: *mut pg_sys::List,
+    lateral_unnests: Vec<&'a LateralUnnestInfo>,
 }
 
 impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
@@ -657,9 +684,38 @@ impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
             (varno, varattno)
         };
 
+        if let Some(unnest_info) = self
+            .lateral_unnests
+            .iter()
+            .find(|u| u.function_rti.0 == rti)
+        {
+            let source = self
+                .sources
+                .iter()
+                .find(|s| s.contains_rti(unnest_info.source_rti.0))?;
+            let alias = RelationAlias::new(source.scan_info.alias.as_deref())
+                .execution(source.plan_position);
+            return Some(datafusion::logical_expr::col(format!(
+                "{}_{}",
+                alias, unnest_info.field_name
+            )));
+        }
+
         let source = self.sources.iter().find(|s| s.contains_rti(rti))?;
         let field_name = source.column_name(attno)?;
-        Some(make_source_col(source, &field_name))
+        if self
+            .lateral_unnests
+            .iter()
+            .any(|u| source.contains_rti(u.source_rti.0) && u.field_name == field_name)
+        {
+            let alias = RelationAlias::new(source.scan_info.alias.as_deref())
+                .execution(source.plan_position);
+            Some(datafusion::logical_expr::col(format!(
+                "{alias}_{field_name}"
+            )))
+        } else {
+            Some(make_source_col(source, &field_name))
+        }
     }
 }
 
@@ -899,7 +955,17 @@ fn make_plan_position_col(plan: &RelNode, plan_position: usize, field_name: &str
     let source = plan
         .source_at_plan_position(plan_position)
         .unwrap_or_else(|| panic!("no source at plan_position {plan_position}"));
-    make_source_col(source, field_name)
+    let alias =
+        RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
+    if plan
+        .lateral_unnests()
+        .iter()
+        .any(|u| source.contains_rti(u.source_rti.0) && u.field_name == field_name)
+    {
+        datafusion::logical_expr::col(format!("{alias}_{field_name}"))
+    } else {
+        make_col(&alias, field_name)
+    }
 }
 
 /// Replace an `Expr::AggregateFunction` with the same call but `distinct=true`.

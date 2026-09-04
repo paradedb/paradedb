@@ -256,10 +256,18 @@ impl<'a> FilterAnalyzer<'a> {
 
     fn find_field(&self, name: &str) -> Option<&SearchFieldType> {
         self.fields.iter().find_map(|field| {
+<<<<<<< HEAD
             if let WhichFastField::Named(field_name, field_type) = field {
                 if field_name == name {
                     return Some(field_type);
                 }
+=======
+            if let WhichFastField::Named(field_name, field_type)
+            | WhichFastField::Array(field_name, field_type) = field
+                && field_name == name
+            {
+                return Some(field_type);
+>>>>>>> e51119bc (feat: Support `JOIN LATERAL unnest` pushdown in the join and aggregate scans (#6149))
             }
             None
         })

@@ -93,6 +93,14 @@ fn ensure_column_fetched(
                     .fetch_values_or_ords_to_arrow(ids, *search_field_type),
             );
         }
+        // TODO: https://github.com/paradedb/paradedb/issues/6164 (late materialization for array columns)
+        WhichFastField::Array(_, search_field_type) => {
+            memoized_columns[ff_index] = Some(
+                ffhelper
+                    .column(segment_ord, ff_index)
+                    .fetch_array_values_or_ords_to_arrow(ids, *search_field_type),
+            );
+        }
         WhichFastField::Score
         | WhichFastField::Ctid
         | WhichFastField::TableOid
@@ -266,7 +274,7 @@ impl Scanner {
         let all_strings_deferred = !which_fast_fields.iter().any(|wff| {
             matches!(
                 wff,
-                WhichFastField::Named(_, field_type) if matches!(
+                WhichFastField::Named(_, field_type) | WhichFastField::Array(_, field_type) if matches!(
                     field_type.arrow_data_type(),
                     arrow_schema::DataType::Utf8View
                         | arrow_schema::DataType::BinaryView
@@ -543,9 +551,12 @@ impl Scanner {
             Some(Arc::new(ctids_builder.finish()) as ArrayRef)
         };
 
-        // Pre-fetch any Named columns that weren't already fetched by pre-filters.
+        // Pre-fetch any Named or Array columns that weren't already fetched by pre-filters.
         for (ff_index, which_ff) in self.which_fast_fields.iter().enumerate() {
-            if matches!(which_ff, WhichFastField::Named(_, _)) {
+            if matches!(
+                which_ff,
+                WhichFastField::Named(_, _) | WhichFastField::Array(_, _)
+            ) {
                 ensure_column_fetched(
                     &mut memoized_columns,
                     &self.which_fast_fields,
@@ -597,6 +608,64 @@ impl Scanner {
                                 ords_to_bytes_array(bytes_column.clone(), ords_array)
                                     .expect("Failed to lookup ordinals"),
                             )
+                        }
+                        _ => Some(col_array),
+                    }
+                }
+                WhichFastField::Array(_, _) => {
+                    let col_array = memoized_columns[ff_index].clone().unwrap();
+                    match ffhelper.column(segment_ord, ff_index) {
+                        FFType::Text(str_column) => {
+                            let list_array = col_array
+                                .as_any()
+                                .downcast_ref::<arrow_array::ListArray>()
+                                .expect("Expected ListArray for Array Text ordinals");
+                            let ords_array = list_array
+                                .values()
+                                .as_any()
+                                .downcast_ref::<UInt64Array>()
+                                .expect("Expected UInt64Array for inner ordinals");
+                            let string_views = ords_to_string_array(str_column.clone(), ords_array)
+                                .expect("Failed to lookup ordinals");
+                            let field = Arc::new(arrow_schema::Field::new(
+                                "item",
+                                arrow_schema::DataType::Utf8View,
+                                true,
+                            ));
+                            let final_list = arrow_array::ListArray::try_new(
+                                field,
+                                list_array.offsets().clone(),
+                                string_views,
+                                list_array.nulls().cloned(),
+                            )
+                            .expect("Failed to build ListArray with strings");
+                            Some(Arc::new(final_list) as ArrayRef)
+                        }
+                        FFType::Bytes(bytes_column) => {
+                            let list_array = col_array
+                                .as_any()
+                                .downcast_ref::<arrow_array::ListArray>()
+                                .expect("Expected ListArray for Array Bytes ordinals");
+                            let ords_array = list_array
+                                .values()
+                                .as_any()
+                                .downcast_ref::<UInt64Array>()
+                                .expect("Expected UInt64Array for inner ordinals");
+                            let byte_views = ords_to_bytes_array(bytes_column.clone(), ords_array)
+                                .expect("Failed to lookup ordinals");
+                            let field = Arc::new(arrow_schema::Field::new(
+                                "item",
+                                arrow_schema::DataType::BinaryView,
+                                true,
+                            ));
+                            let final_list = arrow_array::ListArray::try_new(
+                                field,
+                                list_array.offsets().clone(),
+                                byte_views,
+                                list_array.nulls().cloned(),
+                            )
+                            .expect("Failed to build ListArray with bytes");
+                            Some(Arc::new(final_list) as ArrayRef)
                         }
                         _ => Some(col_array),
                     }

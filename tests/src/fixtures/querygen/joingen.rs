@@ -22,7 +22,7 @@ use proptest::prelude::*;
 use proptest::sample;
 use proptest_derive::Arbitrary;
 
-use crate::fixtures::querygen::Column;
+use super::Column;
 
 #[derive(Arbitrary, Copy, Clone, Debug)]
 pub enum JoinType {
@@ -203,41 +203,53 @@ impl SemiJoinExpr {
     }
 }
 
-/// Temporary toggle to disable generation of lateral unnests.
-pub const ENABLE_UNNEST: bool = false;
-
 ///
-/// Generate all possible joins involving exactly the given tables, with optional lateral unnest steps.
+/// Generate an arbitrary join expression chaining the given tables in sequence.
 ///
-pub fn arb_joins<S: AsRef<str>, J: Strategy<Value = JoinType>>(
+/// Consecutively joins each table using join types drawn from `join_types` and
+/// join conditions (equi, non-equi, or mixed) drawn from non-array columns in `columns`.
+/// For each table in the join, an optional lateral unnest step (`CROSS JOIN LATERAL` or
+/// `LEFT JOIN LATERAL`) may be generated if any array columns are present in `columns`.
+///
+pub fn arb_joins<J, S>(
     join_types: J,
     tables_to_join: Vec<S>,
     columns: &[Column],
-) -> impl Strategy<Value = JoinExpr> + use<S, J> {
+) -> impl Strategy<Value = JoinExpr> + use<J, S>
+where
+    J: Strategy<Value = JoinType>,
+    S: AsRef<str>,
+{
     let tables_to_join = tables_to_join
         .into_iter()
         .map(|tn| tn.as_ref().to_string())
         .collect::<Vec<_>>();
-    let table_cols = columns
+    let mut table_cols = columns
         .iter()
+        .filter(|c| !c.is_array())
+        .map(|c| c.name.to_string())
+        .collect::<Vec<_>>();
+    if table_cols.is_empty() {
+        table_cols = columns.iter().map(|c| c.name.to_string()).collect();
+    }
+
+    let array_cols = columns
+        .iter()
+        .filter(|c| c.is_array())
         .map(|c| c.name.to_string())
         .collect::<Vec<_>>();
 
-    // Choose joins and join columns.
     let join_count = tables_to_join.len() - 1;
     let tables_len = tables_to_join.len();
 
-    let unnest_strategy = if ENABLE_UNNEST {
+    let unnest_strategy = if array_cols.is_empty() {
+        proptest::strategy::Just(vec![None; tables_len]).boxed()
+    } else {
         proptest::collection::vec(
-            proptest::option::of((
-                proptest::bool::ANY,
-                proptest::strategy::Just("tags".to_string()),
-            )),
+            proptest::option::of((proptest::bool::ANY, proptest::sample::select(array_cols))),
             tables_len,
         )
         .boxed()
-    } else {
-        proptest::strategy::Just(vec![None; tables_len]).boxed()
     };
 
     let orderable_cols: Vec<String> = columns
@@ -331,7 +343,7 @@ pub fn arb_joins<S: AsRef<str>, J: Strategy<Value = JoinType>>(
                         is_left: *is_left,
                         table: table.clone(),
                         array_col: array_col.clone(),
-                        alias: format!("{table}_tag"),
+                        alias: format!("{table}_{array_col}"),
                     });
                 }
             }

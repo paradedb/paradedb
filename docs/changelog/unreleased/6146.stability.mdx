@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+`sort_by` and `partition_by` now refuse a field that has no fast column in raw order. A folded column orders by the folded value, so the segment bounds a scan prunes with cannot hold for the raw range.

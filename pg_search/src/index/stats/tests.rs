@@ -608,7 +608,7 @@ mod tests {
     /// Routing compares raw text, but the partition query reads the fast column. A normalizer
     /// reorders that column, so such a key cannot hold a box and the build refuses it.
     #[pg_test(
-        error = "`name` cannot be used in `partition_by` because it does not have a fast column in raw order"
+        error = "partition_by field 'name' must have a fast column in raw order. Add it to the index with the 'raw' normalizer"
     )]
     fn a_normalized_text_partition_key_is_rejected() {
         text_partitioned_index("stats_text_lower", "stats_text_lower_idx", "lowercase");

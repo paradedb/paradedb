@@ -34,7 +34,7 @@ use pgrx::itemptr::item_pointer_set_all;
 use pgrx::{PgMemoryContexts, check_for_interrupts, pg_sys};
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
-use tantivy::schema::{FieldType, Schema};
+use tantivy::schema::{Field, FieldType, Schema};
 
 use crate::api::FieldName;
 use crate::api::version::Version;
@@ -97,12 +97,9 @@ pub(super) fn plan_partition_boundaries(
     )))
 }
 
-/// Whether one dimension can be read back and stamped: a fast column in raw order.
-fn dim_routable(schema: &Schema, dim: &FieldName) -> bool {
-    let Ok(field) = schema.get_field(dim.as_ref()) else {
-        return false;
-    };
-    let fast = match schema.get_field_entry(field).field_type() {
+/// Whether `dim` has a fast column at all, whatever order that column is in.
+fn dim_fast(schema: &Schema, field: Field) -> bool {
+    match schema.get_field_entry(field).field_type() {
         FieldType::Str(options) => options.get_fast_field_tokenizer_name().is_some(),
         FieldType::U64(options) | FieldType::I64(options) | FieldType::F64(options) => {
             options.is_fast()
@@ -111,23 +108,32 @@ fn dim_routable(schema: &Schema, dim: &FieldName) -> bool {
         FieldType::Date(options) => options.is_fast(),
         FieldType::Bytes(options) => options.is_fast(),
         _ => false,
-    };
-    fast && stats::logical_bounds_hold(schema, field)
+    }
 }
 
-/// The `partition_by` dimensions, checked: every one must have a fast column in raw order,
-/// because a partition's range query runs on the fast column and a box holds only where the
-/// raw order does (see [`stats::logical_bounds_hold`]). The build could cut on any
-/// single-valued field, but a dimension whose box cannot hold buys no pruning at all.
-pub(crate) fn routable_dims(schema: &Schema, dims: &[FieldName]) -> Result<Vec<FieldName>> {
+/// Refuses a dimension whose fast column cannot stand in for the value order.
+///
+/// `sort_by` lays segments out along that column and `partition_by` cuts along it, and either
+/// way a segment's logical bounds hold only where the two orders agree (see
+/// [`stats::logical_bounds_hold`]). A dimension that breaks the rule still indexes, it just
+/// buys no pruning, so it is refused up front rather than quietly ignored.
+pub(crate) fn routable_dims(schema: &Schema, dims: &[FieldName], reloption: &str) -> Result<()> {
     for dim in dims {
-        if !dim_routable(schema, dim) {
+        let Ok(field) = schema.get_field(dim.as_ref()) else {
+            bail!("{reloption} field '{dim}' does not exist in the index schema");
+        };
+        if !dim_fast(schema, field) {
             bail!(
-                "`{dim}` cannot be used in `partition_by` because it does not have a fast column in raw order"
+                "{reloption} field '{dim}' must be a fast field. Add it to the index with 'fast: true'"
+            );
+        }
+        if !stats::logical_bounds_hold(schema, field) {
+            bail!(
+                "{reloption} field '{dim}' must have a fast column in raw order. Add it to the index with the 'raw' normalizer"
             );
         }
     }
-    Ok(dims.to_vec())
+    Ok(())
 }
 
 /// Where a `partition_by` field's value comes from for a heap tuple, plus what it takes to

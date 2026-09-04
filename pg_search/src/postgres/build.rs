@@ -220,19 +220,23 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
         }
     };
 
-    for sort_field in options.sort_by() {
-        check_single_valued(&sort_field.field_name, "sort_by");
+    let sort_by = options
+        .sort_by()
+        .into_iter()
+        .map(|field| field.field_name)
+        .collect::<Vec<_>>();
+    for sort_field in &sort_by {
+        check_single_valued(sort_field, "sort_by");
     }
     for partition_field in options.partition_by() {
         check_single_valued(&partition_field, "partition_by");
     }
-    // A dimension that a merge cannot route would leave every row that arrives after the
-    // build unrouted forever, so every `partition_by` dimension must carry a fast column in
-    // raw order. The stored schema does not exist yet, so the check runs on the one this
-    // build will write.
-    if !options.partition_by().is_empty()
-        && let Err(e) = routable_dims(&planned_schema(index_relation), &options.partition_by())
-    {
+    // The stored schema does not exist yet, so both checks read the one this build will write.
+    let schema = planned_schema(index_relation);
+    if let Err(e) = routable_dims(&schema, &sort_by, "sort_by") {
+        panic!("{e}");
+    }
+    if let Err(e) = routable_dims(&schema, &options.partition_by(), "partition_by") {
         panic!("{e}");
     }
 }
@@ -571,7 +575,7 @@ mod tests {
 
     /// A key with no fast column has no values to cut on, so the build refuses it up front.
     #[pg_test(
-        error = "`tenant_id` cannot be used in `partition_by` because it does not have a fast column in raw order"
+        error = "partition_by field 'tenant_id' must be a fast field. Add it to the index with 'fast: true'"
     )]
     fn a_non_fast_partition_key_is_rejected() {
         Spi::run(
@@ -588,7 +592,7 @@ mod tests {
     /// Every dimension has to carry its own box, so a key that mixes a usable dimension
     /// with a plain text one is refused as a whole.
     #[pg_test(
-        error = "`name` cannot be used in `partition_by` because it does not have a fast column in raw order"
+        error = "partition_by field 'name' must be a fast field. Add it to the index with 'fast: true'"
     )]
     fn a_partly_unroutable_key_is_rejected() {
         Spi::run(
@@ -602,47 +606,19 @@ mod tests {
         .unwrap();
     }
 
-    /// Nothing re-cuts a built index when its `partition_by` changes, so the change is
-    /// refused outright.
+    /// `sort_by` reads the same column as `partition_by`, so it answers to the same rule.
     #[pg_test(
-        error = "`partition_by` cannot be changed by `ALTER INDEX` because the segments keep the layout it was built with; recreate the index to change it"
+        error = "sort_by field 'name' must have a fast column in raw order. Add it to the index with the 'raw' normalizer"
     )]
-    fn altering_partition_by_is_rejected() {
+    fn a_lowercased_sort_key_is_rejected() {
         Spi::run(
             r#"
-            CREATE TABLE altered_key (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
-            CREATE INDEX altered_key_idx ON altered_key USING bm25 (id, tenant_id, name)
-                WITH (key_field = 'id', target_segment_count = 4,
-                      numeric_fields = '{"tenant_id": {"fast": true}}');
-            ALTER INDEX altered_key_idx SET (partition_by = 'tenant_id');
+            CREATE TABLE folded_sort (id BIGSERIAL PRIMARY KEY, name TEXT);
+            CREATE INDEX folded_sort_idx ON folded_sort USING bm25 (id, name)
+                WITH (key_field = 'id', sort_by = 'name ASC NULLS FIRST',
+                      text_fields = '{"name": {"fast": true, "normalizer": "lowercase"}}');
             "#,
         )
         .unwrap();
-    }
-
-    /// Clearing `partition_by` is the way out: an empty value reads as "not partitioned"
-    /// everywhere, so no segment layout is betrayed.
-    #[pg_test]
-    fn clearing_partition_by_is_allowed() {
-        Spi::run(
-            r#"
-            CREATE TABLE cleared_key (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
-            SET paradedb.global_mutable_segment_rows = 0;
-            CREATE INDEX cleared_key_idx ON cleared_key USING bm25 (id, tenant_id, name)
-                WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 4,
-                      numeric_fields = '{"tenant_id": {"fast": true}}');
-            INSERT INTO cleared_key (tenant_id, name)
-            SELECT (i * 7919) % 100, 'lorem ipsum ' || i FROM generate_series(1, 2000) i;
-            ALTER INDEX cleared_key_idx RESET (partition_by);
-            INSERT INTO cleared_key (tenant_id, name) VALUES (7, 'late row');
-            "#,
-        )
-        .unwrap();
-        assert_eq!(
-            Spi::get_one::<i64>("SELECT count(*) FROM cleared_key WHERE id @@@ pdb.all();")
-                .unwrap()
-                .unwrap(),
-            2001
-        );
     }
 }

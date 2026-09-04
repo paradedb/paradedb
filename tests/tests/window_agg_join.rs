@@ -111,3 +111,85 @@ fn global_window_aggregates_over_join(mut conn: PgConnection) -> Result<(), sqlx
 
     Ok(())
 }
+
+// Same join shape, but the aggregated column is NUMERIC(10, 2) (Numeric64
+// storage): exercises the scaled-int64 window UDAFs, the scale literal, the
+// decimal-bytes SUM/MIN/MAX conversions, and the AVG count+sum blob decode.
+// price = g * 0.25, so the 1000 matched odd-id reviews carry prices
+// 0.25 .. 499.75 (step 0.50):
+//   count = 1000, sum = 250000.00, avg = 250, min = 0.25, max = 499.75.
+fn setup_numeric(conn: &mut PgConnection) {
+    r#"
+    SET paradedb.enable_custom_scan = on;
+    SET paradedb.enable_join_custom_scan = on;
+    SET paradedb.enable_aggregate_custom_scan = on;
+    SET max_parallel_workers_per_gather = 0;
+
+    DROP TABLE IF EXISTS wjn_products;
+    DROP TABLE IF EXISTS wjn_reviews;
+    CREATE TABLE wjn_products (id int PRIMARY KEY, description text);
+    CREATE TABLE wjn_reviews (id bigint PRIMARY KEY, product_id bigint, price numeric(10, 2));
+
+    INSERT INTO wjn_products
+    SELECT g, CASE WHEN g % 2 = 1 THEN 'sturdy laptop' ELSE 'flimsy tablet' END
+    FROM generate_series(1, 1000) g;
+    INSERT INTO wjn_reviews
+    SELECT g, ((g - 1) % 1000) + 1, (g * 0.25)::numeric(10, 2)
+    FROM generate_series(1, 2000) g;
+
+    CREATE INDEX wjn_products_bm25 ON wjn_products
+    USING paradedb (id, (description::pdb.unicode_words)) WITH (key_field = 'id');
+    CREATE INDEX wjn_reviews_bm25 ON wjn_reviews
+    USING paradedb (id, product_id, price) WITH (key_field = 'id');
+    ANALYZE wjn_products;
+    ANALYZE wjn_reviews;
+    "#
+    .execute(conn);
+}
+
+#[rstest]
+fn global_window_aggregates_over_join_numeric(mut conn: PgConnection) -> Result<(), sqlx::Error> {
+    setup_numeric(&mut conn);
+
+    // The float8 casts wrap the placeholders, guarding the wintype (NUMERIC)
+    // contract end to end. NOTE: an I/O-coercion cast like `::text` must not
+    // be used here — replace_in_node only recurses through FuncExpr, so a
+    // CoerceViaIO-wrapped WindowFunc is found by extraction but never
+    // replaced, leaving a mixed tree that errors at execution (pre-existing
+    // hook bug, single-table included).
+    let query = r#"
+        SELECT p.id,
+               r.price::float8,
+               COUNT(*) OVER () AS total_count,
+               SUM(r.price) OVER ()::float8 AS total_price,
+               AVG(r.price) OVER ()::float8 AS avg_price,
+               MIN(r.price) OVER ()::float8 AS min_price,
+               MAX(r.price) OVER ()::float8 AS max_price
+        FROM wjn_products p
+        JOIN wjn_reviews r ON p.id = r.product_id
+        WHERE p.description @@@ 'laptop'
+        ORDER BY r.id DESC
+        LIMIT 3
+    "#;
+
+    let plan = explain(&mut conn, query);
+    assert!(plan.contains(JOIN_SCAN), "{plan}");
+    assert!(!plan.contains("WindowAgg "), "{plan}");
+    assert!(plan.contains("WindowAggExec"), "{plan}");
+
+    let rows = query.fetch_result::<(i32, f64, i64, f64, f64, f64, f64)>(&mut conn)?;
+    assert_eq!(rows.len(), 3);
+    assert_eq!(
+        rows.iter().map(|r| (r.0, r.1)).collect::<Vec<_>>(),
+        vec![(999, 499.75), (997, 499.25), (995, 498.75)]
+    );
+    for (_, _, total_count, total_price, avg_price, min_price, max_price) in &rows {
+        assert_eq!(*total_count, 1000);
+        assert_eq!(*total_price, 250_000.0);
+        assert_eq!(*avg_price, 250.0);
+        assert_eq!(*min_price, 0.25);
+        assert_eq!(*max_price, 499.75);
+    }
+
+    Ok(())
+}

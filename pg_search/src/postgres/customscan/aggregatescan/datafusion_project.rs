@@ -26,6 +26,7 @@
 use super::join_targetlist::{AggKind, JoinAggregateTargetList};
 use crate::postgres::customscan::datafusion::numeric_agg::decode_avg_blob;
 use crate::postgres::types_arrow::decimal_bytes_to_anynumeric;
+use crate::schema::SearchFieldType;
 use arrow_array::cast::AsArray;
 use arrow_array::{Array, RecordBatch};
 use pgrx::{AnyNumeric, IntoDatum, pg_sys};
@@ -128,35 +129,14 @@ pub unsafe fn project_aggregate_row_to_slot(
                 }
             }
         } else {
-            // Aggregate results arrive in the fast field's storage encoding. A
-            // numeric AVG carries its row count beside the sum as
-            // `[count u64 BE, decimal-bytes sum]` and divides through
-            // `AnyNumeric` so the result scale follows Postgres' numeric
-            // division rules, matching a non-pushed-down AVG. Everything else
-            // converts straight out of Arrow with the column's declared scale.
-            let datum = match (&agg.agg_kind, agg.numeric) {
-                (AggKind::Avg, Some(_)) => {
-                    let blob = col.as_binary::<i32>().value(row_idx);
-                    let (count, sum_bytes) = decode_avg_blob(blob)
-                        .unwrap_or_else(|e| panic!("BUG: failed to decode numeric AVG blob: {e}"));
-                    (count != 0)
-                        .then(|| {
-                            let sum =
-                                decimal_bytes_to_anynumeric(sum_bytes, None).unwrap_or_else(|e| {
-                                    panic!("BUG: failed to decode numeric AVG sum: {e}")
-                                });
-                            (sum / AnyNumeric::from(count as i64)).into_datum()
-                        })
-                        .flatten()
-                }
-                (_, numeric) => crate::postgres::types_arrow::arrow_array_to_datum(
-                    col.as_ref(),
-                    row_idx,
-                    pgrx::PgOid::from(agg.result_type_oid),
-                    numeric.and_then(|field_type| field_type.numeric_scale()),
-                )
-                .unwrap_or_else(|e| panic!("BUG: Aggregate projection failed: {e}")),
-            };
+            let datum = datafusion_agg_to_datum(
+                matches!(agg.agg_kind, AggKind::Avg),
+                agg.numeric,
+                agg.result_type_oid,
+                col,
+                row_idx,
+            )
+            .unwrap_or_else(|e| panic!("BUG: Aggregate projection failed: {e}"));
             match datum {
                 Some(datum) => {
                     datums[pg_idx] = datum;
@@ -176,4 +156,41 @@ pub unsafe fn project_aggregate_row_to_slot(
     (*slot).tts_nvalid = natts as i16;
 
     slot
+}
+
+/// Aggregate results arrive in the fast field's storage encoding. A
+/// numeric AVG carries its row count beside the sum as
+/// `[count u64 BE, decimal-bytes sum]` and divides through
+/// `AnyNumeric` so the result scale follows Postgres' numeric
+/// division rules, matching a non-pushed-down AVG. Everything else
+/// converts straight out of Arrow with the column's declared scale.
+pub fn datafusion_agg_to_datum(
+    is_avg: bool,
+    field_type: Option<SearchFieldType>,
+    result_type_oid: pg_sys::Oid,
+    col: &dyn Array,
+    row_idx: usize,
+) -> anyhow::Result<Option<pg_sys::Datum>> {
+    let numeric_field = field_type.filter(|f| f.is_numeric());
+    match (is_avg, numeric_field) {
+        (true, Some(_)) => {
+            let blob = col.as_binary::<i32>().value(row_idx);
+            let (count, sum_bytes) = decode_avg_blob(blob)
+                .unwrap_or_else(|e| panic!("BUG: failed to decode numeric AVG blob: {e}"));
+            let res = (count != 0)
+                .then(|| {
+                    let sum = decimal_bytes_to_anynumeric(sum_bytes, None)
+                        .unwrap_or_else(|e| panic!("BUG: failed to decode numeric AVG sum: {e}"));
+                    (sum / AnyNumeric::from(count as i64)).into_datum()
+                })
+                .flatten();
+            Ok(res)
+        }
+        (_, numeric) => crate::postgres::types_arrow::arrow_array_to_datum(
+            col,
+            row_idx,
+            result_type_oid.into(),
+            numeric.and_then(|field_type| field_type.numeric_scale()),
+        ),
+    }
 }

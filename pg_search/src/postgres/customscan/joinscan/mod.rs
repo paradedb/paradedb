@@ -191,12 +191,12 @@ use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parall
 use arrow_array::Array;
 use datafusion_distributed::shm::MppMesh;
 
+use crate::postgres::ParallelScanArgs;
 use crate::postgres::customscan::parameterized_value::ParameterizedValue;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::{ParallelScanArgs, types_arrow};
 use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logical_plan};
 use crate::{DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE, nodecast};
 
@@ -205,6 +205,9 @@ use datafusion_distributed::DistributedExt;
 use pgrx::{PgList, pg_guard, pg_sys};
 use std::ffi::CStr;
 use std::sync::Arc;
+
+use super::aggregatescan::AggregateType;
+use super::aggregatescan::datafusion_project::datafusion_agg_to_datum;
 
 #[derive(Default)]
 pub struct JoinScan;
@@ -2476,11 +2479,12 @@ impl JoinScan {
                             .expect("agg_info should never reach this point as a non-Aggregate"),
                     )
                     .expect("This shoud always be a pushdown-compatible field");
-                    let try_maybe_datum = types_arrow::arrow_array_to_datum(
+                    let try_maybe_datum = datafusion_agg_to_datum(
+                        matches!(agg_info.agg_type(), Some(AggregateType::Avg { .. })),
+                        numeric,
+                        agg_info.result_type_oid(),
                         agg_col.as_ref(),
                         row_idx,
-                        agg_info.result_type_oid().into(),
-                        numeric.and_then(|n| n.numeric_scale()),
                     );
                     let maybe_datum = match try_maybe_datum {
                         Ok(d) => d,

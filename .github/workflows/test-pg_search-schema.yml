@@ -52,6 +52,9 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref || github.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
+
       # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
       # See test-pg_search.yml for rationale.
       # Schema jobs restore the nightly-warmed cache but never save their own entry.

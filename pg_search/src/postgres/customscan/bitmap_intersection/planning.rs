@@ -519,6 +519,7 @@ impl IndexClause {
             match (*(*ri).clause.cast::<pg_sys::Node>()).type_ {
                 pg_sys::NodeTag::T_OpExpr => Self::from_opexpr(root, ri, ioi),
                 pg_sys::NodeTag::T_FuncExpr => Self::from_funcexpr(root, ri, ioi),
+                pg_sys::NodeTag::T_ScalarArrayOpExpr => Self::from_saop(ri, ioi),
                 _ => None,
             }
         }
@@ -541,21 +542,11 @@ impl IndexClause {
             );
 
             for indexcol in 0..(*ioi).nkeycolumns {
-                let opfamily = *(*ioi).opfamily.add(indexcol as usize);
-                // The direct opfamily arms require the index collation to match the operator's
-                // input collation, or the index answers under different comparison semantics
-                // and its bitmap can miss valid rows.
-                let idxcoll = *(*ioi).indexcollations.add(indexcol as usize);
-                let collation_ok =
-                    idxcoll == pg_sys::InvalidOid || idxcoll == (*opexpr).inputcollid;
-
                 if pg_sys::match_index_to_operand(leftop, indexcol, ioi)
                     && is_pseudoconstant(rightop)
                 {
-                    if collation_ok && pg_sys::op_in_opfamily((*opexpr).opno, opfamily) {
-                        let mut indexquals = PgList::<pg_sys::RestrictInfo>::new();
-                        indexquals.push(ri);
-                        return Some(Self::new(ri, indexquals, false, indexcol));
+                    if Self::direct_match_ok((*opexpr).opno, (*opexpr).inputcollid, indexcol, ioi) {
+                        return Some(Self::direct(ri, ri, indexcol));
                     }
                     if let Some(iclause) =
                         Self::from_support_function(root, ri, (*opexpr).opfuncid, 0, indexcol, ioi)
@@ -568,13 +559,11 @@ impl IndexClause {
                     && is_pseudoconstant(leftop)
                 {
                     let comm_op = pg_sys::get_commutator((*opexpr).opno);
-                    if collation_ok
-                        && comm_op != pg_sys::InvalidOid
-                        && pg_sys::op_in_opfamily(comm_op, opfamily)
+                    if comm_op != pg_sys::InvalidOid
+                        && Self::direct_match_ok(comm_op, (*opexpr).inputcollid, indexcol, ioi)
                     {
-                        let mut indexquals = PgList::<pg_sys::RestrictInfo>::new();
-                        indexquals.push(pg_sys::commute_restrictinfo(ri, comm_op));
-                        return Some(Self::new(ri, indexquals, false, indexcol));
+                        let commuted = pg_sys::commute_restrictinfo(ri, comm_op);
+                        return Some(Self::direct(ri, commuted, indexcol));
                     }
                     if let Some(iclause) =
                         Self::from_support_function(root, ri, (*opexpr).opfuncid, 1, indexcol, ioi)
@@ -584,6 +573,74 @@ impl IndexClause {
                 }
             }
             None
+        }
+    }
+
+    /// Mirrors core's `match_saopclause_to_indexcol`: `key = ANY(array)` answers from the
+    /// index when the array is a pseudoconstant. `ALL` is rejected because the index
+    /// cannot answer a conjunction over the array in one scan, and there is no commuted
+    /// form to try because the array can only be the right operand.
+    unsafe fn from_saop(
+        ri: *mut pg_sys::RestrictInfo,
+        ioi: *mut pg_sys::IndexOptInfo,
+    ) -> Option<Self> {
+        unsafe {
+            let saop = (*ri).clause.cast::<pg_sys::ScalarArrayOpExpr>();
+            if !(*saop).useOr {
+                return None;
+            }
+            let args = PgList::<pg_sys::Node>::from_pg((*saop).args);
+            if args.len() != 2 {
+                return None;
+            }
+            let (leftop, rightop) = (
+                strip_relabel(args.get_ptr(0)?),
+                strip_relabel(args.get_ptr(1)?),
+            );
+            if !is_pseudoconstant(rightop) {
+                return None;
+            }
+
+            for indexcol in 0..(*ioi).nkeycolumns {
+                if pg_sys::match_index_to_operand(leftop, indexcol, ioi)
+                    && Self::direct_match_ok((*saop).opno, (*saop).inputcollid, indexcol, ioi)
+                {
+                    return Some(Self::direct(ri, ri, indexcol));
+                }
+            }
+            None
+        }
+    }
+
+    /// Gates every direct (non support function) match must clear: the operator belongs
+    /// to the index column's opfamily, and the index collation matches the operator's
+    /// input collation. Without the collation check the index answers under different
+    /// comparison semantics and its bitmap can miss valid rows.
+    unsafe fn direct_match_ok(
+        opno: pg_sys::Oid,
+        inputcollid: pg_sys::Oid,
+        indexcol: i32,
+        ioi: *mut pg_sys::IndexOptInfo,
+    ) -> bool {
+        unsafe {
+            let idxcoll = *(*ioi).indexcollations.add(indexcol as usize);
+            let collation_ok = idxcoll == pg_sys::InvalidOid || idxcoll == inputcollid;
+            collation_ok && pg_sys::op_in_opfamily(opno, *(*ioi).opfamily.add(indexcol as usize))
+        }
+    }
+
+    /// The `IndexClause` for a cleared direct match. `indexqual` is what the index AM
+    /// evaluates: the clause itself, or its commuted form when the key is the right
+    /// operand.
+    unsafe fn direct(
+        ri: *mut pg_sys::RestrictInfo,
+        indexqual: *mut pg_sys::RestrictInfo,
+        indexcol: i32,
+    ) -> Self {
+        unsafe {
+            let mut indexquals = PgList::<pg_sys::RestrictInfo>::new();
+            indexquals.push(indexqual);
+            Self::new(ri, indexquals, false, indexcol)
         }
     }
 

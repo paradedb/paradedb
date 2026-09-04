@@ -415,14 +415,13 @@ LIMIT 10;
            :     └──────────────────────────────────────────────────
            :     ┌───── Stage 2 ── tasks=3, partitions=12
            :     │ RepartitionExec: partitioning=Hash([file_id@1], 12), input_partitions=4
-           :     │   VisibilityFilterExec: tables=[p]
-           :     │     RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-           :     │       DistributedLeafExec:
-           :     │         t0: PgSearchScan: table=p, segments=3, partition=file_id[-∞..68), dynamic_filters=1, query="all"
-           :     │         t1: PgSearchScan: table=p, segments=3, partition=file_id[68..134), dynamic_filters=1, query="all"
-           :     │         t2: PgSearchScan: table=p, segments=3, partition=file_id[134..∞), dynamic_filters=1, query="all"
+           :     │   RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+           :     │     DistributedLeafExec:
+           :     │       t0: PgSearchScan: table=p, segments=3, partition=file_id[-∞..68), dynamic_filters=1, visibility=eager, query="all"
+           :     │       t1: PgSearchScan: table=p, segments=3, partition=file_id[68..134), dynamic_filters=1, visibility=eager, query="all"
+           :     │       t2: PgSearchScan: table=p, segments=3, partition=file_id[134..∞), dynamic_filters=1, visibility=eager, query="all"
            :     └──────────────────────────────────────────────────
-(38 rows)
+(37 rows)
 
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id
@@ -476,8 +475,8 @@ WHERE f.content @@@ 'Section'
 GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
-                                                                                                                        QUERY PLAN                                                                                                                        
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                 QUERY PLAN                                                                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.title, (count(*)), (sum(p.size_bytes))
    ->  Sort
@@ -504,13 +503,13 @@ LIMIT 5;
                  :     │   AggregateExec: mode=Partial, gby=[title@0 as title], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
                  :     │     HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, size_bytes@3]
                  :     │       DistributedLeafExec:
-                 :     │         t0: PgSearchScan: table=f, segments=3, partition=id[-∞..68), dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
-                 :     │         t1: PgSearchScan: table=f, segments=3, partition=id[68..134), dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
-                 :     │         t2: PgSearchScan: table=f, segments=3, partition=id[134..∞), dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+                 :     │         t0: PgSearchScan: table=f, segments=3, partition=id[-∞..68), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+                 :     │         t1: PgSearchScan: table=f, segments=3, partition=id[68..134), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+                 :     │         t2: PgSearchScan: table=f, segments=3, partition=id[134..∞), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
                  :     │       DistributedLeafExec:
-                 :     │         t0: PgSearchScan: table=p, segments=3, partition=file_id[-∞..68), dynamic_filters=1, query="all"
-                 :     │         t1: PgSearchScan: table=p, segments=3, partition=file_id[68..134), dynamic_filters=1, query="all"
-                 :     │         t2: PgSearchScan: table=p, segments=3, partition=file_id[134..∞), dynamic_filters=1, query="all"
+                 :     │         t0: PgSearchScan: table=p, segments=3, partition=file_id[-∞..68), dynamic_filters=1, visibility=eager, query="all"
+                 :     │         t1: PgSearchScan: table=p, segments=3, partition=file_id[68..134), dynamic_filters=1, visibility=eager, query="all"
+                 :     │         t2: PgSearchScan: table=p, segments=3, partition=file_id[134..∞), dynamic_filters=1, visibility=eager, query="all"
                  :     └──────────────────────────────────────────────────
 (34 rows)
 

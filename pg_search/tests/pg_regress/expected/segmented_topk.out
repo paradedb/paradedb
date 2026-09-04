@@ -257,8 +257,8 @@ WHERE f.document_id IN (
 )
 ORDER BY f.id ASC
 LIMIT 3;
-                                                                                               QUERY PLAN                                                                                                
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title
    ->  Custom Scan (ParadeDB Join Scan)
@@ -271,12 +271,13 @@ LIMIT 3;
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=3), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[d, f]
-           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
-           :         CooperativeExec
-           :           PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
-           :         CooperativeExec
-           :           PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all"
-(17 rows)
+           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
+           :           CooperativeExec
+           :             PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all"
+(18 rows)
 
 -- =============================================================================
 -- TEST 7: No LIMIT — SegmentedTopKExec should NOT appear
@@ -325,8 +326,8 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 3;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                 QUERY PLAN                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title
    ->  Custom Scan (ParadeDB Join Scan)
@@ -340,12 +341,13 @@ LIMIT 3;
            :   SortExec: TopK(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     TantivyLookupExec: decode=[title]
            :       VisibilityFilterExec: tables=[d, f]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4]
-           :           CooperativeExec
-           :             PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all"
-(18 rows)
+           :         TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4]
+           :             CooperativeExec
+           :               PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :             CooperativeExec
+           :               PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all"
+(19 rows)
 
 -- Verify results are the same with optimization disabled
 SELECT f.id, f.title
@@ -541,8 +543,8 @@ WHERE d.category @@@ 'PROJECT_ALPHA'
 ORDER BY f.title ASC, d.category DESC, f.id ASC
 LIMIT 5;
 WARNING:  SegmentedTopK: ORDER BY includes string columns from multiple tables, which is not currently supported. Falling back to default execution.
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                 QUERY PLAN                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title, d.category
    ->  Custom Scan (ParadeDB Join Scan)
@@ -556,12 +558,13 @@ WARNING:  SegmentedTopK: ORDER BY includes string columns from multiple tables, 
            :   SortExec: TopK(fetch=5), expr=[title@3 ASC NULLS LAST, category@1 DESC, id@4 ASC NULLS LAST], preserve_partitioning=[false]
            :     TantivyLookupExec: decode=[category, title]
            :       VisibilityFilterExec: tables=[d, f]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, category@2, ctid_1@3, title@5, id@6]
-           :           CooperativeExec
-           :             PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=f, segments=1, dynamic_filters=1, query="all"
-(18 rows)
+           :         TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, category@2, ctid_1@3, title@5, id@6]
+           :             CooperativeExec
+           :               PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :             CooperativeExec
+           :               PgSearchScan: table=f, segments=1, dynamic_filters=1, query="all"
+(19 rows)
 
 SELECT f.id, f.title, d.category
 FROM stk_files f

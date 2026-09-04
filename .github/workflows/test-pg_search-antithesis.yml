@@ -134,6 +134,9 @@ jobs:
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
+
       - name: Retrieve OS Version
         id: version
         run: |
@@ -216,9 +219,6 @@ jobs:
           sudo dpkg-deb -Zxz --build --root-owner-group ${package_dir}
 
       - name: Upload pg_search .deb
-        env:
-          ACTIONS_RESULTS_URL: https://results-receiver.actions.githubusercontent.com/
-          ACTIONS_CACHE_SERVICE_V2: ""
         uses: actions/upload-artifact@v7
         with:
           name: pg-search-antithesis-deb-${{ env.COMMIT_SHA }}
@@ -257,6 +257,9 @@ jobs:
         with:
           ref: ${{ env.COMMIT_SHA }}
 
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
+
       # The workload image and the run's `antithesis.source` are named after the repository
       - name: Resolve Registry Image Name From Repository
         run: echo "REPO_NAME=${GITHUB_REPOSITORY#*/}" >> "$GITHUB_ENV"
@@ -265,9 +268,6 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Download Antithesis pg_search .deb
-        env:
-          ACTIONS_RESULTS_URL: https://results-receiver.actions.githubusercontent.com/
-          ACTIONS_CACHE_SERVICE_V2: ""
         uses: actions/download-artifact@v8
         with:
           name: pg-search-antithesis-deb-${{ env.COMMIT_SHA }}

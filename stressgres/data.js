@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788504622023,
+  "lastUpdate": 1788504630377,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -140332,6 +140332,108 @@ window.BENCHMARK_DATA = {
             "value": 45.09375,
             "unit": "median mem",
             "extra": "avg mem: 43.89263579420157, max mem: 48.62890625, count: 59404"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c74bcde7bf6f6e44516d81f18350f2725d14fd5f",
+          "message": "feat: Add support for non-equi JOINs in the join and aggregate scan (#6196)\n\n## What\n\nAdds support for pushing down non-equi join conditions (e.g. `<`, `<=`,\n`>`, `>=`, `<>`) and mixed equi/non-equi joins to DataFusion.\n\nImproves expression deparsing during planning and `EXPLAIN` in order to\nbetter render join conditions.\n\n## Why\n\nThe Postgres optimizer frequently produces non-equi joins in #6149 while\nreorganizing joins in property tests. To avoid users encountering\nplanning failures non-deterministically based on estimate changes, it\nwas easiest to extend support.\n\n## How\n\n- `pg_search/src/postgres/customscan/joinscan/predicate.rs`: Absorbs\ntranslatable non-equi conditions into join-level filters\n(`JoinLevelExpr::PgExpression`), respecting outer join ON vs WHERE\nclause semantics.\n- `pg_search/src/postgres/customscan/aggregatescan/`: Recursively\nhandles non-equi joins in aggregate pushdown planning.\n- `pg_search/src/postgres/deparse.rs` &\n`pg_search/src/postgres/customscan/explainer.rs`: Added\n`deparse_planner_expr` using `PlannerInfo` range table contexts for\nreadable multi-relation expression deparsing.\n\n## Tests\n\nAdded regression tests. Additional property test coverage is provided by\nthe changes in https://github.com/paradedb/paradedb/pull/6149.",
+          "timestamp": "2026-09-03T23:12:12-07:00",
+          "tree_id": "1f536f91fd3793c3b54f93cb2ffeefa3337100af",
+          "url": "https://github.com/paradedb/paradedb/commit/c74bcde7bf6f6e44516d81f18350f2725d14fd5f"
+        },
+        "date": 1788504626592,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08493376647422195, max background_merging: 2.0, count: 59411"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.7151275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.783832593493151, max cpu: 9.6337185, count: 59411"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 19.55078125,
+            "unit": "median mem",
+            "extra": "avg mem: 19.549292744609584, max mem: 19.59765625, count: 59411"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7151275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.932652776654892, max cpu: 28.056503, count: 59411"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 46.9296875,
+            "unit": "median mem",
+            "extra": "avg mem: 44.28967088112891, max mem: 50.55078125, count: 59411"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 52484,
+            "unit": "median block_count",
+            "extra": "avg block_count: 52301.924256450824, max block_count: 52484.0, count: 59411"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 70,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 68.05445119590648, max segment_count: 105.0, count: 59411"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.587223,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.126095264897867, max cpu: 33.566433, count: 59411"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 83.9609375,
+            "unit": "median mem",
+            "extra": "avg mem: 80.46614526350339, max mem: 84.24609375, count: 59411"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.7267356,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.981467317774294, max cpu: 32.844578, count: 59411"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 46.6171875,
+            "unit": "median mem",
+            "extra": "avg mem: 43.710533600154015, max mem: 52.55078125, count: 59411"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7058825,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7592004947697, max cpu: 18.906942, count: 59411"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 44.80859375,
+            "unit": "median mem",
+            "extra": "avg mem: 42.41875531256838, max mem: 48.54296875, count: 59411"
           }
         ]
       }

@@ -347,10 +347,9 @@ impl BitmapPlanner {
     }
 
     /// Build a `BitmapHeapPath` over the non-ParadeDB indexes whose bitmaps are worth
-    /// intersecting: every index with a key column matching a HeapExpr clause is scored
-    /// by [`Self::ledger`], and the positive-net ones are combined with a `BitmapAnd`
-    /// in descending net order while each addition still pays for itself. Without a
-    /// ParadeDB-side row estimate the first workable index is taken unscored.
+    /// intersecting: every index with a key column matching a HeapExpr clause becomes a
+    /// candidate, and [`Self::choose_bitmap_and`] decides which of them to combine.
+    /// Without a ParadeDB-side row estimate the first workable index is taken unscored.
     unsafe fn build_bitmap_path(&self) -> Option<(*mut pg_sys::BitmapHeapPath, f64)> {
         unsafe {
             let mut candidates = Vec::new();
@@ -366,58 +365,9 @@ impl BitmapPlanner {
                 candidates.push(candidate);
             }
             let bm25_row_estimate = self.bm25_row_estimate?;
-            if candidates.is_empty() {
-                return None;
-            }
-
-            // Constant across candidates, so it is evaluated once for the whole pass.
+            // Constant across candidates, so it is evaluated once for the whole search.
             let per_row_saved = self.per_row_saved();
-            let mut scored = Vec::with_capacity(candidates.len());
-            for candidate in candidates {
-                let net = self.ledger(&candidate, bm25_row_estimate, per_row_saved);
-                pgrx::debug1!(
-                    "[bitmap_intersection] index {}: net={net:.2} (bm25_row_estimate={bm25_row_estimate:.0} selectivity={:.6} indextotalcost={:.2})",
-                    candidate.index_name,
-                    candidate.selectivity,
-                    (*candidate.ipath).indextotalcost,
-                );
-                scored.push((candidate, net));
-            }
-
-            // Best net first, then keep adding while the next bitmap still pays for
-            // itself: it only sees the rows its predecessors kept, so its benefit
-            // shrinks by their combined selectivity while its build cost stays full
-            // price. Sorted descending, so the first non-paying one ends the run.
-            scored.sort_by(|(_, a), (_, b)| b.total_cmp(a));
-            let mut chosen: Vec<Candidate> = Vec::new();
-            let mut covered: Vec<usize> = Vec::new();
-            let mut reachable_rows = bm25_row_estimate;
-            for (candidate, _) in scored {
-                // Any shared clause disqualifies the candidate, as Postgres does
-                // with `bms_overlap` in `choose_bitmap_and`. The ledger multiplies
-                // selectivities as if the bitmaps were independent, so a clause both
-                // indexes answer is counted twice and makes the addition look like it
-                // rejects rows the first bitmap already rejected.
-                if candidate.covers.iter().any(|c| covered.contains(c)) {
-                    pgrx::debug1!(
-                        "[bitmap_intersection] index {}: shares a clause with the accepted set, skipping",
-                        candidate.index_name
-                    );
-                    continue;
-                }
-                let incremental = self.ledger(&candidate, reachable_rows, per_row_saved);
-                pgrx::debug1!(
-                    "[bitmap_intersection] index {}: incremental net={incremental:.2} against {} accepted bitmap(s) (reachable_rows={reachable_rows:.0})",
-                    candidate.index_name,
-                    chosen.len(),
-                );
-                if incremental <= 0.0 {
-                    break;
-                }
-                reachable_rows *= candidate.selectivity;
-                covered.extend(&candidate.covers);
-                chosen.push(candidate);
-            }
+            let chosen = self.choose_bitmap_and(candidates, bm25_row_estimate, per_row_saved)?;
 
             let (first, rest) = chosen.split_first()?;
             let build_cost = chosen.iter().map(|c| c.build_cost).sum();
@@ -432,6 +382,88 @@ impl BitmapPlanner {
             };
             Some((self.heap_path(bitmapqual), build_cost))
         }
+    }
+
+    /// Choose which candidate bitmaps to intersect, following Postgres'
+    /// `choose_bitmap_and`: order the candidates cheapest bitmap first, take each in
+    /// turn as the leader of an AND group, and offer every later candidate to that
+    /// group, keeping the ones that improve it. The best group across all leaders wins,
+    /// so O(N^2) groups are compared rather than every one of the O(2^N) subsets.
+    ///
+    /// A group's net is what it saves minus what it costs: the rows it keeps out of the
+    /// heap, priced at `per_row_saved`, less the build cost of every bitmap in it. It
+    /// has to come out positive to be used at all, so the intersection is dropped
+    /// entirely when no group pays for itself.
+    fn choose_bitmap_and(
+        &self,
+        mut candidates: Vec<Candidate>,
+        bm25_row_estimate: f64,
+        per_row_saved: f64,
+    ) -> Option<Vec<Candidate>> {
+        // Cheapest bitmap first, more selective breaking ties, mirroring Postgres'
+        // `path_usage_comparator`. Only candidates after the leader are offered to its
+        // group, so this ordering decides which groups exist to be compared at all.
+        candidates.sort_by(|a, b| {
+            a.build_cost
+                .total_cmp(&b.build_cost)
+                .then(a.selectivity.total_cmp(&b.selectivity))
+        });
+        let mut best: Option<(Vec<usize>, f64)> = None;
+        for (leader_pos, leader) in candidates.iter().enumerate() {
+            let mut group = vec![leader_pos];
+            let mut covered = leader.covers.clone();
+            let mut reachable_rows = bm25_row_estimate * leader.selectivity;
+            let mut net = self.ledger(leader, bm25_row_estimate, per_row_saved);
+            pgrx::debug1!(
+                "[bitmap_intersection] index {}: selectivity={:.6} build_cost={:.2} standalone net={net:.2} (bm25_row_estimate={bm25_row_estimate:.0})",
+                leader.index_name,
+                leader.selectivity,
+                leader.build_cost,
+            );
+
+            for (pos, candidate) in candidates.iter().enumerate().skip(leader_pos + 1) {
+                // Any shared clause disqualifies the candidate, as Postgres does with
+                // `bms_overlap`. The ledger multiplies selectivities as if the bitmaps
+                // were independent, so a clause both indexes answer is counted twice,
+                // making the addition look like it rejects rows the group already did.
+                if candidate.covers.iter().any(|c| covered.contains(c)) {
+                    continue;
+                }
+                // The bitmap only sees the rows its predecessors kept, so its benefit
+                // shrinks by their combined selectivity while its build cost stays full
+                // price. One that cannot pay for itself here may still pay under a
+                // later leader, so this drops the candidate, not the rest of the group.
+                let incremental = self.ledger(candidate, reachable_rows, per_row_saved);
+                if incremental <= 0.0 {
+                    continue;
+                }
+                net += incremental;
+                reachable_rows *= candidate.selectivity;
+                covered.extend(&candidate.covers);
+                group.push(pos);
+            }
+
+            pgrx::debug1!(
+                "[bitmap_intersection] group led by {}: {} bitmap(s), net={net:.2}",
+                leader.index_name,
+                group.len(),
+            );
+            if net > 0.0 && best.as_ref().is_none_or(|(_, best_net)| net > *best_net) {
+                best = Some((group, net));
+            }
+        }
+
+        // Groups collect their members in ascending position, so this preserves the
+        // order the leader loop accepted them in.
+        let (group, _) = best?;
+        Some(
+            candidates
+                .into_iter()
+                .enumerate()
+                .filter(|(pos, _)| group.contains(pos))
+                .map(|(_, candidate)| candidate)
+                .collect(),
+        )
     }
 
     /// Score one index as an intersection source. `None` when it cannot produce a

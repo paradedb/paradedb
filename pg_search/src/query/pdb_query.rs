@@ -2359,7 +2359,7 @@ mod tests {
     use super::pdb::FuzzyData;
     use pgrx::prelude::*;
 
-    #[test]
+    #[pg_test]
     fn numeric_phrase_rewrite_uses_physical_representation() {
         use super::numeric_phrase_to_tantivy_string;
         use crate::api::version::{NUMERIC_BYTES_SORTABLE_NEGATIVES_VERSION, Version};

@@ -20,7 +20,7 @@ use crate::api::version::VersionInfo;
 use crate::index::index_settings;
 use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::build_parallel::build_index;
-use crate::postgres::build_partitioning::{check_fast_dims, folded_dims};
+use crate::postgres::build_partitioning::{check_fast_dims, normalized_dims};
 use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::custom_rmgr;
@@ -240,17 +240,17 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
         }
     }
 
-    // `partition_by` cuts on the raw heap value and prunes on the fast column, so a folded
-    // column leaves it with boundaries nothing can test against. `sort_by` only lays the
-    // segment out, and a folded column still orders it, so that one costs pruning alone.
-    if let Some(dim) = folded_dims(&schema, &partition_by).first() {
+    // `partition_by` cuts on the raw heap value and prunes on the columnar field, so a
+    // normalized one leaves it with boundaries nothing can test against. `sort_by` only lays the
+    // segment out, and a normalized one still orders it, so that costs pruning alone.
+    if let Some(dim) = normalized_dims(&schema, &partition_by).first() {
         panic!(
-            "partition_by field '{dim}' must have a fast column in raw order. Add it to the index with the 'raw' normalizer"
+            "partition_by field '{dim}' must have a columnar field in raw order. Add it to the index with the 'raw' normalizer"
         );
     }
-    for dim in folded_dims(&schema, &sort_by) {
+    for dim in normalized_dims(&schema, &sort_by) {
         warning!(
-            "sort_by field '{dim}' has a fast column in folded order, so its segments carry no bounds to prune on"
+            "sort_by field '{dim}' has a columnar field in normalized order, so its segments carry no bounds to prune on"
         );
     }
 }
@@ -587,9 +587,9 @@ mod tests {
         );
     }
 
-    /// A key with no fast column has no values to cut on, so the build refuses it up front.
+    /// A key with no columnar field has no values to cut on, so the build refuses it up front.
     #[pg_test(
-        error = "partition_by field 'tenant_id' must be a fast field. Add it to the index with 'fast: true'"
+        error = "partition_by field 'tenant_id' must be a columnar field. Add it to the index with 'fast: true'"
     )]
     fn a_non_fast_partition_key_is_rejected() {
         Spi::run(
@@ -606,7 +606,7 @@ mod tests {
     /// Every dimension has to carry its own box, so a key that mixes a usable dimension
     /// with a plain text one is refused as a whole.
     #[pg_test(
-        error = "partition_by field 'name' must be a fast field. Add it to the index with 'fast: true'"
+        error = "partition_by field 'name' must be a columnar field. Add it to the index with 'fast: true'"
     )]
     fn a_partly_unroutable_key_is_rejected() {
         Spi::run(
@@ -620,23 +620,23 @@ mod tests {
         .unwrap();
     }
 
-    /// A folded fast column still orders a segment, so `sort_by` keeps it and gives up only
-    /// the bounds a scan would have pruned with.
+    /// A normalized columnar field still orders a segment, so `sort_by` keeps it and gives up
+    /// only the bounds a scan would have pruned with.
     #[pg_test]
-    fn a_lowercased_sort_key_is_allowed() {
+    fn a_normalized_sort_key_is_allowed() {
         Spi::run(
             r#"
-            CREATE TABLE folded_sort (id BIGSERIAL PRIMARY KEY, name TEXT);
-            CREATE INDEX folded_sort_idx ON folded_sort USING bm25 (id, name)
+            CREATE TABLE normalized_sort (id BIGSERIAL PRIMARY KEY, name TEXT);
+            CREATE INDEX normalized_sort_idx ON normalized_sort USING bm25 (id, name)
                 WITH (key_field = 'id', sort_by = 'name ASC NULLS FIRST',
                       text_fields = '{"name": {"fast": true, "normalizer": "lowercase"}}');
-            INSERT INTO folded_sort (name)
+            INSERT INTO normalized_sort (name)
             SELECT 'Lorem Ipsum ' || i FROM generate_series(1, 500) i;
             "#,
         )
         .unwrap();
         assert_eq!(
-            Spi::get_one::<i64>("SELECT count(*) FROM folded_sort WHERE id @@@ pdb.all();")
+            Spi::get_one::<i64>("SELECT count(*) FROM normalized_sort WHERE id @@@ pdb.all();")
                 .unwrap()
                 .unwrap(),
             500

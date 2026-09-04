@@ -97,7 +97,7 @@ pub(super) fn plan_partition_boundaries(
     )))
 }
 
-/// Whether `dim` has a fast column at all, whatever order that column is in.
+/// Whether `dim` has a columnar field at all, whatever order that column is in.
 fn dim_fast(schema: &Schema, field: Field) -> bool {
     match schema.get_field_entry(field).field_type() {
         FieldType::Str(options) => options.get_fast_field_tokenizer_name().is_some(),
@@ -111,8 +111,8 @@ fn dim_fast(schema: &Schema, field: Field) -> bool {
     }
 }
 
-/// Refuses a dimension with no fast column. `sort_by` has no column to order a segment by
-/// without one, and `partition_by` has none to run its range query against.
+/// Refuses a dimension with no columnar field. `sort_by` has no column to order a segment
+/// by without one, and `partition_by` has none to run its range query against.
 pub(crate) fn check_fast_dims(schema: &Schema, dims: &[FieldName], reloption: &str) -> Result<()> {
     for dim in dims {
         let Ok(field) = schema.get_field(dim.as_ref()) else {
@@ -120,18 +120,18 @@ pub(crate) fn check_fast_dims(schema: &Schema, dims: &[FieldName], reloption: &s
         };
         if !dim_fast(schema, field) {
             bail!(
-                "{reloption} field '{dim}' must be a fast field. Add it to the index with 'fast: true'"
+                "{reloption} field '{dim}' must be a columnar field. Add it to the index with 'fast: true'"
             );
         }
     }
     Ok(())
 }
 
-/// The `dims` whose fast column orders by a folded value, so a segment's logical bounds cannot
-/// hold for the raw range (see [`stats::logical_bounds_hold`]). What that costs depends on the
+/// The `dims` whose columnar field orders by a normalized value, so a segment's logical bounds
+/// cannot hold for the raw range (see [`stats::logical_bounds_hold`]). What that costs depends on the
 /// caller: `partition_by` cuts on the raw value and cannot prune without it, while `sort_by`
 /// still lays the segment out and only gives up its bounds.
-pub(crate) fn folded_dims(schema: &Schema, dims: &[FieldName]) -> Vec<FieldName> {
+pub(crate) fn normalized_dims(schema: &Schema, dims: &[FieldName]) -> Vec<FieldName> {
     dims.iter()
         .filter(|dim| {
             schema

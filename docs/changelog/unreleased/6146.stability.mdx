@@ -2,4 +2,4 @@
 header: stability
 ---
 
-`sort_by` and `partition_by` now refuse a field that has no fast column, at `CREATE INDEX` rather than part way through the build. `partition_by` also refuses a folded fast column, because it cuts on the raw value and cannot prune on a column that orders by the folded one. `sort_by` keeps such a column and warns instead, since it still orders the segment.
+`sort_by` and `partition_by` now refuse a field that has no columnar field, at `CREATE INDEX` rather than part way through the build. `partition_by` also refuses a normalized columnar field, because it cuts on the raw value and cannot prune on a column that orders by the normalized one. `sort_by` keeps such a column and warns instead, since it still orders the segment.

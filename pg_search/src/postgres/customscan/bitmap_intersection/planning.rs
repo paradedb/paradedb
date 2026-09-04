@@ -393,12 +393,14 @@ impl BitmapPlanner {
             let mut covered: Vec<usize> = Vec::new();
             let mut reachable_rows = bm25_row_estimate;
             for (candidate, _) in scored {
-                // A multicolumn index and a single-column one over a shared key match
-                // the same clause. The second rejects nothing the first did not, and
-                // multiplying their selectivities would count that clause twice.
-                if candidate.covers.iter().all(|c| covered.contains(c)) {
+                // Any shared clause disqualifies the candidate, as Postgres does
+                // with `bms_overlap` in `choose_bitmap_and`. The ledger multiplies
+                // selectivities as if the bitmaps were independent, so a clause both
+                // indexes answer is counted twice and makes the addition look like it
+                // rejects rows the first bitmap already rejected.
+                if candidate.covers.iter().any(|c| covered.contains(c)) {
                     pgrx::debug1!(
-                        "[bitmap_intersection] index {}: covers nothing new, skipping",
+                        "[bitmap_intersection] index {}: shares a clause with the accepted set, skipping",
                         candidate.index_name
                     );
                     continue;

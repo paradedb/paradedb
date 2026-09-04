@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788470216236,
+  "lastUpdate": 1788503440157,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -157838,6 +157838,66 @@ window.BENCHMARK_DATA = {
             "value": 19.439971449954776,
             "unit": "median tps",
             "extra": "avg tps: 19.306540831536616, max tps: 33.963512726569746, count: 59316"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c74bcde7bf6f6e44516d81f18350f2725d14fd5f",
+          "message": "feat: Add support for non-equi JOINs in the join and aggregate scan (#6196)\n\n## What\n\nAdds support for pushing down non-equi join conditions (e.g. `<`, `<=`,\n`>`, `>=`, `<>`) and mixed equi/non-equi joins to DataFusion.\n\nImproves expression deparsing during planning and `EXPLAIN` in order to\nbetter render join conditions.\n\n## Why\n\nThe Postgres optimizer frequently produces non-equi joins in #6149 while\nreorganizing joins in property tests. To avoid users encountering\nplanning failures non-deterministically based on estimate changes, it\nwas easiest to extend support.\n\n## How\n\n- `pg_search/src/postgres/customscan/joinscan/predicate.rs`: Absorbs\ntranslatable non-equi conditions into join-level filters\n(`JoinLevelExpr::PgExpression`), respecting outer join ON vs WHERE\nclause semantics.\n- `pg_search/src/postgres/customscan/aggregatescan/`: Recursively\nhandles non-equi joins in aggregate pushdown planning.\n- `pg_search/src/postgres/deparse.rs` &\n`pg_search/src/postgres/customscan/explainer.rs`: Added\n`deparse_planner_expr` using `PlannerInfo` range table contexts for\nreadable multi-relation expression deparsing.\n\n## Tests\n\nAdded regression tests. Additional property test coverage is provided by\nthe changes in https://github.com/paradedb/paradedb/pull/6149.",
+          "timestamp": "2026-09-03T23:12:12-07:00",
+          "tree_id": "1f536f91fd3793c3b54f93cb2ffeefa3337100af",
+          "url": "https://github.com/paradedb/paradedb/commit/c74bcde7bf6f6e44516d81f18350f2725d14fd5f"
+        },
+        "date": 1788503435927,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 76.50694810257566,
+            "unit": "median tps",
+            "extra": "avg tps: 76.21570766471201, max tps: 81.33652382262372, count: 59315"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 523.4515934838159,
+            "unit": "median tps",
+            "extra": "avg tps: 571.1182075858769, max tps: 5907.4398592117395, count: 59315"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 807.7519703692284,
+            "unit": "median tps",
+            "extra": "avg tps: 770.5165169592918, max tps: 979.1482089797696, count: 59315"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 179.91488745479725,
+            "unit": "median tps",
+            "extra": "avg tps: 177.7334731044241, max tps: 198.92068949226322, count: 59315"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 221.32901469023466,
+            "unit": "median tps",
+            "extra": "avg tps: 304.276758176393, max tps: 2058.107017098359, count: 118630"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.433379439665128,
+            "unit": "median tps",
+            "extra": "avg tps: 19.302870026121983, max tps: 34.70960865402177, count: 59315"
           }
         ]
       }

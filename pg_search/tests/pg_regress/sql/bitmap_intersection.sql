@@ -273,6 +273,34 @@ SELECT count(*) AS bitmap_and_count_no_bitmap FROM (
     WHERE description === 'cardiology' AND cat_a = 'a3' AND cat_b = 'b3') q;
 DROP TABLE wide_providers CASCADE;
 
+-- Overlapping clause sets: overlap_ab is the better single bitmap, and overlap_bc
+-- would still look like it pays for itself on top of it. Both answer cat_b, so the
+-- ledger would count that clause's selectivity twice and credit overlap_bc with
+-- rejecting rows overlap_ab already rejected. Sharing a clause disqualifies it.
+CREATE TABLE overlap_providers (
+    id BIGINT, description TEXT, cat_a TEXT, cat_b TEXT, cat_c TEXT, filler TEXT
+);
+ALTER TABLE overlap_providers ALTER COLUMN filler SET STORAGE PLAIN;
+INSERT INTO overlap_providers
+SELECT i, 'cardiology notes ' || i, 'a' || (i % 4), 'b' || ((i / 4) % 2),
+       'c' || ((i / 8) % 2), repeat('x', 1400)
+FROM generate_series(0, 4999) i;
+CREATE INDEX overlap_paradedb ON overlap_providers
+    USING bm25 (id, description) WITH (key_field = 'id');
+CREATE INDEX overlap_ab ON overlap_providers (cat_a, cat_b);
+CREATE INDEX overlap_bc ON overlap_providers (cat_b, cat_c);
+VACUUM ANALYZE overlap_providers;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM overlap_providers
+WHERE description === 'cardiology'
+  AND cat_a = 'a1' AND cat_b = 'b1' AND cat_c = 'c1'
+ORDER BY id LIMIT 5;
+SELECT count(*) AS overlap_clause_count FROM (
+    SELECT id FROM overlap_providers
+    WHERE description === 'cardiology'
+      AND cat_a = 'a1' AND cat_b = 'b1' AND cat_c = 'c1') q;
+DROP TABLE overlap_providers CASCADE;
+
 -- ============================================================================
 -- REJECTED SHAPES
 -- Correct refusals: no Bitmap Intersection, results identical to heap filtering.

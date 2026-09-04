@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788503440157,
+  "lastUpdate": 1788503448972,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -193014,6 +193014,126 @@ window.BENCHMARK_DATA = {
             "value": 27.6171875,
             "unit": "median mem",
             "extra": "avg mem: 27.624049911174893, max mem: 28.1953125, count: 59316"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c74bcde7bf6f6e44516d81f18350f2725d14fd5f",
+          "message": "feat: Add support for non-equi JOINs in the join and aggregate scan (#6196)\n\n## What\n\nAdds support for pushing down non-equi join conditions (e.g. `<`, `<=`,\n`>`, `>=`, `<>`) and mixed equi/non-equi joins to DataFusion.\n\nImproves expression deparsing during planning and `EXPLAIN` in order to\nbetter render join conditions.\n\n## Why\n\nThe Postgres optimizer frequently produces non-equi joins in #6149 while\nreorganizing joins in property tests. To avoid users encountering\nplanning failures non-deterministically based on estimate changes, it\nwas easiest to extend support.\n\n## How\n\n- `pg_search/src/postgres/customscan/joinscan/predicate.rs`: Absorbs\ntranslatable non-equi conditions into join-level filters\n(`JoinLevelExpr::PgExpression`), respecting outer join ON vs WHERE\nclause semantics.\n- `pg_search/src/postgres/customscan/aggregatescan/`: Recursively\nhandles non-equi joins in aggregate pushdown planning.\n- `pg_search/src/postgres/deparse.rs` &\n`pg_search/src/postgres/customscan/explainer.rs`: Added\n`deparse_planner_expr` using `PlannerInfo` range table contexts for\nreadable multi-relation expression deparsing.\n\n## Tests\n\nAdded regression tests. Additional property test coverage is provided by\nthe changes in https://github.com/paradedb/paradedb/pull/6149.",
+          "timestamp": "2026-09-03T23:12:12-07:00",
+          "tree_id": "1f536f91fd3793c3b54f93cb2ffeefa3337100af",
+          "url": "https://github.com/paradedb/paradedb/commit/c74bcde7bf6f6e44516d81f18350f2725d14fd5f"
+        },
+        "date": 1788503444547,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 14.076246,
+            "unit": "median cpu",
+            "extra": "avg cpu: 15.296428575104342, max cpu: 37.907207, count: 59315"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 42.19921875,
+            "unit": "median mem",
+            "extra": "avg mem: 42.197389467251114, max mem: 42.2109375, count: 59315"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6829267,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.562269685729442, max cpu: 30.35573, count: 59315"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 20.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 20.63800491812779, max mem: 20.66015625, count: 59315"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6943765,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.14161980502479, max cpu: 18.832762, count: 59315"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 42.56640625,
+            "unit": "median mem",
+            "extra": "avg mem: 42.551354131543455, max mem: 42.62890625, count: 59315"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 18840,
+            "unit": "median block_count",
+            "extra": "avg block_count: 18944.840917137317, max block_count: 36270.0, count: 59315"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.712813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.119906615433638, max cpu: 4.7220855, count: 59315"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 21.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.155831880110426, max mem: 21.16015625, count: 59315"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 28,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 27.534586529545646, max segment_count: 38.0, count: 59315"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.388753,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.704333752100977, max cpu: 24.0, count: 59315"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 41.5390625,
+            "unit": "median mem",
+            "extra": "avg mem: 41.53103129214785, max mem: 41.5390625, count: 59315"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.261939,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.237452958937089, max cpu: 34.1502, count: 118630"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 43.5703125,
+            "unit": "median mem",
+            "extra": "avg mem: 42.845099587477876, max mem: 44.5546875, count: 118630"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.4395275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.685569392980936, max cpu: 19.133034, count: 59315"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 27.75390625,
+            "unit": "median mem",
+            "extra": "avg mem: 27.75711442615696, max mem: 28.34765625, count: 59315"
           }
         ]
       }

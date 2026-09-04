@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788534594646,
+  "lastUpdate": 1788534608436,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -311462,6 +311462,126 @@ window.BENCHMARK_DATA = {
             "value": 11.044851851441177,
             "unit": "median tps",
             "extra": "avg tps: 15.250875166732298, max tps: 781.1383216305793, count: 57431"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e51119bce84539e25abad25423be5aeb4b6b6c37",
+          "message": "feat: Support `JOIN LATERAL unnest` pushdown in the join and aggregate scans (#6149)\n\n## What\n\nAdds support for `JOIN LATERAL unnest` over array fast fields in the\njoin and aggregate scans.\n\n## Why\n\nQueries combining multi-table joins with `[CROSS|LEFT] JOIN LATERAL\nunnest(...)` over indexed array fast fields previously had multiple\nissues:\n- `ORDER BY` on unnested columns was declined or double-prefixed.\n- `WHERE` on unnested columns omitted from the `SELECT` list failed\nduring plan execution.\n- Inner and cross joins were erroneously classified as left joins in\nsome cases.\n- Datetime and timestamp array fast fields produced schema mismatches\nwhen constructing `RecordBatch`es.\n\n## How\n\n- Extended `JoinScan` planning to include lateral `unnest` function RTIs\nin `output_rtis`, enabling pathkey matching for unnested columns.\n- Added `lateral_unnests` to `CombinedMapper` and populated\n`custom_scan_tlist` with predicate `Var`s via `add_vars_to_tlist` so\nPostgres planner setrefs resolves unprojected filter columns.\n- Corrected left-join classification in `JoinScan` planning by removing\nthe invalid `joininfo.is_null()` check.\n- Updated `fetch_array_values_or_ords_to_arrow` in\n`pg_search/src/index/fast_fields_helper.rs` to use\n`TimestampMicrosecondBuilder` for datetime/timestamp `I64` fields, and\ndeduplicated array fetching across types via `fetch_list_array`.\n- Unified `RelNode::Unnest` DataFusion lowering via\n`apply_relnode_unnest` across `JoinScan` and `AggregateScan`.\n\n## Tests\n\nNew regress tests in\n`pg_search/tests/pg_regress/sql/join_lateral_unnest.sql`, and new\nproperty tests.",
+          "timestamp": "2026-09-04T07:32:37-07:00",
+          "tree_id": "b82ffcb2c7c516bec019a2e40e276d7ab8909d7e",
+          "url": "https://github.com/paradedb/paradedb/commit/e51119bce84539e25abad25423be5aeb4b6b6c37"
+        },
+        "date": 1788534603946,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 173.9921689473046,
+            "unit": "median tps",
+            "extra": "avg tps: 179.1000608345971, max tps: 221.41251520696972, count: 57426"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 279.3954090877786,
+            "unit": "median tps",
+            "extra": "avg tps: 307.80762559148155, max tps: 516.3171961809304, count: 57426"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 4005.363602762439,
+            "unit": "median tps",
+            "extra": "avg tps: 4004.2935775969995, max tps: 4409.445208013373, count: 57426"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 178.93704754915257,
+            "unit": "median tps",
+            "extra": "avg tps: 184.90855601120504, max tps: 235.65956698714734, count: 57426"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3383.109443257773,
+            "unit": "median tps",
+            "extra": "avg tps: 3385.1716531762513, max tps: 3580.707665159951, count: 57426"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3388.0031577714108,
+            "unit": "median tps",
+            "extra": "avg tps: 3392.9781535808947, max tps: 3680.351246949909, count: 57426"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 152.6971504122246,
+            "unit": "median tps",
+            "extra": "avg tps: 156.1898206342503, max tps: 187.4217080706874, count: 57426"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 262.5997846204266,
+            "unit": "median tps",
+            "extra": "avg tps: 273.96716925192607, max tps: 378.5722729342596, count: 57426"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Primary - tps",
+            "value": 503.41369265309544,
+            "unit": "median tps",
+            "extra": "avg tps: 513.251740899514, max tps: 589.3802953517271, count: 57426"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 583.117483180376,
+            "unit": "median tps",
+            "extra": "avg tps: 594.6641670125397, max tps: 703.0544271962792, count: 57426"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1277.7748434273037,
+            "unit": "median tps",
+            "extra": "avg tps: 1278.9350476521029, max tps: 1302.905060715002, count: 57426"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 309.0128210641691,
+            "unit": "median tps",
+            "extra": "avg tps: 334.9748344912185, max tps: 597.6663377450119, count: 57426"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 535.7613881458071,
+            "unit": "median tps",
+            "extra": "avg tps: 544.9987618613856, max tps: 625.027025316265, count: 57426"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2330.057890744924,
+            "unit": "median tps",
+            "extra": "avg tps: 2328.563268711941, max tps: 2513.0704609891454, count: 57426"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1688.8347460922942,
+            "unit": "median tps",
+            "extra": "avg tps: 1689.976304093332, max tps: 1988.997606241381, count: 57426"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 10.232274437242864,
+            "unit": "median tps",
+            "extra": "avg tps: 13.96733261611107, max tps: 786.1400366970169, count: 57426"
           }
         ]
       }

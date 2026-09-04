@@ -111,13 +111,9 @@ fn dim_fast(schema: &Schema, field: Field) -> bool {
     }
 }
 
-/// Refuses a dimension whose fast column cannot stand in for the value order.
-///
-/// `sort_by` lays segments out along that column and `partition_by` cuts along it, and either
-/// way a segment's logical bounds hold only where the two orders agree (see
-/// [`stats::logical_bounds_hold`]). A dimension that breaks the rule still indexes, it just
-/// buys no pruning, so it is refused up front rather than quietly ignored.
-pub(crate) fn routable_dims(schema: &Schema, dims: &[FieldName], reloption: &str) -> Result<()> {
+/// Refuses a dimension with no fast column. `sort_by` has no column to order a segment by
+/// without one, and `partition_by` has none to run its range query against.
+pub(crate) fn check_fast_dims(schema: &Schema, dims: &[FieldName], reloption: &str) -> Result<()> {
     for dim in dims {
         let Ok(field) = schema.get_field(dim.as_ref()) else {
             bail!("{reloption} field '{dim}' does not exist in the index schema");
@@ -127,13 +123,23 @@ pub(crate) fn routable_dims(schema: &Schema, dims: &[FieldName], reloption: &str
                 "{reloption} field '{dim}' must be a fast field. Add it to the index with 'fast: true'"
             );
         }
-        if !stats::logical_bounds_hold(schema, field) {
-            bail!(
-                "{reloption} field '{dim}' must have a fast column in raw order. Add it to the index with the 'raw' normalizer"
-            );
-        }
     }
     Ok(())
+}
+
+/// The `dims` whose fast column orders by a folded value, so a segment's logical bounds cannot
+/// hold for the raw range (see [`stats::logical_bounds_hold`]). What that costs depends on the
+/// caller: `partition_by` cuts on the raw value and cannot prune without it, while `sort_by`
+/// still lays the segment out and only gives up its bounds.
+pub(crate) fn folded_dims(schema: &Schema, dims: &[FieldName]) -> Vec<FieldName> {
+    dims.iter()
+        .filter(|dim| {
+            schema
+                .get_field(dim.as_ref())
+                .is_ok_and(|field| !stats::logical_bounds_hold(schema, field))
+        })
+        .cloned()
+        .collect()
 }
 
 /// Where a `partition_by` field's value comes from for a heap tuple, plus what it takes to

@@ -20,7 +20,7 @@ use crate::api::version::VersionInfo;
 use crate::index::index_settings;
 use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::build_parallel::build_index;
-use crate::postgres::build_partitioning::routable_dims;
+use crate::postgres::build_partitioning::{check_fast_dims, folded_dims};
 use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::custom_rmgr;
@@ -231,13 +231,27 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
     for partition_field in options.partition_by() {
         check_single_valued(&partition_field, "partition_by");
     }
-    // The stored schema does not exist yet, so both checks read the one this build will write.
+    // The stored schema does not exist yet, so the checks read the one this build will write.
     let schema = planned_schema(index_relation);
-    if let Err(e) = routable_dims(&schema, &sort_by, "sort_by") {
-        panic!("{e}");
+    let partition_by = options.partition_by();
+    for (dims, reloption) in [(&sort_by, "sort_by"), (&partition_by, "partition_by")] {
+        if let Err(e) = check_fast_dims(&schema, dims, reloption) {
+            panic!("{e}");
+        }
     }
-    if let Err(e) = routable_dims(&schema, &options.partition_by(), "partition_by") {
-        panic!("{e}");
+
+    // `partition_by` cuts on the raw heap value and prunes on the fast column, so a folded
+    // column leaves it with boundaries nothing can test against. `sort_by` only lays the
+    // segment out, and a folded column still orders it, so that one costs pruning alone.
+    if let Some(dim) = folded_dims(&schema, &partition_by).first() {
+        panic!(
+            "partition_by field '{dim}' must have a fast column in raw order. Add it to the index with the 'raw' normalizer"
+        );
+    }
+    for dim in folded_dims(&schema, &sort_by) {
+        warning!(
+            "sort_by field '{dim}' has a fast column in folded order, so its segments carry no bounds to prune on"
+        );
     }
 }
 
@@ -606,19 +620,26 @@ mod tests {
         .unwrap();
     }
 
-    /// `sort_by` reads the same column as `partition_by`, so it answers to the same rule.
-    #[pg_test(
-        error = "sort_by field 'name' must have a fast column in raw order. Add it to the index with the 'raw' normalizer"
-    )]
-    fn a_lowercased_sort_key_is_rejected() {
+    /// A folded fast column still orders a segment, so `sort_by` keeps it and gives up only
+    /// the bounds a scan would have pruned with.
+    #[pg_test]
+    fn a_lowercased_sort_key_is_allowed() {
         Spi::run(
             r#"
             CREATE TABLE folded_sort (id BIGSERIAL PRIMARY KEY, name TEXT);
             CREATE INDEX folded_sort_idx ON folded_sort USING bm25 (id, name)
                 WITH (key_field = 'id', sort_by = 'name ASC NULLS FIRST',
                       text_fields = '{"name": {"fast": true, "normalizer": "lowercase"}}');
+            INSERT INTO folded_sort (name)
+            SELECT 'Lorem Ipsum ' || i FROM generate_series(1, 500) i;
             "#,
         )
         .unwrap();
+        assert_eq!(
+            Spi::get_one::<i64>("SELECT count(*) FROM folded_sort WHERE id @@@ pdb.all();")
+                .unwrap()
+                .unwrap(),
+            500
+        );
     }
 }

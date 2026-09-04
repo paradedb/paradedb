@@ -63,6 +63,49 @@ impl Explainer {
         );
     }
 
+    /// Deparse a PostgreSQL expression using PostgreSQL's active EXPLAIN context (`deparse_cxt`).
+    pub fn deparse_expr(&self, node: *mut pg_sys::Node) -> Option<String> {
+        use std::panic::AssertUnwindSafe;
+        if node.is_null() {
+            return None;
+        }
+        unsafe {
+            let es = self.state.as_ptr();
+            let cxt = (*es).deparse_cxt;
+            if cxt.is_null() {
+                return None;
+            }
+            pgrx::PgTryBuilder::new(AssertUnwindSafe(|| {
+                let deparsed = pg_sys::deparse_expression(node.cast(), cxt, true, false);
+                if deparsed.is_null() {
+                    None
+                } else {
+                    Some(
+                        std::ffi::CStr::from_ptr(deparsed)
+                            .to_string_lossy()
+                            .into_owned(),
+                    )
+                }
+            }))
+            .catch_others(|_| None)
+            .execute()
+        }
+    }
+
+    /// Deserializes a PostgreSQL node from string format and deparses it using the active context.
+    /// Falls back to the raw string if deserialization or deparsing fails.
+    pub fn deparse_serialized(&self, pg_node_string: &str) -> String {
+        let Ok(c_str) = std::ffi::CString::new(pg_node_string) else {
+            return pg_node_string.to_string();
+        };
+        let node = unsafe { pg_sys::stringToNode(c_str.as_ptr().cast_mut()) };
+        if node.is_null() {
+            return pg_node_string.to_string();
+        }
+        self.deparse_expr(node.cast())
+            .unwrap_or_else(|| pg_node_string.to_string())
+    }
+
     pub fn add_json<T: serde::Serialize>(&mut self, key: &str, value: T) {
         self.add_text(
             key,

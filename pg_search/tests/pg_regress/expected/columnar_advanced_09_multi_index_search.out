@@ -491,7 +491,7 @@ JOIN reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'product' AND r.rating >= 4
 ORDER BY r.helpful_votes DESC
 LIMIT 5;
-WARNING:  JoinScan not used: join keys must be fast fields (tables: p, r)
+WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: p, r)
                                                                                    QUERY PLAN                                                                                   
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -517,7 +517,7 @@ JOIN reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'product' AND r.rating >= 4
 ORDER BY r.helpful_votes DESC
 LIMIT 5;
-WARNING:  JoinScan not used: join keys must be fast fields (tables: p, r)
+WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: p, r)
     name    | rating |                  content                   
 ------------+--------+--------------------------------------------
  Product 10 |      5 | Terrible product, complete waste of money!

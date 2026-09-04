@@ -27,7 +27,12 @@ use serde_json::{json, Value};
 use sqlx::postgres::PgRow;
 use sqlx::Row;
 
+<<<<<<< HEAD
 use crate::fixtures::querygen::joingen::{arb_joins, JoinExpr, JoinType};
+=======
+use crate::fixtures::querygen::Column;
+use crate::fixtures::querygen::joingen::{JoinExpr, JoinType, arb_joins};
+>>>>>>> c74bcde7 (feat: Add support for non-equi JOINs in the join and aggregate scan (#6196))
 
 /// Size that no generated bucket count reaches, so a level is never cut.
 const NO_CUT: u32 = 1000;
@@ -292,7 +297,7 @@ struct SpecShape {
 /// text and integer columns, metrics from the integer and NUMERIC ones.
 pub fn arb_pdb_agg_join(
     tables: Vec<String>,
-    key_columns: Vec<String>,
+    key_columns: Vec<Column>,
 ) -> impl Strategy<Value = (JoinExpr, PdbAggExpr)> {
     let shape = SpecShape {
         grouped: false,
@@ -304,7 +309,7 @@ pub fn arb_pdb_agg_join(
         // The planner cannot see the fields inside a spec, so it removes an outer
         // join whose table nothing else reads, and the spec then names a table
         // that is gone. Inner joins are never removed.
-        let join = arb_joins(Just(JoinType::Inner), joined.clone(), key_columns.clone());
+        let join = arb_joins(Just(JoinType::Inner), joined.clone(), &key_columns);
         (join, arb_pdb_agg(joined, shape))
     })
 }

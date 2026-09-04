@@ -17,33 +17,18 @@
 
 //! EXPLAIN output helpers shared by the DataFusion-backed custom scans.
 //!
-//! `format_expr_for_explain` and `get_attname_safe` operate on raw PostgreSQL
-//! nodes/oids; `format_join_level_expr` formats a `JoinLevelExpr` whose
-//! definition currently lives in `joinscan::build` (and which AggregateScan
-//! consumes by absolute path). None of these helpers are join-specific in
-//! shape — they live here so JoinScan and any future aggregate-on-join
-//! predicate-tree EXPLAIN can both reach them.
+//! `get_attname_safe` operates on raw PostgreSQL relation OIDs and attribute numbers;
+//! `format_join_level_expr` formats a `JoinLevelExpr` for JoinScan EXPLAIN output,
+//! using PostgreSQL's active `ExplainState` deparsing context when available.
 
 use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::joinscan::build::{JoinCSClause, JoinLevelExpr, RelationAlias};
-use crate::postgres::deparse::node_to_string_fallback;
 use datafusion::physical_plan::metrics::MetricValue;
 use datafusion::physical_plan::{DisplayFormatType, ExecutionPlan};
 use datafusion_distributed::{display_plan_ascii, DistributedExec};
 use pgrx::pg_sys;
 use std::sync::Arc;
-
-/// Format a PostgreSQL expression node for EXPLAIN output.
-/// Returns a human-readable description of the expression.
-///
-/// Note: This uses nodeToString which produces a debug representation.
-/// For proper SQL deparsing with table/column names, we'd need a PlannerContext
-/// which isn't available during EXPLAIN. The debug output is still useful for
-/// understanding the expression structure.
-pub unsafe fn format_expr_for_explain(node: *mut pg_sys::Node) -> String {
-    node_to_string_fallback(node)
-}
 
 /// Get the column name for an attribute, with fallback to "relname.attno" if lookup fails.
 pub fn get_attname_safe(
@@ -69,7 +54,11 @@ pub fn get_attname_safe(
 }
 
 /// Format a join-level expression tree for EXPLAIN output.
-pub fn format_join_level_expr(expr: &JoinLevelExpr, join_clause: &JoinCSClause) -> String {
+pub fn format_join_level_expr(
+    expr: &JoinLevelExpr,
+    join_clause: &JoinCSClause,
+    explainer: &Explainer,
+) -> String {
     match expr {
         JoinLevelExpr::SingleTablePredicate {
             plan_position,
@@ -88,12 +77,15 @@ pub fn format_join_level_expr(expr: &JoinLevelExpr, join_clause: &JoinCSClause) 
             format!("{}:{}", label, predicate.query.explain_format())
         }
         JoinLevelExpr::MultiTablePredicate { predicate } => {
-            format!("heap:{}", predicate.description)
+            format!(
+                "heap:{}",
+                explainer.deparse_serialized(&predicate.pg_node_string)
+            )
         }
         JoinLevelExpr::And(children) => {
             let parts: Vec<_> = children
                 .iter()
-                .map(|c| format_join_level_expr(c, join_clause))
+                .map(|c| format_join_level_expr(c, join_clause, explainer))
                 .collect();
             if parts.len() == 1 {
                 parts.into_iter().next().unwrap()
@@ -104,7 +96,7 @@ pub fn format_join_level_expr(expr: &JoinLevelExpr, join_clause: &JoinCSClause) 
         JoinLevelExpr::Or(children) => {
             let parts: Vec<_> = children
                 .iter()
-                .map(|c| format_join_level_expr(c, join_clause))
+                .map(|c| format_join_level_expr(c, join_clause, explainer))
                 .collect();
             if parts.len() == 1 {
                 parts.into_iter().next().unwrap()
@@ -113,7 +105,10 @@ pub fn format_join_level_expr(expr: &JoinLevelExpr, join_clause: &JoinCSClause) 
             }
         }
         JoinLevelExpr::Not(child) => {
-            format!("NOT {}", format_join_level_expr(child, join_clause))
+            format!(
+                "NOT {}",
+                format_join_level_expr(child, join_clause, explainer)
+            )
         }
         JoinLevelExpr::MarkOrNull { is_anti, .. } => {
             if *is_anti {
@@ -122,16 +117,9 @@ pub fn format_join_level_expr(expr: &JoinLevelExpr, join_clause: &JoinCSClause) 
                 "(mark = true OR col IS NULL)".to_string()
             }
         }
-        JoinLevelExpr::PgExpression { pg_node_string, .. } => unsafe {
-            let Ok(c_str) = std::ffi::CString::new(pg_node_string.as_str()) else {
-                return pg_node_string.clone();
-            };
-            let node = pg_sys::stringToNode(c_str.as_ptr().cast_mut());
-            if node.is_null() {
-                return pg_node_string.clone();
-            }
-            format_expr_for_explain(node.cast())
-        },
+        JoinLevelExpr::PgExpression { pg_node_string, .. } => {
+            explainer.deparse_serialized(pg_node_string)
+        }
     }
 }
 

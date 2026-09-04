@@ -40,8 +40,13 @@ use crate::postgres::customscan::datafusion::numeric_agg::{
     numeric64_avg_udaf, numeric64_sum_udaf, numeric_bytes_avg_udaf, numeric_bytes_sum_udaf,
 };
 use crate::postgres::customscan::datafusion::translator::{
+<<<<<<< HEAD
     apply_join_level_filter, build_join_df, make_col, make_source_col, ColumnMapper,
     PredicateTranslator,
+=======
+    ColumnMapper, PredicateTranslator, apply_join_level_filter, build_join_df_with_filter,
+    make_col, make_source_col,
+>>>>>>> c74bcde7 (feat: Add support for non-equi JOINs in the join and aggregate scan (#6196))
 };
 use crate::postgres::customscan::joinscan::build::{JoinSource, RelNode, RelationAlias};
 use crate::postgres::customscan::joinscan::privdat::SCORE_COL_NAME;
@@ -569,7 +574,9 @@ fn build_relnode_df<'a>(
                 )
                 .await?;
 
-                build_join_df(left_df, right_df, join)
+                let mut sources = join.left.sources();
+                sources.extend(join.right.sources());
+                build_join_df_with_filter(left_df, right_df, join, &sources, &[])
             }
             RelNode::Filter(filter) => {
                 let df = build_relnode_df(

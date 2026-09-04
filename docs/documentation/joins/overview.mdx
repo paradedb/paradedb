@@ -12,6 +12,7 @@ ParadeDB supports all standard PostgreSQL `JOIN` types, including:
 - `FULL JOIN`
 - `SEMI JOIN`
 - `ANTI JOIN`
+- `CROSS JOIN`
 
 ParadeDB optimizes standard `JOIN` queries involving search operations through a feature called **join pushdown**.
 
@@ -36,7 +37,6 @@ Join pushdown is automatically used when a query meets several conditions. If an
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | ParadeDB indexes | All tables participating in the join must have a ParadeDB index.                                                                                                 |
 | Search predicate | The query must contain a ParadeDB operator such as `&&&`, `===`, etc.                                                                                            |
-| Equi-join key    | The join must contain at least one equality condition such as `a.id = b.id`.                                                                                     |
 | Indexed fields   | All join keys, filters, and `ORDER BY` columns must be present in the ParadeDB index. Text and JSON fields must be [columnar](/documentation/indexing/columnar). |
 | LIMIT clause     | The query must include a `LIMIT`.                                                                                                                                |
 

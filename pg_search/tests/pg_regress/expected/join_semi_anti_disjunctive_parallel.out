@@ -118,6 +118,7 @@ LIMIT 5000;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: i.id
          Relation Tree: i ANTI e
+         Join Filter: ((e.pattern = i.name) OR (e.pattern = i.alt_name))
          Limit: 5000
          Order By: i.id desc
          DataFusion Physical Plan: 
@@ -145,7 +146,7 @@ LIMIT 5000;
            :     │     t0: PgSearchScan: table=e, segments=2, visibility=eager, query={"with_index":{"query":"all"}}
            :     │     t1: PgSearchScan: table=e, segments=2, visibility=eager, query={"with_index":{"query":"all"}}
            :     └──────────────────────────────────────────────────
-(32 rows)
+(33 rows)
 
 CREATE TEMP TABLE jsd_par_r1_on AS
 SELECT i.id
@@ -244,6 +245,7 @@ LIMIT 5000;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: i.id
          Relation Tree: i SEMI e
+         Join Filter: ((e.pattern = i.name) OR (e.pattern = i.alt_name) OR (e.pattern = i.category))
          Limit: 5000
          Order By: i.id asc
          DataFusion Physical Plan: 
@@ -271,7 +273,7 @@ LIMIT 5000;
            :     │     t0: PgSearchScan: table=e, segments=2, visibility=eager, query={"with_index":{"query":"all"}}
            :     │     t1: PgSearchScan: table=e, segments=2, visibility=eager, query={"with_index":{"query":"all"}}
            :     └──────────────────────────────────────────────────
-(32 rows)
+(33 rows)
 
 CREATE TEMP TABLE jsd_par_r2_on AS
 SELECT i.id

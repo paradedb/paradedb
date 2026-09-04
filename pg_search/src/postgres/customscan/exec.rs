@@ -99,6 +99,10 @@ pub extern "C-unwind" fn explain_custom_scan<CS: CustomScan>(
 ) {
     let custom_state = wrap_custom_scan_state::<CS>(node);
     unsafe {
+        let plan = (*node).ss.ps.plan;
+        if !es.is_null() && !(*es).deparse_cxt.is_null() && !plan.is_null() {
+            pg_sys::set_deparse_context_plan((*es).deparse_cxt, plan, ancestors);
+        }
         CS::explain_custom_scan(
             custom_state.as_ref(),
             ancestors,

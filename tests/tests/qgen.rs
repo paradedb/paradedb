@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use tests::fixtures::querygen::distinctgen::arb_distinct_mode;
 use tests::fixtures::querygen::groupbygen::arb_group_by;
 use tests::fixtures::querygen::joingen::{arb_joins, arb_semi_joins, JoinType};
 use tests::fixtures::querygen::numericgen::arb_numeric_expr;
@@ -193,8 +194,15 @@ impl GeneratedSubquery {
 }
 
 ///
-/// Tests all JoinTypes against small tables (which are particularly important for joins which
-/// result in e.g. the cartesian product).
+///
+/// Tests all join configurations against small tables (important for joins that produce
+/// cartesian products or expansive results).
+///
+/// When the generated query is within the subset guaranteed to be plannable by ParadeDB's
+/// custom scan (INNER/CROSS joins, LIMIT present, no lateral unnest steps, and GUC enabled),
+/// this test explicitly verifies via EXPLAIN that PostgreSQL selected ParadeDB Join Scan
+/// (or Aggregate Scan). For all queries, it verifies exact result correctness and parity
+/// against PostgreSQL.
 ///
 #[rstest]
 #[tokio::test]
@@ -217,17 +225,79 @@ async fn generated_joins_small(database: Db) {
         .collect::<Vec<_>>();
     let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes, COLUMNS);
 
+<<<<<<< HEAD
     proptest!(|(
         (join, where_expr, cross_rel) in arb_joins_and_wheres(
+=======
+    let where_and_join_columns = columns_named(vec!["id", "name", "color", "age", "uuid"]);
+
+    proptest!(qgen_proptest_config(), |(
+        ((join, where_expr, cross_rel), distinct_mode, mut order_parts) in arb_joins_and_wheres(
+>>>>>>> c74bcde7 (feat: Add support for non-equi JOINs in the join and aggregate scan (#6196))
             any::<JoinType>(),
             tables,
-            &columns_named(vec!["id", "name", "color", "age"]),
-        ),
+            &where_and_join_columns,
+        ).prop_flat_map(|(join, where_expr, cross_rel)| {
+            let used_tables = join
+                .used_tables()
+                .into_iter()
+                .map(str::to_string)
+                .collect::<Vec<_>>();
+            let used_tables_for_order = used_tables.clone();
+            arb_distinct_mode(used_tables, COLUMNS).prop_flat_map(move |distinct_mode| {
+                // TODO: https://github.com/paradedb/paradedb/pull/6149 adds support for
+                // DISTINCT expressions with lateral unnest joins. Until then, restrict ORDER BY
+                // to plain projected columns when DISTINCT is active so that expressions are
+                // not forced into the SELECT DISTINCT list.
+                let restrict = distinct_mode.is_distinct();
+                (
+                    Just((join.clone(), where_expr.clone(), cross_rel.clone())),
+                    Just(distinct_mode),
+                    arb_joinscan_order_parts(used_tables_for_order.clone(), restrict),
+                )
+            })
+        }),
+        limit in proptest::option::of(1..=50usize),
         gucs in any::<PgGucs>(),
     )| {
         let join_clause = join.to_sql();
+        let used_tables = join.used_tables();
 
-        let from = format!("SELECT COUNT(*) {join_clause} ");
+        let mut target_cols = vec![
+            format!("{}.id", used_tables[0]),
+            format!("{}.name", used_tables[0]),
+        ];
+
+        if distinct_mode.is_distinct() {
+            for table in &used_tables[1..] {
+                let col = format!("{}.id", table);
+                if !target_cols.contains(&col) {
+                    target_cols.push(col);
+                }
+            }
+
+            if let Some(expr) = distinct_mode.expression() {
+                let expr_sql = expr.to_sql();
+                if !target_cols.contains(&expr_sql) {
+                    target_cols.push(expr_sql);
+                }
+            }
+
+            // Ensure every expression in order_parts appears in SELECT DISTINCT
+            // to satisfy PostgreSQL's requirement that ORDER BY expressions must appear in the SELECT list.
+            for part in &order_parts {
+                if !target_cols.contains(part) {
+                    target_cols.push(part.clone());
+                }
+            }
+        }
+        for alias in join.unnest_aliases() {
+            target_cols.push(alias.to_string());
+        }
+
+        let target_cols_str = target_cols.join(", ");
+        let distinct_kw = if distinct_mode.is_distinct() { "DISTINCT " } else { "" };
+        let from = format!("SELECT {distinct_kw}{target_cols_str} {join_clause}");
 
         let (where_pg, where_bm25) = match &cross_rel {
             Some(cr) => (
@@ -237,14 +307,110 @@ async fn generated_joins_small(database: Db) {
             None => (where_expr.to_sql(" = "), where_expr.to_sql("@@@")),
         };
 
+<<<<<<< HEAD
         compare(
             &format!("{from} WHERE {where_pg}"),
             &format!("{from} WHERE {where_bm25}"),
+=======
+        for alias in join.unnest_aliases() {
+            order_parts.push(alias.to_string());
+        }
+        let order_by = order_parts.join(", ");
+
+        let limit_clause = match limit {
+            Some(l) => format!("LIMIT {l}"),
+            None => "".to_string(),
+        };
+
+        let pg_query = format!("{from} WHERE {where_pg} ORDER BY {order_by} {limit_clause}");
+        let bm25_query = format!("{from} WHERE {where_bm25} ORDER BY {order_by} {limit_clause}");
+
+        // Assert that JoinScan or AggregateScan was actually used whenever the query is within
+        // the subset guaranteed to be plannable by ParadeDB's custom scan.
+        // - INNER joins support arbitrary WHERE expressions, cross-relation predicates, and expression ORDER BY.
+        // - Outer joins (LEFT, RIGHT, FULL) support equi-joins when there are no cross-table
+        //   OR expressions, cross-relation WHERE conditions, or indexed expression/NULL-predicate ORDER BY.
+        // - Cross joins (cartesian products) intentionally fall back to PostgreSQL.
+        // - Multi-unnest queries currently fall back when intermediate unnest sub-joins form.
+        let has_expr_ordering = order_parts
+            .iter()
+            .any(|p| p.contains("upper(") || p.contains("IS NULL") || p.contains("IS NOT NULL"));
+
+        let has_distinct_expr = distinct_mode.expression().is_some();
+
+        let is_supported_join = if join.has_only_inner() {
+            true
+        } else if join.has_no_cross() {
+            cross_rel.is_none()
+                && !where_expr.has_cross_table_or()
+                && !has_expr_ordering
+                && !has_distinct_expr
+        } else {
+            false
+        };
+
+        let expect_custom_scan = gucs.join_custom_scan
+            && limit.is_some()
+            && join.unnest_aliases().is_empty()
+            && is_supported_join;
+
+        if expect_custom_scan {
+            use tests::fixtures::fault_grace::{RetryError, retry_transient, sql_attempt};
+            let plan = match retry_transient(&pool, "qgen joinscan plan check", |conn| {
+                sql_attempt(gucs.set().execute_result(conn).and_then(|()| {
+                    format!("EXPLAIN (FORMAT JSON) {bm25_query}").fetch_one_result::<(Value,)>(conn)
+                }))
+            }) {
+                Ok(Ok(plan)) => plan,
+                Ok(Err(e)) => {
+                    return Err(proptest::test_runner::TestCaseError::fail(format!(
+                        "{e}: EXPLAIN failed for '{bm25_query}'"
+                    )));
+                }
+                Err(RetryError::TimedOutUnderPause(e)) => {
+                    return Err(proptest::test_runner::TestCaseError::fail(format!(
+                        "EXPLAIN timed out while faults were paused, for '{bm25_query}': {e}"
+                    )));
+                }
+                Err(RetryError::GraceExpired(reason)) => {
+                    return Err(proptest::test_runner::TestCaseError::fail(reason));
+                }
+            };
+            let plan_str = format!("{:#?}", plan.0);
+            prop_assert!(
+                plan_str.contains("ParadeDB Join Scan")
+                    || plan_str.contains("ParadeDB Aggregate Scan"),
+                "Query should use ParadeDB Join Scan or Aggregate Scan but got plan: {plan_str}\nQuery: {bm25_query}",
+            );
+        }
+
+        qgen_oracle!("qgen: generated_joins_small - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
+            &pg_query,
+            &bm25_query,
+>>>>>>> c74bcde7 (feat: Add support for non-equi JOINs in the join and aggregate scan (#6196))
             &gucs,
             &mut pool.pull(),
             &setup_sql,
+<<<<<<< HEAD
             |query, conn| query.fetch_one::<(i64,)>(conn).0,
         )?;
+=======
+            |query, conn| {
+                "SET work_mem TO '16MB';".execute_result(conn)?;
+                let rows = query.fetch_dynamic_result(conn)?;
+                let mut row_strings: Vec<String> = rows
+                    .into_iter()
+                    .map(|row| {
+                        use sqlx::Row;
+                        let id: i64 = row.try_get(0).unwrap_or(0);
+                        format!("{:020}|{:?}", id, row)
+                    })
+                    .collect();
+                row_strings.sort();
+                Ok(row_strings)
+            },
+        ))?;
+>>>>>>> c74bcde7 (feat: Add support for non-equi JOINs in the join and aggregate scan (#6196))
     });
 }
 #[rstest]
@@ -557,6 +723,7 @@ async fn generated_subquery(database: Db) {
 }
 
 ///
+<<<<<<< HEAD
 /// Tests JoinScan custom scan implementation with comprehensive variations.
 ///
 /// JoinScan requires:
@@ -706,6 +873,8 @@ async fn generated_joinscan(database: Db) {
 }
 
 ///
+=======
+>>>>>>> c74bcde7 (feat: Add support for non-equi JOINs in the join and aggregate scan (#6196))
 /// Property test for aggregate-on-join via DataFusion — ensures equivalence between
 /// PostgreSQL native aggregation and ParadeDB's DataFusion aggregate backend.
 ///
@@ -739,7 +908,7 @@ async fn generated_aggregate_join(database: Db) {
     // Text columns for BM25 WHERE clauses
     let text_columns = columns_named(vec!["name"]);
     // Columns for join keys
-    let join_key_columns = vec!["id", "age"];
+    let join_key_columns = columns_named(vec!["id", "age"]);
     // Columns for GROUP BY (must be fast fields)
     let mut grouping_columns: Vec<String> = COLUMNS
         .iter()
@@ -778,7 +947,7 @@ async fn generated_aggregate_join(database: Db) {
         let join = arb_joins(
             prop_oneof![Just(JoinType::Inner), Just(JoinType::Left), Just(JoinType::Full)],
             tables_for_join.clone(),
-            join_key_columns.clone(),
+            &join_key_columns,
         );
 
         let join_expr = {
@@ -867,7 +1036,7 @@ async fn generated_aggregate_join_distinct(database: Db) {
     let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes, COLUMNS);
 
     let text_columns = columns_named(vec!["name"]);
-    let join_key_columns = vec!["id", "age"];
+    let join_key_columns = columns_named(vec!["id", "age"]);
     let grouping_columns: Vec<&str> = COLUMNS
         .iter()
         .filter(|col| col.is_groupable && col.is_whereable)
@@ -892,7 +1061,7 @@ async fn generated_aggregate_join_distinct(database: Db) {
         let join = arb_joins(
             prop_oneof![Just(JoinType::Inner), Just(JoinType::Left)],
             tables_for_join.clone(),
-            join_key_columns.clone(),
+            &join_key_columns,
         );
 
         let join_expr = {
@@ -1102,7 +1271,7 @@ async fn generated_join_aggregates(database: Db) {
     // Text columns for BM25 WHERE clauses
     let text_columns = columns_named(vec!["name"]);
     // Columns for join keys
-    let join_key_columns = vec!["id", "age"];
+    let join_key_columns = columns_named(vec!["id", "age"]);
     // Columns for GROUP BY (must be fast fields, qualified with table name)
     let grouping_columns: Vec<String> = COLUMNS
         .iter()
@@ -1124,7 +1293,7 @@ async fn generated_join_aggregates(database: Db) {
         let join = arb_joins(
             Just(JoinType::Inner),
             all_tables.clone(),
-            join_key_columns.clone(),
+            &join_key_columns,
         );
 
         let join_expr = {
@@ -1281,12 +1450,12 @@ async fn generated_numeric_pushdown(database: Db) {
 /// (due to NULL semantics). An `IS NOT NULL` condition on the join column is
 /// also required for the anti join optimization.
 ///
-/// This complements `generated_joinscan` (INNER joins) and verifies both:
+/// This complements `generated_joins_small` and verifies both:
 /// - `paradedb.enable_join_custom_scan = false`: no ParadeDB Join Scan is used
 /// - `paradedb.enable_join_custom_scan = true`: ParadeDB Join Scan is used
 #[rstest]
 #[tokio::test]
-async fn generated_joinscan_semi_like(database: Db) {
+async fn generated_join_semi_like(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
         move || {
             block_on(async {
@@ -1323,7 +1492,7 @@ async fn generated_joinscan_semi_like(database: Db) {
         nested_join in proptest::option::of(arb_semi_joins(all_tables.clone(), join_key_columns.clone())),
         nested_term in proptest::sample::select(search_terms.clone()),
         nested_is_anti in proptest::bool::ANY,
-        mut gucs in any::<PgGucs>(),
+        gucs in any::<PgGucs>(),
     )| {
         let outer = semi_join.outer_table();
         let inner = semi_join.inner_table();
@@ -1409,6 +1578,7 @@ async fn generated_joinscan_semi_like(database: Db) {
              LIMIT {limit}"
         );
 
+<<<<<<< HEAD
         for join_custom_scan in [false, true] {
             gucs.join_custom_scan = join_custom_scan;
 
@@ -1421,6 +1591,16 @@ async fn generated_joinscan_semi_like(database: Db) {
                 |query, conn| query.fetch::<(i64, String)>(conn),
             )?;
         }
+=======
+        qgen_oracle!("qgen: generated_joinscan_semi_like - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
+            &pg_query,
+            &bm25_query,
+            &gucs,
+            &pool,
+            &setup_sql,
+            |query, conn| query.fetch_result::<(i64, String)>(conn),
+        ))?;
+>>>>>>> c74bcde7 (feat: Add support for non-equi JOINs in the join and aggregate scan (#6196))
     });
 }
 
@@ -1601,7 +1781,7 @@ async fn generated_pdb_agg_join(database: Db) {
     let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes, COLUMNS);
 
     let text_columns = columns_named(vec!["name"]);
-    let join_key_columns = vec!["id".to_string(), "age".to_string()];
+    let join_key_columns = columns_named(vec!["id", "age"]);
 
     proptest!(|(
         outer_bm25 in arb_wheres(vec![all_tables[0].clone()], &text_columns),

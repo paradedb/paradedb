@@ -78,6 +78,7 @@ use crate::api::window_aggregate::window_agg_oid;
 use crate::api::{is_agg_funcoid, visibility_from_agg_arg};
 use crate::nodecast;
 use crate::postgres::PgSearchRelation;
+use crate::postgres::customscan::aggregatescan::TargetListEntry;
 use crate::postgres::customscan::aggregatescan::aggregate_type::{
     AggregateType, create_aggregate_from_oid, parse_coalesce_expression,
 };
@@ -119,13 +120,15 @@ pub mod window_aggregates {
 pub struct WindowAggregateInfo {
     /// Target entry index where this aggregate should be projected
     pub target_entry_index: usize,
+    // Return type of the original window aggregate this replaced
+    result_type_oid: pg_sys::Oid,
     /// Target list containing the aggregate (shared structure with aggregatescan)
     pub targetlist: TargetList,
 }
 
 impl WindowAggregateInfo {
     pub fn result_type_oid(&self) -> pg_sys::Oid {
-        self.targetlist.singleton_result_type_oid()
+        self.result_type_oid
     }
 
     pub fn source_field_name(&self) -> Option<String> {
@@ -192,6 +195,13 @@ impl WindowAggregateInfo {
         // All required features are supported
         true
     }
+
+    pub fn agg_type(&self) -> Option<&AggregateType> {
+        match self.targetlist.entries().next() {
+            Some(TargetListEntry::Aggregate(agg_type)) => Some(agg_type),
+            _ => None,
+        }
+    }
 }
 
 /// Extract window functions from a query and convert them to our internal TargetList representation
@@ -201,11 +211,11 @@ impl WindowAggregateInfo {
 /// converts them to our internal AggregateType/TargetList format, and returns a map of
 /// target entry index → TargetList for later replacement with placeholder functions.
 ///
-/// Returns: HashMap mapping target entry indices to their corresponding TargetList
+/// Returns: HashMap mapping target entry indices to their corresponding return type and TargetList
 ///          Empty HashMap if query has unsupported features or no window functions
 pub unsafe fn extract_and_convert_window_functions(
     parse: *mut pg_sys::Query,
-) -> HashMap<usize, TargetList> {
+) -> HashMap<usize, (pg_sys::Oid, TargetList)> {
     // Check Top K context requirement if enabled
     if window_aggregates::ONLY_ALLOW_TOP_K {
         let has_limit = !(*parse).limitCount.is_null();
@@ -293,7 +303,8 @@ pub unsafe fn extract_and_convert_window_functions(
 
                 // Only include supported window functions
                 if WindowAggregateInfo::is_supported(&agg_tl) {
-                    window_aggs.insert(idx, agg_tl.unwrap());
+                    // store the original function return type along with the agg target list
+                    window_aggs.insert(idx, ((*window_agg).wintype, agg_tl.unwrap()));
                 } else {
                     // Found an unsupported window function - abort and return empty map
                     // so PostgreSQL handles ALL window functions in this query
@@ -657,6 +668,7 @@ pub unsafe fn deserialize_window_agg_placeholders(
                         Ok(targetlist) => {
                             let info = WindowAggregateInfo {
                                 target_entry_index: (*context).current_te_index,
+                                result_type_oid: (*funcexpr).funcresulttype,
                                 targetlist,
                             };
                             (*context).window_aggs.push(info);

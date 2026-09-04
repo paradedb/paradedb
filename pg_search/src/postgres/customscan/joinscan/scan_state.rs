@@ -36,7 +36,7 @@ use datafusion::common::{
     DataFusionError, Result, assert_eq_or_internal_err, internal_datafusion_err,
 };
 use datafusion::logical_expr::expr::WindowFunction;
-use datafusion::logical_expr::{Expr, WindowFunctionDefinition, col};
+use datafusion::logical_expr::{Expr, Literal, WindowFunctionDefinition, col};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
@@ -53,6 +53,7 @@ use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_
 use crate::postgres::customscan::joinscan::build::{
     self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias,
 };
+use crate::schema::SearchFieldType;
 use datafusion::execution::TaskContext;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
@@ -678,7 +679,7 @@ fn apply_window_aggs(df: DataFrame, join_clause: &JoinCSClause) -> Result<DataFr
                 .get(*info_index)
                 .expect("should always be a valid window agg info index");
 
-            let expr = window_expr(info)?.alias(info_index.as_col_name());
+            let expr = window_expr(info, join_clause)?.alias(info_index.as_col_name());
             Ok(expr)
         })
         .collect::<Result<Vec<Expr>>>()?;
@@ -689,67 +690,142 @@ fn apply_window_aggs(df: DataFrame, join_clause: &JoinCSClause) -> Result<DataFr
     df.window(window_exprs)
 }
 
-fn window_expr(info: &WindowAggregateInfo) -> Result<Expr> {
+fn window_expr(info: &WindowAggregateInfo, join_clause: &JoinCSClause) -> Result<Expr> {
+    use crate::customscan::datafusion::numeric_agg;
     use datafusion::functions_aggregate::{average, count, min_max, sum};
 
     assert_eq_or_internal_err!(info.targetlist.entries().count(), 1);
     let te = info.targetlist.entries().next().unwrap();
 
-    // match only basic aggregate functions. Missing and filters are not supported in global window
+    let TargetListEntry::Aggregate(agg_type) = te else {
+        return Err(internal_datafusion_err!(
+            "Unsupported target shape for window expression: {te:?}"
+        ));
+    };
+    let numeric_field = numeric_window_field(join_clause, agg_type)?;
+
+    // Match only basic aggregate functions. Missing and filters are not supported in global window
     // functions
-    match te {
-        TargetListEntry::Aggregate(AggregateType::Sum {
+    //
+    // Numeric fields require special handling for SUM/AVG. They route to scaled-Int64 or
+    // decimal-bytes UDAFs. The Numeric64 UDAFs take the scale as a plan literal so it survives plan
+    // serialization for parallel and MPP execution; decimal-bytes values are self-describing.
+    match agg_type {
+        AggregateType::Sum {
             field,
             missing: None,
             filter: None,
             indexrelid: _indexrelid,
-        }) => Ok(Expr::from(WindowFunction::new(
-            WindowFunctionDefinition::AggregateUDF(sum::sum_udaf()),
-            vec![col(field)],
-        ))),
-        TargetListEntry::Aggregate(AggregateType::Avg {
+        } => match numeric_field {
+            None => Ok(Expr::from(WindowFunction::new(
+                WindowFunctionDefinition::AggregateUDF(sum::sum_udaf()),
+                vec![col(field)],
+            ))),
+            Some(SearchFieldType::Numeric64(_, scale)) => Ok(Expr::from(WindowFunction::new(
+                WindowFunctionDefinition::AggregateUDF(numeric_agg::numeric64_sum_udaf()),
+                vec![col(field), scale.lit()],
+            ))),
+            Some(_) => Ok(Expr::from(WindowFunction::new(
+                WindowFunctionDefinition::AggregateUDF(numeric_agg::numeric_bytes_sum_udaf()),
+                vec![col(field)],
+            ))),
+        },
+        AggregateType::Avg {
             field,
             missing: None,
             filter: None,
             indexrelid: _indexrelid,
-        }) => Ok(Expr::from(WindowFunction::new(
-            WindowFunctionDefinition::AggregateUDF(average::avg_udaf()),
-            vec![col(field)],
-        ))),
-        TargetListEntry::Aggregate(AggregateType::Min {
+        } => match numeric_field {
+            None => Ok(Expr::from(WindowFunction::new(
+                WindowFunctionDefinition::AggregateUDF(average::avg_udaf()),
+                vec![col(field)],
+            ))),
+            Some(SearchFieldType::Numeric64(_, scale)) => Ok(Expr::from(WindowFunction::new(
+                WindowFunctionDefinition::AggregateUDF(numeric_agg::numeric64_avg_udaf()),
+                vec![col(field), scale.lit()],
+            ))),
+            Some(_) => Ok(Expr::from(WindowFunction::new(
+                WindowFunctionDefinition::AggregateUDF(numeric_agg::numeric_bytes_avg_udaf()),
+                vec![col(field)],
+            ))),
+        },
+        AggregateType::Min {
             field,
             missing: None,
             filter: None,
             indexrelid: _indexrelid,
-        }) => Ok(Expr::from(WindowFunction::new(
+        } => Ok(Expr::from(WindowFunction::new(
             WindowFunctionDefinition::AggregateUDF(min_max::min_udaf()),
             vec![col(field)],
         ))),
-        TargetListEntry::Aggregate(AggregateType::Max {
+        AggregateType::Max {
             field,
             missing: None,
             filter: None,
             indexrelid: _indexrelid,
-        }) => Ok(Expr::from(WindowFunction::new(
+        } => Ok(Expr::from(WindowFunction::new(
             WindowFunctionDefinition::AggregateUDF(min_max::max_udaf()),
             vec![col(field)],
         ))),
-        TargetListEntry::Aggregate(AggregateType::Count {
+        AggregateType::Count {
             field,
             missing: None,
             filter: None,
             indexrelid: _indexrelid,
-        }) => Ok(Expr::from(WindowFunction::new(
+        } => Ok(Expr::from(WindowFunction::new(
             WindowFunctionDefinition::AggregateUDF(count::count_udaf()),
             vec![col(field)],
         ))),
-        TargetListEntry::Aggregate(AggregateType::CountAny {
+        AggregateType::CountAny {
             filter: None,
             indexrelid: _indexrelid,
-        }) => Ok(count::count_all_window()),
+        } => Ok(count::count_all_window()),
         _ => Err(internal_datafusion_err!(
             "Unsupported target shape for window expression: {te:?}"
         )),
+    }
+}
+
+/// Determines if the field for this aggregate is a numeric and is supported for pushing
+/// down this aggregate.
+///
+/// Returns:
+/// - `Ok(None)` if the aggregate has no field requirements or this field is not numeric.
+/// - `Ok(Some(_))` if the field is a supported numeric field
+/// - `Err(_)` if the field is an unsupported numeric
+pub fn numeric_window_field(
+    join_clause: &JoinCSClause,
+    agg_type: &AggregateType,
+) -> Result<Option<SearchFieldType>> {
+    match agg_type {
+        AggregateType::Count { .. } | AggregateType::CountAny { .. } => Ok(None),
+        AggregateType::Custom { .. } => unreachable!(),
+        _ => {
+            let field_name = agg_type
+                .field_name()
+                .expect("should only be None for Count/Custom");
+            let Some(field_type) = join_clause.plan.sources().iter().find_map(|source| {
+                source.scan_info.fields.iter().find_map(|f| match &f.field {
+                    WhichFastField::Named(name, ft) | WhichFastField::Deferred(name, ft)
+                        if *name == field_name && ft.is_numeric() =>
+                    {
+                        Some(*ft)
+                    }
+                    _ => None,
+                })
+            }) else {
+                return Ok(None);
+            };
+
+            if field_type.numeric_scale().is_none() {
+                return Err(DataFusionError::Plan(format!(
+                    "{agg_type} on an unbounded NUMERIC column is not supported; declare a \
+                     precision and scale to enable aggregate pushdown"
+                )));
+            }
+
+            Ok(Some(field_type))
+        }
     }
 }
 

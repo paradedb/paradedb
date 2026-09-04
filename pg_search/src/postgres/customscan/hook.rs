@@ -978,14 +978,14 @@ unsafe fn replace_windowfuncs_recursively(parse: *mut pg_sys::Query) {
 
 /// Replace WindowFunc nodes in the Query's target list with placeholder functions
 ///
-/// Takes a map of target_entry_index -> TargetList and replaces each WindowFunc
+/// Takes a map of target_entry_index -> (return type, TargetList) and replaces each WindowFunc
 /// with a paradedb.window_agg(json) call containing the serialized TargetList.
 ///
 /// This function handles WindowFunc nodes that may be wrapped in other function calls
 /// (e.g., jsonb_pretty(pdb.agg(...) OVER ())) by walking the expression tree.
 unsafe fn replace_windowfuncs_in_query(
     parse: *mut pg_sys::Query,
-    window_tls: &HashMap<usize, TargetList>,
+    window_tls: &HashMap<usize, (pg_sys::Oid, TargetList)>,
 ) {
     if (*parse).targetList.is_null() {
         return;
@@ -1004,7 +1004,7 @@ unsafe fn replace_windowfuncs_in_query(
     // Process each target entry
     for (idx, te) in original_tlist.iter_ptr().enumerate() {
         // Check if this target entry has a window function to replace
-        if let Some(window_tl) = window_tls.get(&idx) {
+        if let Some((return_type, window_tl)) = window_tls.get(&idx) {
             // Create a copy of the target entry
             let new_te = pg_sys::flatCopyTargetEntry(te);
 
@@ -1012,6 +1012,7 @@ unsafe fn replace_windowfuncs_in_query(
             let new_expr = replace_in_node(
                 (*te).expr as *mut pg_sys::Node,
                 window_agg_procid,
+                *return_type,
                 window_tl,
             );
 
@@ -1039,6 +1040,7 @@ unsafe fn replace_windowfuncs_in_query(
 unsafe fn replace_in_node(
     node: *mut pg_sys::Node,
     window_agg_procid: pg_sys::Oid,
+    func_return_type_oid: pg_sys::Oid,
     window_tl: &TargetList,
 ) -> *mut pg_sys::Node {
     if node.is_null() {
@@ -1072,7 +1074,7 @@ unsafe fn replace_in_node(
         // Create a FuncExpr that calls paradedb.window_agg(json)
         let funcexpr = pg_sys::makeFuncExpr(
             window_agg_procid,
-            window_tl.singleton_result_type_oid(),
+            func_return_type_oid,
             args.into_pg(),
             pg_sys::InvalidOid,
             pg_sys::InvalidOid,
@@ -1090,7 +1092,7 @@ unsafe fn replace_in_node(
 
         // Recursively process arguments
         for arg in args.iter_ptr() {
-            let new_arg = replace_in_node(arg, window_agg_procid, window_tl);
+            let new_arg = replace_in_node(arg, window_agg_procid, func_return_type_oid, window_tl);
             if new_arg != arg {
                 modified = true;
             }

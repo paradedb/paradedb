@@ -167,7 +167,7 @@ use crate::postgres::utils::expr_contains_any_operator;
 
 use self::scan_state::{
     JoinScanState, build_joinscan_logical_plan, build_physical_plan, build_task_context,
-    create_datafusion_session_context,
+    create_datafusion_session_context, numeric_window_field,
 };
 use crate::api::HashSet;
 use crate::api::OrderByFeature;
@@ -2460,16 +2460,25 @@ impl JoinScan {
                     }
                 }
                 privdat::OutputColumnInfo::WindowAggregate { index } => {
-                    let window_agg_infos = &state.custom_state().join_clause.window_agg_infos;
-                    let agg_col = batch.column(i);
-                    let agg_info = window_agg_infos
+                    let agg_info = &state
+                        .custom_state()
+                        .join_clause
+                        .window_agg_infos
                         .get(*index)
                         .expect("A window agg output column should always have a valid index");
+                    let agg_col = batch.column(i);
+                    let numeric = numeric_window_field(
+                        &state.custom_state().join_clause,
+                        agg_info
+                            .agg_type()
+                            .expect("agg_info should never reach this point as a non-Aggregate"),
+                    )
+                    .expect("This shoud always be a pushdown-compatible field");
                     let try_maybe_datum = types_arrow::arrow_array_to_datum(
                         agg_col.as_ref(),
                         row_idx,
                         agg_info.result_type_oid().into(),
-                        None, // TODO: Fill with actual val,
+                        numeric.and_then(|n| n.numeric_scale()),
                     );
                     let maybe_datum = match try_maybe_datum {
                         Ok(d) => d,

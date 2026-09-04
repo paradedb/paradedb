@@ -77,7 +77,7 @@ fn global_window_aggregates_over_join(mut conn: PgConnection) -> Result<(), sqlx
                r.score,
                COUNT(*) OVER () AS total_count,
                SUM(r.score) OVER () AS total_score,
-               AVG(r.score) OVER () AS avg_score,
+               AVG(r.score) OVER ()::float8 AS avg_score,
                MIN(r.score) OVER () AS min_score,
                MAX(r.score) OVER () AS max_score
         FROM wj_products p

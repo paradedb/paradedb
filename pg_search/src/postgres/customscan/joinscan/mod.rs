@@ -352,6 +352,7 @@ fn walk_relnode_for_subplan_ids(node: &RelNode, ids: &mut HashSet<i32>) {
             walk_relnode_for_subplan_ids(&j.right, ids);
         }
         RelNode::Filter(f) => walk_relnode_for_subplan_ids(&f.input, ids),
+        RelNode::Unnest(u) => walk_relnode_for_subplan_ids(&u.input, ids),
         RelNode::Scan(_) => {}
     }
 }
@@ -402,12 +403,7 @@ unsafe fn is_limit_pushdown_safe(
         ));
     }
 
-    let absorbed_rtis: Vec<pg_sys::Index> = join_clause
-        .plan
-        .sources()
-        .iter()
-        .map(|s| s.scan_info.heap_rti)
-        .collect();
+    let absorbed_rtis: Vec<pg_sys::Index> = join_clause.plan.absorbed_rtis();
 
     // 2. Did JoinScan absorb ALL base relations? `all_baserels`, not
     // `all_query_rels`: the latter also carries outer-join relids (PG16+),
@@ -697,12 +693,9 @@ impl JoinScan {
             .map(|lo| lo.planning_estimate())
             .unwrap_or(DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE);
 
-        // --- Build CustomPath ---
-
         let has_order_by = !join_clause.order_by.is_empty();
         let order_by_len = join_clause.order_by.len();
-        let relevant_pathkeys =
-            planning::count_relevant_pathkeys(root, &join_clause.plan.sources());
+        let relevant_pathkeys = planning::count_relevant_pathkeys(root, &output_rtis);
         let private_data = PrivateData::new(join_clause, query_allows_parallel_mode(&*root));
         let mut custom_path = pg_sys::CustomPath {
             path: pg_sys::Path {
@@ -1041,7 +1034,18 @@ impl CustomScan for JoinScan {
             // copy to custom_scan_tlist because setrefs.c may modify it in-place.
             let tlist_ptr = tlist.into_pg();
             node.scan.plan.targetlist = tlist_ptr;
-            node.custom_scan_tlist = pg_sys::copyObjectImpl(tlist_ptr.cast()).cast();
+
+            let mut custom_scan_tlist = PgList::<pg_sys::TargetEntry>::from_pg(
+                pg_sys::copyObjectImpl(tlist_ptr.cast()).cast(),
+            );
+            let path_private_full = PgList::<pg_sys::Node>::from_pg((*best_path).custom_private);
+            for i in 1..path_private_full.len() {
+                if let Some(node_ptr) = path_private_full.get_ptr(i) {
+                    crate::postgres::utils::add_vars_to_tlist(node_ptr, &mut custom_scan_tlist);
+                }
+            }
+            let custom_scan_tlist_ptr = custom_scan_tlist.into_pg();
+            node.custom_scan_tlist = custom_scan_tlist_ptr;
 
             // For join custom scans, PostgreSQL doesn't pass clauses via the usual parameter.
             // We stored the restrictlist in custom_private during create_custom_path.
@@ -1159,6 +1163,7 @@ impl CustomScan for JoinScan {
             match node {
                 RelNode::Scan(_) => {}
                 RelNode::Filter(filter) => collect_join_cond_strings(&filter.input, acc),
+                RelNode::Unnest(unnest) => collect_join_cond_strings(&unnest.input, acc),
                 RelNode::Join(join) => {
                     for jk in &join.equi_keys {
                         let ((left_source, left_attno), (right_source, right_attno)) = jk
@@ -1217,6 +1222,9 @@ impl CustomScan for JoinScan {
                 RelNode::Scan(_) => {}
                 RelNode::Filter(filter) => {
                     collect_join_filter_strings(&filter.input, join_clause, explainer, acc);
+                }
+                RelNode::Unnest(unnest) => {
+                    collect_join_filter_strings(&unnest.input, join_clause, explainer, acc);
                 }
                 RelNode::Join(join) => {
                     if let Some(filter) = &join.filter {
@@ -1634,6 +1642,57 @@ impl CustomScan for JoinScan {
                         }
                     }
                 }
+
+                let plan_sources = state.custom_state().join_clause.plan.sources();
+                let output_batch_col_indices: Vec<Option<usize>> = state
+                    .custom_state()
+                    .output_columns
+                    .iter()
+                    .enumerate()
+                    .map(|(out_idx, col_info)| match col_info {
+                        privdat::OutputColumnInfo::Score { plan_position, .. } => {
+                            let col_alias = format!("col_{}", out_idx + 1);
+                            if let Ok(idx) = schema.index_of(&col_alias) {
+                                Some(idx)
+                            } else if let Some(source) = plan_sources.get(*plan_position) {
+                                let alias = RelationAlias::new(source.scan_info.alias.as_deref())
+                                    .execution(*plan_position);
+                                let score_col = format!("_score_{alias}");
+                                schema
+                                    .index_of(&score_col)
+                                    .ok()
+                                    .or_else(|| schema.index_of(privdat::SCORE_COL_NAME).ok())
+                            } else {
+                                schema.index_of(privdat::SCORE_COL_NAME).ok()
+                            }
+                        }
+                        privdat::OutputColumnInfo::Unnested {
+                            source_rti,
+                            field_name,
+                            ..
+                        } => {
+                            let col_alias = format!("col_{}", out_idx + 1);
+                            if let Ok(idx) = schema.index_of(&col_alias) {
+                                Some(idx)
+                            } else if let Some(source) =
+                                plan_sources.iter().find(|s| s.contains_rti(source_rti.0))
+                            {
+                                let alias = RelationAlias::new(source.scan_info.alias.as_deref())
+                                    .execution(source.plan_position);
+                                let unnested_col_name = format!("{}_{}", alias, field_name);
+                                schema
+                                    .index_of(&unnested_col_name)
+                                    .ok()
+                                    .or_else(|| schema.index_of(field_name).ok())
+                            } else {
+                                schema.index_of(field_name).ok()
+                            }
+                        }
+                        privdat::OutputColumnInfo::Var { .. }
+                        | privdat::OutputColumnInfo::Pruned => None,
+                    })
+                    .collect();
+                state.custom_state_mut().output_batch_col_indices = output_batch_col_indices;
                 state.custom_state_mut().runtime = Some(runtime);
                 state.custom_state_mut().datafusion_stream = Some(stream);
             }
@@ -1750,6 +1809,12 @@ unsafe fn compute_output_columns(
                     rti,
                     original_attno: attno,
                 });
+            } else if let Some(unnest_info) = join_clause.plan.find_lateral_unnest(rti) {
+                output_columns.push(privdat::OutputColumnInfo::Unnested {
+                    function_rti: unnest_info.function_rti,
+                    source_rti: unnest_info.source_rti,
+                    field_name: unnest_info.field_name.clone(),
+                });
             } else {
                 // Var references a relation pruned by an internal Semi/Anti
                 // join (e.g., the inner side of a flattened EXISTS).
@@ -1807,19 +1872,26 @@ unsafe fn build_output_projection(
             0
         };
 
-    // Custom scan tlist can be shorter than parse DISTINCT (parent evaluates some exprs).
-    // Then DataFusion GROUP BY can't match all pathkeys; defer DISTINCT and sort only by
-    // parse sortClause inside JoinScan.
+    // Postgres plans upper nodes (Result, Sort, Unique) to evaluate derived expressions
+    // (e.g., `col IS NULL`), requesting only the underlying base columns from CustomScan.
+    // When `scan_tlist` is shorter than `distinctClause`, DataFusion's output projection
+    // lacks slots for those extra expressions, so DataFusion cannot group by all DISTINCT
+    // keys. We defer DISTINCT to Postgres's upper Unique node and sort only by `sortClause`.
     //
     // Limitation: if distinctClause and scan tlist happen to have equal length but
     // contain different expressions, this heuristic won't fire and the non-deferred
-    // path runs.  In practice the scan tlist is a strict subset of distinctClause
-    // columns, so a length mismatch is the reliable signal for "extra" expressions.
+    // path runs. In practice scan tlist is a strict subset of distinctClause columns,
+    // so a length mismatch is the reliable signal for upper-evaluated expressions.
     let defer_distinct_to_parent =
         private_data.join_clause.has_distinct && distinct_list_len > scan_tlist_len;
 
     if defer_distinct_to_parent {
         private_data.join_clause.has_distinct = false;
+        // Pushing down LIMIT below an upper Unique/Sort node is unsound: upper Unique
+        // collapses rows (risking fewer emitted rows than LIMIT), and upper Sort breaks
+        // ties using remaining DISTINCT keys (which an early LIMIT would arbitrarily truncate).
+        // JoinScan must stream all matching rows and let Postgres's upper Limit cap the output.
+        private_data.join_clause.limit_offset = None;
         let output_rtis = private_data.join_clause.plan.output_rtis();
         let current_sources = private_data.join_clause.plan.sources();
         private_data.join_clause.order_by =
@@ -1873,8 +1945,7 @@ unsafe fn build_output_projection(
     // For ALL entries (Column, Score, Expression), use the parse-tree
     // varnos so that distinct_col_map keys are consistent with
     // extract_orderby's pathkey varnos.
-    let mut entry_by_output_idx: crate::api::HashMap<usize, &planning::ResolvedExpr> =
-        Default::default();
+    let mut distinct_expr_map: Vec<(*mut pg_sys::Node, &planning::ResolvedExpr)> = Vec::new();
     if let Some(ref entries) = distinct_entries {
         let parse_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
         let distinct_list = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause);
@@ -1885,63 +1956,126 @@ unsafe fn build_output_projection(
                 .iter_ptr()
                 .find(|te| (**te).ressortgroupref == tle_ref)
             {
-                let output_idx = ((*parse_te).resno - 1) as usize;
-                if output_idx < private_data.output_columns.len() {
-                    entry_by_output_idx.insert(output_idx, entry);
-                }
+                let parse_expr = crate::postgres::utils::strip_wrappers((*parse_te).expr.cast());
+                distinct_expr_map.push((parse_expr, entry));
             }
         }
     }
 
-    // Key `entry_by_output_idx` by each scan tlist entry's `resno`, not list position.
     let scan_target_entries: Vec<*mut pg_sys::TargetEntry> = original_entries.iter_ptr().collect();
+    let mut claimed_distinct: Vec<bool> = vec![false; distinct_expr_map.len()];
+    let mut resolved_entries: Vec<Option<&planning::ResolvedExpr>> =
+        vec![None; scan_target_entries.len()];
+
+    // Pass 1: Direct AST equality.
+    // Handles plain columns, scores, and unnested columns regardless of list ordering.
+    for (scan_idx, te) in scan_target_entries.iter().copied().enumerate() {
+        let scan_expr = crate::postgres::utils::strip_wrappers((*te).expr.cast());
+        for (dist_idx, (parse_expr, entry)) in distinct_expr_map.iter().enumerate() {
+            if !claimed_distinct[dist_idx] && pg_sys::equal(scan_expr.cast(), (*parse_expr).cast())
+            {
+                claimed_distinct[dist_idx] = true;
+                resolved_entries[scan_idx] = Some(*entry);
+                break;
+            }
+        }
+    }
+
+    // Pass 2: Input-variable matching for expressions.
+    // Maps placeholder base columns in the scan target list to the upper-level expressions
+    // that depend on them (e.g. s.name -> upper(s.name)).
+    for (scan_idx, (info, te)) in private_data
+        .output_columns
+        .iter()
+        .zip(scan_target_entries.iter().copied())
+        .enumerate()
+    {
+        if resolved_entries[scan_idx].is_some() {
+            continue;
+        }
+
+        let (var_rti, var_attno) = match info {
+            privdat::OutputColumnInfo::Var {
+                rti,
+                original_attno,
+                ..
+            } => (*rti, *original_attno),
+            _ => {
+                let scan_expr = crate::postgres::utils::strip_wrappers((*te).expr.cast());
+                if (*scan_expr).type_ == pg_sys::NodeTag::T_Var {
+                    let var = scan_expr as *mut pg_sys::Var;
+                    ((*var).varno as pg_sys::Index, (*var).varattno)
+                } else {
+                    continue;
+                }
+            }
+        };
+
+        for (dist_idx, (parse_expr, entry)) in distinct_expr_map.iter().enumerate() {
+            if claimed_distinct[dist_idx] {
+                continue;
+            }
+            let matches = match entry {
+                planning::ResolvedExpr::Expression { input_vars, .. } => input_vars
+                    .iter()
+                    .any(|v| v.rti == var_rti && v.attno == var_attno),
+                planning::ResolvedExpr::IndexedExpression { rti, .. } if *rti == var_rti => {
+                    let vars = crate::postgres::utils::expr_collect_vars(*parse_expr, true);
+                    vars.iter()
+                        .any(|v| v.rti == var_rti && v.attno == var_attno)
+                }
+                _ => false,
+            };
+            if matches {
+                claimed_distinct[dist_idx] = true;
+                resolved_entries[scan_idx] = Some(*entry);
+                break;
+            }
+        }
+    }
+
     private_data.join_clause.output_projection = Some(
         private_data
             .output_columns
             .iter()
-            .zip(scan_target_entries.iter().copied())
-            .map(|(info, te)| {
-                let output_idx = ((*te).resno - 1) as usize;
-                match entry_by_output_idx.get(&output_idx) {
-                    Some(planning::ResolvedExpr::Expression {
-                        expr_node,
-                        input_vars,
-                        result_type,
-                    }) => {
-                        let expr_string = {
-                            let node_str = pg_sys::nodeToString((*expr_node).cast());
-                            std::ffi::CStr::from_ptr(node_str)
-                                .to_string_lossy()
-                                .into_owned()
-                        };
-                        let primary_rti = input_vars.first().map_or(0, |v| v.rti);
-                        build::ChildProjection::Expression {
-                            rti: primary_rti,
-                            pg_expr_string: expr_string,
-                            input_vars: input_vars.clone(),
-                            result_type_oid: *result_type,
-                        }
+            .zip(resolved_entries)
+            .map(|(info, resolved)| match resolved {
+                Some(planning::ResolvedExpr::Expression {
+                    expr_node,
+                    input_vars,
+                    result_type,
+                }) => {
+                    let expr_string = {
+                        let node_str = pg_sys::nodeToString((*expr_node).cast());
+                        std::ffi::CStr::from_ptr(node_str)
+                            .to_string_lossy()
+                            .into_owned()
+                    };
+                    let primary_rti = input_vars.first().map_or(0, |v| v.rti);
+                    build::ChildProjection::Expression {
+                        rti: primary_rti,
+                        pg_expr_string: expr_string,
+                        input_vars: input_vars.clone(),
+                        result_type_oid: *result_type,
                     }
-                    Some(planning::ResolvedExpr::Column { rti, attno }) => {
-                        build::ChildProjection::Column {
-                            rti: *rti,
-                            attno: *attno,
-                        }
-                    }
-                    Some(planning::ResolvedExpr::Score { rti }) => {
-                        build::ChildProjection::Score { rti: *rti }
-                    }
-                    Some(planning::ResolvedExpr::IndexedExpression { rti }) => {
-                        let attno = match info {
-                            privdat::OutputColumnInfo::Var { original_attno, .. } => {
-                                *original_attno
-                            }
-                            _ => 0,
-                        };
-                        build::ChildProjection::IndexedExpression { rti: *rti, attno }
-                    }
-                    None => info.into(),
                 }
+                Some(planning::ResolvedExpr::Column { rti, attno }) => match info {
+                    privdat::OutputColumnInfo::Unnested { .. } => info.into(),
+                    _ => build::ChildProjection::Column {
+                        rti: *rti,
+                        attno: *attno,
+                    },
+                },
+                Some(planning::ResolvedExpr::Score { rti }) => {
+                    build::ChildProjection::Score { rti: *rti }
+                }
+                Some(planning::ResolvedExpr::IndexedExpression { rti, field_name }) => {
+                    build::ChildProjection::IndexedExpression {
+                        rti: *rti,
+                        field_name: field_name.clone(),
+                    }
+                }
+                None => info.into(),
             })
             .collect(),
     );
@@ -2032,6 +2166,124 @@ unsafe fn splice_path_private_into_list(
 }
 
 impl JoinScan {
+    /// Attempts to build a lateral unnest CustomPath when one side of a join is a single-table
+    /// lateral unnest over an array fast field originating from the other side.
+    unsafe fn try_build_lateral_unnest_path(
+        root: *mut pg_sys::PlannerInfo,
+        builder: &CustomPathBuilder<Self>,
+        jointype: pg_sys::JoinType::Type,
+        extra: *mut pg_sys::JoinPathExtraData,
+        input_rel: *mut pg_sys::RelOptInfo,
+        unnest_rel: *mut pg_sys::RelOptInfo,
+    ) -> Result<Option<BuiltJoinPath>, JoinPathDecline> {
+        if unnest_rel.is_null() || pg_sys::bms_num_members((*unnest_rel).relids) != 1 {
+            return Ok(None);
+        }
+        let rti = crate::postgres::customscan::range_table::bms_iter((*unnest_rel).relids)
+            .next()
+            .unwrap();
+        let Some(mut unnest_info) =
+            crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(root, rti)
+        else {
+            return Ok(None);
+        };
+        let Some(input_collected) = collect_join_sources(root, input_rel) else {
+            return Ok(None);
+        };
+        let input_node = input_collected.plan;
+        let join_keys = input_collected.join_keys;
+        let mut multi_table_clauses = input_collected.multi_table_clauses;
+        if !input_node.contains_rti(unnest_info.source_rti.0) {
+            return Ok(None);
+        }
+        let is_left = jointype == pg_sys::JoinType::JOIN_LEFT
+            || (!extra.is_null()
+                && !(*extra).sjinfo.is_null()
+                && (*(*extra).sjinfo).jointype == pg_sys::JoinType::JOIN_LEFT);
+        unnest_info.is_left_join = is_left;
+        let plan = RelNode::Unnest(Box::new(build::UnnestNode {
+            input: input_node,
+            unnest_info,
+            absorbed_clauses: Vec::new(),
+        }));
+
+        let aliases: Vec<String> = plan
+            .sources()
+            .iter()
+            .map(|s| {
+                RelationAlias::new(s.scan_info.alias.as_deref())
+                    .warning_context(s.scan_info.heaprelid)
+            })
+            .collect();
+
+        let join_conditions = extract_join_conditions(root, extra, &plan.sources());
+        let mut other_conditions = join_conditions.other_conditions.clone();
+        if !unnest_rel.is_null() && !(*unnest_rel).baserestrictinfo.is_null() {
+            let baserestrict =
+                PgList::<pg_sys::RestrictInfo>::from_pg((*unnest_rel).baserestrictinfo);
+            for ri in baserestrict.iter_ptr() {
+                other_conditions.push(ri);
+            }
+        }
+
+        if !plan
+            .sources()
+            .iter()
+            .any(|s| s.scan_info.has_search_predicate)
+            && !join_conditions.has_search_predicate
+            && !plan.has_absorbed_search_clauses()
+        {
+            return Err(JoinPathDecline::Quiet);
+        }
+
+        let warn = |reason| JoinPathDecline::Warn {
+            reason,
+            aliases: aliases.clone(),
+        };
+
+        let has_distinct = !(*(*root).parse).distinctClause.is_null();
+        let (mut join_clause, limit_offset) =
+            Self::validate_and_build_clause(root, &plan, &join_keys, has_distinct).map_err(warn)?;
+
+        let current_sources = plan.sources();
+        let (join_clause_updated, new_multi_table_clauses) = extract_join_level_conditions(
+            root,
+            extra,
+            &current_sources,
+            &other_conditions,
+            join_clause,
+        )
+        .map_err(|_| {
+            warn(JoinDeclineReason::new(
+                "JoinScan not used: failed to extract join-level conditions (ensure all referenced columns are fast fields)",
+            ))
+        })?;
+        join_clause = join_clause_updated;
+        multi_table_clauses.extend(new_multi_table_clauses);
+
+        if !join_clause.plan.has_search_predicate() {
+            return Err(JoinPathDecline::Quiet);
+        }
+
+        let path = Self::finalize_clause_into_path(
+            root,
+            builder.args().joinrel,
+            join_clause,
+            &limit_offset,
+        )
+        .ok_or_else(|| {
+            warn(JoinDeclineReason::new(
+                "JoinScan not used: ORDER BY column is not available in the joined output schema",
+            ))
+        })?;
+
+        Ok(Some(BuiltJoinPath {
+            path,
+            aliases,
+            multi_table_clauses,
+        }))
+    }
+
     /// Body of `<Self as CustomScan>::create_custom_path` in `?`-style.
     /// The Ok variant returns the assembled `CustomPath` plus the alias list
     /// (for the "successful" mark) and the trailing multi-table clauses to
@@ -2066,6 +2318,17 @@ impl JoinScan {
             return Err(JoinPathDecline::Quiet);
         }
 
+        // Silent gates: check if either side is a lateral unnest.
+        if let Some(built) =
+            Self::try_build_lateral_unnest_path(root, builder, jointype, extra, outerrel, innerrel)?
+        {
+            return Ok(built);
+        }
+        if let Some(built) =
+            Self::try_build_lateral_unnest_path(root, builder, jointype, extra, innerrel, outerrel)?
+        {
+            return Ok(built);
+        }
         // Silent gates: collect outer/inner sources or bail without a warning.
         let outer_collected = collect_join_sources(root, outerrel).ok_or(JoinPathDecline::Quiet)?;
         let inner_collected = collect_join_sources(root, innerrel).ok_or(JoinPathDecline::Quiet)?;
@@ -2108,6 +2371,8 @@ impl JoinScan {
                 && !outer_node.has_search_predicate()
                 && !inner_node.has_search_predicate()
                 && !join_conditions.has_search_predicate
+                && !outer_node.has_absorbed_search_clauses()
+                && !inner_node.has_absorbed_search_clauses()
             {
                 return Err(JoinPathDecline::Quiet);
             }
@@ -2249,7 +2514,9 @@ impl JoinScan {
             let plan_position = match col_info {
                 privdat::OutputColumnInfo::Var { plan_position, .. } => *plan_position,
                 privdat::OutputColumnInfo::Score { plan_position, .. } => *plan_position,
-                privdat::OutputColumnInfo::Pruned => continue,
+                privdat::OutputColumnInfo::Pruned | privdat::OutputColumnInfo::Unnested { .. } => {
+                    continue;
+                }
             };
             if !fetched_sources.contains(&plan_position)
                 && !null_extended_sources.contains(&plan_position)
@@ -2300,11 +2567,19 @@ impl JoinScan {
                         *nulls.add(i) = true;
                         continue;
                     }
-                    let score_col = batch.column(i);
-                    let score = if let Some(score_array) = score_col
-                        .as_any()
-                        .downcast_ref::<arrow_array::Float32Array>(
-                    ) {
+                    let score_col_idx = state
+                        .custom_state()
+                        .output_batch_col_indices
+                        .get(i)
+                        .copied()
+                        .flatten();
+                    let score_array = score_col_idx.and_then(|idx| {
+                        batch
+                            .column(idx)
+                            .as_any()
+                            .downcast_ref::<arrow_array::Float32Array>()
+                    });
+                    let score = if let Some(score_array) = score_array {
                         if score_array.is_null(row_idx) {
                             *nulls.add(i) = true;
                             continue;
@@ -2345,6 +2620,50 @@ impl JoinScan {
                     *datums.add(i) =
                         pg_sys::slot_getattr(source_slot, *original_attno as i32, &mut is_null);
                     *nulls.add(i) = is_null;
+                }
+                privdat::OutputColumnInfo::Unnested { .. } => {
+                    let unnested_col_idx = state
+                        .custom_state()
+                        .output_batch_col_indices
+                        .get(i)
+                        .copied()
+                        .flatten();
+                    let Some(col_idx) = unnested_col_idx else {
+                        *nulls.add(i) = true;
+                        continue;
+                    };
+                    let unnested_col = batch.column(col_idx);
+                    let expected_type = {
+                        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+                        {
+                            (*result_tupdesc).attrs.as_slice(natts)[i].atttypid
+                        }
+                        #[cfg(feature = "pg18")]
+                        {
+                            (*pg_sys::TupleDescAttr(result_tupdesc, i as i32)).atttypid
+                        }
+                    };
+                    if unnested_col.is_null(row_idx) {
+                        *nulls.add(i) = true;
+                    } else {
+                        match crate::postgres::types_arrow::arrow_array_to_datum(
+                            unnested_col.as_ref(),
+                            row_idx,
+                            pgrx::PgOid::from(expected_type),
+                            None,
+                        ) {
+                            Ok(Some(datum)) => {
+                                *datums.add(i) = datum;
+                                *nulls.add(i) = false;
+                            }
+                            Ok(None) => {
+                                *nulls.add(i) = true;
+                            }
+                            Err(e) => {
+                                panic!("BUG: JoinScan unnest projection failed: {}", e);
+                            }
+                        }
+                    }
                 }
             }
         }

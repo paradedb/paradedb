@@ -22,9 +22,11 @@ use datafusion::prelude::DataFrame;
 use pgrx::pg_sys;
 
 use crate::postgres::customscan::joinscan::build::{
-    JoinLevelExpr, JoinNode, JoinSource, JoinType as PgJoinType, RelationAlias,
+    JoinLevelExpr, JoinNode, JoinSource, JoinType as PgJoinType, LateralUnnestInfo, RelNode,
+    RelationAlias, UnnestNode,
 };
 use crate::postgres::customscan::joinscan::privdat::{OutputColumnInfo, SCORE_COL_NAME};
+use crate::scan::ScanMode;
 
 pub trait ColumnMapper {
     /// Map a PostgreSQL variable to a DataFusion Column expression
@@ -110,13 +112,13 @@ impl<'a> PredicateTranslator<'a> {
             } => {
                 let source = sources.iter().find(|s| s.plan_position == *plan_position)?;
                 let tag_name = match &source.scan_info.mode {
-                    crate::scan::ScanMode::Tagged { local_queries, .. } => {
+                    ScanMode::Tagged { local_queries, .. } => {
                         &local_queries
                             .iter()
                             .find(|tq| tq.query.as_ref() == &predicate.query)?
                             .tag_name
                     }
-                    crate::scan::ScanMode::Standard { .. } => return None,
+                    ScanMode::Standard { .. } => return None,
                 };
                 Some(col(tag_name))
             }
@@ -216,9 +218,11 @@ impl<'a> PredicateTranslator<'a> {
         root: Option<*mut pg_sys::PlannerInfo>,
         sources: &'a [&'a JoinSource],
         node: *mut pg_sys::Node,
+        plan: Option<&'a RelNode>,
     ) -> bool {
         struct ValidationMapper<'a> {
             sources: &'a [&'a JoinSource],
+            plan: Option<&'a RelNode>,
         }
 
         impl<'a> ColumnMapper for ValidationMapper<'a> {
@@ -226,12 +230,25 @@ impl<'a> PredicateTranslator<'a> {
             /// happened yet at this planning stage. Column validity is
             /// covered by all_vars_are_fast_fields_recursive which runs first.
             fn map_var(&self, varno: pg_sys::Index, _varattno: pg_sys::AttrNumber) -> Option<Expr> {
-                let _source = self.sources.iter().find(|s| s.contains_rti(varno))?;
-                Some(col("placeholder"))
+                if let Some(_source) = self.sources.iter().find(|s| s.contains_rti(varno)) {
+                    return Some(col("placeholder"));
+                }
+                if let Some(plan) = self.plan {
+                    if let Some(unnest_info) = plan.find_lateral_unnest(varno) {
+                        if self
+                            .sources
+                            .iter()
+                            .any(|s| s.contains_rti(unnest_info.source_rti.0))
+                        {
+                            return Some(col("placeholder"));
+                        }
+                    }
+                }
+                None
             }
         }
 
-        let mapper = ValidationMapper { sources };
+        let mapper = ValidationMapper { sources, plan };
         let mut translator = Self::new(sources).with_mapper(Box::new(mapper));
         if let Some(r) = root {
             translator = translator.with_planner_info(r);
@@ -485,12 +502,18 @@ pub fn build_join_df_with_filter(
     join: &JoinNode,
     sources: &[&JoinSource],
     output_columns: &[OutputColumnInfo],
+    lateral_unnests: &[LateralUnnestInfo],
 ) -> Result<DataFrame> {
     let df_join_type = map_join_type(join.join_type)?;
 
     let filter_expr = match &join.filter {
         Some(JoinLevelExpr::PgExpression { pg_node_string, .. }) => unsafe {
-            translate_pg_expression_filter(pg_node_string, sources, output_columns)?
+            translate_pg_expression_filter(
+                pg_node_string,
+                sources,
+                output_columns,
+                lateral_unnests,
+            )?
         },
         Some(other) => {
             return Err(DataFusionError::NotImplemented(format!(
@@ -516,6 +539,58 @@ pub fn build_join_df_with_filter(
     let mut on = build_equi_join_exprs(join)?;
     on.push(filter_expr);
     left.join_on(right, df_join_type, on)
+}
+
+/// Apply a lateral unnest operation onto an existing DataFusion DataFrame.
+///
+/// Resolves the source table's execution alias, applies DataFusion's `unnest_columns_with_options`
+/// (preserving empty arrays for LEFT joins if requested), and re-qualifies the unnested column.
+pub fn apply_relnode_unnest(df: DataFrame, unnest: &UnnestNode) -> Result<DataFrame> {
+    use datafusion::common::{NullHandling, UnnestOptions};
+
+    let source = unnest
+        .input
+        .sources()
+        .into_iter()
+        .find(|s| s.contains_rti(unnest.unnest_info.source_rti.0))
+        .ok_or_else(|| {
+            DataFusionError::Internal(format!(
+                "source RTI {} not found for lateral unnest",
+                unnest.unnest_info.source_rti.0
+            ))
+        })?;
+    let alias =
+        RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
+    let unnested_col_name = format!("{}_{}", alias, unnest.unnest_info.field_name);
+
+    let select_exprs = df
+        .schema()
+        .iter()
+        .map(|(qualifier, field)| {
+            if qualifier.as_ref().map(|q| q.to_string()) == Some(alias.clone())
+                && field.name() == &unnest.unnest_info.field_name
+            {
+                Expr::Column(datafusion::common::Column::new(
+                    qualifier.cloned(),
+                    field.name(),
+                ))
+                .alias(&unnested_col_name)
+            } else {
+                Expr::Column(datafusion::common::Column::new(
+                    qualifier.cloned(),
+                    field.name(),
+                ))
+            }
+        })
+        .collect::<Vec<_>>();
+    let df = df.select(select_exprs)?;
+
+    let unnest_options = if unnest.unnest_info.is_left_join {
+        UnnestOptions::new().with_null_handling(NullHandling::PreserveAndExpandEmpty)
+    } else {
+        UnnestOptions::new().with_null_handling(NullHandling::Drop)
+    };
+    df.unnest_columns_with_options(&[&unnested_col_name], unnest_options)
 }
 
 /// Deserialize a PostgreSQL expression from its `nodeToString` representation
@@ -553,10 +628,12 @@ unsafe fn translate_pg_expression_filter(
     pg_node_string: &str,
     sources: &[&JoinSource],
     output_columns: &[OutputColumnInfo],
+    lateral_unnests: &[LateralUnnestInfo],
 ) -> Result<Expr> {
     let mapper = CombinedMapper {
         sources,
         output_columns,
+        lateral_unnests,
     };
     translate_pg_node_string(pg_node_string, sources, Box::new(mapper), "PgExpression")
 }
@@ -609,42 +686,85 @@ pub fn make_source_score_col(source: &JoinSource) -> Expr {
     make_source_col(source, SCORE_COL_NAME)
 }
 
+/// Build a DataFusion column expression for an unnested field on the given
+/// source, matching the `{alias}_{field_name}` naming convention established
+/// by `apply_relnode_unnest`.
+pub fn make_source_unnested_col(source: &JoinSource, field_name: &str) -> Expr {
+    let alias =
+        RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
+    col(format!("{}_{}", alias, field_name))
+}
+
 pub struct CombinedMapper<'a> {
     pub sources: &'a [&'a JoinSource],
     pub output_columns: &'a [OutputColumnInfo],
+    pub lateral_unnests: &'a [LateralUnnestInfo],
 }
 
 impl<'a> ColumnMapper for CombinedMapper<'a> {
     fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr> {
-        let (rti, attno, is_score) = if varno == pg_sys::INDEX_VAR as pg_sys::Index {
+        let (rti, attno, is_score, unnested_info) = if varno == pg_sys::INDEX_VAR as pg_sys::Index {
             let idx = (varattno - 1) as usize;
             match self.output_columns.get(idx)? {
                 OutputColumnInfo::Var {
                     rti,
                     original_attno,
                     ..
-                } => (*rti, *original_attno, false),
-                OutputColumnInfo::Score { rti, .. } => (*rti, 0, true),
+                } => (*rti, *original_attno, false, None),
+                OutputColumnInfo::Score { rti, .. } => (*rti, 0, true, None),
+                OutputColumnInfo::Unnested {
+                    function_rti,
+                    source_rti,
+                    field_name,
+                } => (
+                    function_rti.0,
+                    1,
+                    false,
+                    Some((source_rti.0, field_name.clone())),
+                ),
                 OutputColumnInfo::Pruned => return None,
             }
         } else {
-            (varno, varattno, false)
+            (varno, varattno, false, None)
         };
 
-        let source = self.sources.iter().find(|s| s.contains_rti(rti))?;
-
-        if is_score {
-            if let Some(col_idx) = source.map_var(rti, 0) {
-                if let Some(name) = source.column_name(col_idx) {
-                    return Some(make_source_col(source, &name));
-                }
-            }
-            return Some(make_source_score_col(source));
+        if let Some((source_rti, field_name)) = unnested_info {
+            let source = self.sources.iter().find(|s| s.contains_rti(source_rti))?;
+            return Some(make_source_unnested_col(source, &field_name));
         }
 
-        let mapped_attno = source.map_var(rti, attno)?;
-        let col_name = source.column_name(mapped_attno)?;
-        Some(make_source_col(source, &col_name))
+        if let Some(source) = self.sources.iter().find(|s| s.contains_rti(rti)) {
+            if is_score {
+                if let Some(col_idx) = source.map_var(rti, 0) {
+                    if let Some(name) = source.column_name(col_idx) {
+                        return Some(make_source_col(source, &name));
+                    }
+                }
+                return Some(make_source_score_col(source));
+            }
+
+            let mapped_attno = source.map_var(rti, attno)?;
+            let col_name = source.column_name(mapped_attno)?;
+            if self
+                .lateral_unnests
+                .iter()
+                .any(|u| source.contains_rti(u.source_rti.0) && u.field_name == col_name)
+            {
+                Some(make_source_unnested_col(source, &col_name))
+            } else {
+                Some(make_source_col(source, &col_name))
+            }
+        } else {
+            let unnest_info = self
+                .lateral_unnests
+                .iter()
+                .find(|u| u.function_rti.0 == rti)?;
+            let s = self
+                .sources
+                .iter()
+                .find(|s| s.contains_rti(unnest_info.source_rti.0))?;
+            Some(make_source_unnested_col(s, &unnest_info.field_name))
+        }
     }
 }
 
@@ -738,7 +858,8 @@ mod tests {
             assert!(!PredicateTranslator::can_translate(
                 None,
                 &[],
-                list.into_pg().cast()
+                list.into_pg().cast(),
+                None,
             ));
         }
     }

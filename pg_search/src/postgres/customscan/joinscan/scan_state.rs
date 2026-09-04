@@ -52,9 +52,9 @@ use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::datafusion::translator::{
-    apply_join_level_filter, build_join_df_with_filter, make_col, make_source_col,
-    make_source_score_col, translate_pg_node_string, ColumnMapper, CombinedMapper,
-    PredicateTranslator,
+    apply_join_level_filter, apply_relnode_unnest, build_join_df_with_filter, make_col,
+    make_source_col, make_source_score_col, make_source_unnested_col, translate_pg_node_string,
+    ColumnMapper, CombinedMapper, PredicateTranslator,
 };
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, PrivateData, SCORE_COL_NAME,
@@ -80,6 +80,14 @@ fn resolve_var_to_df_col(
     rti: pg_sys::Index,
     attno: pg_sys::AttrNumber,
 ) -> Option<Expr> {
+    if let Some(unnest_info) = join_clause.plan.find_lateral_unnest(rti) {
+        let source = join_clause
+            .plan
+            .sources()
+            .into_iter()
+            .find(|s| s.contains_rti(unnest_info.source_rti.0))?;
+        return Some(make_source_unnested_col(source, &unnest_info.field_name));
+    }
     join_clause.plan.sources().iter().find_map(|source| {
         let mapped = source.map_var(rti, attno)?;
         let field = source.column_name(mapped)?;
@@ -205,6 +213,9 @@ pub struct JoinScanState {
     /// Populated from PrivateData during create_custom_scan_state.
     pub output_columns: Vec<OutputColumnInfo>,
 
+    /// Index of each output column in the result RecordBatch, populated once physical_plan is available.
+    pub output_batch_col_indices: Vec<Option<usize>>,
+
     /// Serialized DataFusion LogicalPlan from planning phase.
     pub logical_plan: Option<bytes::Bytes>,
 
@@ -262,6 +273,7 @@ impl JoinScanState {
         self.current_batch = None;
         self.batch_index = 0;
         self.physical_plan = None;
+        self.output_batch_col_indices.clear();
         self.launch_timing = None;
         self.stream_built_at = None;
 
@@ -485,11 +497,12 @@ struct RelNodeBuildCtx<'a> {
     join_clause: &'a JoinCSClause,
     translated_exprs: &'a [Expr],
     output_columns: &'a [OutputColumnInfo],
+    lateral_unnests: &'a [build::LateralUnnestInfo],
 }
 
 /// Recursively lowers a `RelNode` tree into a DataFusion `DataFrame`.
 ///
-/// This traversal maps the abstract relation operators (Scan, Join, Filter) onto DataFusion's
+/// This traversal maps the abstract relation operators (Scan, Join, Filter, Unnest) onto DataFusion's
 /// logical planning APIs:
 /// - **Scan**: Instantiates a `PgSearchTableProvider` containing the Tantivy index boundaries and
 ///   the set of required fields for a single relation, wrapping it in an aliased context.
@@ -498,6 +511,7 @@ struct RelNodeBuildCtx<'a> {
 ///   of the equality expression to avoid `SchemaError`s in DataFusion.
 /// - **Filter**: Maps complex, cross-table PostgreSQL scalar expressions down to the DataFusion
 ///   engine for row-level execution.
+/// - **Unnest**: Expands multi-valued array fast fields into rows via DataFusion's `unnest_columns_with_options`.
 ///
 /// All references that don't change between recursive calls are bundled into
 /// [`RelNodeBuildCtx`] so the recursive sites can stay terse.
@@ -529,7 +543,14 @@ fn build_relnode_df<'a>(
                 let right_df = build_relnode_df(rctx, &join.right).await?;
                 let mut sources = join.left.sources();
                 sources.extend(join.right.sources());
-                build_join_df_with_filter(left_df, right_df, join, &sources, rctx.output_columns)
+                build_join_df_with_filter(
+                    left_df,
+                    right_df,
+                    join,
+                    &sources,
+                    rctx.output_columns,
+                    rctx.lateral_unnests,
+                )
             }
             RelNode::Filter(filter) => {
                 let df = build_relnode_df(rctx, &filter.input).await?;
@@ -542,16 +563,35 @@ fn build_relnode_df<'a>(
                     /* handle_mark = */ true,
                 )
             }
+            RelNode::Unnest(unnest) => {
+                let df = build_relnode_df(rctx, &unnest.input).await?;
+                apply_relnode_unnest(df, unnest)
+            }
         }
     };
     f.boxed_local()
 }
 
-/// Maps `(rti, attno)` to a `col_N` alias after a DISTINCT-style GROUP BY
-/// rewrite. The score column uses sentinel `attno = 0`. When DISTINCT is not
-/// active the map is empty and downstream stages preserve their original
-/// qualified column references.
-type DistinctColMap = crate::api::HashMap<(pg_sys::Index, pg_sys::AttrNumber), String>;
+/// Maps relation and attribute or field to a `col_N` alias after a DISTINCT-style
+/// GROUP BY rewrite. The score column uses sentinel `attno = 0` in `vars`. When
+/// DISTINCT is not active the map is empty and downstream stages preserve their
+/// original qualified column references.
+#[derive(Default, Debug)]
+struct DistinctColMap {
+    vars: crate::api::HashMap<(pg_sys::Index, pg_sys::AttrNumber), String>,
+    fields: crate::api::HashMap<(pg_sys::Index, String), String>,
+}
+
+impl DistinctColMap {
+    fn is_empty(&self) -> bool {
+        self.vars.is_empty() && self.fields.is_empty()
+    }
+}
+
+enum DistinctColEntry {
+    Var(pg_sys::Index, pg_sys::AttrNumber),
+    Field(pg_sys::Index, String),
+}
 
 fn build_clause_df<'a>(
     ctx: &'a SessionContext,
@@ -562,15 +602,22 @@ fn build_clause_df<'a>(
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     let f = async move {
         let plan_sources = join_clause.plan.sources();
-        if plan_sources.len() < 2 {
+        if plan_sources.is_empty() {
             return Err(DataFusionError::Internal(
-                "JoinScan requires at least 2 sources".into(),
+                "JoinScan requires at least 1 source".into(),
             ));
         }
 
+        let lateral_unnests: Vec<build::LateralUnnestInfo> = join_clause
+            .plan
+            .lateral_unnests()
+            .into_iter()
+            .cloned()
+            .collect();
         let mapper = CombinedMapper {
             sources: &plan_sources,
             output_columns: &private_data.output_columns,
+            lateral_unnests: &lateral_unnests,
         };
         let translator = PredicateTranslator::new(&plan_sources).with_mapper(Box::new(mapper));
         let translated_exprs = unsafe { translate_custom_exprs(&translator, custom_exprs)? };
@@ -584,6 +631,7 @@ fn build_clause_df<'a>(
             join_clause,
             translated_exprs: &translated_exprs,
             output_columns: &private_data.output_columns,
+            lateral_unnests: &lateral_unnests,
         };
         let df = build_relnode_df(&rctx, &join_clause.plan).await?;
 
@@ -682,19 +730,33 @@ fn apply_distinct_group_by(
             }
             build::ChildProjection::Score { rti } => {
                 let e = build_projection_expr(proj, join_clause);
-                (e, Some((*rti, 0)))
+                (e, Some(DistinctColEntry::Var(*rti, 0)))
             }
-            build::ChildProjection::Column { rti, attno }
-            | build::ChildProjection::IndexedExpression { rti, attno } => {
+            build::ChildProjection::Column { rti, attno } => {
                 let e = build_projection_expr(proj, join_clause);
-                (e, Some((*rti, *attno)))
+                (e, Some(DistinctColEntry::Var(*rti, *attno)))
+            }
+            build::ChildProjection::IndexedExpression { rti, field_name } => {
+                let e = build_projection_expr(proj, join_clause);
+                (e, Some(DistinctColEntry::Field(*rti, field_name.clone())))
+            }
+            build::ChildProjection::Unnested { function_rti, .. } => {
+                let e = build_projection_expr(proj, join_clause);
+                (e, Some(DistinctColEntry::Var(function_rti.0, 1)))
             }
         };
 
         group_exprs.push(expr.alias(&col_alias));
 
         if let Some(key) = map_key {
-            distinct_col_map.insert(key, col_alias);
+            match key {
+                DistinctColEntry::Var(rti, attno) => {
+                    distinct_col_map.vars.insert((rti, attno), col_alias);
+                }
+                DistinctColEntry::Field(rti, field_name) => {
+                    distinct_col_map.fields.insert((rti, field_name), col_alias);
+                }
+            }
         }
     }
 
@@ -728,9 +790,11 @@ fn resolve_distinct_col(
 ) -> Option<Expr> {
     if is_score {
         distinct_col_map
+            .vars
             .get(&(rti, 0))
             .or_else(|| {
                 distinct_col_map
+                    .vars
                     .iter()
                     .find(|((_, a), _)| *a == 0)
                     .map(|(_, alias)| alias)
@@ -738,9 +802,27 @@ fn resolve_distinct_col(
             .map(|alias| col(alias.as_str()))
     } else {
         distinct_col_map
+            .vars
             .get(&(rti, attno))
             .map(|alias| col(alias.as_str()))
     }
+}
+
+fn resolve_distinct_field(
+    distinct_col_map: &DistinctColMap,
+    rti: pg_sys::Index,
+    field_name: &str,
+) -> Option<Expr> {
+    distinct_col_map
+        .fields
+        .get(&(rti, field_name.to_string()))
+        .or_else(|| {
+            let bare_name = field_name
+                .split_once('.')
+                .map(|(_, col)| col.trim_matches('"'))?;
+            distinct_col_map.fields.get(&(rti, bare_name.to_string()))
+        })
+        .map(|alias| col(alias.as_str()))
 }
 
 /// Resolve a non-NullTest `OrderByFeature` to a DataFusion `Expr`.
@@ -804,17 +886,27 @@ fn resolve_orderby_feature(
                     DataFusionError::Plan("JoinScan: empty RTI list in ScoreSum".to_string())
                 })
         }
-        OrderByFeature::Field { name, rti } => join_clause
-            .plan
-            .sources()
-            .iter()
-            .find(|s| s.contains_rti(*rti))
-            .map(|source| make_source_col(source, name.as_ref()))
-            .ok_or_else(|| {
-                DataFusionError::Plan(format!(
-                    "JoinScan: could not find source for RTI {rti} when building sort expression for field '{name}'"
-                ))
-            }),
+        OrderByFeature::Field { name, rti } => {
+            if !distinct_col_map.is_empty() {
+                resolve_distinct_field(distinct_col_map, *rti, name.as_ref()).ok_or_else(|| {
+                    DataFusionError::Plan(format!(
+                        "JoinScan: could not resolve DISTINCT field column for RTI {rti}, field '{name}'"
+                    ))
+                })
+            } else {
+                join_clause
+                    .plan
+                    .sources()
+                    .iter()
+                    .find(|s| s.contains_rti(*rti))
+                    .map(|source| make_source_col(source, name.as_ref()))
+                    .ok_or_else(|| {
+                        DataFusionError::Plan(format!(
+                            "JoinScan: could not find source for RTI {rti} when building sort expression for field '{name}'"
+                        ))
+                    })
+            }
+        }
         OrderByFeature::Var { rti, attno, .. } => {
             if !distinct_col_map.is_empty() {
                 resolve_distinct_col(distinct_col_map, false, *rti, *attno).ok_or_else(|| {
@@ -903,9 +995,16 @@ fn apply_output_projection(
                         resolve_distinct_col(distinct_col_map, true, *rti, 0)
                             .unwrap_or_else(|| col(&col_alias))
                     }
-                    build::ChildProjection::Column { rti, attno }
-                    | build::ChildProjection::IndexedExpression { rti, attno } => {
+                    build::ChildProjection::Column { rti, attno } => {
                         resolve_distinct_col(distinct_col_map, false, *rti, *attno)
+                            .unwrap_or_else(|| col(&col_alias))
+                    }
+                    build::ChildProjection::IndexedExpression { rti, field_name } => {
+                        resolve_distinct_field(distinct_col_map, *rti, field_name)
+                            .unwrap_or_else(|| col(&col_alias))
+                    }
+                    build::ChildProjection::Unnested { function_rti, .. } => {
+                        resolve_distinct_col(distinct_col_map, false, function_rti.0, 1)
                             .unwrap_or_else(|| col(&col_alias))
                     }
                 }
@@ -953,10 +1052,25 @@ fn build_projection_expr(
                 }
             }
         }
-        ChildProjection::Column { rti, attno }
-        | ChildProjection::IndexedExpression { rti, attno } => {
+        ChildProjection::Column { rti, attno } => {
             if let Some(expr) = resolve_var_to_df_col(join_clause, *rti, *attno) {
                 return expr;
+            }
+        }
+        ChildProjection::IndexedExpression { rti, field_name } => {
+            if let Some(source) = plan_sources.iter().find(|s| s.contains_rti(*rti)) {
+                return make_source_col(source, field_name);
+            }
+        }
+        ChildProjection::Unnested {
+            source_rti,
+            field_name,
+            ..
+        } => {
+            if let Some(source) = plan_sources.iter().find(|s| s.contains_rti(source_rti.0)) {
+                let alias = RelationAlias::new(source.scan_info.alias.as_deref())
+                    .execution(source.plan_position);
+                return datafusion::logical_expr::col(format!("{}_{}", alias, field_name));
             }
         }
         ChildProjection::Expression { .. } => {
@@ -1063,6 +1177,19 @@ fn build_source_df<'a>(
         // When DISTINCT is present, PostgreSQL expands the query path-keys
         // to include all DISTINCT columns.
         if join_clause.has_distinct {
+            if let Some(projections) = &join_clause.output_projection {
+                for proj in projections {
+                    if let build::ChildProjection::IndexedExpression { rti, field_name } = proj {
+                        if source.contains_rti(*rti) {
+                            insert_field_name_required_early(
+                                source,
+                                field_name.as_ref(),
+                                &mut required_early,
+                            );
+                        }
+                    }
+                }
+            }
             for info in &join_clause.order_by {
                 match &info.feature {
                     OrderByFeature::Field { name, rti } => {

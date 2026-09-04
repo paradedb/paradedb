@@ -349,25 +349,45 @@ pub unsafe fn extract_aggregate_targetlist(
             let rti = (*var).varno as pg_sys::Index;
             let attno = (*var).varattno;
 
-            let source = find_source_by_rti(sources, rti, "GROUP BY column")?;
-
-            let field_name = source.column_name(attno).ok_or_else(|| {
-                let alias =
-                    RelationAlias::new(source.alias.as_deref()).display(source.rti as usize);
-                format!(
-                    "GROUP BY column {} is not columnar indexed",
-                    get_attname_safe(Some(source.relid), attno, &alias)
-                )
-            })?;
-
-            let plan_position = plan
-                .plan_position(outer_root_id, rti, attno)
-                .ok_or_else(|| {
+            let (source, attno, field_name, plan_position) = if let Some(unnest_info) =
+                plan.find_lateral_unnest(rti)
+            {
+                let source =
+                    find_source_by_rti(sources, unnest_info.source_rti.0, "GROUP BY column")?;
+                let fn_name = unnest_info.field_name.clone();
+                let pp = plan
+                    .plan_position(
+                        outer_root_id,
+                        unnest_info.source_rti.0,
+                        unnest_info.source_attno,
+                    )
+                    .ok_or_else(|| {
+                        format!(
+                            "GROUP BY unnest column (RTI={rti}) does not resolve to a unique \
+                                 output-visible source in the plan tree"
+                        )
+                    })?;
+                (source, unnest_info.source_attno, fn_name, pp)
+            } else {
+                let source = find_source_by_rti(sources, rti, "GROUP BY column")?;
+                let fn_name = source.column_name(attno).ok_or_else(|| {
+                    let alias =
+                        RelationAlias::new(source.alias.as_deref()).display(source.rti as usize);
                     format!(
-                        "GROUP BY column (RTI={rti}, attno={attno}) does not resolve to a unique \
-                         output-visible source in the plan tree"
+                        "GROUP BY column {} is not columnar indexed",
+                        get_attname_safe(Some(source.relid), attno, &alias)
                     )
                 })?;
+                let pp = plan
+                        .plan_position(outer_root_id, rti, attno)
+                        .ok_or_else(|| {
+                            format!(
+                                "GROUP BY column (RTI={rti}, attno={attno}) does not resolve to a unique \
+                                 output-visible source in the plan tree"
+                            )
+                        })?;
+                (source, attno, fn_name, pp)
+            };
 
             // Grouping compares the stored representation, which is order- and
             // equality-preserving for both NUMERIC storages, but rendering the
@@ -686,24 +706,45 @@ unsafe fn extract_aggref_field_refs(
         let rti = (*var).varno as pg_sys::Index;
         let attno = (*var).varattno;
 
-        let source = find_source_by_rti(sources, rti, "aggregate argument")?;
-
-        let field_name = source.column_name(attno).ok_or_else(|| {
-            let alias = RelationAlias::new(source.alias.as_deref()).display(source.rti as usize);
-            format!(
-                "aggregate argument {} is not columnar indexed",
-                get_attname_safe(Some(source.relid), attno, &alias)
-            )
-        })?;
-
-        let plan_position = plan
-            .plan_position(outer_root_id, rti, attno)
-            .ok_or_else(|| {
+        let (source, attno, field_name, plan_position) = if let Some(unnest_info) =
+            plan.find_lateral_unnest(rti)
+        {
+            let source =
+                find_source_by_rti(sources, unnest_info.source_rti.0, "aggregate argument")?;
+            let fn_name = unnest_info.field_name.clone();
+            let pp = plan
+                .plan_position(
+                    outer_root_id,
+                    unnest_info.source_rti.0,
+                    unnest_info.source_attno,
+                )
+                .ok_or_else(|| {
+                    format!(
+                        "aggregate argument (RTI={rti}) does not resolve to a unique \
+                             output-visible source in the plan tree"
+                    )
+                })?;
+            (source, unnest_info.source_attno, fn_name, pp)
+        } else {
+            let source = find_source_by_rti(sources, rti, "aggregate argument")?;
+            let fn_name = source.column_name(attno).ok_or_else(|| {
+                let alias =
+                    RelationAlias::new(source.alias.as_deref()).display(source.rti as usize);
                 format!(
-                    "aggregate argument (RTI={rti}, attno={attno}) does not resolve to a unique \
-                     output-visible source in the plan tree"
+                    "aggregate argument {} is not columnar indexed",
+                    get_attname_safe(Some(source.relid), attno, &alias)
                 )
             })?;
+            let pp = plan
+                    .plan_position(outer_root_id, rti, attno)
+                    .ok_or_else(|| {
+                        format!(
+                            "aggregate argument (RTI={rti}, attno={attno}) does not resolve to a unique \
+                             output-visible source in the plan tree"
+                        )
+                    })?;
+            (source, attno, fn_name, pp)
+        };
 
         let numeric = source
             .bm25_index

@@ -593,24 +593,24 @@ impl<'a> PredicateTranslator<'a> {
         let varno = (*var).varno as pg_sys::Index;
         let varattno = (*var).varattno;
 
-        // INDEX_VAR is allowed because it represents a reference to the custom scan's output
-        if varno != pg_sys::INDEX_VAR as pg_sys::Index
-            && !self.sources.iter().any(|s| s.contains_rti(varno))
-        {
-            pgrx::debug1!(
-                "PredicateTranslator: unknown source [Var] varno={}, varattno={}",
-                varno,
-                varattno
-            );
-            return None;
-        }
-
         if let Some(ref mapper) = self.mapper {
             if let Some(expr) = mapper.map_var(varno, varattno) {
                 return Some(expr);
             }
             pgrx::debug1!(
                 "PredicateTranslator: mapper failed to resolve [Var] varno={}, varattno={}",
+                varno,
+                varattno
+            );
+            return None;
+        }
+
+        // INDEX_VAR is allowed because it represents a reference to the custom scan's output
+        if varno != pg_sys::INDEX_VAR as pg_sys::Index
+            && !self.sources.iter().any(|s| s.contains_rti(varno))
+        {
+            pgrx::debug1!(
+                "PredicateTranslator: unknown source [Var] varno={}, varattno={}",
                 varno,
                 varattno
             );

@@ -464,8 +464,11 @@ pub unsafe fn strip_unnest_and_relabel(mut node: *mut pg_sys::Node) -> (*mut pg_
         }
         if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, node) {
             if is_unnest_func((*func).funcid) {
-                found_unnest = true;
                 let args = PgList::<pg_sys::Node>::from_pg((*func).args);
+                if args.len() != 1 {
+                    return (std::ptr::null_mut(), false);
+                }
+                found_unnest = true;
                 if let Some(arg) = args.get_ptr(0) {
                     node = arg;
                     continue;

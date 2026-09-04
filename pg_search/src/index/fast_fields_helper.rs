@@ -128,7 +128,9 @@ impl FFHelper {
     pub fn column(&self, segment_ord: SegmentOrdinal, field: FFIndex) -> &FFType {
         self.caches()[segment_ord as usize].columns[field].get_or_init(|| {
             match &self.inner().columns[field] {
-                WhichFastField::Named(name, _) | WhichFastField::Deferred(name, _) => {
+                WhichFastField::Named(name, _)
+                | WhichFastField::Array(name, _)
+                | WhichFastField::Deferred(name, _) => {
                     FFType::new(self.fast_fields(segment_ord), name)
                 }
                 WhichFastField::Ctid
@@ -357,6 +359,100 @@ impl FFType {
             ),
         }
     }
+
+    /// Fetches the batch of multi-valued (array) fast field values
+    /// (or term ordinals for Text/Bytes) as an Arrow ListArray.
+    pub fn fetch_array_values_or_ords_to_arrow(
+        &self,
+        ids: &[u32],
+        search_field_type: SearchFieldType,
+    ) -> ArrayRef {
+        fn fetch_list_array<B, I, V>(
+            ids: &[u32],
+            mut builder: arrow_array::builder::ListBuilder<B>,
+            mut iter_fn: impl FnMut(u32) -> I,
+            mut append_fn: impl FnMut(&mut B, V),
+        ) -> ArrayRef
+        where
+            B: arrow_array::builder::ArrayBuilder,
+            I: IntoIterator<Item = V>,
+        {
+            for &doc in ids {
+                let mut count = 0;
+                for val in iter_fn(doc) {
+                    append_fn(builder.values(), val);
+                    count += 1;
+                }
+                builder.append(count > 0);
+            }
+            Arc::new(builder.finish()) as ArrayRef
+        }
+
+        match self {
+            FFType::Text(col) => fetch_list_array(
+                ids,
+                arrow_array::builder::ListBuilder::new(arrow_array::builder::UInt64Builder::new()),
+                |doc| col.term_ords(doc),
+                |b, v| b.append_value(v),
+            ),
+            FFType::Bytes(col) => fetch_list_array(
+                ids,
+                arrow_array::builder::ListBuilder::new(arrow_array::builder::UInt64Builder::new()),
+                |doc| col.term_ords(doc),
+                |b, v| b.append_value(v),
+            ),
+            FFType::I64(col) if matches!(search_field_type, SearchFieldType::I64(oid) if crate::postgres::types::is_datetime_type(oid)) => {
+                fetch_list_array(
+                    ids,
+                    arrow_array::builder::ListBuilder::new(
+                        arrow_array::builder::TimestampMicrosecondBuilder::new(),
+                    ),
+                    |doc| col.values_for_doc(doc),
+                    |b, v| b.append_value(v),
+                )
+            }
+            FFType::I64(col) => fetch_list_array(
+                ids,
+                arrow_array::builder::ListBuilder::new(arrow_array::builder::Int64Builder::new()),
+                |doc| col.values_for_doc(doc),
+                |b, v| b.append_value(v),
+            ),
+            FFType::U64(col) => fetch_list_array(
+                ids,
+                arrow_array::builder::ListBuilder::new(arrow_array::builder::UInt64Builder::new()),
+                |doc| col.values_for_doc(doc),
+                |b, v| b.append_value(v),
+            ),
+            FFType::F64(col) => fetch_list_array(
+                ids,
+                arrow_array::builder::ListBuilder::new(arrow_array::builder::Float64Builder::new()),
+                |doc| col.values_for_doc(doc),
+                |b, v| b.append_value(v),
+            ),
+            FFType::Bool(col) => fetch_list_array(
+                ids,
+                arrow_array::builder::ListBuilder::new(arrow_array::builder::BooleanBuilder::new()),
+                |doc| col.values_for_doc(doc),
+                |b, v| b.append_value(v),
+            ),
+            FFType::Date(col) => fetch_list_array(
+                ids,
+                arrow_array::builder::ListBuilder::new(
+                    arrow_array::builder::TimestampMicrosecondBuilder::new(),
+                ),
+                |doc| col.values_for_doc(doc),
+                |b, v| b.append_value(datetime_to_pg_micros(v)),
+            ),
+            FFType::Junk => Arc::new(arrow_array::new_null_array(
+                &arrow_schema::DataType::List(Arc::new(arrow_schema::Field::new(
+                    "item",
+                    arrow_schema::DataType::Null,
+                    true,
+                ))),
+                ids.len(),
+            )),
+        }
+    }
 }
 
 /// A request for a specific fast field, used *before* the column is open.
@@ -376,6 +472,7 @@ pub enum WhichFastField {
     TableOid,
     Score,
     Named(String, SearchFieldType),
+    Array(String, SearchFieldType),
     Deferred(String, SearchFieldType),
     /// Packed DocAddress ctid for deferred visibility (joinscan path only).
     /// The String is the ctid column alias (e.g. "ctid_0").
@@ -412,16 +509,18 @@ impl WhichFastField {
             WhichFastField::TableOid => "tableoid".into(),
             WhichFastField::Score => "pdb.score()".into(),
             WhichFastField::Named(s, _) => s.clone(),
+            WhichFastField::Array(s, _) => s.clone(),
             WhichFastField::Deferred(s, _) => s.clone(),
             WhichFastField::DeferredCtid(alias) => alias.clone(),
             WhichFastField::MatchTag(alias) => alias.clone(),
         }
     }
 
-    /// Returns the SearchFieldType if this is a Named fast field, None otherwise.
+    /// Returns the SearchFieldType if this is a Named or Array fast field, None otherwise.
     pub fn field_type(&self) -> Option<&SearchFieldType> {
         match self {
             WhichFastField::Named(_, field_type) => Some(field_type),
+            WhichFastField::Array(_, field_type) => Some(field_type),
             WhichFastField::Deferred(_, field_type) => Some(field_type),
             WhichFastField::DeferredCtid(_) | WhichFastField::MatchTag(_) => None,
             _ => None,
@@ -436,6 +535,9 @@ impl WhichFastField {
             WhichFastField::TableOid => DataType::UInt32,
             WhichFastField::Score => DataType::Float32,
             WhichFastField::Named(_, field_type) => field_type.arrow_data_type(),
+            WhichFastField::Array(_, field_type) => DataType::List(Arc::new(
+                arrow_schema::Field::new("item", field_type.arrow_data_type(), true),
+            )),
             WhichFastField::Junk(_) => DataType::Null,
             WhichFastField::Deferred(_, _field_type) => {
                 crate::scan::deferred_encode::deferred_union_data_type()

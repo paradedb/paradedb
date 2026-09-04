@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788533476996,
+  "lastUpdate": 1788533486443,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -304784,6 +304784,162 @@ window.BENCHMARK_DATA = {
             "value": 17.66015625,
             "unit": "median mem",
             "extra": "avg mem: 17.633586693293093, max mem: 17.7890625, count: 59230"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e51119bce84539e25abad25423be5aeb4b6b6c37",
+          "message": "feat: Support `JOIN LATERAL unnest` pushdown in the join and aggregate scans (#6149)\n\n## What\n\nAdds support for `JOIN LATERAL unnest` over array fast fields in the\njoin and aggregate scans.\n\n## Why\n\nQueries combining multi-table joins with `[CROSS|LEFT] JOIN LATERAL\nunnest(...)` over indexed array fast fields previously had multiple\nissues:\n- `ORDER BY` on unnested columns was declined or double-prefixed.\n- `WHERE` on unnested columns omitted from the `SELECT` list failed\nduring plan execution.\n- Inner and cross joins were erroneously classified as left joins in\nsome cases.\n- Datetime and timestamp array fast fields produced schema mismatches\nwhen constructing `RecordBatch`es.\n\n## How\n\n- Extended `JoinScan` planning to include lateral `unnest` function RTIs\nin `output_rtis`, enabling pathkey matching for unnested columns.\n- Added `lateral_unnests` to `CombinedMapper` and populated\n`custom_scan_tlist` with predicate `Var`s via `add_vars_to_tlist` so\nPostgres planner setrefs resolves unprojected filter columns.\n- Corrected left-join classification in `JoinScan` planning by removing\nthe invalid `joininfo.is_null()` check.\n- Updated `fetch_array_values_or_ords_to_arrow` in\n`pg_search/src/index/fast_fields_helper.rs` to use\n`TimestampMicrosecondBuilder` for datetime/timestamp `I64` fields, and\ndeduplicated array fetching across types via `fetch_list_array`.\n- Unified `RelNode::Unnest` DataFusion lowering via\n`apply_relnode_unnest` across `JoinScan` and `AggregateScan`.\n\n## Tests\n\nNew regress tests in\n`pg_search/tests/pg_regress/sql/join_lateral_unnest.sql`, and new\nproperty tests.",
+          "timestamp": "2026-09-04T07:32:37-07:00",
+          "tree_id": "b82ffcb2c7c516bec019a2e40e276d7ab8909d7e",
+          "url": "https://github.com/paradedb/paradedb/commit/e51119bce84539e25abad25423be5aeb4b6b6c37"
+        },
+        "date": 1788533481794,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 23.154848,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.716854706378076, max cpu: 32.892807, count: 59273"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 49.08203125,
+            "unit": "median mem",
+            "extra": "avg mem: 48.81156319329627, max mem: 63.68359375, count: 59273"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.8934315003823854, max cpu: 4.6806436, count: 59273"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 17.40234375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.387429444582693, max mem: 17.40234375, count: 59273"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.653417,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.708217732473237, max cpu: 9.384164, count: 59273"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 21.91796875,
+            "unit": "median mem",
+            "extra": "avg mem: 21.910602081681372, max mem: 21.92578125, count: 59273"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 12821,
+            "unit": "median pages",
+            "extra": "avg pages: 12349.206991378875, max pages: 20476.0, count: 59273"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 100.1640625,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 96.47818014736896, max relation_size:MB: 159.96875, count: 59273"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 53,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 53.99417947463432, max segment_count: 125.0, count: 59273"
+          },
+          {
+            "name": "Insert value - Publisher - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.958528299070555, max cpu: 4.7058825, count: 59273"
+          },
+          {
+            "name": "Insert value - Publisher - mem",
+            "value": 17.3671875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.325298236022302, max mem: 17.3671875, count: 59273"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.924440125971064, max cpu: 32.844578, count: 59273"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 48.83984375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.53070248047172, max mem: 61.0859375, count: 59273"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 23.143684,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.630569868046504, max cpu: 33.022114, count: 59273"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 46.68359375,
+            "unit": "median mem",
+            "extra": "avg mem: 46.4313918094031, max mem: 57.05078125, count: 59273"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 111.36760711669922,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 206.82964132391757, max replication_lag:MB: 976.887825012207, count: 59273"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.925152526278772, max cpu: 32.973503, count: 59273"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 48.47265625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.15724756898166, max mem: 61.55078125, count: 59273"
+          },
+          {
+            "name": "Update 1..50 - Publisher - cpu",
+            "value": 9.253012,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.965589918494368, max cpu: 32.74854, count: 59273"
+          },
+          {
+            "name": "Update 1..50 - Publisher - mem",
+            "value": 17.83984375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.812067019342702, max mem: 17.96484375, count: 59273"
+          },
+          {
+            "name": "Update 51..100 - Publisher - cpu",
+            "value": 9.226334,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.906047880780893, max cpu: 32.876713, count: 59273"
+          },
+          {
+            "name": "Update 51..100 - Publisher - mem",
+            "value": 17.84375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.82415225418825, max mem: 17.9609375, count: 59273"
           }
         ]
       }

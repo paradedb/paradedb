@@ -365,7 +365,7 @@ SELECT id FROM range_items WHERE title @@@ 'doc' ORDER BY nr, id LIMIT 5;
 
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT id FROM range_items WHERE title @@@ 'doc' ORDER BY id, nr LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.check_topk_scan = false (table: range_items)
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: range_items)
                                                                         QUERY PLAN                                                                        
 ----------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -380,7 +380,7 @@ WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). 
 (9 rows)
 
 SELECT id, nr FROM range_items WHERE title @@@ 'doc' ORDER BY id, nr LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.check_topk_scan = false (table: range_items)
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: range_items)
  id |   nr   
 ----+--------
   1 | empty
@@ -395,7 +395,7 @@ WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). 
 -- must not be mistaken for a sort on `nr`. It stays a Postgres Sort.
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT id FROM range_items WHERE title @@@ 'doc' ORDER BY lower(nr) LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: range_items)
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: range_items)
                                                                         QUERY PLAN                                                                        
 ----------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -410,7 +410,7 @@ WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). 
 (9 rows)
 
 SELECT id, lower(nr) FROM range_items WHERE title @@@ 'doc' ORDER BY lower(nr), id LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: range_items)
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: range_items)
  id |    lower     
 ----+--------------
  13 |     -0.00001

@@ -28,6 +28,7 @@ use crate::postgres::locks::Spinlock;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::shared_threshold::ParallelScanThresholdState;
 use crate::query::SearchQueryInput;
+use crate::query::tid_bitmap_stream::SharedBitmapHandle;
 
 use pgrx::*;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
@@ -66,6 +67,7 @@ pub mod pdb_owned_value;
 pub mod planner_warnings;
 pub mod rel;
 pub mod storage;
+pub mod tuplesort;
 pub mod types;
 pub mod types_arrow;
 pub mod utils;
@@ -96,7 +98,7 @@ impl TryFrom<pg_sys::StrategyNumber> for ScanStrategy {
 CREATE FUNCTION bm25_handler(internal) RETURNS index_am_handler PARALLEL SAFE IMMUTABLE STRICT COST 0.0001 LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
 CREATE ACCESS METHOD paradedb TYPE INDEX HANDLER bm25_handler;
 CREATE ACCESS METHOD bm25 TYPE INDEX HANDLER bm25_handler;
-COMMENT ON ACCESS METHOD bm25 IS 'bm25 index access method';
+COMMENT ON ACCESS METHOD bm25 IS 'backwards-compatible alias for the paradedb index access method';
 ")]
 fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRoutine> {
     let mut amroutine =
@@ -141,8 +143,8 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
 /// along with the heap relation. Returns [`None`] if there isn't one.
 ///
 /// Filters out indexes that aren't yet `indisvalid` (e.g. mid-`CREATE INDEX CONCURRENTLY`
-/// or a failed `REINDEX`). When more than one valid bm25 index exists on the relation
-/// (only possible via `CREATE INDEX CONCURRENTLY`, which bypasses the single-bm25-index
+/// or a failed `REINDEX`). When more than one valid ParadeDB index exists on the relation
+/// (only possible via `CREATE INDEX CONCURRENTLY`, which bypasses the single-ParadeDB-index
 /// check), the highest-OID one is chosen so that the index added most recently wins.
 pub fn rel_get_bm25_index(
     relid: pg_sys::Oid,
@@ -697,7 +699,28 @@ pub struct ParallelScanState {
     /// Top-K Shared Threshold Fields
     pub shared_threshold: ParallelScanThresholdState,
 
+    /// Bitmap-intersection build coordination. Protected by `mutex`; waiters
+    /// sleep on `bitmap_cv`.
+    bitmap_build_state: BitmapBuildState,
+    /// Handle of the owner's DSA area and the claim table within it; (0, 0)
+    /// when the build produced nothing. Valid once `bitmap_build_state` is `Done`.
+    bitmap_area_handle: pg_sys::dsa_handle,
+    bitmap_table: pg_sys::dsa_pointer,
+    /// Condition variable for waiting on the bitmap build.
+    bitmap_cv: ConditionVariable,
+
     payload: ParallelScanPayload, // must be last field, b/c it allocates on the heap after this struct
+}
+
+/// Bitmap-intersection build progress. Lives in the parallel DSM, so the layout
+/// is pinned to `u32` with fixed discriminants (zeroed shared memory reads as
+/// `NotBuilt`). The leader is the only builder: it publishes at DSM
+/// (re)initialization and workers wait for `Done`.
+#[derive(Clone, Copy, PartialEq)]
+#[repr(u32)]
+enum BitmapBuildState {
+    NotBuilt = 0,
+    Done = 1,
 }
 
 impl ParallelScanState {
@@ -744,6 +767,10 @@ impl ParallelScanState {
         self.mutex.init();
         self.aggregation_cv.init();
         self.init_cv.init();
+        self.bitmap_cv.init();
+        self.bitmap_build_state = BitmapBuildState::NotBuilt;
+        self.bitmap_area_handle = 0;
+        self.bitmap_table = 0;
         self.shared_threshold.init();
         self.populate(
             &args.all_sources,
@@ -751,6 +778,35 @@ impl ParallelScanState {
             args.with_aggregates,
             args.with_segment_info,
         );
+    }
+
+    pub fn publish_bitmap_handle(&mut self, handle: Option<SharedBitmapHandle>) {
+        {
+            let _lock = self.mutex.acquire();
+            self.bitmap_area_handle = handle.map(|h| h.area).unwrap_or(0);
+            self.bitmap_table = handle.map(|h| h.table).unwrap_or(0);
+            self.bitmap_build_state = BitmapBuildState::Done;
+        }
+        self.bitmap_cv.broadcast();
+    }
+
+    pub fn bitmap_wait_done(&mut self) -> Option<SharedBitmapHandle> {
+        self.bitmap_cv.prepare_to_sleep();
+        loop {
+            {
+                let _lock = self.mutex.acquire();
+                if self.bitmap_build_state == BitmapBuildState::Done {
+                    break;
+                }
+            }
+            self.bitmap_cv.sleep();
+        }
+        ConditionVariable::cancel_sleep();
+        let _lock = self.mutex.acquire();
+        (self.bitmap_area_handle != 0).then_some(SharedBitmapHandle {
+            area: self.bitmap_area_handle,
+            table: self.bitmap_table,
+        })
     }
 
     /// Phase 2: Populate with actual data (assumes mutex already created via `create`).
@@ -1163,6 +1219,18 @@ impl ParallelScanState {
 
     fn query(&self) -> anyhow::Result<Option<SearchQueryInput>> {
         self.payload.query()
+    }
+
+    /// Reset the bitmap-build coordination for a parallel rescan, freeing the previous
+    /// execution's DSA allocation. Called only from `reinitialize_dsm_custom_scan`,
+    /// which runs after the previous cycle's workers have exited and before new ones
+    /// launch, so nothing can still be reading the freed bytes. Never called from the
+    /// leader's per-scan `reset()`: wiping there would race a rebuild that already
+    /// published, stranding CV waiters.
+    pub fn bitmap_reset(&mut self) {
+        self.bitmap_build_state = BitmapBuildState::NotBuilt;
+        self.bitmap_area_handle = 0;
+        self.bitmap_table = 0;
     }
 
     /// Restore the per-source remaining counts for a rescan. Called by amparallelrescan.

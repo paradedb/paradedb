@@ -61,9 +61,9 @@ ORDER BY company_name;
            : AggregateExec: mode=Single, gby=[company_name_words@0 as company_name_words], aggr=[count(1) as agg_0]
            :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@0, company_id@0)], projection=[company_name_words@1]
            :     CooperativeExec
-           :       PgSearchScan: table=cccf, segments=1, query="all"
+           :       PgSearchScan: table=cccf, segments=1, visibility=eager, query="all"
            :     CooperativeExec
-           :       PgSearchScan: table=ti, segments=1, dynamic_filters=1, query="all"
+           :       PgSearchScan: table=ti, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (14 rows)
 
 SELECT company_name, count(*)
@@ -110,9 +110,9 @@ JOIN repro_ti ti ON cccf.company_id = ti.company_id;
      : AggregateExec: mode=Single, gby=[], aggr=[count(DISTINCT cccf_0.company_name_words) as agg_0]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@0, company_id@0)], projection=[company_name_words@1]
      :     CooperativeExec
-     :       PgSearchScan: table=cccf, segments=1, query="all"
+     :       PgSearchScan: table=cccf, segments=1, visibility=eager, query="all"
      :     CooperativeExec
-     :       PgSearchScan: table=ti, segments=1, dynamic_filters=1, query="all"
+     :       PgSearchScan: table=ti, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (11 rows)
 
 SELECT count(DISTINCT company_name)
@@ -153,9 +153,9 @@ JOIN repro_ti ti ON cccf.company_id = ti.company_id;
      :   SortExec: expr=[company_name_words@0 ASC NULLS LAST], preserve_partitioning=[false]
      :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@0, company_id@0)], projection=[company_name_words@1]
      :       CooperativeExec
-     :         PgSearchScan: table=cccf, segments=1, query="all"
+     :         PgSearchScan: table=cccf, segments=1, visibility=eager, query="all"
      :       CooperativeExec
-     :         PgSearchScan: table=ti, segments=1, dynamic_filters=1, query="all"
+     :         PgSearchScan: table=ti, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (12 rows)
 
 SELECT string_agg(company_name, ',' ORDER BY company_name)

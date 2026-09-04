@@ -92,6 +92,8 @@ pub enum UnusableReason {
     },
     /// We cannot pushdown collations that are not byte-ordered (C-like)
     UnsafeCollation,
+    /// ORDER BY uses an unsupported expression shape containing pdb.score()
+    UnsupportedScoreExpression,
 }
 
 #[derive(Debug, Clone)]
@@ -630,6 +632,14 @@ where
         // of pathkeys.
         if !found_valid_member {
             if pathkey_styles.is_empty() {
+                let has_score = members.iter_ptr().any(|m| {
+                    crate::postgres::customscan::basescan::projections::score::expr_contains_any_score(
+                        (*m).em_expr.cast(),
+                    )
+                });
+                if has_score {
+                    return PathKeyInfo::Unusable(UnusableReason::UnsupportedScoreExpression);
+                }
                 return PathKeyInfo::Unusable(UnusableReason::NotSortable);
             } else {
                 return PathKeyInfo::UsablePrefix(pathkey_styles);
@@ -646,7 +656,7 @@ where
 /// 1. The query has both ORDER BY and LIMIT clauses.
 /// 2. There are not too many sort columns.
 /// 3. All sort columns belong to the same relation.
-/// 4. That relation has a BM25 index.
+/// 4. That relation has a ParadeDB index.
 /// 5. All sort columns are sortable in the index (fast fields).
 ///
 /// This function must be kept in sync with [`extract_pathkey_styles_with_sortability_check`]

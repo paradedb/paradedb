@@ -16,11 +16,14 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 pub mod crossrelgen;
+pub mod distinctgen;
 pub mod groupbygen;
 pub mod joingen;
 pub mod numericgen;
 pub mod opexprgen;
+pub mod orderbygen;
 pub mod pagegen;
+pub mod pdbagggen;
 pub mod wheregen;
 
 use std::fmt::{Debug, Write};
@@ -38,6 +41,7 @@ use sqlx::{Connection, PgConnection};
 use crate::fixtures::ConnExt;
 use crate::fixtures::db::Query;
 use crate::fixtures::fault_grace::{TransientKind, classify_transient};
+use crossrelgen::CrossRelExpr;
 use joingen::{JoinExpr, JoinType};
 use opexprgen::{ArrayQuantifier, Operator};
 use wheregen::Expr;
@@ -50,6 +54,24 @@ pub struct BM25Options {
     pub config_json: &'static str,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IndexExpression {
+    /// V2 expression index: `(upper({column})::pdb.literal)`
+    Upper,
+    /// V2 expression index: `({column}::pdb.literal_normalized)`
+    LiteralNormalized,
+}
+
+impl IndexExpression {
+    /// Generate the column definition for `CREATE INDEX ... USING paradedb(...)`
+    pub fn to_index_sql(&self, column_name: &str) -> String {
+        match self {
+            Self::Upper => format!("(upper({column_name})::pdb.literal)"),
+            Self::LiteralNormalized => format!("({column_name}::pdb.literal_normalized)"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Column {
     pub name: &'static str,
@@ -59,11 +81,12 @@ pub struct Column {
     pub is_groupable: bool,
     pub is_whereable: bool,
     pub is_indexed: bool,
+    pub is_orderable: Option<bool>,
     pub bm25_options: Option<BM25Options>,
     pub random_generator_sql: &'static str,
-    /// V2 syntax: expression to use in index column list, e.g. "(column::pdb.literal_normalized)"
+    /// V2 syntax: typed expression to use in index column list, e.g. `IndexExpression::Upper`.
     /// When set, this is used instead of bm25_options JSON config.
-    pub index_expression: Option<&'static str>,
+    pub index_expression: Option<IndexExpression>,
 }
 
 impl Column {
@@ -80,6 +103,7 @@ impl Column {
             is_groupable: true,
             is_whereable: true,
             is_indexed: true,
+            is_orderable: None,
             bm25_options: None,
             random_generator_sql: "NULL",
             index_expression: None,
@@ -104,6 +128,29 @@ impl Column {
     pub const fn indexed(mut self, is_indexed: bool) -> Self {
         self.is_indexed = is_indexed;
         self
+    }
+
+    pub const fn orderable(mut self, is_orderable: bool) -> Self {
+        self.is_orderable = Some(is_orderable);
+        self
+    }
+
+    pub fn is_orderable(&self) -> bool {
+        if let Some(orderable) = self.is_orderable {
+            return orderable;
+        }
+        let ty = self.sql_type.to_ascii_uppercase();
+        ty.starts_with("INT")
+            || ty.starts_with("SERIAL")
+            || ty.starts_with("BIGINT")
+            || ty.starts_with("SMALLINT")
+            || ty.starts_with("NUMERIC")
+            || ty.starts_with("DECIMAL")
+            || ty.starts_with("FLOAT")
+            || ty.starts_with("REAL")
+            || ty.starts_with("DOUBLE")
+            || ty.starts_with("DATE")
+            || ty.starts_with("TIME")
     }
 
     pub const fn bm25_text_field(mut self, config_json: &'static str) -> Self {
@@ -136,11 +183,48 @@ impl Column {
         self
     }
 
-    /// V2 syntax: set index expression, e.g. "(column::pdb.literal_normalized)"
+    /// V2 syntax: set index expression using typed `IndexExpression`
     /// When set, this is used instead of bm25_options JSON config.
-    pub const fn bm25_v2_expression(mut self, expression: &'static str) -> Self {
+    pub const fn bm25_v2_expression(mut self, expression: IndexExpression) -> Self {
         self.index_expression = Some(expression);
         self
+    }
+
+    /// Whether this column has an array SQL type (e.g. "TEXT[]", "INTEGER[]").
+    pub const fn is_array(&self) -> bool {
+        let bytes = self.sql_type.as_bytes();
+        bytes.len() >= 2 && bytes[bytes.len() - 2] == b'[' && bytes[bytes.len() - 1] == b']'
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SetupScript {
+    pub sql: String,
+    pub tables: Vec<String>,
+    pub qgen_seed: Option<u64>,
+}
+
+impl SetupScript {
+    pub fn new(sql: String, tables: Vec<String>) -> Self {
+        Self {
+            sql,
+            tables,
+            qgen_seed: None,
+        }
+    }
+
+    pub fn drop_tables_sql(&self) -> String {
+        self.tables
+            .iter()
+            .map(|t| format!("DROP TABLE {t};"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
+impl std::fmt::Display for SetupScript {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.sql)
     }
 }
 
@@ -154,14 +238,14 @@ pub fn generated_queries_setup(
     pool: &MutexObjectPool<PgConnection>,
     tables: &[(&str, usize)],
     columns_def: &[Column],
-) -> String {
+) -> SetupScript {
     use crate::fixtures::fault_grace::{RetryError, sql_attempt};
-    let attempt = |conn: &mut PgConnection| -> Result<String, sqlx::Error> {
+    let attempt = |conn: &mut PgConnection| -> Result<SetupScript, sqlx::Error> {
         "BEGIN;".execute_result(conn)?;
         match generated_queries_setup_inner(conn, tables, columns_def) {
-            Ok(setup_sql) => {
+            Ok(setup_script) => {
                 "COMMIT;".execute_result(conn)?;
-                Ok(setup_sql)
+                Ok(setup_script)
             }
             Err(err) => {
                 // Best effort: if the connection is already gone the server rolls back on its own.
@@ -173,7 +257,7 @@ pub fn generated_queries_setup(
     match crate::fixtures::fault_grace::retry_transient(pool, "generated queries setup", |conn| {
         sql_attempt(attempt(conn))
     }) {
-        Ok(Ok(setup_sql)) => setup_sql,
+        Ok(Ok(setup_script)) => setup_script,
         Ok(Err(e)) => panic!("generated queries setup should succeed: {e:#?}"),
         Err(RetryError::TimedOutUnderPause(e)) => {
             panic!("generated queries setup timed out while faults were paused: {e}")
@@ -186,7 +270,7 @@ fn generated_queries_setup_inner(
     conn: &mut PgConnection,
     tables: &[(&str, usize)],
     columns_def: &[Column],
-) -> Result<String, sqlx::Error> {
+) -> Result<SetupScript, sqlx::Error> {
     "CREATE EXTENSION IF NOT EXISTS vector;".execute_result(conn)?;
     "CREATE EXTENSION IF NOT EXISTS pg_search;".execute_result(conn)?;
     "SET log_error_verbosity TO VERBOSE;".execute_result(conn)?;
@@ -223,7 +307,7 @@ fn generated_queries_setup_inner(
         .filter(|c| c.is_indexed)
         .map(|c| {
             if let Some(expr) = c.index_expression {
-                expr.to_string()
+                expr.to_index_sql(c.name)
             } else {
                 c.name.to_string()
             }
@@ -381,17 +465,27 @@ ANALYZE {tname};
         setup_sql.push_str(&sql);
     }
 
-    Ok(setup_sql)
+    let table_names = tables
+        .iter()
+        .map(|(tname, _)| (*tname).to_string())
+        .collect::<Vec<_>>();
+
+    Ok(SetupScript {
+        sql: setup_sql,
+        tables: table_names,
+        qgen_seed: Some(qgen_seed),
+    })
 }
 
 ///
-/// Generates arbitrary joins and where clauses for the given tables and columns.
+/// Generates arbitrary joins, where clauses, and optional cross-relation predicates
+/// for the given tables and columns.
 ///
 pub fn arb_joins_and_wheres<J, S>(
     join_types: J,
     tables: Vec<S>,
     columns: &[Column],
-) -> impl Strategy<Value = (JoinExpr, Expr)> + use<J, S>
+) -> impl Strategy<Value = (JoinExpr, Expr, Option<CrossRelExpr>)> + use<J, S>
 where
     J: Strategy<Value = JoinType> + Clone,
     S: AsRef<str>,
@@ -402,22 +496,34 @@ where
         .collect::<Vec<_>>();
 
     let columns = columns.to_vec();
+    let numeric_columns: Vec<String> = columns
+        .iter()
+        .filter(|c| c.sql_type == "INTEGER" && c.is_whereable)
+        .map(|c| c.name.to_string())
+        .collect();
 
-    // Choose how many tables will be joined.
+    // Choose how many tables will be joined (at least 2).
     (2..=table_names.len())
         .prop_flat_map(move |join_size| {
             // Then choose tables for that join size.
             proptest::sample::subsequence(table_names.clone(), join_size)
         })
         .prop_flat_map(move |tables| {
-            // Finally, choose the joins and where clauses for those tables.
-            (
-                joingen::arb_joins(
-                    join_types.clone(),
+            let cross_rel_strategy = if numeric_columns.is_empty() {
+                proptest::strategy::Just(None).boxed()
+            } else {
+                proptest::option::of(crossrelgen::arb_cross_rel_expr(
                     tables.clone(),
-                    columns.iter().map(|c| c.name.to_owned()).collect(),
-                ),
+                    numeric_columns.clone(),
+                ))
+                .boxed()
+            };
+
+            // Finally, choose the joins, where clauses, and optional cross-relation predicate for those tables.
+            (
+                joingen::arb_joins(join_types.clone(), tables.clone(), &columns),
                 wheregen::arb_wheres(tables.clone(), &columns.to_vec()),
+                cross_rel_strategy,
             )
         })
 }
@@ -682,6 +788,22 @@ impl CaseOutcome {
     }
 }
 
+/// The session settings each side of a comparison runs under.
+pub struct Sides {
+    pub baseline: String,
+    pub candidate: String,
+}
+
+impl Sides {
+    /// Plain Postgres, the known-correct baseline, against the custom scans under `gucs`.
+    pub fn postgres_vs(gucs: &PgGucs) -> Self {
+        Self {
+            baseline: PgGucs::pg_search_disabled().set(),
+            candidate: gucs.set(),
+        }
+    }
+}
+
 /// Run one generated case on `conn`: execute `pg_query` (custom scan off, the known-correct
 /// baseline) and `bm25_query` (with `gucs`), then compare their results.
 pub fn compare_outcome<R, F>(
@@ -689,7 +811,26 @@ pub fn compare_outcome<R, F>(
     bm25_query: &str,
     gucs: &PgGucs,
     conn: &mut PgConnection,
-    setup_sql: &str,
+    setup: &SetupScript,
+    run_query: F,
+) -> CaseOutcome
+where
+    R: Eq + Debug,
+    F: Fn(&str, &mut PgConnection) -> Result<R, sqlx::Error>,
+{
+    let sides = Sides::postgres_vs(gucs);
+    compare_outcome_on(&sides, pg_query, bm25_query, gucs, conn, setup, run_query)
+}
+
+/// [`compare_outcome`] with the two sessions spelled out, for a baseline other than plain
+/// Postgres, such as one backend of pg_search against another.
+pub fn compare_outcome_on<R, F>(
+    sides: &Sides,
+    pg_query: &str,
+    bm25_query: &str,
+    gucs: &PgGucs,
+    conn: &mut PgConnection,
+    setup: &SetupScript,
     run_query: F,
 ) -> CaseOutcome
 where
@@ -699,7 +840,7 @@ where
     // A panic (vs a returned sqlx::Error) still becomes a Failure, so it trips the oracle and
     // carries a repro script instead of aborting the driver.
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        compare_outcome_inner(pg_query, bm25_query, gucs, conn, setup_sql, run_query)
+        compare_outcome_inner(sides, pg_query, bm25_query, gucs, conn, setup, run_query)
     }));
     match outcome {
         Ok(o) => o,
@@ -716,7 +857,7 @@ where
                 pg_query,
                 bm25_query,
                 gucs,
-                setup_sql,
+                setup,
             ))
         }
     }
@@ -730,7 +871,25 @@ pub fn compare_outcome_retrying<R, F>(
     bm25_query: &str,
     gucs: &PgGucs,
     pool: &MutexObjectPool<PgConnection>,
-    setup_sql: &str,
+    setup: &SetupScript,
+    run_query: F,
+) -> CaseOutcome
+where
+    R: Eq + Debug,
+    F: Fn(&str, &mut PgConnection) -> Result<R, sqlx::Error>,
+{
+    let sides = Sides::postgres_vs(gucs);
+    compare_outcome_retrying_on(&sides, pg_query, bm25_query, gucs, pool, setup, run_query)
+}
+
+/// [`compare_outcome_retrying`] with the two sessions spelled out; see [`compare_outcome_on`].
+pub fn compare_outcome_retrying_on<R, F>(
+    sides: &Sides,
+    pg_query: &str,
+    bm25_query: &str,
+    gucs: &PgGucs,
+    pool: &MutexObjectPool<PgConnection>,
+    setup: &SetupScript,
     run_query: F,
 ) -> CaseOutcome
 where
@@ -744,11 +903,11 @@ where
             pg_query,
             bm25_query,
             gucs,
-            setup_sql,
+            setup,
         ))
     };
     let outcome = crate::fixtures::fault_grace::retry_transient(pool, "qgen case", |conn| {
-        match compare_outcome(pg_query, bm25_query, gucs, conn, setup_sql, &run_query) {
+        match compare_outcome_on(sides, pg_query, bm25_query, gucs, conn, setup, &run_query) {
             CaseOutcome::Transient(kind, e) => Attempt::Transient(kind, e),
             verdict => Attempt::Done(verdict),
         }
@@ -764,11 +923,12 @@ where
 }
 
 fn compare_outcome_inner<R, F>(
+    sides: &Sides,
     pg_query: &str,
     bm25_query: &str,
     gucs: &PgGucs,
     conn: &mut PgConnection,
-    setup_sql: &str,
+    setup: &SetupScript,
     run_query: F,
 ) -> CaseOutcome
 where
@@ -776,15 +936,16 @@ where
     F: Fn(&str, &mut PgConnection) -> Result<R, sqlx::Error>,
 {
     let mut queries = || -> Result<(R, R), sqlx::Error> {
-        // The pg query runs with the paradedb custom scan off, so we compare against Postgres'
-        // known-correct plan rather than our own pushdown.
-        PgGucs::pg_search_disabled()
-            .set()
+        sides
+            .baseline
+            .as_str()
             .execute_result(conn)
             .and_then(|()| conn.deallocate_all())?;
         let pg_result = run_query(pg_query, conn)?;
 
-        gucs.set()
+        sides
+            .candidate
+            .as_str()
             .execute_result(conn)
             .and_then(|()| conn.deallocate_all())?;
         let bm25_result = run_query(bm25_query, conn)?;
@@ -800,16 +961,14 @@ where
                     pg_query,
                     bm25_query,
                     gucs,
-                    setup_sql,
+                    setup,
                 ));
             }
         },
     };
     match assert_results_match(&pg_result, &bm25_result, pg_query, bm25_query, gucs, conn) {
         Ok(()) => CaseOutcome::Match,
-        Err(e) => CaseOutcome::Failure(handle_compare_error(
-            e, pg_query, bm25_query, gucs, setup_sql,
-        )),
+        Err(e) => CaseOutcome::Failure(handle_compare_error(e, pg_query, bm25_query, gucs, setup)),
     }
 }
 
@@ -854,21 +1013,16 @@ pub fn compare<R, F>(
     bm25_query: &str,
     gucs: &PgGucs,
     conn: &mut PgConnection,
-    setup_sql: &str,
+    setup: &SetupScript,
     run_query: F,
 ) -> Result<(), TestCaseError>
 where
     R: Eq + Debug,
     F: Fn(&str, &mut PgConnection) -> R,
 {
-    match compare_outcome(
-        pg_query,
-        bm25_query,
-        gucs,
-        conn,
-        setup_sql,
-        |query, conn| Ok::<R, sqlx::Error>(run_query(query, conn)),
-    ) {
+    match compare_outcome(pg_query, bm25_query, gucs, conn, setup, |query, conn| {
+        Ok::<R, sqlx::Error>(run_query(query, conn))
+    }) {
         // run_query panics on DB errors here, so a `Transient` means the GUC set failed (and a
         // plain `cargo test` never classifies anything transient anyway).
         CaseOutcome::Transient(_, e) => Err(handle_compare_error(
@@ -876,7 +1030,7 @@ where
             pg_query,
             bm25_query,
             gucs,
-            setup_sql,
+            setup,
         )),
         verdict => verdict.into_test_result(),
     }
@@ -888,7 +1042,7 @@ pub fn handle_compare_error(
     pg_query: &str,
     bm25_query: &str,
     gucs: &PgGucs,
-    setup_sql: &str,
+    setup: &SetupScript,
 ) -> TestCaseError {
     let error_msg = error.to_string();
     let failure_type = if error_msg.contains("error returned from database")
@@ -901,18 +1055,22 @@ pub fn handle_compare_error(
         "RESULT MISMATCH"
     };
 
-    let qgen_seed = setup_sql
-        .lines()
-        .find_map(|l| l.strip_prefix("-- PARADEDB_QGEN_SEED: "))
-        .unwrap_or_else(|| {
-            panic!(
-                "qgen seed marker missing from setup_sql; \
-                 `generated_queries_setup_result` must emit `-- PARADEDB_QGEN_SEED: <n>`"
-            )
-        });
+    let qgen_seed = setup
+        .qgen_seed
+        .map(|s| s.to_string())
+        .or_else(|| {
+            setup
+                .sql
+                .lines()
+                .find_map(|l| l.strip_prefix("-- PARADEDB_QGEN_SEED: "))
+                .map(|s| s.to_string())
+        })
+        .unwrap_or_else(|| "<unknown>".to_string());
     let proptest_seed = std::env::var("PROPTEST_RNG_SEED")
         .ok()
         .unwrap_or_else(|| "<from proptest output above>".to_string());
+
+    let drop_tables_sql = setup.drop_tables_sql();
 
     let repro_script = format!(
         r#"
@@ -938,6 +1096,9 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 -- ParadeDB query:
 {bm25_query};
 --
+-- Cleanup:
+{drop_tables_sql}
+--
 -- ==== END REPRODUCTION SCRIPT ====
 
 Replay this proptest case end-to-end:
@@ -950,11 +1111,12 @@ Original error:
         failure_type = failure_type,
         qgen_seed = qgen_seed,
         proptest_seed = proptest_seed,
-        setup_sql = setup_sql,
+        setup_sql = setup.sql,
         default_gucs = PgGucs::pg_search_disabled().set(),
         gucs_sql = gucs.set(),
         pg_query = pg_query,
         bm25_query = bm25_query,
+        drop_tables_sql = drop_tables_sql,
         error_msg = error_msg
     );
 

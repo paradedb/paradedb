@@ -23,7 +23,7 @@ When a viable PostgreSQL parallel launch is available, JoinScan uses Massively P
 
 ### 1. Activation
 
-JoinScan fires when all conditions are met: LIMIT present, equi-join keys exist, all columns are fast fields, all tables have BM25 indexes, and at least one `@@@` predicate. See [`create_custom_path()`][activation] for the full checklist.
+JoinScan fires when all conditions are met: LIMIT present, equi-join keys exist, all columns are fast fields, all tables have ParadeDB indexes, and at least one `@@@` predicate. See [`create_custom_path()`][activation] for the full checklist.
 
 ### 2. Planning
 

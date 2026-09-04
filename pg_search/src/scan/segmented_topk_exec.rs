@@ -840,6 +840,18 @@ struct SegmentBuf {
     checked: usize,
 }
 
+/// A row that had a NULL ordinal in at least one deferred sort column, so it
+/// bypasses the ordinal-tracked segment buffers and is carried straight to
+/// the final sort. `row_val` is the same compound ordinal key `collect_batch`
+/// builds for every row, so a NULL in one deferred column leaves the other
+/// columns' ordinals intact.
+struct PassThroughRow {
+    batch_idx: usize,
+    row_idx: usize,
+    seg_ord: SegmentOrdinal,
+    row_val: OwnedRow,
+}
+
 struct SegmentedTopKState {
     sort_exprs: LexOrdering,
     deferred_columns: Vec<DeferredSortColumn>,
@@ -864,9 +876,11 @@ struct SegmentedTopKState {
     dynamic_filter: Arc<dyn PhysicalExpr>,
     /// Buffered batches during the collection phase.
     batches: Vec<RecordBatch>,
-    /// Buffered pass-through rows (NULL ordinals) that bypass
-    /// ordinal comparison. These are included in the final sort + limit.
-    pass_through_rows: Vec<(usize, usize)>,
+    /// Buffered pass-through rows (had a NULL ordinal in at least one deferred
+    /// sort column) that bypass ordinal comparison. Included in the final sort
+    /// with per-column ordinals so a NULL in one column does not force the
+    /// other columns to NULL.
+    pass_through_rows: Vec<PassThroughRow>,
 
     /// For each segment that has a cutoff, we cache the resolved values of its current
     /// K-th best row (the cutoff threshold). Indexed by `SegmentOrdinal`; `None` for
@@ -1032,7 +1046,9 @@ impl SegmentedTopKState {
             deferred_ords.insert(deferred_col.sort_col_idx, global_term_ords);
         }
 
-        // Build the evaluation arrays for the RowConverter
+        // Build the evaluation arrays for the RowConverter. The per-column
+        // ordinals land in the converted row, so a NULL in one deferred column
+        // no longer blanks the others and nothing downstream needs the map.
         self.sort_arrays_scratch.clear();
         for expr in &self.sort_exprs {
             let col_idx = expr
@@ -1061,7 +1077,18 @@ impl SegmentedTopKState {
 
         for row_idx in 0..num_rows {
             if self.pass_through_scratch[row_idx] {
-                self.pass_through_rows.push((batch_idx, row_idx));
+                // Keep the compound key the converter already built for this
+                // row. `row_to_seg_scratch` is populated unconditionally in
+                // `extract_deferred_ordinals` for every row a deferred column
+                // touched, which includes any row that reached this branch.
+                let seg_ord = self.row_to_seg_scratch[row_idx]
+                    .expect("row_to_seg_scratch must be populated for pass-through rows");
+                self.pass_through_rows.push(PassThroughRow {
+                    batch_idx,
+                    row_idx,
+                    seg_ord,
+                    row_val: converted_rows.row(row_idx).owned(),
+                });
                 continue;
             }
 
@@ -1465,34 +1492,7 @@ impl SegmentedTopKState {
                         )
                     })?
                     .value(0);
-                let col = self.ffhelper.column(seg_ord, deferred.canonical.ff_index);
-                match col {
-                    FFType::Text(str_col) => {
-                        let mut s = String::new();
-                        str_col.ord_to_str(term_ord, &mut s).map_err(|e| {
-                            datafusion::error::DataFusionError::Internal(format!(
-                                "Failed to resolve string ordinal: {}",
-                                e
-                            ))
-                        })?;
-                        ScalarValue::Utf8View(Some(s))
-                    }
-                    FFType::Bytes(bytes_col) => {
-                        let mut b = Vec::new();
-                        bytes_col.ord_to_bytes(term_ord, &mut b).map_err(|e| {
-                            datafusion::error::DataFusionError::Internal(format!(
-                                "Failed to resolve bytes ordinal: {}",
-                                e
-                            ))
-                        })?;
-                        ScalarValue::BinaryView(Some(b))
-                    }
-                    _ => {
-                        return Err(datafusion::error::DataFusionError::Internal(
-                            "Unexpected column type for deferred field".to_string(),
-                        ));
-                    }
-                }
+                self.materialize_deferred_ordinal(seg_ord, term_ord, deferred)?
             } else {
                 ScalarValue::try_from_array(&arrays[i], 0)?
             };
@@ -1544,8 +1544,8 @@ impl SegmentedTopKState {
                 survivors.insert((*batch_idx, *row_idx));
             }
         }
-        for &(batch_idx, row_idx) in &self.pass_through_rows {
-            survivors.insert((batch_idx, row_idx));
+        for pt in &self.pass_through_rows {
+            survivors.insert((pt.batch_idx, pt.row_idx));
         }
 
         if survivors.is_empty() {
@@ -1591,9 +1591,9 @@ impl SegmentedTopKState {
             }
         }
         for entry in &mut self.pass_through_rows {
-            let new_ri = mapping[&(entry.0, entry.1)];
-            entry.0 = 0;
-            entry.1 = new_ri;
+            let new_ri = mapping[&(entry.batch_idx, entry.row_idx)];
+            entry.batch_idx = 0;
+            entry.row_idx = new_ri;
         }
 
         self.batches = vec![compacted];
@@ -1711,6 +1711,52 @@ impl SegmentedTopKState {
         Ok((overall_visible, all_corrected))
     }
 
+    /// Resolve a `(seg_ord, term_ord)` pair on a deferred sort column to the
+    /// materialized `ScalarValue` that `mat_row_converter` expects.
+    ///
+    /// A failed lookup, or a column that is not a dictionary, is an error
+    /// rather than a NULL: a NULL here would sort as a NULL and silently
+    /// change the order of the result.
+    fn materialize_deferred_ordinal(
+        &self,
+        seg_ord: SegmentOrdinal,
+        term_ord: TermOrdinal,
+        deferred: &DeferredSortColumn,
+    ) -> Result<datafusion::common::ScalarValue> {
+        use datafusion::common::ScalarValue;
+        match self.ffhelper.column(seg_ord, deferred.canonical.ff_index) {
+            FFType::Text(str_col) => {
+                let mut s = String::new();
+                if !str_col.ord_to_str(term_ord, &mut s).map_err(|e| {
+                    DataFusionError::Internal(format!("Failed to resolve string ordinal: {e}"))
+                })? {
+                    return Err(DataFusionError::Internal(format!(
+                        "SegmentedTopKExec: term ordinal {term_ord} was not found in segment \
+                         {seg_ord} for fast-field index {}",
+                        deferred.canonical.ff_index
+                    )));
+                }
+                Ok(ScalarValue::Utf8View(Some(s)))
+            }
+            FFType::Bytes(bytes_col) => {
+                let mut b = Vec::new();
+                if !bytes_col.ord_to_bytes(term_ord, &mut b).map_err(|e| {
+                    DataFusionError::Internal(format!("Failed to resolve bytes ordinal: {e}"))
+                })? {
+                    return Err(DataFusionError::Internal(format!(
+                        "SegmentedTopKExec: term ordinal {term_ord} was not found in segment \
+                         {seg_ord} for fast-field index {}",
+                        deferred.canonical.ff_index
+                    )));
+                }
+                Ok(ScalarValue::BinaryView(Some(b)))
+            }
+            _ => Err(DataFusionError::Internal(
+                "Unexpected column type for deferred field".to_string(),
+            )),
+        }
+    }
+
     /// Perform the final sort + limit after all input is consumed.
     ///
     ///
@@ -1732,7 +1778,10 @@ impl SegmentedTopKState {
         //    pass below removes them, and it can never leave a segment short: the K
         //    rows kept by the last truncate_top_k were checked alive, and visibility
         //    against a fixed snapshot never changes mid-query.
-        type Candidate = (usize, usize, Option<(SegmentOrdinal, OwnedRow)>);
+        //
+        // Ordinal-tracked survivors and pass-through rows carry the same compound
+        // key, so both resolve through one path below.
+        type Candidate = (usize, usize, SegmentOrdinal, OwnedRow);
         let mut candidates: Vec<Candidate> = Vec::new();
 
         for (seg_idx, slot) in self.segment_bufs.iter().enumerate() {
@@ -1741,14 +1790,16 @@ impl SegmentedTopKState {
                 candidates.push((
                     *batch_idx,
                     *row_idx,
-                    Some((seg_idx as SegmentOrdinal, row_val.clone())),
+                    seg_idx as SegmentOrdinal,
+                    row_val.clone(),
                 ));
             }
         }
 
-        // Always include pass-through rows (NULL ordinals).
-        for &(batch_idx, row_idx) in &self.pass_through_rows {
-            candidates.push((batch_idx, row_idx, None));
+        // Always include pass-through rows (had a NULL ordinal in at least one
+        // deferred column).
+        for pt in &self.pass_through_rows {
+            candidates.push((pt.batch_idx, pt.row_idx, pt.seg_ord, pt.row_val.clone()));
         }
 
         // 2a. Visibility filter: remove invisible rows from candidates.
@@ -1762,7 +1813,7 @@ impl SegmentedTopKState {
 
         if !self.visibility_entries.is_empty() && !candidates.is_empty() {
             let row_keys: Vec<(usize, usize)> =
-                candidates.iter().map(|(bi, ri, _)| (*bi, *ri)).collect();
+                candidates.iter().map(|(bi, ri, _, _)| (*bi, *ri)).collect();
             let (visible_mask, corrected_per_entry) = self.check_rows_visible(&row_keys)?;
             // Build per-entry (batch_idx, row_idx) → HOT-corrected ctid lookup.
             corrected_lookup = corrected_per_entry
@@ -1832,15 +1883,6 @@ impl SegmentedTopKState {
             })
             .collect();
 
-        let materialized_sort_fields: Vec<SortField> = sort_cols
-            .iter()
-            .map(|sort_col| {
-                SortField::new_with_options(sort_col.mat_type.clone(), sort_col.expr.options)
-            })
-            .collect();
-
-        let mat_row_converter = RowConverter::new(materialized_sort_fields)?;
-
         // A NULL must match the RowConverter's declared field type:
         // convert_columns rejects mismatches ("expected BinaryView got
         // Utf8View" for a NULL in a Bytes-backed NUMERIC sort key).
@@ -1850,69 +1892,33 @@ impl SegmentedTopKState {
             ScalarValue::try_from(&sort_col.mat_type)
         };
 
-        // Batch-convert all ordinal survivors' rows in a single convert_rows call.
-        // We collect `Row<'_>` directly to avoid cloning `OwnedRow`.
-        let ord_rows: Vec<_> = candidates
-            .iter()
-            .filter_map(|(_, _, ord_info)| ord_info.as_ref().map(|(_, row_val)| row_val.row()))
-            .collect();
-
-        let all_ord_arrays: Option<Vec<ArrayRef>> = if !ord_rows.is_empty() {
-            Some(
-                self.row_converter
-                    .convert_rows(ord_rows)
-                    .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?,
-            )
-        } else {
-            None
-        };
+        // Batch-convert every candidate's compound key in a single convert_rows
+        // call. We pass `Row<'_>` directly to avoid cloning `OwnedRow`.
+        let ord_arrays: Vec<ArrayRef> = self
+            .row_converter
+            .convert_rows(candidates.iter().map(|(_, _, _, row_val)| row_val.row()))
+            .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
 
         // Build column-major ScalarValues and batch-convert all candidates at once.
         let mut column_values: Vec<Vec<ScalarValue>> = (0..self.sort_exprs.len())
             .map(|_| Vec::with_capacity(candidates.len()))
             .collect();
 
-        let mut ord_pos = 0;
-        for (batch_idx, row_idx, ord_info) in candidates.iter() {
+        for (cand_idx, (batch_idx, row_idx, seg_ord, _)) in candidates.iter().enumerate() {
             for (i, sort_col) in sort_cols.iter().enumerate() {
                 let value = if let Some(deferred) = sort_col.deferred {
-                    if let Some((seg_ord, _)) = ord_info {
-                        // Ordinal survivor: use pre-batched arrays with our sequential counter.
-                        let arrays = all_ord_arrays
-                            .as_ref()
-                            .expect("all_ord_arrays is None for ordinal survivor");
-                        let term_ord = arrays[i]
-                            .as_any()
-                            .downcast_ref::<UInt64Array>()
-                            .map(|a| a.value(ord_pos));
-                        if let Some(term_ord) = term_ord {
-                            let ff_col =
-                                self.ffhelper.column(*seg_ord, deferred.canonical.ff_index);
-                            match ff_col {
-                                FFType::Text(str_col) => {
-                                    let mut s = String::new();
-                                    if str_col.ord_to_str(term_ord, &mut s).is_ok() {
-                                        ScalarValue::Utf8View(Some(s))
-                                    } else {
-                                        typed_null(sort_col)?
-                                    }
-                                }
-                                FFType::Bytes(bytes_col) => {
-                                    let mut b = Vec::new();
-                                    if bytes_col.ord_to_bytes(term_ord, &mut b).is_ok() {
-                                        ScalarValue::BinaryView(Some(b))
-                                    } else {
-                                        typed_null(sort_col)?
-                                    }
-                                }
-                                _ => typed_null(sort_col)?,
-                            }
-                        } else {
-                            typed_null(sort_col)?
+                    // Each deferred column carries its own ordinal in the compound
+                    // key, so a NULL in one column does not blank out the others.
+                    let term_ord = ord_arrays[i]
+                        .as_any()
+                        .downcast_ref::<UInt64Array>()
+                        .filter(|a| a.is_valid(cand_idx))
+                        .map(|a| a.value(cand_idx));
+                    match term_ord {
+                        Some(term_ord) => {
+                            self.materialize_deferred_ordinal(*seg_ord, term_ord, deferred)?
                         }
-                    } else {
-                        // NULL ordinal pass-through
-                        typed_null(sort_col)?
+                        None => typed_null(sort_col)?,
                     }
                 } else {
                     // Non-deferred column: evaluate directly from the batch.
@@ -1923,10 +1929,6 @@ impl SegmentedTopKState {
                 };
                 column_values[i].push(value);
             }
-
-            if ord_info.is_some() {
-                ord_pos += 1;
-            }
         }
 
         // Batch convert all candidates in a single convert_columns call.
@@ -1934,7 +1936,8 @@ impl SegmentedTopKState {
             .into_iter()
             .map(|col| ScalarValue::iter_to_array(col))
             .collect::<Result<Vec<_>>>()?;
-        let converted = mat_row_converter
+        let converted = self
+            .mat_row_converter
             .convert_columns(&arrays)
             .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
         let mut mat_rows: Vec<(usize, OwnedRow)> = Vec::with_capacity(candidates.len());
@@ -1971,7 +1974,7 @@ impl SegmentedTopKState {
         let indices: Vec<usize> = mat_rows
             .iter()
             .map(|(candidate_idx, _)| {
-                let (batch_idx, row_idx, _) = &candidates[*candidate_idx];
+                let (batch_idx, row_idx, _, _) = &candidates[*candidate_idx];
                 batch_offsets[*batch_idx] + row_idx
             })
             .collect();
@@ -2013,7 +2016,7 @@ impl SegmentedTopKState {
                 let corrected: Vec<Option<u64>> = mat_rows
                     .iter()
                     .map(|(candidate_idx, _)| {
-                        let (batch_idx, row_idx, _) = &candidates[*candidate_idx];
+                        let (batch_idx, row_idx, _, _) = &candidates[*candidate_idx];
                         corrected_lookup[entry_idx]
                             .get(&(*batch_idx, *row_idx))
                             .copied()

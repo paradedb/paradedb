@@ -16,7 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::AsCStr;
-use crate::postgres::customscan::joinscan::build::{ChildProjection, JoinCSClause};
+use crate::postgres::customscan::joinscan::build::{
+    ChildProjection, FunctionRti, JoinCSClause, SourceRti,
+};
 use pgrx::PgList;
 use pgrx::pg_sys;
 use pgrx::pg_sys::AsPgCStr;
@@ -38,6 +40,12 @@ pub enum OutputColumnInfo {
         plan_position: usize,
         rti: pg_sys::Index,
     },
+    /// An unnested column from a LATERAL unnest join.
+    Unnested {
+        function_rti: FunctionRti,
+        source_rti: SourceRti,
+        field_name: String,
+    },
     /// A column pruned by a semi/anti join or a non-Var, non-score expression.
     /// Always emits NULL at execution time.
     Pruned,
@@ -54,6 +62,15 @@ impl From<&OutputColumnInfo> for ChildProjection {
             } => ChildProjection::Column {
                 rti: *rti,
                 attno: *original_attno,
+            },
+            OutputColumnInfo::Unnested {
+                function_rti,
+                source_rti,
+                field_name,
+            } => ChildProjection::Unnested {
+                function_rti: *function_rti,
+                source_rti: *source_rti,
+                field_name: field_name.clone(),
             },
             OutputColumnInfo::Pruned => ChildProjection::Column { rti: 0, attno: 0 },
         }
@@ -78,15 +95,18 @@ pub struct PrivateData {
     /// post-setrefs custom_exprs on the executor's plan node is not
     /// translator-compatible.
     pub custom_exprs_string: Option<String>,
+    /// PostgreSQL's statement-wide `PlannerGlobal.parallelModeOK` decision.
+    pub parallel_mode_ok: bool,
 }
 
 impl PrivateData {
-    pub fn new(join_clause: JoinCSClause) -> Self {
+    pub fn new(join_clause: JoinCSClause, parallel_mode_ok: bool) -> Self {
         Self {
             join_clause,
             output_columns: Vec::new(),
             logical_plan: None,
             custom_exprs_string: None,
+            parallel_mode_ok,
         }
     }
 

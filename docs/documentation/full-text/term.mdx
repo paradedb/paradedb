@@ -1,7 +1,7 @@
 ---
 title: Term
 description: Look for exact token matches in the source document, without any further processing of the query string
-canonical: https://docs.paradedb.com/documentation/full-text/term
+canonical: https://www.paradedb.com/docs/documentation/full-text/term
 ---
 
 Term queries look for exact token matches. A term query is like an exact string match, but at the
@@ -188,18 +188,13 @@ MockItem.objects.filter(
 ```
 
 ```python SQLAlchemy
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from paradedb.sqlalchemy import search
 
 stmt = (
     select(MockItem.description, MockItem.rating, MockItem.category)
-    .where(
-        or_(
-            search.term(MockItem.description, "shoes"),
-            search.term(MockItem.description, "running"),
-        )
-    )
+    .where(search.term(MockItem.description, ["shoes", "running"]))
 )
 
 with Session(engine) as session:

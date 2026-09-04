@@ -185,6 +185,26 @@ SELECT insert_random_data(1_000_000);
 
 CREATE INDEX wide_table_idx ON wide_table USING paradedb (id, text_3, text_2, field_1, field_2, field_4, text_1, text_4, text_5, text_6, text_11, text_15, text_13, number_1, bool_1, bool_3, bool_2, json_1, date_1, timestamp_3)
 WITH (key_field=id, text_fields='{ "text_3": { "normalizer": "lowercase", "tokenizer": { "max_gram": 5, "min_gram": 3, "prefix_only": false, "type": "ngram" } }, "text_2": { "fast": true, "tokenizer": {"type": "raw"} }, "field_1": { "tokenizer": {"type": "raw"} }, "field_2": { "tokenizer": {"type": "raw"} }, "field_4": { "tokenizer": {"type": "raw"} }, "text_1": { "tokenizer": {"type": "raw"} }, "text_4": { "tokenizer": {"type": "raw"} }, "text_5": { "tokenizer": {"type": "raw"} }, "text_6": { "tokenizer": {"type": "raw"} }, "text_11": { "tokenizer": {"type": "raw"} }, "text_15": { "fast": true, "tokenizer": {"type": "raw"} }, "text_13": { "tokenizer": {"type": "raw"} } }', numeric_fields='{"number_1":{}}', boolean_fields='{"bool_1":{}, "bool_3":{}, "bool_2":{}}', json_fields='{ "json_1": { "fast": true, "normalizer": "lowercase", "tokenizer": { "type": "raw" } }, "json_1_words": { "fast": true, "normalizer": "lowercase", "tokenizer": { "type": "default" }, "column": "json_1" } }', range_fields='{}', layer_sizes='10kb, 1MB, 100MB', mutable_segment_rows=1000);
+
+CREATE OR REPLACE FUNCTION assert_plan_contains(
+    p_query text,
+    p_expected_text text
+) RETURNS boolean AS $$
+DECLARE
+    plan_line text;
+    full_plan text := '';
+BEGIN
+    FOR plan_line IN EXECUTE 'EXPLAIN (VERBOSE) ' || p_query LOOP
+        full_plan := full_plan || plan_line || chr(10);
+        IF plan_line ILIKE '%' || p_expected_text || '%' THEN
+            RETURN true;
+        END IF;
+    END LOOP;
+
+    RAISE EXCEPTION 'Plan assertion failed: expected "%" not found in plan for query: %. Actual plan:%',
+        p_expected_text, p_query, chr(10) || full_plan;
+END;
+$$ LANGUAGE plpgsql;
 """
 
 [server.teardown]
@@ -231,7 +251,36 @@ SELECT update_random_data(10);
 
 [[jobs]]
 refresh_ms = 500
-title = "Top K"
+title = "Postgres Seq Scan + Sort Fallback"
+on_connect = """
+SET max_parallel_workers_per_gather = 0;
+SELECT assert_plan_contains(
+    $q$
+    SELECT *
+    FROM wide_table
+    WHERE field_1 = '123e4567-e89b-12d3-a456-426614174000'::uuid
+      AND bool_1 = true
+      AND number_3 BETWEEN 100 AND 900
+      AND timestamp_3 IS NULL
+    ORDER BY date_1 DESC, timestamp_1 DESC, id DESC
+    LIMIT 100
+    $q$,
+    'Seq Scan'
+);
+SELECT assert_plan_contains(
+    $q$
+    SELECT *
+    FROM wide_table
+    WHERE field_1 = '123e4567-e89b-12d3-a456-426614174000'::uuid
+      AND bool_1 = true
+      AND number_3 BETWEEN 100 AND 900
+      AND timestamp_3 IS NULL
+    ORDER BY date_1 DESC, timestamp_1 DESC, id DESC
+    LIMIT 100
+    $q$,
+    'Sort'
+);
+"""
 sql = """
 SELECT COUNT(*) FROM (
     SELECT
@@ -241,10 +290,7 @@ SELECT COUNT(*) FROM (
     WHERE
         wide_table.field_1 = '123e4567-e89b-12d3-a456-426614174000'::uuid
         AND wide_table.bool_1 = true
-        AND 1 = 1
-        AND true
-        AND wide_table.number_3 >= '100'
-        AND wide_table.number_3 <= '900'
+        AND wide_table.number_3 BETWEEN 100 AND 900
         AND wide_table.timestamp_3 IS NULL
     ORDER BY
         wide_table.date_1 DESC,

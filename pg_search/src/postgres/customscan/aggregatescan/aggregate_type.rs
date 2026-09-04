@@ -15,14 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::{
-    FieldName, HashSet, MvccVisibility, agg_funcoid, agg_with_solve_mvcc_funcoid,
-    extract_solve_mvcc_from_const,
-};
+use crate::api::{FieldName, HashSet, MvccVisibility, is_agg_funcoid, pdb_agg_spec};
 use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
 use crate::postgres::PgSearchRelation;
+use crate::postgres::customscan::joinscan::build::lookup_base_rel_info;
 use crate::postgres::customscan::opexpr::UnwrapFromExpr;
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
@@ -40,7 +38,7 @@ use pgrx::pg_sys::{
     F_SUM_INT2, F_SUM_INT4, F_SUM_INT8, F_SUM_NUMERIC,
 };
 use pgrx::prelude::*;
-use tantivy::aggregation::agg_req::AggregationVariants;
+use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
 use tantivy::aggregation::metric::{
     AverageAggregation, CountAggregation, MaxAggregation, MinAggregation, SingleMetricResult,
     SumAggregation,
@@ -146,49 +144,29 @@ impl AggregateType {
         };
         let filter_query = filter_expr.map(|qual| SearchQueryInput::from(&qual));
 
-        // Check for pdb.agg() custom aggregate (both overloads)
-        let agg_oid = agg_funcoid().to_u32();
-        let agg_with_mvcc_oid = agg_with_solve_mvcc_funcoid().to_u32();
-
-        if aggfnoid == agg_oid || aggfnoid == agg_with_mvcc_oid {
-            // Extract JSON argument (first arg)
+        // Check for pdb.agg() custom aggregate (any overload)
+        if is_agg_funcoid(aggfnoid) {
+            // Without the spec the scan declines, and Postgres runs the
+            // aggregate itself.
             let arg = args.get_ptr(0).expect("pdb.agg missing argument");
-            let expr = (*arg).expr;
-            let json_value = if let Some(const_node) = nodecast!(Const, T_Const, expr) {
-                let json_datum = (*const_node).constvalue;
-                pgrx::JsonB::from_datum(json_datum, false)
-                    .expect("invalid JSON in pdb.agg")
-                    .0
-            } else {
-                // Parameterized pdb.agg() can't be lowered into the aggregate
-                // pushdown plan because we need the JSON spec at planning time
-                // to validate fields and choose a strategy. Return Err so the
-                // AggregateScan path declines and PG falls back to standard
-                // aggregate processing — same behaviour as a query without
-                // pdb.agg() pushdown.
-                return Err("pdb.agg argument must be a constant for aggregate pushdown".into());
-            };
+            let (mut json_value, mvcc_visibility) = pdb_agg_spec(
+                aggfnoid,
+                (*arg).expr as *mut pg_sys::Node,
+                args.get_ptr(1).map(|arg| (*arg).expr as *mut pg_sys::Node),
+            )
+            .ok_or("pdb.agg argument must be a constant for aggregate pushdown")?;
+            let schema = bm25_index.schema().expect("could not get index schema");
 
-            // Extract solve_mvcc bool argument (second arg) if using the two-arg overload
-            let solve_mvcc = if aggfnoid == agg_with_mvcc_oid {
-                args.get_ptr(1)
-                    .and_then(|mvcc_arg| nodecast!(Const, T_Const, (*mvcc_arg).expr))
-                    .map(|const_node| extract_solve_mvcc_from_const(const_node))
-                    .unwrap_or(true)
-            } else {
-                true // Single-arg overload: default to solve_mvcc = true
-            };
-
-            let mvcc_visibility = if solve_mvcc {
-                MvccVisibility::Enabled
-            } else {
-                MvccVisibility::Disabled
-            };
+            // A spec written for a join names its fields `alias.field`, and the
+            // planner can reduce that join to this one relation. A qualifier
+            // naming it is dropped so the spec runs the same on either path.
+            if let Some((_, Some(alias), _)) = lookup_base_rel_info(root, heap_rti) {
+                strip_relation_qualifier(&mut json_value, &alias, &schema);
+            }
 
             // Check if any existing fields in the custom aggregate are NUMERIC
             // NUMERIC fields do not support aggregate pushdown
             // Note: Non-existent fields are caught by validate_fields() with proper error
-            let schema = bm25_index.schema().expect("could not get index schema");
             let mut fields = HashSet::default();
             extract_fields_from_agg_json(&json_value, &mut fields);
             for field_name in &fields {
@@ -346,9 +324,9 @@ impl AggregateType {
         }
     }
 
-    /// Get the MVCC visibility setting for this aggregate.
-    /// Only Custom aggregates (pdb.agg) can have non-default MVCC settings.
-    /// All standard SQL aggregates (COUNT, SUM, etc.) use the default (Enabled).
+    /// Get the visibility setting for this aggregate.
+    /// Only Custom aggregates (pdb.agg) can have a non-default setting.
+    /// All standard SQL aggregates (COUNT, SUM, etc.) use the default (Transaction).
     pub fn mvcc_visibility(&self) -> MvccVisibility {
         match self {
             AggregateType::Custom {
@@ -359,35 +337,17 @@ impl AggregateType {
         }
     }
 
-    /// Determines if MVCC filtering should be enabled for a group of aggregates.
-    /// Validates that there are no contradicting solve_mvcc settings among custom aggregates.
-    pub fn resolve_mvcc_enabled<'a>(aggregates: impl Iterator<Item = &'a AggregateType>) -> bool {
-        let custom_mvcc_settings: Vec<MvccVisibility> = aggregates
-            .filter_map(|agg_type| {
-                if let AggregateType::Custom {
-                    mvcc_visibility, ..
-                } = agg_type
-                {
-                    Some(*mvcc_visibility)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        if !custom_mvcc_settings.is_empty() {
-            let has_enabled = custom_mvcc_settings.contains(&MvccVisibility::Enabled);
-            let has_disabled = custom_mvcc_settings.contains(&MvccVisibility::Disabled);
-            if has_enabled && has_disabled {
-                pgrx::error!(
-                    "pdb.agg() calls have contradicting solve_mvcc settings. \
-                     All pdb.agg() calls in a query must use the same solve_mvcc value. \
-                     Either use solve_mvcc=true (or omit) for all, or solve_mvcc=false for all."
-                );
-            }
-        }
-
-        !custom_mvcc_settings.contains(&MvccVisibility::Disabled)
+    /// Determines the single query-level visibility setting for a group of aggregates.
+    /// Standard SQL aggregates carry no setting of their own.
+    pub fn resolve_visibility<'a>(
+        aggregates: impl Iterator<Item = &'a AggregateType>,
+    ) -> MvccVisibility {
+        MvccVisibility::resolve_shared(aggregates.filter_map(|agg_type| match agg_type {
+            AggregateType::Custom {
+                mvcc_visibility, ..
+            } => Some(*mvcc_visibility),
+            _ => None,
+        }))
     }
 
     pub fn result_type_oid(&self) -> pg_sys::Oid {
@@ -595,6 +555,34 @@ fn collect_top_hits_sort_field_names(json: &serde_json::Value, fields: &mut Hash
     }
 }
 
+/// Rewrite every `"field": "alias.name"` to `"name"` when `alias.name` is no
+/// index field itself and `name` is.
+fn strip_relation_qualifier(json: &mut serde_json::Value, alias: &str, schema: &SearchIndexSchema) {
+    match json {
+        serde_json::Value::Object(map) => {
+            if let Some(serde_json::Value::String(field)) = map.get_mut("field")
+                && schema
+                    .search_field(FieldName::from(field.as_str()).root())
+                    .is_none()
+                && let Some((prefix, rest)) = field.split_once('.')
+                && prefix == alias
+                && schema.search_field(FieldName::from(rest).root()).is_some()
+            {
+                *field = rest.to_string();
+            }
+            for value in map.values_mut() {
+                strip_relation_qualifier(value, alias, schema);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr {
+                strip_relation_qualifier(item, alias, schema);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn extract_fields_from_agg_json(json: &serde_json::Value, fields: &mut HashSet<String>) {
     match json {
         serde_json::Value::Object(map) => {
@@ -628,6 +616,21 @@ impl std::fmt::Display for AggregateType {
             AggregateType::Min { .. } => write!(f, "MIN({})", self.field_name().unwrap()),
             AggregateType::Max { .. } => write!(f, "MAX({})", self.field_name().unwrap()),
             AggregateType::Custom { agg_json, .. } => write!(f, "CUSTOM_AGG({})", agg_json),
+        }
+    }
+}
+
+/// The request node of an aggregate. A `pdb.agg()` spec carries its own `aggs`,
+/// which only survive here and not in a bare [`AggregationVariants`].
+impl From<AggregateType> for Aggregation {
+    fn from(val: AggregateType) -> Self {
+        match val {
+            AggregateType::Custom { agg_json, .. } => serde_json::from_value(agg_json)
+                .unwrap_or_else(|e| panic!("Failed to deserialize custom aggregate: {}", e)),
+            other => Aggregation {
+                agg: other.into(),
+                sub_aggregation: Default::default(),
+            },
         }
     }
 }

@@ -40,7 +40,10 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v7
 
-      - name: Set up Docker Buildx
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
+
+      - name: Set Up Docker Buildx
         uses: docker/setup-buildx-action@v4
         with:
           platforms: linux/amd64,linux/arm64

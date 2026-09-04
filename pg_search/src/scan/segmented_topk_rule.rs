@@ -163,7 +163,10 @@ fn try_inject_at_sort(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionP
 ///     assigned the correct physical index when it built the SortExec.
 ///   - If the name is not found at all, log a debug diagnostic and fall back
 ///     to `col.index()` as a last resort.
-fn resolve_physical_index(col: &Column, schema: &datafusion::arrow::datatypes::SchemaRef) -> usize {
+fn resolve_physical_index(
+    col: &Column,
+    schema: &datafusion::arrow::datatypes::SchemaRef,
+) -> Option<usize> {
     let col_name = col.name();
     let logical_idx = col.index();
 
@@ -176,21 +179,13 @@ fn resolve_physical_index(col: &Column, schema: &datafusion::arrow::datatypes::S
 
     let physical_idx = match matches.len() {
         0 => {
-            // Name not found — fall back to the logical index.
-            // This should not normally happen; a missing name suggests a
-            // plan-construction bug where the SortExec column does not exist
-            // in the lookup child schema.
             pgrx::debug2!(
-                "SegmentedTopK: column '{}' not found in input schema; using logical index {} as fallback",
-                col_name,
-                logical_idx
+                "SegmentedTopK: column '{}' not found in input schema",
+                col_name
             );
-            logical_idx
+            return None;
         }
-        1 => {
-            // Unique name — use the exact physical position from the schema.
-            matches[0]
-        }
+        1 => matches[0],
         _ => {
             // Duplicate names (self-join) — DataFusion already set col.index()
             // to the correct physical position when building the SortExec.
@@ -199,7 +194,13 @@ fn resolve_physical_index(col: &Column, schema: &datafusion::arrow::datatypes::S
             // or intermediate Projections that reorder same-name groups.
             // Proper fix: thread explicit column lineage similar to trace_column
             // in late_materialization.rs. Tracked in issue #5093.
-            logical_idx
+            if logical_idx < schema.fields().len()
+                && schema.fields()[logical_idx].name() == col_name
+            {
+                logical_idx
+            } else {
+                return None;
+            }
         }
     };
 
@@ -211,7 +212,7 @@ fn resolve_physical_index(col: &Column, schema: &datafusion::arrow::datatypes::S
             physical_idx
         );
     }
-    physical_idx
+    Some(physical_idx)
 }
 
 /// Recursively search below `plan` for a `TantivyLookupExec` whose deferred
@@ -234,11 +235,14 @@ fn try_inject_below_lookup(
             // physical index resolution to handle join-reordered schemas.
             let has_deferred_sort_col = sort_exprs.iter().any(|expr| {
                 if let Some(col) = expr.expr.downcast_ref::<Column>() {
-                    let physical_idx = resolve_physical_index(col, &input_schema);
-                    lookup
-                        .deferred_fields()
-                        .iter()
-                        .any(|d| d.col_idx == physical_idx)
+                    if let Some(physical_idx) = resolve_physical_index(col, &input_schema) {
+                        lookup
+                            .deferred_fields()
+                            .iter()
+                            .any(|d| d.col_idx == physical_idx)
+                    } else {
+                        false
+                    }
                 } else {
                     false
                 }
@@ -255,12 +259,22 @@ fn try_inject_below_lookup(
                 // to be checked inside the join, so they won't be absorbed here.
                 let (absorbed_visibility, stk_input) =
                     if let Some(vis_exec) = lookup_child.downcast_ref::<VisibilityFilterExec>() {
+                        // The VF's child is a ctid-resolving TantivyLookupExec. Bypass it and let
+                        // the STK resolve ctids at candidate time, so a large join output does not
+                        // pay one fast-field read per row before the Top-K prune.
+                        let vf_child = Arc::clone(vis_exec.children()[0]);
+                        let stk_input = match vf_child.downcast_ref::<TantivyLookupExec>() {
+                            Some(lookup) if !lookup.ctid_columns().is_empty() => {
+                                Arc::clone(lookup.children()[0])
+                            }
+                            _ => vf_child,
+                        };
                         (
                             Some(Arc::new(AbsorbedVisibilityData::new(
                                 vis_exec.plan_pos_oids().to_vec(),
                                 vis_exec.table_names().to_vec(),
                             ))),
-                            Arc::clone(vis_exec.children()[0]),
+                            stk_input,
                         )
                     } else {
                         (None, Arc::clone(lookup_child))
@@ -275,21 +289,20 @@ fn try_inject_below_lookup(
                 // resolving logical → physical indices for each.
                 let mut deferred_columns = Vec::new();
                 for expr in &sort_exprs {
-                    if let Some(col) = expr.expr.downcast_ref::<Column>() {
-                        let physical_idx = resolve_physical_index(col, &input_schema);
-                        if let Some(field) = lookup
+                    if let Some(col) = expr.expr.downcast_ref::<Column>()
+                        && let Some(physical_idx) = resolve_physical_index(col, &input_schema)
+                        && let Some(field) = lookup
                             .deferred_fields()
                             .iter()
                             .find(|d| d.col_idx == physical_idx)
-                        {
-                            deferred_columns.push(
-                                crate::scan::segmented_topk_exec::DeferredSortColumn {
-                                    sort_col_idx: physical_idx,
-                                    canonical: field.canonical.clone(),
-                                    rebuild: field.rebuild.clone(),
-                                },
-                            );
-                        }
+                    {
+                        deferred_columns.push(
+                            crate::scan::segmented_topk_exec::DeferredSortColumn {
+                                sort_col_idx: physical_idx,
+                                canonical: field.canonical.clone(),
+                                rebuild: field.rebuild.clone(),
+                            },
+                        );
                     }
                 }
 
@@ -330,19 +343,28 @@ fn try_inject_below_lookup(
                 for sort_expr in &sort_exprs {
                     use datafusion::common::tree_node::{Transformed, TreeNode};
                     let input_schema_clone = Arc::clone(&input_schema);
+                    let mut resolve_failed = false;
                     let rewritten_expr = sort_expr.expr.clone().transform(|node| {
                         if let Some(col) = node.downcast_ref::<Column>() {
-                            let physical_idx = resolve_physical_index(col, &input_schema_clone);
-
-                            if physical_idx < input_schema_clone.fields().len() {
+                            if let Some(physical_idx) =
+                                resolve_physical_index(col, &input_schema_clone)
+                                && physical_idx < input_schema_clone.fields().len()
+                            {
                                 let new_col = Column::new(col.name(), physical_idx);
                                 return Ok(Transformed::yes(
                                     Arc::new(new_col) as Arc<dyn PhysicalExpr>
                                 ));
                             }
+                            resolve_failed = true;
                         }
                         Ok(Transformed::no(node))
                     })?;
+                    if resolve_failed {
+                        pgrx::debug2!(
+                            "SegmentedTopK: sort expression references column not in lookup child schema; declining injection"
+                        );
+                        return Ok(None);
+                    }
                     rewritten_sort_exprs.push(PhysicalSortExpr {
                         expr: rewritten_expr.data,
                         options: sort_expr.options,
@@ -379,9 +401,13 @@ fn try_inject_below_lookup(
             }
         }
 
-        // Recurse into intermediate nodes (ProjectionExec, CoalescePartitionsExec, etc.)
-        if let Some(rewritten) =
-            try_inject_below_lookup(child, sort_exprs.clone(), k, parent_filter.clone())?
+        // Recurse into single-child intermediate nodes that support limit pushdown
+        // (ProjectionExec, CoalescePartitionsExec, SortPreservingMergeExec, CooperativeExec, etc.)
+        // Do not recurse into multi-child join nodes (HashJoinExec) or non-transparent barriers (AggregateExec).
+        if child.children().len() == 1
+            && child.supports_limit_pushdown()
+            && let Some(rewritten) =
+                try_inject_below_lookup(child, sort_exprs.clone(), k, parent_filter.clone())?
         {
             let mut new_children: Vec<Arc<dyn ExecutionPlan>> =
                 children.iter().map(|c| Arc::clone(c)).collect();

@@ -12,6 +12,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
+      - ".github/actions/setup-pg-search-toolchain/**"
       - ".github/workflows/test-pg_search.yml"
       - "pg_search/**"
       - "!pg_search/README.md"
@@ -81,15 +82,8 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v7
 
-      - name: Install Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          cache: false
-          rustflags: "" # Use .cargo/config.toml target-cpu flags
-
-      - name: Extract pgrx Version
-        id: pgrx
-        run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
 
       # Cache notes:
       # - Do NOT add hashFiles('**/Cargo.lock') to shared-key — the action
@@ -102,14 +96,12 @@ jobs:
       # entries — this prevents cache thrashing that fills the 30 GB limit and causes
       # every entry to be evicted before reuse. The nightly schedule run warms caches
       # for all PG versions on the default branch.
-      - name: Install Rust Cache
-        uses: swatinem/rust-cache@v2
+      - name: Set Up pg_search Toolchain
+        id: toolchain
+        uses: ./.github/actions/setup-pg-search-toolchain
         with:
-          prefix-key: "v3-rust-cache"
-          shared-key: pg${{ matrix.pg_version }}
-          cache-targets: true
-          cache-all-crates: true
-          save-if: ${{ github.event_name == 'schedule' && github.ref_name == github.event.repository.default_branch }}
+          pg_version: ${{ matrix.pg_version }}
+          cache_save: ${{ github.event_name == 'schedule' && github.ref_name == github.event.repository.default_branch }}
 
       - name: Install required system tools
         run: |
@@ -121,26 +113,17 @@ jobs:
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
 
-      - name: Install pgrx
-        run: cargo install -j $(nproc) --locked cargo-pgrx --version "${{ steps.pgrx.outputs.version }}" --debug
-
       - name: Install cargo-llvm-cov
         run: command -v cargo-llvm-cov || cargo install -j $(nproc) cargo-llvm-cov --locked --debug
 
       # ---------- System-managed Postgres setup ----------
       - name: Install & Configure Supported PostgreSQL Version (system)
         if: matrix.pg_impl == 'system'
-        run: |
-          set -euo pipefail
-          curl --fail --silent --show-error https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-            | gpg --dearmor \
-            | sudo tee /usr/share/keyrings/postgresql-pgdg.gpg >/dev/null
-          echo "deb [signed-by=/usr/share/keyrings/postgresql-pgdg.gpg] https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo "$VERSION_CODENAME")-pgdg main" \
-            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
-          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
-          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> "$GITHUB_PATH"
+        uses: ./.github/actions/setup-postgres
+        with:
+          pg_version: ${{ matrix.pg_version }}
 
-      - name: Initialize pgrx environment (system)
+      - name: Initialize pgrx Environment (System)
         if: matrix.pg_impl == 'system'
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
@@ -151,9 +134,9 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.pgrx
-          key: pgrx-pg-${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
+          key: pgrx-pg-${{ matrix.pg_version }}-${{ steps.toolchain.outputs.pgrx_version }}-${{ runner.os }}-${{ runner.arch }}
 
-      - name: Initialize pgrx environment (pgrx download)
+      - name: Initialize pgrx Environment (pgrx Download)
         if: matrix.pg_impl == 'pgrx' && steps.cache-pgrx-pg.outputs.cache-hit != 'true'
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=download" --configure-flag="--without-readline"
 
@@ -334,16 +317,8 @@ jobs:
         if: matrix.pg_impl == 'pgrx' && (github.event_name != 'pull_request' || matrix.pg_version == 18) && always()
         run: cargo llvm-cov report --lcov --output-path coverage-combined-pgrx-${{ matrix.pg_version }}.lcov
 
-      # runs-on's extras=s3-cache proxies ACTIONS_RESULTS_URL to its local cache
-      # server (for s3-backed actions/cache), but actions/upload-artifact@v4+ uses
-      # the same env var and ends up POSTing artifacts to the cache proxy. Pin the
-      # env vars back to GitHub's canonical artifact endpoint just for this step
-      # so the upload bypasses the proxy.
       - name: Upload Coverage Artifact
         if: (github.event_name != 'pull_request' || matrix.pg_version == 18) && always()
-        env:
-          ACTIONS_RESULTS_URL: https://results-receiver.actions.githubusercontent.com/
-          ACTIONS_CACHE_SERVICE_V2: ""
         uses: actions/upload-artifact@v7
         with:
           name: coverage-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}
@@ -373,10 +348,6 @@ jobs:
 
       - name: Upload Postgres Log Artifact
         if: failure()
-        env:
-          # Same runs-on s3-cache workaround as the coverage upload above.
-          ACTIONS_RESULTS_URL: https://results-receiver.actions.githubusercontent.com/
-          ACTIONS_CACHE_SERVICE_V2: ""
         uses: actions/upload-artifact@v7
         with:
           name: postgres-log-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}

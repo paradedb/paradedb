@@ -19,8 +19,8 @@ use crate::api::{HashMap, HashSet};
 use crate::index::mvcc::{MvccSatisfies, PinCushion};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
-    DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry,
-    SegmentMetaEntryImmutable, VECTOR_CENTROIDS_EXT, VECTOR_VEC_EXT,
+    DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, STATS_EXT, SegmentFileDetails,
+    SegmentMetaEntry, SegmentMetaEntryImmutable, VECTOR_CENTROIDS_EXT, VECTOR_VEC_EXT,
 };
 use crate::postgres::storage::metadata::MetaPage;
 use anyhow::Result;
@@ -156,6 +156,9 @@ pub unsafe fn save_new_metas(
                         .map(|e| e.0),
                     centroids: files
                         .remove(&SegmentComponent::Custom(VECTOR_CENTROIDS_EXT.to_string()))
+                        .map(|e| e.0),
+                    stats: files
+                        .remove(&SegmentComponent::Custom(STATS_EXT.to_string()))
                         .map(|e| e.0),
                 },
             );
@@ -483,7 +486,9 @@ pub unsafe fn load_metas(
             index_settings: deserialized_settings,
             opstamp: opstamp.unwrap_or(0),
             payload: None,
-            persisted_custom_extensions: Vec::new(),
+            // Every index requires the stats plugin; a segment written before it existed just
+            // has no `.stats` file, which readers treat as unknown.
+            persisted_custom_extensions: vec![STATS_EXT.to_string()],
         },
         pin_cushion,
         total_segments,

@@ -2,7 +2,7 @@
 title: Introduction to ParadeDB and pg_search
 sidebarTitle: Introduction
 description: Developer documentation for ParadeDB and the pg_search extension — installation, indexing, query syntax, and deployment guides.
-canonical: https://docs.paradedb.com/welcome/introduction
+canonical: https://www.paradedb.com/docs/welcome/introduction
 ---
 
 ![ParadeDB Banner](/images/paradedb_banner.png)
@@ -80,7 +80,7 @@ People usually compare ParadeDB to two other types of systems: OLTP databases li
 |                             | **OLTP database**                                                   | **Search engine**                                                    | **ParadeDB**                                                                                                                                    |
 | --------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Primary role**            | System of record                                                    | Search and retrieval engine                                          | System of record **and** search engine                                                                                                          |
-| **Examples**                | Postgres, MySQL                                                     | Elasticsearch, OpenSearch                                            |                                                                                                                                                 |
+| **Examples**                | Postgres, MySQL                                                     | Elasticsearch, OpenSearch                                            | ParadeDB                                                                                                                                        |
 | **Search features**         | Basic FTS (no BM25, weak ranking)                                   | Rich search features (BM25, fuzzy matching, faceting, hybrid search) | Rich search features (BM25, fuzzy matching, faceting, hybrid search)                                                                            |
 | **Analytics features**      | Not an analytical DB (no column store, batch processing, etc.)      | Column store, batch processing, parallelization via sharding         | Column store, batch processing, parallelization via Postgres [parallel workers](/documentation/performance-tuning/reads#raise-parallel-workers) |
 | **Lag**                     | None in a single cluster                                            | At least network, ETL transformation, and indexing time              | None in a single cluster                                                                                                                        |
@@ -92,16 +92,16 @@ People usually compare ParadeDB to two other types of systems: OLTP databases li
 
 ## Production Readiness
 
-ParadeDB launched out of the [Y Combinator (YC)](https://ycombinator.com) S23 batch and has run in production since December 2023.
+[ParadeDB Community](https://github.com/paradedb/paradedb), our open-source edition, has been downloaded more than 2.5 million times. It is durable and crash-safe: changes to ParadeDB indexes are write-ahead logged and support crash recovery and point-in-time recovery. See [Guarantees](/welcome/guarantees) for the full details.
 
-[ParadeDB Community](https://github.com/paradedb/paradedb), the open-source version of ParadeDB, has been deployed over 1.5 million times via its Docker image, and the pg_search extension has been installed over 250,000 times.
-ParadeDB Enterprise, the durable and production-hardened edition of ParadeDB, powers core search and analytics use cases at enterprises ranging from Fortune 500s to fast-growing startups. A few
-examples include:
+[ParadeDB Enterprise](/deploy/enterprise) adds capabilities for multi-node production environments, including physical replication, high availability, and read replicas, as well as commercial licensing and support.
 
-- **Alibaba Cloud**, the largest Asia-Pacific cloud provider, uses ParadeDB to power search inside their data warehouse. [Case study available](https://www.paradedb.com/customers/case-study-alibaba).
-- **Bilt Rewards**, a rent payments technology company that processed over $36B in payments in 2024. [Case study available](https://www.paradedb.com/customers/case-study-bilt).
-- **Modern Treasury**, a financial technology company that automates the full cycle of money movement. [Case study available](https://www.paradedb.com/customers/case-study-modern-treasury).
-- **Span**<sup>1</sup>, one of the fastest-growing AI developer productivity platforms.
+ParadeDB powers core search and analytics workloads at organizations ranging from Fortune 500 companies to fast-growing startups, including:
+
+- **Alibaba Cloud**, the cloud computing arm of Alibaba Group and the largest Asia-Pacific cloud provider. [Case study](https://www.paradedb.com/customers/case-study-alibaba).
+- **Bilt Rewards**, a rent payments technology company that processed over $36B in payments in 2024. [Case study](https://www.paradedb.com/customers/case-study-bilt).
+- **Modern Treasury**, a financial technology company that automates the full cycle of money movement. [Case study](https://www.paradedb.com/customers/case-study-modern-treasury).
+- **Cofactr**, a full-service electronics purchasing platform for hardware teams. [Case study](https://www.paradedb.com/customers/case-study-cofactr).
 - **TCDI**<sup>1</sup>, a giant in the legal software and litigation management space.
 
 _1. Case study coming soon._

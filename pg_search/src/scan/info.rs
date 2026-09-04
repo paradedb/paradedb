@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::FieldName;
+use crate::api::{FieldName, MvccVisibility};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys;
@@ -198,7 +198,7 @@ pub struct ScanInfo {
     pub heap_rti: pg_sys::Index,
     /// The OID of the heap table.
     pub heaprelid: pg_sys::Oid,
-    /// The OID of the BM25 index (if this scan has one).
+    /// The OID of the ParadeDB index (if this scan has one).
     pub indexrelid: pg_sys::Oid,
     /// Whether this scan has a search predicate (uses @@@ operator).
     pub has_search_predicate: bool,
@@ -213,7 +213,7 @@ pub struct ScanInfo {
     /// The fields that need to be extracted from the index.
     /// Populated during planning via `collect_required_fields`.
     pub fields: Vec<FieldInfo>,
-    /// The partitioning configuration of the BM25 index, if it was created with `partition_by`.
+    /// The partitioning configuration of the ParadeDB index, if it was created with `partition_by`.
     pub partition_by: Vec<FieldName>,
     /// Estimated number of rows matching the query.
     /// Used to decide which table to partition in parallel joins.
@@ -226,6 +226,10 @@ pub struct ScanInfo {
     pub estimate_from_total_docs: bool,
     /// The number of segments in the index.
     pub segment_count: usize,
+    /// Whether rows are checked against the heap for snapshot visibility. Only a
+    /// `pdb.agg()` query can ask for anything but the default.
+    #[serde(default)]
+    pub mvcc_visibility: MvccVisibility,
 }
 
 impl ScanInfo {
@@ -248,6 +252,7 @@ impl ScanInfo {
             estimate: RowEstimate::Unknown,
             estimate_from_total_docs: false,
             segment_count: 0,
+            mvcc_visibility: MvccVisibility::default(),
         }
     }
 

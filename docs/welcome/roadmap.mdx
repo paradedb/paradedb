@@ -1,57 +1,39 @@
 ---
 title: Roadmap
 description: The main features that we are currently working on
-canonical: https://docs.paradedb.com/welcome/roadmap
+canonical: https://www.paradedb.com/docs/welcome/roadmap
 ---
 
-We're a lean team that likes to ship at [incredibly high velocity](https://github.com/paradedb/paradedb/releases).
+We're a lean team that likes to ship at [incredibly high velocity](https://github.com/paradedb/paradedb/releases). For features and improvements that have already shipped, see the [changelog](/changelog).
 
 ## In Progress
+
+### Vector Search
+
+- **[Native vector search](/documentation/vector/overview) (beta)**. The ParadeDB index natively indexes pgvector's `vector` type, addressing pgvector's limitations around filtered queries — specifically, queries that combine vector similarity with metadata filters or full-text search predicates.
+- **Incremental index maintenance**. Vector search quality currently degrades as indexed rows are updated. We are implementing SPFresh to maintain index quality incrementally.
+- **Remaining pgvector types**. Implement support for pgvector's `halfvec`, `sparsevec`, and `bit` types.
 
 ### JOIN Improvements
 
 - **Join pushdown (beta)**. [Join pushdown](/documentation/joins/overview) pushes search predicates directly into the index for significantly better performance.
-- **Scoring and highlighting across JOINs**. BM25 score and snippet functions can be used in `JOIN` queries.
 - **Smarter JOIN planning for search indexes**. Apply index-aware optimizations and cost estimation strategies when multiple ParadeDB-indexed tables are joined.
 
 ### Ecosystem Integrations
 
 - **ORMs**. Official support for more ORMs, like Prisma and others, is coming. [Drizzle](https://github.com/paradedb/drizzle-paradedb), [Django](https://github.com/paradedb/django-paradedb), [SQLAlchemy](https://github.com/paradedb/sqlalchemy-paradedb), [Rails](https://github.com/paradedb/rails-paradedb), and [Entity Framework Core](https://github.com/paradedb/efcore-paradedb) are already available.
 - **AI Frameworks**. Official support for LangChain, LlamaIndex, CrewAI, and others is coming.
-- **PaaS Providers**. Official tutorials for hosting ParadeDB on more platform-as-a-service providers like Porter.run and others are coming. [Railway](/deploy/cloud-platforms/railway), [Render](/deploy/cloud-platforms/render), and [DigitalOcean](/deploy/cloud-platforms/digitalocean) are already available.
+- **PaaS Providers**. Official tutorials for hosting ParadeDB on more platform-as-a-service providers like Heroku and others are coming. [Railway](/deploy/cloud-platforms/railway), [Render](/deploy/cloud-platforms/render), [Fly.io](/deploy/cloud-platforms/fly), [DigitalOcean](/deploy/cloud-platforms/digitalocean), and [Dokku](/deploy/cloud-platforms/dokku) are already available.
+
+### Managed Cloud
+
+- Today, you can [deploy ParadeDB](/deploy/overview) self-hosted, on cloud platforms, or with ParadeDB BYOC. We're also building ParadeDB Cloud, a fully managed ParadeDB: first-class search from Postgres, with a developer experience to match. [Join the waitlist](https://www.paradedb.com/cloud) to get notified when it launches.
 
 ## Long Term
 
 ### Deeper Analytics Improvements
 
 - **Push Postgres visibility rules into the index**. This is currently a filter applied post index scan that adds overhead to large scans.
-
-### Managed Cloud
-
-- Today, you can [deploy ParadeDB](/deploy/overview) self-hosted, on cloud platforms, or with ParadeDB BYOC. We're also building ParadeDB Cloud, a fully managed ParadeDB: first-class search from Postgres, with a developer experience to match. [Join the waitlist](https://www.paradedb.com/cloud) to get notified when it launches.
-
-## Completed
-
-### Vector Search
-
-- **[Native vector search](/documentation/vector/overview) (beta)**. The ParadeDB index natively indexes pgvector's `vector` type, addressing pgvector's limitations around filtered queries — specifically, queries that combine vector similarity with metadata filters or full-text search predicates.
-
-### Analytics
-
-- **A custom scan node for aggregates**. Plain SQL aggregates like `COUNT`, and clauses like `GROUP BY`, go through the same fast execution path as our aggregate UDFs.
-- **Aggregate pushdown across joins**. Aggregates over multi-table joins are pushed down into the index when every joined table has a ParadeDB index.
-- **Parallel execution for joins and aggregates**. Utilizes an MPP strategy that partitions joins and aggregates into multiple shared-nothing stages executed by parallel workers.
-
-### Write Throughput
-
-- **Background merging**. Improves write performance by merging index segments asynchronously without blocking inserts.
-- **Pending list**. Buffers recent write before flushing them to the LSM tree.
-
-### Improved UX
-
-- **More intuitive index configuration**. Overhaul the complicated JSON `WITH` index options.
-- **More ORM friendly**. Overhaul the [query builder functions](/documentation/query-builder/overview) to use actual column references instead of string literals.
-- **New operators**. In addition to the existing `@@@` operator, introduce new operators for different query types (e.g. phrase, term, conjunction/disjunction).
 
 ## We're Hiring
 

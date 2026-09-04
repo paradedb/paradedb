@@ -1,6 +1,6 @@
 # ParadeDB Documentation
 
-ParadeDB [documentation](https://docs.paradedb.com) is built using [Mintlify](https://www.mintlify.com/docs/quickstart).
+ParadeDB [documentation](https://www.paradedb.com/docs) is built using [Mintlify](https://www.mintlify.com/docs/quickstart).
 
 ## 👩‍💻 Development
 
@@ -19,10 +19,9 @@ mint dev
 
 ## 😎 Publishing Changes
 
-Changes will be deployed to production automatically after pushing to the default
-branch.
-
-You can also preview changes using PRs, which generates a preview link of the docs.
+Production documentation updates are deployed manually through the
+`Publish ParadeDB (Docs)` GitHub Actions workflow. The workflow asks Mintlify to
+rebuild the configured production branch.
 
 ## Troubleshooting
 

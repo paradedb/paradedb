@@ -239,11 +239,17 @@ pub fn item_pointer_to_u64(ctid: pg_sys::ItemPointerData) -> u64 {
 /// bitpacking or compressing these values.
 #[inline(always)]
 pub fn u64_to_item_pointer(value: u64, tid: &mut pg_sys::ItemPointerData) {
-    // shift right 16 bits to pop off the OffsetNumber, leaving only the BlockNumber
-    // pgrx's version must shift right 32 bits to be in parity with `item_pointer_to_u64()`
-    let blockno = (value >> 16) as pg_sys::BlockNumber;
+    let blockno = u64_ctid_block_number(value);
     let offno = value as pg_sys::OffsetNumber;
     item_pointer_set_all(tid, blockno, offno);
+}
+
+/// The block number packed into a ctid by [`item_pointer_to_u64`].
+#[inline(always)]
+pub fn u64_ctid_block_number(value: u64) -> pg_sys::BlockNumber {
+    // shift right 16 bits to pop off the OffsetNumber, leaving only the BlockNumber
+    // pgrx's version must shift right 32 bits to be in parity with `item_pointer_to_u64()`
+    (value >> 16) as pg_sys::BlockNumber
 }
 
 /// Returns `true` if the block referenced by `ctid` (u64-packed form) exists
@@ -458,8 +464,11 @@ pub unsafe fn strip_unnest_and_relabel(mut node: *mut pg_sys::Node) -> (*mut pg_
         if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, node)
             && is_unnest_func((*func).funcid)
         {
-            found_unnest = true;
             let args = PgList::<pg_sys::Node>::from_pg((*func).args);
+            if args.len() != 1 {
+                return (std::ptr::null_mut(), false);
+            }
+            found_unnest = true;
             if let Some(arg) = args.get_ptr(0) {
                 node = arg;
                 continue;
@@ -814,7 +823,7 @@ pub unsafe fn row_to_search_document<'a>(
                     TantivyValue::try_from_numeric_array_i64(actual_datum, scale)
                 }
                 SearchFieldType::NumericBytes(..) => {
-                    TantivyValue::try_from_numeric_array_bytes(actual_datum)
+                    TantivyValue::try_from_numeric_array_bytes(actual_datum, created_by_version)
                 }
                 // Legacy pre-v0.22.0 indexes stored NUMERIC arrays as F64 in the tantivy schema.
                 SearchFieldType::F64(oid) if oid == pg_sys::NUMERICOID => {
@@ -851,7 +860,12 @@ pub unsafe fn row_to_search_document<'a>(
             document.add_vector(search_field.field(), &vec);
         } else {
             let tv = unsafe {
-                scalar_datum_to_tantivy_value(actual_datum, search_field.field_type(), *base_oid)
+                scalar_datum_to_tantivy_value(
+                    actual_datum,
+                    search_field.field_type(),
+                    *base_oid,
+                    created_by_version,
+                )
             }
             .unwrap_or_else(|e| {
                 panic!("could not parse field `{}`: {e}", search_field.field_name())
@@ -872,10 +886,16 @@ pub unsafe fn scalar_datum_to_tantivy_value(
     datum: pg_sys::Datum,
     field_type: SearchFieldType,
     base_oid: PgOid,
+    created_by_version: Option<Version>,
 ) -> Result<TantivyValue, TantivyValueError> {
     match field_type {
         SearchFieldType::Numeric64(_, scale) => TantivyValue::try_from_numeric_i64(datum, scale),
-        SearchFieldType::NumericBytes(..) => TantivyValue::try_from_numeric_bytes(datum),
+        SearchFieldType::NumericBytes(..) => {
+            TantivyValue::try_from_numeric_bytes(datum, created_by_version)
+        }
+        SearchFieldType::Range(oid) if oid == pg_sys::NUMRANGEOID => {
+            TantivyValue::try_from_numrange(datum, created_by_version)
+        }
         // Legacy pre-v0.22.0 indexes stored NUMERIC as F64 in the tantivy schema.
         SearchFieldType::F64(oid) if oid == pg_sys::NUMERICOID => {
             TantivyValue::try_from_numeric_f64(datum)
@@ -1492,36 +1512,58 @@ pub unsafe fn add_missing_search_operators_to_tlist(
     tlist: &mut PgList<pg_sys::TargetEntry>,
     search_operator_funcoids: &[pg_sys::Oid],
 ) {
-    let mut add_missing_func = |expr: *mut pg_sys::Node| {
-        if !is_search_operator(expr, search_operator_funcoids) {
-            return;
+    use pgrx::pg_sys::expression_tree_walker;
+    use std::ptr::addr_of_mut;
+
+    #[pgrx::pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
         }
 
-        let unwrapped_expr = strip_wrappers(expr.cast());
-        let already_present = tlist.iter_ptr().any(|te| {
-            pg_sys::equal(
-                strip_wrappers((*te).expr.cast()).cast(),
-                unwrapped_expr.cast(),
-            )
-        });
+        let ctx = context.cast::<Context>();
+        if is_search_operator(node, (*ctx).search_operator_funcoids) {
+            let unwrapped_expr = strip_wrappers(node);
+            let already_present = (*ctx).tlist.iter_ptr().any(|te| {
+                pg_sys::equal(
+                    strip_wrappers((*te).expr.cast()).cast(),
+                    unwrapped_expr.cast(),
+                )
+            });
 
-        if !already_present {
-            let resno = tlist.len() as pg_sys::AttrNumber + 1;
-            let te = pg_sys::makeTargetEntry(
-                pg_sys::copyObjectImpl(expr.cast()).cast(),
-                resno,
-                std::ptr::null_mut(),
-                true, // resjunk
-            );
-            tlist.push(te);
+            if !already_present {
+                let resno = (*ctx).tlist.len() as pg_sys::AttrNumber + 1;
+                let te = pg_sys::makeTargetEntry(
+                    pg_sys::copyObjectImpl(node.cast()).cast(),
+                    resno,
+                    std::ptr::null_mut(),
+                    true, // resjunk
+                );
+                (*ctx).tlist.push(te);
+            }
         }
+
+        expression_tree_walker(node, Some(walker), context)
+    }
+
+    struct Context<'a> {
+        tlist: &'a mut PgList<pg_sys::TargetEntry>,
+        search_operator_funcoids: &'a [pg_sys::Oid],
+    }
+
+    let mut ctx = Context {
+        tlist,
+        search_operator_funcoids,
     };
 
     // Look in processed_tlist
     if !(*root).processed_tlist.is_null() {
         let p_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*root).processed_tlist);
         for te in p_tlist.iter_ptr() {
-            add_missing_func((*te).expr.cast());
+            walker((*te).expr.cast(), addr_of_mut!(ctx).cast());
         }
     }
 
@@ -1533,7 +1575,7 @@ pub unsafe fn add_missing_search_operators_to_tlist(
             if !eclass.is_null() {
                 let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*eclass).ec_members);
                 for em in members.iter_ptr() {
-                    add_missing_func((*em).em_expr.cast());
+                    walker((*em).em_expr.cast(), addr_of_mut!(ctx).cast());
                 }
             }
         }

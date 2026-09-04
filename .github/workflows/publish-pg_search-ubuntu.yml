@@ -248,20 +248,10 @@ jobs:
           echo "os_version=$OS_VERSION" >> $GITHUB_OUTPUT
 
       - name: Install & Configure Supported PostgreSQL Version
-        run: |
-          # Create keyrings dir (works on Debian/Ubuntu)
-          sudo install -d -m 0755 /usr/share/keyrings
-
-          # Download PostgreSQL signing key & add PostgreSQL APT repository with signed-by
-          wget -qO- https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo tee /usr/share/keyrings/postgresql.asc > /dev/null
-          sudo sh -c 'echo "deb [signed-by=/usr/share/keyrings/postgresql.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-
-          # Install PostgreSQL + build tooling
-          DEBIAN_FRONTEND=noninteractive sudo apt-get update
-          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }} debhelper devscripts dput gnupg libopenblas-dev
-
-          # Add Postgres bin dir to PATH for subsequent steps
-          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> "$GITHUB_PATH"
+        uses: ./.github/actions/setup-postgres
+        with:
+          pg_version: ${{ matrix.pg_version }}
+          extra_packages: debhelper devscripts dput gnupg libopenblas-dev
 
       - name: Extract pgrx Version
         id: pgrx
@@ -278,7 +268,7 @@ jobs:
         if: steps.cache-pgrx.outputs.cache-hit != 'true'
         run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
-      - name: Initialize pgrx environment
+      - name: Initialize pgrx Environment
         working-directory: pg_search/
         run: |
           PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"

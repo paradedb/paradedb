@@ -1,6 +1,6 @@
 # pg_search
 
-This README covers development of the `pg_search` extension. For installation, deployment, and usage, see the [ParadeDB documentation](https://docs.paradedb.com).
+This README covers development of the `pg_search` extension. For installation, deployment, and usage, see the [ParadeDB documentation](https://www.paradedb.com/docs).
 
 `pg_search` is supported on official PostgreSQL Global Development Group Postgres versions, starting at PostgreSQL 15.
 
@@ -88,6 +88,8 @@ After making changes to the extension code:
    DROP EXTENSION pg_search;
    CREATE EXTENSION pg_search CASCADE;
    ```
+
+3. **Schema Migrations:** If your changes introduce or modify extension SQL objects (functions, types, opclasses, etc.), you must provide an unreleased migration fragment in `pg_search/sql/unreleased/<PR_NUMBER>.<desc>.sql`. See [`CONTRIBUTING.md`](../CONTRIBUTING.md#pull-request-workflow) for details.
 
 ## Testing
 

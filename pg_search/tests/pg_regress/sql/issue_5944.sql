@@ -26,9 +26,9 @@ WITH (key_field = 'id', text_fields = '{"grp": {"fast": true}}');
 DELETE FROM issue_5944_mvcc_facet WHERE id % 10 = 0;
 
 -- Visible after the delete: 9000 rows across 18 distinct buckets.
-SET paradedb.check_aggregate_scan = false; -- DISTINCT can't use the aggregate scan
+SET paradedb.planner_warnings = 'off'; -- DISTINCT can't use the aggregate scan
 SELECT count(*) AS rows, count(DISTINCT grp) AS buckets FROM issue_5944_mvcc_facet;
-RESET paradedb.check_aggregate_scan;
+RESET paradedb.planner_warnings;
 
 -- Case 1: ordered top-k with solve_mvcc=true. Baseline, already correct.
 -- pdb.agg OVER () must be a bare targetlist entry or the custom scan does

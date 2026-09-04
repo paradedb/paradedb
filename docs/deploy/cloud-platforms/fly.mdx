@@ -1,7 +1,7 @@
 ---
 title: Fly.io
 description: Deploy ParadeDB on Fly.io using Fly Launch and the official Docker image
-canonical: https://docs.paradedb.com/deploy/cloud-platforms/fly
+canonical: https://www.paradedb.com/docs/deploy/cloud-platforms/fly
 ---
 
 <Note>
@@ -29,7 +29,9 @@ fly launch \
   --no-deploy
 ```
 
-`fly launch` prompts for an app name and a primary region, then writes a `fly.toml` in the current directory. See the [Docker Hub page](https://hub.docker.com/r/paradedb/paradedb/tags) for available `paradedb/paradedb` tags — pin one (for example `paradedb/paradedb:0.25.3-pg18`) instead of `latest` for reproducible deploys.
+import { version } from "/snippets/version.mdx";
+
+`fly launch` prompts for an app name and a primary region, then writes a `fly.toml` in the current directory. See the [Docker Hub page](https://hub.docker.com/r/paradedb/paradedb/tags) for available `paradedb/paradedb` tags — pin one (for example `paradedb/paradedb:{version}-pg18`) instead of `latest` for reproducible deploys.
 
 ## Create a Persistent Volume
 

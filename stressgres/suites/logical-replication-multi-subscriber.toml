@@ -1,0 +1,87 @@
+[[server]]
+name = "Publisher"
+[server.style.Automatic]
+postgresql_conf = "Publisher"
+
+[server.setup]
+sql = """
+CREATE TABLE events (id BIGSERIAL PRIMARY KEY, message TEXT NOT NULL);
+CREATE PUBLICATION stressgres_pub FOR TABLE events;
+INSERT INTO events(message) SELECT CASE WHEN i % 2 = 0 THEN 'beer ' ELSE 'wine ' END || i FROM generate_series(1, 10000) s(i);
+"""
+[server.teardown]
+sql = ""
+
+[server.monitor]
+refresh_ms = 100
+title = "Subscriber Lag"
+log_columns = ["subscriber_count"]
+sql = "SELECT count(*) AS subscriber_count FROM pg_stat_replication;"
+
+[[server]]
+name = "SubscriberA"
+[server.style.Automatic]
+postgresql_conf = "Subscriber"
+
+[server.setup]
+sql = """
+CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
+CREATE TABLE events (id BIGSERIAL PRIMARY KEY, message TEXT NOT NULL);
+CREATE SUBSCRIPTION stressgres_sub_a CONNECTION '@Publisher_CONNSTR@' PUBLICATION stressgres_pub;
+SELECT pg_sleep(5);
+CREATE INDEX events_idx ON events USING paradedb (id, message) WITH (key_field = 'id');
+"""
+[server.teardown]
+sql = ""
+
+[server.monitor]
+refresh_ms = 100
+title = "Subscriber A Documents"
+log_columns = ["document_count"]
+sql = "SELECT count(*) AS document_count FROM events;"
+
+[[server]]
+name = "SubscriberB"
+[server.style.Automatic]
+postgresql_conf = "Subscriber"
+
+[server.setup]
+sql = """
+CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
+CREATE TABLE events (id BIGSERIAL PRIMARY KEY, message TEXT NOT NULL);
+CREATE SUBSCRIPTION stressgres_sub_b CONNECTION '@Publisher_CONNSTR@' PUBLICATION stressgres_pub;
+SELECT pg_sleep(5);
+CREATE INDEX events_idx ON events USING paradedb (id, message) WITH (key_field = 'id');
+"""
+[server.teardown]
+sql = ""
+
+[server.monitor]
+refresh_ms = 100
+title = "Subscriber B Documents"
+log_columns = ["document_count"]
+sql = "SELECT count(*) AS document_count FROM events;"
+
+[[jobs]]
+refresh_ms = 5
+title = "Subscriber Top K Base Scan"
+destinations = ["SubscriberA", "SubscriberB"]
+sql = "SELECT id, message FROM events WHERE message ||| 'beer' LIMIT 100;"
+
+[[jobs]]
+refresh_ms = 25
+title = "Replicated Inserts"
+destinations = ["Publisher"]
+sql = "INSERT INTO events(message) VALUES ('beer ' || txid_current());"
+
+[[jobs]]
+refresh_ms = 25
+title = "Replicated Updates"
+destinations = ["Publisher"]
+sql = "UPDATE events SET message = message || ' updated' WHERE id BETWEEN 1 AND 100;"
+
+[[jobs]]
+refresh_ms = 50
+title = "Replicated Deletes"
+destinations = ["Publisher"]
+sql = "DELETE FROM events WHERE id > 10000;"

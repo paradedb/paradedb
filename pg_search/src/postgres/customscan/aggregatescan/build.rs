@@ -17,7 +17,7 @@
 
 use crate::api::SortDirection;
 use crate::api::version::Version;
-use crate::api::{FieldName, HashSet, OrderByFeature};
+use crate::api::{FieldName, HashSet, MvccVisibility, OrderByFeature};
 use crate::gucs;
 use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
@@ -133,16 +133,13 @@ trait CollectFlat<Leaf, Marker> {
         children: Aggregations,
     ) -> Result<Aggregations>
     where
-        Leaf: Into<AggregationVariants>,
+        Leaf: Into<Aggregation>,
     {
         for (idx, leaf) in self.iter_leaves()?.enumerate() {
-            aggregations.insert(
-                idx.to_string(),
-                Aggregation {
-                    agg: leaf.into(),
-                    sub_aggregation: children.clone(),
-                },
-            );
+            // A `pdb.agg()` spec brings sub-aggregations of its own.
+            let mut agg: Aggregation = leaf.into();
+            agg.sub_aggregation.extend(children.clone());
+            aggregations.insert(idx.to_string(), agg);
         }
         Ok(aggregations)
     }
@@ -154,8 +151,8 @@ pub trait CollectAggregations {
 
 impl CollectAggregations for AggregateCSClause {
     fn collect(&self) -> Result<Aggregations> {
-        // Validate that no contradicting solve_mvcc settings exist among custom aggregates
-        self.mvcc_enabled();
+        // Validate that no contradicting visibility settings exist among custom aggregates
+        self.visibility();
 
         // Validate that all fields referenced in custom aggregates exist in the index schema
         if self.indexrelid != pg_sys::InvalidOid {
@@ -182,18 +179,7 @@ impl CollectAggregations for AggregateCSClause {
                 .zip(metrics)
                 .enumerate()
                 .map(|(idx, (filter, metric))| {
-                    // For Custom aggregates, deserialize with nested aggregations
-                    let metric_agg = if let AggregateType::Custom { agg_json, .. } = &metric {
-                        // Tantivy's Aggregation deserializer handles nested "aggs" automatically
-                        serde_json::from_value(agg_json.clone()).unwrap_or_else(|e| {
-                            panic!("Failed to deserialize custom aggregate: {}", e)
-                        })
-                    } else {
-                        Aggregation {
-                            agg: metric.into(),
-                            sub_aggregation: Default::default(),
-                        }
-                    };
+                    let metric_agg: Aggregation = metric.into();
 
                     let agg = match filter {
                         Some(filter) => Aggregation {
@@ -328,10 +314,10 @@ impl AggregateCSClause {
         self.index_created_by_version
     }
 
-    /// Determines if MVCC filtering should be enabled for this aggregate scan.
-    /// Also validates that there are no contradicting solve_mvcc settings among custom aggregates.
-    pub fn mvcc_enabled(&self) -> bool {
-        AggregateType::resolve_mvcc_enabled(self.aggregates())
+    /// The query-level visibility setting for this aggregate scan.
+    /// Also validates that there are no contradicting settings among custom aggregates.
+    pub fn visibility(&self) -> MvccVisibility {
+        AggregateType::resolve_visibility(self.aggregates())
     }
 
     /// True when this clause is a single doc-count aggregate with no GROUP BY,
@@ -427,6 +413,7 @@ impl AggregateCSClause {
             .filter_map(|info| match &info.feature {
                 OrderByFeature::Field { name, .. } => Some(name.to_string()),
                 OrderByFeature::Score { .. }
+                | OrderByFeature::ScoreSum { .. }
                 | OrderByFeature::Var { .. }
                 | OrderByFeature::NullTest { .. }
                 | OrderByFeature::VectorDistance { .. } => None,

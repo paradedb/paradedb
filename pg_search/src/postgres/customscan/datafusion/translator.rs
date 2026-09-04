@@ -22,9 +22,11 @@ use datafusion::prelude::DataFrame;
 use pgrx::pg_sys;
 
 use crate::postgres::customscan::joinscan::build::{
-    JoinLevelExpr, JoinNode, JoinSource, JoinType as PgJoinType, RelationAlias,
+    JoinLevelExpr, JoinNode, JoinSource, JoinType as PgJoinType, LateralUnnestInfo, RelNode,
+    RelationAlias, UnnestNode,
 };
 use crate::postgres::customscan::joinscan::privdat::{OutputColumnInfo, SCORE_COL_NAME};
+use crate::scan::ScanMode;
 
 pub trait ColumnMapper {
     /// Map a PostgreSQL variable to a DataFusion Column expression
@@ -43,47 +45,6 @@ pub(crate) unsafe fn type_name(oid: pg_sys::Oid) -> String {
         .into_owned()
 }
 
-/// Deparse a PG expression into readable SQL for debug logs. Builds a
-/// deparse context that covers every join source so Var nodes resolve to
-/// qualified column names (e.g. `e.pattern`). Wrapped in
-/// [`pgrx::PgTryBuilder`] so a PG error inside `deparse_expression` (which
-/// doesn't handle every possible node shape) degrades to a short tag
-/// fallback instead of unwinding the caller.
-pub(crate) unsafe fn deparse_expr_for_debug(
-    node: *mut pg_sys::Node,
-    sources: &[&JoinSource],
-) -> String {
-    use std::panic::AssertUnwindSafe;
-    if node.is_null() {
-        return "<null>".to_string();
-    }
-
-    let tag_fallback = || format!("{:?}", (*node).type_);
-
-    pgrx::PgTryBuilder::new(AssertUnwindSafe(|| {
-        let mut context: *mut pg_sys::List = std::ptr::null_mut();
-        for source in sources {
-            let alias = source.scan_info.alias.as_deref().unwrap_or("?");
-            let relname = match std::ffi::CString::new(alias) {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
-            let rel_context =
-                pg_sys::deparse_context_for(relname.as_ptr(), source.scan_info.heaprelid);
-            context = pg_sys::list_concat(context, rel_context);
-        }
-        let deparsed = pg_sys::deparse_expression(node.cast(), context, sources.len() > 1, false);
-        if deparsed.is_null() {
-            return tag_fallback();
-        }
-        std::ffi::CStr::from_ptr(deparsed)
-            .to_string_lossy()
-            .into_owned()
-    }))
-    .catch_others(|_| tag_fallback())
-    .execute()
-}
-
 /// Short label for a node tag (strips the `T_` prefix). Used in debug
 /// logs so the offending node type is immediately scannable. Separate from
 /// `expr_translators::node_tag_label`, which covers only the subset of
@@ -99,6 +60,7 @@ pub(crate) unsafe fn node_tag_debug(node: *mut pg_sys::Node) -> String {
 /// Helper struct for translating PostgreSQL expression trees into DataFusion `Expr`s.
 pub struct PredicateTranslator<'a> {
     pub sources: &'a [&'a JoinSource],
+    pub root: Option<*mut pg_sys::PlannerInfo>,
     pub(crate) mapper: Option<Box<dyn ColumnMapper + 'a>>,
 }
 
@@ -106,13 +68,30 @@ impl<'a> PredicateTranslator<'a> {
     pub fn new(sources: &'a [&'a JoinSource]) -> Self {
         Self {
             sources,
+            root: None,
             mapper: None,
         }
+    }
+
+    pub fn with_planner_info(mut self, root: *mut pg_sys::PlannerInfo) -> Self {
+        self.root = if root.is_null() { None } else { Some(root) };
+        self
     }
 
     pub fn with_mapper(mut self, mapper: Box<dyn ColumnMapper + 'a>) -> Self {
         self.mapper = Some(mapper);
         self
+    }
+
+    /// Format a PostgreSQL expression node into a debug string for logs,
+    /// using `deparse_planner_expr` if planning context is available.
+    pub(crate) unsafe fn deparse_for_debug(&self, node: *mut pg_sys::Node) -> String {
+        if let Some(root) = self.root
+            && let Some(deparsed) = crate::postgres::deparse::deparse_planner_expr(root, node)
+        {
+            return deparsed;
+        }
+        crate::postgres::deparse::node_to_string_without_context(node)
     }
 
     /// Translate a `JoinLevelExpr` tree to a DataFusion `Expr`.
@@ -123,36 +102,48 @@ impl<'a> PredicateTranslator<'a> {
     pub unsafe fn translate_join_level_expr(
         expr: &JoinLevelExpr,
         custom_exprs: &[Expr],
+        custom_expr_idx: &mut usize,
         sources: &[&JoinSource],
     ) -> Option<Expr> {
         match expr {
             JoinLevelExpr::SingleTablePredicate {
                 plan_position,
-                predicate_idx,
+                predicate,
             } => {
                 let source = sources.iter().find(|s| s.plan_position == *plan_position)?;
                 let tag_name = match &source.scan_info.mode {
-                    crate::scan::ScanMode::Tagged { local_queries, .. } => {
+                    ScanMode::Tagged { local_queries, .. } => {
                         &local_queries
                             .iter()
-                            .find(|tq| tq.predicate_idx.0 == *predicate_idx)?
+                            .find(|tq| tq.query.as_ref() == &predicate.query)?
                             .tag_name
                     }
-                    crate::scan::ScanMode::Standard { .. } => return None,
+                    ScanMode::Standard { .. } => return None,
                 };
                 Some(col(tag_name))
             }
-            JoinLevelExpr::MultiTablePredicate { predicate_idx } => {
-                custom_exprs.get(*predicate_idx).cloned()
+            JoinLevelExpr::MultiTablePredicate { .. } => {
+                let expr = custom_exprs.get(*custom_expr_idx).cloned();
+                *custom_expr_idx += 1;
+                expr
             }
             JoinLevelExpr::And(children) => {
                 if children.is_empty() {
                     return None;
                 }
-                let mut result =
-                    Self::translate_join_level_expr(&children[0], custom_exprs, sources)?;
+                let mut result = Self::translate_join_level_expr(
+                    &children[0],
+                    custom_exprs,
+                    custom_expr_idx,
+                    sources,
+                )?;
                 for child in &children[1..] {
-                    let right = Self::translate_join_level_expr(child, custom_exprs, sources)?;
+                    let right = Self::translate_join_level_expr(
+                        child,
+                        custom_exprs,
+                        custom_expr_idx,
+                        sources,
+                    )?;
                     result = Expr::BinaryExpr(BinaryExpr::new(
                         Box::new(result),
                         Operator::And,
@@ -165,10 +156,19 @@ impl<'a> PredicateTranslator<'a> {
                 if children.is_empty() {
                     return None;
                 }
-                let mut result =
-                    Self::translate_join_level_expr(&children[0], custom_exprs, sources)?;
+                let mut result = Self::translate_join_level_expr(
+                    &children[0],
+                    custom_exprs,
+                    custom_expr_idx,
+                    sources,
+                )?;
                 for child in &children[1..] {
-                    let right = Self::translate_join_level_expr(child, custom_exprs, sources)?;
+                    let right = Self::translate_join_level_expr(
+                        child,
+                        custom_exprs,
+                        custom_expr_idx,
+                        sources,
+                    )?;
                     result = Expr::BinaryExpr(BinaryExpr::new(
                         Box::new(result),
                         Operator::Or,
@@ -178,7 +178,8 @@ impl<'a> PredicateTranslator<'a> {
                 Some(result)
             }
             JoinLevelExpr::Not(child) => {
-                let inner = Self::translate_join_level_expr(child, custom_exprs, sources)?;
+                let inner =
+                    Self::translate_join_level_expr(child, custom_exprs, custom_expr_idx, sources)?;
                 Some(Expr::Not(Box::new(inner)))
             }
             JoinLevelExpr::MarkOrNull {
@@ -213,9 +214,15 @@ impl<'a> PredicateTranslator<'a> {
     /// Validates both node-type support and column resolution against
     /// the provided sources, without requiring plan_position or
     /// output_columns.
-    pub unsafe fn can_translate(sources: &'a [&'a JoinSource], node: *mut pg_sys::Node) -> bool {
+    pub unsafe fn can_translate(
+        root: Option<*mut pg_sys::PlannerInfo>,
+        sources: &'a [&'a JoinSource],
+        node: *mut pg_sys::Node,
+        plan: Option<&'a RelNode>,
+    ) -> bool {
         struct ValidationMapper<'a> {
             sources: &'a [&'a JoinSource],
+            plan: Option<&'a RelNode>,
         }
 
         impl<'a> ColumnMapper for ValidationMapper<'a> {
@@ -223,13 +230,27 @@ impl<'a> PredicateTranslator<'a> {
             /// happened yet at this planning stage. Column validity is
             /// covered by all_vars_are_fast_fields_recursive which runs first.
             fn map_var(&self, varno: pg_sys::Index, _varattno: pg_sys::AttrNumber) -> Option<Expr> {
-                let _source = self.sources.iter().find(|s| s.contains_rti(varno))?;
-                Some(col("placeholder"))
+                if let Some(_source) = self.sources.iter().find(|s| s.contains_rti(varno)) {
+                    return Some(col("placeholder"));
+                }
+                if let Some(plan) = self.plan
+                    && let Some(unnest_info) = plan.find_lateral_unnest(varno)
+                    && self
+                        .sources
+                        .iter()
+                        .any(|s| s.contains_rti(unnest_info.source_rti.0))
+                {
+                    return Some(col("placeholder"));
+                }
+                None
             }
         }
 
-        let mapper = ValidationMapper { sources };
-        let translator = Self::new(sources).with_mapper(Box::new(mapper));
+        let mapper = ValidationMapper { sources, plan };
+        let mut translator = Self::new(sources).with_mapper(Box::new(mapper));
+        if let Some(r) = root {
+            translator = translator.with_planner_info(r);
+        }
         translator.translate(node).is_some()
     }
 
@@ -294,7 +315,7 @@ impl<'a> PredicateTranslator<'a> {
                 pgrx::debug1!(
                     "PredicateTranslator: UDF fallback failed [{}] | {}",
                     node_tag_debug(node),
-                    deparse_expr_for_debug(node, self.sources)
+                    self.deparse_for_debug(node)
                 );
             }
             wrapped
@@ -323,8 +344,14 @@ pub fn apply_join_level_filter(
     sources: &[&JoinSource],
     handle_mark: bool,
 ) -> Result<DataFrame> {
+    let mut custom_expr_idx = 0;
     let filter_expr = unsafe {
-        PredicateTranslator::translate_join_level_expr(predicate, translated_exprs, sources)
+        PredicateTranslator::translate_join_level_expr(
+            predicate,
+            translated_exprs,
+            &mut custom_expr_idx,
+            sources,
+        )
     }
     .ok_or_else(|| {
         DataFusionError::Internal(format!(
@@ -475,12 +502,18 @@ pub fn build_join_df_with_filter(
     join: &JoinNode,
     sources: &[&JoinSource],
     output_columns: &[OutputColumnInfo],
+    lateral_unnests: &[LateralUnnestInfo],
 ) -> Result<DataFrame> {
     let df_join_type = map_join_type(join.join_type)?;
 
     let filter_expr = match &join.filter {
         Some(JoinLevelExpr::PgExpression { pg_node_string, .. }) => unsafe {
-            translate_pg_expression_filter(pg_node_string, sources, output_columns)?
+            translate_pg_expression_filter(
+                pg_node_string,
+                sources,
+                output_columns,
+                lateral_unnests,
+            )?
         },
         Some(other) => {
             return Err(DataFusionError::NotImplemented(format!(
@@ -493,18 +526,71 @@ pub fn build_join_df_with_filter(
         }
     };
 
+    if matches!(join.join_type, PgJoinType::Anti { null_aware: true }) {
+        return Err(DataFusionError::NotImplemented(
+            "null_aware NOT IN anti join does not support non-equi join filters".into(),
+        ));
+    }
+
     if join.equi_keys.is_empty() {
         return left.join(right, df_join_type, &[], &[], Some(filter_expr));
     }
 
-    // The mixed case (equi keys + join filter) is not exercised today: only
-    // the disjunctive Semi/Anti path populates `JoinNode.filter`, and it
-    // always yields empty equi keys. Surface an explicit error so a future
-    // planner change that introduces the mixed case is noticed instead of
-    // silently producing a cross-join.
-    Err(DataFusionError::NotImplemented(
-        "JoinNode.filter combined with equi-join keys is not yet supported".into(),
-    ))
+    let mut on = build_equi_join_exprs(join)?;
+    on.push(filter_expr);
+    left.join_on(right, df_join_type, on)
+}
+
+/// Apply a lateral unnest operation onto an existing DataFusion DataFrame.
+///
+/// Resolves the source table's execution alias, applies DataFusion's `unnest_columns_with_options`
+/// (preserving empty arrays for LEFT joins if requested), and re-qualifies the unnested column.
+pub fn apply_relnode_unnest(df: DataFrame, unnest: &UnnestNode) -> Result<DataFrame> {
+    use datafusion::common::{NullHandling, UnnestOptions};
+
+    let source = unnest
+        .input
+        .sources()
+        .into_iter()
+        .find(|s| s.contains_rti(unnest.unnest_info.source_rti.0))
+        .ok_or_else(|| {
+            DataFusionError::Internal(format!(
+                "source RTI {} not found for lateral unnest",
+                unnest.unnest_info.source_rti.0
+            ))
+        })?;
+    let alias =
+        RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
+    let unnested_col_name = format!("{}_{}", alias, unnest.unnest_info.field_name);
+
+    let select_exprs = df
+        .schema()
+        .iter()
+        .map(|(qualifier, field)| {
+            if qualifier.as_ref().map(|q| q.to_string()) == Some(alias.clone())
+                && field.name() == &unnest.unnest_info.field_name
+            {
+                Expr::Column(datafusion::common::Column::new(
+                    qualifier.cloned(),
+                    field.name(),
+                ))
+                .alias(&unnested_col_name)
+            } else {
+                Expr::Column(datafusion::common::Column::new(
+                    qualifier.cloned(),
+                    field.name(),
+                ))
+            }
+        })
+        .collect::<Vec<_>>();
+    let df = df.select(select_exprs)?;
+
+    let unnest_options = if unnest.unnest_info.is_left_join {
+        UnnestOptions::new().with_null_handling(NullHandling::PreserveAndExpandEmpty)
+    } else {
+        UnnestOptions::new().with_null_handling(NullHandling::Drop)
+    };
+    df.unnest_columns_with_options(&[&unnested_col_name], unnest_options)
 }
 
 /// Deserialize a PostgreSQL expression from its `nodeToString` representation
@@ -542,10 +628,12 @@ unsafe fn translate_pg_expression_filter(
     pg_node_string: &str,
     sources: &[&JoinSource],
     output_columns: &[OutputColumnInfo],
+    lateral_unnests: &[LateralUnnestInfo],
 ) -> Result<Expr> {
     let mapper = CombinedMapper {
         sources,
         output_columns,
+        lateral_unnests,
     };
     translate_pg_node_string(pg_node_string, sources, Box::new(mapper), "PgExpression")
 }
@@ -598,48 +686,85 @@ pub fn make_source_score_col(source: &JoinSource) -> Expr {
     make_source_col(source, SCORE_COL_NAME)
 }
 
+/// Build a DataFusion column expression for an unnested field on the given
+/// source, matching the `{alias}_{field_name}` naming convention established
+/// by `apply_relnode_unnest`.
+pub fn make_source_unnested_col(source: &JoinSource, field_name: &str) -> Expr {
+    let alias =
+        RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
+    col(format!("{}_{}", alias, field_name))
+}
+
 pub struct CombinedMapper<'a> {
     pub sources: &'a [&'a JoinSource],
     pub output_columns: &'a [OutputColumnInfo],
+    pub lateral_unnests: &'a [LateralUnnestInfo],
 }
 
 impl<'a> ColumnMapper for CombinedMapper<'a> {
     fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr> {
-        let (rti, attno, is_score) = if varno == pg_sys::INDEX_VAR as pg_sys::Index {
+        let (rti, attno, is_score, unnested_info) = if varno == pg_sys::INDEX_VAR as pg_sys::Index {
             let idx = (varattno - 1) as usize;
             match self.output_columns.get(idx)? {
                 OutputColumnInfo::Var {
                     rti,
                     original_attno,
                     ..
-                } => (*rti, *original_attno, false),
-                OutputColumnInfo::Score { rti, .. } => (*rti, 0, true),
+                } => (*rti, *original_attno, false, None),
+                OutputColumnInfo::Score { rti, .. } => (*rti, 0, true, None),
+                OutputColumnInfo::Unnested {
+                    function_rti,
+                    source_rti,
+                    field_name,
+                } => (
+                    function_rti.0,
+                    1,
+                    false,
+                    Some((source_rti.0, field_name.clone())),
+                ),
                 OutputColumnInfo::Pruned => return None,
             }
         } else {
-            (varno, varattno, false)
+            (varno, varattno, false, None)
         };
 
-        let (plan_position, source) = self
-            .sources
-            .iter()
-            .enumerate()
-            .find(|(_, s)| s.contains_rti(rti))?;
-
-        let alias = RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
-
-        if is_score {
-            if let Some(col_idx) = source.map_var(rti, 0)
-                && let Some(name) = source.column_name(col_idx)
-            {
-                return Some(make_col(&alias, &name));
-            }
-            return Some(make_col(&alias, SCORE_COL_NAME));
+        if let Some((source_rti, field_name)) = unnested_info {
+            let source = self.sources.iter().find(|s| s.contains_rti(source_rti))?;
+            return Some(make_source_unnested_col(source, &field_name));
         }
 
-        let mapped_attno = source.map_var(rti, attno)?;
-        let col_name = source.column_name(mapped_attno)?;
-        Some(make_col(&alias, &col_name))
+        if let Some(source) = self.sources.iter().find(|s| s.contains_rti(rti)) {
+            if is_score {
+                if let Some(col_idx) = source.map_var(rti, 0)
+                    && let Some(name) = source.column_name(col_idx)
+                {
+                    return Some(make_source_col(source, &name));
+                }
+                return Some(make_source_score_col(source));
+            }
+
+            let mapped_attno = source.map_var(rti, attno)?;
+            let col_name = source.column_name(mapped_attno)?;
+            if self
+                .lateral_unnests
+                .iter()
+                .any(|u| source.contains_rti(u.source_rti.0) && u.field_name == col_name)
+            {
+                Some(make_source_unnested_col(source, &col_name))
+            } else {
+                Some(make_source_col(source, &col_name))
+            }
+        } else {
+            let unnest_info = self
+                .lateral_unnests
+                .iter()
+                .find(|u| u.function_rti.0 == rti)?;
+            let s = self
+                .sources
+                .iter()
+                .find(|s| s.contains_rti(unnest_info.source_rti.0))?;
+            Some(make_source_unnested_col(s, &unnest_info.field_name))
+        }
     }
 }
 
@@ -731,8 +856,10 @@ mod tests {
             list.push(pg_sys::makeBoolConst(true, false).cast());
 
             assert!(!PredicateTranslator::can_translate(
+                None,
                 &[],
-                list.into_pg().cast()
+                list.into_pg().cast(),
+                None,
             ));
         }
     }

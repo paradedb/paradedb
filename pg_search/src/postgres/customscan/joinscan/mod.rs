@@ -2477,15 +2477,17 @@ impl JoinScan {
                             "BUG: A non-Aggregate somehow reached the handling of a WindowAggregate"
                         );
                     };
-                    let Ok(numeric) =
-                        numeric_window_field(&state.custom_state().join_clause, agg_type)
-                    else {
-                        pgrx::error!(
-                            "Tried to process a window aggregate with a pushdown-incompatible field"
-                        )
+                    let numeric = match numeric_window_field(
+                        &state.custom_state().join_clause,
+                        agg_type,
+                    ) {
+                        Ok(f) => f,
+                        Err(e) => pgrx::error!(
+                            "Tried to process a window aggregate with a pushdown-incompatible field: {e}"
+                        ),
                     };
                     let try_maybe_datum = datafusion_agg_to_datum(
-                        matches!(agg_info.agg_type(), Some(AggregateType::Avg { .. })),
+                        matches!(agg_type, AggregateType::Avg { .. }),
                         numeric,
                         agg_info.result_type_oid(),
                         agg_col.as_ref(),

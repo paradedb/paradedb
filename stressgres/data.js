@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788546369614,
+  "lastUpdate": 1788546381472,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -312212,6 +312212,126 @@ window.BENCHMARK_DATA = {
             "value": 10.232274437242864,
             "unit": "median tps",
             "extra": "avg tps: 13.96733261611107, max tps: 786.1400366970169, count: 57426"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "17972943855cca91ca275cfbd10a4c5301214c51",
+          "message": "feat: partition a partition_by index built CONCURRENTLY (#6146)\n\n## Ticket(s) Closed\n\n- Closes #6170. Follow-up to #5735, which left this open.\n\n## What\n\nAn index with `partition_by` built by `CREATE INDEX CONCURRENTLY` or\n`REINDEX CONCURRENTLY` now cuts its partitions during the scan, the way\na plain build does.\n\n## Why\n\nA `partition_by` build routes each row into a kd-tree partition and\nstamps every segment with its box. A concurrent build skipped that\nplanning, so a concurrently built index recorded no boundaries and\n`enable_range_partitioned_join` got nothing to cut on. The only fix was\na blocking `REINDEX`.\n\nThe reason the build was ruled out: its phase 2 re-reads rows by ctid\nafter the scan, and with writers still running, a chain's live tail can\nbe a version the build's snapshot never saw.\n\nThat is a property of the fetch, not of the build. Phase 1 of a\nconcurrent build is a plain MVCC scan under a registered snapshot, and\nvisibility to a registered snapshot does not change. So phase 2\nreproduces phase 1's row choice by resolving each HOT chain under that\nsame snapshot.\n\nRows that arrive later stay unrouted, including the ones\n`validate_index` adds in the last phase of a concurrent build. That is\nM3 in the design: only the largest levels get partitioned, and lower\nmerges route by the largest level's boxes, as in Spooky.\n\n## How\n\n`do_build` registers the scan's snapshot. The scan drops its own at\n`table_endscan`, and a parallel worker's snapshot is `SO_TEMP_SNAPSHOT`,\nso the registration is what keeps it alive for the drain.\n`drain_partitioned` pushes it as active and fetches query-visible\ninstead of maintenance-visible. `HeapDocFetcher` had both modes already.\nA plain build keeps the maintenance one, which must index every live\nrow.\n\nThe serial path takes the snapshot from `build_index`. The parallel path\nreads it off the shared scan descriptor.\n\nEvery `partition_by` dimension needs a fast column in raw order, because\na partition's range query runs on the fast column and a box holds only\nwhere the raw order does. `CREATE INDEX` and `REINDEX` refuse a\ndimension without one, and a utility hook refuses an `ALTER INDEX` that\nchanges `partition_by` (clearing it remains allowed).\n\n## Tests\n\n`partitioned_build_concurrently` (pg_regress): two `CREATE INDEX\nCONCURRENTLY` indexes record split points, and a range-partitioned join\nover them matches the serial baseline.\n\n`#[pg_test]`s in `build.rs`: a key with an unroutable dimension fails\n`CREATE INDEX`. Changing `partition_by` by `ALTER INDEX` fails, and\nclearing it works.\n\n`partitioned_build_concurrent_writes` (integration test): two backends,\none building `CONCURRENTLY` while the other updates, inserts and deletes\nunder it. Both check that the index holds exactly the table's rows, with\ncontents that agree with the heap. They run on PG 17 and newer: on 15\nand 16 a `CONCURRENTLY` build under a writer fails on a leaked buffer\npin, which #6208 tracks and which predates this PR (it reproduces on\n`main` with no `partition_by` at all).\n\n## Open\n\n- The concurrency test does not discriminate the fetch mode. It still\npasses with the drain reading in maintenance mode, so I could not build\na case where the old mode is observably wrong. HOT's invariant, that\nchain members agree on indexed columns, looks like the reason. The\nquery-visible fetch keeps the drain's contract equal to the scan's,\nwhich is easier to reason about, but treat it as belt and braces rather\nthan a demonstrated fix.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-09-04T10:48:18-07:00",
+          "tree_id": "a350589116aa50bb4a976fb93049c4f866575a29",
+          "url": "https://github.com/paradedb/paradedb/commit/17972943855cca91ca275cfbd10a4c5301214c51"
+        },
+        "date": 1788546359770,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 177.04369437966375,
+            "unit": "median tps",
+            "extra": "avg tps: 182.53215355401275, max tps: 220.32827838277035, count: 57416"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 295.15025641972414,
+            "unit": "median tps",
+            "extra": "avg tps: 327.8517164961831, max tps: 529.5406243107446, count: 57416"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3999.440204227135,
+            "unit": "median tps",
+            "extra": "avg tps: 3988.5576760110075, max tps: 4256.508933747173, count: 57416"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 183.4466460824712,
+            "unit": "median tps",
+            "extra": "avg tps: 190.08524882357395, max tps: 233.43236342811866, count: 57416"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3325.3880998538934,
+            "unit": "median tps",
+            "extra": "avg tps: 3309.021231779725, max tps: 3352.0470224273904, count: 57416"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3366.166667556794,
+            "unit": "median tps",
+            "extra": "avg tps: 3354.2154881920846, max tps: 3780.3239287185334, count: 57416"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 155.43454542653708,
+            "unit": "median tps",
+            "extra": "avg tps: 159.22489714099675, max tps: 188.1791179170311, count: 57416"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 273.3536186034863,
+            "unit": "median tps",
+            "extra": "avg tps: 286.7948362443413, max tps: 385.45557082380884, count: 57416"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Primary - tps",
+            "value": 514.6660554560112,
+            "unit": "median tps",
+            "extra": "avg tps: 523.9201982497057, max tps: 587.9436849305714, count: 57416"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 598.1754178728023,
+            "unit": "median tps",
+            "extra": "avg tps: 612.0474552669102, max tps: 726.8419308921391, count: 57416"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1272.693918112395,
+            "unit": "median tps",
+            "extra": "avg tps: 1274.5037792026355, max tps: 1323.3548661743462, count: 57416"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 328.7731187481703,
+            "unit": "median tps",
+            "extra": "avg tps: 360.6639424918726, max tps: 592.189133006397, count: 57416"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 545.5040025988727,
+            "unit": "median tps",
+            "extra": "avg tps: 557.3815826085064, max tps: 663.8825868417836, count: 57416"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2342.5958172540795,
+            "unit": "median tps",
+            "extra": "avg tps: 2343.889029893981, max tps: 2465.1209944304987, count: 57416"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1710.4040663156388,
+            "unit": "median tps",
+            "extra": "avg tps: 1714.4915225129487, max tps: 2067.6325797819886, count: 57416"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 8.604217384563542,
+            "unit": "median tps",
+            "extra": "avg tps: 22.285251368579495, max tps: 216.10394729527272, count: 57416"
           }
         ]
       }

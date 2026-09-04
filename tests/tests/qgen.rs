@@ -750,7 +750,7 @@ async fn generated_aggregate_join(database: Db) {
     // Text columns for BM25 WHERE clauses
     let text_columns = columns_named(vec!["name"]);
     // Columns for join keys
-    let join_key_columns = vec!["id", "age"];
+    let join_key_columns = columns_named(vec!["id", "age"]);
     // Columns for GROUP BY (must be fast fields)
     let mut grouping_columns: Vec<String> = COLUMNS
         .iter()
@@ -789,7 +789,7 @@ async fn generated_aggregate_join(database: Db) {
         let join = arb_joins(
             prop_oneof![Just(JoinType::Inner), Just(JoinType::Left), Just(JoinType::Full)],
             tables_for_join.clone(),
-            join_key_columns.clone(),
+            &join_key_columns,
         );
 
         let join_expr = {
@@ -878,7 +878,7 @@ async fn generated_aggregate_join_distinct(database: Db) {
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
 
     let text_columns = columns_named(vec!["name"]);
-    let join_key_columns = vec!["id", "age"];
+    let join_key_columns = columns_named(vec!["id", "age"]);
     let grouping_columns: Vec<&str> = COLUMNS
         .iter()
         .filter(|col| col.is_groupable && col.is_whereable)
@@ -903,7 +903,7 @@ async fn generated_aggregate_join_distinct(database: Db) {
         let join = arb_joins(
             prop_oneof![Just(JoinType::Inner), Just(JoinType::Left)],
             tables_for_join.clone(),
-            join_key_columns.clone(),
+            &join_key_columns,
         );
 
         let join_expr = {
@@ -1102,7 +1102,7 @@ async fn generated_join_aggregates(database: Db) {
     // Text columns for BM25 WHERE clauses
     let text_columns = columns_named(vec!["name"]);
     // Columns for join keys
-    let join_key_columns = vec!["id", "age"];
+    let join_key_columns = columns_named(vec!["id", "age"]);
     // Columns for GROUP BY (must be fast fields, qualified with table name)
     let grouping_columns: Vec<String> = COLUMNS
         .iter()
@@ -1124,7 +1124,7 @@ async fn generated_join_aggregates(database: Db) {
         let join = arb_joins(
             Just(JoinType::Inner),
             all_tables.clone(),
-            join_key_columns.clone(),
+            &join_key_columns,
         );
 
         let join_expr = {
@@ -1571,7 +1571,7 @@ async fn generated_pdb_agg_join(database: Db) {
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
 
     let text_columns = columns_named(vec!["name"]);
-    let join_key_columns = vec!["id".to_string(), "age".to_string()];
+    let join_key_columns = columns_named(vec!["id", "age"]);
 
     proptest!(qgen_proptest_config(), |(
         outer_bm25 in arb_wheres(vec![all_tables[0].clone()], &text_columns),

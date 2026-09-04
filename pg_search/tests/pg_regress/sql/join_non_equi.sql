@@ -228,10 +228,58 @@ ORDER BY o.id, i.id NULLS LAST
 LIMIT 10;
 
 -- =============================================================================
--- SECTION 4: Cross-Table Disjunctive Search (OR) with Non-Equi JOIN
+-- SECTION 4: Non-Equi SEMI and ANTI JOINs
 -- =============================================================================
 
--- Test 4.1: OR across tables with non-equi condition
+-- Test 4.1: SEMI JOIN with mixed equi + non-equi condition
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id, i.name, i.price
+FROM nonequi_items i
+WHERE i.description @@@ 'keyboard OR mouse OR headset'
+  AND EXISTS (
+      SELECT 1 FROM nonequi_offers o
+      WHERE i.category = o.target_category AND o.min_price > i.price
+  )
+ORDER BY i.id
+LIMIT 10;
+
+SELECT i.id, i.name, i.price
+FROM nonequi_items i
+WHERE i.description @@@ 'keyboard OR mouse OR headset'
+  AND EXISTS (
+      SELECT 1 FROM nonequi_offers o
+      WHERE i.category = o.target_category AND o.min_price > i.price
+  )
+ORDER BY i.id
+LIMIT 10;
+
+-- Test 4.2: ANTI JOIN with mixed equi + non-equi condition
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id, i.name, i.price
+FROM nonequi_items i
+WHERE i.description @@@ 'keyboard OR mouse OR headset'
+  AND NOT EXISTS (
+      SELECT 1 FROM nonequi_offers o
+      WHERE i.category = o.target_category AND o.min_price > i.price
+  )
+ORDER BY i.id
+LIMIT 10;
+
+SELECT i.id, i.name, i.price
+FROM nonequi_items i
+WHERE i.description @@@ 'keyboard OR mouse OR headset'
+  AND NOT EXISTS (
+      SELECT 1 FROM nonequi_offers o
+      WHERE i.category = o.target_category AND o.min_price > i.price
+  )
+ORDER BY i.id
+LIMIT 10;
+
+-- =============================================================================
+-- SECTION 5: Cross-Table Disjunctive Search (OR) with Non-Equi JOIN
+-- =============================================================================
+
+-- Test 5.1: OR across tables with non-equi condition
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id, i.name, o.promo_name
 FROM nonequi_items i
@@ -248,10 +296,10 @@ ORDER BY i.id, o.id
 LIMIT 10;
 
 -- =============================================================================
--- SECTION 5: Parity Checks (Custom Scan ON vs OFF)
+-- SECTION 6: Parity Checks (Custom Scan ON vs OFF)
 -- =============================================================================
 
--- Test 5.1: Non-equi inner join parity
+-- Test 6.1: Non-equi inner join parity
 SET paradedb.enable_join_custom_scan = off;
 SELECT i.id, i.name, o.promo_name
 FROM nonequi_items i
@@ -268,7 +316,7 @@ WHERE i.description @@@ 'ergonomic'
 ORDER BY i.id, o.id
 LIMIT 10;
 
--- Test 5.2: Non-equi left join parity
+-- Test 6.2: Non-equi left join parity
 SET paradedb.enable_join_custom_scan = off;
 SELECT i.id, i.name, o.promo_name
 FROM nonequi_items i
@@ -285,7 +333,7 @@ WHERE i.description @@@ 'cable OR mat OR mouse'
 ORDER BY i.id, o.id NULLS LAST
 LIMIT 10;
 
--- Test 5.3: Keyless non-equi left join parity with non-strict WHERE predicate
+-- Test 6.3: Keyless non-equi left join parity with non-strict WHERE predicate
 SET paradedb.enable_join_custom_scan = off;
 SELECT i.id, o.id
 FROM nonequi_items i
@@ -300,10 +348,67 @@ FROM nonequi_items i
 LEFT JOIN nonequi_offers o ON i.price > o.min_price
 WHERE i.description @@@ 'ergonomic' AND (i.price < o.max_price OR o.max_price IS NULL)
 ORDER BY i.id, o.id NULLS LAST
+LIMIT 10;
+
+-- Test 6.4: 3-way join with outer join having search condition in ON clause declines and preserves null-extended rows
+SET paradedb.enable_join_custom_scan = off;
+SELECT a.id, b.id, c.id
+FROM (nonequi_items a LEFT JOIN nonequi_offers b
+        ON a.id = b.id AND (a.description @@@ 'cable' OR b.description @@@ 'exclusive'))
+     JOIN nonequi_items c ON a.id = c.id
+WHERE c.description @@@ 'ergonomic'
+ORDER BY a.id, b.id NULLS LAST, c.id LIMIT 10;
+
+SET paradedb.enable_join_custom_scan = on;
+SELECT a.id, b.id, c.id
+FROM (nonequi_items a LEFT JOIN nonequi_offers b
+        ON a.id = b.id AND (a.description @@@ 'cable' OR b.description @@@ 'exclusive'))
+     JOIN nonequi_items c ON a.id = c.id
+WHERE c.description @@@ 'ergonomic'
+ORDER BY a.id, b.id NULLS LAST, c.id LIMIT 10;
+
+-- Test 6.5: RIGHT JOIN mirror of Test 6.4
+SET paradedb.enable_join_custom_scan = off;
+SELECT a.id, b.id, c.id
+FROM (nonequi_offers b RIGHT JOIN nonequi_items a
+        ON a.id = b.id AND (a.description @@@ 'cable' OR b.description @@@ 'exclusive'))
+     JOIN nonequi_items c ON a.id = c.id
+WHERE c.description @@@ 'ergonomic'
+ORDER BY a.id, b.id NULLS LAST, c.id LIMIT 10;
+
+SET paradedb.enable_join_custom_scan = on;
+SELECT a.id, b.id, c.id
+FROM (nonequi_offers b RIGHT JOIN nonequi_items a
+        ON a.id = b.id AND (a.description @@@ 'cable' OR b.description @@@ 'exclusive'))
+     JOIN nonequi_items c ON a.id = c.id
+WHERE c.description @@@ 'ergonomic'
+ORDER BY a.id, b.id NULLS LAST, c.id LIMIT 10;
+
+-- Test 6.6: Mixed equi + non-equi anti join parity
+SET paradedb.enable_join_custom_scan = off;
+SELECT i.id, i.name, i.price
+FROM nonequi_items i
+WHERE i.description @@@ 'keyboard OR mouse OR headset'
+  AND NOT EXISTS (
+      SELECT 1 FROM nonequi_offers o
+      WHERE i.category = o.target_category AND o.min_price > i.price
+  )
+ORDER BY i.id
+LIMIT 10;
+
+SET paradedb.enable_join_custom_scan = on;
+SELECT i.id, i.name, i.price
+FROM nonequi_items i
+WHERE i.description @@@ 'keyboard OR mouse OR headset'
+  AND NOT EXISTS (
+      SELECT 1 FROM nonequi_offers o
+      WHERE i.category = o.target_category AND o.min_price > i.price
+  )
+ORDER BY i.id
 LIMIT 10;
 
 -- =============================================================================
--- SECTION 6: Fallback / Rejection
+-- SECTION 7: Fallback / Rejection
 -- =============================================================================
 
 -- Add an unindexed column to nonequi_items
@@ -311,7 +416,7 @@ ALTER TABLE nonequi_items ADD COLUMN unindexed_weight FLOAT;
 UPDATE nonequi_items SET unindexed_weight = 1.5 WHERE id = 101;
 UPDATE nonequi_items SET unindexed_weight = 0.2 WHERE id = 102;
 
--- Test 6.1: Non-equi condition on unindexed column should fall back to native join
+-- Test 7.1: Non-equi condition on unindexed column should fall back to native join
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id, i.name, o.promo_name
 FROM nonequi_items i
@@ -325,6 +430,28 @@ FROM nonequi_items i
 JOIN nonequi_offers o ON i.unindexed_weight < o.min_price
 WHERE i.description @@@ 'ergonomic'
 ORDER BY i.id, o.id
+LIMIT 10;
+
+-- Test 7.2: Anti join with non-equi condition on unindexed column falls back to native join
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id, i.name
+FROM nonequi_items i
+WHERE i.description @@@ 'ergonomic'
+  AND NOT EXISTS (
+      SELECT 1 FROM nonequi_offers o
+      WHERE i.category = o.target_category AND i.unindexed_weight < o.min_price
+  )
+ORDER BY i.id
+LIMIT 10;
+
+SELECT i.id, i.name
+FROM nonequi_items i
+WHERE i.description @@@ 'ergonomic'
+  AND NOT EXISTS (
+      SELECT 1 FROM nonequi_offers o
+      WHERE i.category = o.target_category AND i.unindexed_weight < o.min_price
+  )
+ORDER BY i.id
 LIMIT 10;
 
 -- =============================================================================

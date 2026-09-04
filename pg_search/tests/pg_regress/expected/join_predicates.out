@@ -736,7 +736,7 @@ LIMIT 10;
          Output: p.id, p.name, p.price, s.name, s.min_order_value
          Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
-         Join Predicate: heap:(p.price >= s.min_order_value)
+         Join Filter: (p.price >= s.min_order_value)
          Limit: 10
          Order By: p.id asc
          DataFusion Physical Plan: 
@@ -744,7 +744,7 @@ LIMIT 10;
            :   SortExec: TopK(fetch=10), expr=[id@4 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[s, p]
            :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=min_order_value@0 <= price@1, projection=[ctid_0@4, min_order_value@6, ctid_1@0, price@2, id@3]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=price@1 >= min_order_value@0, projection=[ctid_0@4, min_order_value@6, ctid_1@0, price@2, id@3]
            :           CooperativeExec
            :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
            :           CooperativeExec
@@ -861,7 +861,7 @@ LIMIT 10;
          Output: p.id, p.supplier_id, s.id
          Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
-         Join Predicate: heap:(abs((p.supplier_id - s.id)) >= 0)
+         Join Filter: (abs((p.supplier_id - s.id)) >= 0)
          Limit: 10
          Order By: p.id asc
          DataFusion Physical Plan: 
@@ -931,7 +931,7 @@ LIMIT 10;
          Output: p.id, p.supplier_id, s.id
          Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
-         Join Predicate: heap:(abs(p.supplier_id) <= length(to_hex(s.id)))
+         Join Filter: (abs(p.supplier_id) <= length(to_hex(s.id)))
          Limit: 10
          Order By: p.id asc
          DataFusion Physical Plan: 

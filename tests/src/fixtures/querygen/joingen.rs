@@ -22,6 +22,8 @@ use proptest::prelude::*;
 use proptest::sample;
 use proptest_derive::Arbitrary;
 
+use crate::fixtures::querygen::Column;
+
 #[derive(Arbitrary, Copy, Clone, Debug)]
 pub enum JoinType {
     Inner,
@@ -52,13 +54,37 @@ pub struct LateralUnnestStep {
     pub alias: String,
 }
 
+pub const NON_EQUI_OPS: &[&str] = &["<", "<=", ">", ">=", "<>"];
+
+#[derive(Clone, Copy, Debug)]
+pub enum ConditionKind {
+    Equi,
+    NonEqui,
+    Mixed,
+}
+
+#[derive(Clone, Debug)]
+pub enum OnCondition {
+    Equi {
+        col: String,
+    },
+    NonEqui {
+        col: String,
+        op: &'static str,
+    },
+    Mixed {
+        equi_col: String,
+        non_equi_col: String,
+        op: &'static str,
+    },
+}
+
 #[derive(Clone, Debug)]
 struct JoinStep {
     join_type: JoinType,
     table: String,
     on_left_table: Option<String>,
-    on_left_col: Option<String>,
-    on_right_col: Option<String>,
+    on_condition: Option<OnCondition>,
 }
 
 #[derive(Clone)]
@@ -108,9 +134,24 @@ impl JoinExpr {
                 // no ON clause
             } else {
                 let lt = step.on_left_table.as_ref().unwrap();
-                let lc = step.on_left_col.as_ref().unwrap();
-                let rc = step.on_right_col.as_ref().unwrap();
-                join_clause.push_str(&format!(" ON {}.{} = {}.{}", lt, lc, step.table, rc));
+                match step.on_condition.as_ref().unwrap() {
+                    OnCondition::Equi { col } => {
+                        join_clause.push_str(&format!(" ON {lt}.{col} = {}.{col}", step.table));
+                    }
+                    OnCondition::NonEqui { col, op } => {
+                        join_clause.push_str(&format!(" ON {lt}.{col} {op} {}.{col}", step.table));
+                    }
+                    OnCondition::Mixed {
+                        equi_col,
+                        non_equi_col,
+                        op,
+                    } => {
+                        join_clause.push_str(&format!(
+                            " ON {lt}.{equi_col} = {}.{equi_col} AND {lt}.{non_equi_col} {op} {}.{non_equi_col}",
+                            step.table, step.table
+                        ));
+                    }
+                }
             }
         }
 
@@ -168,18 +209,18 @@ pub const ENABLE_UNNEST: bool = false;
 ///
 /// Generate all possible joins involving exactly the given tables, with optional lateral unnest steps.
 ///
-pub fn arb_joins(
-    join_types: impl Strategy<Value = JoinType>,
-    tables_to_join: Vec<impl AsRef<str>>,
-    columns: Vec<impl AsRef<str>>,
-) -> impl Strategy<Value = JoinExpr> {
+pub fn arb_joins<S: AsRef<str>, J: Strategy<Value = JoinType>>(
+    join_types: J,
+    tables_to_join: Vec<S>,
+    columns: &[Column],
+) -> impl Strategy<Value = JoinExpr> + use<S, J> {
     let tables_to_join = tables_to_join
         .into_iter()
         .map(|tn| tn.as_ref().to_string())
         .collect::<Vec<_>>();
     let table_cols = columns
-        .into_iter()
-        .map(|cn| cn.as_ref().to_string())
+        .iter()
+        .map(|c| c.name.to_string())
         .collect::<Vec<_>>();
 
     // Choose joins and join columns.
@@ -199,20 +240,42 @@ pub fn arb_joins(
         proptest::strategy::Just(vec![None; tables_len]).boxed()
     };
 
+    let orderable_cols: Vec<String> = columns
+        .iter()
+        .filter(|c| c.is_orderable())
+        .map(|c| c.name.to_string())
+        .collect();
+    let orderable_cols = if orderable_cols.is_empty() {
+        table_cols.clone()
+    } else {
+        orderable_cols
+    };
+
+    let step_strategy = (
+        join_types,
+        prop_oneof![
+            2 => Just(ConditionKind::Equi),
+            1 => Just(ConditionKind::NonEqui),
+            1 => Just(ConditionKind::Mixed),
+        ],
+        0..table_cols.len(),
+        0..orderable_cols.len(),
+        0..NON_EQUI_OPS.len(),
+    );
+
     (
-        proptest::collection::vec(join_types, join_count),
-        proptest::sample::subsequence(table_cols, join_count),
+        proptest::collection::vec(step_strategy, join_count),
         unnest_strategy,
     )
-        .prop_map(move |(join_types, join_columns, unnest_choices)| {
+        .prop_map(move |(step_choices, unnest_choices)| {
             // Construct a JoinExpr for the tables and joins.
             let mut tables_iter = tables_to_join.clone().into_iter();
             let initial_table = tables_iter.next().expect("At least one table in a join.");
 
             let mut previous_table = initial_table.clone();
-            let mut steps = Vec::with_capacity(join_types.len());
-            for ((join_type, join_column), table_to_join) in
-                join_types.into_iter().zip(join_columns).zip(tables_iter)
+            let mut steps = Vec::with_capacity(step_choices.len());
+            for ((join_type, kind, equi_col_idx, non_equi_col_idx, op_idx), table_to_join) in
+                step_choices.into_iter().zip(tables_iter)
             {
                 match join_type {
                     JoinType::Cross => {
@@ -220,17 +283,41 @@ pub fn arb_joins(
                             join_type,
                             table: table_to_join.clone(),
                             on_left_table: None,
-                            on_left_col: None,
-                            on_right_col: None,
+                            on_condition: None,
                         });
                     }
                     _ => {
+                        let condition = match (join_type, kind) {
+                            (JoinType::Full, ConditionKind::NonEqui)
+                            | (_, ConditionKind::Mixed) => {
+                                let equi_col = table_cols[equi_col_idx].clone();
+                                let non_equi_col = if orderable_cols.len() > 1
+                                    && orderable_cols[non_equi_col_idx] == equi_col
+                                {
+                                    orderable_cols[(non_equi_col_idx + 1) % orderable_cols.len()]
+                                        .clone()
+                                } else {
+                                    orderable_cols[non_equi_col_idx].clone()
+                                };
+                                OnCondition::Mixed {
+                                    equi_col,
+                                    non_equi_col,
+                                    op: NON_EQUI_OPS[op_idx],
+                                }
+                            }
+                            (_, ConditionKind::NonEqui) => OnCondition::NonEqui {
+                                col: orderable_cols[non_equi_col_idx].clone(),
+                                op: NON_EQUI_OPS[op_idx],
+                            },
+                            _ => OnCondition::Equi {
+                                col: table_cols[equi_col_idx].clone(),
+                            },
+                        };
                         steps.push(JoinStep {
                             join_type,
                             table: table_to_join.clone(),
-                            on_left_table: Some(previous_table.to_owned()),
-                            on_left_col: Some(join_column.clone()),
-                            on_right_col: Some(join_column),
+                            on_left_table: Some(previous_table.clone()),
+                            on_condition: Some(condition),
                         });
                     }
                 }
@@ -282,4 +369,65 @@ pub fn arb_semi_joins(
             inner_table: tables[1].clone(),
             join_column,
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proptest::strategy::ValueTree;
+    use proptest::test_runner::TestRunner;
+
+    #[test]
+    fn test_arb_joins_generation() {
+        let mut runner = TestRunner::default();
+        let tables = vec!["t1", "t2", "t3"];
+        let columns = vec![
+            Column::new("id", "BIGINT", "1"),
+            Column::new("age", "INTEGER", "20"),
+            Column::new("price", "NUMERIC(10,2)", "9.99"),
+            Column::new("name", "TEXT", "alice"),
+        ];
+
+        let strategy = arb_joins(
+            prop_oneof![
+                Just(JoinType::Inner),
+                Just(JoinType::Left),
+                Just(JoinType::Right),
+                Just(JoinType::Full),
+            ],
+            tables,
+            &columns,
+        );
+
+        let mut saw_equi = false;
+        let mut saw_non_equi = false;
+        let mut saw_mixed = false;
+
+        for _ in 0..100 {
+            let join_expr = strategy.new_tree(&mut runner).unwrap().current();
+            let sql = join_expr.to_sql();
+            assert!(sql.starts_with("FROM t1"));
+
+            for step in &join_expr.steps {
+                if let Some(cond) = &step.on_condition {
+                    match cond {
+                        OnCondition::Equi { .. } => saw_equi = true,
+                        OnCondition::NonEqui { .. } => {
+                            saw_non_equi = true;
+                            // FULL JOIN must never generate a keyless non-equi condition.
+                            assert!(!matches!(step.join_type, JoinType::Full));
+                        }
+                        OnCondition::Mixed { .. } => saw_mixed = true,
+                    }
+                }
+            }
+        }
+
+        assert!(saw_equi, "Should have generated at least one equi join");
+        assert!(
+            saw_non_equi,
+            "Should have generated at least one non-equi join"
+        );
+        assert!(saw_mixed, "Should have generated at least one mixed join");
+    }
 }

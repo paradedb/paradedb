@@ -242,7 +242,7 @@ SELECT f.id, p.id AS page_id, p.file_id
 FROM outer_files f FULL JOIN outer_pages p ON f.id = p.file_id AND f.content @@@ 'Section'
 ORDER BY f.id NULLS LAST, p.id NULLS LAST
 LIMIT 10;
-WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: f, p)
+WARNING:  JoinScan not used: search operators in outer join ON clauses are not supported (tables: f, p)
  id | page_id | file_id 
 ----+---------+---------
   1 |         |        

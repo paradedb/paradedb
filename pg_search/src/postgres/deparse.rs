@@ -306,7 +306,9 @@ pub unsafe fn deparse_planner_expr_or_raw(
     deparse_planner_expr(root, expr).unwrap_or_else(|| node_to_string_without_context(expr))
 }
 
-/// Serialize a node via `nodeToString` into an owned Rust `Option<String>`.
-pub unsafe fn node_to_string_owned(node: *mut pg_sys::Node) -> Option<String> {
-    pgrx::node_to_string(node).map(|s| s.to_string())
+/// Serialize a non-null node via `nodeToString` into an owned Rust `String`.
+pub unsafe fn node_to_string_owned(node: *mut pg_sys::Node) -> String {
+    pgrx::node_to_string(node)
+        .expect("nodeToString failed for non-null node")
+        .to_string()
 }

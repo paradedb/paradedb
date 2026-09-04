@@ -1601,7 +1601,7 @@ impl AggregateScan {
         }
 
         let path_info = match unsafe {
-            datafusion_build::check_join_path_predicates(input_rel, &sources)
+            datafusion_build::check_join_path_predicates(root, input_rel, &sources)
         } {
             datafusion_build::JoinPathPredicateCheck::Complete(info) => info,
             datafusion_build::JoinPathPredicateCheck::Unsupported(reason) => {

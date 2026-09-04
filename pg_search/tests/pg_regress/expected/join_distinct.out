@@ -1044,7 +1044,7 @@ LIMIT 50;
          ->  Custom Scan (ParadeDB Join Scan)
                Relation Tree: pp ANTI pp2
                Join Cond: pp2.profile_id = pp.profile_id
-               Join Predicate: heap:true
+               Join Filter: true
                Limit: 50
                Distinct: true
                Order By: pp.profile_id asc
@@ -1097,7 +1097,7 @@ WHERE deleted_at IS NULL
   )
 ORDER BY profile_id
 LIMIT 50;
-WARNING:  Aggregate Scan (DataFusion) not used: join key (plan_position=0, attno=3) is not a columnar field (table: join)
+WARNING:  Aggregate Scan (DataFusion) not used: search operators in join ON clause are not supported (table: join)
                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                    
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -1137,7 +1137,7 @@ WHERE deleted_at IS NULL
   )
 ORDER BY profile_id
 LIMIT 50;
-WARNING:  Aggregate Scan (DataFusion) not used: join key (plan_position=0, attno=3) is not a columnar field (table: join)
+WARNING:  Aggregate Scan (DataFusion) not used: search operators in join ON clause are not supported (table: join)
  profile_id 
 ------------
           1

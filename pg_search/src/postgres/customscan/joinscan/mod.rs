@@ -154,7 +154,7 @@ use self::planning::{
     extract_orderby_from_parse_sort_clause, get_score_func_rti, order_by_columns_are_fast_fields,
     pathkey_uses_scores_from_source,
 };
-use self::predicate::{extract_join_level_conditions, try_absorb_join_filter};
+use self::predicate::{extract_join_level_conditions, resolve_join_conditions};
 use self::privdat::PrivateData;
 use crate::postgres::customscan::datafusion::explain::{
     explain_physical_plan, format_join_level_expr, get_attname_safe, get_plan_with_merged_metrics,
@@ -2126,47 +2126,18 @@ impl JoinScan {
             aliases: aliases.clone(),
         };
 
-        let has_other_conditions = !join_conditions.other_conditions.is_empty();
         join_keys.extend(join_conditions.equi_keys.clone());
-
-        let is_outer = matches!(
-            jointype,
-            pg_sys::JoinType::JOIN_LEFT
-                | pg_sys::JoinType::JOIN_RIGHT
-                | pg_sys::JoinType::JOIN_FULL
-        );
 
         let mut current_sources = outer_node.sources();
         current_sources.extend(inner_node.sources());
-        let (initial_filter, remaining_other_conditions) = try_absorb_join_filter(
+        let resolved = resolve_join_conditions(
             root,
             &current_sources,
+            &join_conditions.equi_keys,
             &join_conditions.other_conditions,
-            is_outer,
-            !join_conditions.equi_keys.is_empty(),
-        );
-
-        // For outer joins, if any ON condition (is_pushed_down == false) failed absorption
-        // (e.g. references a non-fast-field column), decline JoinScan.
-        if is_outer
-            && remaining_other_conditions
-                .iter()
-                .any(|&ri| !(*ri).is_pushed_down)
-        {
-            return Err(warn(JoinDeclineReason::new(
-                "JoinScan not used: join conditions must reference columnar indexed fields",
-            )));
-        }
-
-        // When equi_keys is empty and there were join conditions (or outer join), at least one non-equi condition must have been absorbed into filter.
-        if join_conditions.equi_keys.is_empty()
-            && (has_other_conditions || is_outer)
-            && initial_filter.is_none()
-        {
-            return Err(warn(JoinDeclineReason::new(
-                "JoinScan not used: join conditions must reference columnar indexed fields",
-            )));
-        }
+            jointype,
+        )
+        .map_err(warn)?;
 
         let parsed_jointype = build::JoinType::try_from(jointype)
             .map_err(|e| warn(JoinDeclineReason::new(e.to_string())))?;
@@ -2175,7 +2146,7 @@ impl JoinScan {
             left: outer_node,
             right: inner_node,
             equi_keys: join_conditions.equi_keys,
-            filter: initial_filter,
+            filter: resolved.filter,
             subplan_id: None,
             absorbed_search_clauses: Vec::new(),
         }));
@@ -2213,14 +2184,14 @@ impl JoinScan {
         // - MultiTablePredicate nodes: PostgreSQL expressions
         //
         // Disjunctive Var=Var conditions already absorbed into
-        // `JoinNode.filter` (above) are filtered out of `remaining_other_conditions`
+        // `JoinNode.filter` (above) are filtered out of `resolved.post_join_conditions`
         // so they are not re-processed here as MultiTablePredicates.
         let current_sources = join_clause.plan.sources();
         let (join_clause_updated, new_multi_table_clauses) = extract_join_level_conditions(
             root,
             extra,
             &current_sources,
-            &remaining_other_conditions,
+            &resolved.post_join_conditions,
             join_clause.clone(),
         )
         .map_err(|_| {

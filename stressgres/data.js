@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788546404617,
+  "lastUpdate": 1788546414015,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -140632,6 +140632,108 @@ window.BENCHMARK_DATA = {
             "value": 51.7734375,
             "unit": "median mem",
             "extra": "avg mem: 48.99251519009575, max mem: 51.7734375, count: 59424"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "17972943855cca91ca275cfbd10a4c5301214c51",
+          "message": "feat: partition a partition_by index built CONCURRENTLY (#6146)\n\n## Ticket(s) Closed\n\n- Closes #6170. Follow-up to #5735, which left this open.\n\n## What\n\nAn index with `partition_by` built by `CREATE INDEX CONCURRENTLY` or\n`REINDEX CONCURRENTLY` now cuts its partitions during the scan, the way\na plain build does.\n\n## Why\n\nA `partition_by` build routes each row into a kd-tree partition and\nstamps every segment with its box. A concurrent build skipped that\nplanning, so a concurrently built index recorded no boundaries and\n`enable_range_partitioned_join` got nothing to cut on. The only fix was\na blocking `REINDEX`.\n\nThe reason the build was ruled out: its phase 2 re-reads rows by ctid\nafter the scan, and with writers still running, a chain's live tail can\nbe a version the build's snapshot never saw.\n\nThat is a property of the fetch, not of the build. Phase 1 of a\nconcurrent build is a plain MVCC scan under a registered snapshot, and\nvisibility to a registered snapshot does not change. So phase 2\nreproduces phase 1's row choice by resolving each HOT chain under that\nsame snapshot.\n\nRows that arrive later stay unrouted, including the ones\n`validate_index` adds in the last phase of a concurrent build. That is\nM3 in the design: only the largest levels get partitioned, and lower\nmerges route by the largest level's boxes, as in Spooky.\n\n## How\n\n`do_build` registers the scan's snapshot. The scan drops its own at\n`table_endscan`, and a parallel worker's snapshot is `SO_TEMP_SNAPSHOT`,\nso the registration is what keeps it alive for the drain.\n`drain_partitioned` pushes it as active and fetches query-visible\ninstead of maintenance-visible. `HeapDocFetcher` had both modes already.\nA plain build keeps the maintenance one, which must index every live\nrow.\n\nThe serial path takes the snapshot from `build_index`. The parallel path\nreads it off the shared scan descriptor.\n\nEvery `partition_by` dimension needs a fast column in raw order, because\na partition's range query runs on the fast column and a box holds only\nwhere the raw order does. `CREATE INDEX` and `REINDEX` refuse a\ndimension without one, and a utility hook refuses an `ALTER INDEX` that\nchanges `partition_by` (clearing it remains allowed).\n\n## Tests\n\n`partitioned_build_concurrently` (pg_regress): two `CREATE INDEX\nCONCURRENTLY` indexes record split points, and a range-partitioned join\nover them matches the serial baseline.\n\n`#[pg_test]`s in `build.rs`: a key with an unroutable dimension fails\n`CREATE INDEX`. Changing `partition_by` by `ALTER INDEX` fails, and\nclearing it works.\n\n`partitioned_build_concurrent_writes` (integration test): two backends,\none building `CONCURRENTLY` while the other updates, inserts and deletes\nunder it. Both check that the index holds exactly the table's rows, with\ncontents that agree with the heap. They run on PG 17 and newer: on 15\nand 16 a `CONCURRENTLY` build under a writer fails on a leaked buffer\npin, which #6208 tracks and which predates this PR (it reproduces on\n`main` with no `partition_by` at all).\n\n## Open\n\n- The concurrency test does not discriminate the fetch mode. It still\npasses with the drain reading in maintenance mode, so I could not build\na case where the old mode is observably wrong. HOT's invariant, that\nchain members agree on indexed columns, looks like the reason. The\nquery-visible fetch keeps the drain's contract equal to the scan's,\nwhich is easier to reason about, but treat it as belt and braces rather\nthan a demonstrated fix.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-09-04T10:48:18-07:00",
+          "tree_id": "a350589116aa50bb4a976fb93049c4f866575a29",
+          "url": "https://github.com/paradedb/paradedb/commit/17972943855cca91ca275cfbd10a4c5301214c51"
+        },
+        "date": 1788546409441,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08386629864009694, max background_merging: 2.0, count: 59416"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7155539816218806, max cpu: 9.726444, count: 59416"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 19.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 19.775383261663524, max mem: 19.77734375, count: 59416"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.995496584161643, max cpu: 28.402367, count: 59416"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 48.40234375,
+            "unit": "median mem",
+            "extra": "avg mem: 46.431594538402955, max mem: 52.9765625, count: 59416"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 52481,
+            "unit": "median block_count",
+            "extra": "avg block_count: 52301.52527938603, max block_count: 52481.0, count: 59416"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 72,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 69.44903729635115, max segment_count: 105.0, count: 59416"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.59882,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.023167667958404, max cpu: 34.146343, count: 59416"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 83.94921875,
+            "unit": "median mem",
+            "extra": "avg mem: 80.43482802927663, max mem: 84.24609375, count: 59416"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.7313952,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.028034144228772, max cpu: 28.125, count: 59416"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 51.80859375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.23480273095631, max mem: 52.6796875, count: 59416"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.717445,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.864483271844392, max cpu: 27.974745, count: 59416"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 49.06640625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.08457133810758, max mem: 51.671875, count: 59416"
           }
         ]
       }

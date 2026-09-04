@@ -4,7 +4,12 @@
 --
 -- RelabelType (binary-compatible, e.g. varchar::text) stays pushable. COLLATE "C"
 -- is used so the collation gate cannot hide a wrong numeric/range pushdown.
+\i common/common_setup.sql
 CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
 CREATE TABLE issue_5997 (
     id serial PRIMARY KEY,
     title text,

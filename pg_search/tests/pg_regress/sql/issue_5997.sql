@@ -5,7 +5,7 @@
 -- RelabelType (binary-compatible, e.g. varchar::text) stays pushable. COLLATE "C"
 -- is used so the collation gate cannot hide a wrong numeric/range pushdown.
 
-CREATE EXTENSION IF NOT EXISTS pg_search;
+\i common/common_setup.sql
 
 CREATE TABLE issue_5997 (
     id serial PRIMARY KEY,

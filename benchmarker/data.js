@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788503550169,
+  "lastUpdate": 1788533643574,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -2389,6 +2389,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 1.95,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e51119bce84539e25abad25423be5aeb4b6b6c37",
+          "message": "feat: Support `JOIN LATERAL unnest` pushdown in the join and aggregate scans (#6149)\n\n## What\n\nAdds support for `JOIN LATERAL unnest` over array fast fields in the\njoin and aggregate scans.\n\n## Why\n\nQueries combining multi-table joins with `[CROSS|LEFT] JOIN LATERAL\nunnest(...)` over indexed array fast fields previously had multiple\nissues:\n- `ORDER BY` on unnested columns was declined or double-prefixed.\n- `WHERE` on unnested columns omitted from the `SELECT` list failed\nduring plan execution.\n- Inner and cross joins were erroneously classified as left joins in\nsome cases.\n- Datetime and timestamp array fast fields produced schema mismatches\nwhen constructing `RecordBatch`es.\n\n## How\n\n- Extended `JoinScan` planning to include lateral `unnest` function RTIs\nin `output_rtis`, enabling pathkey matching for unnested columns.\n- Added `lateral_unnests` to `CombinedMapper` and populated\n`custom_scan_tlist` with predicate `Var`s via `add_vars_to_tlist` so\nPostgres planner setrefs resolves unprojected filter columns.\n- Corrected left-join classification in `JoinScan` planning by removing\nthe invalid `joininfo.is_null()` check.\n- Updated `fetch_array_values_or_ords_to_arrow` in\n`pg_search/src/index/fast_fields_helper.rs` to use\n`TimestampMicrosecondBuilder` for datetime/timestamp `I64` fields, and\ndeduplicated array fetching across types via `fetch_list_array`.\n- Unified `RelNode::Unnest` DataFusion lowering via\n`apply_relnode_unnest` across `JoinScan` and `AggregateScan`.\n\n## Tests\n\nNew regress tests in\n`pg_search/tests/pg_regress/sql/join_lateral_unnest.sql`, and new\nproperty tests.",
+          "timestamp": "2026-09-04T07:32:37-07:00",
+          "tree_id": "b82ffcb2c7c516bec019a2e40e276d7ab8909d7e",
+          "url": "https://github.com/paradedb/paradedb/commit/e51119bce84539e25abad25423be5aeb4b6b6c37"
+        },
+        "date": 1788533639123,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6355078867820845,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.564,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.903,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.034,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.176,
             "unit": "ms"
           }
         ]

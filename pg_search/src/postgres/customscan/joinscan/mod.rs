@@ -2472,13 +2472,18 @@ impl JoinScan {
                         .get(*index)
                         .expect("A window agg output column should always have a valid index");
                     let agg_col = batch.column(i);
-                    let numeric = numeric_window_field(
-                        &state.custom_state().join_clause,
-                        agg_info
-                            .agg_type()
-                            .expect("agg_info should never reach this point as a non-Aggregate"),
-                    )
-                    .expect("This shoud always be a pushdown-compatible field");
+                    let Some(agg_type) = agg_info.agg_type() else {
+                        pgrx::error!(
+                            "BUG: A non-Aggregate somehow reached the handling of a WindowAggregate"
+                        );
+                    };
+                    let Ok(numeric) =
+                        numeric_window_field(&state.custom_state().join_clause, agg_type)
+                    else {
+                        pgrx::error!(
+                            "Tried to process a window aggregate with a pushdown-incompatible field"
+                        )
+                    };
                     let try_maybe_datum = datafusion_agg_to_datum(
                         matches!(agg_info.agg_type(), Some(AggregateType::Avg { .. })),
                         numeric,

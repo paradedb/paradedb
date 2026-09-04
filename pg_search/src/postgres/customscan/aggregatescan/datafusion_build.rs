@@ -1366,10 +1366,7 @@ pub unsafe fn check_join_path_predicates(
 /// source tables via `plan_position`.
 pub enum FilterExprBuildContext<'a> {
     Having {
-        targetlist: &'a super::join_targetlist::JoinAggregateTargetList,
-        /// Planner-only map from complete PostgreSQL aggregate expressions to
-        /// their DataFusion output indexes. This keeps FILTER, DISTINCT, and
-        /// aggregate ORDER BY semantics in the identity used by HAVING.
+        /// Planner-only; HAVING aggregates are matched by whole-`Aggref` equality.
         extracted_target: &'a ExtractedDataFusionTarget,
         plan: &'a crate::postgres::customscan::joinscan::build::RelNode,
         outer_root_id: crate::postgres::customscan::joinscan::build::PlannerRootId,
@@ -1434,20 +1431,15 @@ impl FilterExpr {
                 // translated expression can reference `agg_{idx}` columns at
                 // exec time.
                 //
-                // `havingQual` owns a copy of the Aggref, so pointer identity
-                // is not stable. PostgreSQL's structural equality preserves
-                // all aggregate semantics, including FILTER, DISTINCT, and
-                // aggregate ORDER BY.
+                // `havingQual` holds its own copy of the Aggref, so match by
+                // `equal`, which covers FILTER, DISTINCT, and aggregate ORDER BY.
                 let FilterExprBuildContext::Having {
                     extracted_target, ..
                 } = ctx
                 else {
                     return None;
                 };
-                let aggref = node as *mut pg_sys::Aggref;
-                extracted_target
-                    .aggregate_index(aggref.cast())
-                    .map(Self::AggRef)
+                extracted_target.aggregate_index(node).map(Self::AggRef)
             }
             pg_sys::NodeTag::T_Var => {
                 // A plain column reference. HAVING can only reference group
@@ -1470,7 +1462,10 @@ impl FilterExpr {
                             field_name,
                         })
                     }
-                    FilterExprBuildContext::Having { targetlist, .. } => targetlist
+                    FilterExprBuildContext::Having {
+                        extracted_target, ..
+                    } => extracted_target
+                        .targetlist()
                         .group_columns
                         .iter()
                         .find(|gc| gc.plan_position == pp && gc.attno == attno)

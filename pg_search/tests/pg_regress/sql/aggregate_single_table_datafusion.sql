@@ -160,6 +160,7 @@ ORDER BY category;
 
 -- Test 2.7: category is functionally dependent on the grouped primary key.
 -- It must be a real raw grouping input, never an uninitialised resjunk slot.
+-- The text group key also exercises by-reference Arrow-to-Datum conversion.
 DO $$
 DECLARE
     plan text := '';
@@ -197,7 +198,52 @@ FROM (
     GROUP BY id
 ) projected_groups;
 
--- Test 2.8: Scalar aggregate (no GROUP BY) stays on Tantivy — it produces a
+-- Test 2.8: DISTINCT with an ORDER BY whose sort-group order differs from the
+-- output column order.
+DO $$
+DECLARE
+    plan text := '';
+    line text;
+BEGIN
+    FOR line IN EXECUTE $explain$
+        EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+        SELECT DISTINCT category, id
+        FROM df_fallback_products
+        WHERE description @@@ 'memory'
+        ORDER BY id DESC
+    $explain$
+    LOOP
+        plan := plan || E'\n' || line;
+    END LOOP;
+    IF plan NOT LIKE '%Custom Scan (ParadeDB Aggregate Scan)%'
+       OR plan NOT LIKE '%Backend: DataFusion%'
+    THEN
+        RAISE EXCEPTION 'expected DISTINCT on DataFusion: %', plan;
+    END IF;
+END
+$$;
+
+DO $$
+DECLARE
+    rows integer;
+    only_category text;
+    id_span integer;
+BEGIN
+    SELECT COUNT(*), MIN(category), MAX(id) - MIN(id) + 1
+    INTO rows, only_category, id_span
+    FROM (
+        SELECT DISTINCT category, id
+        FROM df_fallback_products
+        WHERE description @@@ 'memory'
+        ORDER BY id DESC
+    ) distinct_groups;
+    IF rows != 2048 OR only_category != 'Memory' OR id_span != 2048 THEN
+        RAISE EXCEPTION 'unexpected DISTINCT output: %, %, %', rows, only_category, id_span;
+    END IF;
+END
+$$;
+
+-- Test 2.9: Scalar aggregate (no GROUP BY) stays on Tantivy — it produces a
 -- single row and cannot truncate, so the bucket cap is irrelevant.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), SUM(price)

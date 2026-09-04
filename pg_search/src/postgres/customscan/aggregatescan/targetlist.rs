@@ -32,9 +32,6 @@ use pgrx::pg_sys;
 use std::ptr::addr_of_mut;
 
 /// Find every Aggref node in an expression tree.
-///
-/// The DataFusion aggregate path exposes one raw scan column per distinct
-/// Aggref and lets PostgreSQL evaluate any surrounding expression itself.
 pub(super) unsafe fn find_aggrefs_in_expr(expr: *mut pg_sys::Node) -> Vec<*mut pg_sys::Aggref> {
     use pgrx::pg_guard;
 
@@ -73,13 +70,15 @@ pub(super) unsafe fn find_aggrefs_in_expr(expr: *mut pg_sys::Node) -> Vec<*mut p
 
 /// Find the single Aggref node in an expression tree.
 ///
-/// Tantivy still has a one-aggregate-per-target-entry contract; DataFusion
-/// uses [`find_aggrefs_in_expr`] instead.
+/// Tantivy has a one-aggregate-per-target-entry contract; DataFusion uses
+/// [`find_aggrefs_in_expr`].
 pub(super) unsafe fn find_single_aggref_in_expr(
     expr: *mut pg_sys::Node,
 ) -> Option<*mut pg_sys::Aggref> {
-    let mut aggrefs = find_aggrefs_in_expr(expr);
-    (aggrefs.len() == 1).then(|| aggrefs.pop().expect("one aggregate"))
+    match find_aggrefs_in_expr(expr).as_slice() {
+        [only] => Some(*only),
+        _ => None,
+    }
 }
 
 #[allow(clippy::large_enum_variant)]

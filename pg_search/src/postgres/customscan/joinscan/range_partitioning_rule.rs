@@ -350,9 +350,9 @@ fn named_field_arrow_type(
     provider.fields.iter().find_map(|f| match f {
         WhichFastField::Named {
             name,
-            field_type,
             delivery: FieldDelivery::Eager,
-        } if name == field.as_ref() => Some(field_type.arrow_data_type()),
+            ..
+        } if name == field.as_ref() => Some(f.arrow_data_type()),
         _ => None,
     })
 }

@@ -260,6 +260,7 @@ impl<'a> FilterAnalyzer<'a> {
                 name: field_name,
                 field_type,
                 delivery: FieldDelivery::Eager,
+                ..
             }
             | WhichFastField::Array(field_name, field_type) = field
                 && field_name == name

@@ -454,7 +454,9 @@ impl FFType {
     }
 }
 
-/// How a named fast field's values are delivered by the scan.
+/// How a named fast field's values are delivered by the scan. Orthogonal to the
+/// column's type, the way an Arrow `Field` is orthogonal to the encoding of the
+/// array that carries it.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash)]
 pub enum FieldDelivery {
     /// Values are fetched and decoded during the initial scan.
@@ -463,6 +465,30 @@ pub enum FieldDelivery {
     /// ordinals); values are decoded above the scan, after row-reducing
     /// operators have run. See `crate::scan::deferred_encode`.
     Deferred,
+}
+
+/// Whether a named fast field holds one value per row or a list of them.
+///
+/// Arrow models a list as `DataType::List` wrapping the element field rather
+/// than as a parallel set of types, and this follows that: the element type
+/// stays in `field_type` and the nesting is recorded here.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash)]
+pub enum FieldCardinality {
+    Scalar,
+    List,
+}
+
+impl FieldCardinality {
+    /// Wrap an element type in this cardinality's Arrow representation.
+    fn wrap(self, element: arrow_schema::DataType) -> arrow_schema::DataType {
+        match self {
+            FieldCardinality::Scalar => element,
+            // Arrow names a list's child field "item" by convention.
+            FieldCardinality::List => arrow_schema::DataType::List(std::sync::Arc::new(
+                arrow_schema::Field::new("item", element, true),
+            )),
+        }
+    }
 }
 
 /// A request for a specific fast field, used *before* the column is open.
@@ -475,6 +501,13 @@ pub enum FieldDelivery {
 /// based on how they are stored in Tantivy). For instance, JSON and UUID are both stored as Strings.
 /// The consumer of the data (e.g. the Arrow conversion layer) is responsible for interpreting
 /// these widened types back into their original Postgres OIDs via `SearchFieldType::typeoid()`.
+///
+/// # Axes
+///
+/// A named column is described by three independent things: its identity (`name`),
+/// its element type (`field_type` plus `cardinality`), and how the scan hands the
+/// values over (`delivery`). Keeping them separate is what stops the variant list
+/// from growing a twin per combination.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Hash)]
 pub enum WhichFastField {
     Junk(String),
@@ -484,6 +517,7 @@ pub enum WhichFastField {
     Named {
         name: String,
         field_type: SearchFieldType,
+        cardinality: FieldCardinality,
         delivery: FieldDelivery,
     },
     Array(String, SearchFieldType),
@@ -548,8 +582,9 @@ impl WhichFastField {
             WhichFastField::Named {
                 delivery: FieldDelivery::Eager,
                 field_type,
+                cardinality,
                 ..
-            } => field_type.arrow_data_type(),
+            } => cardinality.wrap(field_type.arrow_data_type()),
             WhichFastField::Array(_, field_type) => DataType::List(Arc::new(
                 arrow_schema::Field::new("item", field_type.arrow_data_type(), true),
             )),
@@ -563,14 +598,31 @@ impl WhichFastField {
         }
     }
 
-    /// A named fast field fetched and decoded during the initial scan.
-    pub fn eager(name: impl Into<String>, field_type: SearchFieldType) -> Self {
+    /// A named column with every axis given explicitly.
+    pub fn named(
+        name: impl Into<String>,
+        field_type: SearchFieldType,
+        cardinality: FieldCardinality,
+        delivery: FieldDelivery,
+    ) -> Self {
         WhichFastField::Named {
             name: name.into(),
             field_type,
-            delivery: FieldDelivery::Eager,
+            cardinality,
+            delivery,
         }
     }
+
+    /// The common case: one value per row, decoded during the scan.
+    pub fn eager(name: impl Into<String>, field_type: SearchFieldType) -> Self {
+        Self::named(
+            name,
+            field_type,
+            FieldCardinality::Scalar,
+            FieldDelivery::Eager,
+        )
+    }
+
 
     /// Whether this is a named fast field with eager delivery.
     pub fn is_eager_named(&self) -> bool {

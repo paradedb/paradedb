@@ -604,6 +604,54 @@ SELECT count(*) AS bitmap_and_count_no_bitmap FROM (
 (1 row)
 
 DROP TABLE wide_providers CASCADE;
+-- Overlapping clause sets: overlap_ab is the better single bitmap, and overlap_bc
+-- would still look like it pays for itself on top of it. Both answer cat_b, so the
+-- ledger would count that clause's selectivity twice and credit overlap_bc with
+-- rejecting rows overlap_ab already rejected. Sharing a clause disqualifies it.
+CREATE TABLE overlap_providers (
+    id BIGINT, description TEXT, cat_a TEXT, cat_b TEXT, cat_c TEXT, filler TEXT
+);
+ALTER TABLE overlap_providers ALTER COLUMN filler SET STORAGE PLAIN;
+INSERT INTO overlap_providers
+SELECT i, 'cardiology notes ' || i, 'a' || (i % 4), 'b' || ((i / 4) % 2),
+       'c' || ((i / 8) % 2), repeat('x', 1400)
+FROM generate_series(0, 4999) i;
+CREATE INDEX overlap_paradedb ON overlap_providers
+    USING bm25 (id, description) WITH (key_field = 'id');
+CREATE INDEX overlap_ab ON overlap_providers (cat_a, cat_b);
+CREATE INDEX overlap_bc ON overlap_providers (cat_b, cat_c);
+VACUUM ANALYZE overlap_providers;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM overlap_providers
+WHERE description === 'cardiology'
+  AND cat_a = 'a1' AND cat_b = 'b1' AND cat_c = 'c1'
+ORDER BY id LIMIT 5;
+                                                                                                                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on overlap_providers
+         Table: overlap_providers
+         Index: overlap_paradedb
+         Bitmap Intersection: overlap_ab
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: id asc
+            TopK Limit: 5
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(cat_a = 'a1'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(cat_b = 'b1'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":1}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[{"heap_filter":"(cat_c = 'c1'::text)"}]}}]}}
+         ->  Bitmap Index Scan on overlap_ab
+               Index Cond: ((cat_a = 'a1'::text) AND (cat_b = 'b1'::text))
+(12 rows)
+
+SELECT count(*) AS overlap_clause_count FROM (
+    SELECT id FROM overlap_providers
+    WHERE description === 'cardiology'
+      AND cat_a = 'a1' AND cat_b = 'b1' AND cat_c = 'c1') q;
+ overlap_clause_count 
+----------------------
+                  312
+(1 row)
+
+DROP TABLE overlap_providers CASCADE;
 -- ============================================================================
 -- REJECTED SHAPES
 -- Correct refusals: no Bitmap Intersection, results identical to heap filtering.

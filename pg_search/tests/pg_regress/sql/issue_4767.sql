@@ -62,4 +62,14 @@ FROM issue_4767_products AS p
 WHERE p.description ||| 'shoes'
 ORDER BY p.id;
 
+-- Join-without-LIMIT + pdb.score is covered by join_tests. A self-join
+-- of that shape trips a planner Assert (apply_tlist_labeling), so it is
+-- not reproduced here.
+\echo '--- pdb.score with an operator when custom scan is off ---'
+SET paradedb.enable_custom_scan = off;
+SELECT p.id, pdb.score(p.id) AS score
+FROM issue_4767_products AS p
+WHERE p.description ||| 'shoes';
+SET paradedb.enable_custom_scan = on;
+
 DROP TABLE issue_4767_products CASCADE;

@@ -16,8 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::fast_fields_helper::{
-    FFHelper, FFType, FieldCardinality, FieldDelivery, WhichFastField, ords_to_bytes_array,
-    ords_to_string_array,
+    FFHelper, FFType, FieldCardinality, FieldDelivery, WhichFastField, list_item_field,
+    ords_to_bytes_array, ords_to_string_array,
 };
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::postgres::heap::VisibilityChecker;
@@ -629,11 +629,7 @@ impl Scanner {
                                 .expect("Expected UInt64Array for inner ordinals");
                             let string_views = ords_to_string_array(str_column.clone(), ords_array)
                                 .expect("Failed to lookup ordinals");
-                            let field = Arc::new(arrow_schema::Field::new(
-                                "item",
-                                arrow_schema::DataType::Utf8View,
-                                true,
-                            ));
+                            let field = list_item_field(arrow_schema::DataType::Utf8View);
                             let final_list = arrow_array::ListArray::try_new(
                                 field,
                                 list_array.offsets().clone(),
@@ -655,11 +651,7 @@ impl Scanner {
                                 .expect("Expected UInt64Array for inner ordinals");
                             let byte_views = ords_to_bytes_array(bytes_column.clone(), ords_array)
                                 .expect("Failed to lookup ordinals");
-                            let field = Arc::new(arrow_schema::Field::new(
-                                "item",
-                                arrow_schema::DataType::BinaryView,
-                                true,
-                            ));
+                            let field = list_item_field(arrow_schema::DataType::BinaryView);
                             let final_list = arrow_array::ListArray::try_new(
                                 field,
                                 list_array.offsets().clone(),

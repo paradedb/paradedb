@@ -443,11 +443,7 @@ impl FFType {
                 |b, v| b.append_value(datetime_to_pg_micros(v)),
             ),
             FFType::Junk => Arc::new(arrow_array::new_null_array(
-                &arrow_schema::DataType::List(Arc::new(arrow_schema::Field::new(
-                    "item",
-                    arrow_schema::DataType::Null,
-                    true,
-                ))),
+                &arrow_schema::DataType::List(list_item_field(arrow_schema::DataType::Null)),
                 ids.len(),
             )),
         }
@@ -483,12 +479,15 @@ impl FieldCardinality {
     fn wrap(self, element: arrow_schema::DataType) -> arrow_schema::DataType {
         match self {
             FieldCardinality::Scalar => element,
-            // Arrow names a list's child field "item" by convention.
-            FieldCardinality::List => arrow_schema::DataType::List(std::sync::Arc::new(
-                arrow_schema::Field::new("item", element, true),
-            )),
+            FieldCardinality::List => arrow_schema::DataType::List(list_item_field(element)),
         }
     }
+}
+
+/// The child field of an Arrow list, named "item" by Arrow convention.
+/// Every list this crate builds constructs its item field here.
+pub(crate) fn list_item_field(element: arrow_schema::DataType) -> Arc<arrow_schema::Field> {
+    Arc::new(arrow_schema::Field::new("item", element, true))
 }
 
 /// A request for a specific fast field, used *before* the column is open.

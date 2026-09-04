@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788534689449,
+  "lastUpdate": 1788534698601,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -140482,6 +140482,108 @@ window.BENCHMARK_DATA = {
             "value": 44.80859375,
             "unit": "median mem",
             "extra": "avg mem: 42.41875531256838, max mem: 48.54296875, count: 59411"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e51119bce84539e25abad25423be5aeb4b6b6c37",
+          "message": "feat: Support `JOIN LATERAL unnest` pushdown in the join and aggregate scans (#6149)\n\n## What\n\nAdds support for `JOIN LATERAL unnest` over array fast fields in the\njoin and aggregate scans.\n\n## Why\n\nQueries combining multi-table joins with `[CROSS|LEFT] JOIN LATERAL\nunnest(...)` over indexed array fast fields previously had multiple\nissues:\n- `ORDER BY` on unnested columns was declined or double-prefixed.\n- `WHERE` on unnested columns omitted from the `SELECT` list failed\nduring plan execution.\n- Inner and cross joins were erroneously classified as left joins in\nsome cases.\n- Datetime and timestamp array fast fields produced schema mismatches\nwhen constructing `RecordBatch`es.\n\n## How\n\n- Extended `JoinScan` planning to include lateral `unnest` function RTIs\nin `output_rtis`, enabling pathkey matching for unnested columns.\n- Added `lateral_unnests` to `CombinedMapper` and populated\n`custom_scan_tlist` with predicate `Var`s via `add_vars_to_tlist` so\nPostgres planner setrefs resolves unprojected filter columns.\n- Corrected left-join classification in `JoinScan` planning by removing\nthe invalid `joininfo.is_null()` check.\n- Updated `fetch_array_values_or_ords_to_arrow` in\n`pg_search/src/index/fast_fields_helper.rs` to use\n`TimestampMicrosecondBuilder` for datetime/timestamp `I64` fields, and\ndeduplicated array fetching across types via `fetch_list_array`.\n- Unified `RelNode::Unnest` DataFusion lowering via\n`apply_relnode_unnest` across `JoinScan` and `AggregateScan`.\n\n## Tests\n\nNew regress tests in\n`pg_search/tests/pg_regress/sql/join_lateral_unnest.sql`, and new\nproperty tests.",
+          "timestamp": "2026-09-04T07:32:37-07:00",
+          "tree_id": "b82ffcb2c7c516bec019a2e40e276d7ab8909d7e",
+          "url": "https://github.com/paradedb/paradedb/commit/e51119bce84539e25abad25423be5aeb4b6b6c37"
+        },
+        "date": 1788534694140,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08430936995153474, max background_merging: 2.0, count: 59424"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.875996630655854, max cpu: 9.851206, count: 59424"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 19.6953125,
+            "unit": "median mem",
+            "extra": "avg mem: 19.69071537278709, max mem: 19.80859375, count: 59424"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.032361687431747, max cpu: 28.304668, count: 59424"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 48.3671875,
+            "unit": "median mem",
+            "extra": "avg mem: 47.147612325722775, max mem: 52.15234375, count: 59424"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 53778,
+            "unit": "median block_count",
+            "extra": "avg block_count: 53614.55236941303, max block_count: 53778.0, count: 59424"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 73,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 70.93024703823372, max segment_count: 105.0, count: 59424"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.610426,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.0300885097013, max cpu: 33.990894, count: 59424"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 83.68359375,
+            "unit": "median mem",
+            "extra": "avg mem: 80.08693003615963, max mem: 83.94921875, count: 59424"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.633942274412964, max cpu: 24.120604, count: 59424"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 50.4765625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.23445670888446, max mem: 52.89453125, count: 59424"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7151275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.9063855207307405, max cpu: 28.015566, count: 59424"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 51.7734375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.99251519009575, max mem: 51.7734375, count: 59424"
           }
         ]
       }

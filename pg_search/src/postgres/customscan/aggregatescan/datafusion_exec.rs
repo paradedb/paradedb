@@ -41,8 +41,8 @@ use crate::postgres::customscan::datafusion::numeric_agg::{
 };
 use crate::postgres::customscan::datafusion::timestamp_to_date::timestamp_to_date_udf;
 use crate::postgres::customscan::datafusion::translator::{
-    ColumnMapper, PredicateTranslator, apply_join_level_filter, build_join_df, make_col,
-    make_source_col,
+    ColumnMapper, PredicateTranslator, apply_join_level_filter, build_join_df_with_filter,
+    make_col, make_source_col,
 };
 use crate::postgres::customscan::joinscan::CtidColumn;
 use crate::postgres::customscan::joinscan::build::{JoinSource, RelNode, RelationAlias};
@@ -577,7 +577,9 @@ fn build_relnode_df<'a>(
                 )
                 .await?;
 
-                build_join_df(left_df, right_df, join)
+                let mut sources = join.left.sources();
+                sources.extend(join.right.sources());
+                build_join_df_with_filter(left_df, right_df, join, &sources, &[])
             }
             RelNode::Filter(filter) => {
                 let df = build_relnode_df(

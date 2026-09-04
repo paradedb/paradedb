@@ -32,10 +32,11 @@ use super::build::{
 };
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
-use crate::postgres::customscan::datafusion::explain::format_expr_for_explain;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::pullup::resolve_fast_field;
-use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
+use crate::postgres::customscan::qual_inspect::{
+    PlannerContext, QualExtractState, contains_exec_param, extract_quals,
+};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{expr_collect_rtis, expr_collect_vars, expr_contains_any_operator};
@@ -121,36 +122,42 @@ pub unsafe fn extract_join_level_conditions(
             ) {
                 expr_trees.push(expr);
             } else {
+                let formatted =
+                    crate::postgres::deparse::deparse_planner_expr_or_raw(root, clause.cast());
                 return Err(format!(
                     "Failed to transform search predicate into expression tree: {}",
-                    format_expr_for_explain(clause.cast()).as_str()
+                    formatted
                 ));
             }
         } else if other_cond_set.contains(&(ri as usize)) {
             // This is a top-level heap condition (cross-relation, no search operator)
             // Only accept if all referenced columns are fast fields
             if !all_vars_are_fast_fields_recursive(clause.cast(), sources) {
+                let formatted =
+                    crate::postgres::deparse::deparse_planner_expr_or_raw(root, clause.cast());
                 return Err(format!(
-                    "Multi-table predicate '{}' references non-fast-field columns",
-                    format_expr_for_explain(clause.cast())
+                    "Multi-table predicate '{}' references non-columnar columns",
+                    formatted
                 ));
             }
 
             // Check if the predicate can be translated to DataFusion
-            if !PredicateTranslator::can_translate(sources, clause.cast()) {
+            if !PredicateTranslator::can_translate(Some(root), sources, clause.cast()) {
+                let formatted =
+                    crate::postgres::deparse::deparse_planner_expr_or_raw(root, clause.cast());
                 return Err(format!(
                     "Multi-table predicate '{}' cannot be executed by DataFusion (unsupported operator or type)",
-                    format_expr_for_explain(clause.cast())
+                    formatted
                 ));
             }
 
             // Create a MultiTablePredicate leaf node
-            let description = format_expr_for_explain(clause.cast());
+            let pg_node_string = crate::postgres::deparse::node_to_string_owned(clause.cast());
             multi_table_predicate_clauses.push(clause);
             expr_trees.push(JoinLevelExpr::MultiTablePredicate {
                 predicate: Box::new(
                     crate::postgres::customscan::joinscan::build::MultiTablePredicateInfo {
-                        description,
+                        pg_node_string,
                     },
                 ),
             });
@@ -250,15 +257,15 @@ pub unsafe fn transform_to_search_expr(
             return None;
         }
 
-        let translator = PredicateTranslator::new(sources);
+        let translator = PredicateTranslator::new(sources).with_planner_info(root);
         translator.translate(node)?;
 
-        let description = format_expr_for_explain(node);
+        let pg_node_string = crate::postgres::deparse::node_to_string_owned(node.cast());
         multi_table_predicate_clauses.push(node as *mut pg_sys::Expr);
         return Some(JoinLevelExpr::MultiTablePredicate {
             predicate: Box::new(
                 crate::postgres::customscan::joinscan::build::MultiTablePredicateInfo {
-                    description,
+                    pg_node_string,
                 },
             ),
         });
@@ -461,10 +468,11 @@ unsafe fn build_absorbed_filter(
                 multi_table_predicate_clauses,
             )
             .ok_or_else(|| {
-                format!(
-                    "Failed to lower absorbed search clause: {}",
-                    format_expr_for_explain(clause.cast()).as_str()
-                )
+                let formatted = crate::postgres::deparse::deparse_planner_expr(root, clause.cast())
+                    .unwrap_or_else(|| {
+                        crate::postgres::deparse::node_to_string_without_context(clause.cast())
+                    });
+                format!("Failed to lower absorbed search clause: {}", formatted)
             })
         })
         .collect::<Result<_, _>>()?;
@@ -512,4 +520,156 @@ pub unsafe fn all_vars_are_fast_fields_recursive(
     }
 
     true
+}
+
+/// The outcome of validating and absorbing conditions for a join node.
+pub struct ResolvedJoinConditions {
+    /// Serialized expression absorbed into `JoinNode.filter` to be evaluated
+    /// during the join (e.g. non-equi join conditions, outer-join ON conditions,
+    /// or semi/anti join conditions).
+    pub filter: Option<JoinLevelExpr>,
+    /// Conditions that could not be absorbed into the join filter but are safe
+    /// to evaluate post-join (e.g. search operators `@@@` or WHERE-clause predicates
+    /// on inner/outer joins).
+    pub post_join_conditions: Vec<*mut pg_sys::RestrictInfo>,
+}
+
+/// Validates join conditions and absorbs translatable non-equi conditions
+/// into `JoinNode.filter`.
+///
+/// Returns `Ok(ResolvedJoinConditions)` if all join conditions are legal for the join type,
+/// or `Err(JoinDeclineReason)` if any condition violates join semantics:
+/// - Outer join ON conditions (`is_pushed_down == false`) that cannot be absorbed into `filter`
+///   cannot be evaluated post-join without dropping null-extended rows.
+/// - Semi and Anti join conditions cannot be evaluated post-join because the inner relation's
+///   columns are not projected by the join.
+/// - Keyless joins require at least one condition absorbed into `filter`.
+pub unsafe fn resolve_join_conditions(
+    root: *mut pg_sys::PlannerInfo,
+    sources: &[&JoinSource],
+    equi_keys: &[super::build::JoinKeyPair],
+    other_conditions: &[*mut pg_sys::RestrictInfo],
+    jointype: pg_sys::JoinType::Type,
+) -> Result<ResolvedJoinConditions, super::JoinDeclineReason> {
+    let is_outer = matches!(
+        jointype,
+        pg_sys::JoinType::JOIN_LEFT | pg_sys::JoinType::JOIN_RIGHT | pg_sys::JoinType::JOIN_FULL
+    );
+    let is_semi_or_anti = matches!(
+        jointype,
+        pg_sys::JoinType::JOIN_SEMI | pg_sys::JoinType::JOIN_ANTI
+    );
+    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+    let is_semi_or_anti = is_semi_or_anti || jointype == pg_sys::JoinType::JOIN_RIGHT_ANTI;
+    #[cfg(feature = "pg18")]
+    let is_semi_or_anti = is_semi_or_anti || jointype == pg_sys::JoinType::JOIN_RIGHT_SEMI;
+
+    let search_op = anyelement_query_input_opoid();
+    let mut absorbed_clauses: Vec<*mut pg_sys::Node> = Vec::new();
+    let mut unabsorbed: Vec<*mut pg_sys::RestrictInfo> = Vec::with_capacity(other_conditions.len());
+
+    for &ri in other_conditions {
+        let clause = (*ri).clause;
+        // Skip `@@@` (and any search ops): search clauses pass through to
+        // `extract_join_level_conditions`, where `transform_to_search_expr` handles them.
+        if !clause.is_null() && expr_contains_any_operator(clause.cast(), &[search_op]) {
+            unabsorbed.push(ri);
+            continue;
+        }
+        // For outer joins, only absorb ON-clause conditions (is_pushed_down == false);
+        // WHERE-clause conditions (is_pushed_down == true) stay as post-join filters.
+        if is_outer && (*ri).is_pushed_down {
+            unabsorbed.push(ri);
+            continue;
+        }
+        if clause.is_null()
+            || contains_exec_param(clause.cast())
+            || !all_vars_are_fast_fields_recursive(clause.cast(), sources)
+            || !PredicateTranslator::can_translate(Some(root), sources, clause.cast())
+        {
+            unabsorbed.push(ri);
+            continue;
+        }
+        absorbed_clauses.push(clause.cast());
+    }
+
+    let filter = match absorbed_clauses.len() {
+        0 => None,
+        _ => {
+            // Combine multiple absorbed clauses into a single AND at
+            // the PG node level so we serialize one expression tree.
+            let combined_node: *mut pg_sys::Node = if absorbed_clauses.len() == 1 {
+                absorbed_clauses[0]
+            } else {
+                let mut list = PgList::<pg_sys::Expr>::new();
+                for n in &absorbed_clauses {
+                    list.push((*n).cast());
+                }
+                pg_sys::make_andclause(list.into_pg()).cast()
+            };
+            let pg_node_string =
+                crate::postgres::deparse::node_to_string_owned(combined_node.cast());
+            let input_vars =
+                crate::postgres::customscan::joinscan::collect_input_vars(combined_node);
+            Some(JoinLevelExpr::PgExpression {
+                pg_node_string,
+                input_vars,
+            })
+        }
+    };
+
+    // Identify unabsorbed conditions that cannot be evaluated post-join:
+    // - Outer joins: ON conditions (is_pushed_down == false) must be evaluated during the join.
+    // - Semi / Anti joins: inner columns are not projected post-join, so all conditions must be evaluated during the join.
+    // - Keyless joins: when equi_keys is empty, at least one condition must be absorbed as a join filter.
+    let (illegal_residuals, context) = if is_outer {
+        (
+            unabsorbed
+                .iter()
+                .copied()
+                .filter(|&ri| !(*ri).is_pushed_down)
+                .collect::<Vec<_>>(),
+            "outer join ON clauses",
+        )
+    } else if is_semi_or_anti {
+        (unabsorbed.clone(), "semi/anti join conditions")
+    } else if equi_keys.is_empty() && !other_conditions.is_empty() && filter.is_none() {
+        (unabsorbed.clone(), "join conditions")
+    } else {
+        (Vec::new(), "")
+    };
+
+    let must_decline =
+        !illegal_residuals.is_empty() || (equi_keys.is_empty() && is_outer && filter.is_none());
+
+    if must_decline {
+        if illegal_residuals.iter().any(|&ri| {
+            let clause = (*ri).clause;
+            !clause.is_null()
+                && crate::postgres::utils::expr_contains_any_operator(clause.cast(), &[search_op])
+        }) {
+            return Err(super::JoinDeclineReason::new(format!(
+                "JoinScan not used: search operators in {context} are not supported"
+            )));
+        }
+        if illegal_residuals.iter().any(|&ri| {
+            let clause = (*ri).clause;
+            !clause.is_null()
+                && crate::postgres::customscan::collation_semantics::expr_has_unsupported_collation(
+                    clause.cast(),
+                )
+        }) {
+            return Err(super::JoinDeclineReason::new(
+                "JoinScan not used: join conditions on a nondeterministic collation are not supported",
+            ));
+        }
+        return Err(super::JoinDeclineReason::new(
+            "JoinScan not used: join conditions must reference columnar indexed fields",
+        ));
+    }
+
+    Ok(ResolvedJoinConditions {
+        filter,
+        post_join_conditions: unabsorbed,
+    })
 }

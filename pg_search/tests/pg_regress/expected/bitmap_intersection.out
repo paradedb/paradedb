@@ -324,6 +324,36 @@ WHERE description === 'cardiology'
 (1 row)
 
 CREATE INDEX providers_service_area ON providers USING gist (service_area);
+-- ANY over a constant array: exact membership proves the clause, same as a direct
+-- btree equality match.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM providers
+WHERE description === 'cardiology' AND specialty = ANY('{specialty13,specialty14}')
+ORDER BY id LIMIT 5;
+                                                                                                                                                                      QUERY PLAN                                                                                                                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on providers
+         Table: providers
+         Index: providers_paradedb
+         Bitmap Intersection: providers_specialty
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: id asc
+            TopK Limit: 5
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(specialty = ANY ('{specialty13,specialty14}'::text[]))"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
+         ->  Bitmap Index Scan on providers_specialty
+               Index Cond: (specialty = ANY ('{specialty13,specialty14}'::text[]))
+(12 rows)
+
+SELECT count(*) AS saop_count FROM (
+    SELECT id FROM providers
+    WHERE description === 'cardiology' AND specialty = ANY('{specialty13,specialty14}')) q;
+ saop_count 
+------------
+        400
+(1 row)
+
 -- Multicolumn index: quals come out in index-column order, not WHERE order.
 CREATE INDEX providers_loc_area ON providers USING gist (location, service_area);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -556,6 +586,33 @@ SELECT count(*) AS not_count FROM (
       9919
 (1 row)
 
+-- ALL over an array: the index cannot answer a conjunction over every element in one
+-- scan, so it stays a heap filter. Results match plain heap filtering.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM providers
+WHERE description === 'cardiology' AND specialty = ALL('{specialty13,specialty13}')
+ORDER BY id LIMIT 5;
+                                                                                                                                     QUERY PLAN                                                                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on providers
+         Table: providers
+         Index: providers_paradedb
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: id asc
+            TopK Limit: 5
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[{"heap_filter":"(specialty = ALL ('{specialty13,specialty13}'::text[]))"}]}}]}}
+(9 rows)
+
+SELECT count(*) AS saop_all_count FROM (
+    SELECT id FROM providers
+    WHERE description === 'cardiology' AND specialty = ALL('{specialty13,specialty13}')) q;
+ saop_all_count 
+----------------
+            200
+(1 row)
+
 -- Cost gate: an unselective bitmap is not worth building.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM providers
@@ -774,32 +831,6 @@ ORDER BY id LIMIT 5;
             TopK Limit: 5
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}},{"boolean":{"should":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(location <@ '<(20,20),3>'::circle)"}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(location <@ '<(80,80),3>'::circle)"}]}}]}}]}}
 (9 rows)
-
--- TODO ScalarArrayOpExpr: = ANY could use the btree; today it stays a heap filter.
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id FROM providers
-WHERE description === 'cardiology' AND specialty = ANY('{specialty13,specialty14}')
-ORDER BY id LIMIT 5;
-                                                                                                                                     QUERY PLAN                                                                                                                                     
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Custom Scan (ParadeDB Base Scan) on providers
-         Table: providers
-         Index: providers_paradedb
-         Exec Method: TopKScanExecState
-         Scores: false
-            TopK Order By: id asc
-            TopK Limit: 5
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[{"heap_filter":"(specialty = ANY ('{specialty13,specialty14}'::text[]))"}]}}]}}
-(9 rows)
-
-SELECT count(*) AS saop_count FROM (
-    SELECT id FROM providers
-    WHERE description === 'cardiology' AND specialty = ANY('{specialty13,specialty14}')) q;
- saop_count 
-------------
-        400
-(1 row)
 
 DROP TABLE providers CASCADE;
 RESET paradedb.enable_filter_pushdown;

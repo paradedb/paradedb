@@ -583,6 +583,7 @@ impl PgSearchScanPlan {
             range_split_points: self.range_split_points.clone(),
             assigned_partition: self.assigned_partition,
             scan_mode: scanner_config.scan_mode,
+            check_visibility: state.0.visibility.checks_visibility(),
         };
         serde_json::to_vec(&descriptor).map_err(|e| {
             DataFusionError::Internal(format!("PgSearchScan dispatch: serialize: {e}"))
@@ -673,7 +674,8 @@ impl PgSearchScanPlan {
             &descriptor.which_fast_fields,
         ));
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
-        let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
+        let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot)
+            .with_check_visibility(descriptor.check_visibility);
 
         let scanner_config = ScannerConfig {
             which_fast_fields: descriptor.which_fast_fields,
@@ -688,15 +690,29 @@ impl PgSearchScanPlan {
             scanner_config,
             ffhelper: Arc::clone(&ffhelper),
             visibility: Box::new(visibility) as Box<VisibilityChecker>,
-            reader,
+            reader: reader.clone(),
         };
 
         let deferred = descriptor.deferred_fields;
         let deferred_ctid_plan_position = descriptor.deferred_ctid_plan_position;
         let ffhelper_arg = if deferred.is_empty() && deferred_ctid_plan_position.is_none() {
             None
-        } else {
+        } else if deferred.is_empty() {
             Some(ffhelper)
+        } else {
+            let width = deferred
+                .iter()
+                .map(|d| d.canonical.ff_index + 1)
+                .max()
+                .unwrap_or(0);
+            let mut which: Vec<WhichFastField> = vec![WhichFastField::Junk(String::new()); width];
+            for d in &deferred {
+                if let Some(ref rb) = d.rebuild {
+                    which[d.canonical.ff_index] =
+                        WhichFastField::Named(rb.field_name.clone(), rb.field_type);
+                }
+            }
+            Some(Arc::new(FFHelper::with_fields(&reader, &which)))
         };
 
         let mut plan = PgSearchScanPlan::new(
@@ -752,6 +768,9 @@ struct ScanDispatchDescriptor {
     /// assigned variant advertises one local output partition to DataFusion.
     global_partition_count: usize,
     range_split_points: Option<RangeSplitPoints>,
+    /// Whether the scan checks the heap for snapshot visibility. Decided on the
+    /// leader; see `PgSearchTableProvider::scan_inner`.
+    check_visibility: bool,
     assigned_partition: Option<usize>,
     scan_mode: crate::scan::ScanMode,
 }
@@ -870,6 +889,12 @@ impl DisplayAs for PgSearchScanPlan {
         }
         if !self.dynamic_filters.is_empty() {
             write!(f, ", dynamic_filters={}", self.dynamic_filters.len())?;
+        }
+        // A deferred check is already named by the `VisibilityFilterExec` or
+        // `SegmentedTopKExec` that runs it. A scan that checks itself has no such
+        // witness, so only that case is marked.
+        if self.deferred_ctid_plan_position.is_none() {
+            write!(f, ", visibility=eager")?;
         }
         match &self.scan_mode {
             crate::scan::ScanMode::Standard { .. } => {

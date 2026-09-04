@@ -82,8 +82,8 @@ FROM orders JOIN (products JOIN users ON users.id = products.id)
 WHERE (users.name @@@ 'bob') AND (NOT (products.name @@@ 'bob'))
    OR (products.name @@@ 'bob')
 ORDER BY users.id, products.id, orders.id LIMIT 20;
-                                                                                                                                                                                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Result
          ->  Custom Scan (ParadeDB Join Scan)
@@ -93,18 +93,19 @@ ORDER BY users.id, products.id, orders.id LIMIT 20;
                Order By: users.id asc, orders.id asc
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[id@5 as col_1, id@3 as col_2, NULL as col_3, id@1 as col_4, NULL as col_5, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@4 as ctid_2]
-                 :   SortExec: TopK(fetch=20), expr=[id@3 ASC NULLS LAST, id@5 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   SortExec: TopK(fetch=20), expr=[id@1 ASC NULLS LAST, id@5 ASC NULLS LAST], preserve_partitioning=[false]
                  :     VisibilityFilterExec: tables=[users, products, orders]
-                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@3, age@1)], projection=[ctid_0@0, id@1, ctid_1@2, id@4, ctid_2@5, id@7]
-                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, id@1)], filter=__users_0_tag_0@0 AND __products_1_tag_0@1 OR __products_1_tag_1@2, projection=[ctid_0@5, id@6, ctid_1@0, age@1, id@2]
-                 :           FilterExec: __products_1_tag_0@3 OR __products_1_tag_1@4
+                 :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1, ctid_2]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@3, age@1)], projection=[ctid_0@0, id@1, ctid_1@2, id@4, ctid_2@5, id@7]
+                 :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, id@1)], filter=__users_0_tag_0@0 AND __products_1_tag_0@1 OR __products_1_tag_1@2, projection=[ctid_0@5, id@6, ctid_1@0, age@1, id@2]
+                 :             FilterExec: __products_1_tag_0@3 OR __products_1_tag_1@4
+                 :               CooperativeExec
+                 :                 PgSearchScan: table=products, segments=1, query={"boolean":{"should":[{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"name"}},"score":0.0}}],"must_not":[{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}]}}}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}, tag_0={"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"name"}},"score":0.0}}],"must_not":[{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}]}}}}, tag_1={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
                  :             CooperativeExec
-                 :               PgSearchScan: table=products, segments=1, query={"boolean":{"should":[{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"name"}},"score":0.0}}],"must_not":[{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}]}}}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}, tag_0={"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"name"}},"score":0.0}}],"must_not":[{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}]}}}}, tag_1={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+                 :               PgSearchScan: table=users, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
                  :           CooperativeExec
-                 :             PgSearchScan: table=users, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
-                 :         CooperativeExec
-                 :           PgSearchScan: table=orders, segments=1, dynamic_filters=1, query="all"
-(20 rows)
+                 :             PgSearchScan: table=orders, segments=1, dynamic_filters=1, query="all"
+(21 rows)
 
 SELECT 'BM25' AS source, users.id AS uid, users.name AS uname,
        products.id AS pid, products.name AS pname, orders.id AS oid

@@ -146,6 +146,16 @@ WHERE description === 'cardiology'
   AND service_area && circle(point(50, 50), 1);
 CREATE INDEX providers_service_area ON providers USING gist (service_area);
 
+-- ANY over a constant array: exact membership proves the clause, same as a direct
+-- btree equality match.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM providers
+WHERE description === 'cardiology' AND specialty = ANY('{specialty13,specialty14}')
+ORDER BY id LIMIT 5;
+SELECT count(*) AS saop_count FROM (
+    SELECT id FROM providers
+    WHERE description === 'cardiology' AND specialty = ANY('{specialty13,specialty14}')) q;
+
 -- Multicolumn index: quals come out in index-column order, not WHERE order.
 CREATE INDEX providers_loc_area ON providers USING gist (location, service_area);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -250,6 +260,16 @@ SELECT count(*) AS not_count FROM (
     WHERE description === 'cardiology'
       AND NOT (location <@ circle(point(50, 50), 5))) q;
 
+-- ALL over an array: the index cannot answer a conjunction over every element in one
+-- scan, so it stays a heap filter. Results match plain heap filtering.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM providers
+WHERE description === 'cardiology' AND specialty = ALL('{specialty13,specialty13}')
+ORDER BY id LIMIT 5;
+SELECT count(*) AS saop_all_count FROM (
+    SELECT id FROM providers
+    WHERE description === 'cardiology' AND specialty = ALL('{specialty13,specialty13}')) q;
+
 -- Cost gate: an unselective bitmap is not worth building.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM providers
@@ -344,15 +364,6 @@ SELECT id FROM providers
 WHERE description === 'cardiology'
   AND (location <@ circle(point(20, 20), 3) OR location <@ circle(point(80, 80), 3))
 ORDER BY id LIMIT 5;
-
--- TODO ScalarArrayOpExpr: = ANY could use the btree; today it stays a heap filter.
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id FROM providers
-WHERE description === 'cardiology' AND specialty = ANY('{specialty13,specialty14}')
-ORDER BY id LIMIT 5;
-SELECT count(*) AS saop_count FROM (
-    SELECT id FROM providers
-    WHERE description === 'cardiology' AND specialty = ANY('{specialty13,specialty14}')) q;
 
 DROP TABLE providers CASCADE;
 RESET paradedb.enable_filter_pushdown;

@@ -259,12 +259,22 @@ fn try_inject_below_lookup(
                 // to be checked inside the join, so they won't be absorbed here.
                 let (absorbed_visibility, stk_input) =
                     if let Some(vis_exec) = lookup_child.downcast_ref::<VisibilityFilterExec>() {
+                        // The VF's child is a ctid-resolving TantivyLookupExec. Bypass it and let
+                        // the STK resolve ctids at candidate time, so a large join output does not
+                        // pay one fast-field read per row before the Top-K prune.
+                        let vf_child = Arc::clone(vis_exec.children()[0]);
+                        let stk_input = match vf_child.downcast_ref::<TantivyLookupExec>() {
+                            Some(lookup) if !lookup.ctid_columns().is_empty() => {
+                                Arc::clone(lookup.children()[0])
+                            }
+                            _ => vf_child,
+                        };
                         (
                             Some(Arc::new(AbsorbedVisibilityData::new(
                                 vis_exec.plan_pos_oids().to_vec(),
                                 vis_exec.table_names().to_vec(),
                             ))),
-                            Arc::clone(vis_exec.children()[0]),
+                            stk_input,
                         )
                     } else {
                         (None, Arc::clone(lookup_child))
@@ -391,9 +401,11 @@ fn try_inject_below_lookup(
             }
         }
 
-        // Recurse into single-child intermediate nodes (ProjectionExec, CoalescePartitionsExec, VisibilityFilterExec, etc.)
-        // Do not recurse into multi-child join nodes (HashJoinExec) where TantivyLookupExec is below the join.
+        // Recurse into single-child intermediate nodes that support limit pushdown
+        // (ProjectionExec, CoalescePartitionsExec, SortPreservingMergeExec, CooperativeExec, etc.)
+        // Do not recurse into multi-child join nodes (HashJoinExec) or non-transparent barriers (AggregateExec).
         if child.children().len() == 1
+            && child.supports_limit_pushdown()
             && let Some(rewritten) =
                 try_inject_below_lookup(child, sort_exprs.clone(), k, parent_filter.clone())?
         {

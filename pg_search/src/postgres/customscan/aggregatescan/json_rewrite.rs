@@ -45,9 +45,9 @@ fn i64_value_to_timestamp_string(v: &serde_json::Value) -> Option<String> {
             // some responses return floats
             .or_else(|| num.as_f64().map(|f| f as i64))
             .expect("This should always be a valid i64 since it's a stored timestamp value");
-        let string = PostgresDateTime::try_from_raw(pg_micros)
-            .expect("should always be a valid timestamp")
-            .to_string();
+        // A value outside the timestamp range, which a `sum` over a datetime
+        // column reaches, is left as the number it is.
+        let string = PostgresDateTime::try_from_raw(pg_micros).ok()?.to_string();
         Some(string)
     } else {
         None
@@ -65,6 +65,18 @@ pub fn rewrite_aggregate_result_json_timestamps(
     agg_json: &serde_json::Value,
     schema: &SearchIndexSchema,
 ) {
+    rewrite_aggregate_result_json_timestamps_with(output_json, agg_json, &|key| {
+        is_a_datetime_field(key, schema)
+    });
+}
+
+/// [`rewrite_aggregate_result_json_timestamps`] with the datetime test supplied
+/// by the caller, for a query whose fields span several indexes.
+pub fn rewrite_aggregate_result_json_timestamps_with(
+    output_json: &mut serde_json::Value,
+    agg_json: &serde_json::Value,
+    is_datetime_field: &dyn Fn(&str) -> bool,
+) {
     // METRICS
     // tophits
     if let Some(keys) = agg_json
@@ -74,7 +86,7 @@ pub fn rewrite_aggregate_result_json_timestamps(
         let keys: Vec<String> = keys
             .iter()
             .filter_map(|k| k.as_str())
-            .filter(|k| is_a_datetime_field(k, schema))
+            .filter(|k| is_datetime_field(k))
             .map(|k| k.to_string())
             .collect();
         if !keys.is_empty() {
@@ -107,7 +119,7 @@ pub fn rewrite_aggregate_result_json_timestamps(
     let single_metric_field_paths = ["/min/field", "/max/field", "/sum/field", "/avg/field"];
     for path in single_metric_field_paths {
         if let Some(field_name) = agg_json.pointer(path).and_then(|v| v.as_str())
-            && is_a_datetime_field(field_name, schema)
+            && is_datetime_field(field_name)
         {
             if let Some(obj) = output_json.as_object_mut()
                 && let Some(v) = obj.get("value")
@@ -134,7 +146,7 @@ pub fn rewrite_aggregate_result_json_timestamps(
         .into_iter()
         .find_map(|(path, rules)| {
             if let Some(key) = agg_json.pointer(path).and_then(|v| v.as_str()) {
-                if is_a_datetime_field(key, schema) {
+                if is_datetime_field(key) {
                     Some(rules)
                 } else {
                     None
@@ -167,10 +179,10 @@ pub fn rewrite_aggregate_result_json_timestamps(
             if let Some(subaggs) = agg_json.get("aggs").and_then(|v| v.as_object()) {
                 for (key, subagg_json) in subaggs.iter() {
                     if let Some(suboutput_json) = bucket.get_mut(key) {
-                        rewrite_aggregate_result_json_timestamps(
+                        rewrite_aggregate_result_json_timestamps_with(
                             suboutput_json,
                             subagg_json,
-                            schema,
+                            is_datetime_field,
                         );
                     }
                 }

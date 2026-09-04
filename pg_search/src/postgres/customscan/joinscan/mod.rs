@@ -1061,8 +1061,10 @@ impl CustomScan for JoinScan {
             let mut supported_funcoids: Vec<_> =
                 crate::postgres::customscan::score_funcoids().to_vec();
             let window_agg_funcoid = window_agg_oid();
-            assert_ne!(window_agg_funcoid, pg_sys::InvalidOid);
-            supported_funcoids.push(window_agg_funcoid);
+            if window_agg_funcoid != pg_sys::InvalidOid {
+                // window_agg_funcoid() will return InvalidOid during extension creation/update.
+                supported_funcoids.push(window_agg_funcoid);
+            }
 
             crate::postgres::utils::add_missing_search_operators_to_tlist(
                 root,

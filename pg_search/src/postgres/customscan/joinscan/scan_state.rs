@@ -799,7 +799,10 @@ pub fn numeric_window_field(
 ) -> Result<Option<SearchFieldType>> {
     match agg_type {
         AggregateType::Count { .. } | AggregateType::CountAny { .. } => Ok(None),
-        AggregateType::Custom { .. } => unreachable!(),
+        AggregateType::Custom { .. } => Err(DataFusionError::Plan(
+            "pdb.agg() is not supported over window functions. This path should be unreachable"
+                .to_string(),
+        )),
         _ => {
             let field_name = agg_type
                 .field_name()

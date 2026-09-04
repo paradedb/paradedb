@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788533486443,
+  "lastUpdate": 1788533495796,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -319926,6 +319926,90 @@ window.BENCHMARK_DATA = {
             "value": 543.658588724965,
             "unit": "median tps",
             "extra": "avg tps: 537.6555505639287, max tps: 630.858873097552, count: 55223"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e51119bce84539e25abad25423be5aeb4b6b6c37",
+          "message": "feat: Support `JOIN LATERAL unnest` pushdown in the join and aggregate scans (#6149)\n\n## What\n\nAdds support for `JOIN LATERAL unnest` over array fast fields in the\njoin and aggregate scans.\n\n## Why\n\nQueries combining multi-table joins with `[CROSS|LEFT] JOIN LATERAL\nunnest(...)` over indexed array fast fields previously had multiple\nissues:\n- `ORDER BY` on unnested columns was declined or double-prefixed.\n- `WHERE` on unnested columns omitted from the `SELECT` list failed\nduring plan execution.\n- Inner and cross joins were erroneously classified as left joins in\nsome cases.\n- Datetime and timestamp array fast fields produced schema mismatches\nwhen constructing `RecordBatch`es.\n\n## How\n\n- Extended `JoinScan` planning to include lateral `unnest` function RTIs\nin `output_rtis`, enabling pathkey matching for unnested columns.\n- Added `lateral_unnests` to `CombinedMapper` and populated\n`custom_scan_tlist` with predicate `Var`s via `add_vars_to_tlist` so\nPostgres planner setrefs resolves unprojected filter columns.\n- Corrected left-join classification in `JoinScan` planning by removing\nthe invalid `joininfo.is_null()` check.\n- Updated `fetch_array_values_or_ords_to_arrow` in\n`pg_search/src/index/fast_fields_helper.rs` to use\n`TimestampMicrosecondBuilder` for datetime/timestamp `I64` fields, and\ndeduplicated array fetching across types via `fetch_list_array`.\n- Unified `RelNode::Unnest` DataFusion lowering via\n`apply_relnode_unnest` across `JoinScan` and `AggregateScan`.\n\n## Tests\n\nNew regress tests in\n`pg_search/tests/pg_regress/sql/join_lateral_unnest.sql`, and new\nproperty tests.",
+          "timestamp": "2026-09-04T07:32:37-07:00",
+          "tree_id": "b82ffcb2c7c516bec019a2e40e276d7ab8909d7e",
+          "url": "https://github.com/paradedb/paradedb/commit/e51119bce84539e25abad25423be5aeb4b6b6c37"
+        },
+        "date": 1788533473651,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 201.5741919949112,
+            "unit": "median tps",
+            "extra": "avg tps: 202.30215058751946, max tps: 225.27258026673968, count: 55290"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 206.03939639375355,
+            "unit": "median tps",
+            "extra": "avg tps: 206.3101032497206, max tps: 229.77983280029227, count: 55290"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 174.46073640913147,
+            "unit": "median tps",
+            "extra": "avg tps: 174.98002809357868, max tps: 201.27210793100497, count: 55290"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 472.8103033915055,
+            "unit": "median tps",
+            "extra": "avg tps: 478.21661841031727, max tps: 695.4177692827445, count: 55290"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 340.69758077506333,
+            "unit": "median tps",
+            "extra": "avg tps: 343.31356929811756, max tps: 442.66717399603823, count: 55290"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.863430019376946,
+            "unit": "median tps",
+            "extra": "avg tps: 14.893573898692726, max tps: 16.60483634455952, count: 55290"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Subscriber - tps",
+            "value": 655.7132337074634,
+            "unit": "median tps",
+            "extra": "avg tps: 658.751044816865, max tps: 805.1490116650955, count: 55290"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 659.0207052563392,
+            "unit": "median tps",
+            "extra": "avg tps: 661.9518984872494, max tps: 852.9194841637728, count: 55290"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 269.0150723184987,
+            "unit": "median tps",
+            "extra": "avg tps: 270.2814224586805, max tps: 328.2505122251549, count: 55290"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 570.9376691825898,
+            "unit": "median tps",
+            "extra": "avg tps: 571.7578631612837, max tps: 669.1519699158015, count: 55290"
           }
         ]
       }

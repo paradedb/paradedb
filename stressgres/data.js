@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788503448972,
+  "lastUpdate": 1788503459256,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -318840,6 +318840,90 @@ window.BENCHMARK_DATA = {
             "value": 605.6020954000696,
             "unit": "median tps",
             "extra": "avg tps: 600.3771586689926, max tps: 693.5597204735589, count: 55335"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c74bcde7bf6f6e44516d81f18350f2725d14fd5f",
+          "message": "feat: Add support for non-equi JOINs in the join and aggregate scan (#6196)\n\n## What\n\nAdds support for pushing down non-equi join conditions (e.g. `<`, `<=`,\n`>`, `>=`, `<>`) and mixed equi/non-equi joins to DataFusion.\n\nImproves expression deparsing during planning and `EXPLAIN` in order to\nbetter render join conditions.\n\n## Why\n\nThe Postgres optimizer frequently produces non-equi joins in #6149 while\nreorganizing joins in property tests. To avoid users encountering\nplanning failures non-deterministically based on estimate changes, it\nwas easiest to extend support.\n\n## How\n\n- `pg_search/src/postgres/customscan/joinscan/predicate.rs`: Absorbs\ntranslatable non-equi conditions into join-level filters\n(`JoinLevelExpr::PgExpression`), respecting outer join ON vs WHERE\nclause semantics.\n- `pg_search/src/postgres/customscan/aggregatescan/`: Recursively\nhandles non-equi joins in aggregate pushdown planning.\n- `pg_search/src/postgres/deparse.rs` &\n`pg_search/src/postgres/customscan/explainer.rs`: Added\n`deparse_planner_expr` using `PlannerInfo` range table contexts for\nreadable multi-relation expression deparsing.\n\n## Tests\n\nAdded regression tests. Additional property test coverage is provided by\nthe changes in https://github.com/paradedb/paradedb/pull/6149.",
+          "timestamp": "2026-09-03T23:12:12-07:00",
+          "tree_id": "1f536f91fd3793c3b54f93cb2ffeefa3337100af",
+          "url": "https://github.com/paradedb/paradedb/commit/c74bcde7bf6f6e44516d81f18350f2725d14fd5f"
+        },
+        "date": 1788503437536,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 207.1808790113415,
+            "unit": "median tps",
+            "extra": "avg tps: 205.2032841641405, max tps: 219.644693199381, count: 55223"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 210.27776279317763,
+            "unit": "median tps",
+            "extra": "avg tps: 208.15774212848618, max tps: 221.8466348180694, count: 55223"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 173.75501170194053,
+            "unit": "median tps",
+            "extra": "avg tps: 172.66145567484875, max tps: 198.2239189030476, count: 55223"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 476.64773899163544,
+            "unit": "median tps",
+            "extra": "avg tps: 467.94360402200505, max tps: 642.0233809716428, count: 55223"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 341.1734364609471,
+            "unit": "median tps",
+            "extra": "avg tps: 336.8377324514481, max tps: 419.49196055776247, count: 55223"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.98629028508826,
+            "unit": "median tps",
+            "extra": "avg tps: 15.010045301767454, max tps: 16.07569020944462, count: 55223"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Subscriber - tps",
+            "value": 614.3770952004098,
+            "unit": "median tps",
+            "extra": "avg tps: 606.0512975847872, max tps: 740.0686049517338, count: 55223"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 625.1036705268978,
+            "unit": "median tps",
+            "extra": "avg tps: 617.8983806184805, max tps: 765.084415588994, count: 55223"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 271.3142307280056,
+            "unit": "median tps",
+            "extra": "avg tps: 268.2249308326933, max tps: 324.29493794410973, count: 55223"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 543.658588724965,
+            "unit": "median tps",
+            "extra": "avg tps: 537.6555505639287, max tps: 630.858873097552, count: 55223"
           }
         ]
       }

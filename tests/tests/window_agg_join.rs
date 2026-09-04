@@ -77,7 +77,7 @@ fn global_window_aggregates_over_join(mut conn: PgConnection) -> Result<(), sqlx
                r.score,
                COUNT(*) OVER () AS total_count,
                SUM(r.score) OVER () AS total_score,
-               AVG(r.score) OVER ()::float8 AS avg_score,
+               AVG(r.score) OVER () AS avg_score,
                MIN(r.score) OVER () AS min_score,
                MAX(r.score) OVER () AS max_score
         FROM wj_products p
@@ -88,10 +88,12 @@ fn global_window_aggregates_over_join(mut conn: PgConnection) -> Result<(), sqlx
     "#;
 
     // Desired #5637 behavior: the custom scans absorb the global window
-    // aggregates, so the JoinScan engages and no WindowAgg node remains.
+    // aggregates, so the JoinScan engages and no WindowAgg node remains,
+    // while a WindowAggExec now exists
     let plan = explain(&mut conn, query);
     assert!(plan.contains(JOIN_SCAN), "{plan}");
-    assert!(!plan.contains("WindowAgg"), "{plan}");
+    assert!(!plan.contains("WindowAgg "), "{plan}");
+    assert!(plan.contains("WindowAggExec"), "{plan}");
 
     let rows = query.fetch_result::<(i32, i32, i64, i64, f64, i32, i32)>(&mut conn)?;
     assert_eq!(rows.len(), 3);

@@ -2465,16 +2465,24 @@ impl JoinScan {
                     let agg_info = window_agg_infos
                         .get(*index)
                         .expect("A window agg output column should always have a valid index");
-                    let datum = types_arrow::arrow_array_to_datum(
+                    let try_maybe_datum = types_arrow::arrow_array_to_datum(
                         agg_col.as_ref(),
                         row_idx,
                         agg_info.result_type_oid().into(),
                         None, // TODO: Fill with actual val,
-                    )
-                    .expect("We should always be able to convert")
-                    .expect("This should always produce a datum");
-                    *datums.add(i) = datum;
-                    *nulls.add(i) = false;
+                    );
+                    let maybe_datum = match try_maybe_datum {
+                        Ok(d) => d,
+                        Err(e) => pgrx::error!("Failed to convert window agg result to datum: {e}"),
+                    };
+                    // arrow_array_to_datum returns Ok(None) for nulls, so we need to handle both
+                    // cases
+                    if let Some(datum) = maybe_datum {
+                        *datums.add(i) = datum;
+                        *nulls.add(i) = false;
+                    } else {
+                        *nulls.add(i) = true;
+                    }
                 }
                 privdat::OutputColumnInfo::Pruned => {
                     *nulls.add(i) = true;

@@ -55,6 +55,16 @@
 //!   `ProcessUtility` hook can push a frame on top of an active `ExecutorRun` frame. This is
 //!   fine — each frame is independent and cleaned up by its own guard.
 //!
+//! # Transaction boundaries
+//!
+//! An [`InsertState`] pins buffers, and a pin belongs to the resource owner of the transaction
+//! that took it. A hook invocation normally sits inside one transaction, so the guard's drop is
+//! early enough. `CREATE INDEX CONCURRENTLY` breaks that: it commits between its phases while
+//! our `ProcessUtility` frame is still open, so a state its validation pass builds would outlive
+//! the owner of its pins. pg17 gained `index_insert_cleanup`, which the same pass calls before
+//! it returns; here the commit itself is the deadline, so a pre-commit callback drains every
+//! frame while the pins are still the committing transaction's to release.
+//!
 //! # Panic / unwind safety
 //!
 //! `insertcleanup` can panic (e.g. if called with `InsertMode::Completed`, or via `.expect()`
@@ -95,25 +105,65 @@ struct InsertFrameEntry {
 /// **Only [`FrameGuard`] is allowed to push or pop this stack.**
 static mut EXECUTOR_RUN_STACK: Vec<InsertFrame> = Vec::new();
 
-/// Whether the transaction-local abort cleanup callback has been registered.
-static mut ABORT_CALLBACK_REGISTERED: bool = false;
+/// Whether the transaction-local cleanup callbacks have been registered.
+static mut XACT_CALLBACKS_REGISTERED: bool = false;
 
-unsafe fn ensure_abort_callback_registered() {
-    if ABORT_CALLBACK_REGISTERED {
+unsafe fn ensure_xact_callbacks_registered() {
+    if XACT_CALLBACKS_REGISTERED {
         return;
     }
 
-    ABORT_CALLBACK_REGISTERED = true;
+    XACT_CALLBACKS_REGISTERED = true;
+    pgrx::register_xact_callback(pgrx::PgXactCallbackEvent::PreCommit, || unsafe {
+        cleanup_before_commit();
+    });
     pgrx::register_xact_callback(pgrx::PgXactCallbackEvent::Abort, || unsafe {
         // If a Postgres ERROR unwinds through FrameGuard::drop, drop every frame without running
         // insertcleanup. Postgres will roll back all storage changes, so there is nothing to
         // commit. clear() drops each InsertFrame via normal Drop impls, which is safe here.
         EXECUTOR_RUN_STACK.clear();
-        ABORT_CALLBACK_REGISTERED = false;
+        XACT_CALLBACKS_REGISTERED = false;
     });
     pgrx::register_xact_callback(pgrx::PgXactCallbackEvent::Commit, || unsafe {
-        ABORT_CALLBACK_REGISTERED = false;
+        XACT_CALLBACKS_REGISTERED = false;
     });
+}
+
+/// Clean up every state the open frames hold, leaving the frames themselves to their guards.
+///
+/// See the "Transaction boundaries" note above for why a commit is a deadline. The frames stay
+/// on the stack because only a [`FrameGuard`] may pop one, and every guard here is still live.
+unsafe fn cleanup_before_commit() {
+    // Take all the maps up front: `insertcleanup` runs arbitrary index code, and holding a
+    // borrow of the stack across it would be unsound if anything pushed a frame.
+    let pending = EXECUTOR_RUN_STACK
+        .iter_mut()
+        .map(|frame| std::mem::take(&mut frame.active))
+        .collect::<Vec<_>>();
+
+    for active in pending {
+        cleanup_frame(active);
+    }
+}
+
+/// Run `insertcleanup` for every state in `active`.
+unsafe fn cleanup_frame(active: HashMap<pg_sys::Oid, InsertFrameEntry>) {
+    for (_, mut entry) in active {
+        // The pg15/pg16 shim stores a sentinel in ii_AmCache because the real InsertState
+        // lives in the frame. Once the frame is cleaned up, clear the sentinel so a later
+        // aminsert with the same IndexInfo creates a fresh state instead of looking for
+        // one that is no longer there.
+        if let Some(index_info) = entry.index_info.as_mut() {
+            index_info.ii_AmCache = std::ptr::null_mut();
+        }
+
+        // Replace the mode with Completed *before* calling insertcleanup.  If
+        // insertcleanup panics partway through, the xact-abort callback will clear the
+        // remaining frames; having Completed in place prevents a double-cleanup if the
+        // same state were somehow encountered again (it won't be, but this is defensive).
+        let mode = std::mem::replace(&mut entry.insert_state.mode, InsertMode::Completed);
+        insertcleanup(&entry.insert_state, mode);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -158,22 +208,7 @@ impl Drop for FrameGuard {
                 .pop()
                 .expect("FrameGuard::drop: stack underflow — frame was never pushed");
 
-            for (_, mut entry) in frame.active {
-                // The pg15/pg16 shim stores a sentinel in ii_AmCache because the real InsertState
-                // lives in this frame. Once the frame is cleaned up, clear the sentinel so a later
-                // ExecutorRun with the same IndexInfo creates a fresh state instead of looking for
-                // one in an empty frame.
-                if let Some(index_info) = entry.index_info.as_mut() {
-                    index_info.ii_AmCache = std::ptr::null_mut();
-                }
-
-                // Replace the mode with Completed *before* calling insertcleanup.  If
-                // insertcleanup panics partway through, the xact-abort callback will clear the
-                // remaining frames; having Completed in place prevents a double-cleanup if the
-                // same state were somehow encountered again (it won't be, but this is defensive).
-                let mode = std::mem::replace(&mut entry.insert_state.mode, InsertMode::Completed);
-                insertcleanup(&entry.insert_state, mode);
-            }
+            cleanup_frame(frame.active);
         }
     }
 }
@@ -219,7 +254,7 @@ pub unsafe fn get_insert_state(indexrelid: pg_sys::Oid) -> Option<&'static mut I
 /// Must be called from within a live executor hook invocation.
 #[inline]
 pub unsafe fn push_insert_state(index_info: *mut pg_sys::IndexInfo, insert_state: InsertState) {
-    ensure_abort_callback_registered();
+    ensure_xact_callbacks_registered();
 
     let frame = EXECUTOR_RUN_STACK.last_mut().expect(
         "push_insert_state: called outside of an executor hook — EXECUTOR_RUN_STACK is empty",

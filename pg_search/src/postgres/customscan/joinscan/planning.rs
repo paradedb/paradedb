@@ -668,9 +668,6 @@ unsafe fn collect_join_sources_join_rel(
             .plan
             .offset_plan_positions(left_sources_count);
 
-        let mut keys = outer_collected.join_keys;
-        keys.extend(inner_collected.join_keys);
-
         let mut multi_table_clauses = outer_collected.multi_table_clauses;
         multi_table_clauses.extend(inner_collected.multi_table_clauses);
 
@@ -679,10 +676,68 @@ unsafe fn collect_join_sources_join_rel(
         let mut all_sources = outer_node.sources();
         all_sources.extend(inner_node.sources());
 
-        // Extract keys for this level
-        let join_restrict_info = (*join_path).joinrestrictinfo;
-        let mut join_conditions =
-            extract_join_conditions_from_list(root, join_restrict_info, &all_sources);
+        // Extract keys for this level:
+        // When reconstructing join conditions from a standard JoinPath, `(*join_path).joinrestrictinfo`
+        // can have clauses stripped if they were pushed down into a parameterized inner path or
+        // if they are EquivalenceClass-implied equalities. We call core PostgreSQL's `build_join_rel`
+        // (which takes the fast path on the existing joinrel) to obtain the complete `restrictlist`
+        // for this (outer_rel, inner_rel) pairing, and merge with `joinrestrictinfo` as well.
+        let mut sjinfo: *mut pg_sys::SpecialJoinInfo = std::ptr::null_mut();
+        if !root.is_null() && !(*root).join_info_list.is_null() {
+            let list = PgList::<pg_sys::SpecialJoinInfo>::from_pg((*root).join_info_list);
+            for sj in list.iter_ptr() {
+                let lhs = (*sj).min_lefthand;
+                let rhs = (*sj).min_righthand;
+                if (pg_sys::bms_is_subset(lhs, (*outer_rel).relids)
+                    && pg_sys::bms_is_subset(rhs, (*inner_rel).relids))
+                    || (pg_sys::bms_is_subset(lhs, (*inner_rel).relids)
+                        && pg_sys::bms_is_subset(rhs, (*outer_rel).relids))
+                {
+                    sjinfo = sj;
+                    break;
+                }
+            }
+        }
+
+        let mut restrictlist: *mut pg_sys::List = std::ptr::null_mut();
+        #[cfg(feature = "pg15")]
+        let _ = pg_sys::build_join_rel(
+            root,
+            (*rel).relids,
+            outer_rel,
+            inner_rel,
+            sjinfo,
+            &mut restrictlist,
+        );
+        #[cfg(not(feature = "pg15"))]
+        let _ = pg_sys::build_join_rel(
+            root,
+            (*rel).relids,
+            outer_rel,
+            inner_rel,
+            sjinfo,
+            std::ptr::null_mut(),
+            &mut restrictlist,
+        );
+
+        let mut join_conditions = if !restrictlist.is_null() {
+            extract_join_conditions_from_list(root, restrictlist, &all_sources)
+        } else {
+            extract_join_conditions_from_list(root, (*join_path).joinrestrictinfo, &all_sources)
+        };
+        if !restrictlist.is_null() && !(*join_path).joinrestrictinfo.is_null() {
+            // Merge any clauses from joinrestrictinfo that may not be in restrictlist
+            for ri in
+                PgList::<pg_sys::RestrictInfo>::from_pg((*join_path).joinrestrictinfo).iter_ptr()
+            {
+                if !(*ri).clause.is_null()
+                    && !join_conditions.other_conditions.contains(&ri)
+                    && (*ri).can_join
+                {
+                    join_conditions.other_conditions.push(ri);
+                }
+            }
+        }
 
         // Also inspect inner/outer param_info to recover any join conditions
         // that PostgreSQL placed in PPI clauses rather than on joinrestrictinfo
@@ -728,6 +783,28 @@ unsafe fn collect_join_sources_join_rel(
                 (*outer_param).ppi_clauses,
                 &all_sources,
             ));
+        }
+
+        // For HashPath and MergePath, PostgreSQL places the hashable/mergeable equi-join
+        // clauses in `path_hashclauses` / `path_mergeclauses` rather than `joinrestrictinfo`.
+        if (*path).type_ == pg_sys::NodeTag::T_HashPath {
+            let hash_path = path as *mut pg_sys::HashPath;
+            if !(*hash_path).path_hashclauses.is_null() {
+                merge_extra(extract_join_conditions_from_list(
+                    root,
+                    (*hash_path).path_hashclauses,
+                    &all_sources,
+                ));
+            }
+        } else if (*path).type_ == pg_sys::NodeTag::T_MergePath {
+            let merge_path = path as *mut pg_sys::MergePath;
+            if !(*merge_path).path_mergeclauses.is_null() {
+                merge_extra(extract_join_conditions_from_list(
+                    root,
+                    (*merge_path).path_mergeclauses,
+                    &all_sources,
+                ));
+            }
         }
 
         let jointype = (*join_path).jointype;
@@ -871,8 +948,6 @@ unsafe fn collect_join_sources_join_rel(
             absorbed_search_clauses,
         };
 
-        keys.extend(join_conditions.equi_keys);
-
         // If PG planned this sub-join right-oriented, rewrite it to its left
         // twin (rationale on `JoinNode::canonicalize_orientation`). Per level,
         // not recursive: `outer_node`/`inner_node` are already canonical from
@@ -882,9 +957,17 @@ unsafe fn collect_join_sources_join_rel(
         // there would only add a duplicate path.
         join_node.canonicalize_orientation();
 
+        let mut plan = RelNode::Join(Box::new(join_node));
+        if !plan.unsupported_join_types().is_empty() {
+            return None;
+        }
+        if !plan.rewrite_pruned_join_keys(root) {
+            return None;
+        }
+
         return Some(CollectedJoinRel {
-            plan: RelNode::Join(Box::new(join_node)),
-            join_keys: keys,
+            join_keys: plan.join_keys(),
+            plan,
             multi_table_clauses,
         });
     }
@@ -1328,18 +1411,12 @@ unsafe fn extract_join_conditions_from_list(
             continue;
         }
 
-        // Only consider clauses whose required relations are a subset of `valid_rtis`.
-        // Clauses from `ppi_clauses` that require relations outside of `valid_rtis`
-        // belong to higher-level joins, not this join. For outer-join-delayed quals,
-        // `required_relids` is strictly larger than `clause_relids` and includes the outer-join rels.
-        // Non-base relations like `RTE_JOIN` (which PostgreSQL adds to track
-        // outer-join evaluation boundaries) and lateral unnest RTEs over these sources are not
-        // external relations and should not disqualify the clause.
         let relids = if !(*ri).required_relids.is_null() {
             (*ri).required_relids
         } else {
             (*ri).clause_relids
         };
+
         if !relids.is_null() {
             let mut all_in_valid_rtis = true;
             for rti in bms_iter(relids) {
@@ -1756,19 +1833,6 @@ fn collect_source_rtis(sources: &[&JoinSource]) -> Vec<pg_sys::Index> {
     sources.iter().map(|s| s.scan_info.heap_rti).collect()
 }
 
-/// Count query_pathkeys that reference at least one output relation (i.e. are
-/// not outer-only). This is the number of pathkeys JoinScan is responsible for.
-pub(super) unsafe fn count_relevant_pathkeys(
-    root: *mut pg_sys::PlannerInfo,
-    output_rtis: &[pg_sys::Index],
-) -> usize {
-    let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
-    pathkeys
-        .iter_ptr()
-        .filter(|pk| !pathkey_is_outer_only((**pk).pk_eclass, output_rtis))
-        .count()
-}
-
 /// Returns true if no equivalence class member for this pathkey references any
 /// relation in `output_rtis`. Such pathkeys are "outer-only" w.r.t. this join
 /// subtree — the parent plan owns sorting on those keys.
@@ -1951,6 +2015,63 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                 "JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation",
             )
         }));
+    }
+
+    Ok(())
+}
+
+/// Validate whether all ORDER BY clauses from `parse->sortClause` can be handled by JoinScan.
+/// Used when JoinScan defers DISTINCT to a parent node and `query_pathkeys` still list keys
+/// for the full DISTINCT row (including derived expressions).
+pub(super) unsafe fn order_by_sort_clause_is_fast_fields(
+    root: *mut pg_sys::PlannerInfo,
+    sources: &[&JoinSource],
+) -> Result<(), JoinDeclineReason> {
+    let parse = (*root).parse;
+    if parse.is_null() || (*parse).sortClause.is_null() {
+        return Ok(());
+    }
+
+    let source_rtis = collect_source_rtis(sources);
+    let sort_list = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
+
+    for sort_clause_ptr in sort_list.iter_ptr() {
+        let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
+        let check_expr = strip_wrappers(sort_expr.cast()).cast::<pg_sys::Expr>();
+
+        if expr_is_outer_only(check_expr.cast(), &source_rtis) {
+            continue;
+        }
+
+        let collation = pg_sys::exprCollation(check_expr.cast());
+        if !collation_supports(collation, CollationOperation::Ordering) {
+            return Err(JoinDeclineReason::new(
+                "JoinScan not used: ORDER BY columns must have a byte-ordered (C-like) collation",
+            ));
+        }
+
+        let direction =
+            SortDirection::from_sort_op((*sort_clause_ptr).sortop, (*sort_clause_ptr).nulls_first)
+                .ok_or_else(|| {
+                    JoinDeclineReason::new("JoinScan not used: unsupported ORDER BY sort operator")
+                })?;
+
+        match JoinSortExprKind::classify(root, check_expr, direction, sources, &source_rtis, false)
+        {
+            JoinSortExprKind::Resolved(_) => continue,
+            JoinSortExprKind::SkipMember => unreachable!("sortClause entry is not an EC member"),
+            JoinSortExprKind::NoMatch => {
+                if expr_contains_any_score(check_expr.cast()) {
+                    return Err(JoinDeclineReason::new(
+                        "JoinScan not used: unsupported ORDER BY expression shape containing pdb.score(); only standalone pdb.score() or sums of pdb.score() across tables ('pdb.score(a) + pdb.score(b)') are supported",
+                    ));
+                } else {
+                    return Err(JoinDeclineReason::new(
+                        "JoinScan not used: unsupported ORDER BY expression shape; expressions must match an indexed expression or be a sum of pdb.score() calls",
+                    ));
+                }
+            }
+        }
     }
 
     Ok(())
@@ -2591,6 +2712,30 @@ impl JoinSortExprKind {
     }
 }
 
+/// Returns true if `expr` references no relation in `output_rtis`. Such sort
+/// expressions are "outer-only" w.r.t. this join subtree (e.g. columns from
+/// the pruned side of an Anti Join or from an outer query) — all rows produced
+/// by this scan have constant/NULL values for them, and the parent plan owns
+/// sorting on those keys.
+pub(super) unsafe fn expr_is_outer_only(
+    expr: *mut pg_sys::Node,
+    output_rtis: &[pg_sys::Index],
+) -> bool {
+    let check_expr = strip_wrappers(expr);
+    if let Some(var) = nodecast!(Var, T_Var, check_expr) {
+        !output_rtis.contains(&((*var).varno as pg_sys::Index))
+    } else {
+        let var_list = pg_sys::pull_var_clause(check_expr, PVC_RECURSE_ALL);
+        if var_list.is_null() {
+            return true;
+        }
+        let vars = PgList::<pg_sys::Var>::from_pg(var_list);
+        !vars
+            .iter_ptr()
+            .any(|var_ptr| output_rtis.contains(&((*var_ptr).varno as pg_sys::Index)))
+    }
+}
+
 /// ORDER BY from `parse->sortClause` only. Used when JoinScan defers DISTINCT to a parent node
 /// and `query_pathkeys` still list keys for the full DISTINCT row.
 pub(super) unsafe fn extract_orderby_from_parse_sort_clause(
@@ -2607,10 +2752,15 @@ pub(super) unsafe fn extract_orderby_from_parse_sort_clause(
     let mut result = Vec::new();
 
     for sort_clause_ptr in sort_list.iter_ptr() {
-        let direction =
-            SortDirection::from_sort_op((*sort_clause_ptr).sortop, (*sort_clause_ptr).nulls_first)?;
         let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
         let check_expr = strip_wrappers(sort_expr.cast()).cast::<pg_sys::Expr>();
+
+        if expr_is_outer_only(check_expr.cast(), output_rtis) {
+            continue;
+        }
+
+        let direction =
+            SortDirection::from_sort_op((*sort_clause_ptr).sortop, (*sort_clause_ptr).nulls_first)?;
 
         match JoinSortExprKind::classify(root, check_expr, direction, sources, output_rtis, false) {
             JoinSortExprKind::Resolved(info) => result.push(info),

@@ -130,7 +130,7 @@ FROM authors a
 INNER JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'science' OR b.content @@@ 'technology')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
-WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
+WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: a, b)
   author_name  |      book_title      | author_score | book_score 
 ---------------+----------------------+--------------+------------
  J.K. Rowling  | Harry Potter Magic   |            0 |    0.98641
@@ -150,7 +150,7 @@ FROM authors a
 LEFT JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'mystery' OR b.content @@@ 'romance')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
-WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
+WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: a, b)
    author_name   |     book_title      | author_score | book_score 
 -----------------+---------------------+--------------+------------
  Agatha Christie | Murder Mystery Case |    1.5552412 |          0
@@ -166,7 +166,7 @@ FROM authors a
 RIGHT JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'fiction' OR b.content @@@ 'magic')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
-WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
+WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: a, b)
  author_name  |      book_title      | author_score | book_score 
 --------------+----------------------+--------------+------------
  J.K. Rowling | Harry Potter Magic   |            0 |  1.3025584
@@ -187,7 +187,7 @@ FROM authors a
 INNER JOIN books b ON a.id = b.author_id AND a.birth_year < 2000
 WHERE (a.bio @@@ 'writer' OR b.content @@@ 'mystery')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
-WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
+WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: a, b)
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- =============================================================================
 -- SECTION 2: Non-equi joins and problematic conditions
@@ -285,7 +285,7 @@ FROM authors a
 INNER JOIN books b ON b.price BETWEEN 20.00 AND 30.00 AND a.id = b.author_id
 WHERE (a.bio @@@ 'author' OR b.content @@@ 'romance')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
-WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
+WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: a, b)
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- =============================================================================
 -- SECTION 3: CROSS-TABLE OR TESTS
@@ -385,7 +385,7 @@ FROM authors a
 INNER JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'science' OR b.content @@@ 'mystery' OR b.price > 25.00)
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
-WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
+WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: a, b)
    author_name   |      book_title      | author_score | book_score 
 -----------------+----------------------+--------------+------------
  J.K. Rowling    | Harry Potter Magic   |            0 |          0
@@ -408,7 +408,7 @@ INNER JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'smartphone' AND a.birth_year > 1950) 
    OR (b.content @@@ 'magic' AND b.publication_year > 1980)
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
-WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
+WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: a, b)
  author_name  |      book_title      | author_score | book_score 
 --------------+----------------------+--------------+------------
  J.K. Rowling | Harry Potter Magic   |            0 |  1.3025584
@@ -431,8 +431,12 @@ JOIN reviews r ON b.id = r.book_id
 WHERE (a.bio @@@ 'British' AND b.is_published = true) 
    OR (b.content @@@ 'horror' AND r.score >= 4)
 ORDER BY a.id, b.id, r.id, author_score DESC, book_score DESC, review_score DESC;
-WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b, r)
-ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
+WARNING:  JoinScan not used: ORDER BY column 'author_id' is not columnar indexed (fast = true) (tables: b, r)
+WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: a, b, r)
+ author_name | book_title | review_content | author_score | book_score | review_score 
+-------------+------------+----------------+--------------+------------+--------------
+(0 rows)
+
 -- Test 4.4: Intelligent partial salvage of AND expressions
 SELECT 
     a.name as author_name,
@@ -461,7 +465,7 @@ FROM authors a1
 INNER JOIN authors a2 ON a1.birth_year = a2.birth_year AND a1.id != a2.id
 WHERE (a1.bio @@@ 'fiction' OR a2.bio @@@ 'mystery')
 ORDER BY a1.id, a2.id, author1_score DESC, author2_score DESC;
-WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a1, a2)
+WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: a1, a2)
  author1_name | author2_name | author1_score | author2_score 
 --------------+--------------+---------------+---------------
 (0 rows)
@@ -476,7 +480,7 @@ FROM authors a
 JOIN books b ON a.id = b.author_id
 WHERE a.bio @@@ 'author' AND b.category_id = 1
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
-WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
+WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: a, b)
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- Test 5.3: LEFT JOIN semantics test
 SELECT 
@@ -488,7 +492,7 @@ FROM authors a
 LEFT JOIN books b ON a.id = b.author_id
 WHERE a.bio @@@ 'author' OR b.content @@@ 'story'
 ORDER BY a.id, b.id;
-WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
+WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: a, b)
    author_name   |      book_title      | author_score | book_score 
 -----------------+----------------------+--------------+------------
  J.K. Rowling    | Harry Potter Magic   |   0.66167223 | 0.27030534
@@ -567,7 +571,7 @@ FROM authors a
 JOIN books b ON a.id = b.author_id
 WHERE a.bio @@@ 'author'
 ORDER BY a.id, author_score DESC;
-WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
+WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: a, b)
  author_name  | author_score 
 --------------+--------------
  J.K. Rowling |   0.66167223
@@ -587,8 +591,12 @@ FROM authors a
 JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'author' OR b.content @@@ 'story')
   AND (a.is_active = true OR b.is_published = true);
-WARNING:  Aggregate Scan (DataFusion) not used: the selected lower join path contains a predicate that AggregateScan cannot classify (table: join)
-ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
+WARNING:  Aggregate Scan (DataFusion) not used: join predicates must reference columnar indexed fields (table: join)
+ total_results |  avg_author_score  |   avg_book_score   
+---------------+--------------------+--------------------
+             8 | 0.5164865255355835 | 0.2097555547952652
+(1 row)
+
 -- Test 6.3: Unsafe conditions that cannot be pushed down
 SELECT 
     a.name as author_name,
@@ -633,7 +641,18 @@ WHERE (
 )
 ORDER BY a.id, b.id, r.id, author_score DESC, book_score DESC
 LIMIT 10;
-ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ author_name  |      book_title      | review_content | author_score | book_score | review_score 
+--------------+----------------------+----------------+--------------+------------+--------------
+ J.K. Rowling | Harry Potter Magic   |                |            0 |          0 |             
+ J.K. Rowling | Magic Detective      |                |            0 |          0 |             
+ Stephen King | Harry Potter Horrors |                |            0 |          0 |             
+ Stephen King | The Shining Terror   |                |            0 |          0 |             
+ John Smith   | Smartphone Tech      |                |            0 |          0 |             
+ John Smith   | Future Technologies  |                |            0 |          0 |             
+(6 rows)
+
 -- Test 7.2: Conservative OR handling demonstration
 SELECT 
     a.name as author_name,

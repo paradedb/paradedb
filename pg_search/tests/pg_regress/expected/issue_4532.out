@@ -74,6 +74,7 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: p SEMI (c SEMI d)
          Join Cond: p.company_id = c.id, c.id = d.company_id
+         Join Filter: (c.id = d.company_id)
          Limit: 10
          Order By: p.id asc
          DataFusion Physical Plan: 
@@ -91,7 +92,7 @@ LIMIT 10;
            :                   PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Engineering","lenient":null,"conjunction_mode":null}}}}
            :                 CooperativeExec
            :                   PgSearchScan: table=c, segments=1, dynamic_filters=2, query="all"
-(21 rows)
+(22 rows)
 
 SELECT p.id, p.description
 FROM products p
@@ -140,6 +141,7 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: p SEMI (c ANTI d)
          Join Cond: p.company_id = c.id, d.company_id = c.id
+         Join Filter: (d.company_id = c.id)
          Limit: 10
          Order By: p.id asc
          DataFusion Physical Plan: 
@@ -152,12 +154,12 @@ LIMIT 10;
            :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
            :           VisibilityFilterExec: tables=[c]
            :             TantivyFetchExec: fetch=[ctid_1]
-           :               HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, id@0)]
+           :               HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, id@0), (company_id@0, id@0)]
            :                 CooperativeExec
            :                   PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Marketing","lenient":null,"conjunction_mode":null}}}}
            :                 CooperativeExec
            :                   PgSearchScan: table=c, segments=1, dynamic_filters=1, query="all"
-(21 rows)
+(22 rows)
 
 SELECT p.id, p.description
 FROM products p
@@ -215,6 +217,7 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: p SEMI ((c SEMI d) ANTI d)
          Join Cond: p.company_id = c.id, d.company_id = c.id, c.id = d.company_id
+         Join Filter: (d_1.company_id = c.id) AND (c.id = d.company_id)
          Limit: 10
          Order By: p.id asc
          DataFusion Physical Plan: 
@@ -227,7 +230,7 @@ LIMIT 10;
            :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
            :           VisibilityFilterExec: tables=[c]
            :             TantivyFetchExec: fetch=[ctid_1]
-           :               HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, id@0)]
+           :               HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, id@0), (company_id@0, id@0)]
            :                 CooperativeExec
            :                   PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Marketing","lenient":null,"conjunction_mode":null}}}}
            :                 HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, id@0)]
@@ -235,7 +238,7 @@ LIMIT 10;
            :                     PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Engineering","lenient":null,"conjunction_mode":null}}}}
            :                   CooperativeExec
            :                     PgSearchScan: table=c, segments=1, dynamic_filters=2, query="all"
-(24 rows)
+(25 rows)
 
 SELECT p.id, p.description
 FROM products p
@@ -345,6 +348,7 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: p SEMI ((r INNER c) SEMI d)
          Join Cond: p.company_id = c.id, c.id = d.company_id, c.region_id = r.id
+         Join Filter: (c.id = d.company_id) AND (c.region_id = r.id)
          Limit: 10
          Order By: p.id asc
          DataFusion Physical Plan: 
@@ -365,7 +369,7 @@ LIMIT 10;
            :                     PgSearchScan: table=c, segments=1, dynamic_filters=2, query="all"
            :                 CooperativeExec
            :                   PgSearchScan: table=d, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Engineering","lenient":null,"conjunction_mode":null}}}}
-(24 rows)
+(25 rows)
 
 SELECT p.id, p.description
 FROM products p

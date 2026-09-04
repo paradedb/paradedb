@@ -66,6 +66,7 @@ ORDER BY m.id DESC LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: (m SEMI b) SEMI a
          Join Cond: m.id = a.main_id, b.main_id = m.id
+         Join Filter: (m.id = b.main_id)
          Limit: 10
          Order By: m.id desc
          DataFusion Physical Plan: 
@@ -81,7 +82,7 @@ ORDER BY m.id DESC LIMIT 10;
            :               PgSearchScan: table=b, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
            :           CooperativeExec
            :             PgSearchScan: table=a, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-(19 rows)
+(20 rows)
 
 -- Rows with JoinScan on (verifies correctness, not just plan shape).
 SELECT m.id FROM t_main_4779 m
@@ -139,6 +140,7 @@ ORDER BY m.id DESC LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: (m ANTI b) SEMI a
          Join Cond: m.id = a.main_id, b.main_id = m.id
+         Join Filter: (b.main_id = m.id)
          Limit: 10
          Order By: m.id desc
          DataFusion Physical Plan: 
@@ -147,14 +149,14 @@ ORDER BY m.id DESC LIMIT 10;
            :     VisibilityFilterExec: tables=[m]
            :       TantivyFetchExec: fetch=[ctid_0]
            :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
-           :           HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@1, main_id@0)]
+           :           HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@1, main_id@0), (id@1, main_id@0)]
            :             CooperativeExec
            :               PgSearchScan: table=m, segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
            :             CooperativeExec
            :               PgSearchScan: table=b, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
            :           CooperativeExec
            :             PgSearchScan: table=a, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-(19 rows)
+(20 rows)
 
 -- ============================================================
 -- Parallel mode: control. Worked pre-fix (issue #4910); guard against
@@ -177,6 +179,7 @@ ORDER BY m.id DESC LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: (m SEMI b) SEMI a
          Join Cond: m.id = a.main_id, b.main_id = m.id
+         Join Filter: (m.id = b.main_id)
          Limit: 10
          Order By: m.id desc
          DataFusion Physical Plan: 
@@ -192,6 +195,6 @@ ORDER BY m.id DESC LIMIT 10;
            :               PgSearchScan: table=b, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
            :           CooperativeExec
            :             PgSearchScan: table=a, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-(19 rows)
+(20 rows)
 
 DROP TABLE t_main_4779, t_a_4779, t_b_4779 CASCADE;

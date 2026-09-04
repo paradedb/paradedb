@@ -44,7 +44,7 @@ use crate::scan::deferred_lookup::{
 };
 use crate::scan::execution_plan::UnsafeSendStream;
 
-use arrow_array::{ArrayRef, RecordBatch, UInt32Array, UInt64Array};
+use arrow_array::{Array, ArrayRef, RecordBatch, UInt32Array, UInt64Array};
 use arrow_schema::DataType;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
@@ -396,7 +396,13 @@ fn fetch_batch(
     let mut columns = batch.columns().to_vec();
     for field in fetch_fields {
         let ffhelper = ffhelper_for(ffhelpers, field)?;
-        columns[field.col_idx] = fetch_term_ordinals(ffhelper, field, &columns[field.col_idx])?;
+        let ctid_col = field
+            .ctid_col_name
+            .as_deref()
+            .and_then(|name| batch.schema().index_of(name).ok())
+            .and_then(|idx| batch.column(idx).as_any().downcast_ref::<UInt64Array>());
+        columns[field.col_idx] =
+            fetch_term_ordinals(ffhelper, field, &columns[field.col_idx], ctid_col)?;
     }
     RecordBatch::try_new(schema, columns)
         .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
@@ -408,6 +414,7 @@ fn fetch_term_ordinals(
     ffhelper: &FFHelper,
     field: &PhysicalDeferredField,
     column: &ArrayRef,
+    ctid_col: Option<&UInt64Array>,
 ) -> Result<ArrayRef> {
     let union = DeferredUnion::try_new(column.as_ref())?;
     let num_rows = column.len();
@@ -416,6 +423,12 @@ fn fetch_term_ordinals(
     let num_segments = ffhelper.num_segments();
     let mut packed_rows: Vec<(usize, u64)> = Vec::new();
     for (row, value) in union.values().enumerate() {
+        // If the relation was null-extended by an outer join, its ctid is NULL.
+        // Arrow's `take` kernel on dense `UnionArray` corrupts null indices by replacing
+        // them with 0 (offset 0 into child 0), so we must skip fetching for this row.
+        if ctid_col.is_some_and(|c| c.is_null(row)) {
+            continue;
+        }
         match value {
             DeferredValue::DocAddress(packed) => {
                 let (segment_ord, _) = unpack_doc_address(packed);

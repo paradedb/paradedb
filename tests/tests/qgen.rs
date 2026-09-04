@@ -262,7 +262,7 @@ impl GeneratedSubquery {
 /// cartesian products or expansive results).
 ///
 /// When the generated query is within the subset guaranteed to be plannable by ParadeDB's
-/// custom scan (INNER/CROSS joins, LIMIT present, no lateral unnest steps, and GUC enabled),
+/// custom scan (INNER/OUTER joins without Cartesian products, LIMIT present, and GUC enabled),
 /// this test explicitly verifies via EXPLAIN that PostgreSQL selected ParadeDB Join Scan
 /// (or Aggregate Scan). For all queries, it verifies exact result correctness and parity
 /// against PostgreSQL.
@@ -282,7 +282,7 @@ async fn generated_joins_small(database: Db) {
         .collect::<Vec<_>>();
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
 
-    let where_and_join_columns = columns_named(vec!["id", "name", "color", "age", "uuid"]);
+    let where_and_join_columns = columns_named(vec!["id", "name", "color", "age", "uuid", "tags"]);
 
     proptest!(qgen_proptest_config(), |(
         ((join, where_expr, cross_rel), distinct_mode, mut order_parts) in arb_joins_and_wheres(
@@ -366,31 +366,51 @@ async fn generated_joins_small(database: Db) {
 
         // Assert that JoinScan or AggregateScan was actually used whenever the query is within
         // the subset guaranteed to be plannable by ParadeDB's custom scan.
-        // - INNER joins support arbitrary WHERE expressions, cross-relation predicates, and expression ORDER BY.
-        // - Outer joins (LEFT, RIGHT, FULL) support equi-joins when there are no cross-table
-        //   OR expressions, cross-relation WHERE conditions, or indexed expression/NULL-predicate ORDER BY.
-        // - Cross joins (cartesian products) intentionally fall back to PostgreSQL.
-        // - Multi-unnest queries currently fall back when intermediate unnest sub-joins form.
-        let has_expr_ordering = order_parts
-            .iter()
-            .any(|p| p.contains("upper(") || p.contains("IS NULL") || p.contains("IS NOT NULL"));
+        let is_supported_join = (|| {
+            // DISTINCT expressions (e.g. `col * 10`) fall back to PostgreSQL because
+            // LIMIT cannot be pushed down below upper deduplication.
+            if distinct_mode.expression().is_some() {
+                return false;
+            }
 
-        let has_distinct_expr = distinct_mode.expression().is_some();
+            // Cross joins (Cartesian products) intentionally fall back to PostgreSQL.
+            if !join.has_no_cross() || cross_rel.is_some() {
+                return false;
+            }
 
-        let is_supported_join = if join.has_only_inner() {
+            let has_null_ordering = order_parts
+                .iter()
+                .any(|p| p.contains("IS NULL") || p.contains("IS NOT NULL"));
+
+            // When DISTINCT is active, ORDER BY expressions are projected into SELECT DISTINCT.
+            // Null-predicate ordering (`col IS (NOT) NULL`) alongside base column `col` creates
+            // derived expressions in DISTINCT that cannot push down LIMIT.
+            if distinct_mode.is_distinct() && has_null_ordering {
+                return false;
+            }
+
+            // INNER joins support arbitrary WHERE expressions, cross-relation predicates, and expression ORDER BY.
+            if join.has_only_inner() {
+                return true;
+            }
+
+            // Outer joins (LEFT, RIGHT, FULL): cross-table OR predicates cannot be pushed down.
+            if where_expr.has_cross_table_or() {
+                return false;
+            }
+
+            // Outer joins: expression or NULL-predicate ORDER BY (`upper()`, `IS NULL`) cannot be
+            // guaranteed across outer join boundaries.
+            let has_expr_ordering = has_null_ordering || order_parts.iter().any(|p| p.contains("upper("));
+            if has_expr_ordering {
+                return false;
+            }
+
             true
-        } else if join.has_no_cross() {
-            cross_rel.is_none()
-                && !where_expr.has_cross_table_or()
-                && !has_expr_ordering
-                && !has_distinct_expr
-        } else {
-            false
-        };
+        })();
 
         let expect_custom_scan = gucs.join_custom_scan
             && limit.is_some()
-            && join.unnest_aliases().is_empty()
             && is_supported_join;
 
         if expect_custom_scan {
@@ -1574,17 +1594,16 @@ async fn generated_pdb_agg_join(database: Db) {
         .collect();
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
 
-    let text_columns = columns_named(vec!["name"]);
+    let where_columns = columns_named(vec!["name", "color"]);
     let join_key_columns = columns_named(vec!["id", "age"]);
 
     proptest!(qgen_proptest_config(), |(
-        outer_bm25 in arb_wheres(vec![all_tables[0].clone()], &text_columns),
-        (join_expr, agg) in arb_pdb_agg_join(all_tables.clone(), &join_key_columns),
+        (join_expr, agg, wheres) in arb_pdb_agg_join(all_tables.clone(), &join_key_columns, &where_columns),
         mut gucs in any::<PgGucs>(),
     )| {
         let join_clause = join_expr.to_sql();
-        let pg_query = agg.pg_query(&join_clause, &outer_bm25.to_sql(" = "));
-        let bm25_query = agg.pdb_query(&join_clause, &outer_bm25.to_sql("@@@"));
+        let pg_query = agg.pg_query(&join_clause, &wheres.pg_where());
+        let bm25_query = agg.pdb_query(&join_clause, &wheres.bm25_where());
 
         // `pdb.agg()` over a join only runs on the DataFusion backend.
         gucs.aggregate_custom_scan = true;

@@ -63,6 +63,10 @@ pub struct PhysicalDeferredField {
     pub canonical: CanonicalColumn,
     #[serde(default)]
     pub rebuild: Option<DeferredLookupRebuild>,
+    // TODO: Clean up our column tracking story, possibly by renaming the `ctid` columns
+    // to include the plan position (e.g. `ctid_<plan_pos>`) similarly to tag names.
+    #[serde(default)]
+    pub ctid_col_name: Option<String>,
 }
 
 impl PhysicalDeferredField {

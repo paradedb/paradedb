@@ -85,6 +85,7 @@ LIMIT 25;
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: (cccf ANTI cne) SEMI ce
          Join Cond: cccf.company_id = ce.company_id, cne.company_id = cccf.company_id
+         Join Filter: (cne.company_id = cccf.company_id)
          Limit: 25
          Order By: cccf.revenue_rank desc nulls last, cccf.contact_id asc
          DataFusion Physical Plan: 
@@ -95,12 +96,12 @@ LIMIT 25;
            :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, company_id@1)]
            :           CooperativeExec
            :             PgSearchScan: table=ce, segments=1, visibility=eager, query="all"
-           :           HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, company_id@1)]
+           :           HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, company_id@1), (company_id@0, company_id@1)]
            :             CooperativeExec
            :               PgSearchScan: table=cne, segments=1, visibility=eager, query={"with_index":{"query":{"parse":{"query_string":"speciality:salesforce","lenient":null,"conjunction_mode":null}}}}
            :             CooperativeExec
            :               PgSearchScan: table=cccf, segments=1, dynamic_filters=2, query={"with_index":{"query":{"range":{"field":"contact_id","lower_bound":{"included":1},"upper_bound":null}}}}
-(19 rows)
+(20 rows)
 
 -- Result rows in parallel mode (verifies correctness, not just plan shape).
 SELECT contact_id, company_id, revenue_rank
@@ -167,6 +168,7 @@ LIMIT 25;
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: (cccf ANTI cne) SEMI ce
          Join Cond: cccf.company_id = ce.company_id, cne.company_id = cccf.company_id
+         Join Filter: (cne.company_id = cccf.company_id)
          Limit: 25
          Order By: cccf.revenue_rank desc nulls last, cccf.contact_id asc
          DataFusion Physical Plan: 
@@ -177,12 +179,12 @@ LIMIT 25;
            :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, company_id@1)]
            :           CooperativeExec
            :             PgSearchScan: table=ce, segments=1, visibility=eager, query="all"
-           :           HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, company_id@1)]
+           :           HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, company_id@1), (company_id@0, company_id@1)]
            :             CooperativeExec
            :               PgSearchScan: table=cne, segments=1, visibility=eager, query={"with_index":{"query":{"parse":{"query_string":"speciality:salesforce","lenient":null,"conjunction_mode":null}}}}
            :             CooperativeExec
            :               PgSearchScan: table=cccf, segments=1, dynamic_filters=2, query={"with_index":{"query":{"range":{"field":"contact_id","lower_bound":{"included":1},"upper_bound":null}}}}
-(19 rows)
+(20 rows)
 
 -- Native PG (JoinScan disabled) rows on the same data, parallel mode.
 -- The rows must match the JoinScan-on rows above; capturing both blocks in

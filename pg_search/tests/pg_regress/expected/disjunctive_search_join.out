@@ -320,6 +320,7 @@ LIMIT 10;
          Output: w.id, w.title, r.name, o.name
          Relation Tree: w INNER (r INNER o)
          Join Cond: w.researcher_id = r.id, r.org_id = o.id
+         Join Filter: (r.org_id = o.id)
          Join Predicate: (w:{"with_index":{"query":{"parse_with_field":{"field":"abstract","query_string":"compaction","lenient":null,"conjunction_mode":null}}}} OR r:{"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"compiler","lenient":null,"conjunction_mode":null}}}} OR o:{"with_index":{"query":{"parse_with_field":{"field":"location","query_string":"Munich","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
          Order By: w.id asc
@@ -336,7 +337,7 @@ LIMIT 10;
            :               PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"compiler","lenient":null,"conjunction_mode":null}}}}
            :             CooperativeExec
            :               PgSearchScan: table=w, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract","query_string":"compaction","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+(23 rows)
 
 SELECT w.id, w.title, r.name AS researcher_name, o.name AS org_name
 FROM work_items w
@@ -374,6 +375,7 @@ LIMIT 10;
          Output: w.id, w.title, w.year, r.name, o.name
          Relation Tree: w INNER (r INNER o)
          Join Cond: w.researcher_id = r.id, r.org_id = o.id
+         Join Filter: (r.org_id = o.id)
          Join Predicate: (w:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"quantum","lenient":null,"conjunction_mode":null}}}} OR r:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Carol","lenient":null,"conjunction_mode":null}}}} OR o:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Stanford","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
          Order By: w.id asc
@@ -390,7 +392,7 @@ LIMIT 10;
            :               PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Carol","lenient":null,"conjunction_mode":null}}}}
            :           CooperativeExec
            :             PgSearchScan: table=o, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Stanford","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+(23 rows)
 
 SELECT w.id, w.title, w.year, r.name AS researcher_name, o.name AS org_name
 FROM work_items w
@@ -429,6 +431,7 @@ LIMIT 10;
          Output: w.id, w.title, r.name, o.name
          Relation Tree: w INNER (r INNER o)
          Join Cond: w.researcher_id = r.id, r.org_id = o.id
+         Join Filter: (r.org_id = o.id)
          Join Predicate: (w:{"with_index":{"query":{"parse_with_field":{"field":"abstract","query_string":"consensus","lenient":null,"conjunction_mode":null}}}} OR r:{"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"distributed","lenient":null,"conjunction_mode":null}}}} OR o:{"with_index":{"query":{"parse_with_field":{"field":"field","query_string":"Cloud","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
          Order By: w.id asc
@@ -445,7 +448,7 @@ LIMIT 10;
            :               PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"distributed","lenient":null,"conjunction_mode":null}}}}
            :             CooperativeExec
            :               PgSearchScan: table=w, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract","query_string":"consensus","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+(23 rows)
 
 SELECT w.id, w.title, r.name AS researcher_name, o.name AS org_name
 FROM work_items w
@@ -565,6 +568,7 @@ LIMIT 10;
          Output: w.id, w.title, r.name, o.name
          Relation Tree: w INNER (r INNER o)
          Join Cond: w.researcher_id = r.id, r.org_id = o.id
+         Join Filter: (r.org_id = o.id)
          Join Predicate: (w:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"NonExistentTitle","lenient":null,"conjunction_mode":null}}}} OR r:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Alice","lenient":null,"conjunction_mode":null}}}} OR o:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"NonExistentOrg","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
          Order By: w.id asc
@@ -581,7 +585,7 @@ LIMIT 10;
            :               PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Alice","lenient":null,"conjunction_mode":null}}}}
            :             CooperativeExec
            :               PgSearchScan: table=w, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"NonExistentTitle","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+(23 rows)
 
 SELECT w.id, w.title, r.name AS researcher_name, o.name AS org_name
 FROM work_items w

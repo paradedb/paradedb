@@ -147,12 +147,12 @@ pub mod scan_state;
 pub mod visibility_filter;
 
 pub use self::build::CtidColumn;
-use self::build::{JoinCSClause, RelNode, RelationAlias};
+use self::build::{DistinctMode, JoinCSClause, RelNode, RelationAlias};
 use self::planning::{
     collect_join_sources, collect_join_sources_base_rel, collect_required_fields,
     ensure_score_bubbling, expr_uses_scores_from_source, extract_join_conditions, extract_orderby,
     extract_orderby_from_parse_sort_clause, get_score_func_rti, order_by_columns_are_fast_fields,
-    pathkey_uses_scores_from_source,
+    order_by_sort_clause_is_fast_fields, pathkey_uses_scores_from_source,
 };
 use self::predicate::{extract_join_level_conditions, resolve_join_conditions};
 use self::privdat::PrivateData;
@@ -464,6 +464,11 @@ pub unsafe fn try_create_subplan_join_paths(
 ) -> Vec<pg_sys::CustomPath> {
     use crate::postgres::customscan::range_table::bms_iter;
 
+    // Do not generate subplan join paths for relations proven empty (dummy rels).
+    if pg_sys::is_dummy_rel(rel) {
+        return Vec::new();
+    }
+
     if !crate::gucs::enable_join_custom_scan() {
         return Vec::new();
     }
@@ -520,28 +525,26 @@ pub unsafe fn try_create_subplan_join_paths(
     }
 
     // Phase 1: validate + build JoinCSClause.
-    let has_distinct = !(*(*root).parse).distinctClause.is_null();
-    let (join_clause, limit_offset) =
-        match JoinScan::validate_and_build_clause(root, &plan, &join_keys, has_distinct) {
-            Ok(res) => res,
-            Err(reason) => {
-                let aliases: Vec<String> = plan
-                    .sources()
-                    .iter()
-                    .map(|s| {
-                        RelationAlias::new(s.scan_info.alias.as_deref())
-                            .warning_context(s.scan_info.heaprelid)
-                    })
-                    .collect();
-                reason.emit(&aliases);
-                return Vec::new();
-            }
-        };
+    let join_clause = match JoinScan::validate_and_build_clause(root, rel, &plan, &join_keys) {
+        Ok(res) => res,
+        Err(reason) => {
+            let aliases: Vec<String> = plan
+                .sources()
+                .iter()
+                .map(|s| {
+                    RelationAlias::new(s.scan_info.alias.as_deref())
+                        .warning_context(s.scan_info.heaprelid)
+                })
+                .collect();
+            reason.emit(&aliases);
+            return Vec::new();
+        }
+    };
 
     // No join-level predicate extraction needed for SubPlan-based paths.
 
     // Phase 2: finalize into CustomPath.
-    match JoinScan::finalize_clause_into_path(root, rel, join_clause, &limit_offset) {
+    match JoinScan::finalize_clause_into_path(root, rel, join_clause) {
         Some(path) => vec![path],
         None => Vec::new(),
     }
@@ -556,10 +559,10 @@ impl JoinScan {
     /// the returned clause before passing it to `finalize_clause_into_path`.
     unsafe fn validate_and_build_clause(
         root: *mut pg_sys::PlannerInfo,
+        rel: *mut pg_sys::RelOptInfo,
         plan: &RelNode,
         join_keys: &[build::JoinKeyPair],
-        has_distinct: bool,
-    ) -> Result<(JoinCSClause, Option<LimitOffset>), JoinDeclineReason> {
+    ) -> Result<JoinCSClause, JoinDeclineReason> {
         let all_sources = plan.sources();
 
         // --- Activation checks ---
@@ -580,32 +583,65 @@ impl JoinScan {
             return Err(JoinDeclineReason::ContainsAggregate);
         }
 
-        // Require LIMIT for top-level queries (without it, JoinScan's TopK
-        // optimization has no bound). Subqueries are exempt because the parent
-        // plan provides the cardinality constraint. Either a static or
-        // parameterized LIMIT is sufficient — the latter is resolved at
-        // execution time from EState::es_param_list_info.
-        let limit_offset = LimitOffset::from_root(root);
-        let is_subquery = !(*root).parent_root.is_null();
-        if limit_offset.is_none() && !is_subquery {
-            return Err(JoinDeclineReason::new(
-                "JoinScan not used: LIMIT is required for top-level queries",
-            ));
-        }
+        let parse = (*root).parse;
+        let query_has_distinct = !(*parse).distinctClause.is_null();
 
-        if has_distinct && !distinct_collations_are_deterministic(root) {
+        let distinct_list_len = if query_has_distinct {
+            PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause)
+                .iter_ptr()
+                .count()
+        } else {
+            0
+        };
+
+        let scan_tlist_len =
+            if rel.is_null() || (*rel).reltarget.is_null() || (*(*rel).reltarget).exprs.is_null() {
+                0
+            } else {
+                PgList::<pg_sys::Expr>::from_pg((*(*rel).reltarget).exprs).len()
+            };
+
+        // Decide whether DISTINCT can be absorbed by JoinScan or must be deferred to PostgreSQL:
+        // JoinScan can execute expressions in DISTINCT (e.g. `SELECT DISTINCT upper(col)`) as
+        // long as each distinct expression is represented in `reltarget`.
+        // However, when a query selects both a column and expressions derived from it (e.g.
+        // `SELECT DISTINCT col, col IS NULL`), PostgreSQL strips the derived expressions from
+        // the scan's `reltarget`, requesting only the underlying base columns from CustomScan
+        // and planning an upper `Result` node to evaluate `col IS NULL`.
+        // When `distinct_list_len > scan_tlist_len`, DataFusion's output projection lacks
+        // slots for those extra expressions, so DataFusion cannot group by all DISTINCT keys.
+        // We defer DISTINCT to Postgres's upper Unique/HashAggregate node and sort only by `sortClause`.
+        let distinct_mode = if query_has_distinct {
+            if distinct_list_len > scan_tlist_len {
+                DistinctMode::Deferred
+            } else {
+                DistinctMode::Active
+            }
+        } else {
+            DistinctMode::None
+        };
+
+        let is_distinct_active = distinct_mode == DistinctMode::Active;
+
+        if is_distinct_active && !distinct_collations_are_deterministic(root) {
             return Err(JoinDeclineReason::new(
                 "JoinScan not used: DISTINCT on a nondeterministic collation is not supported",
             ));
         }
 
-        if has_distinct && distinct_columns_are_fast_fields(root, &all_sources).is_none() {
+        let output_sources = plan.output_sources();
+
+        if is_distinct_active && distinct_columns_are_fast_fields(root, &output_sources).is_none() {
             return Err(JoinDeclineReason::new(
                 "JoinScan not used: DISTINCT columns must be columnar indexed",
             ));
         }
 
-        order_by_columns_are_fast_fields(root, &all_sources, has_distinct)?;
+        if distinct_mode == DistinctMode::Deferred {
+            order_by_sort_clause_is_fast_fields(root, &output_sources)?;
+        } else {
+            order_by_columns_are_fast_fields(root, &output_sources, is_distinct_active)?;
+        }
 
         for jk in join_keys {
             let outer_source = all_sources.iter().find(|s| s.contains_rti(jk.outer_rti));
@@ -638,11 +674,57 @@ impl JoinScan {
             }
         }
 
+        // Require LIMIT for top-level queries (without it, JoinScan's TopK
+        // optimization has no bound). Subqueries are exempt because the parent
+        // plan provides the cardinality constraint. Either a static or
+        // parameterized LIMIT is sufficient — the latter is resolved at
+        // execution time from EState::es_param_list_info.
+        let limit_offset = LimitOffset::from_root(root);
+        let is_subquery = !(*root).parent_root.is_null();
+        if limit_offset.is_none() && !is_subquery {
+            return Err(JoinDeclineReason::new(
+                "JoinScan not used: LIMIT is required for top-level queries",
+            ));
+        }
+
+        // Why "derived" expressions in DISTINCT prevent LIMIT pushdown:
+        //
+        // JoinScan can evaluate expressions in DISTINCT (e.g. `SELECT DISTINCT upper(col)`)
+        // whenever every DISTINCT item maps 1-to-1 to a target list slot in the scan.
+        // However, when a query combines a base column and expressions computed from that
+        // same column (e.g. `SELECT DISTINCT col, col IS NULL`, or function calls alongside
+        // base columns), PostgreSQL optimizes `rel->reltarget` by stripping out the computed
+        // expression, asking the scan to emit only the underlying base column `col`.
+        // PostgreSQL then plans an upper `Result` node above the scan to evaluate `col IS NULL`,
+        // followed by an upper `Unique` or `HashAggregate` node to deduplicate across all keys.
+        //
+        // Because a CustomScan's output tuple must conform to `rel->reltarget`, JoinScan has
+        // no output slot to emit the upper expression, and therefore cannot perform the full
+        // DISTINCT deduplication inside DataFusion (`distinct_mode == DistinctMode::Deferred`).
+        //
+        // In turn, pushing down LIMIT below PostgreSQL's upper `Unique`/`Sort` node is unsound:
+        // upper deduplication collapses rows (risking fewer emitted rows than LIMIT), and upper
+        // Sort breaks ties using DISTINCT keys that an early LIMIT would arbitrarily truncate.
+        // Without LIMIT pushdown, a top-level JoinScan cannot perform Top-K early stopping and
+        // would force an unbounded scan followed by a full sort in PostgreSQL, losing its primary
+        // performance advantage. JoinScan therefore declines and falls back to PostgreSQL.
+        if distinct_mode == DistinctMode::Deferred && !is_subquery {
+            return Err(JoinDeclineReason::new(
+                "JoinScan not used: LIMIT cannot be pushed down when DISTINCT contains derived expressions (e.g. IS NULL or function calls)",
+            ));
+        }
+
+        let pushdown_limit_offset = if distinct_mode == DistinctMode::Deferred {
+            None
+        } else {
+            limit_offset
+        };
+
         // --- Build JoinCSClause ---
 
         let mut join_clause = JoinCSClause::new(plan.clone())
-            .with_limit_offset(limit_offset.clone())
-            .with_distinct(has_distinct);
+            .with_limit_offset(pushdown_limit_offset)
+            .with_distinct(distinct_mode);
 
         for source in join_clause.plan.sources_mut() {
             let score_in_tlist =
@@ -660,7 +742,7 @@ impl JoinScan {
             is_limit_pushdown_safe(root, &join_clause)?;
         }
 
-        Ok((join_clause, limit_offset))
+        Ok(join_clause)
     }
 
     /// Phase 2: Finalize a validated `JoinCSClause` into a `CustomPath` by
@@ -680,30 +762,43 @@ impl JoinScan {
         root: *mut pg_sys::PlannerInfo,
         rel: *mut pg_sys::RelOptInfo,
         mut join_clause: JoinCSClause,
-        limit_offset: &Option<LimitOffset>,
     ) -> Option<pg_sys::CustomPath> {
         let output_rtis = join_clause.plan.output_rtis();
         let current_sources = join_clause.plan.sources();
-        let order_by = extract_orderby(
-            root,
-            &current_sources,
-            &output_rtis,
-            join_clause.has_distinct,
-        )?;
+        let order_by = if join_clause.is_distinct_deferred() {
+            // DISTINCT was deferred to a parent node; query_pathkeys still lists keys for the full
+            // DISTINCT row. Sort only by parse->sortClause.
+            extract_orderby_from_parse_sort_clause(root, &current_sources, &output_rtis)?
+        } else {
+            extract_orderby(
+                root,
+                &current_sources,
+                &output_rtis,
+                join_clause.has_distinct(),
+            )?
+        };
         join_clause = join_clause.with_order_by(order_by);
 
         // --- Cost estimation ---
 
         let startup_cost = crate::DEFAULT_STARTUP_COST;
         let total_cost = startup_cost + 1.0;
-        let result_rows = limit_offset
+        let result_rows = join_clause
+            .limit_offset
             .as_ref()
             .map(|lo| lo.planning_estimate())
-            .unwrap_or(DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE);
+            .unwrap_or_else(|| {
+                if !rel.is_null() && (*rel).rows > 0.0 {
+                    (*rel).rows
+                } else {
+                    DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE
+                }
+            });
 
         let has_order_by = !join_clause.order_by.is_empty();
         let order_by_len = join_clause.order_by.len();
-        let relevant_pathkeys = planning::count_relevant_pathkeys(root, &output_rtis);
+        let is_distinct_deferred = join_clause.is_distinct_deferred();
+        let query_pathkeys_len = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys).len();
         let private_data = PrivateData::new(join_clause, query_allows_parallel_mode(&*root));
         let mut custom_path = pg_sys::CustomPath {
             path: pg_sys::Path {
@@ -728,7 +823,7 @@ impl JoinScan {
             ..Default::default()
         };
 
-        if has_order_by && order_by_len == relevant_pathkeys {
+        if !is_distinct_deferred && has_order_by && order_by_len == query_pathkeys_len {
             custom_path.path.pathkeys = (*root).query_pathkeys;
         }
 
@@ -1274,7 +1369,7 @@ impl CustomScan for JoinScan {
             }
         }
 
-        if join_clause.has_distinct {
+        if join_clause.has_distinct() {
             explainer.add_text("Distinct", "true");
         }
 
@@ -1853,97 +1948,20 @@ unsafe fn compute_output_columns(
     output_columns
 }
 
-/// Build `private_data.join_clause.output_projection` from the scan target
-/// list, picking one of two strategies:
-///
-/// 1. **Defer to parent** when the parse-tree DISTINCT clause is wider than
-///    the scan target list. JoinScan strips DISTINCT, sorts by the parse
-///    `sortClause`, and emits a passthrough projection so the parent plan can
-///    re-evaluate the missing expressions.
-/// 2. **Normal** when DISTINCT (if any) fits inside the scan target list.
-///    Project each output column with metadata enriched from
-///    `distinct_columns_are_fast_fields` so GROUP BY column matching works
-///    against parse-tree varnos.
+/// Build `private_data.join_clause.output_projection` from the scan target list.
+/// When DISTINCT is active on the join clause, project each output column with
+/// metadata enriched from `distinct_columns_are_fast_fields` so GROUP BY column
+/// matching works against parse-tree varnos. Otherwise, use passthrough projections.
 unsafe fn build_output_projection(
     private_data: &mut PrivateData,
     original_entries: &PgList<pg_sys::TargetEntry>,
     root: *mut pg_sys::PlannerInfo,
 ) {
     let parse = (*root).parse;
-    let scan_tlist_len = original_entries.len();
-    let distinct_list_len =
-        if private_data.join_clause.has_distinct && !(*parse).distinctClause.is_null() {
-            PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause)
-                .iter_ptr()
-                .count()
-        } else {
-            0
-        };
 
-    // Postgres plans upper nodes (Result, Sort, Unique) to evaluate derived expressions
-    // (e.g., `col IS NULL`), requesting only the underlying base columns from CustomScan.
-    // When `scan_tlist` is shorter than `distinctClause`, DataFusion's output projection
-    // lacks slots for those extra expressions, so DataFusion cannot group by all DISTINCT
-    // keys. We defer DISTINCT to Postgres's upper Unique node and sort only by `sortClause`.
-    //
-    // Limitation: if distinctClause and scan tlist happen to have equal length but
-    // contain different expressions, this heuristic won't fire and the non-deferred
-    // path runs. In practice scan tlist is a strict subset of distinctClause columns,
-    // so a length mismatch is the reliable signal for upper-evaluated expressions.
-    let defer_distinct_to_parent =
-        private_data.join_clause.has_distinct && distinct_list_len > scan_tlist_len;
-
-    if defer_distinct_to_parent {
-        private_data.join_clause.has_distinct = false;
-        // Pushing down LIMIT below an upper Unique/Sort node is unsound: upper Unique
-        // collapses rows (risking fewer emitted rows than LIMIT), and upper Sort breaks
-        // ties using remaining DISTINCT keys (which an early LIMIT would arbitrarily truncate).
-        // JoinScan must stream all matching rows and let Postgres's upper Limit cap the output.
-        private_data.join_clause.limit_offset = None;
-        let output_rtis = private_data.join_clause.plan.output_rtis();
-        let current_sources = private_data.join_clause.plan.sources();
-        private_data.join_clause.order_by =
-            extract_orderby_from_parse_sort_clause(root, &current_sources, &output_rtis)
-                .unwrap_or_else(|| {
-                    let sort_count = if (*parse).sortClause.is_null() {
-                        0
-                    } else {
-                        PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause)
-                            .iter_ptr()
-                            .count()
-                    };
-                    panic!(
-                        "JoinScan: ORDER BY from sortClause failed after DISTINCT/tlist \
-                     mismatch (sortClause has {} entries, scan_tlist_len={}, \
-                     distinct_list_len={})",
-                        sort_count, scan_tlist_len, distinct_list_len
-                    )
-                });
-        // Non-Var, non-score expressions have rti=0, attno=0 here.  That is safe:
-        // has_distinct is cleared above, so DataFusion skips GROUP BY and
-        // build_projection_expr yields NULL for these slots.  build_result_tuple
-        // also treats rti=0 as NULL.  Postgres re-evaluates the real expressions
-        // on top of the result slot, so the NULLs are overwritten.
-        private_data.join_clause.output_projection = Some(
-            private_data
-                .output_columns
-                .iter()
-                .map(build::ChildProjection::from)
-                .collect(),
-        );
-        return;
-    }
-
-    // Normal path: build output_projection, enriching expression entries with
-    // metadata when DISTINCT is active.
-    //
-    // TODO: This is the second call to distinct_columns_are_fast_fields
-    // in the same planning phase (first in validate_and_build_clause). Both
-    // calls walk the same parse tree. Consider caching the result in a
-    // planning-phase-scoped structure to avoid redundant work.
-    let distinct_entries = if private_data.join_clause.has_distinct {
-        let all_sources = private_data.join_clause.plan.sources();
-        distinct_columns_are_fast_fields(root, &all_sources)
+    let distinct_entries = if private_data.join_clause.has_distinct() {
+        let output_sources = private_data.join_clause.plan.output_sources();
+        distinct_columns_are_fast_fields(root, &output_sources)
     } else {
         None
     };
@@ -2047,43 +2065,51 @@ unsafe fn build_output_projection(
             .output_columns
             .iter()
             .zip(resolved_entries)
-            .map(|(info, resolved)| match resolved {
-                Some(planning::ResolvedExpr::Expression {
-                    expr_node,
-                    input_vars,
-                    result_type,
-                }) => {
-                    let expr_string = {
-                        let node_str = pg_sys::nodeToString((*expr_node).cast());
-                        std::ffi::CStr::from_ptr(node_str)
-                            .to_string_lossy()
-                            .into_owned()
-                    };
-                    let primary_rti = input_vars.first().map_or(0, |v| v.rti);
-                    build::ChildProjection::Expression {
-                        rti: primary_rti,
-                        pg_expr_string: expr_string,
-                        input_vars: input_vars.clone(),
-                        result_type_oid: *result_type,
-                    }
+            .map(|(info, resolved)| {
+                // If this column belongs to a relation pruned from output (e.g. the RHS
+                // of an Anti Join), do not construct projection expressions referencing
+                // the pruned source, as it does not exist in the physical scan plan.
+                if matches!(info, privdat::OutputColumnInfo::Pruned) {
+                    return info.into();
                 }
-                Some(planning::ResolvedExpr::Column { rti, attno }) => match info {
-                    privdat::OutputColumnInfo::Unnested { .. } => info.into(),
-                    _ => build::ChildProjection::Column {
-                        rti: *rti,
-                        attno: *attno,
+                match resolved {
+                    Some(planning::ResolvedExpr::Expression {
+                        expr_node,
+                        input_vars,
+                        result_type,
+                    }) => {
+                        let expr_string = {
+                            let node_str = pg_sys::nodeToString((*expr_node).cast());
+                            std::ffi::CStr::from_ptr(node_str)
+                                .to_string_lossy()
+                                .into_owned()
+                        };
+                        let primary_rti = input_vars.first().map_or(0, |v| v.rti);
+                        build::ChildProjection::Expression {
+                            rti: primary_rti,
+                            pg_expr_string: expr_string,
+                            input_vars: input_vars.clone(),
+                            result_type_oid: *result_type,
+                        }
+                    }
+                    Some(planning::ResolvedExpr::Column { rti, attno }) => match info {
+                        privdat::OutputColumnInfo::Unnested { .. } => info.into(),
+                        _ => build::ChildProjection::Column {
+                            rti: *rti,
+                            attno: *attno,
+                        },
                     },
-                },
-                Some(planning::ResolvedExpr::Score { rti }) => {
-                    build::ChildProjection::Score { rti: *rti }
-                }
-                Some(planning::ResolvedExpr::IndexedExpression { rti, field_name }) => {
-                    build::ChildProjection::IndexedExpression {
-                        rti: *rti,
-                        field_name: field_name.clone(),
+                    Some(planning::ResolvedExpr::Score { rti }) => {
+                        build::ChildProjection::Score { rti: *rti }
                     }
+                    Some(planning::ResolvedExpr::IndexedExpression { rti, field_name }) => {
+                        build::ChildProjection::IndexedExpression {
+                            rti: *rti,
+                            field_name: field_name.clone(),
+                        }
+                    }
+                    None => info.into(),
                 }
-                None => info.into(),
             })
             .collect(),
     );
@@ -2199,7 +2225,6 @@ impl JoinScan {
             return Ok(None);
         };
         let input_node = input_collected.plan;
-        let join_keys = input_collected.join_keys;
         let mut multi_table_clauses = input_collected.multi_table_clauses;
         if !input_node.contains_rti(unnest_info.source_rti.0) {
             return Ok(None);
@@ -2209,7 +2234,7 @@ impl JoinScan {
                 && !(*extra).sjinfo.is_null()
                 && (*(*extra).sjinfo).jointype == pg_sys::JoinType::JOIN_LEFT);
         unnest_info.is_left_join = is_left;
-        let plan = RelNode::Unnest(Box::new(build::UnnestNode {
+        let mut plan = RelNode::Unnest(Box::new(build::UnnestNode {
             input: input_node,
             unnest_info,
             absorbed_clauses: Vec::new(),
@@ -2249,9 +2274,28 @@ impl JoinScan {
             aliases: aliases.clone(),
         };
 
-        let has_distinct = !(*(*root).parse).distinctClause.is_null();
-        let (mut join_clause, limit_offset) =
-            Self::validate_and_build_clause(root, &plan, &join_keys, has_distinct).map_err(warn)?;
+        let unsupported = plan.unsupported_join_types();
+        if !unsupported.is_empty() {
+            return Err(warn(
+                JoinDeclineReason::new("JoinScan not used: unsupported join type").with_details(
+                    unsupported
+                        .iter()
+                        .map(|t| t.to_string().to_uppercase())
+                        .collect(),
+                ),
+            ));
+        }
+
+        if !plan.rewrite_pruned_join_keys(root) {
+            return Err(warn(JoinDeclineReason::new(
+                "JoinScan not used: a semi/anti join prunes columns required by an outer join key and no equivalent output-visible column was found",
+            )));
+        }
+
+        let joinrel = builder.args().joinrel;
+        let mut join_clause =
+            Self::validate_and_build_clause(root, joinrel, &plan, &plan.join_keys())
+                .map_err(warn)?;
 
         let current_sources = plan.sources();
         let (join_clause_updated, new_multi_table_clauses) = extract_join_level_conditions(
@@ -2273,13 +2317,7 @@ impl JoinScan {
             return Err(JoinPathDecline::Quiet);
         }
 
-        let path = Self::finalize_clause_into_path(
-            root,
-            builder.args().joinrel,
-            join_clause,
-            &limit_offset,
-        )
-        .ok_or_else(|| {
+        let path = Self::finalize_clause_into_path(root, joinrel, join_clause).ok_or_else(|| {
             warn(JoinDeclineReason::new(
                 "JoinScan not used: ORDER BY column is not available in the joined output schema",
             ))
@@ -2307,6 +2345,15 @@ impl JoinScan {
         let outerrel = args.outerrel;
         let innerrel = args.innerrel;
         let extra = args.extra;
+
+        // Skip if joinrel itself is dummy, or if either input is dummy (Postgres already
+        // natively optimizes the join with a childless Append at zero cost).
+        if pg_sys::is_dummy_rel(args.joinrel)
+            || pg_sys::is_dummy_rel(outerrel)
+            || pg_sys::is_dummy_rel(innerrel)
+        {
+            return Err(JoinPathDecline::Quiet);
+        }
 
         // Mirrored / unique-ified variants the planner generates as alternatives
         // for a joinrel it also offers as plain SEMI / ANTI. The canonical
@@ -2345,9 +2392,6 @@ impl JoinScan {
         let inner_node = inner_collected
             .plan
             .offset_plan_positions(left_sources_count);
-
-        let mut join_keys = outer_collected.join_keys;
-        join_keys.extend(inner_collected.join_keys);
 
         let outer_node = outer_collected.plan;
 
@@ -2391,8 +2435,6 @@ impl JoinScan {
             aliases: aliases.clone(),
         };
 
-        join_keys.extend(join_conditions.equi_keys.clone());
-
         let mut current_sources = outer_node.sources();
         current_sources.extend(inner_node.sources());
         let resolved = resolve_join_conditions(
@@ -2434,11 +2476,12 @@ impl JoinScan {
             )));
         }
 
-        let has_distinct = !(*(*root).parse).distinctClause.is_null();
+        let joinrel = builder.args().joinrel;
 
         // Phase 1: shared activation checks + JoinCSClause construction.
-        let (mut join_clause, limit_offset) =
-            Self::validate_and_build_clause(root, &plan, &join_keys, has_distinct).map_err(warn)?;
+        let mut join_clause =
+            Self::validate_and_build_clause(root, joinrel, &plan, &plan.join_keys())
+                .map_err(warn)?;
 
         let mut multi_table_clauses = outer_collected.multi_table_clauses;
         multi_table_clauses.extend(inner_collected.multi_table_clauses);
@@ -2475,13 +2518,7 @@ impl JoinScan {
         }
 
         // Phase 2: shared ORDER BY + cost + CustomPath construction.
-        let path = Self::finalize_clause_into_path(
-            root,
-            builder.args().joinrel,
-            join_clause,
-            &limit_offset,
-        )
-        .ok_or_else(|| {
+        let path = Self::finalize_clause_into_path(root, joinrel, join_clause).ok_or_else(|| {
             warn(JoinDeclineReason::new(
                 "JoinScan not used: ORDER BY column is not available in the joined output schema",
             ))
@@ -2650,7 +2687,9 @@ impl JoinScan {
                             (*pg_sys::TupleDescAttr(result_tupdesc, i as i32)).atttypid
                         }
                     };
-                    if unnested_col.is_null(row_idx) {
+                    if unnested_col.is_null(row_idx)
+                        || unnested_col.data_type() == &arrow_schema::DataType::Null
+                    {
                         *nulls.add(i) = true;
                     } else {
                         match crate::postgres::types_arrow::arrow_array_to_datum(

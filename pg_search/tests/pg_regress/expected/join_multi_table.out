@@ -299,6 +299,7 @@ LIMIT 10;
                Output: p.name, p.id, s.name, c.name
                Relation Tree: s INNER (c INNER p)
                Join Cond: p.supplier_id = s.id, p.category_id = c.id
+               Join Filter: (p.category_id = c.id)
                Limit: 10
                Order By: p.id asc
                DataFusion Physical Plan: 
@@ -314,7 +315,7 @@ LIMIT 10;
                  :               PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
                  :           CooperativeExec
                  :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query="all"
-(23 rows)
+(24 rows)
 
 SELECT p.name AS product, s.name AS supplier, c.name AS category
 FROM products p
@@ -349,6 +350,7 @@ LIMIT 10;
                Output: p.name, p.id, s.name, c.name
                Relation Tree: s INNER (p INNER c)
                Join Cond: p.supplier_id = s.id, p.category_id = c.id
+               Join Filter: (p.category_id = c.id)
                Limit: 10
                Order By: p.id asc
                DataFusion Physical Plan: 
@@ -364,7 +366,7 @@ LIMIT 10;
                  :               PgSearchScan: table=p, segments=1, dynamic_filters=2, query="all"
                  :           CooperativeExec
                  :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query="all"
-(23 rows)
+(24 rows)
 
 SELECT p.name AS product, s.name AS supplier, c.name AS category
 FROM products p
@@ -398,6 +400,7 @@ LIMIT 5;
          Output: p.name, (paradedb.score(p.id))
          Relation Tree: s INNER (c INNER p)
          Join Cond: p.supplier_id = s.id, p.category_id = c.id
+         Join Filter: (p.category_id = c.id)
          Limit: 5
          Order By: pdb.score() desc
          DataFusion Physical Plan: 
@@ -414,7 +417,7 @@ LIMIT 5;
            :               PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
            :           CooperativeExec
            :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query="all"
-(22 rows)
+(23 rows)
 
 SELECT p.name, paradedb.score(p.id)
 FROM products p
@@ -446,6 +449,7 @@ LIMIT 5;
          Output: s.name, (paradedb.score(s.id))
          Relation Tree: s INNER (p INNER c)
          Join Cond: p.supplier_id = s.id, p.category_id = c.id
+         Join Filter: (p.category_id = c.id)
          Limit: 5
          Order By: pdb.score() desc
          DataFusion Physical Plan: 
@@ -462,7 +466,7 @@ LIMIT 5;
            :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query="all"
            :           CooperativeExec
            :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query="all"
-(22 rows)
+(23 rows)
 
 SELECT s.name, paradedb.score(s.id)
 FROM products p
@@ -521,6 +525,7 @@ LIMIT 5;
                Output: l1.name, l1.id, l2.name, l3.name, l4.name
                Relation Tree: (l4 INNER l3) INNER (l1 INNER l2)
                Join Cond: l2.l3_id = l3.id, l3.l4_id = l4.id, l1.l2_id = l2.id
+               Join Filter: (l3.l4_id = l4.id) AND (l1.l2_id = l2.id)
                Limit: 5
                Order By: l1.id asc
                DataFusion Physical Plan: 
@@ -539,7 +544,7 @@ LIMIT 5;
                  :               PgSearchScan: table=l2, segments=1, dynamic_filters=1, query="all"
                  :           CooperativeExec
                  :             PgSearchScan: table=l1, segments=1, dynamic_filters=2, query="all"
-(26 rows)
+(27 rows)
 
 SELECT l1.name, l2.name, l3.name, l4.name
 FROM level1 l1
@@ -577,6 +582,7 @@ LIMIT 5;
                Output: l1.name, l1.id, l4.name
                Relation Tree: (l4 INNER l3) INNER (l1 INNER l2)
                Join Cond: l2.l3_id = l3.id, l3.l4_id = l4.id, l1.l2_id = l2.id
+               Join Filter: (l3.l4_id = l4.id) AND (l1.l2_id = l2.id)
                Limit: 5
                Order By: l1.id asc
                DataFusion Physical Plan: 
@@ -595,7 +601,7 @@ LIMIT 5;
                  :               PgSearchScan: table=l2, segments=1, dynamic_filters=1, query="all"
                  :           CooperativeExec
                  :             PgSearchScan: table=l1, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"L1-A","lenient":null,"conjunction_mode":null}}}}
-(26 rows)
+(27 rows)
 
 SELECT l1.name, l4.name
 FROM level1 l1
@@ -630,6 +636,7 @@ LIMIT 5;
                Output: l1.name, l1.id, l4.name
                Relation Tree: (l3 INNER l4) INNER (l2 INNER l1)
                Join Cond: l2.l3_id = l3.id, l3.l4_id = l4.id, l1.l2_id = l2.id
+               Join Filter: (l3.l4_id = l4.id) AND (l1.l2_id = l2.id)
                Limit: 5
                Order By: l1.id asc
                DataFusion Physical Plan: 
@@ -648,7 +655,7 @@ LIMIT 5;
                  :               PgSearchScan: table=l2, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"L2-B","lenient":null,"conjunction_mode":null}}}}
                  :           CooperativeExec
                  :             PgSearchScan: table=l1, segments=1, dynamic_filters=2, query="all"
-(26 rows)
+(27 rows)
 
 SELECT l1.name, l4.name
 FROM level1 l1

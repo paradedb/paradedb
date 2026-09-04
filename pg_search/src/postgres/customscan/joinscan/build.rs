@@ -818,6 +818,23 @@ impl JoinLevelExpr {
             | Self::PgExpression { .. } => {}
         }
     }
+
+    /// Returns true if all RTI references in this expression are contained in `allowed_rtis`.
+    pub fn references_only_rtis(&self, allowed_rtis: &[pg_sys::Index]) -> bool {
+        match self {
+            Self::SingleTablePredicate { .. } | Self::MultiTablePredicate { .. } => true,
+            Self::And(children) | Self::Or(children) => children
+                .iter()
+                .all(|c| c.references_only_rtis(allowed_rtis)),
+            Self::Not(inner) => inner.references_only_rtis(allowed_rtis),
+            Self::MarkOrNull {
+                null_test_varno, ..
+            } => allowed_rtis.contains(null_test_varno),
+            Self::PgExpression { input_vars, .. } => {
+                input_vars.iter().all(|v| allowed_rtis.contains(&v.rti))
+            }
+        }
+    }
 }
 
 /// Represents a PostgreSQL RTI of a LATERAL unnest function RTE.
@@ -1139,6 +1156,12 @@ impl RelNode {
                     .copied()
                     .collect();
 
+                if let Some(ref filter) = j.filter
+                    && !filter.references_only_rtis(&all_output_rtis)
+                {
+                    return false;
+                }
+
                 for jk in &mut j.equi_keys {
                     let forward_ok = left_output_rtis.contains(&jk.outer_rti)
                         && right_output_rtis.contains(&jk.inner_rti);
@@ -1180,7 +1203,13 @@ impl RelNode {
                 }
                 true
             }
-            RelNode::Filter(f) => f.input.rewrite_pruned_join_keys(root),
+            RelNode::Filter(f) => {
+                if !f.input.rewrite_pruned_join_keys(root) {
+                    return false;
+                }
+                let output_rtis = f.input.output_rtis();
+                f.predicate.references_only_rtis(&output_rtis)
+            }
             RelNode::Unnest(u) => u.input.rewrite_pruned_join_keys(root),
         }
     }
@@ -1213,6 +1242,49 @@ impl RelNode {
             Ok(matches)
         })
         .unwrap_or(false)
+    }
+
+    /// Returns true if `rti` belongs to an output-visible relation in this plan tree.
+    /// Relations on pruned sides of Semi/Anti/Mark joins are not output-visible.
+    pub fn contains_output_rti(&self, rti: pg_sys::Index) -> bool {
+        match self {
+            RelNode::Scan(s) => s.scan_info.heap_rti == rti,
+            RelNode::Join(j) => match j.join_type {
+                JoinType::Semi | JoinType::Anti { .. } | JoinType::LeftMark => {
+                    j.left.contains_output_rti(rti)
+                }
+                JoinType::RightSemi | JoinType::RightAnti | JoinType::RightMark => {
+                    j.right.contains_output_rti(rti)
+                }
+                _ => j.left.contains_output_rti(rti) || j.right.contains_output_rti(rti),
+            },
+            RelNode::Filter(f) => f.input.contains_output_rti(rti),
+            RelNode::Unnest(u) => {
+                u.unnest_info.function_rti.0 == rti || u.input.contains_output_rti(rti)
+            }
+        }
+    }
+
+    /// Returns true if `rtis` contains at least one relation from both sides of this join or unnest.
+    /// Clauses that touch only one side belong to a child relation and should not be absorbed at this level.
+    pub fn spans_both_sides<'a>(
+        &self,
+        rtis: impl IntoIterator<Item = &'a pg_sys::Index> + Copy,
+    ) -> bool {
+        match self {
+            Self::Join(j) => {
+                rtis.into_iter().any(|&rti| j.left.contains_rti(rti))
+                    && rtis.into_iter().any(|&rti| j.right.contains_rti(rti))
+            }
+            Self::Unnest(u) => {
+                rtis.into_iter().any(|&rti| u.input.contains_rti(rti))
+                    && rtis.into_iter().any(|&rti| {
+                        rti == u.unnest_info.source_rti.0 || rti == u.unnest_info.function_rti.0
+                    })
+            }
+            Self::Filter(f) => f.input.spans_both_sides(rtis),
+            Self::Scan(_) => false,
+        }
     }
 
     pub fn has_absorbed_search_clauses(&self) -> bool {
@@ -1534,10 +1606,18 @@ impl RelNode {
     pub fn find_lateral_unnest(&self, function_rti: pg_sys::Index) -> Option<&LateralUnnestInfo> {
         match self {
             RelNode::Scan(_) => None,
-            RelNode::Join(j) => j
-                .left
-                .find_lateral_unnest(function_rti)
-                .or_else(|| j.right.find_lateral_unnest(function_rti)),
+            RelNode::Join(j) => match j.join_type {
+                JoinType::Semi | JoinType::Anti { .. } | JoinType::LeftMark => {
+                    j.left.find_lateral_unnest(function_rti)
+                }
+                JoinType::RightSemi | JoinType::RightAnti | JoinType::RightMark => {
+                    j.right.find_lateral_unnest(function_rti)
+                }
+                _ => j
+                    .left
+                    .find_lateral_unnest(function_rti)
+                    .or_else(|| j.right.find_lateral_unnest(function_rti)),
+            },
             RelNode::Filter(f) => f.input.find_lateral_unnest(function_rti),
             RelNode::Unnest(u) => {
                 if u.unnest_info.function_rti.0 == function_rti {
@@ -1559,10 +1639,18 @@ impl RelNode {
     fn collect_lateral_unnests<'a>(&'a self, acc: &mut Vec<&'a LateralUnnestInfo>) {
         match self {
             RelNode::Scan(_) => {}
-            RelNode::Join(j) => {
-                j.left.collect_lateral_unnests(acc);
-                j.right.collect_lateral_unnests(acc);
-            }
+            RelNode::Join(j) => match j.join_type {
+                JoinType::Semi | JoinType::Anti { .. } | JoinType::LeftMark => {
+                    j.left.collect_lateral_unnests(acc);
+                }
+                JoinType::RightSemi | JoinType::RightAnti | JoinType::RightMark => {
+                    j.right.collect_lateral_unnests(acc);
+                }
+                _ => {
+                    j.left.collect_lateral_unnests(acc);
+                    j.right.collect_lateral_unnests(acc);
+                }
+            },
             RelNode::Filter(f) => f.input.collect_lateral_unnests(acc),
             RelNode::Unnest(u) => {
                 acc.push(&u.unnest_info);
@@ -1791,6 +1879,29 @@ impl Default for RelNode {
     }
 }
 
+/// Controls whether `SELECT DISTINCT` is executed inside JoinScan or deferred to PostgreSQL.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum DistinctMode {
+    #[default]
+    None,
+    /// DISTINCT is executed by JoinScan (via DataFusion GROUP BY).
+    /// Used when each DISTINCT expression maps 1-to-1 to an output column in `reltarget`.
+    Active,
+    /// DISTINCT is deferred to PostgreSQL's upper Unique/HashAggregate node.
+    ///
+    /// This happens when `parse->distinctClause` contains expressions derived from base columns
+    /// (e.g. `col IS NULL`, or function calls alongside the base column `col`). In that case,
+    /// PostgreSQL strips the derived expressions from the scan's `reltarget`, asking the scan
+    /// for only the base column `col`, and plans an upper `Result` node to evaluate `col IS NULL`.
+    ///
+    /// Because a CustomScan's output tuple must conform to `reltarget`, JoinScan lacks output
+    /// slots to emit those upper expressions and cannot perform the full DISTINCT deduplication.
+    /// In turn, pushing down LIMIT below PostgreSQL's upper deduplication node is unsound (an
+    /// early LIMIT could return fewer distinct rows than requested), so top-level queries with
+    /// `Deferred` DISTINCT decline JoinScan.
+    Deferred,
+}
+
 /// The clause information for a Join Custom Scan.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct JoinCSClause {
@@ -1804,8 +1915,8 @@ pub struct JoinCSClause {
     pub order_by: Vec<OrderByInfo>,
     /// Projection of output columns for this join.
     pub output_projection: Option<Vec<ChildProjection>>,
-    /// Whether the join has DISTINCT specified.
-    pub has_distinct: bool,
+    /// Distinct mode for this join: absent, executed by JoinScan, or deferred to parent.
+    pub distinct: DistinctMode,
 }
 
 impl JoinCSClause {
@@ -1815,7 +1926,7 @@ impl JoinCSClause {
             limit_offset: None,
             order_by: Vec::new(),
             output_projection: None,
-            has_distinct: false,
+            distinct: DistinctMode::None,
         };
         for (i, source) in clause.plan.sources_mut().into_iter().enumerate() {
             source.plan_position = i;
@@ -1833,9 +1944,17 @@ impl JoinCSClause {
         self
     }
 
-    pub fn with_distinct(mut self, has_distinct: bool) -> Self {
-        self.has_distinct = has_distinct;
+    pub fn with_distinct(mut self, distinct: DistinctMode) -> Self {
+        self.distinct = distinct;
         self
+    }
+
+    pub fn has_distinct(&self) -> bool {
+        self.distinct == DistinctMode::Active
+    }
+
+    pub fn is_distinct_deferred(&self) -> bool {
+        self.distinct == DistinctMode::Deferred
     }
 
     pub fn with_output_projection(mut self, projection: Vec<ChildProjection>) -> Self {

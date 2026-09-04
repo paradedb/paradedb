@@ -142,6 +142,7 @@ LIMIT 5;
          Output: i.id, i.name
          Relation Tree: t INNER (i SEMI r)
          Join Cond: i.tag_id = t.id, i.id = r.item_id
+         Join Filter: (i.id = r.item_id)
          Limit: 5
          Order By: i.id asc
          DataFusion Physical Plan: 
@@ -157,7 +158,7 @@ LIMIT 5;
            :               PgSearchScan: table=r, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"great","lenient":null,"conjunction_mode":null}}}}
            :             CooperativeExec
            :               PgSearchScan: table=i, segments=1, dynamic_filters=3, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless OR keyboard","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+(22 rows)
 
 SELECT i.id, i.name
 FROM items i
@@ -270,6 +271,7 @@ LIMIT 5;
          Output: i.id, i.name
          Relation Tree: t INNER (i ANTI r)
          Join Cond: i.tag_id = t.id, r.item_id = i.id
+         Join Filter: (r.item_id = i.id)
          Limit: 5
          Order By: i.id asc
          DataFusion Physical Plan: 
@@ -280,12 +282,12 @@ LIMIT 5;
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, tag_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
            :           CooperativeExec
            :             PgSearchScan: table=t, segments=1, query="all"
-           :           HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(item_id@0, id@2)]
+           :           HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(item_id@0, id@2), (item_id@0, id@2)]
            :             CooperativeExec
            :               PgSearchScan: table=r, segments=1, visibility=eager, query={"range":{"field":"rating","lower_bound":null,"upper_bound":{"excluded":4}}}
            :             CooperativeExec
            :               PgSearchScan: table=i, segments=2, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless OR mouse","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+(22 rows)
 
 SELECT i.id, i.name
 FROM items i

@@ -391,6 +391,15 @@ impl PgSearchTableProvider {
 
     pub fn deferred_fields(&self) -> Vec<DeferredField> {
         let mut deferred = Vec::new();
+        let ctid_col_name = self
+            .configured_deferred_ctid_plan_position()
+            .map(|pos| format!("ctid_{pos}"))
+            .or_else(|| {
+                self.fields.iter().find_map(|wff| match wff {
+                    WhichFastField::DeferredCtid(name) => Some(name.clone()),
+                    _ => None,
+                })
+            });
         for (ff_index, wff) in self.fields.iter().enumerate() {
             if let WhichFastField::Deferred(name, field_type) = wff {
                 let is_bytes = matches!(
@@ -413,6 +422,7 @@ impl PgSearchTableProvider {
                         source_idx: self.source_idx,
                     }),
                     fetch_at_scan: self.deferred_fetch_at_scan,
+                    ctid_col_name: ctid_col_name.clone(),
                 });
             }
         }

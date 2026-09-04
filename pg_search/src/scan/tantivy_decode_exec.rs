@@ -39,7 +39,7 @@ use crate::scan::deferred_lookup::{
 };
 use crate::scan::execution_plan::UnsafeSendStream;
 
-use arrow_array::{ArrayRef, RecordBatch, UInt64Array, new_null_array};
+use arrow_array::{Array, ArrayRef, RecordBatch, UInt64Array, new_null_array};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use arrow_select::interleave::interleave;
 use datafusion::common::{DataFusionError, Result};
@@ -285,7 +285,13 @@ fn decode_batch(
     let mut columns = batch.columns().to_vec();
     for field in deferred_fields {
         let ffhelper = ffhelper_for(ffhelpers, field)?;
-        columns[field.col_idx] = decode_term_ordinals(ffhelper, field, &columns[field.col_idx])?;
+        let ctid_col = field
+            .ctid_col_name
+            .as_deref()
+            .and_then(|name| batch.schema().index_of(name).ok())
+            .and_then(|idx| batch.column(idx).as_any().downcast_ref::<UInt64Array>());
+        columns[field.col_idx] =
+            decode_term_ordinals(ffhelper, field, &columns[field.col_idx], ctid_col)?;
     }
     RecordBatch::try_new(schema.clone(), columns)
         .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
@@ -299,6 +305,7 @@ fn decode_term_ordinals(
     ffhelper: &FFHelper,
     field: &PhysicalDeferredField,
     column: &ArrayRef,
+    ctid_col: Option<&UInt64Array>,
 ) -> Result<ArrayRef> {
     let union = DeferredUnion::try_new(column.as_ref())?;
     let num_rows = column.len();
@@ -306,6 +313,13 @@ fn decode_term_ordinals(
     let mut by_segment: Vec<Vec<(usize, TermOrdinal)>> = vec![Vec::new(); num_segments];
     let mut null_rows: Vec<usize> = Vec::new();
     for (row, value) in union.values().enumerate() {
+        // If the relation was null-extended by an outer join, its ctid is NULL.
+        // Arrow's `take` kernel on dense `UnionArray` corrupts null indices by replacing
+        // them with 0 (offset 0 into child 0), so we must check the relation's ctid nullness.
+        if ctid_col.is_some_and(|c| c.is_null(row)) {
+            null_rows.push(row);
+            continue;
+        }
         match value {
             DeferredValue::TermOrdinal {
                 segment_ord,

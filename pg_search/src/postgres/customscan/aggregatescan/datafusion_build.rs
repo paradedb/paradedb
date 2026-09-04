@@ -1092,6 +1092,7 @@ pub enum PathPredicateDeclineReason {
     AmbiguousVolatileOverlap,
     OuterJoinOnResidual,
     UnclassifiedClause,
+    NonFastField,
 }
 
 /// Walk `input_rel.cheapest_total_path` once, traversing transparent wrappers
@@ -1208,7 +1209,7 @@ unsafe fn classify_path_restrictinfo(
         }
 
         let rtis = expr_collect_rtis(clause);
-        if rtis.len() > 1 {
+        if !rtis.is_empty() {
             let has_search = expr_contains_any_operator(clause, &[search_op]);
             let acceptable = if has_search {
                 true // build_search_filter will validate the full tree
@@ -1238,6 +1239,9 @@ unsafe fn classify_path_restrictinfo(
                 }
 
                 info.search_clauses.push(candidate);
+                continue;
+            } else {
+                info.decline(PathPredicateDeclineReason::NonFastField);
                 continue;
             }
         }
@@ -1309,20 +1313,45 @@ unsafe fn walk_path_restrictinfo(
     }
 
     let join_path = path as *mut pg_sys::JoinPath;
+    let source_type = if behind_transparent_wrapper {
+        EquiKeySource::BehindWrapper
+    } else {
+        EquiKeySource::Direct
+    };
 
     classify_path_restrictinfo(
         (*join_path).joinrestrictinfo,
-        if behind_transparent_wrapper {
-            EquiKeySource::BehindWrapper
-        } else {
-            EquiKeySource::Direct
-        },
+        source_type,
         RestrictInfoOrigin::JoinRestrictInfo,
         sources,
         search_op,
         on_clauses,
         info,
     );
+
+    if tag == pg_sys::NodeTag::T_HashPath {
+        let hash_path = path as *mut pg_sys::HashPath;
+        classify_path_restrictinfo(
+            (*hash_path).path_hashclauses,
+            source_type,
+            RestrictInfoOrigin::JoinRestrictInfo,
+            sources,
+            search_op,
+            on_clauses,
+            info,
+        );
+    } else if tag == pg_sys::NodeTag::T_MergePath {
+        let merge_path = path as *mut pg_sys::MergePath;
+        classify_path_restrictinfo(
+            (*merge_path).path_mergeclauses,
+            source_type,
+            RestrictInfoOrigin::JoinRestrictInfo,
+            sources,
+            search_op,
+            on_clauses,
+            info,
+        );
+    }
 
     walk_path_restrictinfo(
         (*join_path).outerjoinpath,

@@ -480,6 +480,7 @@ LIMIT 50;
                Output: d.id, d.title, d.parents
                Relation Tree: d INNER (p INNER f)
                Join Cond: d.id = f.documentId, f.id = p.fileId
+               Join Filter: (f.id = p."fileId")
                Limit: 50
                Distinct: true
                Order By: d.title asc, d.id asc, d.parents asc
@@ -496,7 +497,7 @@ LIMIT 50;
                  :               PgSearchScan: table=d, segments=1, query={"boolean":{"must":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(parents ~~ 'SFR%'::text)"}]}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}
                  :             CooperativeExec
                  :               PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all"
-(24 rows)
+(25 rows)
 
 SELECT DISTINCT
     d.id,

@@ -30,7 +30,17 @@ INSERT INTO people (id, company_id, full_name, linkedin_followers, seniority_slu
 
 CREATE INDEX people_search_idx ON people USING paradedb (id, ((full_name)::pdb.literal_normalized), linkedin_followers, ((seniority_slug)::pdb.literal_normalized), company_id) WITH (key_field=id);
 CREATE INDEX companies_search_idx ON companies USING paradedb (id) WITH (key_field=id);
-
+-- The query uses `SELECT DISTINCT` with derived expressions (`p.full_name IS NULL`,
+-- `p.linkedin_followers IS NULL`, `p.seniority_slug IS NULL`).
+-- JoinScan only supports pushing down `DISTINCT` over plain indexed columns, so it
+-- cannot evaluate DISTINCT on derived expressions; PostgreSQL evaluates them in
+-- an upper plan node instead.
+-- Because DISTINCT cannot be evaluated inside JoinScan, pushing down the `LIMIT 26`
+-- into JoinScan is unsound: truncating rows before upper deduplication could return
+-- fewer distinct rows than requested.
+-- Without LIMIT pushdown, a top-level JoinScan cannot perform Top-K and would force
+-- an unbounded scan followed by a full sort in PostgreSQL, losing its primary
+-- performance advantage. JoinScan therefore declines and falls back to PostgreSQL.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT DISTINCT
     p.id AS id,

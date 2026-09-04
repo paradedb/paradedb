@@ -958,7 +958,13 @@ pub unsafe fn extract_quals(
                 if let Some(field) = PushdownField::try_new(root, node, indexrel) {
                     // Check if this is a boolean field reference to our relation
                     if field.varno() != rti {
-                        return None;
+                        return if convert_external_to_special_qual
+                            || matches!(ri_type, RestrictInfoType::Join)
+                        {
+                            Some(Qual::ExternalVar)
+                        } else {
+                            None
+                        };
                     }
 
                     if let Some(search_field) =
@@ -977,13 +983,25 @@ pub unsafe fn extract_quals(
                 // PostgreSQL parser generates T_Var for "WHERE bool_field" vs T_OpExpr for "WHERE bool_field = true"
                 // We need to handle both cases since they're semantically equivalent
                 let var_node = nodecast!(Var, T_Var, node)?;
-                try_create_heap_expr_from_var(
+                if let Some(qual) = try_create_heap_expr_from_var(
                     root,
                     var_node,
                     rti,
                     indexrel,
                     &mut state.uses_tantivy_to_query,
-                )
+                ) {
+                    Some(qual)
+                } else if convert_external_to_special_qual
+                    || matches!(ri_type, RestrictInfoType::Join)
+                {
+                    if (*var_node).varno as pg_sys::Index != rti {
+                        Some(Qual::ExternalVar)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
             } else {
                 // Query context: We can't do full pushdown analysis without PlannerInfo,
                 // but we can still create HeapExpr if filter_pushdown is enabled
@@ -994,7 +1012,13 @@ pub unsafe fn extract_quals(
                 let var_node = nodecast!(Var, T_Var, node)?;
                 // Check if this var references our relation
                 if (*var_node).varno as pg_sys::Index != rti {
-                    return None;
+                    return if convert_external_to_special_qual
+                        || matches!(ri_type, RestrictInfoType::Join)
+                    {
+                        Some(Qual::ExternalVar)
+                    } else {
+                        None
+                    };
                 }
 
                 // We're creating a HeapExpr here - this is a "guess" that it will be needed,
@@ -1019,25 +1043,58 @@ pub unsafe fn extract_quals(
                         indexrel.schema().ok()?.search_field(field.attname().root())
                     && search_field.is_fast()
                 {
-                    if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NOT_NULL {
-                        return Some(Qual::PushdownIsNotNull { field });
+                    if field.varno() == rti {
+                        if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NOT_NULL {
+                            return Some(Qual::PushdownIsNotNull { field });
+                        } else {
+                            return Some(Qual::Not(Box::new(Qual::PushdownIsNotNull { field })));
+                        }
+                    } else if convert_external_to_special_qual
+                        || matches!(ri_type, RestrictInfoType::Join)
+                    {
+                        // From this relation's perspective, a NullTest referencing another relation
+                        // in a join is an external variable; report as ExternalVar so the join level
+                        // can process it rather than declining the scan.
+                        return Some(Qual::ExternalVar);
                     } else {
-                        return Some(Qual::Not(Box::new(Qual::PushdownIsNotNull { field })));
+                        return None;
                     }
                 }
                 // If we reach here, try creating HeapExpr
-                try_create_heap_expr_from_null_test(
+                if let Some(qual) = try_create_heap_expr_from_null_test(
                     nulltest,
                     rti,
                     root,
                     indexrel,
                     &mut state.uses_tantivy_to_query,
-                )
+                ) {
+                    Some(qual)
+                } else if convert_external_to_special_qual
+                    || matches!(ri_type, RestrictInfoType::Join)
+                {
+                    if !contains_relation_reference((*nulltest).arg.cast(), rti) {
+                        Some(Qual::ExternalVar)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
             } else {
                 // Query context: We can't do full pushdown analysis without PlannerInfo,
                 // but we can still create HeapExpr if filter_pushdown is enabled
                 if !gucs::enable_filter_pushdown() {
                     return None;
+                }
+
+                if !contains_relation_reference((*nulltest).arg.cast(), rti) {
+                    return if convert_external_to_special_qual
+                        || matches!(ri_type, RestrictInfoType::Join)
+                    {
+                        Some(Qual::ExternalVar)
+                    } else {
+                        None
+                    };
                 }
 
                 // We're creating a HeapExpr here - this is a "guess" that it will be needed,
@@ -1053,7 +1110,15 @@ pub unsafe fn extract_quals(
             }
         }
 
-        pg_sys::NodeTag::T_BooleanTest => booltest(context, node, rti, indexrel, state),
+        pg_sys::NodeTag::T_BooleanTest => booltest(
+            context,
+            node,
+            rti,
+            ri_type,
+            indexrel,
+            convert_external_to_special_qual,
+            state,
+        ),
 
         pg_sys::NodeTag::T_Const => {
             let const_node = nodecast!(Const, T_Const, node)?;
@@ -1639,7 +1704,9 @@ unsafe fn booltest(
     context: &PlannerContext,
     node: *mut pg_sys::Node,
     rti: pg_sys::Index,
+    ri_type: RestrictInfoType,
     indexrel: &PgSearchRelation,
+    convert_external_to_special_qual: bool,
     state: &mut QualExtractState,
 ) -> Option<Qual> {
     let booltest = nodecast!(BooleanTest, T_BooleanTest, node)?;
@@ -1651,34 +1718,44 @@ unsafe fn booltest(
     let root = context.planner_info()?;
 
     if let Some(field) = PushdownField::try_new(root, arg as *mut pg_sys::Node, indexrel) {
-        // It's a simple field reference, handle as specific cases
-        let qual = match (*booltest).booltesttype {
-            pg_sys::BoolTestType::IS_TRUE => Some(Qual::PushdownVarIsTrue { field }),
-            pg_sys::BoolTestType::IS_NOT_FALSE => {
-                Some(Qual::Not(Box::new(Qual::PushdownVarIsFalse { field })))
+        if field.varno() == rti {
+            // It's a simple field reference, handle as specific cases
+            let qual = match (*booltest).booltesttype {
+                pg_sys::BoolTestType::IS_TRUE => Some(Qual::PushdownVarIsTrue { field }),
+                pg_sys::BoolTestType::IS_NOT_FALSE => {
+                    Some(Qual::Not(Box::new(Qual::PushdownVarIsFalse { field })))
+                }
+                pg_sys::BoolTestType::IS_FALSE => Some(Qual::PushdownVarIsFalse { field }),
+                pg_sys::BoolTestType::IS_NOT_TRUE => {
+                    Some(Qual::Not(Box::new(Qual::PushdownVarIsTrue { field })))
+                }
+                _ => None,
+            };
+            if qual.is_some() {
+                state.uses_tantivy_to_query = true;
             }
-            pg_sys::BoolTestType::IS_FALSE => Some(Qual::PushdownVarIsFalse { field }),
-            pg_sys::BoolTestType::IS_NOT_TRUE => {
-                Some(Qual::Not(Box::new(Qual::PushdownVarIsTrue { field })))
-            }
-            _ => None,
-        };
-        if qual.is_some() {
-            state.uses_tantivy_to_query = true;
+            return qual;
+        } else if convert_external_to_special_qual || matches!(ri_type, RestrictInfoType::Join) {
+            return Some(Qual::ExternalVar);
+        } else {
+            return None;
         }
-        return qual;
     }
 
     // Fallback: If the field isn't indexed but references our relation,
     // evaluate the boolean test via heap access instead of abandoning the custom scan.
-    if gucs::enable_filter_pushdown() && contains_relation_reference(node, rti) {
-        state.uses_heap_expr = true;
-        state.uses_tantivy_to_query = true;
-        return Some(Qual::HeapExpr {
-            expr_node: node,
-            expr_desc: deparse_expr(Some(context), indexrel, node),
-            search_query_input: Box::new(SearchQueryInput::All),
-        });
+    if contains_relation_reference(node, rti) {
+        if gucs::enable_filter_pushdown() {
+            state.uses_heap_expr = true;
+            state.uses_tantivy_to_query = true;
+            return Some(Qual::HeapExpr {
+                expr_node: node,
+                expr_desc: deparse_expr(Some(context), indexrel, node),
+                search_query_input: Box::new(SearchQueryInput::All),
+            });
+        }
+    } else if convert_external_to_special_qual || matches!(ri_type, RestrictInfoType::Join) {
+        return Some(Qual::ExternalVar);
     }
     None
 }

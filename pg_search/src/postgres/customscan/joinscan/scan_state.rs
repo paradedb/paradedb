@@ -32,8 +32,11 @@
 use std::sync::Arc;
 
 use datafusion::catalog::Session;
+use datafusion::common::tree_node::Transformed;
 use datafusion::common::{DataFusionError, Result};
-use datafusion::logical_expr::{Expr, col};
+use datafusion::logical_expr::{EmptyRelation, Expr, LogicalPlan, col};
+use datafusion::optimizer::OptimizerConfig;
+use datafusion::optimizer::optimizer::{ApplyOrder, OptimizerRule};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
@@ -72,6 +75,12 @@ use datafusion::physical_planner::{DefaultPhysicalPlanner, PhysicalPlanner};
 
 /// Resolve a Postgres `(rti, attno)` reference to a DataFusion column expression
 /// by walking the join's plan sources and finding the first one that claims it.
+/// Resolve a PostgreSQL Var (`rti`, `attno`) to a DataFusion column expression (`col("...")`).
+///
+/// Uses `output_sources()` rather than `sources()` to ensure only output-visible relations
+/// are targeted. For pruned relations (e.g. the pruned RHS of an Anti Join or pruned full join
+/// inputs), their columns do not exist in the DataFusion plan schema and resolving against
+/// them would trigger `FieldNotFound` schema errors during optimization or execution.
 ///
 /// Returns `None` if no source maps the var — the caller decides whether to
 /// fall back to a literal or propagate the absence.
@@ -88,7 +97,7 @@ fn resolve_var_to_df_col(
             .find(|s| s.contains_rti(unnest_info.source_rti.0))?;
         return Some(make_source_unnested_col(source, &unnest_info.field_name));
     }
-    join_clause.plan.sources().iter().find_map(|source| {
+    join_clause.plan.output_sources().iter().find_map(|source| {
         let mapped = source.map_var(rti, attno)?;
         let field = source.column_name(mapped)?;
         Some(make_source_col(source, &field))
@@ -321,6 +330,55 @@ impl SolvePostgresExpressions for JoinScanState {
     }
 }
 
+/// Optimizer rule that propagates [`EmptyRelation`] through [`LogicalPlan::Unnest`].
+///
+/// DataFusion's built-in `PropagateEmptyRelation` rule does not handle `LogicalPlan::Unnest`,
+/// leaving `Unnest` sitting on top of `EmptyRelation`. Because `datafusion-proto` drops
+/// schema information when serializing `EmptyRelation`, deserializing `Unnest` subsequently
+/// fails looking for its unnest column in the empty schema.
+///
+/// Unnesting zero rows always produces zero rows with the schema of the `Unnest` node.
+#[derive(Default, Debug)]
+pub struct PropagateEmptyUnnestRule;
+
+impl OptimizerRule for PropagateEmptyUnnestRule {
+    fn name(&self) -> &str {
+        "propagate_empty_unnest"
+    }
+
+    fn apply_order(&self) -> Option<ApplyOrder> {
+        Some(ApplyOrder::BottomUp)
+    }
+
+    fn supports_rewrite(&self) -> bool {
+        true
+    }
+
+    fn rewrite(
+        &self,
+        plan: LogicalPlan,
+        _config: &dyn OptimizerConfig,
+    ) -> Result<Transformed<LogicalPlan>> {
+        match plan {
+            LogicalPlan::Unnest(ref unnest) => {
+                if let LogicalPlan::EmptyRelation(empty) = unnest.input.as_ref()
+                    && !empty.produce_one_row
+                {
+                    Ok(Transformed::yes(LogicalPlan::EmptyRelation(
+                        EmptyRelation {
+                            produce_one_row: false,
+                            schema: Arc::clone(&unnest.schema),
+                        },
+                    )))
+                } else {
+                    Ok(Transformed::no(plan))
+                }
+            }
+            _ => Ok(Transformed::no(plan)),
+        }
+    }
+}
+
 /// Build the shared core of a DataFusion [`SessionStateBuilder`] with:
 /// - Visibility filtering (logical + physical)
 /// - Late materialization
@@ -342,7 +400,8 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
         ))
         .with_optimizer_rule(Arc::new(
             crate::scan::late_materialization::LateMaterializationRule,
-        ));
+        ))
+        .with_optimizer_rule(Arc::new(PropagateEmptyUnnestRule));
 
     builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner));
 
@@ -496,6 +555,7 @@ struct RelNodeBuildCtx<'a> {
     is_parallel: bool,
     join_clause: &'a JoinCSClause,
     translated_exprs: &'a [Expr],
+    custom_expr_idx: &'a std::cell::Cell<usize>,
     output_columns: &'a [OutputColumnInfo],
     lateral_unnests: &'a [build::LateralUnnestInfo],
 }
@@ -555,13 +615,20 @@ fn build_relnode_df<'a>(
             RelNode::Filter(filter) => {
                 let df = build_relnode_df(rctx, &filter.input).await?;
                 let sources = filter.input.sources();
-                apply_join_level_filter(
+                // `custom_expr_idx` must be tracked and advanced across nested `RelNode::Filter`
+                // nodes so that each join filter level consumes its own translated expressions
+                // from `rctx.translated_exprs` instead of repeatedly consuming from index 0.
+                let mut idx = rctx.custom_expr_idx.get();
+                let df = apply_join_level_filter(
                     df,
                     &filter.predicate,
                     rctx.translated_exprs,
+                    &mut idx,
                     &sources,
                     /* handle_mark = */ true,
-                )
+                )?;
+                rctx.custom_expr_idx.set(idx);
+                Ok(df)
             }
             RelNode::Unnest(unnest) => {
                 let df = build_relnode_df(rctx, &unnest.input).await?;
@@ -625,11 +692,13 @@ fn build_clause_df<'a>(
         // stages re-borrow `plan_sources` for projection / output assembly.
         drop(translator);
 
+        let custom_expr_idx = std::cell::Cell::new(0);
         let rctx = RelNodeBuildCtx {
             ctx,
             is_parallel,
             join_clause,
             translated_exprs: &translated_exprs,
+            custom_expr_idx: &custom_expr_idx,
             output_columns: &private_data.output_columns,
             lateral_unnests: &lateral_unnests,
         };
@@ -710,7 +779,7 @@ fn apply_distinct_group_by(
 ) -> Result<(DataFrame, DistinctColMap)> {
     let mut distinct_col_map: DistinctColMap = Default::default();
 
-    if !join_clause.has_distinct {
+    if !join_clause.has_distinct() {
         return Ok((df, distinct_col_map));
     }
     let Some(projection) = &join_clause.output_projection else {
@@ -842,7 +911,7 @@ fn resolve_orderby_feature(
             } else {
                 join_clause
                     .plan
-                    .sources()
+                    .output_sources()
                     .iter()
                     .find(|s| s.scan_info.heap_rti == *rti)
                     .map(|source| make_source_score_col(source))
@@ -866,7 +935,7 @@ fn resolve_orderby_feature(
                     } else {
                         join_clause
                             .plan
-                            .sources()
+                            .output_sources()
                             .iter()
                             .find(|s| s.scan_info.heap_rti == *rti)
                             .map(|source| make_source_score_col(source))
@@ -896,7 +965,7 @@ fn resolve_orderby_feature(
             } else {
                 join_clause
                     .plan
-                    .sources()
+                    .output_sources()
                     .iter()
                     .find(|s| s.contains_rti(*rti))
                     .map(|source| make_source_col(source, name.as_ref()))
@@ -1037,7 +1106,7 @@ fn build_projection_expr(
 ) -> Expr {
     use crate::postgres::customscan::joinscan::build::ChildProjection;
 
-    let plan_sources = join_clause.plan.sources();
+    let plan_sources = join_clause.plan.output_sources();
     match proj {
         ChildProjection::Score { rti } => {
             for source in plan_sources.iter() {
@@ -1067,7 +1136,12 @@ fn build_projection_expr(
             field_name,
             ..
         } => {
-            if let Some(source) = plan_sources.iter().find(|s| s.contains_rti(source_rti.0)) {
+            if let Some(source) = join_clause
+                .plan
+                .sources()
+                .iter()
+                .find(|s| s.contains_rti(source_rti.0))
+            {
                 let alias = RelationAlias::new(source.scan_info.alias.as_deref())
                     .execution(source.plan_position);
                 return datafusion::logical_expr::col(format!("{}_{}", alias, field_name));
@@ -1175,7 +1249,7 @@ fn build_source_df<'a>(
 
         // When DISTINCT is present, PostgreSQL expands the query path-keys
         // to include all DISTINCT columns.
-        if join_clause.has_distinct {
+        if join_clause.has_distinct() {
             if let Some(projections) = &join_clause.output_projection {
                 for proj in projections {
                     if let build::ChildProjection::IndexedExpression { rti, field_name } = proj
@@ -1260,4 +1334,66 @@ fn build_source_df<'a>(
         Ok(df)
     }
     .boxed_local()
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use datafusion::arrow::datatypes::{DataType, Field, Schema};
+    use datafusion::common::DFSchema;
+    use datafusion::logical_expr::builder::LogicalPlanBuilder;
+    use datafusion::optimizer::OptimizerContext;
+    use pgrx::prelude::*;
+
+    #[pg_test]
+    fn propagate_empty_unnest_rule_transforms_empty_child() -> Result<()> {
+        let schema = Arc::new(DFSchema::try_from(Schema::new(vec![Field::new(
+            "tags",
+            DataType::List(Arc::new(Field::new("item", DataType::Utf8, true))),
+            true,
+        )]))?);
+        let empty_input = LogicalPlan::EmptyRelation(EmptyRelation {
+            produce_one_row: false,
+            schema: Arc::clone(&schema),
+        });
+        let unnest_plan = LogicalPlanBuilder::from(empty_input)
+            .unnest_column("tags")?
+            .build()?;
+
+        let rule = PropagateEmptyUnnestRule;
+        let config = OptimizerContext::default();
+        let transformed = rule.rewrite(unnest_plan, &config)?;
+        assert!(transformed.transformed);
+        assert!(matches!(
+            transformed.data,
+            LogicalPlan::EmptyRelation(EmptyRelation {
+                produce_one_row: false,
+                ..
+            })
+        ));
+        Ok(())
+    }
+
+    #[pg_test]
+    fn propagate_empty_unnest_rule_ignores_produce_one_row() -> Result<()> {
+        let schema = Arc::new(DFSchema::try_from(Schema::new(vec![Field::new(
+            "tags",
+            DataType::List(Arc::new(Field::new("item", DataType::Utf8, true))),
+            true,
+        )]))?);
+        let empty_input = LogicalPlan::EmptyRelation(EmptyRelation {
+            produce_one_row: true,
+            schema: Arc::clone(&schema),
+        });
+        let unnest_plan = LogicalPlanBuilder::from(empty_input)
+            .unnest_column("tags")?
+            .build()?;
+
+        let rule = PropagateEmptyUnnestRule;
+        let config = OptimizerContext::default();
+        let transformed = rule.rewrite(unnest_plan, &config)?;
+        assert!(!transformed.transformed);
+        Ok(())
+    }
 }

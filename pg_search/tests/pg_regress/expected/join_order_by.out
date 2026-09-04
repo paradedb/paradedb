@@ -253,6 +253,7 @@ LIMIT 10;
                Output: t1.val, t1.id, t2.val, t3.val
                Relation Tree: t1 INNER (t2 INNER t3)
                Join Cond: t1.id = t2.t1_id, t2.t1_id = t3.t1_id
+               Join Filter: (t2.t1_id = t3.t1_id)
                Limit: 10
                Order By: t1.id asc nulls first
                DataFusion Physical Plan: 
@@ -268,7 +269,7 @@ LIMIT 10;
                  :               PgSearchScan: table=t2, segments=1, dynamic_filters=1, query="all"
                  :           CooperativeExec
                  :             PgSearchScan: table=t3, segments=1, dynamic_filters=1, query="all"
-(23 rows)
+(24 rows)
 
 SELECT t1.val, t2.val, t3.val
 FROM recursive_smj_1 t1

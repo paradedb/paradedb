@@ -906,7 +906,7 @@ WHERE p.name @@@ 'Product'
   AND c.name = 'Electronics'
   AND p.is_available = true
 ORDER BY r.rating DESC, p.price DESC;
-WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p, r)
+WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: p, r)
                                                                                                                      QUERY PLAN                                                                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -945,7 +945,7 @@ WHERE p.name @@@ 'Product'
   AND c.name = 'Electronics'
   AND p.is_available = true
 ORDER BY r.rating DESC, p.price DESC;
-WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p, r)
+WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: p, r)
  name | price | content | rating 
 ------+-------+---------+--------
 (0 rows)

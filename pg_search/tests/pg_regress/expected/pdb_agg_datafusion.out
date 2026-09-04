@@ -126,7 +126,7 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard';
                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                     
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('pdb.agg'::text)
+   Output: (pdb.agg('{"aggs": {"tags": {"aggs": {"w": {"sum": {"field": "weight"}}}, "terms": {"size": 2, "field": "tag_name"}}, "avg_price": {"avg": {"field": "price"}}, "uniq_brands": {"cardinality": {"field": "brand"}}}, "terms": {"field": "category"}}'::jsonb))
    Backend: DataFusion
    Indexes: pa_products_idx (p), pa_tags_idx (t)
    Aggregates: pdb.agg({"aggs":{"tags":{"aggs":{"w":{"sum":{"field":"weight"}}},"terms":{"size":2,"field":"tag_name"}},"avg_price":{"avg":{"field":"price"}},"uniq_brands":{"cardinality":{"field":"brand"}}},"terms":{"field":"category"}})
@@ -768,7 +768,51 @@ ORDER BY category;
  Toys        | {"value": 0.0}     | {"buckets": [{"key": null, "doc_count": 1}], "sum_other_doc_count": 0}
 (3 rows)
 
--- Test 4.5: a spec written for a join keeps working when the planner reduces
+-- Test 4.5: every nested pdb.agg() participates in routing. The first request
+-- is Tantivy-compatible, but the second reads NUMERIC and must route the whole
+-- expression to DataFusion.
+EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category,
+       pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}')
+       || pdb.agg('{"sum": {"field": "price_num"}}') AS combined
+FROM pa_products
+WHERE description @@@ 'laptop OR shoes'
+GROUP BY category
+ORDER BY category;
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category, (((pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'::jsonb)) || (pdb.agg('{"sum": {"field": "price_num"}}'::jsonb))))
+   Sort Key: pa_products.category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: category, ((pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'::jsonb)) || (pdb.agg('{"sum": {"field": "price_num"}}'::jsonb)))
+         Backend: DataFusion
+         Indexes: pa_products_idx (pa_products)
+         Group By: category
+         Aggregates: pdb.agg({"terms":{"field":"brand","order":{"_key":"asc"}}}), pdb.agg({"sum":{"field":"price_num"}})
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[category@0 as category, __grouping_id@2 as __grouping_id, __pdb_k0@1 as __pdb_k0, __pdb_m0@3 as __pdb_m0, __pdb_m1@4 as __pdb_m1, __pdb_m2@5 as __pdb_m2]
+           :   AggregateExec: mode=Final, gby=[category@0 as category, __pdb_k0@1 as __pdb_k0, __grouping_id@2 as __grouping_id], aggr=[count(1) as __pdb_m0, count(pa_products_0.price_num) as __pdb_m1, numeric64_sum(pa_products_0.price_num, 2) as __pdb_m2]
+           :     AggregateExec: mode=Partial, gby=[(category@0 as category, NULL as __pdb_k0), (category@0 as category, brand@1 as __pdb_k0)], aggr=[count(1) as __pdb_m0, count(pa_products_0.price_num) as __pdb_m1, numeric64_sum(pa_products_0.price_num, 2) as __pdb_m2]
+           :       CooperativeExec
+           :         PgSearchScan: table=pa_products, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
+
+SELECT category,
+       pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}')
+       || pdb.agg('{"sum": {"field": "price_num"}}') AS combined
+FROM pa_products
+WHERE description @@@ 'laptop OR shoes'
+GROUP BY category
+ORDER BY category;
+  category   |                                                                          combined                                                                           
+-------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Electronics | {"value": 3299.97, "buckets": [{"key": "Apple", "doc_count": 1}, {"key": "Dell", "doc_count": 1}, {"key": "HP", "doc_count": 1}], "sum_other_doc_count": 0}
+ Sports      | {"value": 209.98, "buckets": [{"key": "Adidas", "doc_count": 1}, {"key": "Nike", "doc_count": 1}], "sum_other_doc_count": 0}
+ Toys        | {"value": 0.0, "buckets": [{"key": "Fisher Price", "doc_count": 1}], "sum_other_doc_count": 0}
+(3 rows)
+
+-- Test 4.6: a spec written for a join keeps working when the planner reduces
 -- the join to one table, so the alias qualifier is accepted there too
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT pdb.agg('{"terms": {"field": "p.category", "order": {"_key": "asc"}}}')
@@ -792,7 +836,7 @@ WHERE p.description @@@ 'laptop OR shoes';
  {"buckets": [{"key": "Electronics", "doc_count": 3}, {"key": "Sports", "doc_count": 2}, {"key": "Toys", "doc_count": 1}], "sum_other_doc_count": 0}
 (1 row)
 
--- Test 4.6: the same reduced join on the NUMERIC route, which rebuilds the
+-- Test 4.7: the same reduced join on the NUMERIC route, which rebuilds the
 -- join tree from the parse tree and has to skip the removed side
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT pdb.agg('{"sum": {"field": "p.price_num"}}')
@@ -801,7 +845,7 @@ WHERE p.description @@@ 'laptop OR shoes';
                                                                                                      QUERY PLAN                                                                                                     
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('pdb.agg'::text)
+   Output: (pdb.agg('{"sum": {"field": "p.price_num"}}'::jsonb))
    Backend: DataFusion
    Indexes: pa_products_idx (p)
    Aggregates: pdb.agg({"sum":{"field":"p.price_num"}})

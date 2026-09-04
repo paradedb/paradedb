@@ -28,13 +28,14 @@ use super::datafusion_build::{
 };
 use super::pdb_agg::{PdbAggFieldRef, PdbAggRequest};
 use super::privdat::FilterExpr;
-use crate::api::{HashMap, SortDirection, pdb_agg_spec};
+use crate::api::{SortDirection, pdb_agg_spec};
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::customscan::datafusion::explain::get_attname_safe;
 use crate::postgres::customscan::joinscan::build::RelationAlias;
-use crate::postgres::var::{VarContext, find_one_aggref, find_one_var_and_fieldname};
+use crate::postgres::var::{VarContext, find_one_var_and_fieldname};
 use crate::schema::SearchFieldType;
 use pgrx::PgList;
+use pgrx::pg_guard;
 use pgrx::pg_sys;
 use pgrx::pg_sys::{
     F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_,
@@ -254,6 +255,38 @@ pub struct JoinAggregateTargetList {
     pub aggregates: Vec<JoinAggregateEntry>,
 }
 
+/// Planner-only aggregate extraction result.
+///
+/// `runtime` is serialized in `PrivateData` for execution. `scan_tlist` and
+/// the expression pointers live only during planning; they define the raw
+/// tuple emitted by DataFusion and consumed by PostgreSQL's setrefs pass.
+pub struct ExtractedDataFusionTarget {
+    pub runtime: JoinAggregateTargetList,
+    pub scan_tlist: Vec<*mut pg_sys::TargetEntry>,
+    group_exprs: Vec<*mut pg_sys::Node>,
+    aggrefs: Vec<*mut pg_sys::Aggref>,
+}
+
+impl ExtractedDataFusionTarget {
+    pub unsafe fn aggregate_index(&self, expr: *mut pg_sys::Node) -> Option<usize> {
+        self.aggrefs.iter().position(|aggref| {
+            pg_sys::equal(
+                (*aggref).cast::<core::ffi::c_void>(),
+                expr.cast::<core::ffi::c_void>(),
+            )
+        })
+    }
+
+    pub unsafe fn group_index(&self, expr: *mut pg_sys::Node) -> Option<usize> {
+        self.group_exprs.iter().position(|group_expr| {
+            pg_sys::equal(
+                (*group_expr).cast::<core::ffi::c_void>(),
+                expr.cast::<core::ffi::c_void>(),
+            )
+        })
+    }
+}
+
 impl JoinAggregateTargetList {
     /// The lowered `pdb.agg()` calls, in target-list order.
     pub fn pdb_agg_requests(&self) -> impl Iterator<Item = &PdbAggRequest> {
@@ -365,305 +398,399 @@ unsafe fn extract_timestamp_to_date_var(
     Ok(Some(var))
 }
 
-/// Extract the aggregate target list for a join aggregate query from the
-/// grouping/DISTINCT output columns ([`GroupingShape::target_exprs`]).
+/// Find output Vars which PostgreSQL may permit through functional dependency.
 ///
-/// Iterates the target list and classifies each expression as either a GROUP BY
-/// column (`T_Var`) or an aggregate function (`T_Aggref`). For joins, `Var.varno`
-/// tells us which table the column belongs to.
+/// GROUP BY expressions and aggregate arguments are boundaries: setrefs first
+/// matches the former as whole expressions, while the latter are evaluated by
+/// DataFusion. Every other Var must be carried in the raw tuple.
+unsafe fn find_nonaggregate_output_vars(
+    expr: *mut pg_sys::Node,
+    group_exprs: &[(*mut pg_sys::Node, pg_sys::Index)],
+) -> Vec<*mut pg_sys::Var> {
+    struct WalkerContext {
+        group_exprs: *const (*mut pg_sys::Node, pg_sys::Index),
+        group_exprs_len: usize,
+        vars: Vec<*mut pg_sys::Var>,
+    }
+
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+        let ctx = &mut *(context as *mut WalkerContext);
+        let group_exprs = std::slice::from_raw_parts(ctx.group_exprs, ctx.group_exprs_len);
+        if group_exprs
+            .iter()
+            .any(|(group_expr, _)| pg_sys::equal((*group_expr).cast(), node.cast()))
+        {
+            return false;
+        }
+        match (*node).type_ {
+            pg_sys::NodeTag::T_Aggref => false,
+            pg_sys::NodeTag::T_Var => {
+                let var = node.cast::<pg_sys::Var>();
+                if !ctx
+                    .vars
+                    .iter()
+                    .any(|known| pg_sys::equal((*known).cast(), var.cast()))
+                {
+                    ctx.vars.push(var);
+                }
+                false
+            }
+            _ => pg_sys::expression_tree_walker(node, Some(walker), context),
+        }
+    }
+
+    let mut context = WalkerContext {
+        group_exprs: group_exprs.as_ptr(),
+        group_exprs_len: group_exprs.len(),
+        vars: Vec::new(),
+    };
+    walker(expr, (&mut context as *mut WalkerContext).cast());
+    context.vars
+}
+
+/// Extract the DataFusion runtime metadata and raw tuple description for a
+/// join aggregate query from its grouping/DISTINCT output.
 ///
-/// Each `T_Var` is resolved against `plan` to its unique `plan_position`
-/// here at extraction time, so execution-time binding is immune to
-/// rti-aliasing across sub-PlannerInfos.
+/// Group expressions and aggregates are resolved to unique plan positions at
+/// extraction time, so execution-time binding is immune to RTI aliasing across
+/// sub-PlannerInfos.
 ///
 /// # Errors
 ///
-/// Returns an error if:
-/// - An expression is neither a `Var` nor an `Aggref`
-/// - An aggregate uses DISTINCT (`aggdistinct` is set)
-/// - A `pdb.agg()` spec cannot be lowered (see [`lower_pdb_agg`])
-/// - An aggregate OID is unknown/unsupported
-/// - A `Var` references a table not in `sources`
-/// - A field name cannot be resolved
-/// - A `Var` does not resolve to a unique output-visible source in `plan`
+/// Returns an error when an expression cannot be resolved to a supported
+/// grouping input or aggregate, including unsupported aggregate OIDs, missing
+/// indexed fields, and ambiguous plan positions.
 pub unsafe fn extract_aggregate_targetlist(
     args: &CreateUpperPathsHookArgs,
     sources: &[JoinAggSource],
     plan: &crate::postgres::customscan::joinscan::build::RelNode,
     shape: GroupingShape,
     mut pdb_route: Option<PdbAggRoute>,
-) -> Result<JoinAggregateTargetList, String> {
+) -> Result<ExtractedDataFusionTarget, String> {
     let target_exprs = shape.target_exprs();
     if target_exprs.is_empty() {
         return Err("target list is empty".into());
     }
-
-    // `find_one_var_and_fieldname` below resolves an expression down to the fast
-    // field it reads, which holds the column value and not the expression value.
-    // The two agree only when the expression is the identity, so a JSON container
-    // dedups on its elements and a type-changing cast hands the slot the wrong
-    // Arrow type. Postgres deduplicates the expression itself, so DISTINCT takes
-    // plain columns and nothing else.
+    let parse = (*args.root).parse;
+    if parse.is_null() {
+        return Err("query parse tree is missing".into());
+    }
     let plain_columns_only = shape.is_distinct();
     let clause = if plain_columns_only {
         "DISTINCT"
     } else {
         "GROUP BY"
     };
-
     let outer_root_id =
         crate::postgres::customscan::joinscan::build::PlannerRootId::from(args.root);
 
-    let mut group_columns = Vec::new();
-    let mut aggregates = Vec::new();
-
-    for (idx, expr) in target_exprs.iter_ptr().enumerate() {
-        let mut node = expr.cast::<pg_sys::Node>();
-        let mut transform = GroupingTransform::Identity;
-
-        if !plain_columns_only && let Some(var) = extract_timestamp_to_date_var(node)? {
-            node = var.cast();
-            transform = GroupingTransform::TimestampToDate;
-        }
-
-        if (*node).type_ == pg_sys::NodeTag::T_Var {
-            // GROUP BY column
-            let var = node.cast::<pg_sys::Var>();
-            let rti = (*var).varno as pg_sys::Index;
-            let attno = (*var).varattno;
-
-            let (source, attno, field_name, plan_position) = if let Some(unnest_info) =
-                plan.find_lateral_unnest(rti)
+    let mut group_exprs: Vec<(*mut pg_sys::Node, pg_sys::Index)> = Vec::new();
+    if plain_columns_only {
+        for (idx, expr) in target_exprs.iter_ptr().enumerate() {
+            if super::targetlist::find_aggrefs_in_expr(expr.cast()).is_empty()
+                && !group_exprs
+                    .iter()
+                    .any(|(known, _)| pg_sys::equal((*known).cast(), expr.cast()))
             {
-                let source = find_source_by_rti(sources, unnest_info.source_rti.0, clause)?;
-                let fn_name = unnest_info.field_name.clone();
-                let pp = plan
-                    .plan_position(
-                        outer_root_id,
-                        unnest_info.source_rti.0,
-                        unnest_info.source_attno,
-                    )
-                    .ok_or_else(|| {
-                        format!(
-                            "GROUP BY unnest column (RTI={rti}) does not resolve to a unique \
-                                 output-visible source in the plan tree"
-                        )
-                    })?;
-                (source, unnest_info.source_attno, fn_name, pp)
-            } else {
-                let source = find_source_by_rti(sources, rti, clause)?;
-                let fn_name = source.column_name(attno).ok_or_else(|| {
-                    let alias =
-                        RelationAlias::new(source.alias.as_deref()).display(source.rti as usize);
-                    format!(
-                        "{clause} column {} is not columnar indexed",
-                        get_attname_safe(Some(source.relid), attno, &alias)
-                    )
-                })?;
-                let pp = plan
-                        .plan_position(outer_root_id, rti, attno)
-                        .ok_or_else(|| {
-                            format!(
-                                "GROUP BY column (RTI={rti}, attno={attno}) does not resolve to a unique \
-                                 output-visible source in the plan tree"
-                            )
-                        })?;
-                (source, attno, fn_name, pp)
-            };
-
-            // Grouping compares the stored representation, which is order- and
-            // equality-preserving for both NUMERIC storages, but rendering the
-            // keys needs the declared scale. Unbounded NUMERIC drops per-value
-            // display scale at index time, so it declines.
-            let numeric_scale = source
-                .bm25_index
-                .as_ref()
-                .and_then(|i| i.schema().ok())
-                .and_then(|s| s.numeric_field_type(&field_name))
-                .map(|(_, scale)| {
-                    scale.ok_or_else(|| {
-                        format!(
-                            "GROUP BY column {field_name} is an unbounded NUMERIC; declare a \
-                             precision and scale to enable aggregate pushdown"
-                        )
-                    })
-                })
-                .transpose()?;
-
-            group_columns.push(JoinGroupColumn {
-                plan_position,
-                attno,
-                field_name,
-                output_index: idx,
-                numeric_scale,
-                transform,
-            });
-        } else if let Some((var, field_name)) = (!plain_columns_only)
-            .then(|| {
-                find_one_var_and_fieldname(
-                    VarContext::from_planner(args.root),
-                    expr as *mut pg_sys::Node,
-                )
-            })
-            .flatten()
-        {
-            // GROUP BY on a complex expression (e.g., metadata->>'category').
-            // The resolver extracts the underlying Var and resolves the Tantivy
-            // field name (e.g., "metadata.category") from JSON operators.
-            let rti = (*var).varno as pg_sys::Index;
-            let attno = (*var).varattno;
-            let field_name = field_name.into_inner();
-
-            // Resolve the outer source's plan_position so execution-time
-            // column binding is unambiguous regardless of SubPlan-lift
-            // aliasing.
-            let plan_position = plan
-                .plan_position(outer_root_id, rti, attno)
-                .ok_or_else(|| {
-                    format!(
-                        "GROUP BY expression at RTI {rti} (attno={attno}) does not resolve to a \
-                         unique output-visible source in the plan tree"
-                    )
-                })?;
-
-            // A missing source happens for rti-aliased JSON group keys from
-            // sub-PlannerInfos; their fields are JSON paths, never NUMERIC.
-            // Bare NUMERIC columns are plain Vars and take the branch above,
-            // which propagates the lookup failure.
-            let numeric_scale = find_source_by_rti(sources, rti, "GROUP BY expression")
-                .ok()
-                .and_then(|source| source.bm25_index.as_ref())
-                .and_then(|i| i.schema().ok())
-                .and_then(|s| s.numeric_field_type(&field_name))
-                .map(|(_, scale)| {
-                    scale.ok_or_else(|| {
-                        format!(
-                            "GROUP BY column {field_name} is an unbounded NUMERIC; declare a \
-                             precision and scale to enable aggregate pushdown"
-                        )
-                    })
-                })
-                .transpose()?;
-
-            group_columns.push(JoinGroupColumn {
-                plan_position,
-                attno,
-                field_name,
-                output_index: idx,
-                numeric_scale,
-                transform: GroupingTransform::Identity,
-            });
-        } else if let Some(aggref) = find_one_aggref(expr as *mut pg_sys::Node) {
-            // Aggregate function (possibly wrapped in COALESCE, etc.)
-            let aggfnoid = (*aggref).aggfnoid.to_u32();
-            let has_distinct = !(*aggref).aggdistinct.is_null();
-
-            // Extract per-aggregate FILTER clause if present.
-            let filter = if (*aggref).aggfilter.is_null() {
-                None
-            } else {
-                Some(
-                    FilterExpr::from_pg_node(
-                        (*aggref).aggfilter as *mut pg_sys::Node,
-                        &FilterExprBuildContext::Filter {
-                            sources,
-                            plan,
-                            outer_root_id,
-                        },
-                    )
-                    .ok_or_else(|| {
-                        "aggregate FILTER cannot be translated for aggregate-on-join".to_string()
-                    })?,
-                )
-            };
-
-            if crate::api::is_agg_funcoid(aggfnoid) {
-                if has_distinct || !(*aggref).aggorder.is_null() {
-                    return Err("pdb.agg() does not accept DISTINCT or ORDER BY".into());
-                }
-                let mut request = match pdb_route
-                    .as_mut()
-                    .and_then(|route| route.requests.remove(&idx))
-                {
-                    Some(request) => request,
-                    None => lower_pdb_agg(aggref, sources)?,
-                };
-                request.assign_plan_positions(|field| {
-                    plan.plan_position(outer_root_id, field.rti, field.attno)
-                })?;
-                aggregates.push(JoinAggregateEntry {
-                    func_oid: aggfnoid,
-                    agg_kind: AggKind::PdbAgg(Box::new(request)),
-                    field_refs: Vec::new(),
-                    output_index: idx,
-                    result_type_oid: (*aggref).aggtype,
-                    filter,
-                    distinct: false,
-                    order_by: Vec::new(),
-                    numeric: None,
-                });
-                continue;
+                group_exprs.push((expr.cast(), (idx + 1) as pg_sys::Index));
             }
-
-            let mut agg_kind = classify_aggregate_oid(aggfnoid, (*aggref).aggstar, has_distinct)
-                .ok_or_else(|| {
-                    if let Some(n) = crate::postgres::catalog::lookup_fully_qualified_func_name(
-                        pg_sys::Oid::from(aggfnoid),
-                    ) {
-                        format!("unsupported aggregate function: {}", n)
-                    } else {
-                        format!("unsupported aggregate function OID: {}", aggfnoid)
-                    }
-                })?;
-
-            // For STRING_AGG, extract the separator from the second argument
-            let is_string_agg = matches!(agg_kind, AggKind::StringAgg(_));
-            if is_string_agg {
-                let separator = extract_string_agg_separator(aggref).unwrap_or_else(|| ",".into());
-                agg_kind = AggKind::StringAgg(separator);
+        }
+    } else {
+        for sgc in PgList::<pg_sys::SortGroupClause>::from_pg((*parse).groupClause).iter_ptr() {
+            let expr = pg_sys::get_sortgroupclause_expr(sgc, (*parse).targetList);
+            if expr.is_null() {
+                return Err("GROUP BY expression is missing from the query target list".into());
             }
-
-            let field_refs =
-                extract_aggref_field_refs(aggref, sources, is_string_agg, plan, outer_root_id)?;
-            let order_by = extract_aggref_order_by(aggref, sources, plan, outer_root_id)?;
-            // Use the actual Postgres result type from the Aggref node,
-            // not a guessed type - this avoids segfaults from type mismatches
-            let result_type_oid = (*aggref).aggtype;
-
-            let numeric = numeric_agg_field_type(&agg_kind, &field_refs, has_distinct)?;
-
-            aggregates.push(JoinAggregateEntry {
-                func_oid: aggfnoid,
-                agg_kind,
-                field_refs,
-                output_index: idx,
-                result_type_oid,
-                filter,
-                distinct: has_distinct,
-                order_by,
-                numeric,
-            });
-        } else if plain_columns_only {
-            return Err(format!(
-                "DISTINCT on an expression is not pushed down, only plain columns are (target index {idx})"
-            ));
-        } else {
-            return Err(format!(
-                "GROUP BY on this expression is not pushed down, only plain columns and aggregates are (target index {idx})"
-            ));
+            if !group_exprs
+                .iter()
+                .any(|(known, _)| pg_sys::equal((*known).cast(), expr.cast()))
+            {
+                group_exprs.push((expr, (*sgc).tleSortGroupRef));
+            }
         }
     }
 
-    Ok(JoinAggregateTargetList {
-        group_columns,
-        aggregates,
+    for expr in target_exprs.iter_ptr() {
+        for var in find_nonaggregate_output_vars(expr.cast(), &group_exprs) {
+            if !group_exprs
+                .iter()
+                .any(|(known, _)| pg_sys::equal((*known).cast(), var.cast()))
+            {
+                group_exprs.push((var.cast(), 0));
+            }
+        }
+    }
+    if !(*parse).havingQual.is_null() {
+        for var in find_nonaggregate_output_vars((*parse).havingQual, &group_exprs) {
+            if !group_exprs
+                .iter()
+                .any(|(known, _)| pg_sys::equal((*known).cast(), var.cast()))
+            {
+                group_exprs.push((var.cast(), 0));
+            }
+        }
+    }
+
+    let mut aggrefs: Vec<(*mut pg_sys::Aggref, Option<usize>)> = Vec::new();
+    let mut collect = |expr: *mut pg_sys::Node, output_index: Option<usize>| {
+        for aggref in super::targetlist::find_aggrefs_in_expr(expr) {
+            if !aggrefs
+                .iter()
+                .any(|(known, _)| pg_sys::equal((*known).cast(), aggref.cast()))
+            {
+                aggrefs.push((aggref, output_index));
+            }
+        }
+    };
+    for (idx, expr) in target_exprs.iter_ptr().enumerate() {
+        collect(expr.cast(), Some(idx));
+    }
+    if !(*parse).havingQual.is_null() {
+        collect((*parse).havingQual, None);
+    }
+
+    let group_context = RawGroupColumnContext {
+        args,
+        sources,
+        plan,
+        outer_root_id,
+        clause,
+        plain_columns_only,
+    };
+    let mut group_columns = Vec::with_capacity(group_exprs.len());
+    for (raw_index, (expr, _)) in group_exprs.iter().enumerate() {
+        group_columns.push(extract_raw_group_column(&group_context, *expr, raw_index)?);
+    }
+    let mut aggregates = Vec::with_capacity(aggrefs.len());
+    for (offset, (aggref, output_index)) in aggrefs.iter().enumerate() {
+        aggregates.push(extract_raw_aggregate_entry(
+            *aggref,
+            sources,
+            plan,
+            outer_root_id,
+            group_columns.len() + offset,
+            output_index.and_then(|_| {
+                pdb_route
+                    .as_mut()
+                    .and_then(|route| route.take_request(*aggref))
+            }),
+        )?);
+    }
+
+    if group_columns.is_empty() && aggregates.is_empty() {
+        return Err(format!(
+            "{clause} target contains no supported grouping columns or aggregates"
+        ));
+    }
+    let mut scan_tlist = Vec::with_capacity(group_columns.len() + aggregates.len());
+    for (expr, sort_group_ref) in &group_exprs {
+        let resno = scan_tlist.len() as pg_sys::AttrNumber + 1;
+        let te = pg_sys::makeTargetEntry(
+            pg_sys::copyObjectImpl((*expr).cast()).cast::<pg_sys::Expr>(),
+            resno,
+            std::ptr::null_mut(),
+            false,
+        );
+        (*te).ressortgroupref = *sort_group_ref;
+        scan_tlist.push(te);
+    }
+    for (aggref, _) in &aggrefs {
+        let resno = scan_tlist.len() as pg_sys::AttrNumber + 1;
+        scan_tlist.push(pg_sys::makeTargetEntry(
+            pg_sys::copyObjectImpl((*aggref).cast()).cast::<pg_sys::Expr>(),
+            resno,
+            std::ptr::null_mut(),
+            false,
+        ));
+    }
+    Ok(ExtractedDataFusionTarget {
+        runtime: JoinAggregateTargetList {
+            group_columns,
+            aggregates,
+        },
+        scan_tlist,
+        group_exprs: group_exprs.into_iter().map(|(expr, _)| expr).collect(),
+        aggrefs: aggrefs.into_iter().map(|(aggref, _)| aggref).collect(),
     })
 }
 
-/// The `pdb.agg()` calls of the grouping output, lowered to decide the route, by
-/// target-list index. Their plan positions are assigned once the plan tree exists.
+struct RawGroupColumnContext<'a> {
+    args: &'a CreateUpperPathsHookArgs,
+    sources: &'a [JoinAggSource],
+    plan: &'a crate::postgres::customscan::joinscan::build::RelNode,
+    outer_root_id: crate::postgres::customscan::joinscan::build::PlannerRootId,
+    clause: &'a str,
+    plain_columns_only: bool,
+}
+
+unsafe fn extract_raw_group_column(
+    context: &RawGroupColumnContext<'_>,
+    expr: *mut pg_sys::Node,
+    output_index: usize,
+) -> Result<JoinGroupColumn, String> {
+    let mut node = expr;
+    let mut transform = GroupingTransform::Identity;
+    if !context.plain_columns_only
+        && let Some(var) = extract_timestamp_to_date_var(node)?
+    {
+        node = var.cast();
+        transform = GroupingTransform::TimestampToDate;
+    }
+    let (attno, field_name, plan_position, numeric_source) = if (*node).type_
+        == pg_sys::NodeTag::T_Var
+    {
+        let var = node.cast::<pg_sys::Var>();
+        let rti = (*var).varno as pg_sys::Index;
+        let attno = (*var).varattno;
+        if let Some(unnest) = context.plan.find_lateral_unnest(rti) {
+            let source = find_source_by_rti(context.sources, unnest.source_rti.0, context.clause)?;
+            let plan_position = context.plan.plan_position(context.outer_root_id, unnest.source_rti.0, unnest.source_attno)
+                .ok_or_else(|| format!("GROUP BY unnest column (RTI={rti}) does not resolve to a unique output-visible source in the plan tree"))?;
+            (
+                unnest.source_attno,
+                unnest.field_name.clone(),
+                plan_position,
+                Some(source),
+            )
+        } else {
+            let source = find_source_by_rti(context.sources, rti, context.clause)?;
+            let field_name = source.column_name(attno).ok_or_else(|| {
+                let alias =
+                    RelationAlias::new(source.alias.as_deref()).display(source.rti as usize);
+                format!(
+                    "{} column {} is not columnar indexed",
+                    context.clause,
+                    get_attname_safe(Some(source.relid), attno, &alias)
+                )
+            })?;
+            let plan_position = context.plan.plan_position(context.outer_root_id, rti, attno)
+                .ok_or_else(|| format!("GROUP BY column (RTI={rti}, attno={attno}) does not resolve to a unique output-visible source in the plan tree"))?;
+            (attno, field_name, plan_position, Some(source))
+        }
+    } else if !context.plain_columns_only {
+        let (var, field_name) = find_one_var_and_fieldname(
+            VarContext::from_planner(context.args.root),
+            expr,
+        )
+        .ok_or_else(|| {
+            "GROUP BY on this expression is not pushed down, only supported indexed expressions are"
+                .to_string()
+        })?;
+        let rti = (*var).varno as pg_sys::Index;
+        let attno = (*var).varattno;
+        let plan_position = context.plan.plan_position(context.outer_root_id, rti, attno)
+            .ok_or_else(|| format!("GROUP BY expression at RTI {rti} (attno={attno}) does not resolve to a unique output-visible source in the plan tree"))?;
+        (
+            attno,
+            field_name.into_inner(),
+            plan_position,
+            find_source_by_rti(context.sources, rti, "GROUP BY expression").ok(),
+        )
+    } else {
+        return Err("DISTINCT on an expression is not pushed down, only plain columns are".into());
+    };
+    let numeric_scale = numeric_source
+        .and_then(|source| source.bm25_index.as_ref())
+        .and_then(|index| index.schema().ok())
+        .and_then(|schema| schema.numeric_field_type(&field_name))
+        .map(|(_, scale)| scale.ok_or_else(|| format!("{} column {field_name} is an unbounded NUMERIC; declare a precision and scale to enable aggregate pushdown", context.clause)))
+        .transpose()?;
+    Ok(JoinGroupColumn {
+        plan_position,
+        attno,
+        field_name,
+        output_index,
+        numeric_scale,
+        transform,
+    })
+}
+
+unsafe fn extract_raw_aggregate_entry(
+    aggref: *mut pg_sys::Aggref,
+    sources: &[JoinAggSource],
+    plan: &crate::postgres::customscan::joinscan::build::RelNode,
+    outer_root_id: crate::postgres::customscan::joinscan::build::PlannerRootId,
+    output_index: usize,
+    pdb_request: Option<PdbAggRequest>,
+) -> Result<JoinAggregateEntry, String> {
+    let aggfnoid = (*aggref).aggfnoid.to_u32();
+    let has_distinct = !(*aggref).aggdistinct.is_null();
+    let filter = (!(*aggref).aggfilter.is_null())
+        .then(|| {
+            FilterExpr::from_pg_node(
+                (*aggref).aggfilter as *mut pg_sys::Node,
+                &FilterExprBuildContext::Filter {
+                    sources,
+                    plan,
+                    outer_root_id,
+                },
+            )
+            .ok_or_else(|| {
+                "aggregate FILTER cannot be translated for aggregate-on-join".to_string()
+            })
+        })
+        .transpose()?;
+    if crate::api::is_agg_funcoid(aggfnoid) {
+        if has_distinct || !(*aggref).aggorder.is_null() {
+            return Err("pdb.agg() does not accept DISTINCT or ORDER BY".into());
+        }
+        let mut request = pdb_request.unwrap_or(lower_pdb_agg(aggref, sources)?);
+        request.assign_plan_positions(|field| {
+            plan.plan_position(outer_root_id, field.rti, field.attno)
+        })?;
+        return Ok(JoinAggregateEntry {
+            func_oid: aggfnoid,
+            agg_kind: AggKind::PdbAgg(Box::new(request)),
+            field_refs: Vec::new(),
+            output_index,
+            result_type_oid: (*aggref).aggtype,
+            filter,
+            distinct: false,
+            order_by: Vec::new(),
+            numeric: None,
+        });
+    }
+    let mut agg_kind = classify_aggregate_oid(aggfnoid, (*aggref).aggstar, has_distinct)
+        .ok_or_else(|| {
+            crate::postgres::catalog::lookup_fully_qualified_func_name(pg_sys::Oid::from(aggfnoid))
+                .map(|name| format!("unsupported aggregate function: {name}"))
+                .unwrap_or_else(|| format!("unsupported aggregate function OID: {aggfnoid}"))
+        })?;
+    let is_string_agg = matches!(agg_kind, AggKind::StringAgg(_));
+    if is_string_agg {
+        agg_kind =
+            AggKind::StringAgg(extract_string_agg_separator(aggref).unwrap_or_else(|| ",".into()));
+    }
+    let field_refs =
+        extract_aggref_field_refs(aggref, sources, is_string_agg, plan, outer_root_id)?;
+    let order_by = extract_aggref_order_by(aggref, sources, plan, outer_root_id)?;
+    let numeric = numeric_agg_field_type(&agg_kind, &field_refs, has_distinct)?;
+    Ok(JoinAggregateEntry {
+        func_oid: aggfnoid,
+        agg_kind,
+        field_refs,
+        output_index,
+        result_type_oid: (*aggref).aggtype,
+        filter,
+        distinct: has_distinct,
+        order_by,
+        numeric,
+    })
+}
+
+/// The `pdb.agg()` calls of the grouping output, lowered to decide the route.
+///
+/// One visible target expression can contain multiple aggregate calls, so each
+/// request is associated with its complete `Aggref`, not a target-list index.
 pub struct PdbAggRoute {
-    pub requests: HashMap<usize, PdbAggRequest>,
+    requests: Vec<(*mut pg_sys::Aggref, PdbAggRequest)>,
 }
 
 impl PdbAggRoute {
@@ -671,9 +798,24 @@ impl PdbAggRoute {
     /// aggregate.
     pub fn references_numeric(&self) -> bool {
         self.requests
-            .values()
-            .flat_map(PdbAggRequest::fields)
+            .iter()
+            .flat_map(|(_, request)| request.fields())
             .any(|field| field.field_type.is_numeric())
+    }
+
+    /// Take the pre-lowered request for this aggregate expression.
+    ///
+    /// The route is planner-only and this is consumed exactly once while the
+    /// runtime target list is built. Structural equality also covers copied
+    /// planner nodes without relying on pointer identity.
+    unsafe fn take_request(&mut self, aggref: *mut pg_sys::Aggref) -> Option<PdbAggRequest> {
+        let index = self.requests.iter().position(|(known, _)| {
+            pg_sys::equal(
+                (*known).cast::<core::ffi::c_void>(),
+                aggref.cast::<core::ffi::c_void>(),
+            )
+        })?;
+        Some(self.requests.swap_remove(index).1)
     }
 }
 
@@ -687,15 +829,20 @@ pub unsafe fn pdb_agg_route(
     shape: GroupingShape,
 ) -> Option<PdbAggRoute> {
     let sources = collect_join_agg_sources(root, input_rel);
-    let mut requests = HashMap::default();
-    for (idx, expr) in shape.target_exprs().iter_ptr().enumerate() {
-        let Some(aggref) = find_one_aggref(expr as *mut pg_sys::Node) else {
-            continue;
-        };
-        if !crate::api::is_agg_funcoid((*aggref).aggfnoid.to_u32()) {
-            continue;
+    let mut requests: Vec<(*mut pg_sys::Aggref, PdbAggRequest)> = Vec::new();
+    for expr in shape.target_exprs().iter_ptr() {
+        for aggref in super::targetlist::find_aggrefs_in_expr(expr.cast()) {
+            if crate::api::is_agg_funcoid((*aggref).aggfnoid.to_u32())
+                && !requests.iter().any(|(known, _)| {
+                    pg_sys::equal(
+                        (*known).cast::<core::ffi::c_void>(),
+                        aggref.cast::<core::ffi::c_void>(),
+                    )
+                })
+            {
+                requests.push((aggref, lower_pdb_agg(aggref, &sources).ok()?));
+            }
         }
-        requests.insert(idx, lower_pdb_agg(aggref, &sources).ok()?);
     }
     Some(PdbAggRoute { requests })
 }

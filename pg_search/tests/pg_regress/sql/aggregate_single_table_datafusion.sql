@@ -32,7 +32,15 @@ INSERT INTO df_fallback_products (description, category, price, rating) VALUES
     ('Book novel read', 'Books', 14.99, 5),
     ('Pen ballpoint write', 'Office', 2.99, 3),
     ('Desk wooden sit', 'Furniture', 399.99, 4),
-    ('Lamp bright light', 'Lighting', 59.99, 4);
+    ('Lamp bright light', 'Lighting', 59.99, 4),
+    ('Garden hose green', 'Garden', 19.99, NULL),
+    ('Garden gloves thick', 'Garden', 9.99, NULL);
+
+-- One row per group makes the functionally-dependent output case explicit;
+-- the large text expression exercises per-tuple projection allocation.
+INSERT INTO df_fallback_products (description, category, price, rating)
+SELECT 'Memory projection row ' || g, 'Memory', g, 1
+FROM generate_series(1, 2048) g;
 
 CREATE INDEX df_fallback_products_idx ON df_fallback_products
 USING paradedb (id, description, category, price, rating)
@@ -98,7 +106,98 @@ WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphone
 GROUP BY category
 ORDER BY category;
 
--- Test 2.4: Scalar aggregate (no GROUP BY) stays on Tantivy — it produces a
+-- Test 2.4: PostgreSQL evaluates wrappers and multi-aggregate expressions
+-- over the flat DataFusion tuple.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, COUNT(*), COUNT(*) * 2, COUNT(*)::numeric, COUNT(*) / 2.0
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes'
+GROUP BY category
+ORDER BY 2 DESC
+LIMIT 2;
+
+SELECT category, COUNT(*), COUNT(*) * 2, COUNT(*)::numeric, COUNT(*) / 2.0
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes'
+GROUP BY category
+ORDER BY 2 DESC
+LIMIT 2;
+
+SELECT SUM(rating) + COUNT(*) AS combined,
+       SUM(rating)::text || ':' || category AS labeled
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes'
+GROUP BY category
+ORDER BY category;
+
+-- Test 2.5: NULL, casts and COALESCE remain PostgreSQL expressions.
+SELECT category, COUNT(rating), MAX(rating)::text, COALESCE(SUM(rating), 0),
+       COUNT(rating) * 2, AVG(rating)::numeric(4, 2)
+FROM df_fallback_products
+WHERE description @@@ 'garden OR laptop'
+GROUP BY category
+ORDER BY 2 DESC;
+
+-- Test 2.6: HAVING identifies filtered aggregates by complete Aggref identity.
+-- The output and HAVING contain the same two COUNT(*) calls, but the HAVING
+-- predicate must refer to the second filter rather than the first one.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category,
+       COUNT(*) FILTER (WHERE rating >= 4) + COUNT(*) FILTER (WHERE rating <= 3) AS rated
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+GROUP BY category
+HAVING COUNT(*) FILTER (WHERE rating <= 3) > 0
+ORDER BY category;
+
+SELECT category,
+       COUNT(*) FILTER (WHERE rating >= 4) + COUNT(*) FILTER (WHERE rating <= 3) AS rated
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+GROUP BY category
+HAVING COUNT(*) FILTER (WHERE rating <= 3) > 0
+ORDER BY category;
+
+-- Test 2.7: category is functionally dependent on the grouped primary key.
+-- It must be a real raw grouping input, never an uninitialised resjunk slot.
+DO $$
+DECLARE
+    plan text := '';
+    line text;
+BEGIN
+    FOR line IN EXECUTE $explain$
+        EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+        SELECT id, category, upper(category),
+               repeat(category, 1024) || ':' || COUNT(*)::text AS label
+        FROM df_fallback_products
+        WHERE description @@@ 'memory'
+        GROUP BY id
+    $explain$
+    LOOP
+        plan := plan || E'\n' || line;
+    END LOOP;
+    IF plan NOT LIKE '%Custom Scan (ParadeDB Aggregate Scan)%'
+       OR plan NOT LIKE '%Backend: DataFusion%'
+    THEN
+        RAISE EXCEPTION 'expected functionally dependent output on DataFusion: %', plan;
+    END IF;
+END
+$$;
+
+SELECT COUNT(*) AS groups,
+       BOOL_AND(category = 'Memory') AS categories_ok,
+       BOOL_AND(upper_category = 'MEMORY') AS wrappers_ok,
+       MIN(octet_length(label)) AS min_label_bytes,
+       MAX(octet_length(label)) AS max_label_bytes
+FROM (
+    SELECT id, category, upper(category) AS upper_category,
+           repeat(category, 1024) || ':' || COUNT(*)::text AS label
+    FROM df_fallback_products
+    WHERE description @@@ 'memory'
+    GROUP BY id
+) projected_groups;
+
+-- Test 2.8: Scalar aggregate (no GROUP BY) stays on Tantivy — it produces a
 -- single row and cannot truncate, so the bucket cap is irrelevant.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), SUM(price)

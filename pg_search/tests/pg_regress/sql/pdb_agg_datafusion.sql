@@ -443,7 +443,27 @@ WHERE description @@@ 'laptop OR shoes'
 GROUP BY category
 ORDER BY category;
 
--- Test 4.5: a spec written for a join keeps working when the planner reduces
+-- Test 4.5: every nested pdb.agg() participates in routing. The first request
+-- is Tantivy-compatible, but the second reads NUMERIC and must route the whole
+-- expression to DataFusion.
+EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category,
+       pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}')
+       || pdb.agg('{"sum": {"field": "price_num"}}') AS combined
+FROM pa_products
+WHERE description @@@ 'laptop OR shoes'
+GROUP BY category
+ORDER BY category;
+
+SELECT category,
+       pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}')
+       || pdb.agg('{"sum": {"field": "price_num"}}') AS combined
+FROM pa_products
+WHERE description @@@ 'laptop OR shoes'
+GROUP BY category
+ORDER BY category;
+
+-- Test 4.6: a spec written for a join keeps working when the planner reduces
 -- the join to one table, so the alias qualifier is accepted there too
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT pdb.agg('{"terms": {"field": "p.category", "order": {"_key": "asc"}}}')
@@ -454,7 +474,7 @@ SELECT pdb.agg('{"terms": {"field": "p.category", "order": {"_key": "asc"}}}')
 FROM pa_products p LEFT JOIN pa_tags t ON p.id = t.id
 WHERE p.description @@@ 'laptop OR shoes';
 
--- Test 4.6: the same reduced join on the NUMERIC route, which rebuilds the
+-- Test 4.7: the same reduced join on the NUMERIC route, which rebuilds the
 -- join tree from the parse tree and has to skip the removed side
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT pdb.agg('{"sum": {"field": "p.price_num"}}')

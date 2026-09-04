@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788534698601,
+  "lastUpdate": 1788545218200,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -158258,6 +158258,66 @@ window.BENCHMARK_DATA = {
             "value": 20.693725219905073,
             "unit": "median tps",
             "extra": "avg tps: 20.609500993567295, max tps: 34.05696088009726, count: 59303"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "17972943855cca91ca275cfbd10a4c5301214c51",
+          "message": "feat: partition a partition_by index built CONCURRENTLY (#6146)\n\n## Ticket(s) Closed\n\n- Closes #6170. Follow-up to #5735, which left this open.\n\n## What\n\nAn index with `partition_by` built by `CREATE INDEX CONCURRENTLY` or\n`REINDEX CONCURRENTLY` now cuts its partitions during the scan, the way\na plain build does.\n\n## Why\n\nA `partition_by` build routes each row into a kd-tree partition and\nstamps every segment with its box. A concurrent build skipped that\nplanning, so a concurrently built index recorded no boundaries and\n`enable_range_partitioned_join` got nothing to cut on. The only fix was\na blocking `REINDEX`.\n\nThe reason the build was ruled out: its phase 2 re-reads rows by ctid\nafter the scan, and with writers still running, a chain's live tail can\nbe a version the build's snapshot never saw.\n\nThat is a property of the fetch, not of the build. Phase 1 of a\nconcurrent build is a plain MVCC scan under a registered snapshot, and\nvisibility to a registered snapshot does not change. So phase 2\nreproduces phase 1's row choice by resolving each HOT chain under that\nsame snapshot.\n\nRows that arrive later stay unrouted, including the ones\n`validate_index` adds in the last phase of a concurrent build. That is\nM3 in the design: only the largest levels get partitioned, and lower\nmerges route by the largest level's boxes, as in Spooky.\n\n## How\n\n`do_build` registers the scan's snapshot. The scan drops its own at\n`table_endscan`, and a parallel worker's snapshot is `SO_TEMP_SNAPSHOT`,\nso the registration is what keeps it alive for the drain.\n`drain_partitioned` pushes it as active and fetches query-visible\ninstead of maintenance-visible. `HeapDocFetcher` had both modes already.\nA plain build keeps the maintenance one, which must index every live\nrow.\n\nThe serial path takes the snapshot from `build_index`. The parallel path\nreads it off the shared scan descriptor.\n\nEvery `partition_by` dimension needs a fast column in raw order, because\na partition's range query runs on the fast column and a box holds only\nwhere the raw order does. `CREATE INDEX` and `REINDEX` refuse a\ndimension without one, and a utility hook refuses an `ALTER INDEX` that\nchanges `partition_by` (clearing it remains allowed).\n\n## Tests\n\n`partitioned_build_concurrently` (pg_regress): two `CREATE INDEX\nCONCURRENTLY` indexes record split points, and a range-partitioned join\nover them matches the serial baseline.\n\n`#[pg_test]`s in `build.rs`: a key with an unroutable dimension fails\n`CREATE INDEX`. Changing `partition_by` by `ALTER INDEX` fails, and\nclearing it works.\n\n`partitioned_build_concurrent_writes` (integration test): two backends,\none building `CONCURRENTLY` while the other updates, inserts and deletes\nunder it. Both check that the index holds exactly the table's rows, with\ncontents that agree with the heap. They run on PG 17 and newer: on 15\nand 16 a `CONCURRENTLY` build under a writer fails on a leaked buffer\npin, which #6208 tracks and which predates this PR (it reproduces on\n`main` with no `partition_by` at all).\n\n## Open\n\n- The concurrency test does not discriminate the fetch mode. It still\npasses with the drain reading in maintenance mode, so I could not build\na case where the old mode is observably wrong. HOT's invariant, that\nchain members agree on indexed columns, looks like the reason. The\nquery-visible fetch keeps the drain's contract equal to the scan's,\nwhich is easier to reason about, but treat it as belt and braces rather\nthan a demonstrated fix.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-09-04T10:48:18-07:00",
+          "tree_id": "a350589116aa50bb4a976fb93049c4f866575a29",
+          "url": "https://github.com/paradedb/paradedb/commit/17972943855cca91ca275cfbd10a4c5301214c51"
+        },
+        "date": 1788545205611,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 75.14892272904463,
+            "unit": "median tps",
+            "extra": "avg tps: 74.85626043389918, max tps: 81.24321248875101, count: 59307"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 237.03614782252637,
+            "unit": "median tps",
+            "extra": "avg tps: 300.491472259594, max tps: 5885.816384577975, count: 59307"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 724.9539331269011,
+            "unit": "median tps",
+            "extra": "avg tps: 708.0765757296579, max tps: 1109.8504921230308, count: 59307"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 172.49506203306416,
+            "unit": "median tps",
+            "extra": "avg tps: 170.8948447527287, max tps: 189.33637983457504, count: 59307"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 216.40969977450038,
+            "unit": "median tps",
+            "extra": "avg tps: 215.36444149648918, max tps: 1684.3162574072355, count: 118614"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.460469090953264,
+            "unit": "median tps",
+            "extra": "avg tps: 19.54596260939194, max tps: 34.39340692146678, count: 59307"
           }
         ]
       }

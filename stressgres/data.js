@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788503476611,
+  "lastUpdate": 1788503485138,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -305476,6 +305476,42 @@ window.BENCHMARK_DATA = {
             "value": 10.364970767144463,
             "unit": "median tps",
             "extra": "avg tps: 8.998745265553547, max tps: 12.244586813343632, count: 59422"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c74bcde7bf6f6e44516d81f18350f2725d14fd5f",
+          "message": "feat: Add support for non-equi JOINs in the join and aggregate scan (#6196)\n\n## What\n\nAdds support for pushing down non-equi join conditions (e.g. `<`, `<=`,\n`>`, `>=`, `<>`) and mixed equi/non-equi joins to DataFusion.\n\nImproves expression deparsing during planning and `EXPLAIN` in order to\nbetter render join conditions.\n\n## Why\n\nThe Postgres optimizer frequently produces non-equi joins in #6149 while\nreorganizing joins in property tests. To avoid users encountering\nplanning failures non-deterministically based on estimate changes, it\nwas easiest to extend support.\n\n## How\n\n- `pg_search/src/postgres/customscan/joinscan/predicate.rs`: Absorbs\ntranslatable non-equi conditions into join-level filters\n(`JoinLevelExpr::PgExpression`), respecting outer join ON vs WHERE\nclause semantics.\n- `pg_search/src/postgres/customscan/aggregatescan/`: Recursively\nhandles non-equi joins in aggregate pushdown planning.\n- `pg_search/src/postgres/deparse.rs` &\n`pg_search/src/postgres/customscan/explainer.rs`: Added\n`deparse_planner_expr` using `PlannerInfo` range table contexts for\nreadable multi-relation expression deparsing.\n\n## Tests\n\nAdded regression tests. Additional property test coverage is provided by\nthe changes in https://github.com/paradedb/paradedb/pull/6149.",
+          "timestamp": "2026-09-03T23:12:12-07:00",
+          "tree_id": "1f536f91fd3793c3b54f93cb2ffeefa3337100af",
+          "url": "https://github.com/paradedb/paradedb/commit/c74bcde7bf6f6e44516d81f18350f2725d14fd5f"
+        },
+        "date": 1788503458422,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 7.49233942796674,
+            "unit": "median tps",
+            "extra": "avg tps: 6.981752932261848, max tps: 7.87669544172524, count: 59409"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 10.534829431304061,
+            "unit": "median tps",
+            "extra": "avg tps: 9.135670294449307, max tps: 12.415462299257621, count: 59409"
           }
         ]
       }

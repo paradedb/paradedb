@@ -57,13 +57,8 @@ use pgrx::{
 use std::ffi::CString;
 use std::num::NonZeroUsize;
 use std::os::raw::c_int;
-<<<<<<< HEAD
 use std::ptr::{addr_of_mut, NonNull};
-use std::sync::{Arc, OnceLock};
-=======
-use std::ptr::{NonNull, addr_of_mut};
 use std::sync::OnceLock;
->>>>>>> 17972943 (feat: partition a partition_by index built CONCURRENTLY (#6146))
 use std::time::Instant;
 use tantivy::index::SegmentId;
 use tantivy::{SegmentMeta, TantivyDocument};

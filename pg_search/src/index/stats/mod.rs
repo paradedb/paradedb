@@ -46,11 +46,7 @@ mod pruning;
 mod tests;
 
 use plugin::stats_component;
-<<<<<<< HEAD
-pub(crate) use plugin::{register, StatsWriter};
-=======
-pub(crate) use plugin::{StatsWriter, logical_bounds_hold, register};
->>>>>>> 17972943 (feat: partition a partition_by index built CONCURRENTLY (#6146))
+pub(crate) use plugin::{logical_bounds_hold, register, StatsWriter};
 pub(crate) use pruning::{persisted_split_points, segments_for_partition};
 
 const EMPIRICAL_IDX: usize = 0;

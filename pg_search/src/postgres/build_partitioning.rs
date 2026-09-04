@@ -27,18 +27,14 @@
 //! only describe marginals, while a recursive split needs the joint distribution of the
 //! `partition_by` fields.
 
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use std::ptr::addr_of_mut;
 
 use pgrx::itemptr::item_pointer_set_all;
 use pgrx::{check_for_interrupts, pg_sys, PgMemoryContexts};
 use rand::rngs::StdRng;
-<<<<<<< HEAD
 use rand::{Rng, SeedableRng};
-=======
-use rand::{RngExt, SeedableRng};
 use tantivy::schema::{Field, FieldType, Schema};
->>>>>>> 17972943 (feat: partition a partition_by index built CONCURRENTLY (#6146))
 
 use crate::api::version::Version;
 use crate::api::FieldName;

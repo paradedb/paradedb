@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788534586019,
+  "lastUpdate": 1788534594646,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -337066,6 +337066,108 @@ window.BENCHMARK_DATA = {
             "value": 47.41796875,
             "unit": "median mem",
             "extra": "avg mem: 45.99116076100533, max mem: 56.81640625, count: 59244"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e51119bce84539e25abad25423be5aeb4b6b6c37",
+          "message": "feat: Support `JOIN LATERAL unnest` pushdown in the join and aggregate scans (#6149)\n\n## What\n\nAdds support for `JOIN LATERAL unnest` over array fast fields in the\njoin and aggregate scans.\n\n## Why\n\nQueries combining multi-table joins with `[CROSS|LEFT] JOIN LATERAL\nunnest(...)` over indexed array fast fields previously had multiple\nissues:\n- `ORDER BY` on unnested columns was declined or double-prefixed.\n- `WHERE` on unnested columns omitted from the `SELECT` list failed\nduring plan execution.\n- Inner and cross joins were erroneously classified as left joins in\nsome cases.\n- Datetime and timestamp array fast fields produced schema mismatches\nwhen constructing `RecordBatch`es.\n\n## How\n\n- Extended `JoinScan` planning to include lateral `unnest` function RTIs\nin `output_rtis`, enabling pathkey matching for unnested columns.\n- Added `lateral_unnests` to `CombinedMapper` and populated\n`custom_scan_tlist` with predicate `Var`s via `add_vars_to_tlist` so\nPostgres planner setrefs resolves unprojected filter columns.\n- Corrected left-join classification in `JoinScan` planning by removing\nthe invalid `joininfo.is_null()` check.\n- Updated `fetch_array_values_or_ords_to_arrow` in\n`pg_search/src/index/fast_fields_helper.rs` to use\n`TimestampMicrosecondBuilder` for datetime/timestamp `I64` fields, and\ndeduplicated array fetching across types via `fetch_list_array`.\n- Unified `RelNode::Unnest` DataFusion lowering via\n`apply_relnode_unnest` across `JoinScan` and `AggregateScan`.\n\n## Tests\n\nNew regress tests in\n`pg_search/tests/pg_regress/sql/join_lateral_unnest.sql`, and new\nproperty tests.",
+          "timestamp": "2026-09-04T07:32:37-07:00",
+          "tree_id": "b82ffcb2c7c516bec019a2e40e276d7ab8909d7e",
+          "url": "https://github.com/paradedb/paradedb/commit/e51119bce84539e25abad25423be5aeb4b6b6c37"
+        },
+        "date": 1788534590613,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.617066565425162, max cpu: 4.740741, count: 59236"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 17.35546875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.343366404614592, max mem: 17.35546875, count: 59236"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.6806436,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.654775263456437, max cpu: 4.78803, count: 59236"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 17.22265625,
+            "unit": "median mem",
+            "extra": "avg mem: 17.21183314939395, max mem: 17.22265625, count: 59236"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.370424,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.501112143487102, max cpu: 28.528973, count: 59236"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 17.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.681017191825916, max mem: 17.85546875, count: 59236"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.9068978324, max document_count: 10002.0, count: 59236"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.907556215814, max document_count: 10002.0, count: 59236"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59236"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.595642,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.709581723271707, max cpu: 33.022114, count: 59236"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 47.2578125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.73245662740985, max mem: 56.2109375, count: 59236"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.602534215561192, max cpu: 32.860634, count: 59236"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 47.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 45.63087816899774, max mem: 56.67578125, count: 59236"
           }
         ]
       }

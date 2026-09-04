@@ -1398,15 +1398,16 @@ impl AggregateScan {
                         }
 
                         // Check if this is a supported lateral unnest
-                        if let Some(unnest_info) = (unsafe {
+                        if let Some(unnest_info) = unsafe {
                             crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest_from_rte(
                                 root,
                                 rti,
                                 rte_ptr,
                             )
-                        }) && sources.iter().any(|s| s.rti == unnest_info.source_rti.0)
-                        {
-                            continue;
+                        } {
+                            if sources.iter().any(|s| s.rti == unnest_info.source_rti.0) {
+                                continue;
+                            }
                         }
 
                         // Silent decline for subqueries with limits, as they are

@@ -1509,12 +1509,8 @@ impl RelNode {
 
                 false
             }
-<<<<<<< HEAD
-            RelNode::Filter(ref mut filter) => filter.input.inject_single_equi_key(key),
-=======
             RelNode::Filter(filter) => filter.input.inject_single_equi_key(key),
             RelNode::Unnest(unnest) => unnest.input.inject_single_equi_key(key),
->>>>>>> e51119bc (feat: Support `JOIN LATERAL unnest` pushdown in the join and aggregate scans (#6149))
             RelNode::Scan(_) => false,
         }
     }

@@ -16,14 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::AsCStr;
-<<<<<<< HEAD
-use crate::postgres::customscan::joinscan::build::{ChildProjection, JoinCSClause};
-=======
 use crate::postgres::customscan::joinscan::build::{
     ChildProjection, FunctionRti, JoinCSClause, SourceRti,
 };
-use pgrx::PgList;
->>>>>>> e51119bc (feat: Support `JOIN LATERAL unnest` pushdown in the join and aggregate scans (#6149))
 use pgrx::pg_sys;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::PgList;

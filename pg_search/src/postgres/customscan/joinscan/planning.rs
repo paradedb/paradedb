@@ -31,11 +31,8 @@ use super::predicate::{
     all_vars_are_fast_fields_recursive, find_base_info_recursive, resolve_join_conditions,
 };
 use super::privdat::{OutputColumnInfo, PrivateData};
-<<<<<<< HEAD
 use super::JoinDeclineReason;
-=======
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
->>>>>>> e51119bc (feat: Support `JOIN LATERAL unnest` pushdown in the join and aggregate scans (#6149))
 
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::version::VersionInfo;
@@ -1363,9 +1360,10 @@ unsafe fn extract_join_conditions_from_list(
                         crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest_from_rte(
                             root, rti, rte_ptr,
                         )
-                        && sources.iter().any(|s| s.contains_rti(unnest_info.source_rti.0))
                     {
-                        continue;
+                        if sources.iter().any(|s| s.contains_rti(unnest_info.source_rti.0)) {
+                            continue;
+                        }
                     }
                 }
                 all_in_valid_rtis = false;
@@ -1615,10 +1613,12 @@ pub(super) unsafe fn collect_required_fields(
                                         .then_some(())
                                 })
                                 .is_some();
-                            if !added && let Err(e) = ensure_expression_field(source, field_name) {
-                                pgrx::warning!(
-                                    "JoinScan: failed to project expression field '{field_name}': {e}"
-                                );
+                            if !added {
+                                if let Err(e) = ensure_expression_field(source, field_name) {
+                                    pgrx::warning!(
+                                        "JoinScan: failed to project expression field '{field_name}': {e}"
+                                    );
+                                }
                             }
                             break;
                         }
@@ -1691,13 +1691,13 @@ unsafe fn ensure_array_field(side: &mut JoinSource, attno: pg_sys::AttrNumber, f
         return;
     }
     let indexrel = PgSearchRelation::open(side.scan_info.indexrelid);
-    if let Ok(schema) = crate::schema::SearchIndexSchema::open(&indexrel)
-        && let Some(search_field) = schema.search_field(field_name)
-    {
-        side.scan_info.add_field(
-            attno,
-            WhichFastField::Array(field_name.to_string(), search_field.field_type()),
-        );
+    if let Ok(schema) = crate::schema::SearchIndexSchema::open(&indexrel) {
+        if let Some(search_field) = schema.search_field(field_name) {
+            side.scan_info.add_field(
+                attno,
+                WhichFastField::Array(field_name.to_string(), search_field.field_type()),
+            );
+        }
     }
 }
 
@@ -1879,9 +1879,10 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                     crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(
                         root, varno,
                     )
-                    && source_rtis.contains(&unnest_info.source_rti.0)
                 {
-                    continue 'pathkey;
+                    if source_rtis.contains(&unnest_info.source_rti.0) {
+                        continue 'pathkey;
+                    }
                 }
 
                 if !source_rtis.contains(&varno) {
@@ -2489,18 +2490,20 @@ impl JoinSortExprKind {
                 crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(
                     root, varno,
                 )
-                && let Some(_source) = sources
+            {
+                if let Some(_source) = sources
                     .iter()
                     .find(|s| s.contains_rti(unnest_info.source_rti.0))
-            {
-                return Self::Resolved(OrderByInfo {
-                    feature: OrderByFeature::Var {
-                        rti: varno,
-                        attno: varattno,
-                        name: Some(unnest_info.field_name.clone()),
-                    },
-                    direction,
-                });
+                {
+                    return Self::Resolved(OrderByInfo {
+                        feature: OrderByFeature::Var {
+                            rti: varno,
+                            attno: varattno,
+                            name: Some(unnest_info.field_name.clone()),
+                        },
+                        direction,
+                    });
+                }
             }
 
             for source in sources {

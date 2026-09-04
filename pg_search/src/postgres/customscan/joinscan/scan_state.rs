@@ -52,15 +52,9 @@ use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::datafusion::translator::{
-<<<<<<< HEAD
-    apply_join_level_filter, build_join_df_with_filter, make_col, make_source_col,
-    make_source_score_col, translate_pg_node_string, ColumnMapper, CombinedMapper,
-    PredicateTranslator,
-=======
-    ColumnMapper, CombinedMapper, PredicateTranslator, apply_join_level_filter,
-    apply_relnode_unnest, build_join_df_with_filter, make_col, make_source_col,
-    make_source_score_col, make_source_unnested_col, translate_pg_node_string,
->>>>>>> e51119bc (feat: Support `JOIN LATERAL unnest` pushdown in the join and aggregate scans (#6149))
+    apply_join_level_filter, apply_relnode_unnest, build_join_df_with_filter, make_col,
+    make_source_col, make_source_score_col, make_source_unnested_col, translate_pg_node_string,
+    ColumnMapper, CombinedMapper, PredicateTranslator,
 };
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, PrivateData, SCORE_COL_NAME,
@@ -1185,14 +1179,14 @@ fn build_source_df<'a>(
         if join_clause.has_distinct {
             if let Some(projections) = &join_clause.output_projection {
                 for proj in projections {
-                    if let build::ChildProjection::IndexedExpression { rti, field_name } = proj
-                        && source.contains_rti(*rti)
-                    {
-                        insert_field_name_required_early(
-                            source,
-                            field_name.as_ref(),
-                            &mut required_early,
-                        );
+                    if let build::ChildProjection::IndexedExpression { rti, field_name } = proj {
+                        if source.contains_rti(*rti) {
+                            insert_field_name_required_early(
+                                source,
+                                field_name.as_ref(),
+                                &mut required_early,
+                            );
+                        }
                     }
                 }
             }

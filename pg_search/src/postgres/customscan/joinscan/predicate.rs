@@ -657,14 +657,17 @@ pub unsafe fn all_vars_are_fast_fields_recursive(
                 break;
             }
         }
-        if !source_found
-            && let Some(plan) = plan
-            && let Some(unnest_info) = plan.find_lateral_unnest(var_ref.rti)
-            && sources
-                .iter()
-                .any(|s| s.contains_rti(unnest_info.source_rti.0))
-        {
-            source_found = true;
+        if !source_found {
+            if let Some(plan) = plan {
+                if let Some(unnest_info) = plan.find_lateral_unnest(var_ref.rti) {
+                    if sources
+                        .iter()
+                        .any(|s| s.contains_rti(unnest_info.source_rti.0))
+                    {
+                        source_found = true;
+                    }
+                }
+            }
         }
         if !source_found {
             return false;

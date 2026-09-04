@@ -25,12 +25,8 @@ use tests::fixtures::querygen::pdbagggen::{arb_pdb_agg_join, arb_pdb_agg_single_
 use tests::fixtures::querygen::wheregen::arb_wheres;
 use tests::fixtures::querygen::wheregen::Expr as WhereExpr;
 use tests::fixtures::querygen::{
-<<<<<<< HEAD
-    arb_joins_and_wheres, compare, compare_on, generated_queries_setup, Column, PgGucs, Sides,
-=======
-    Column, IndexExpression, PgGucs, Sides, arb_joins_and_wheres, compare_outcome_retrying,
-    compare_outcome_retrying_on, generated_queries_setup,
->>>>>>> e51119bc (feat: Support `JOIN LATERAL unnest` pushdown in the join and aggregate scans (#6149))
+    arb_joins_and_wheres, compare, compare_on, generated_queries_setup, Column, IndexExpression,
+    PgGucs, Sides,
 };
 
 use tests::fixtures::*;

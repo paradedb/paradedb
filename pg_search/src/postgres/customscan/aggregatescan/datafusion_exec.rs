@@ -40,20 +40,12 @@ use crate::postgres::customscan::datafusion::numeric_agg::{
     numeric64_avg_udaf, numeric64_sum_udaf, numeric_bytes_avg_udaf, numeric_bytes_sum_udaf,
 };
 use crate::postgres::customscan::datafusion::translator::{
-<<<<<<< HEAD
-    apply_join_level_filter, build_join_df_with_filter, make_col, make_source_col, ColumnMapper,
-    PredicateTranslator,
+    apply_join_level_filter, apply_relnode_unnest, build_join_df_with_filter, make_col,
+    make_source_col, ColumnMapper, PredicateTranslator,
 };
-use crate::postgres::customscan::joinscan::build::{JoinSource, RelNode, RelationAlias};
-=======
-    ColumnMapper, PredicateTranslator, apply_join_level_filter, apply_relnode_unnest,
-    build_join_df_with_filter, make_col, make_source_col,
-};
-use crate::postgres::customscan::joinscan::CtidColumn;
 use crate::postgres::customscan::joinscan::build::{
     JoinSource, LateralUnnestInfo, RelNode, RelationAlias,
 };
->>>>>>> e51119bc (feat: Support `JOIN LATERAL unnest` pushdown in the join and aggregate scans (#6149))
 use crate::postgres::customscan::joinscan::privdat::SCORE_COL_NAME;
 use crate::postgres::customscan::joinscan::scan_state::{
     create_datafusion_session_context, register_source_table,

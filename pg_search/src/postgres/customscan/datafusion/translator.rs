@@ -233,14 +233,16 @@ impl<'a> PredicateTranslator<'a> {
                 if let Some(_source) = self.sources.iter().find(|s| s.contains_rti(varno)) {
                     return Some(col("placeholder"));
                 }
-                if let Some(plan) = self.plan
-                    && let Some(unnest_info) = plan.find_lateral_unnest(varno)
-                    && self
-                        .sources
-                        .iter()
-                        .any(|s| s.contains_rti(unnest_info.source_rti.0))
-                {
-                    return Some(col("placeholder"));
+                if let Some(plan) = self.plan {
+                    if let Some(unnest_info) = plan.find_lateral_unnest(varno) {
+                        if self
+                            .sources
+                            .iter()
+                            .any(|s| s.contains_rti(unnest_info.source_rti.0))
+                        {
+                            return Some(col("placeholder"));
+                        }
+                    }
                 }
                 None
             }
@@ -726,29 +728,17 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
             (varno, varattno, false, None)
         };
 
-<<<<<<< HEAD
-        let source = self.sources.iter().find(|s| s.contains_rti(rti))?;
-
-        if is_score {
-            if let Some(col_idx) = source.map_var(rti, 0) {
-                if let Some(name) = source.column_name(col_idx) {
-                    return Some(make_source_col(source, &name));
-                }
-            }
-            return Some(make_source_score_col(source));
-=======
         if let Some((source_rti, field_name)) = unnested_info {
             let source = self.sources.iter().find(|s| s.contains_rti(source_rti))?;
             return Some(make_source_unnested_col(source, &field_name));
->>>>>>> e51119bc (feat: Support `JOIN LATERAL unnest` pushdown in the join and aggregate scans (#6149))
         }
 
         if let Some(source) = self.sources.iter().find(|s| s.contains_rti(rti)) {
             if is_score {
-                if let Some(col_idx) = source.map_var(rti, 0)
-                    && let Some(name) = source.column_name(col_idx)
-                {
-                    return Some(make_source_col(source, &name));
+                if let Some(col_idx) = source.map_var(rti, 0) {
+                    if let Some(name) = source.column_name(col_idx) {
+                        return Some(make_source_col(source, &name));
+                    }
                 }
                 return Some(make_source_score_col(source));
             }

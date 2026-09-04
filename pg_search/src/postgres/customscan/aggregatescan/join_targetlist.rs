@@ -349,26 +349,11 @@ pub unsafe fn extract_aggregate_targetlist(
             let rti = (*var).varno as pg_sys::Index;
             let attno = (*var).varattno;
 
-<<<<<<< HEAD
-            let source = find_source_by_rti(sources, rti, "GROUP BY column")?;
-
-            let field_name = source.column_name(attno).ok_or_else(|| {
-                let alias =
-                    RelationAlias::new(source.alias.as_deref()).display(source.rti as usize);
-                format!(
-                    "GROUP BY column {} is not columnar indexed",
-                    get_attname_safe(Some(source.relid), attno, &alias)
-                )
-            })?;
-
-            let plan_position = plan
-                .plan_position(outer_root_id, rti, attno)
-                .ok_or_else(|| {
-=======
             let (source, attno, field_name, plan_position) = if let Some(unnest_info) =
                 plan.find_lateral_unnest(rti)
             {
-                let source = find_source_by_rti(sources, unnest_info.source_rti.0, clause)?;
+                let source =
+                    find_source_by_rti(sources, unnest_info.source_rti.0, "GROUP BY column")?;
                 let fn_name = unnest_info.field_name.clone();
                 let pp = plan
                     .plan_position(
@@ -384,13 +369,12 @@ pub unsafe fn extract_aggregate_targetlist(
                     })?;
                 (source, unnest_info.source_attno, fn_name, pp)
             } else {
-                let source = find_source_by_rti(sources, rti, clause)?;
+                let source = find_source_by_rti(sources, rti, "GROUP BY column")?;
                 let fn_name = source.column_name(attno).ok_or_else(|| {
                     let alias =
                         RelationAlias::new(source.alias.as_deref()).display(source.rti as usize);
->>>>>>> e51119bc (feat: Support `JOIN LATERAL unnest` pushdown in the join and aggregate scans (#6149))
                     format!(
-                        "{clause} column {} is not columnar indexed",
+                        "GROUP BY column {} is not columnar indexed",
                         get_attname_safe(Some(source.relid), attno, &alias)
                     )
                 })?;

@@ -2573,12 +2573,13 @@ impl JoinScan {
                         .get(i)
                         .copied()
                         .flatten();
-                    let score = if let Some(idx) = score_col_idx
-                        && let score_col = batch.column(idx)
-                        && let Some(score_array) = score_col
+                    let score_array = score_col_idx.and_then(|idx| {
+                        batch
+                            .column(idx)
                             .as_any()
                             .downcast_ref::<arrow_array::Float32Array>()
-                    {
+                    });
+                    let score = if let Some(score_array) = score_array {
                         if score_array.is_null(row_idx) {
                             *nulls.add(i) = true;
                             continue;

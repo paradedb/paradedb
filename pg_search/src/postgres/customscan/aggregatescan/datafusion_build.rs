@@ -179,16 +179,11 @@ fn source_field_candidates<'a>(
     (matches, reasons)
 }
 
-<<<<<<< HEAD
-/// Walk every column in the heap tuple descriptor, resolving each through the
-/// given BM25 index. Returns an empty vec when `bm25_index` is `None`.
-=======
 /// Collects all fast-field metadata for a base relation.
 ///
 /// Iterates across the relation's tuple descriptor, resolving each attribute to either
 /// a scalar fast field via [`resolve_fast_field`] or a multi-valued array fast field
 /// in the ParadeDB index schema. Returns an empty vector if `bm25_index` is None.
->>>>>>> e51119bc (feat: Support `JOIN LATERAL unnest` pushdown in the join and aggregate scans (#6149))
 unsafe fn collect_source_fields(
     relid: pg_sys::Oid,
     bm25_index: Option<&PgSearchRelation>,
@@ -212,15 +207,21 @@ unsafe fn collect_source_fields(
         } else {
             let att = tupdesc.get(attno - 1).unwrap();
             let col_name = att.name();
-            if let Some(search_field) = schema.search_field(col_name)
-                && search_field.is_fast()
-                && let Some((_, data)) = categorized.iter().find(|(sf, _)| sf == &search_field)
-                && data.is_array
-            {
-                fields.push(FieldInfo {
-                    attno: attno as pg_sys::AttrNumber,
-                    field: WhichFastField::Array(col_name.to_string(), search_field.field_type()),
-                });
+            if let Some(search_field) = schema.search_field(col_name) {
+                if search_field.is_fast() {
+                    if let Some((_, data)) = categorized.iter().find(|(sf, _)| sf == &search_field)
+                    {
+                        if data.is_array {
+                            fields.push(FieldInfo {
+                                attno: attno as pg_sys::AttrNumber,
+                                field: WhichFastField::Array(
+                                    col_name.to_string(),
+                                    search_field.field_type(),
+                                ),
+                            });
+                        }
+                    }
+                }
             }
         }
     }
@@ -442,17 +443,18 @@ unsafe fn build_relnode_from_fromexpr(
             let rti = (*(node as *mut pg_sys::RangeTblRef)).rtindex as pg_sys::Index;
             if let Some(mut unnest_info) =
                 crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(root, rti)
-                && result.contains_rti(unnest_info.source_rti.0)
             {
-                unnest_info.is_left_join = false;
-                result = RelNode::Unnest(Box::new(
-                    crate::postgres::customscan::joinscan::build::UnnestNode {
-                        input: result,
-                        unnest_info,
-                        absorbed_clauses: Vec::new(),
-                    },
-                ));
-                continue;
+                if result.contains_rti(unnest_info.source_rti.0) {
+                    unnest_info.is_left_join = false;
+                    result = RelNode::Unnest(Box::new(
+                        crate::postgres::customscan::joinscan::build::UnnestNode {
+                            input: result,
+                            unnest_info,
+                            absorbed_clauses: Vec::new(),
+                        },
+                    ));
+                    continue;
+                }
             }
         }
 

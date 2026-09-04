@@ -27,16 +27,23 @@
 //! only describe marginals, while a recursive split needs the joint distribution of the
 //! `partition_by` fields.
 
+use anyhow::{Result, bail};
 use std::ptr::addr_of_mut;
 
 use pgrx::itemptr::item_pointer_set_all;
 use pgrx::{check_for_interrupts, pg_sys, PgMemoryContexts};
 use rand::rngs::StdRng;
+<<<<<<< HEAD
 use rand::{Rng, SeedableRng};
+=======
+use rand::{RngExt, SeedableRng};
+use tantivy::schema::{Field, FieldType, Schema};
+>>>>>>> 17972943 (feat: partition a partition_by index built CONCURRENTLY (#6146))
 
 use crate::api::version::Version;
 use crate::api::FieldName;
 use crate::index::kdtree::{KdTree, Point};
+use crate::index::stats;
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::{ExpressionState, HeapBufferPin};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
@@ -92,6 +99,51 @@ pub(super) fn plan_partition_boundaries(
         sample,
         target_partitions,
     )))
+}
+
+/// Whether `dim` has a columnar field at all, whatever order that column is in.
+fn dim_fast(schema: &Schema, field: Field) -> bool {
+    match schema.get_field_entry(field).field_type() {
+        FieldType::Str(options) => options.get_fast_field_tokenizer_name().is_some(),
+        FieldType::U64(options) | FieldType::I64(options) | FieldType::F64(options) => {
+            options.is_fast()
+        }
+        FieldType::Bool(options) => options.is_fast(),
+        FieldType::Date(options) => options.is_fast(),
+        FieldType::Bytes(options) => options.is_fast(),
+        _ => false,
+    }
+}
+
+/// Refuses a dimension with no columnar field. `sort_by` has no column to order a segment
+/// by without one, and `partition_by` has none to run its range query against.
+pub(crate) fn check_fast_dims(schema: &Schema, dims: &[FieldName], reloption: &str) -> Result<()> {
+    for dim in dims {
+        let Ok(field) = schema.get_field(dim.as_ref()) else {
+            bail!("{reloption} field '{dim}' does not exist in the index schema");
+        };
+        if !dim_fast(schema, field) {
+            bail!(
+                "{reloption} field '{dim}' must be a columnar field. Add it to the index with 'fast: true'"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// The `dims` whose columnar field orders by a normalized value, so a segment's logical bounds
+/// cannot hold for the raw range (see [`stats::logical_bounds_hold`]). What that costs depends on the
+/// caller: `partition_by` cuts on the raw value and cannot prune without it, while `sort_by`
+/// still lays the segment out and only gives up its bounds.
+pub(crate) fn normalized_dims(schema: &Schema, dims: &[FieldName]) -> Vec<FieldName> {
+    dims.iter()
+        .filter(|dim| {
+            schema
+                .get_field(dim.as_ref())
+                .is_ok_and(|field| !stats::logical_bounds_hold(schema, field))
+        })
+        .cloned()
+        .collect()
 }
 
 /// Where a `partition_by` field's value comes from for a heap tuple, plus what it takes to

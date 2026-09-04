@@ -46,7 +46,11 @@ mod pruning;
 mod tests;
 
 use plugin::stats_component;
+<<<<<<< HEAD
 pub(crate) use plugin::{register, StatsWriter};
+=======
+pub(crate) use plugin::{StatsWriter, logical_bounds_hold, register};
+>>>>>>> 17972943 (feat: partition a partition_by index built CONCURRENTLY (#6146))
 pub(crate) use pruning::{persisted_split_points, segments_for_partition};
 
 const EMPIRICAL_IDX: usize = 0;
@@ -70,6 +74,21 @@ pub(crate) struct LogicalBounds {
 
 /// Logical bounds keyed by field name, in the order the file lays them out.
 pub(crate) type LogicalBoundsByField = BTreeMap<String, LogicalBounds>;
+
+/// The box of `partition`, keyed by field name, the way the `.stats` component records it.
+pub(crate) fn partition_box(
+    tree: &crate::index::kdtree::KdTree,
+    partition: usize,
+) -> Option<std::sync::Arc<LogicalBoundsByField>> {
+    let bounds = tree.partition_bounds(partition)?;
+    Some(std::sync::Arc::new(
+        tree.dims()
+            .iter()
+            .zip(bounds)
+            .map(|(dim, (lower, upper))| (dim.as_ref().to_string(), LogicalBounds { lower, upper }))
+            .collect(),
+    ))
+}
 
 /// The default `PdbOwnedValue` serde is lossy (a non-negative `I64` comes back as `U64`), so the
 /// entries carry the exact scalar wire form the kd-tree also ships over the DSM.

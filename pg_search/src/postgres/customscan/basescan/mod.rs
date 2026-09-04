@@ -2587,19 +2587,24 @@ unsafe fn replace_window_agg_with_const(
     // Check if this is the window_agg FuncExpr
     if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
         if (*funcexpr).funcid == window_agg_procid {
-            // Found it! Replace with a Const node
+            // Found it! Replace with a Const node.
+            // The result_type_oid can be any aggregate result type (int8, numeric, int4,
+            // float8, ...), so take the length/by-value contract from the catalog
+            // rather than special-casing oids: node utilities like copyObject and
+            // nodeToString trust these fields and dereference the datum as a
+            // pointer when constbyval is falsely unset.
+            let mut typlen: i16 = 0;
+            let mut typbyval: bool = false;
+            pg_sys::get_typlenbyval(result_type_oid, &mut typlen, &mut typbyval);
+
             let const_node = pg_sys::makeConst(
                 result_type_oid,
                 -1,
                 pg_sys::DEFAULT_COLLATION_OID,
-                if result_type_oid == pg_sys::INT8OID {
-                    8
-                } else {
-                    -1
-                },
+                typlen as std::os::raw::c_int,
                 pg_sys::Datum::null(),
-                true,                               // constisnull
-                result_type_oid == pg_sys::INT8OID, // constbyval (true for INT8)
+                true, // constisnull
+                typbyval,
             );
 
             return (const_node.cast(), Some(const_node));

@@ -259,6 +259,7 @@ impl TopKScanExecState {
     fn finalize_aggregates(
         &self,
         prepared: PreparedAggregations,
+        const_window_result_types: &HashMap<usize, pg_sys::Oid>,
         agg_limits: AggregationLimitsGuard,
         intermediate_results: IntermediateAggregationResults,
         index_info: &AggIndexInfo,
@@ -270,8 +271,16 @@ impl TopKScanExecState {
         // For window functions (no GROUP BY), we expect a single ungrouped result
         // Convert to AggregationResults and extract Datums
         let agg_results_wrapper: AggregationResults = final_result.into();
-        let datum_vec = agg_results_wrapper
-            .flatten_ungrouped_to_datums(&prepared.combined_agg_types, index_info);
+        let result_types: Vec<_> = prepared
+            .agg_index_to_te_index
+            .iter()
+            .map(|idx| const_window_result_types.get(idx).cloned())
+            .collect();
+        let datum_vec = agg_results_wrapper.flatten_ungrouped_to_datums(
+            &prepared.combined_agg_types,
+            &result_types,
+            index_info,
+        );
 
         // Map aggregate results to target entry indices
         prepared
@@ -490,8 +499,18 @@ impl ExecMethod for TopKScanExecState {
                 created_by_version: search_reader.index_created_by_version(),
                 schema: search_reader.schema().clone(),
             };
-            let window_aggregate_results =
-                self.finalize_aggregates(prepared, agg_limits, intermediate_results, &index_info);
+            let const_window_result_types: HashMap<usize, pg_sys::Oid> = state
+                .const_window_agg_nodes
+                .iter()
+                .map(|(k, node)| (*k, unsafe { (**node).consttype }))
+                .collect();
+            let window_aggregate_results = self.finalize_aggregates(
+                prepared,
+                &const_window_result_types,
+                agg_limits,
+                intermediate_results,
+                &index_info,
+            );
 
             state.window_aggregate_results = Some(window_aggregate_results);
         }

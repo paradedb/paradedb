@@ -552,6 +552,7 @@ impl AggregationResults {
     pub fn flatten_ungrouped_to_datums(
         self,
         agg_types: &[AggregateType],
+        result_types: &[Option<pg_sys::Oid>],
         index_info: &AggIndexInfo,
     ) -> Vec<Option<pg_sys::Datum>> {
         let mut results = vec![None; agg_types.len()];
@@ -568,9 +569,10 @@ impl AggregationResults {
             for (agg_idx, (agg_type, agg_result)) in
                 agg_types.iter().zip(row.aggregates).enumerate()
             {
-                let expected_typoid = agg_type.result_type_oid();
-                results[agg_idx] =
-                    aggregate_result_to_datum(agg_result, agg_type, expected_typoid, index_info);
+                if let Some(result_type) = result_types[agg_idx] {
+                    results[agg_idx] =
+                        aggregate_result_to_datum(agg_result, agg_type, result_type, index_info);
+                }
             }
         }
 

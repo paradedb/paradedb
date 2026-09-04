@@ -191,40 +191,34 @@ SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND b.pri
 (8 rows)
 
 -- =============================================================================
--- Two-sided non-equi ON condition: declines with a warning
+-- Two-sided non-equi ON condition: uses JoinScan
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND a.id < b.price WHERE a.txt @@@ 'alpha' ORDER BY a.id LIMIT 8;
-WARNING:  JoinScan not used: outer joins support only equi-join conditions in the ON clause (tables: a, b)
-                                                                           QUERY PLAN                                                                           
-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                          QUERY PLAN                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: a.id, b.id
-   ->  Sort
+   ->  Custom Scan (ParadeDB Join Scan)
          Output: a.id, b.id
-         Sort Key: a.id
-         ->  Hash Left Join
-               Output: a.id, b.id
-               Inner Unique: true
-               Hash Cond: (a.dim_id = b.id)
-               Join Filter: (a.id < b.price)
-               ->  Custom Scan (ParadeDB Base Scan) on public.oj_fact a
-                     Output: a.id, a.dim_id
-                     Table: oj_fact
-                     Index: oj_fact_idx
-                     Worker Selection: Cost model
-                     Exec Method: ColumnarExecState
-                     Fast Fields: dim_id, id
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
-               ->  Hash
-                     Output: b.id, b.price
-                     ->  Seq Scan on public.oj_dim b
-                           Output: b.id, b.price
-(23 rows)
+         Relation Tree: b RIGHT a
+         Join Cond: a.dim_id = b.id
+         Join Filter: (a.id < b.price)
+         Limit: 8
+         Order By: a.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@3 as col_1, id@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           :   SortExec: TopK(fetch=8), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
+           :     VisibilityFilterExec: tables=[a]
+           :       TantivyLookupExec: decode=[], fetch=[ctid_1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, dim_id@1)], filter=id@1 < price@0, projection=[ctid_0@0, id@1, ctid_1@3, id@5]
+           :           CooperativeExec
+           :             PgSearchScan: table=b, segments=1, visibility=eager, query="all"
+           :           CooperativeExec
+           :             PgSearchScan: table=a, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
 
 SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND a.id < b.price WHERE a.txt @@@ 'alpha' ORDER BY a.id LIMIT 8;
-WARNING:  JoinScan not used: outer joins support only equi-join conditions in the ON clause (tables: a, b)
  id | id 
 ----+----
   1 |  2

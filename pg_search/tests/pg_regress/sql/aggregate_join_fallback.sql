@@ -153,7 +153,7 @@ GROUP BY p.category
 ORDER BY p.category;
 
 -- =====================================================================
--- Test 2: CROSS JOIN → should fall back to Postgres native
+-- Test 2: CROSS JOIN → uses ParadeDB Aggregate Scan
 -- =====================================================================
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*)

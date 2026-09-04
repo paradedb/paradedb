@@ -86,7 +86,7 @@ WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 5;
 WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: p, s)
-WARNING:  JoinScan not used: join keys must be fast fields (tables: c, p, s)
+WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: c, p, s)
                                                                                          QUERY PLAN                                                                                          
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -126,7 +126,7 @@ WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 5;
 WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: p, s)
-WARNING:  JoinScan not used: join keys must be fast fields (tables: c, p, s)
+WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: c, p, s)
  id  |      name      | supplier_name | category_name 
 -----+----------------+---------------+---------------
  201 | Wireless Mouse | TechCorp      | Electronics

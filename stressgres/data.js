@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788504578189,
+  "lastUpdate": 1788504589945,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -310712,6 +310712,126 @@ window.BENCHMARK_DATA = {
             "value": 6.996866755723501,
             "unit": "median tps",
             "extra": "avg tps: 29.022283768709823, max tps: 794.3284945489207, count: 57444"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c74bcde7bf6f6e44516d81f18350f2725d14fd5f",
+          "message": "feat: Add support for non-equi JOINs in the join and aggregate scan (#6196)\n\n## What\n\nAdds support for pushing down non-equi join conditions (e.g. `<`, `<=`,\n`>`, `>=`, `<>`) and mixed equi/non-equi joins to DataFusion.\n\nImproves expression deparsing during planning and `EXPLAIN` in order to\nbetter render join conditions.\n\n## Why\n\nThe Postgres optimizer frequently produces non-equi joins in #6149 while\nreorganizing joins in property tests. To avoid users encountering\nplanning failures non-deterministically based on estimate changes, it\nwas easiest to extend support.\n\n## How\n\n- `pg_search/src/postgres/customscan/joinscan/predicate.rs`: Absorbs\ntranslatable non-equi conditions into join-level filters\n(`JoinLevelExpr::PgExpression`), respecting outer join ON vs WHERE\nclause semantics.\n- `pg_search/src/postgres/customscan/aggregatescan/`: Recursively\nhandles non-equi joins in aggregate pushdown planning.\n- `pg_search/src/postgres/deparse.rs` &\n`pg_search/src/postgres/customscan/explainer.rs`: Added\n`deparse_planner_expr` using `PlannerInfo` range table contexts for\nreadable multi-relation expression deparsing.\n\n## Tests\n\nAdded regression tests. Additional property test coverage is provided by\nthe changes in https://github.com/paradedb/paradedb/pull/6149.",
+          "timestamp": "2026-09-03T23:12:12-07:00",
+          "tree_id": "1f536f91fd3793c3b54f93cb2ffeefa3337100af",
+          "url": "https://github.com/paradedb/paradedb/commit/c74bcde7bf6f6e44516d81f18350f2725d14fd5f"
+        },
+        "date": 1788504576888,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 176.7523886457887,
+            "unit": "median tps",
+            "extra": "avg tps: 181.77939857659192, max tps: 227.14247972441046, count: 57431"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 288.684947765733,
+            "unit": "median tps",
+            "extra": "avg tps: 315.25146192118274, max tps: 494.3912303697018, count: 57431"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 4037.0197102633247,
+            "unit": "median tps",
+            "extra": "avg tps: 4029.052366256921, max tps: 4162.396208249165, count: 57431"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 181.13142028593177,
+            "unit": "median tps",
+            "extra": "avg tps: 186.9639156859132, max tps: 233.83740163045107, count: 57431"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3413.2138148611557,
+            "unit": "median tps",
+            "extra": "avg tps: 3419.467911296167, max tps: 3625.4455968593284, count: 57431"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3426.20875129462,
+            "unit": "median tps",
+            "extra": "avg tps: 3417.4023867857704, max tps: 3769.510472179848, count: 57431"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 152.48537972565245,
+            "unit": "median tps",
+            "extra": "avg tps: 156.183034606896, max tps: 189.0306974865309, count: 57431"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 266.0928398477695,
+            "unit": "median tps",
+            "extra": "avg tps: 276.7580061381741, max tps: 382.10816231307695, count: 57431"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Primary - tps",
+            "value": 510.90913004523287,
+            "unit": "median tps",
+            "extra": "avg tps: 517.5549007831554, max tps: 582.0433796930886, count: 57431"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 586.718243145948,
+            "unit": "median tps",
+            "extra": "avg tps: 595.9481926387568, max tps: 705.3550864842006, count: 57431"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1277.8410538552423,
+            "unit": "median tps",
+            "extra": "avg tps: 1279.0008489324196, max tps: 1302.1229935527, count: 57431"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 315.2418485551074,
+            "unit": "median tps",
+            "extra": "avg tps: 339.8152585800683, max tps: 583.2555869595647, count: 57431"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 535.5412916506748,
+            "unit": "median tps",
+            "extra": "avg tps: 544.4435107668545, max tps: 639.172216334266, count: 57431"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2317.179290602458,
+            "unit": "median tps",
+            "extra": "avg tps: 2321.4823529299006, max tps: 2466.3733877536683, count: 57431"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1722.752040914528,
+            "unit": "median tps",
+            "extra": "avg tps: 1720.3774508973627, max tps: 1940.5171513490475, count: 57431"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 11.044851851441177,
+            "unit": "median tps",
+            "extra": "avg tps: 15.250875166732298, max tps: 781.1383216305793, count: 57431"
           }
         ]
       }

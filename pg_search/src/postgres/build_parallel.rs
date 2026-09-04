@@ -367,14 +367,12 @@ impl<'a> BuildWorker<'a> {
                 pgrx::debug1!("build_worker {worker_number}: partition boundaries: {partitioning}");
             }
 
-            // A concurrent build's drain re-fetches under the snapshot its scan indexed with:
-            // the parallel path carries it on the shared scan descriptor, the serial path took
-            // it from `build_index`. The scan ends before the drain runs and unregisters what
-            // it registered, so this registration keeps the snapshot alive until the drain is
-            // done with it.
-            let build_snapshot = self
-                .config
-                .concurrent
+            // Only a partitioned drain re-fetches, and only a concurrent one has to land on the
+            // versions its scan chose. The snapshot for that comes off the shared scan
+            // descriptor on the parallel path, and from `build_index` on the serial one. The
+            // scan ends before the drain runs and unregisters what it registered, so this
+            // registration keeps the snapshot alive until the drain is done with it.
+            let build_snapshot = (partitioning.is_some() && self.config.concurrent)
                 .then(|| {
                     self.table_scan_desc
                         .map(|scan| (*scan.as_ptr()).rs_snapshot)

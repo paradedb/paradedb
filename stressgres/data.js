@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788533513907,
+  "lastUpdate": 1788533522029,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -307860,6 +307860,66 @@ window.BENCHMARK_DATA = {
             "value": 168,
             "unit": "median segment_count",
             "extra": "avg segment_count: 195.42929522462927, max segment_count: 358.0, count: 59409"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e51119bce84539e25abad25423be5aeb4b6b6c37",
+          "message": "feat: Support `JOIN LATERAL unnest` pushdown in the join and aggregate scans (#6149)\n\n## What\n\nAdds support for `JOIN LATERAL unnest` over array fast fields in the\njoin and aggregate scans.\n\n## Why\n\nQueries combining multi-table joins with `[CROSS|LEFT] JOIN LATERAL\nunnest(...)` over indexed array fast fields previously had multiple\nissues:\n- `ORDER BY` on unnested columns was declined or double-prefixed.\n- `WHERE` on unnested columns omitted from the `SELECT` list failed\nduring plan execution.\n- Inner and cross joins were erroneously classified as left joins in\nsome cases.\n- Datetime and timestamp array fast fields produced schema mismatches\nwhen constructing `RecordBatch`es.\n\n## How\n\n- Extended `JoinScan` planning to include lateral `unnest` function RTIs\nin `output_rtis`, enabling pathkey matching for unnested columns.\n- Added `lateral_unnests` to `CombinedMapper` and populated\n`custom_scan_tlist` with predicate `Var`s via `add_vars_to_tlist` so\nPostgres planner setrefs resolves unprojected filter columns.\n- Corrected left-join classification in `JoinScan` planning by removing\nthe invalid `joininfo.is_null()` check.\n- Updated `fetch_array_values_or_ords_to_arrow` in\n`pg_search/src/index/fast_fields_helper.rs` to use\n`TimestampMicrosecondBuilder` for datetime/timestamp `I64` fields, and\ndeduplicated array fetching across types via `fetch_list_array`.\n- Unified `RelNode::Unnest` DataFusion lowering via\n`apply_relnode_unnest` across `JoinScan` and `AggregateScan`.\n\n## Tests\n\nNew regress tests in\n`pg_search/tests/pg_regress/sql/join_lateral_unnest.sql`, and new\nproperty tests.",
+          "timestamp": "2026-09-04T07:32:37-07:00",
+          "tree_id": "b82ffcb2c7c516bec019a2e40e276d7ab8909d7e",
+          "url": "https://github.com/paradedb/paradedb/commit/e51119bce84539e25abad25423be5aeb4b6b6c37"
+        },
+        "date": 1788533518376,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.95763759602734, max cpu: 33.432835, count: 59419"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 44.75,
+            "unit": "median mem",
+            "extra": "avg mem: 44.50281311270385, max mem: 44.8515625, count: 59419"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.925581,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.795588964932797, max cpu: 43.417088, count: 59419"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 102.5625,
+            "unit": "median mem",
+            "extra": "avg mem: 101.52369060191185, max mem: 102.56640625, count: 59419"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 26650,
+            "unit": "median block_count",
+            "extra": "avg block_count: 25392.661152156717, max block_count: 29202.0, count: 59419"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 167,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 194.7408404719029, max segment_count: 361.0, count: 59419"
           }
         ]
       }

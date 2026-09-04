@@ -26,11 +26,7 @@ use std::fmt::Debug;
 use tests::fixtures::*;
 
 use tests::fixtures::querygen::opexprgen::Operator;
-<<<<<<< HEAD
 use tests::fixtures::querygen::{compare, PgGucs};
-=======
-use tests::fixtures::querygen::{PgGucs, SetupScript, compare};
->>>>>>> c74bcde7 (feat: Add support for non-equi JOINs in the join and aggregate scan (#6196))
 
 #[derive(Debug, Clone, Arbitrary)]
 pub enum TokenizerType {
@@ -486,7 +482,7 @@ impl JsonExpr {
     }
 }
 
-fn json_pushdown_setup(conn: &mut PgConnection, index_config: &IndexConfig) -> SetupScript {
+fn json_pushdown_setup(conn: &mut PgConnection, index_config: &IndexConfig) -> String {
     "CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;".execute(conn);
     "SET log_error_verbosity TO VERBOSE;".execute(conn);
     "SET log_min_duration_statement TO 1000;".execute(conn);
@@ -551,7 +547,7 @@ ANALYZE json_pushdown_test;
     );
 
     setup_sql.clone().execute(conn);
-    SetupScript::new(setup_sql, vec!["json_pushdown_test".to_string()])
+    setup_sql
 }
 
 #[rstest]

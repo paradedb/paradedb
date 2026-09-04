@@ -84,10 +84,10 @@ impl<'a> PredicateTranslator<'a> {
     /// Format a PostgreSQL expression node into a debug string for logs,
     /// using `deparse_planner_expr` if planning context is available.
     pub(crate) unsafe fn deparse_for_debug(&self, node: *mut pg_sys::Node) -> String {
-        if let Some(root) = self.root
-            && let Some(deparsed) = crate::postgres::deparse::deparse_planner_expr(root, node)
-        {
-            return deparsed;
+        if let Some(root) = self.root {
+            if let Some(deparsed) = crate::postgres::deparse::deparse_planner_expr(root, node) {
+                return deparsed;
+            }
         }
         crate::postgres::deparse::node_to_string_without_context(node)
     }
@@ -634,17 +634,10 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
         let source = self.sources.iter().find(|s| s.contains_rti(rti))?;
 
         if is_score {
-<<<<<<< HEAD
             if let Some(col_idx) = source.map_var(rti, 0) {
                 if let Some(name) = source.column_name(col_idx) {
-                    return Some(make_col(&alias, &name));
+                    return Some(make_source_col(source, &name));
                 }
-=======
-            if let Some(col_idx) = source.map_var(rti, 0)
-                && let Some(name) = source.column_name(col_idx)
-            {
-                return Some(make_source_col(source, &name));
->>>>>>> c74bcde7 (feat: Add support for non-equi JOINs in the join and aggregate scan (#6196))
             }
             return Some(make_source_score_col(source));
         }

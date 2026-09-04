@@ -170,7 +170,6 @@ impl Column {
     }
 }
 
-<<<<<<< HEAD
 pub fn generated_queries_setup(
     conn: &mut PgConnection,
     tables: &[(&str, usize)],
@@ -180,86 +179,6 @@ pub fn generated_queries_setup(
     "CREATE EXTENSION IF NOT EXISTS pg_search;".execute(conn);
     "SET log_error_verbosity TO VERBOSE;".execute(conn);
     "SET log_min_duration_statement TO 1000;".execute(conn);
-=======
-#[derive(Debug, Clone)]
-pub struct SetupScript {
-    pub sql: String,
-    pub tables: Vec<String>,
-    pub qgen_seed: Option<u64>,
-}
-
-impl SetupScript {
-    pub fn new(sql: String, tables: Vec<String>) -> Self {
-        Self {
-            sql,
-            tables,
-            qgen_seed: None,
-        }
-    }
-
-    pub fn drop_tables_sql(&self) -> String {
-        self.tables
-            .iter()
-            .map(|t| format!("DROP TABLE {t};"))
-            .collect::<Vec<_>>()
-            .join("\n")
-    }
-}
-
-impl std::fmt::Display for SetupScript {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.sql)
-    }
-}
-
-/// Builds the schema every generator queries against and returns the SQL as a reproduction
-/// script, retrying transient faults per [`crate::fixtures::fault_grace`] (under a plain
-/// `cargo test` the first error panics). Each attempt runs in one transaction so a connection
-/// killed midway rolls back cleanly and the retry starts from scratch (`CREATE TABLE` has no
-/// `IF NOT EXISTS`). `BEGIN`/`COMMIT` are kept out of the returned script, which is replayed
-/// statement by statement.
-pub fn generated_queries_setup(
-    pool: &MutexObjectPool<PgConnection>,
-    tables: &[(&str, usize)],
-    columns_def: &[Column],
-) -> SetupScript {
-    use crate::fixtures::fault_grace::{RetryError, sql_attempt};
-    let attempt = |conn: &mut PgConnection| -> Result<SetupScript, sqlx::Error> {
-        "BEGIN;".execute_result(conn)?;
-        match generated_queries_setup_inner(conn, tables, columns_def) {
-            Ok(setup_script) => {
-                "COMMIT;".execute_result(conn)?;
-                Ok(setup_script)
-            }
-            Err(err) => {
-                // Best effort: if the connection is already gone the server rolls back on its own.
-                let _ = "ROLLBACK;".execute_result(conn);
-                Err(err)
-            }
-        }
-    };
-    match crate::fixtures::fault_grace::retry_transient(pool, "generated queries setup", |conn| {
-        sql_attempt(attempt(conn))
-    }) {
-        Ok(Ok(setup_script)) => setup_script,
-        Ok(Err(e)) => panic!("generated queries setup should succeed: {e:#?}"),
-        Err(RetryError::TimedOutUnderPause(e)) => {
-            panic!("generated queries setup timed out while faults were paused: {e}")
-        }
-        Err(RetryError::GraceExpired(reason)) => panic!("{reason}"),
-    }
-}
-
-fn generated_queries_setup_inner(
-    conn: &mut PgConnection,
-    tables: &[(&str, usize)],
-    columns_def: &[Column],
-) -> Result<SetupScript, sqlx::Error> {
-    "CREATE EXTENSION IF NOT EXISTS vector;".execute_result(conn)?;
-    "CREATE EXTENSION IF NOT EXISTS pg_search;".execute_result(conn)?;
-    "SET log_error_verbosity TO VERBOSE;".execute_result(conn)?;
-    "SET log_min_duration_statement TO 1000;".execute_result(conn)?;
->>>>>>> c74bcde7 (feat: Add support for non-equi JOINs in the join and aggregate scan (#6196))
 
     let qgen_seed = qgen_seed().unwrap_or_else(|| rand::rng().random::<u64>());
     let mut rng = StdRng::seed_from_u64(qgen_seed);
@@ -450,20 +369,7 @@ ANALYZE {tname};
         setup_sql.push_str(&sql);
     }
 
-<<<<<<< HEAD
     setup_sql
-=======
-    let table_names = tables
-        .iter()
-        .map(|(tname, _)| (*tname).to_string())
-        .collect::<Vec<_>>();
-
-    Ok(SetupScript {
-        sql: setup_sql,
-        tables: table_names,
-        qgen_seed: Some(qgen_seed),
-    })
->>>>>>> c74bcde7 (feat: Add support for non-equi JOINs in the join and aggregate scan (#6196))
 }
 
 ///
@@ -763,228 +669,20 @@ impl Sides {
     }
 }
 
-<<<<<<< HEAD
 /// Run the given pg and bm25 queries on the given connection, and compare their results when run
 /// with the given GUCs.
-=======
-/// Run one generated case on `conn`: execute `pg_query` (custom scan off, the known-correct
-/// baseline) and `bm25_query` (with `gucs`), then compare their results.
-pub fn compare_outcome<R, F>(
-    pg_query: &str,
-    bm25_query: &str,
-    gucs: &PgGucs,
-    conn: &mut PgConnection,
-    setup: &SetupScript,
-    run_query: F,
-) -> CaseOutcome
-where
-    R: Eq + Debug,
-    F: Fn(&str, &mut PgConnection) -> Result<R, sqlx::Error>,
-{
-    let sides = Sides::postgres_vs(gucs);
-    compare_outcome_on(&sides, pg_query, bm25_query, gucs, conn, setup, run_query)
-}
-
-/// [`compare_outcome`] with the two sessions spelled out, for a baseline other than plain
-/// Postgres, such as one backend of pg_search against another.
-pub fn compare_outcome_on<R, F>(
-    sides: &Sides,
-    pg_query: &str,
-    bm25_query: &str,
-    gucs: &PgGucs,
-    conn: &mut PgConnection,
-    setup: &SetupScript,
-    run_query: F,
-) -> CaseOutcome
-where
-    R: Eq + Debug,
-    F: Fn(&str, &mut PgConnection) -> Result<R, sqlx::Error>,
-{
-    // A panic (vs a returned sqlx::Error) still becomes a Failure, so it trips the oracle and
-    // carries a repro script instead of aborting the driver.
-    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        compare_outcome_inner(sides, pg_query, bm25_query, gucs, conn, setup, run_query)
-    }));
-    match outcome {
-        Ok(o) => o,
-        Err(panic) => {
-            let msg = if let Some(s) = panic.downcast_ref::<&str>() {
-                format!("Panic: {s}")
-            } else if let Some(s) = panic.downcast_ref::<String>() {
-                format!("Panic: {s}")
-            } else {
-                "Panic occurred".to_string()
-            };
-            CaseOutcome::Failure(handle_compare_error(
-                TestCaseError::fail(msg),
-                pg_query,
-                bm25_query,
-                gucs,
-                setup,
-            ))
-        }
-    }
-}
-
-/// Runs one case, retrying transient faults until it completes, so every case in the proptest
-/// budget ends in a real verdict. Bounding and liveness are [`crate::fixtures::fault_grace`]'s
-/// job. Takes the pool because a fault usually kills the connection in use.
-pub fn compare_outcome_retrying<R, F>(
-    pg_query: &str,
-    bm25_query: &str,
-    gucs: &PgGucs,
-    pool: &MutexObjectPool<PgConnection>,
-    setup: &SetupScript,
-    run_query: F,
-) -> CaseOutcome
-where
-    R: Eq + Debug,
-    F: Fn(&str, &mut PgConnection) -> Result<R, sqlx::Error>,
-{
-    let sides = Sides::postgres_vs(gucs);
-    compare_outcome_retrying_on(&sides, pg_query, bm25_query, gucs, pool, setup, run_query)
-}
-
-/// [`compare_outcome_retrying`] with the two sessions spelled out; see [`compare_outcome_on`].
-pub fn compare_outcome_retrying_on<R, F>(
-    sides: &Sides,
-    pg_query: &str,
-    bm25_query: &str,
-    gucs: &PgGucs,
-    pool: &MutexObjectPool<PgConnection>,
-    setup: &SetupScript,
-    run_query: F,
-) -> CaseOutcome
-where
-    R: Eq + Debug,
-    F: Fn(&str, &mut PgConnection) -> Result<R, sqlx::Error>,
-{
-    use crate::fixtures::fault_grace::{Attempt, RetryError};
-    let fail = |msg: String| {
-        CaseOutcome::Failure(handle_compare_error(
-            TestCaseError::fail(msg),
-            pg_query,
-            bm25_query,
-            gucs,
-            setup,
-        ))
-    };
-    let outcome = crate::fixtures::fault_grace::retry_transient(pool, "qgen case", |conn| {
-        match compare_outcome_on(sides, pg_query, bm25_query, gucs, conn, setup, &run_query) {
-            CaseOutcome::Transient(kind, e) => Attempt::Transient(kind, e),
-            verdict => Attempt::Done(verdict),
-        }
-    });
-    match outcome {
-        Ok(o) => o,
-        Err(RetryError::TimedOutUnderPause(e)) => fail(format!(
-            "statement timed out while faults were paused for the whole attempt \
-             (the query cannot finish inside statement_timeout on a healthy database): {e}"
-        )),
-        Err(RetryError::GraceExpired(reason)) => fail(reason),
-    }
-}
-
-fn compare_outcome_inner<R, F>(
-    sides: &Sides,
-    pg_query: &str,
-    bm25_query: &str,
-    gucs: &PgGucs,
-    conn: &mut PgConnection,
-    setup: &SetupScript,
-    run_query: F,
-) -> CaseOutcome
-where
-    R: Eq + Debug,
-    F: Fn(&str, &mut PgConnection) -> Result<R, sqlx::Error>,
-{
-    let mut queries = || -> Result<(R, R), sqlx::Error> {
-        sides
-            .baseline
-            .as_str()
-            .execute_result(conn)
-            .and_then(|()| conn.deallocate_all())?;
-        let pg_result = run_query(pg_query, conn)?;
-
-        sides
-            .candidate
-            .as_str()
-            .execute_result(conn)
-            .and_then(|()| conn.deallocate_all())?;
-        let bm25_result = run_query(bm25_query, conn)?;
-        Ok((pg_result, bm25_result))
-    };
-    let (pg_result, bm25_result) = match queries() {
-        Ok(results) => results,
-        Err(e) => match classify_transient(&e) {
-            Some(kind) => return CaseOutcome::Transient(kind, e),
-            None => {
-                return CaseOutcome::Failure(handle_compare_error(
-                    TestCaseError::fail(format!("{e}: error in query execution")),
-                    pg_query,
-                    bm25_query,
-                    gucs,
-                    setup,
-                ));
-            }
-        },
-    };
-    match assert_results_match(&pg_result, &bm25_result, pg_query, bm25_query, gucs, conn) {
-        Ok(()) => CaseOutcome::Match,
-        Err(e) => CaseOutcome::Failure(handle_compare_error(e, pg_query, bm25_query, gucs, setup)),
-    }
-}
-
-/// Assert the two result sets are equal, attaching the ParadeDB plan to the failure message. The
-/// EXPLAIN is built lazily inside the assert message so it runs only on mismatch, and best-effort
-/// so a fault while composing it cannot itself panic.
-fn assert_results_match<R>(
-    pg_result: &R,
-    bm25_result: &R,
-    pg_query: &str,
-    bm25_query: &str,
-    gucs: &PgGucs,
-    conn: &mut PgConnection,
-) -> Result<(), TestCaseError>
-where
-    R: Eq + Debug,
-{
-    prop_assert_eq!(
-        pg_result,
-        bm25_result,
-        "\ngucs={:?}\npg:\n  {}\nbm25:\n  {}\nexplain:\n{}\n",
-        gucs,
-        pg_query,
-        bm25_query,
-        format!("EXPLAIN {bm25_query}")
-            .fetch_result::<(String,)>(conn)
-            .map(|rows| rows
-                .into_iter()
-                .map(|(s,)| s)
-                .collect::<Vec<_>>()
-                .join("\n"))
-            .unwrap_or_else(|e| format!("<EXPLAIN unavailable: {e}>"))
-    );
-    Ok(())
-}
-
-/// Panic-based comparison kept for the non-Antithesis generator tests (`json_pushdown`,
-/// `scalar_array_pushdown`), whose `run_query` closures panic on DB errors. Thin wrapper over
-/// [`compare_outcome`].
->>>>>>> c74bcde7 (feat: Add support for non-equi JOINs in the join and aggregate scan (#6196))
 pub fn compare<R, F>(
     pg_query: &str,
     bm25_query: &str,
     gucs: &PgGucs,
     conn: &mut PgConnection,
-    setup: &SetupScript,
+    setup_sql: &str,
     run_query: F,
 ) -> Result<(), TestCaseError>
 where
     R: Eq + Debug,
     F: Fn(&str, &mut PgConnection) -> R,
 {
-<<<<<<< HEAD
     let sides = Sides::postgres_vs(gucs);
     compare_on(
         &sides, pg_query, bm25_query, gucs, conn, setup_sql, run_query,
@@ -1072,22 +770,6 @@ where
     );
 
     Ok(())
-=======
-    match compare_outcome(pg_query, bm25_query, gucs, conn, setup, |query, conn| {
-        Ok::<R, sqlx::Error>(run_query(query, conn))
-    }) {
-        // run_query panics on DB errors here, so a `Transient` means the GUC set failed (and a
-        // plain `cargo test` never classifies anything transient anyway).
-        CaseOutcome::Transient(_, e) => Err(handle_compare_error(
-            TestCaseError::fail(format!("{e}: error in query execution")),
-            pg_query,
-            bm25_query,
-            gucs,
-            setup,
-        )),
-        verdict => verdict.into_test_result(),
-    }
->>>>>>> c74bcde7 (feat: Add support for non-equi JOINs in the join and aggregate scan (#6196))
 }
 
 /// Helper function to handle comparison errors and generate reproduction scripts
@@ -1096,7 +778,7 @@ pub fn handle_compare_error(
     pg_query: &str,
     bm25_query: &str,
     gucs: &PgGucs,
-    setup: &SetupScript,
+    setup_sql: &str,
 ) -> TestCaseError {
     let error_msg = error.to_string();
     let failure_type = if error_msg.contains("error returned from database")
@@ -1109,7 +791,6 @@ pub fn handle_compare_error(
         "RESULT MISMATCH"
     };
 
-<<<<<<< HEAD
     let qgen_seed = setup_sql
         .lines()
         .find_map(|l| l.strip_prefix("-- PARADEDB_QGEN_SEED: "))
@@ -1119,35 +800,19 @@ pub fn handle_compare_error(
                  `generated_queries_setup` must emit `-- PARADEDB_QGEN_SEED: <n>`"
             )
         });
-=======
-    let qgen_seed = setup
-        .qgen_seed
-        .map(|s| s.to_string())
-        .or_else(|| {
-            setup
-                .sql
-                .lines()
-                .find_map(|l| l.strip_prefix("-- PARADEDB_QGEN_SEED: "))
-                .map(|s| s.to_string())
-        })
-        .unwrap_or_else(|| "<unknown>".to_string());
->>>>>>> c74bcde7 (feat: Add support for non-equi JOINs in the join and aggregate scan (#6196))
     let proptest_seed = std::env::var("PROPTEST_RNG_SEED")
         .ok()
         .unwrap_or_else(|| "<from proptest output above>".to_string());
-
-    let drop_tables_sql = setup.drop_tables_sql();
 
     let repro_script = format!(
         r#"
 -- ==== {failure_type} REPRODUCTION SCRIPT ====
 -- Copy and paste this entire block to reproduce the issue
 --
--- Prerequisites: Ensure pg_search extension is available
-CREATE EXTENSION IF NOT EXISTS vector;
-CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Environment variables to reproduce with cargo test:
+-- PARADEDB_QGEN_SEED={qgen_seed} PROPTEST_RNG_SEED={proptest_seed} cargo test <test_name>
 --
--- Table and index setup
+-- Setup:
 {setup_sql}
 --
 -- Default GUCs:
@@ -1162,14 +827,10 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 -- BM25 query:
 {bm25_query};
 --
--- Cleanup:
-{drop_tables_sql}
---
 -- ==== END REPRODUCTION SCRIPT ====
 
 Replay this proptest case end-to-end:
-  PARADEDB_QGEN_SEED={qgen_seed} PROPTEST_RNG_SEED={proptest_seed} \
-    cargo test --package tests --test qgen <test_fn_name>
+  PARADEDB_QGEN_SEED={qgen_seed} PROPTEST_RNG_SEED="{proptest_seed}" cargo test <test_name>
 
 Original error:
 {error_msg}
@@ -1177,12 +838,11 @@ Original error:
         failure_type = failure_type,
         qgen_seed = qgen_seed,
         proptest_seed = proptest_seed,
-        setup_sql = setup.sql,
+        setup_sql = setup_sql,
         default_gucs = PgGucs::pg_search_disabled().set(),
         gucs_sql = gucs.set(),
         pg_query = pg_query,
         bm25_query = bm25_query,
-        drop_tables_sql = drop_tables_sql,
         error_msg = error_msg
     );
 

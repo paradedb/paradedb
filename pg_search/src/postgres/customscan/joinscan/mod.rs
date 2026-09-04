@@ -595,28 +595,6 @@ impl JoinScan {
             ));
         }
 
-<<<<<<< HEAD
-        // Empty join_keys are normally a rejection, but a disjunctive Semi/Anti
-        // condition (`a = b OR a = c`) legitimately produces no equi-keys — the
-        // predicate lives on `JoinNode.filter` and DataFusion evaluates it via
-        // NestedLoopJoinExec. Only the outermost join benefits from this
-        // relaxation; a nested Semi/Anti deeper in the tree does not excuse
-        // the current join-hook invocation from needing equi-keys.
-        let root_is_semi_anti = matches!(
-            &plan,
-            RelNode::Join(j) if matches!(j.join_type, build::JoinType::Semi | build::JoinType::Anti { .. })
-        );
-        if join_keys.is_empty() && !root_is_semi_anti {
-            return Err(JoinDeclineReason::new(
-                "JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required",
-=======
-        if has_distinct && !distinct_collations_are_deterministic(root) {
-            return Err(JoinDeclineReason::new(
-                "JoinScan not used: DISTINCT on a nondeterministic collation is not supported",
->>>>>>> c74bcde7 (feat: Add support for non-equi JOINs in the join and aggregate scan (#6196))
-            ));
-        }
-
         if has_distinct && distinct_columns_are_fast_fields(root, &all_sources).is_none() {
             return Err(JoinDeclineReason::new(
                 "JoinScan not used: DISTINCT columns must be fast fields",

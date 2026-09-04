@@ -32,13 +32,9 @@ use std::ffi::CStr;
 use std::sync::Arc;
 
 use crate::api::HashSet;
-use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
+use crate::postgres::customscan::collation_semantics::{collation_supports, CollationOperation};
 use crate::postgres::customscan::datafusion::translator::{
-<<<<<<< HEAD
-    deparse_expr_for_debug, node_tag_debug, type_name, PredicateTranslator,
-=======
-    PredicateTranslator, node_tag_debug, type_name,
->>>>>>> c74bcde7 (feat: Add support for non-equi JOINs in the join and aggregate scan (#6196))
+    node_tag_debug, type_name, PredicateTranslator,
 };
 use crate::postgres::customscan::expr_eval::InputVarInfo;
 use crate::postgres::customscan::pg_expr_udf::PgExprUdf;
@@ -572,17 +568,17 @@ impl<'a> PredicateTranslator<'a> {
                 "<" | "<=" | ">" | ">=" => Some(CollationOperation::Ordering),
                 _ => None,
             };
-            if let Some(op_type) = required_op
-                && !collation_supports(collid, op_type)
-            {
-                pgrx::debug1!(
-                    "PredicateTranslator: collation does not support operation {:?} [OpExpr] op=\"{}\", collation={} | {}",
-                    op_type,
-                    op_str,
-                    collid.to_u32(),
-                    self.deparse_for_debug(node)
-                );
-                return None;
+            if let Some(op_type) = required_op {
+                if !collation_supports(collid, op_type) {
+                    pgrx::debug1!(
+                        "PredicateTranslator: collation does not support operation {:?} [OpExpr] op=\"{}\", collation={} | {}",
+                        op_type,
+                        op_str,
+                        collid.to_u32(),
+                        self.deparse_for_debug(node)
+                    );
+                    return None;
+                }
             }
         }
 

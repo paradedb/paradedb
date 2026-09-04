@@ -34,13 +34,9 @@ use crate::api::operator::anyelement_query_input_opoid;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::pullup::resolve_fast_field;
-<<<<<<< HEAD
-use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
-=======
 use crate::postgres::customscan::qual_inspect::{
-    PlannerContext, QualExtractState, contains_exec_param, extract_quals,
+    contains_exec_param, extract_quals, PlannerContext, QualExtractState,
 };
->>>>>>> c74bcde7 (feat: Add support for non-equi JOINs in the join and aggregate scan (#6196))
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{expr_collect_rtis, expr_collect_vars, expr_contains_any_operator};

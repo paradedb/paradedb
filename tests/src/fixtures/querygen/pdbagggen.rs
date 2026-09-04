@@ -27,12 +27,8 @@ use serde_json::{json, Value};
 use sqlx::postgres::PgRow;
 use sqlx::Row;
 
-<<<<<<< HEAD
 use crate::fixtures::querygen::joingen::{arb_joins, JoinExpr, JoinType};
-=======
 use crate::fixtures::querygen::Column;
-use crate::fixtures::querygen::joingen::{JoinExpr, JoinType, arb_joins};
->>>>>>> c74bcde7 (feat: Add support for non-equi JOINs in the join and aggregate scan (#6196))
 
 /// Size that no generated bucket count reaches, so a level is never cut.
 const NO_CUT: u32 = 1000;

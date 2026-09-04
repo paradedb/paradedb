@@ -62,11 +62,8 @@ use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parall
 use crate::api::agg_funcoid;
 use crate::api::{MvccVisibility, SortDirection};
 use crate::gucs;
-<<<<<<< HEAD
-use crate::PARAMETERIZED_SELECTIVITY;
-=======
 use crate::postgres::customscan::joinscan::build::{JoinLevelExpr, RelNode};
->>>>>>> c74bcde7 (feat: Add support for non-equi JOINs in the join and aggregate scan (#6196))
+use crate::PARAMETERIZED_SELECTIVITY;
 
 use crate::aggregate::{NULL_SENTINEL_MAX, NULL_SENTINEL_MIN};
 use crate::customscan::aggregatescan::build::AggregateCSClause;
@@ -239,12 +236,6 @@ enum AggregatePathDecline {
 enum AggregateDeclineReason {
     NotAllBm25,
     JoinPredicate(datafusion_build::PathPredicateDeclineReason),
-<<<<<<< HEAD
-    CrossJoin,
-=======
-    DistinctOn,
-    NondeterministicCollation,
->>>>>>> c74bcde7 (feat: Add support for non-equi JOINs in the join and aggregate scan (#6196))
     /// Errors carrying a free-form message (parse-tree extraction, target-list
     /// extraction, fast-field population) — the underlying helper already
     /// produces a contextual string.
@@ -270,14 +261,6 @@ impl AggregateDeclineReason {
                     "the selected lower join path contains a predicate that AggregateScan cannot classify".into()
                 }
             },
-<<<<<<< HEAD
-            Self::CrossJoin => "CROSS JOINs are not supported (no equi-join keys)".into(),
-=======
-            Self::DistinctOn => "DISTINCT ON is not supported".into(),
-            Self::NondeterministicCollation => {
-                "DISTINCT on a nondeterministic collation is not supported".into()
-            }
->>>>>>> c74bcde7 (feat: Add support for non-equi JOINs in the join and aggregate scan (#6196))
             Self::Other(msg) => msg.clone().into(),
         }
     }

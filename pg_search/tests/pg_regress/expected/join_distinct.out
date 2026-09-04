@@ -1112,10 +1112,6 @@ WHERE deleted_at IS NULL
   )
 ORDER BY profile_id
 LIMIT 50;
-<<<<<<< HEAD
-=======
-WARNING:  Aggregate Scan (DataFusion) not used: search operators in join ON clause are not supported (table: join)
->>>>>>> c74bcde7 (feat: Add support for non-equi JOINs in the join and aggregate scan (#6196))
                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                    
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -1155,10 +1151,6 @@ WHERE deleted_at IS NULL
   )
 ORDER BY profile_id
 LIMIT 50;
-<<<<<<< HEAD
-=======
-WARNING:  Aggregate Scan (DataFusion) not used: search operators in join ON clause are not supported (table: join)
->>>>>>> c74bcde7 (feat: Add support for non-equi JOINs in the join and aggregate scan (#6196))
  profile_id 
 ------------
           1

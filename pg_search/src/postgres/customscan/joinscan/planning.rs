@@ -37,7 +37,7 @@ use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::version::VersionInfo;
 use crate::api::{NullTestKind, OrderByFeature, OrderByInfo, SortDirection};
-use crate::index::fast_fields_helper::{FieldDelivery, WhichFastField};
+use crate::index::fast_fields_helper::{FieldCardinality, FieldDelivery, WhichFastField};
 use crate::nodecast;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::customscan::basescan::projections::score::{
@@ -1696,7 +1696,12 @@ unsafe fn ensure_array_field(side: &mut JoinSource, attno: pg_sys::AttrNumber, f
     {
         side.scan_info.add_field(
             attno,
-            WhichFastField::Array(field_name.to_string(), search_field.field_type()),
+            WhichFastField::named(
+                field_name,
+                search_field.field_type(),
+                FieldCardinality::List,
+                FieldDelivery::Eager,
+            ),
         );
     }
 }

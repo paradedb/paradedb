@@ -16,7 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::fast_fields_helper::{
-    FFHelper, FFType, FieldDelivery, WhichFastField, ords_to_bytes_array, ords_to_string_array,
+    FFHelper, FFType, FieldCardinality, FieldDelivery, WhichFastField, ords_to_bytes_array,
+    ords_to_string_array,
 };
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::postgres::heap::VisibilityChecker;
@@ -87,21 +88,19 @@ fn ensure_column_fetched(
     match &which_fast_fields[ff_index] {
         WhichFastField::Named {
             field_type: search_field_type,
+            cardinality,
             ..
         } => {
-            memoized_columns[ff_index] = Some(
-                ffhelper
-                    .column(segment_ord, ff_index)
-                    .fetch_values_or_ords_to_arrow(ids, *search_field_type),
-            );
-        }
-        // TODO: https://github.com/paradedb/paradedb/issues/6164 (late materialization for array columns)
-        WhichFastField::Array(_, search_field_type) => {
-            memoized_columns[ff_index] = Some(
-                ffhelper
-                    .column(segment_ord, ff_index)
-                    .fetch_array_values_or_ords_to_arrow(ids, *search_field_type),
-            );
+            let column = ffhelper.column(segment_ord, ff_index);
+            memoized_columns[ff_index] = Some(match cardinality {
+                FieldCardinality::Scalar => {
+                    column.fetch_values_or_ords_to_arrow(ids, *search_field_type)
+                }
+                // TODO: https://github.com/paradedb/paradedb/issues/6164 (late materialization for array columns)
+                FieldCardinality::List => {
+                    column.fetch_array_values_or_ords_to_arrow(ids, *search_field_type)
+                }
+            });
         }
         WhichFastField::Score
         | WhichFastField::Ctid
@@ -280,7 +279,7 @@ impl Scanner {
                     field_type,
                     delivery: FieldDelivery::Eager,
                     ..
-                } | WhichFastField::Array(_, field_type) if field_type.is_dictionary_storage()
+                } if field_type.is_dictionary_storage()
             )
         });
 
@@ -549,9 +548,9 @@ impl Scanner {
             Some(Arc::new(ctids_builder.finish()) as ArrayRef)
         };
 
-        // Pre-fetch any Named or Array columns that weren't already fetched by pre-filters.
+        // Pre-fetch any eager named columns that weren't already fetched by pre-filters.
         for (ff_index, which_ff) in self.which_fast_fields.iter().enumerate() {
-            if which_ff.is_eager_named() || matches!(which_ff, WhichFastField::Array(_, _)) {
+            if which_ff.is_eager_named() {
                 ensure_column_fetched(
                     &mut memoized_columns,
                     &self.which_fast_fields,
@@ -582,6 +581,7 @@ impl Scanner {
                 WhichFastField::Junk(_) => None,
                 WhichFastField::Named {
                     delivery: FieldDelivery::Eager,
+                    cardinality: FieldCardinality::Scalar,
                     ..
                 } => {
                     let col_array = memoized_columns[ff_index].clone().unwrap();
@@ -610,7 +610,11 @@ impl Scanner {
                         _ => Some(col_array),
                     }
                 }
-                WhichFastField::Array(_, _) => {
+                WhichFastField::Named {
+                    delivery: FieldDelivery::Eager,
+                    cardinality: FieldCardinality::List,
+                    ..
+                } => {
                     let col_array = memoized_columns[ff_index].clone().unwrap();
                     match ffhelper.column(segment_ord, ff_index) {
                         FFType::Text(str_column) => {

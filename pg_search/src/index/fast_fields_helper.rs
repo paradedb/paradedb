@@ -129,7 +129,7 @@ impl FFHelper {
     pub fn column(&self, segment_ord: SegmentOrdinal, field: FFIndex) -> &FFType {
         self.caches()[segment_ord as usize].columns[field].get_or_init(|| {
             match &self.inner().columns[field] {
-                WhichFastField::Named { name, .. } | WhichFastField::Array(name, _) => {
+                WhichFastField::Named { name, .. } => {
                     FFType::new(self.fast_fields(segment_ord), name)
                 }
                 WhichFastField::Ctid
@@ -520,7 +520,6 @@ pub enum WhichFastField {
         cardinality: FieldCardinality,
         delivery: FieldDelivery,
     },
-    Array(String, SearchFieldType),
     /// Packed DocAddress ctid for deferred visibility (joinscan path only).
     /// The String is the ctid column alias (e.g. "ctid_0").
     DeferredCtid(String),
@@ -556,17 +555,15 @@ impl WhichFastField {
             WhichFastField::TableOid => "tableoid".into(),
             WhichFastField::Score => "pdb.score()".into(),
             WhichFastField::Named { name, .. } => name.clone(),
-            WhichFastField::Array(s, _) => s.clone(),
             WhichFastField::DeferredCtid(alias) => alias.clone(),
             WhichFastField::MatchTag(alias) => alias.clone(),
         }
     }
 
-    /// Returns the SearchFieldType if this is a Named or Array fast field, None otherwise.
+    /// Returns the SearchFieldType if this is a Named fast field, None otherwise.
     pub fn field_type(&self) -> Option<&SearchFieldType> {
         match self {
             WhichFastField::Named { field_type, .. } => Some(field_type),
-            WhichFastField::Array(_, field_type) => Some(field_type),
             WhichFastField::DeferredCtid(_) | WhichFastField::MatchTag(_) => None,
             _ => None,
         }
@@ -585,9 +582,6 @@ impl WhichFastField {
                 cardinality,
                 ..
             } => cardinality.wrap(field_type.arrow_data_type()),
-            WhichFastField::Array(_, field_type) => DataType::List(Arc::new(
-                arrow_schema::Field::new("item", field_type.arrow_data_type(), true),
-            )),
             WhichFastField::Junk(_) => DataType::Null,
             WhichFastField::Named {
                 delivery: FieldDelivery::Deferred,

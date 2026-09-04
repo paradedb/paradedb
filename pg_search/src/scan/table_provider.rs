@@ -30,7 +30,9 @@ use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 
 use crate::api::{HashSet, MvccVisibility};
-use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, FieldDelivery, WhichFastField};
+use crate::index::fast_fields_helper::{
+    CanonicalColumn, FFHelper, FieldCardinality, FieldDelivery, WhichFastField,
+};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{SearchIndexManifest, SearchIndexReader};
 use crate::postgres::ParallelScanState;
@@ -284,11 +286,13 @@ impl PgSearchTableProvider {
 
     fn enable_deferred_columns(&mut self, required_early_columns: &HashSet<String>) {
         for wff in self.fields.iter_mut() {
+            // Scalar only: the deferred union encoding carries one value per
+            // row, so a list column stays eager (#6164 is where that changes).
             if let WhichFastField::Named {
                 name,
                 field_type,
+                cardinality: FieldCardinality::Scalar,
                 delivery,
-                ..
             } = wff
             {
                 let is_string_or_bytes = field_type.is_dictionary_storage();

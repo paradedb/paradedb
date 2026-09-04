@@ -2158,17 +2158,13 @@ pub(super) fn parse_tantivy_query(
 ) -> anyhow::Result<Box<dyn Query>> {
     if lenient {
         let (mut ast, _) = query_grammar::parse_query_lenient(query_string);
-        if index_created_by_version.stores_datetimes_in_i64() {
-            rewrite_timestamp_literals(&mut ast, schema);
-        }
+        rewrite_field_literals(&mut ast, schema, index_created_by_version);
         let (parsed_query, _) = parser.build_query_from_user_input_ast_lenient(ast);
         Ok(parsed_query)
     } else {
         let mut ast = query_grammar::parse_query(query_string)
             .map_err(|_| QueryError::GrammarParseError(query_string.to_string()))?;
-        if index_created_by_version.stores_datetimes_in_i64() {
-            rewrite_timestamp_literals(&mut ast, schema);
-        }
+        rewrite_field_literals(&mut ast, schema, index_created_by_version);
         let parsed_query = parser
             .build_query_from_user_input_ast(ast)
             .map_err(|err| QueryError::ParseError(err, query_string.to_string()))?;
@@ -2176,27 +2172,38 @@ pub(super) fn parse_tantivy_query(
     }
 }
 
-/// Walks the parsed user query AST and rewrites date/timestamp-string phrases as i64s.
-/// Best-effort: phrases that fail to parse as datetimes are left untouched, which
-/// preserves the original tantivy error path for genuinely malformed input.
-pub(super) fn rewrite_timestamp_literals(ast: &mut UserInputAst, schema: &SearchIndexSchema) {
+/// Walks the parsed user query AST and rewrites logical Postgres values to their physical Tantivy
+/// representation. Best-effort: phrases that fail conversion are left untouched, which preserves
+/// the original Tantivy error path for malformed input.
+pub(super) fn rewrite_field_literals(
+    ast: &mut UserInputAst,
+    schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
+) {
     match ast {
         UserInputAst::Clause(children) => {
             for (_, child) in children {
-                rewrite_timestamp_literals(child, schema);
+                rewrite_field_literals(child, schema, index_created_by_version);
             }
         }
-        UserInputAst::Boost(inner, _) => rewrite_timestamp_literals(inner, schema),
-        UserInputAst::Leaf(leaf) => rewrite_leaf(leaf, schema),
+        UserInputAst::Boost(inner, _) => {
+            rewrite_field_literals(inner, schema, index_created_by_version)
+        }
+        UserInputAst::Leaf(leaf) => rewrite_leaf(leaf, schema, index_created_by_version),
     }
 }
 
-fn rewrite_leaf(leaf: &mut UserInputLeaf, schema: &SearchIndexSchema) {
+fn rewrite_leaf(
+    leaf: &mut UserInputLeaf,
+    schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
+) {
     match leaf {
         UserInputLeaf::Literal(lit) => {
             if let Some(field_name) = &lit.field_name
-                && let Some(oid) = oid_might_require_timestamp_rewriting(schema, field_name)
-                && let Some(replacement) = phrase_to_pg_micros_string(&lit.phrase, oid)
+                && let Some(field_type) = schema.search_field(field_name).map(|f| f.field_type())
+                && let Some(replacement) =
+                    phrase_to_tantivy_string(&lit.phrase, &field_type, index_created_by_version)
             {
                 lit.phrase = replacement;
             }
@@ -2206,33 +2213,41 @@ fn rewrite_leaf(leaf: &mut UserInputLeaf, schema: &SearchIndexSchema) {
             lower,
             upper,
         } => {
-            if let Some(oid) = oid_might_require_timestamp_rewriting(schema, name) {
-                rewrite_bound(lower, oid);
-                rewrite_bound(upper, oid);
+            if let Some(field_type) = schema.search_field(name).map(|f| f.field_type()) {
+                rewrite_bound(lower, &field_type, index_created_by_version);
+                rewrite_bound(upper, &field_type, index_created_by_version);
             }
         }
         UserInputLeaf::Set {
             field: Some(name),
             elements,
         } => {
-            if let Some(oid) = oid_might_require_timestamp_rewriting(schema, name) {
+            if let Some(field_type) = schema.search_field(name).map(|f| f.field_type()) {
                 for element in elements.iter_mut() {
-                    if let Some(replacement) = phrase_to_pg_micros_string(element, oid) {
+                    if let Some(replacement) =
+                        phrase_to_tantivy_string(element, &field_type, index_created_by_version)
+                    {
                         *element = replacement;
                     }
                 }
             }
         }
-        // All, Exists, Regex carry no date phrase.
+        // All, Exists, and Regex carry no rewritable phrase.
         // Range/Set without an explicit field can't be resolved here; leave them alone.
         _ => (),
     }
 }
 
-fn rewrite_bound(bound: &mut UserInputBound, oid: PgOid) {
+fn rewrite_bound(
+    bound: &mut UserInputBound,
+    field_type: &SearchFieldType,
+    index_created_by_version: Option<Version>,
+) {
     match bound {
         UserInputBound::Inclusive(phrase) | UserInputBound::Exclusive(phrase) => {
-            if let Some(replacement) = phrase_to_pg_micros_string(phrase, oid) {
+            if let Some(replacement) =
+                phrase_to_tantivy_string(phrase, field_type, index_created_by_version)
+            {
                 *phrase = replacement;
             }
         }
@@ -2240,19 +2255,55 @@ fn rewrite_bound(bound: &mut UserInputBound, oid: PgOid) {
     }
 }
 
-fn oid_might_require_timestamp_rewriting(
-    schema: &SearchIndexSchema,
-    field_name: &str,
-) -> Option<PgOid> {
-    let oid = schema.search_field(field_name)?.field_type().typeoid();
-    if let PgOid::BuiltIn(built_in) = oid {
-        match built_in {
-            BuiltinOid::JSONOID | BuiltinOid::JSONBOID => Some(oid),
-            _ if is_pgoid_datetime_type(oid) => Some(oid),
-            _ => None,
+fn phrase_to_tantivy_string(
+    phrase: &str,
+    field_type: &SearchFieldType,
+    index_created_by_version: Option<Version>,
+) -> Option<String> {
+    match field_type {
+        SearchFieldType::Numeric64(..) | SearchFieldType::NumericBytes(..) => {
+            numeric_phrase_to_tantivy_string(phrase, field_type, index_created_by_version)
         }
-    } else {
-        None
+        _ if index_created_by_version.stores_datetimes_in_i64() => {
+            let oid = field_type.typeoid();
+            if matches!(
+                oid,
+                PgOid::BuiltIn(BuiltinOid::JSONOID | BuiltinOid::JSONBOID)
+            ) || is_pgoid_datetime_type(oid)
+            {
+                phrase_to_pg_micros_string(phrase, oid)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+fn numeric_phrase_to_tantivy_string(
+    phrase: &str,
+    field_type: &SearchFieldType,
+    index_created_by_version: Option<Version>,
+) -> Option<String> {
+    match convert_value_for_field(
+        PdbOwnedValue::Str(phrase.to_string()),
+        field_type,
+        index_created_by_version,
+    )
+    .ok()?
+    {
+        PdbOwnedValue::I64(value) => Some(value.to_string()),
+        PdbOwnedValue::Bytes(value) => {
+            // Tantivy's QueryParser decodes Bytes terms and boundaries as standard Base64. Reuse
+            // PdbOwnedValue's OwnedValue serialization to emit that format without a second crate.
+            let serde_json::Value::String(value) =
+                serde_json::to_value(PdbOwnedValue::Bytes(value)).ok()?
+            else {
+                return None;
+            };
+            Some(value)
+        }
+        _ => None,
     }
 }
 
@@ -2307,6 +2358,43 @@ fn phrase_to_pg_micros_string(phrase: &str, oid: PgOid) -> Option<String> {
 mod tests {
     use super::pdb::FuzzyData;
     use pgrx::prelude::*;
+
+    #[test]
+    fn numeric_phrase_rewrite_uses_physical_representation() {
+        use super::numeric_phrase_to_tantivy_string;
+        use crate::api::version::{NUMERIC_BYTES_SORTABLE_NEGATIVES_VERSION, Version};
+        use crate::postgres::pdb_owned_value::PdbOwnedValue;
+        use crate::schema::SearchFieldType;
+
+        let numeric64 = SearchFieldType::Numeric64(pg_sys::NUMERICOID, 2);
+        assert_eq!(
+            numeric_phrase_to_tantivy_string("1.23", &numeric64, None),
+            Some("123".to_string())
+        );
+        assert_eq!(
+            numeric_phrase_to_tantivy_string("not-a-number", &numeric64, None),
+            None
+        );
+
+        let numeric_bytes = SearchFieldType::NumericBytes(pg_sys::NUMERICOID, None);
+        let legacy =
+            numeric_phrase_to_tantivy_string("-100", &numeric_bytes, Some(Version::new(0, 25, 4)));
+        let current = numeric_phrase_to_tantivy_string(
+            "-100",
+            &numeric_bytes,
+            Some(NUMERIC_BYTES_SORTABLE_NEGATIVES_VERSION),
+        );
+        assert_eq!(legacy, Some("AL/87w==".to_string()));
+        assert_eq!(current, Some("AL/8if8=".to_string()));
+        assert_eq!(
+            numeric_phrase_to_tantivy_string("not-a-number", &numeric_bytes, None),
+            None
+        );
+
+        // Pin the cross-module serialization contract used for Tantivy Bytes query terms.
+        let serialized = serde_json::to_value(PdbOwnedValue::Bytes(vec![0, 1, 2, 3])).unwrap();
+        assert_eq!(serialized, serde_json::Value::String("AAECAw==".into()));
+    }
 
     #[pg_test]
     fn fuzzy_data_roundtrip() {

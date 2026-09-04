@@ -21,7 +21,9 @@ use crate::index::fast_fields_helper::{
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::postgres::heap::VisibilityChecker;
 use arrow_array::builder::{BooleanBuilder, UInt64Builder};
-use arrow_array::{Array, ArrayRef, BooleanArray, Float32Array, RecordBatch, UInt64Array};
+use arrow_array::{
+    Array, ArrayRef, BooleanArray, Float32Array, RecordBatch, RecordBatchOptions, UInt64Array,
+};
 use arrow_buffer::BooleanBufferBuilder;
 use arrow_schema::SchemaRef;
 use datafusion::arrow::compute;
@@ -131,7 +133,9 @@ impl Batch {
             })
             .collect();
 
-        RecordBatch::try_new(schema.clone(), columns).expect("Failed to create RecordBatch")
+        let options = RecordBatchOptions::new().with_row_count(Some(self.num_rows));
+        RecordBatch::try_new_with_options(schema.clone(), columns, &options)
+            .expect("Failed to create RecordBatch")
     }
 }
 

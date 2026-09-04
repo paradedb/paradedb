@@ -55,6 +55,41 @@ impl Expr {
             }
         }
     }
+
+    pub fn referenced_tables(&self) -> std::collections::BTreeSet<String> {
+        let mut tables = std::collections::BTreeSet::new();
+        self.collect_tables(&mut tables);
+        tables
+    }
+
+    fn collect_tables(&self, tables: &mut std::collections::BTreeSet<String>) {
+        match self {
+            Expr::Atom { name, .. } => {
+                if let Some((tbl, _)) = name.split_once('.') {
+                    tables.insert(tbl.to_string());
+                }
+            }
+            Expr::Not(e) => e.collect_tables(tables),
+            Expr::And(l, r) | Expr::Or(l, r) => {
+                l.collect_tables(tables);
+                r.collect_tables(tables);
+            }
+        }
+    }
+
+    /// Check if this expression contains an OR where the operands reference different tables.
+    pub fn has_cross_table_or(&self) -> bool {
+        match self {
+            Expr::Atom { .. } => false,
+            Expr::Not(e) => e.has_cross_table_or(),
+            Expr::And(l, r) => l.has_cross_table_or() || r.has_cross_table_or(),
+            Expr::Or(l, r) => {
+                let l_tables = l.referenced_tables();
+                let r_tables = r.referenced_tables();
+                l_tables != r_tables || l.has_cross_table_or() || r.has_cross_table_or()
+            }
+        }
+    }
 }
 
 pub fn arb_wheres(tables: Vec<impl AsRef<str>>, columns: &[Column]) -> impl Strategy<Value = Expr> {

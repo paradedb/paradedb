@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 pub mod crossrelgen;
+pub mod distinctgen;
 pub mod groupbygen;
 pub mod joingen;
 pub mod numericgen;
@@ -59,6 +60,7 @@ pub struct Column {
     pub is_groupable: bool,
     pub is_whereable: bool,
     pub is_indexed: bool,
+    pub is_orderable: Option<bool>,
     pub bm25_options: Option<BM25Options>,
     pub random_generator_sql: &'static str,
     /// V2 syntax: expression to use in index column list, e.g. "(column::pdb.literal_normalized)"
@@ -80,6 +82,7 @@ impl Column {
             is_groupable: true,
             is_whereable: true,
             is_indexed: true,
+            is_orderable: None,
             bm25_options: None,
             random_generator_sql: "NULL",
             index_expression: None,
@@ -104,6 +107,29 @@ impl Column {
     pub const fn indexed(mut self, is_indexed: bool) -> Self {
         self.is_indexed = is_indexed;
         self
+    }
+
+    pub const fn orderable(mut self, is_orderable: bool) -> Self {
+        self.is_orderable = Some(is_orderable);
+        self
+    }
+
+    pub fn is_orderable(&self) -> bool {
+        if let Some(orderable) = self.is_orderable {
+            return orderable;
+        }
+        let ty = self.sql_type.to_ascii_uppercase();
+        ty.starts_with("INT")
+            || ty.starts_with("SERIAL")
+            || ty.starts_with("BIGINT")
+            || ty.starts_with("SMALLINT")
+            || ty.starts_with("NUMERIC")
+            || ty.starts_with("DECIMAL")
+            || ty.starts_with("FLOAT")
+            || ty.starts_with("REAL")
+            || ty.starts_with("DOUBLE")
+            || ty.starts_with("DATE")
+            || ty.starts_with("TIME")
     }
 
     pub const fn bm25_text_field(mut self, config_json: &'static str) -> Self {
@@ -386,11 +412,7 @@ pub fn arb_joins_and_wheres(
 
             // Finally, choose the joins, where clauses, and optional cross-relation predicate for those tables.
             (
-                joingen::arb_joins(
-                    join_types.clone(),
-                    tables.clone(),
-                    columns.iter().map(|c| c.name.to_owned()).collect(),
-                ),
+                joingen::arb_joins(join_types.clone(), tables.clone(), &columns),
                 wheregen::arb_wheres(tables.clone(), &columns.to_vec()),
                 cross_rel_strategy,
             )
@@ -787,11 +809,10 @@ pub fn handle_compare_error(
 -- ==== {failure_type} REPRODUCTION SCRIPT ====
 -- Copy and paste this entire block to reproduce the issue
 --
--- Prerequisites: Ensure pg_search extension is available
-CREATE EXTENSION IF NOT EXISTS vector;
-CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Environment variables to reproduce with cargo test:
+-- PARADEDB_QGEN_SEED={qgen_seed} PROPTEST_RNG_SEED={proptest_seed} cargo test <test_name>
 --
--- Table and index setup
+-- Setup:
 {setup_sql}
 --
 -- Default GUCs:
@@ -809,8 +830,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 -- ==== END REPRODUCTION SCRIPT ====
 
 Replay this proptest case end-to-end:
-  PARADEDB_QGEN_SEED={qgen_seed} PROPTEST_RNG_SEED={proptest_seed} \
-    cargo test --package tests --test qgen <test_fn_name>
+  PARADEDB_QGEN_SEED={qgen_seed} PROPTEST_RNG_SEED="{proptest_seed}" cargo test <test_name>
 
 Original error:
 {error_msg}

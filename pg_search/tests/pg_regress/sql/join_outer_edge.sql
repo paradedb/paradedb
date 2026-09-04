@@ -69,7 +69,7 @@ SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND b.pri
 SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND b.price > 100 WHERE a.txt @@@ 'alpha' ORDER BY a.id LIMIT 8;
 
 -- =============================================================================
--- Two-sided non-equi ON condition: declines with a warning
+-- Two-sided non-equi ON condition: uses JoinScan
 -- =============================================================================
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

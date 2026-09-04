@@ -55,20 +55,6 @@ SELECT DISTINCT category
 FROM dist_products
 WHERE name @@@ 'laptop OR jacket OR shoes'
 ORDER BY category;
-<<<<<<< HEAD
-                                                                                  QUERY PLAN                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Unique
-   ->  Sort
-         Sort Key: category
-         ->  Custom Scan (ParadeDB Base Scan) on dist_products
-               Table: dist_products
-               Index: dist_products_idx
-               Exec Method: ColumnarExecState
-               Fast Fields: category
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
-=======
                                                                                                                QUERY PLAN                                                                                                                
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -81,7 +67,6 @@ ORDER BY category;
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[]
            :   CooperativeExec
            :     PgSearchScan: table=dist_products, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
->>>>>>> 51e683ec (refactor: resolve ctids in TantivyLookupExec, not VisibilityFilterExec (#6140))
 (10 rows)
 
 SELECT DISTINCT category
@@ -117,20 +102,6 @@ SELECT DISTINCT rating
 FROM dist_products
 WHERE name @@@ 'laptop OR keyboard'
 ORDER BY rating;
-<<<<<<< HEAD
-                                                                               QUERY PLAN                                                                               
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Unique
-   ->  Sort
-         Sort Key: rating
-         ->  Custom Scan (ParadeDB Base Scan) on dist_products
-               Table: dist_products
-               Index: dist_products_idx
-               Exec Method: ColumnarExecState
-               Fast Fields: rating
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-=======
                                                                                                             QUERY PLAN                                                                                                            
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -143,7 +114,6 @@ ORDER BY rating;
            : AggregateExec: mode=Single, gby=[rating@0 as rating], aggr=[]
            :   CooperativeExec
            :     PgSearchScan: table=dist_products, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
->>>>>>> 51e683ec (refactor: resolve ctids in TantivyLookupExec, not VisibilityFilterExec (#6140))
 (10 rows)
 
 SELECT DISTINCT rating
@@ -173,22 +143,6 @@ FROM dist_products
 WHERE name @@@ 'laptop OR keyboard OR jacket OR shoes OR headphones OR hub OR monitor OR mat OR chair OR desk'
 ORDER BY rating
 LIMIT 2;
-<<<<<<< HEAD
-                                                                                                                       QUERY PLAN                                                                                                                        
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Sort
-         Sort Key: rating
-         ->  HashAggregate
-               Group Key: rating
-               ->  Custom Scan (ParadeDB Base Scan) on dist_products
-                     Table: dist_products
-                     Index: dist_products_idx
-                     Exec Method: ColumnarExecState
-                     Fast Fields: rating
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard OR jacket OR shoes OR headphones OR hub OR monitor OR mat OR chair OR desk","lenient":null,"conjunction_mode":null}}}}
-=======
                                                                                                                                                                QUERY PLAN                                                                                                                                                               
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -203,7 +157,6 @@ LIMIT 2;
                  :   AggregateExec: mode=Single, gby=[rating@0 as rating], aggr=[], lim=[2]
                  :     CooperativeExec
                  :       PgSearchScan: table=dist_products, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard OR jacket OR shoes OR headphones OR hub OR monitor OR mat OR chair OR desk","lenient":null,"conjunction_mode":null}}}}
->>>>>>> 51e683ec (refactor: resolve ctids in TantivyLookupExec, not VisibilityFilterExec (#6140))
 (12 rows)
 
 SELECT DISTINCT rating
@@ -254,20 +207,6 @@ SELECT DISTINCT category, brand
 FROM dist_products
 WHERE name @@@ 'laptop OR keyboard OR headphones'
 ORDER BY category, brand;
-<<<<<<< HEAD
-                                                                                      QUERY PLAN                                                                                      
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Unique
-   ->  Sort
-         Sort Key: category, brand
-         ->  Custom Scan (ParadeDB Base Scan) on dist_products
-               Table: dist_products
-               Index: dist_products_idx
-               Exec Method: ColumnarExecState
-               Fast Fields: brand, category
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard OR headphones","lenient":null,"conjunction_mode":null}}}}
-=======
                                                                                                                    QUERY PLAN                                                                                                                   
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -280,7 +219,6 @@ ORDER BY category, brand;
            : AggregateExec: mode=Single, gby=[category@0 as category, brand@1 as brand], aggr=[]
            :   CooperativeExec
            :     PgSearchScan: table=dist_products, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard OR headphones","lenient":null,"conjunction_mode":null}}}}
->>>>>>> 51e683ec (refactor: resolve ctids in TantivyLookupExec, not VisibilityFilterExec (#6140))
 (10 rows)
 
 SELECT DISTINCT category, brand
@@ -322,6 +260,7 @@ SELECT DISTINCT name
 FROM dist_products
 WHERE name @@@ 'laptop'
 ORDER BY name;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column dist_products.name is not columnar indexed (table: dist_products)
                                                                          QUERY PLAN                                                                         
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
  Unique
@@ -339,6 +278,7 @@ SELECT DISTINCT name
 FROM dist_products
 WHERE name @@@ 'laptop'
 ORDER BY name;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column dist_products.name is not columnar indexed (table: dist_products)
      name      
 ---------------
  Gaming Laptop
@@ -371,6 +311,7 @@ SELECT DISTINCT ON (category) category, name
 FROM dist_products
 WHERE name @@@ 'laptop OR keyboard'
 ORDER BY category, name;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT ON is not supported (table: dist_products)
                                                                                QUERY PLAN                                                                               
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Unique
@@ -388,6 +329,7 @@ SELECT DISTINCT ON (category) category, name
 FROM dist_products
 WHERE name @@@ 'laptop OR keyboard'
 ORDER BY category, name;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT ON is not supported (table: dist_products)
   category   |        name         
 -------------+---------------------
  Accessories | Mechanical Keyboard
@@ -429,16 +371,6 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT category
 FROM dist_products
 ORDER BY category;
-<<<<<<< HEAD
-              QUERY PLAN               
----------------------------------------
- Sort
-   Sort Key: category
-   ->  HashAggregate
-         Group Key: category
-         ->  Seq Scan on dist_products
-(5 rows)
-=======
                                           QUERY PLAN                                          
 ----------------------------------------------------------------------------------------------
  Sort
@@ -452,7 +384,6 @@ ORDER BY category;
            :   CooperativeExec
            :     PgSearchScan: table=dist_products, segments=1, visibility=eager, query="all"
 (10 rows)
->>>>>>> 51e683ec (refactor: resolve ctids in TantivyLookupExec, not VisibilityFilterExec (#6140))
 
 SELECT DISTINCT category
 FROM dist_products
@@ -497,26 +428,6 @@ FROM dist_products dp
 JOIN dist_regions dr ON dp.category = dr.category
 WHERE dp.name @@@ 'laptop OR jacket OR shoes'
 ORDER BY dp.category;
-<<<<<<< HEAD
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Unique
-   ->  Merge Join
-         Merge Cond: (dr.category = dp.category)
-         ->  Sort
-               Sort Key: dr.category
-               ->  Seq Scan on dist_regions dr
-         ->  Sort
-               Sort Key: dp.category
-               ->  Custom Scan (ParadeDB Base Scan) on dist_products dp
-                     Table: dist_products
-                     Index: dist_products_idx
-                     Exec Method: ColumnarExecState
-                     Fast Fields: category
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
-(15 rows)
-=======
                                                                                                                     QUERY PLAN                                                                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -533,7 +444,6 @@ ORDER BY dp.category;
            :     CooperativeExec
            :       PgSearchScan: table=dp, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
 (13 rows)
->>>>>>> 51e683ec (refactor: resolve ctids in TantivyLookupExec, not VisibilityFilterExec (#6140))
 
 SELECT DISTINCT dp.category
 FROM dist_products dp
@@ -589,20 +499,6 @@ SELECT DISTINCT url
 FROM dist_urls
 WHERE name @@@ 'Page'
 ORDER BY url;
-<<<<<<< HEAD
-                                                                        QUERY PLAN                                                                        
-----------------------------------------------------------------------------------------------------------------------------------------------------------
- Unique
-   ->  Sort
-         Sort Key: url
-         ->  Custom Scan (ParadeDB Base Scan) on dist_urls
-               Table: dist_urls
-               Index: dist_urls_idx
-               Exec Method: ColumnarExecState
-               Fast Fields: url
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
-=======
                                                                                                    QUERY PLAN                                                                                                   
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -615,7 +511,6 @@ ORDER BY url;
            : AggregateExec: mode=Single, gby=[url@0 as url], aggr=[]
            :   CooperativeExec
            :     PgSearchScan: table=dist_urls, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
->>>>>>> 51e683ec (refactor: resolve ctids in TantivyLookupExec, not VisibilityFilterExec (#6140))
 (10 rows)
 
 SELECT DISTINCT url
@@ -672,20 +567,6 @@ SELECT DISTINCT category
 FROM dist_nullable
 WHERE name @@@ 'laptop OR keyboard OR widget OR gadget OR thingamajig'
 ORDER BY category;
-<<<<<<< HEAD
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Unique
-   ->  Sort
-         Sort Key: category
-         ->  Custom Scan (ParadeDB Base Scan) on dist_nullable
-               Table: dist_nullable
-               Index: dist_nullable_idx
-               Exec Method: ColumnarExecState
-               Fast Fields: category
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard OR widget OR gadget OR thingamajig","lenient":null,"conjunction_mode":null}}}}
-=======
                                                                                                                              QUERY PLAN                                                                                                                              
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -698,7 +579,6 @@ ORDER BY category;
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[]
            :   CooperativeExec
            :     PgSearchScan: table=dist_nullable, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard OR widget OR gadget OR thingamajig","lenient":null,"conjunction_mode":null}}}}
->>>>>>> 51e683ec (refactor: resolve ctids in TantivyLookupExec, not VisibilityFilterExec (#6140))
 (10 rows)
 
 -- DISTINCT must return: Accessories, Electronics, NULL (three rows)
@@ -766,20 +646,6 @@ SELECT DISTINCT url
 FROM dist_highcard
 WHERE name @@@ 'Page'
 ORDER BY url;
-<<<<<<< HEAD
-                                                                        QUERY PLAN                                                                        
-----------------------------------------------------------------------------------------------------------------------------------------------------------
- Unique
-   ->  Sort
-         Sort Key: url
-         ->  Custom Scan (ParadeDB Base Scan) on dist_highcard
-               Table: dist_highcard
-               Index: dist_highcard_idx
-               Exec Method: ColumnarExecState
-               Fast Fields: url
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
-=======
                                                                                                      QUERY PLAN                                                                                                     
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -792,7 +658,6 @@ ORDER BY url;
            : AggregateExec: mode=Single, gby=[url@0 as url], aggr=[]
            :   CooperativeExec
            :     PgSearchScan: table=dist_highcard, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
->>>>>>> 51e683ec (refactor: resolve ctids in TantivyLookupExec, not VisibilityFilterExec (#6140))
 (10 rows)
 
 -- Verify all 20 distinct values are returned, not just 10.
@@ -837,6 +702,7 @@ SELECT DISTINCT upper(category)
 FROM dist_expr
 WHERE name @@@ 'laptop OR mouse OR hub'
 ORDER BY 1;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: dist_expr)
                                                                                  QUERY PLAN                                                                                 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Unique
@@ -855,6 +721,7 @@ SELECT DISTINCT upper(category)
 FROM dist_expr
 WHERE name @@@ 'laptop OR mouse OR hub'
 ORDER BY 1;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: dist_expr)
     upper    
 -------------
  ACCESSORIES
@@ -880,6 +747,7 @@ SELECT DISTINCT category || '-' || brand
 FROM dist_expr
 WHERE name @@@ 'laptop OR mouse OR hub'
 ORDER BY 1;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: dist_expr)
                                                                                  QUERY PLAN                                                                                 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Unique
@@ -899,6 +767,7 @@ SELECT DISTINCT category || '-' || brand
 FROM dist_expr
 WHERE name @@@ 'laptop OR mouse OR hub'
 ORDER BY 1;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: dist_expr)
       ?column?      
 --------------------
  Accessories-BrandC
@@ -934,29 +803,25 @@ FROM dist_products
 WHERE name @@@ 'laptop OR keyboard OR headphones'
 GROUP BY brand
 ORDER BY brand;
-WARNING:  Aggregate Scan not used: Query has DISTINCT clause (see https://github.com/paradedb/paradedb/issues/new/choose). To disable this warning: SET paradedb.planner_warnings = 'off' (table: dist_products)
-                                                                                         QUERY PLAN                                                                                         
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Unique
-   ->  Sort
-         Sort Key: brand, (count(*))
-         ->  HashAggregate
-               Group Key: brand
-               ->  Custom Scan (ParadeDB Base Scan) on dist_products
-                     Table: dist_products
-                     Index: dist_products_idx
-                     Exec Method: ColumnarExecState
-                     Fast Fields: brand
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard OR headphones","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+                                                                                      QUERY PLAN                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: brand
+   ->  HashAggregate
+         Group Key: brand, pdb.agg_fn('COUNT(*)'::text)
+         ->  Custom Scan (ParadeDB Aggregate Scan) on dist_products
+               Index: dist_products_idx
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard OR headphones","lenient":null,"conjunction_mode":null}}}}
+                 Applies to Aggregates: COUNT(*)
+                 Group By: brand
+                 Aggregate Definition: {"grouped":{"terms":{"field":"brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(10 rows)
 
 SELECT DISTINCT brand, COUNT(*)
 FROM dist_products
 WHERE name @@@ 'laptop OR keyboard OR headphones'
 GROUP BY brand
 ORDER BY brand;
-WARNING:  Aggregate Scan not used: Query has DISTINCT clause (see https://github.com/paradedb/paradedb/issues/new/choose). To disable this warning: SET paradedb.planner_warnings = 'off' (table: dist_products)
  brand  | count 
 --------+-------
  BrandA |     3
@@ -1073,26 +938,6 @@ JOIN dist_regions dr ON dp.category = dr.category
 WHERE dp.name @@@ 'laptop OR jacket OR shoes'
 ORDER BY dp.category;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: dp, dr)
-<<<<<<< HEAD
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Unique
-   ->  Merge Join
-         Merge Cond: (dr.category = dp.category)
-         ->  Sort
-               Sort Key: dr.category
-               ->  Seq Scan on dist_regions dr
-         ->  Sort
-               Sort Key: dp.category
-               ->  Custom Scan (ParadeDB Base Scan) on dist_products dp
-                     Table: dist_products
-                     Index: dist_products_idx
-                     Exec Method: ColumnarExecState
-                     Fast Fields: category
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
-(15 rows)
-=======
                                                                                                                     QUERY PLAN                                                                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -1109,7 +954,6 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: dp
            :     CooperativeExec
            :       PgSearchScan: table=dp, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
 (13 rows)
->>>>>>> 51e683ec (refactor: resolve ctids in TantivyLookupExec, not VisibilityFilterExec (#6140))
 
 SELECT DISTINCT dp.category
 FROM dist_products dp
@@ -1139,25 +983,6 @@ WHERE dp.name @@@ 'laptop OR jacket OR shoes'
 ORDER BY dp.category
 LIMIT 10;
 WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to volatile functions (tables: dp, dr)
-<<<<<<< HEAD
-                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                  
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Unique
-         ->  Sort
-               Sort Key: dp.category
-               ->  Nested Loop
-                     Join Filter: (dp.category = dr.category)
-                     ->  Custom Scan (ParadeDB Base Scan) on dist_products dp
-                           Table: dist_products
-                           Index: dist_products_idx
-                           Exec Method: ColumnarExecState
-                           Fast Fields: category
-                           Scores: false
-                           Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(((id)::double precision + random()) > '0'::double precision)"}]}}]}}
-                     ->  Seq Scan on dist_regions dr
-(14 rows)
-=======
                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                          
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -1176,7 +1001,6 @@ WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to volatile functions 
                  :       CooperativeExec
                  :         PgSearchScan: table=dp, segments=1, dynamic_filters=2, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(((id)::double precision + random()) > '0'::double precision)"}]}}]}}
 (15 rows)
->>>>>>> 51e683ec (refactor: resolve ctids in TantivyLookupExec, not VisibilityFilterExec (#6140))
 
 SELECT DISTINCT dp.category
 FROM dist_products dp
@@ -1223,6 +1047,7 @@ SELECT DISTINCT n::text
 FROM dist_cast
 WHERE id @@@ paradedb.all()
 ORDER BY 1;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: dist_cast)
                          QUERY PLAN                          
 -------------------------------------------------------------
  Unique
@@ -1241,6 +1066,7 @@ SELECT DISTINCT n::text
 FROM dist_cast
 WHERE id @@@ paradedb.all()
 ORDER BY 1;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: dist_cast)
  n 
 ---
  1
@@ -1289,6 +1115,7 @@ SELECT DISTINCT meta->'tags'
 FROM dist_json
 WHERE id @@@ paradedb.all()
 ORDER BY 1;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: dist_json)
                          QUERY PLAN                          
 -------------------------------------------------------------
  Unique
@@ -1307,6 +1134,7 @@ SELECT DISTINCT meta->'tags'
 FROM dist_json
 WHERE id @@@ paradedb.all()
 ORDER BY 1;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: dist_json)
   ?column?  
 ------------
  ["a"]
@@ -1360,6 +1188,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT value
 FROM dist_ci
 WHERE id @@@ paradedb.all();
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on a nondeterministic collation is not supported (table: dist_ci)
                          QUERY PLAN                          
 -------------------------------------------------------------
  Unique
@@ -1380,6 +1209,7 @@ SELECT COUNT(*) FROM (
     FROM dist_ci
     WHERE id @@@ paradedb.all()
 ) t;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on a nondeterministic collation is not supported (table: dist_ci)
  count 
 -------
      2
@@ -1420,7 +1250,8 @@ FROM dist_ci c
 JOIN dist_ci_join j ON c.join_id = j.id
 WHERE c.id @@@ paradedb.all()
 LIMIT 10;
-WARNING:  JoinScan not used: ORDER BY columns must have a byte-ordered (C-like) collation (tables: c, j)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on a nondeterministic collation is not supported (table: join)
+WARNING:  JoinScan not used: DISTINCT on a nondeterministic collation is not supported (tables: c, j)
                                QUERY PLAN                                
 -------------------------------------------------------------------------
  Limit
@@ -1447,7 +1278,8 @@ SELECT COUNT(*) FROM (
     WHERE c.id @@@ paradedb.all()
     LIMIT 10
 ) t;
-WARNING:  JoinScan not used: ORDER BY columns must have a byte-ordered (C-like) collation (tables: c, j)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on a nondeterministic collation is not supported (table: join)
+WARNING:  JoinScan not used: DISTINCT on a nondeterministic collation is not supported (tables: c, j)
  count 
 -------
      2
@@ -1537,15 +1369,6 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT category
 FROM ONLY dist_inh_parent
 ORDER BY category;
-<<<<<<< HEAD
-               QUERY PLAN                
------------------------------------------
- Unique
-   ->  Sort
-         Sort Key: category
-         ->  Seq Scan on dist_inh_parent
-(4 rows)
-=======
                                            QUERY PLAN                                           
 ------------------------------------------------------------------------------------------------
  Sort
@@ -1559,7 +1382,6 @@ ORDER BY category;
            :   CooperativeExec
            :     PgSearchScan: table=dist_inh_parent, segments=1, visibility=eager, query="all"
 (10 rows)
->>>>>>> 51e683ec (refactor: resolve ctids in TantivyLookupExec, not VisibilityFilterExec (#6140))
 
 SELECT DISTINCT category
 FROM ONLY dist_inh_parent

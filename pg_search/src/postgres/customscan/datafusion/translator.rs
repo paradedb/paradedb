@@ -43,47 +43,6 @@ pub(crate) unsafe fn type_name(oid: pg_sys::Oid) -> String {
         .into_owned()
 }
 
-/// Deparse a PG expression into readable SQL for debug logs. Builds a
-/// deparse context that covers every join source so Var nodes resolve to
-/// qualified column names (e.g. `e.pattern`). Wrapped in
-/// [`pgrx::PgTryBuilder`] so a PG error inside `deparse_expression` (which
-/// doesn't handle every possible node shape) degrades to a short tag
-/// fallback instead of unwinding the caller.
-pub(crate) unsafe fn deparse_expr_for_debug(
-    node: *mut pg_sys::Node,
-    sources: &[&JoinSource],
-) -> String {
-    use std::panic::AssertUnwindSafe;
-    if node.is_null() {
-        return "<null>".to_string();
-    }
-
-    let tag_fallback = || format!("{:?}", (*node).type_);
-
-    pgrx::PgTryBuilder::new(AssertUnwindSafe(|| {
-        let mut context: *mut pg_sys::List = std::ptr::null_mut();
-        for source in sources {
-            let alias = source.scan_info.alias.as_deref().unwrap_or("?");
-            let relname = match std::ffi::CString::new(alias) {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
-            let rel_context =
-                pg_sys::deparse_context_for(relname.as_ptr(), source.scan_info.heaprelid);
-            context = pg_sys::list_concat(context, rel_context);
-        }
-        let deparsed = pg_sys::deparse_expression(node.cast(), context, sources.len() > 1, false);
-        if deparsed.is_null() {
-            return tag_fallback();
-        }
-        std::ffi::CStr::from_ptr(deparsed)
-            .to_string_lossy()
-            .into_owned()
-    }))
-    .catch_others(|_| tag_fallback())
-    .execute()
-}
-
 /// Short label for a node tag (strips the `T_` prefix). Used in debug
 /// logs so the offending node type is immediately scannable. Separate from
 /// `expr_translators::node_tag_label`, which covers only the subset of
@@ -99,6 +58,7 @@ pub(crate) unsafe fn node_tag_debug(node: *mut pg_sys::Node) -> String {
 /// Helper struct for translating PostgreSQL expression trees into DataFusion `Expr`s.
 pub struct PredicateTranslator<'a> {
     pub sources: &'a [&'a JoinSource],
+    pub root: Option<*mut pg_sys::PlannerInfo>,
     pub(crate) mapper: Option<Box<dyn ColumnMapper + 'a>>,
 }
 
@@ -106,13 +66,30 @@ impl<'a> PredicateTranslator<'a> {
     pub fn new(sources: &'a [&'a JoinSource]) -> Self {
         Self {
             sources,
+            root: None,
             mapper: None,
         }
+    }
+
+    pub fn with_planner_info(mut self, root: *mut pg_sys::PlannerInfo) -> Self {
+        self.root = if root.is_null() { None } else { Some(root) };
+        self
     }
 
     pub fn with_mapper(mut self, mapper: Box<dyn ColumnMapper + 'a>) -> Self {
         self.mapper = Some(mapper);
         self
+    }
+
+    /// Format a PostgreSQL expression node into a debug string for logs,
+    /// using `deparse_planner_expr` if planning context is available.
+    pub(crate) unsafe fn deparse_for_debug(&self, node: *mut pg_sys::Node) -> String {
+        if let Some(root) = self.root {
+            if let Some(deparsed) = crate::postgres::deparse::deparse_planner_expr(root, node) {
+                return deparsed;
+            }
+        }
+        crate::postgres::deparse::node_to_string_without_context(node)
     }
 
     /// Translate a `JoinLevelExpr` tree to a DataFusion `Expr`.
@@ -235,7 +212,11 @@ impl<'a> PredicateTranslator<'a> {
     /// Validates both node-type support and column resolution against
     /// the provided sources, without requiring plan_position or
     /// output_columns.
-    pub unsafe fn can_translate(sources: &'a [&'a JoinSource], node: *mut pg_sys::Node) -> bool {
+    pub unsafe fn can_translate(
+        root: Option<*mut pg_sys::PlannerInfo>,
+        sources: &'a [&'a JoinSource],
+        node: *mut pg_sys::Node,
+    ) -> bool {
         struct ValidationMapper<'a> {
             sources: &'a [&'a JoinSource],
         }
@@ -251,7 +232,10 @@ impl<'a> PredicateTranslator<'a> {
         }
 
         let mapper = ValidationMapper { sources };
-        let translator = Self::new(sources).with_mapper(Box::new(mapper));
+        let mut translator = Self::new(sources).with_mapper(Box::new(mapper));
+        if let Some(r) = root {
+            translator = translator.with_planner_info(r);
+        }
         translator.translate(node).is_some()
     }
 
@@ -314,7 +298,7 @@ impl<'a> PredicateTranslator<'a> {
                 pgrx::debug1!(
                     "PredicateTranslator: UDF fallback failed [{}] | {}",
                     node_tag_debug(node),
-                    deparse_expr_for_debug(node, self.sources)
+                    self.deparse_for_debug(node)
                 );
             }
             wrapped
@@ -519,18 +503,19 @@ pub fn build_join_df_with_filter(
         }
     };
 
+    if matches!(join.join_type, PgJoinType::Anti { null_aware: true }) {
+        return Err(DataFusionError::NotImplemented(
+            "null_aware NOT IN anti join does not support non-equi join filters".into(),
+        ));
+    }
+
     if join.equi_keys.is_empty() {
         return left.join(right, df_join_type, &[], &[], Some(filter_expr));
     }
 
-    // The mixed case (equi keys + join filter) is not exercised today: only
-    // the disjunctive Semi/Anti path populates `JoinNode.filter`, and it
-    // always yields empty equi keys. Surface an explicit error so a future
-    // planner change that introduces the mixed case is noticed instead of
-    // silently producing a cross-join.
-    Err(DataFusionError::NotImplemented(
-        "JoinNode.filter combined with equi-join keys is not yet supported".into(),
-    ))
+    let mut on = build_equi_join_exprs(join)?;
+    on.push(filter_expr);
+    left.join_on(right, df_join_type, on)
 }
 
 /// Deserialize a PostgreSQL expression from its `nodeToString` representation
@@ -646,26 +631,20 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
             (varno, varattno, false)
         };
 
-        let (plan_position, source) = self
-            .sources
-            .iter()
-            .enumerate()
-            .find(|(_, s)| s.contains_rti(rti))?;
-
-        let alias = RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
+        let source = self.sources.iter().find(|s| s.contains_rti(rti))?;
 
         if is_score {
             if let Some(col_idx) = source.map_var(rti, 0) {
                 if let Some(name) = source.column_name(col_idx) {
-                    return Some(make_col(&alias, &name));
+                    return Some(make_source_col(source, &name));
                 }
             }
-            return Some(make_col(&alias, SCORE_COL_NAME));
+            return Some(make_source_score_col(source));
         }
 
         let mapped_attno = source.map_var(rti, attno)?;
         let col_name = source.column_name(mapped_attno)?;
-        Some(make_col(&alias, &col_name))
+        Some(make_source_col(source, &col_name))
     }
 }
 
@@ -757,6 +736,7 @@ mod tests {
             list.push(pg_sys::makeBoolConst(true, false).cast());
 
             assert!(!PredicateTranslator::can_translate(
+                None,
                 &[],
                 list.into_pg().cast()
             ));

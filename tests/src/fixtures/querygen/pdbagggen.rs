@@ -29,6 +29,7 @@ use sqlx::postgres::PgRow;
 
 use crate::fixtures::querygen::Column;
 use crate::fixtures::querygen::joingen::{JoinExpr, JoinType, arb_joins};
+use crate::fixtures::querygen::wheregen::{Expr, arb_wheres};
 
 /// Size that no generated bucket count reaches, so a level is never cut.
 const NO_CUT: u32 = 1000;
@@ -288,26 +289,71 @@ struct SpecShape {
     size_anywhere: bool,
 }
 
+#[derive(Clone, Debug)]
+pub struct PdbAggJoinWheres {
+    pub outer: Expr,
+    pub inner: Expr,
+}
+
+impl PdbAggJoinWheres {
+    pub fn pg_where(&self) -> String {
+        format!(
+            "({}) AND ({})",
+            self.outer.to_sql(" = "),
+            self.inner.to_sql(" = ")
+        )
+    }
+
+    pub fn bm25_where(&self) -> String {
+        format!(
+            "({}) AND ({})",
+            self.outer.to_sql("@@@"),
+            self.inner.to_sql(" = ")
+        )
+    }
+}
+
 /// A join over a prefix of `tables` and a `pdb.agg()` whose fields belong to
 /// those tables. `key_columns` are the join keys; `terms` keys come from the
 /// text and integer columns, metrics from the integer and NUMERIC ones.
+///
+/// Generates `Inner` and `Left` joins. To prevent the PostgreSQL planner from
+/// eliminating outer-joined tables that aren't referenced elsewhere, a WHERE
+/// expression is generated that includes a predicate for each joined table.
 pub fn arb_pdb_agg_join(
     tables: Vec<String>,
     key_columns: &[Column],
-) -> impl Strategy<Value = (JoinExpr, PdbAggExpr)> {
+    where_columns: &[Column],
+) -> impl Strategy<Value = (JoinExpr, PdbAggExpr, PdbAggJoinWheres)> {
     let shape = SpecShape {
         grouped: false,
         numeric_metrics: true,
         size_anywhere: false,
     };
     let key_columns = key_columns.to_vec();
+    let where_columns = where_columns.to_vec();
     (2..=tables.len()).prop_flat_map(move |num_tables| {
         let joined: Vec<String> = tables[..num_tables].to_vec();
         // The planner cannot see the fields inside a spec, so it removes an outer
         // join whose table nothing else reads, and the spec then names a table
-        // that is gone. Inner joins are never removed.
-        let join = arb_joins(Just(JoinType::Inner), joined.clone(), &key_columns);
-        (join, arb_pdb_agg(joined, shape))
+        // that is gone. We generate predicates for every joined table so outer joins
+        // are retained.
+        let join_types = prop_oneof![Just(JoinType::Inner), Just(JoinType::Left)];
+        let join = arb_joins(join_types, joined.clone(), &key_columns);
+        let agg = arb_pdb_agg(joined.clone(), shape);
+        let outer_strat = arb_wheres(vec![joined[0].clone()], &where_columns).boxed();
+        let inner_strat = joined[1..]
+            .iter()
+            .map(|t| arb_wheres(vec![t.clone()], &where_columns).boxed())
+            .reduce(|acc, s| {
+                (acc, s)
+                    .prop_map(|(l, r)| Expr::And(Box::new(l), Box::new(r)))
+                    .boxed()
+            })
+            .unwrap();
+        let where_strat =
+            (outer_strat, inner_strat).prop_map(|(outer, inner)| PdbAggJoinWheres { outer, inner });
+        (join, agg, where_strat)
     })
 }
 
@@ -409,4 +455,61 @@ fn arb_pdb_agg(tables: Vec<String>, shape: SpecShape) -> impl Strategy<Value = P
                 metrics,
             }
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proptest::strategy::{Strategy, ValueTree};
+    use proptest::test_runner::TestRunner;
+
+    #[test]
+    fn test_arb_pdb_agg_join_generates_left_joins_and_multi_table_wheres() {
+        let mut runner = TestRunner::default();
+        let tables = vec![
+            "users".to_string(),
+            "products".to_string(),
+            "orders".to_string(),
+        ];
+        let key_columns = vec![
+            Column::new("id", "INTEGER", "'1'").whereable(true),
+            Column::new("age", "INTEGER", "'20'").whereable(true),
+        ];
+        let where_columns = vec![
+            Column::new("name", "TEXT", "'bob'").whereable(true),
+            Column::new("color", "VARCHAR", "'blue'").whereable(true),
+        ];
+
+        let strategy = arb_pdb_agg_join(tables, &key_columns, &where_columns);
+        let mut generated_left = false;
+        let mut generated_is_null = false;
+
+        for _ in 0..100 {
+            let (join, _agg, wheres) = strategy.new_tree(&mut runner).unwrap().current();
+            let join_sql = join.to_sql();
+            if join_sql.contains("LEFT JOIN") {
+                generated_left = true;
+            }
+            let where_sql = wheres.pg_where();
+            if where_sql.contains("IS NULL") || where_sql.contains("IS NOT NULL") {
+                generated_is_null = true;
+            }
+            // Verify every joined table is referenced in WHERE
+            for table in join.used_tables() {
+                assert!(
+                    where_sql.contains(table),
+                    "Table {table} missing from WHERE: {where_sql}"
+                );
+            }
+        }
+
+        assert!(
+            generated_left,
+            "Expected at least one LEFT JOIN to be generated"
+        );
+        assert!(
+            generated_is_null,
+            "Expected at least one IS NULL/IS NOT NULL predicate to be generated"
+        );
+    }
 }

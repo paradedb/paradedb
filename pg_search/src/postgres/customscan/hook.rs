@@ -130,6 +130,13 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS>(
     CS: CustomScan<Args = RelPathlistHookArgs> + 'static,
 {
     unsafe {
+        // Skip dummy relations (proven empty, e.g. via constraint exclusion).
+        // Adding a custom path replaces/precedes the dummy Append path in rel->pathlist,
+        // breaking is_dummy_rel and crashing Postgres indxpath assertions (Assert(outer_rel->rows > 0)).
+        if pg_sys::is_dummy_rel(rel) {
+            return;
+        }
+
         if !pg_search_extension_installed() {
             return;
         }
@@ -211,6 +218,16 @@ pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS>(
     CS: CustomScan<Args = JoinPathlistHookArgs> + 'static,
 {
     unsafe {
+        // Skip if the join itself is dummy (e.g. inner join with empty input) to avoid
+        // corrupting joinrel->pathlist, or if an input is dummy where Postgres already
+        // natively optimizes the join at zero cost without scanning the empty relation.
+        if pg_sys::is_dummy_rel(joinrel)
+            || pg_sys::is_dummy_rel(outerrel)
+            || pg_sys::is_dummy_rel(innerrel)
+        {
+            return;
+        }
+
         if !pg_search_extension_installed() {
             return;
         }
@@ -1137,6 +1154,11 @@ pub fn register_subplan_join_pathlist() {
                 #[allow(static_mut_refs)]
                 if let Some(prev) = PREV_HOOK {
                     prev(root, rel, rti, rte);
+                }
+
+                // Skip relations proven empty; see comment in paradedb_rel_pathlist_callback.
+                if pg_sys::is_dummy_rel(rel) {
+                    return;
                 }
 
                 if !pg_search_extension_installed() {

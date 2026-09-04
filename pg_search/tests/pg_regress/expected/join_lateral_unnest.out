@@ -155,6 +155,7 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: p INNER ((s RIGHT b) CROSS JOIN LATERAL UNNEST (tags))
          Join Cond: p.id = b.product_id, b.id = s.brand_id
+         Join Filter: (b.id = s.brand_id)
          Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Smart","lenient":null,"conjunction_mode":null}}}} OR b:{"with_index":{"query":{"parse_with_field":{"field":"brand_name","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"store_name","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
          Order By: p.id asc, tags asc
@@ -168,12 +169,12 @@ LIMIT 10;
            :             PgSearchScan: table=p, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Smart","lenient":null,"conjunction_mode":null}}}}
            :           UnnestExec
            :             ProjectionExec: expr=[ctid_1@0 as ctid_1, __s_1_tag_0@1 as __s_1_tag_0, ctid_2@2 as ctid_2, tags@3 as b_2_tags, product_id@4 as product_id, __b_2_tag_0@5 as __b_2_tag_0]
-           :               HashJoinExec: mode=CollectLeft, join_type=Right, on=[(brand_id@1, id@3)], projection=[ctid_1@0, __s_1_tag_0@2, ctid_2@3, tags@4, product_id@5, __b_2_tag_0@7]
+           :               HashJoinExec: mode=CollectLeft, join_type=Right, on=[(brand_id@1, id@3), (brand_id@1, id@3)], projection=[ctid_1@0, __s_1_tag_0@2, ctid_2@3, tags@4, product_id@5, __b_2_tag_0@7]
            :                 CooperativeExec
            :                   PgSearchScan: table=s, segments=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"store_name","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}
            :                 CooperativeExec
            :                   PgSearchScan: table=b, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"brand_name","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+(23 rows)
 
 SELECT
     p.id,
@@ -219,6 +220,7 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: (b INNER p) LEFT JOIN LATERAL UNNEST (tags)
          Join Cond: p.id = b.product_id
+         Join Filter: (p.id = b.product_id)
          Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Smart OR Mystery OR Empty","lenient":null,"conjunction_mode":null}}}} OR b:{"with_index":{"query":{"parse_with_field":{"field":"brand_name","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
          Order By: p.id asc, tags asc
@@ -234,7 +236,7 @@ LIMIT 10;
            :                 PgSearchScan: table=b, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"brand_name","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}, tag_1={"with_index":{"query":{"parse_with_field":{"field":"brand_name","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}
            :               CooperativeExec
            :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Smart OR Mystery OR Empty","lenient":null,"conjunction_mode":null}}}}, tag_1={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Smart OR Mystery OR Empty","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+(20 rows)
 
 SELECT
     p.id,
@@ -272,13 +274,13 @@ CROSS JOIN LATERAL unnest(s.regions) AS r
 WHERE p.title @@@ 'Smart' OR b.brand_name @@@ 'Electronics'
 ORDER BY p.id, c, r
 LIMIT 10;
-                                                                                                                                                                           QUERY PLAN                                                                                                                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: ((b INNER p) CROSS JOIN LATERAL UNNEST (categories)) INNER (s CROSS JOIN LATERAL UNNEST (regions))
          Join Cond: b.id = s.brand_id, p.id = b.product_id
-         Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Smart","lenient":null,"conjunction_mode":null}}}} OR b:{"with_index":{"query":{"parse_with_field":{"field":"brand_name","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}})
+         Join Filter: (p.id = b.product_id)
          Limit: 10
          Order By: p.id asc, categories asc, regions asc
          DataFusion Physical Plan: 
@@ -291,9 +293,9 @@ LIMIT 10;
            :             ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, ctid_1@2 as ctid_1, categories@3 as p_1_categories, id@4 as id]
            :               HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(product_id@2, id@2)], filter=__p_1_tag_0@1 OR __b_0_tag_0@0, projection=[ctid_0@0, id@1, ctid_1@4, categories@5, id@6]
            :                 CooperativeExec
-           :                   PgSearchScan: table=b, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"brand_name","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}, tag_1={"with_index":{"query":{"parse_with_field":{"field":"brand_name","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}
+           :                   PgSearchScan: table=b, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"brand_name","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}
            :                 CooperativeExec
-           :                   PgSearchScan: table=p, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Smart","lenient":null,"conjunction_mode":null}}}}, tag_1={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Smart","lenient":null,"conjunction_mode":null}}}}
+           :                   PgSearchScan: table=p, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Smart","lenient":null,"conjunction_mode":null}}}}
            :           UnnestExec
            :             ProjectionExec: expr=[ctid_2@0 as ctid_2, regions@1 as s_2_regions, brand_id@2 as brand_id]
            :               CooperativeExec
@@ -345,6 +347,7 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: (b INNER p) CROSS JOIN LATERAL UNNEST (tags)
          Join Cond: p.id = b.product_id
+         Join Filter: (p.id = b.product_id)
          Join Predicate: (heap:(t.t = 'bestseller'::text) AND (p:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Smart","lenient":null,"conjunction_mode":null}}}} OR b:{"with_index":{"query":{"parse_with_field":{"field":"brand_name","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}))
          Limit: 10
          Order By: p.id asc
@@ -361,7 +364,7 @@ LIMIT 10;
            :                   PgSearchScan: table=b, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"brand_name","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}, tag_1={"with_index":{"query":{"parse_with_field":{"field":"brand_name","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}
            :                 CooperativeExec
            :                   PgSearchScan: table=p, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Smart","lenient":null,"conjunction_mode":null}}}}, tag_1={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Smart","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+(21 rows)
 
 SELECT
     p.id,
@@ -401,6 +404,7 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: (b INNER p) CROSS JOIN LATERAL UNNEST (tags)
          Join Cond: p.id = b.product_id
+         Join Filter: (p.id = b.product_id)
          Join Predicate: (heap:(t.t = 'bestseller'::text) AND (p:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Smart","lenient":null,"conjunction_mode":null}}}} OR b:{"with_index":{"query":{"parse_with_field":{"field":"brand_name","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}))
          Limit: 10
          Order By: p.id asc
@@ -417,7 +421,7 @@ LIMIT 10;
            :                   PgSearchScan: table=b, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"brand_name","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}, tag_1={"with_index":{"query":{"parse_with_field":{"field":"brand_name","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}
            :                 CooperativeExec
            :                   PgSearchScan: table=p, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Smart","lenient":null,"conjunction_mode":null}}}}, tag_1={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Smart","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+(21 rows)
 
 SELECT
     p.id,
@@ -651,6 +655,59 @@ LIMIT 10;
  id | title | tag 
 ----+-------+-----
 (0 rows)
+
+-- =====================================================================
+-- TEST 10: LEFT JOIN LATERAL unnest on a table pruned by an Anti Join
+-- =====================================================================
+INSERT INTO jlu_products (title, categories, price) VALUES
+    ('Smart Solar Charger', ARRAY['electronics', 'solar'], 45.00);
+EXPLAIN (COSTS OFF)
+SELECT
+    p.id,
+    p.title,
+    t AS tag
+FROM jlu_products p
+LEFT JOIN jlu_brands b ON p.id = b.product_id
+LEFT JOIN LATERAL unnest(b.tags) AS t ON true
+WHERE p.title @@@ 'Smart' AND b.product_id IS NULL
+ORDER BY p.id, t
+LIMIT 5;
+                                                                                                     QUERY PLAN                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Join Scan)
+         Relation Tree: (p ANTI b) LEFT JOIN LATERAL UNNEST (tags)
+         Join Cond: p.id = b.product_id
+         Join Filter: (p.id = b.product_id)
+         Limit: 5
+         Order By: p.id asc, tags asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, b_1_tags@2 as col_3, ctid_0@0 as ctid_0]
+           :   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST, b_1_tags@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :     VisibilityFilterExec: tables=[p]
+           :       TantivyFetchExec: fetch=[ctid_0]
+           :         ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, NULL as b_1_tags]
+           :           HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@1, product_id@0)]
+           :             CooperativeExec
+           :               PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Smart","lenient":null,"conjunction_mode":null}}}}
+           :             CooperativeExec
+           :               PgSearchScan: table=b, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(18 rows)
+
+SELECT
+    p.id,
+    p.title,
+    t AS tag
+FROM jlu_products p
+LEFT JOIN jlu_brands b ON p.id = b.product_id
+LEFT JOIN LATERAL unnest(b.tags) AS t ON true
+WHERE p.title @@@ 'Smart' AND b.product_id IS NULL
+ORDER BY p.id, t
+LIMIT 5;
+ id |        title        | tag 
+----+---------------------+-----
+  8 | Smart Solar Charger | 
+(1 row)
 
 -- =====================================================================
 -- Cleanup

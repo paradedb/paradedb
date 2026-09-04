@@ -24,6 +24,17 @@ INSERT INTO people (id, company_id, full_name, linkedin_followers, seniority_slu
     (5, 999, 'Eve Orphan', 100, 'manager');
 CREATE INDEX people_search_idx ON people USING paradedb (id, ((full_name)::pdb.literal_normalized), linkedin_followers, ((seniority_slug)::pdb.literal_normalized), company_id) WITH (key_field=id);
 CREATE INDEX companies_search_idx ON companies USING paradedb (id) WITH (key_field=id);
+-- The query uses `SELECT DISTINCT` with derived expressions (`p.full_name IS NULL`,
+-- `p.linkedin_followers IS NULL`, `p.seniority_slug IS NULL`).
+-- JoinScan only supports pushing down `DISTINCT` over plain indexed columns, so it
+-- cannot evaluate DISTINCT on derived expressions; PostgreSQL evaluates them in
+-- an upper plan node instead.
+-- Because DISTINCT cannot be evaluated inside JoinScan, pushing down the `LIMIT 26`
+-- into JoinScan is unsound: truncating rows before upper deduplication could return
+-- fewer distinct rows than requested.
+-- Without LIMIT pushdown, a top-level JoinScan cannot perform Top-K and would force
+-- an unbounded scan followed by a full sort in PostgreSQL, losing its primary
+-- performance advantage. JoinScan therefore declines and falls back to PostgreSQL.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT DISTINCT
     p.id AS id,
@@ -40,34 +51,29 @@ AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c))
 ORDER BY id DESC
 LIMIT 26;
 WARNING:  Aggregate Scan (DataFusion) not used: OR-nested subquery cannot be pushed into the aggregate scan (table: p)
-                                                                                                                                                  QUERY PLAN                                                                                                                                                  
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: LIMIT cannot be pushed down when DISTINCT contains derived expressions (e.g. IS NULL or function calls) (tables: c, p)
+                                                                                                                          QUERY PLAN                                                                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.full_name, ((p.full_name IS NULL)), p.linkedin_followers, ((p.linkedin_followers IS NULL)), p.seniority_slug, ((p.seniority_slug IS NULL))
-   ->  Sort
+   ->  Unique
          Output: p.id, p.full_name, ((p.full_name IS NULL)), p.linkedin_followers, ((p.linkedin_followers IS NULL)), p.seniority_slug, ((p.seniority_slug IS NULL))
-         Sort Key: p.id DESC
-         ->  HashAggregate
+         ->  Sort
                Output: p.id, p.full_name, ((p.full_name IS NULL)), p.linkedin_followers, ((p.linkedin_followers IS NULL)), p.seniority_slug, ((p.seniority_slug IS NULL))
-               Group Key: p.id, p.full_name, (p.full_name IS NULL), p.linkedin_followers, (p.linkedin_followers IS NULL), p.seniority_slug, (p.seniority_slug IS NULL)
-               ->  Result
+               Sort Key: p.id DESC, p.full_name, ((p.full_name IS NULL)), p.linkedin_followers, ((p.linkedin_followers IS NULL)), p.seniority_slug, ((p.seniority_slug IS NULL))
+               ->  Custom Scan (ParadeDB Base Scan) on public.people p
                      Output: p.id, p.full_name, (p.full_name IS NULL), p.linkedin_followers, (p.linkedin_followers IS NULL), p.seniority_slug, (p.seniority_slug IS NULL)
-                     ->  Custom Scan (ParadeDB Join Scan)
-                           Output: p.id, p.full_name, p.linkedin_followers, p.seniority_slug
-                           Relation Tree: p LEFTMARK c
-                           Join Cond: p.company_id = c.id
-                           Join Predicate: (mark = true OR col IS NULL)
-                           Order By: p.id desc
-                           DataFusion Physical Plan: 
-                             : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0]
-                             :   SortExec: expr=[id@1 DESC], preserve_partitioning=[false]
-                             :     FilterExec: mark@3 OR company_id@1 IS NULL, projection=[ctid_0@0, id@2]
-                             :       HashJoinExec: mode=CollectLeft, join_type=RightMark, on=[(id@0, company_id@1)]
-                             :         CooperativeExec
-                             :           PgSearchScan: table=c, segments=1, visibility=eager, query="all"
-                             :         CooperativeExec
-                             :           PgSearchScan: table=p, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
-(25 rows)
+                     Filter: ((p.company_id IS NULL) OR (ANY (p.company_id = (hashed SubPlan 1).col1)))
+                     Table: people
+                     Index: people_search_idx
+                     Worker Selection: Row-capped
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"always_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
+                     SubPlan 1
+                       ->  Seq Scan on public.companies c
+                             Output: c.id
+(19 rows)
 
 SELECT DISTINCT
     p.id AS id,
@@ -84,6 +90,7 @@ AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c))
 ORDER BY id DESC
 LIMIT 26;
 WARNING:  Aggregate Scan (DataFusion) not used: OR-nested subquery cannot be pushed into the aggregate scan (table: p)
+WARNING:  JoinScan not used: LIMIT cannot be pushed down when DISTINCT contains derived expressions (e.g. IS NULL or function calls) (tables: c, p)
  id |    nameSort    | nameIsNull | followersSort | followersIsNull | senioritySort | seniorityIsNull 
 ----+----------------+------------+---------------+-----------------+---------------+-----------------
   3 | Carol Manager  | f          |           800 | f               | manager       | f

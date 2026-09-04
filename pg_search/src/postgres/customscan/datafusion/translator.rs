@@ -341,15 +341,15 @@ pub fn apply_join_level_filter(
     mut df: DataFrame,
     predicate: &JoinLevelExpr,
     translated_exprs: &[Expr],
+    custom_expr_idx: &mut usize,
     sources: &[&JoinSource],
     handle_mark: bool,
 ) -> Result<DataFrame> {
-    let mut custom_expr_idx = 0;
     let filter_expr = unsafe {
         PredicateTranslator::translate_join_level_expr(
             predicate,
             translated_exprs,
-            &mut custom_expr_idx,
+            custom_expr_idx,
             sources,
         )
     }
@@ -548,6 +548,9 @@ pub fn build_join_df_with_filter(
 pub fn apply_relnode_unnest(df: DataFrame, unnest: &UnnestNode) -> Result<DataFrame> {
     use datafusion::common::{NullHandling, UnnestOptions};
 
+    use datafusion::logical_expr::lit;
+    use datafusion::scalar::ScalarValue;
+
     let source = unnest
         .input
         .sources()
@@ -562,6 +565,35 @@ pub fn apply_relnode_unnest(df: DataFrame, unnest: &UnnestNode) -> Result<DataFr
     let alias =
         RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
     let unnested_col_name = format!("{}_{}", alias, unnest.unnest_info.field_name);
+
+    // If the source relation was pruned from the join output (e.g. by an internal Anti Join
+    // or Semi Join), its array column does not exist in `df`.
+    if !unnest
+        .input
+        .contains_output_rti(unnest.unnest_info.source_rti.0)
+    {
+        let null_col = lit(ScalarValue::Null).alias(&unnested_col_name);
+        let mut select_exprs = df
+            .schema()
+            .iter()
+            .map(|(qualifier, field)| {
+                Expr::Column(datafusion::common::Column::new(
+                    qualifier.cloned(),
+                    field.name(),
+                ))
+            })
+            .collect::<Vec<_>>();
+        select_exprs.push(null_col);
+        let df = df.select(select_exprs)?;
+
+        return if unnest.unnest_info.is_left_join {
+            // LEFT JOIN preserves the row when unnest(NULL) produces 0 rows.
+            Ok(df)
+        } else {
+            // CROSS JOIN with an empty set empties the relation.
+            df.filter(lit(false))
+        };
+    }
 
     let select_exprs = df
         .schema()

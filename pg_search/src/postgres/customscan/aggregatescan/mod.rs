@@ -163,14 +163,36 @@ unsafe fn validate_grouping_pushdown(
     }
 
     if args.root().group_pathkeys.is_null() {
-        // A scalar aggregate has no grouping keys. In contrast, a GROUP BY
-        // with no pathkey metadata gives us no way to verify the collation
-        // semantics that the aggregation backend must preserve.
-        return if !parse.is_null() && !(*parse).groupClause.is_null() {
-            Err(GroupingPushdownDeclineReason::MissingPathKeys)
-        } else {
-            Ok(())
-        };
+        // A scalar aggregate has no grouping keys.
+        if parse.is_null() || (*parse).groupClause.is_null() {
+            return Ok(());
+        }
+
+        // For multi-table join aggregates (which execute on DataFusion), grouping columns
+        // are extracted directly from the target list expressions rather than group_pathkeys.
+        // When all grouping keys are constant (e.g. `WHERE orders.color = 'blue' GROUP BY orders.color`),
+        // PostgreSQL's optimizer omits them from group_pathkeys via `EC_has_const`.
+        // We verify collation safety directly from `parse.groupClause`.
+        if args.input_rel().reloptkind == pg_sys::RelOptKind::RELOPT_JOINREL {
+            let group_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).groupClause);
+            for gc in group_clauses.iter_ptr() {
+                let expr = pg_sys::get_sortgroupclause_expr(gc, (*parse).targetList);
+                if expr.is_null() {
+                    return Err(GroupingPushdownDeclineReason::MissingPathKeys);
+                }
+                let collation = pg_sys::exprCollation(expr);
+                if assess_collation(collation, CollationOperation::Equality)
+                    == CollationSafety::NondeterministicEquality
+                {
+                    return Err(GroupingPushdownDeclineReason::NondeterministicCollation);
+                }
+            }
+            return Ok(());
+        }
+
+        // For single-table aggregates on Tantivy, missing pathkeys prevent Tantivy
+        // from discovering grouping columns (see `groupby.rs`).
+        return Err(GroupingPushdownDeclineReason::MissingPathKeys);
     }
 
     for pathkey in PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys).iter_ptr() {
@@ -264,6 +286,9 @@ impl AggregateDeclineReason {
                 }
                 datafusion_build::PathPredicateDeclineReason::UnclassifiedClause => {
                     "the selected lower join path contains a predicate that AggregateScan cannot classify".into()
+                }
+                datafusion_build::PathPredicateDeclineReason::NonFastField => {
+                    "join predicates must reference columnar indexed fields".into()
                 }
             },
             Self::DistinctOn => "DISTINCT ON is not supported".into(),

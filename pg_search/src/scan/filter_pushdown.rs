@@ -27,7 +27,9 @@ use crate::query::pdb_query::pdb;
 use crate::schema::SearchFieldType;
 use datafusion::common::ScalarValue;
 use datafusion::logical_expr::{BinaryExpr, Expr, Operator};
+use datafusion::physical_plan::PhysicalExpr;
 use std::collections::Bound;
+use std::sync::Arc;
 
 /// Analyzes DataFusion filters and converts supported ones to SearchQueryInput.
 ///
@@ -311,6 +313,95 @@ pub fn combine_with_and(queries: Vec<SearchQueryInput>) -> Option<SearchQueryInp
     }
 }
 
+/// Build a `ChildFilterDescription` for a unary execution plan node that preserves its child's
+/// schema identically (e.g. `VisibilityFilterExec`, `TantivyLookupExec`, `FilterPassthroughExec`,
+/// `SegmentedTopKExec`).
+///
+/// DataFusion's `ChildFilterDescription::from_child` uses `FilterRemapper`, which looks up columns
+/// by name via `child_schema.index_of(col.name())`. When the child plan has duplicate column names
+/// (common in joins where multiple joined tables share column names like `"id"` or `"color"`),
+/// `index_of` always returns the *first* column with that name, silently corrupting the column
+/// index of filters intended for later columns (e.g. rewriting `products.id@5` to `users.id@2`).
+///
+/// Since schema-preserving nodes do not modify the schema or column positions, every column index
+/// in `parent_filters` is already valid and refers to the exact intended column in the child.
+/// This function verifies that all referenced columns match the schema at their current indices
+/// without altering them.
+pub fn schema_preserving_child_filter_description(
+    parent_filters: &[Arc<dyn PhysicalExpr>],
+    schema: &arrow_schema::Schema,
+    allowed_indices: Option<&std::collections::HashSet<usize>>,
+) -> datafusion::common::Result<datafusion::physical_plan::filter_pushdown::ChildFilterDescription>
+{
+    use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
+    use datafusion::physical_expr::expressions::Column;
+    use datafusion::physical_plan::ExecutionPlan;
+    use datafusion::physical_plan::empty::EmptyExec;
+    use datafusion::physical_plan::filter_pushdown::ChildFilterDescription;
+    use std::collections::{HashMap, HashSet};
+
+    // Collect referenced column indices for each column name in parent_filters
+    let mut referenced_names: HashMap<String, usize> = HashMap::new();
+    let mut conflicting_names: HashSet<String> = HashSet::new();
+
+    for filter in parent_filters {
+        let _ = filter.apply(|node| {
+            if let Some(col) = node.downcast_ref::<Column>()
+                && col.index() < schema.fields().len()
+                && schema.field(col.index()).name() == col.name()
+            {
+                match referenced_names.get(col.name()) {
+                    Some(&existing_idx) if existing_idx != col.index() => {
+                        conflicting_names.insert(col.name().to_string());
+                    }
+                    None => {
+                        referenced_names.insert(col.name().to_string(), col.index());
+                    }
+                    _ => {}
+                }
+            }
+            Ok(TreeNodeRecursion::Continue)
+        });
+    }
+
+    // Build a disambiguated schema where duplicate column names that are not the target
+    // index for a referenced column are given unique dummy names so `index_of` returns
+    // the exact referenced index.
+    let disambiguated_fields: Vec<Arc<arrow_schema::Field>> = schema
+        .fields()
+        .iter()
+        .enumerate()
+        .map(|(idx, field)| {
+            if let Some(&target_idx) = referenced_names.get(field.name())
+                && !conflicting_names.contains(field.name())
+                && target_idx != idx
+            {
+                return Arc::new(
+                    field
+                        .as_ref()
+                        .clone()
+                        .with_name(format!("{}__shadowed_{idx}", field.name())),
+                );
+            }
+            Arc::clone(field)
+        })
+        .collect();
+
+    let disambiguated_schema = Arc::new(arrow_schema::Schema::new(disambiguated_fields));
+    let dummy_child = Arc::new(EmptyExec::new(disambiguated_schema)) as Arc<dyn ExecutionPlan>;
+
+    let allowed: HashSet<usize> = match allowed_indices {
+        Some(indices) => indices
+            .iter()
+            .copied()
+            .filter(|&i| i < schema.fields().len())
+            .collect(),
+        None => (0..schema.fields().len()).collect(),
+    };
+
+    ChildFilterDescription::from_child_with_allowed_indices(parent_filters, allowed, &dummy_child)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -333,5 +424,80 @@ mod tests {
 
         let literal = Expr::Literal(ScalarValue::Int32(Some(42)), None);
         assert_eq!(extract_column_name(&literal), None);
+    }
+
+    #[test]
+    fn test_schema_preserving_child_filter_description_duplicate_names() {
+        use arrow_schema::{DataType, Field, Schema};
+        use datafusion::physical_expr::expressions::Column;
+        use datafusion::physical_plan::filter_pushdown::{FilterDescription, PushedDown};
+
+        // A join schema with duplicate column names: "id" at index 2 and index 5
+        let schema = Schema::new(vec![
+            Field::new("ctid_1", DataType::UInt64, false),
+            Field::new("tags", DataType::Utf8, true),
+            Field::new("id", DataType::Int64, false),
+            Field::new("ctid_2", DataType::UInt64, false),
+            Field::new("tags", DataType::Utf8, true),
+            Field::new("id", DataType::Int64, false),
+        ]);
+
+        let col_id_5 =
+            Arc::new(Column::new("id", 5)) as Arc<dyn datafusion::physical_expr::PhysicalExpr>;
+        let col_tags_1 =
+            Arc::new(Column::new("tags", 1)) as Arc<dyn datafusion::physical_expr::PhysicalExpr>;
+        let col_invalid_name =
+            Arc::new(Column::new("wrong", 5)) as Arc<dyn datafusion::physical_expr::PhysicalExpr>;
+        let col_out_of_bounds =
+            Arc::new(Column::new("id", 10)) as Arc<dyn datafusion::physical_expr::PhysicalExpr>;
+
+        let filters = vec![
+            Arc::clone(&col_id_5),
+            Arc::clone(&col_tags_1),
+            col_invalid_name,
+            col_out_of_bounds,
+        ];
+
+        let desc = schema_preserving_child_filter_description(&filters, &schema, None).unwrap();
+        let parent_filters = FilterDescription::new().with_child(desc).parent_filters();
+
+        // Verify index 5 is preserved as supported and NOT remapped to index 2
+        assert!(matches!(parent_filters[0][0].discriminant, PushedDown::Yes));
+        let preserved_col = parent_filters[0][0]
+            .predicate
+            .downcast_ref::<Column>()
+            .unwrap();
+        assert_eq!(preserved_col.name(), "id");
+        assert_eq!(preserved_col.index(), 5);
+
+        // Verify tags@1 is preserved
+        assert!(matches!(parent_filters[0][1].discriminant, PushedDown::Yes));
+        let preserved_col2 = parent_filters[0][1]
+            .predicate
+            .downcast_ref::<Column>()
+            .unwrap();
+        assert_eq!(preserved_col2.name(), "tags");
+        assert_eq!(preserved_col2.index(), 1);
+
+        // Verify name mismatch and out of bounds are unsupported
+        assert!(matches!(parent_filters[0][2].discriminant, PushedDown::No));
+        assert!(matches!(parent_filters[0][3].discriminant, PushedDown::No));
+
+        // With allowed_indices: index 5 is blocked
+        let mut allowed = std::collections::HashSet::new();
+        allowed.insert(1);
+        let desc_allowed =
+            schema_preserving_child_filter_description(&filters, &schema, Some(&allowed)).unwrap();
+        let parent_filters_allowed = FilterDescription::new()
+            .with_child(desc_allowed)
+            .parent_filters();
+        assert!(matches!(
+            parent_filters_allowed[0][0].discriminant,
+            PushedDown::No
+        ));
+        assert!(matches!(
+            parent_filters_allowed[0][1].discriminant,
+            PushedDown::Yes
+        ));
     }
 }

@@ -303,6 +303,7 @@ impl PgSearchTableProvider {
                 name,
                 field_type,
                 delivery,
+                ..
             } = wff
             {
                 let is_string_or_bytes = matches!(
@@ -405,6 +406,7 @@ impl PgSearchTableProvider {
                 name,
                 field_type,
                 delivery: FieldDelivery::Deferred,
+                ..
             } = wff
             {
                 let is_bytes = matches!(

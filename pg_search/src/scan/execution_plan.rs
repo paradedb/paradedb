@@ -887,6 +887,17 @@ impl DisplayAs for PgSearchScanPlan {
                 )?;
             }
         }
+        // Only the projected deferred columns leave the scan, so only those are fetched.
+        let schema = self.properties.eq_properties.schema();
+        let scan_fetched: Vec<&str> = self
+            .deferred_fields
+            .iter()
+            .filter(|d| d.fetch_at_scan && schema.column_with_name(&d.name).is_some())
+            .map(|d| d.name.as_str())
+            .collect();
+        if !scan_fetched.is_empty() {
+            write!(f, ", fetch=[{}]", scan_fetched.join(", "))?;
+        }
         if !self.dynamic_filters.is_empty() {
             write!(f, ", dynamic_filters={}", self.dynamic_filters.len())?;
         }
@@ -1065,6 +1076,12 @@ impl ExecutionPlan for PgSearchScanPlan {
             .column_with_name(&WhichFastField::Score.name())
             .map(|(idx, _)| idx);
         let dynamic_filters = self.dynamic_filters.clone();
+        let scan_fetched_fields: Vec<String> = self
+            .deferred_fields
+            .iter()
+            .filter(|d| d.fetch_at_scan)
+            .map(|d| d.name.clone())
+            .collect();
 
         let stream_gen = async_stream::try_stream! {
             // Create a local copy of the reader if the query changed
@@ -1135,6 +1152,9 @@ impl ExecutionPlan for PgSearchScanPlan {
             let df_batch_size = crate::gucs::dynamic_filter_batch_size();
             if df_batch_size > 0 {
                 scanner.set_batch_size(df_batch_size as usize);
+            }
+            if !scan_fetched_fields.is_empty() {
+                scanner.fetch_ordinals_in_scan(&scan_fetched_fields);
             }
 
             let mut pushdown_metric_recorded = false;

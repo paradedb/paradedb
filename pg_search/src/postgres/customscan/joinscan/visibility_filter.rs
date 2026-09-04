@@ -35,10 +35,11 @@
 //!    bottom-up and inserts `VisibilityFilterNode` at barrier points (or the plan root).
 //! 2. `VisibilityExtensionPlanner` (extension physical planner) — converts
 //!    `VisibilityFilterNode` → `VisibilityFilterExec`, rebuilding any immediate
-//!    `TantivyLookupExec` chain above it so visibility runs before lookup work.
+//!    `TantivyDecodeExec` / `TantivyFetchExec` chain above it so visibility runs
+//!    before lookup work.
 //! 3. `VisibilityCtidResolverRule` (physical optimizer) — wires FFHelper from
-//!    `PgSearchScanPlan` into `VisibilityFilterExec` so it can resolve packed
-//!    DocAddresses to real ctids. `TantivyLookupExec` only handles text/bytes.
+//!    `PgSearchScanPlan` into the ctid-resolving `TantivyFetchExec` below
+//!    `VisibilityFilterExec` so it can resolve packed DocAddresses to real ctids.
 //! 4. `VisibilityFilterExec` (physical execution) — resolves packed DocAddresses
 //!    to real ctids via FFHelper, opens heap relations, creates `VisibilityChecker`
 //!    per relation, and filters batches on the resolved ctids.
@@ -81,7 +82,8 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::scan::execution_plan::UnsafeSendStream;
 use crate::scan::late_materialization::is_reduction_node;
 use crate::scan::table_provider::{VisibilitySourceMetadata, pg_search_provider_from_scan};
-use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
+use crate::scan::tantivy_decode_exec::TantivyDecodeExec;
+use crate::scan::tantivy_fetch_exec::{CtidColumnLookup, TantivyFetchExec};
 use arrow_select::filter::filter_record_batch;
 use tantivy::DocId;
 
@@ -796,10 +798,10 @@ impl VisibilityExtensionPlanner {
     }
 }
 
-/// Builds a `TantivyLookupExec` that resolves the given sources' `ctid_<plan_position>` columns
+/// Builds a `TantivyFetchExec` that resolves the given sources' `ctid_<plan_position>` columns
 /// from packed doc-addresses to real ctids. Its resolvers are wired later by
 /// `VisibilityCtidResolverRule`.
-fn ctid_resolving_lookup(
+fn ctid_resolving_fetch(
     input: Arc<dyn ExecutionPlan>,
     plan_pos_oids: &[(usize, pg_sys::Oid)],
 ) -> Result<Arc<dyn ExecutionPlan>> {
@@ -812,12 +814,12 @@ fn ctid_resolving_lookup(
                 "ctid-resolving lookup: ctid column '{name}' missing from input schema"
             ))
         })?;
-        ctid_columns.push(crate::scan::tantivy_lookup_exec::CtidColumnLookup {
+        ctid_columns.push(CtidColumnLookup {
             col_idx,
             plan_position: *plan_pos,
         });
     }
-    Ok(Arc::new(TantivyLookupExec::new(
+    Ok(Arc::new(TantivyFetchExec::new(
         input,
         Vec::new(),
         crate::api::HashMap::default(),
@@ -833,7 +835,7 @@ fn wrap_visibility_below_lookup_chain(
     let mut lookups = Vec::new();
     let mut current = input;
 
-    while current.is::<TantivyLookupExec>() {
+    while current.is::<TantivyDecodeExec>() || current.is::<TantivyFetchExec>() {
         let child = Arc::clone(current.children()[0]);
         lookups.push(current);
         current = child;
@@ -841,7 +843,7 @@ fn wrap_visibility_below_lookup_chain(
 
     // Resolve the ctid columns just below the visibility filter, so the filter (and a
     // SegmentedTopKExec that later absorbs it) consumes real ctids instead of packed addresses.
-    let vf_input = ctid_resolving_lookup(current, &plan_pos_oids)?;
+    let vf_input = ctid_resolving_fetch(current, &plan_pos_oids)?;
     let mut result = Arc::new(VisibilityFilterExec::new(
         vf_input,
         plan_pos_oids,
@@ -898,7 +900,7 @@ type VisibilityDispatchPayload = (Vec<(usize, pg_sys::Oid)>, Vec<String>);
 
 /// Physical plan node that visibility-checks ctid columns and HOT-corrects them.
 ///
-/// The ctid columns arrive already resolved to real ctids from the `TantivyLookupExec`
+/// The ctid columns arrive already resolved to real ctids from the `TantivyFetchExec`
 /// below this node. For each `(plan_position, heap_oid)` in `plan_pos_oids`, it:
 /// 1. Reads the `ctid_{plan_position}` column from the batch
 /// 2. Runs `VisibilityChecker::check_batch()` to determine visible rows
@@ -967,7 +969,7 @@ impl VisibilityFilterExec {
     }
 
     /// Rebuild from a dispatch descriptor. The ctid columns are already resolved by the
-    /// `TantivyLookupExec` below, so there is nothing to re-wire here.
+    /// `TantivyFetchExec` below, so there is nothing to re-wire here.
     pub(crate) fn decode_for_dispatch(
         buf: &[u8],
         input: Arc<dyn ExecutionPlan>,
@@ -1242,7 +1244,7 @@ fn filter_batch(
 
     let num_rows = batch.num_rows();
 
-    // The ctid columns arrive already resolved to real ctids from the TantivyLookupExec below
+    // The ctid columns arrive already resolved to real ctids from the TantivyFetchExec below
     // this node, so this only checks visibility and HOT-corrects them.
     let mut columns: Vec<ArrayRef> = batch.columns().to_vec();
 

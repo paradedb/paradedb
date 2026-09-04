@@ -123,6 +123,13 @@ pub struct PgSearchTableProvider {
     #[serde(with = "atomic_bool_serde")]
     deferred_visibility_active: AtomicBool,
 
+    /// Whether a deferred string/bytes column has its term ordinals resolved inside the
+    /// scan (State 1, in doc order) or left as doc addresses for a `TantivyFetchExec`.
+    /// Snapshotted from `paradedb.defer_column_fetch` when the columns are deferred, so a
+    /// dispatched plan carries the leader's choice.
+    #[serde(default)]
+    deferred_fetch_at_scan: bool,
+
     /// Source position in the unified-sources array. When set, the codec's
     /// `parallel_state` routes per-source claims via
     /// `checkout_segment_for_source(source_idx)`. `None` for serial scans.
@@ -179,6 +186,7 @@ impl Clone for PgSearchTableProvider {
                 self.deferred_visibility_active
                     .load(std::sync::atomic::Ordering::Relaxed),
             ),
+            deferred_fetch_at_scan: self.deferred_fetch_at_scan,
             source_idx: self.source_idx,
             range_split_points: self.range_split_points.clone(),
             manifest: self.manifest.clone(),
@@ -225,6 +233,7 @@ impl PgSearchTableProvider {
             visibility_mode: VisibilityMode::Eager,
             late_materialization_active: AtomicBool::new(false),
             deferred_visibility_active: AtomicBool::new(false),
+            deferred_fetch_at_scan: false,
             source_idx,
             range_split_points: None,
             manifest: None,
@@ -283,6 +292,7 @@ impl PgSearchTableProvider {
     }
 
     fn enable_deferred_columns(&mut self, required_early_columns: &HashSet<String>) {
+        self.deferred_fetch_at_scan = !crate::gucs::defer_column_fetch();
         for wff in self.fields.iter_mut() {
             if let WhichFastField::Named(name, field_type) = wff {
                 let is_string_or_bytes = matches!(
@@ -403,6 +413,7 @@ impl PgSearchTableProvider {
                         field_type: *field_type,
                         source_idx: self.source_idx,
                     }),
+                    fetch_at_scan: self.deferred_fetch_at_scan,
                 });
             }
         }

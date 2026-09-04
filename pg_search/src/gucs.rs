@@ -147,6 +147,11 @@ static MIN_ROWS_PER_WORKER: GucSetting<i32> = GucSetting::<i32>::new(300000);
 /// its threshold between batches.
 static DYNAMIC_FILTER_BATCH_SIZE: GucSetting<i32> = GucSetting::<i32>::new(0);
 
+/// Where a late-materialized string/bytes column's fast-field fetch runs. On, the scan emits
+/// doc addresses and a `TantivyFetchExec` resolves term ordinals at the decode point. Off,
+/// the scan resolves them in doc order and only the dictionary decode is deferred.
+static DEFER_COLUMN_FETCH: GucSetting<bool> = GucSetting::<bool>::new(true);
+
 /// Allows the user to enable or disable the SegmentedTopK optimization.
 /// When enabled, Top K queries on deferred (late-materialized) string/bytes columns
 /// use per-segment ordinal pruning to reduce dictionary decoding.
@@ -603,6 +608,18 @@ pub fn init() {
     );
 
     GucRegistry::define_bool_guc(
+        c"paradedb.defer_column_fetch",
+        c"Defer the fast-field fetch of late-materialized string columns to the decode point",
+        c"When on, a scan emits doc addresses for its late-materialized string/bytes columns \
+          and their term ordinals are resolved at the point where they are decoded. When off, \
+          the scan resolves the term ordinals itself, in doc order, and only the dictionary \
+          decode is deferred. Default is on.",
+        &DEFER_COLUMN_FETCH,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
         c"paradedb.enable_segmented_topk",
         c"Enable SegmentedTopK optimization for Top K queries on deferred columns",
         c"When enabled, ORDER BY on a late-materialized string/bytes column with LIMIT \
@@ -966,6 +983,10 @@ pub fn dynamic_filter_batch_size() -> i32 {
 
 pub fn enable_segmented_topk() -> bool {
     ENABLE_SEGMENTED_TOPK.get()
+}
+
+pub fn defer_column_fetch() -> bool {
+    DEFER_COLUMN_FETCH.get()
 }
 
 pub fn mpp_debug() -> bool {

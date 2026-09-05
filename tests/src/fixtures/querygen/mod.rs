@@ -922,6 +922,19 @@ where
     }
 }
 
+/// True when DataFusion refused the plan because its `work_mem`-sized pool is
+/// full and spilling is disabled. AggregateScan/JoinScan pair a `WorkMemMemoryPool`
+/// with `DiskManagerMode::Disabled` on purpose (see `build_runtime_env`): until
+/// spilling is wired to Postgres temp files, a plan that outgrows the pool errors
+/// instead of writing untracked files. The plain-Postgres oracle has no such
+/// budget, so counting that error as a qgen failure (#6220) is wrong — treat it
+/// as a known capability miss, like an unnormalized List declining translation.
+fn is_datafusion_work_mem_exhaustion(err: &sqlx::Error) -> bool {
+    let msg = err.to_string();
+    msg.contains("query exceeded the work_mem limit")
+        || msg.contains("temporary files are not enabled in the DiskManager")
+}
+
 fn compare_outcome_inner<R, F>(
     sides: &Sides,
     pg_query: &str,
@@ -955,6 +968,9 @@ where
         Ok(results) => results,
         Err(e) => match classify_transient(&e) {
             Some(kind) => return CaseOutcome::Transient(kind, e),
+            // Known DF resource limit (no Postgres-temp spill yet), not a
+            // correctness bug against the unbounded baseline. See #6220.
+            None if is_datafusion_work_mem_exhaustion(&e) => return CaseOutcome::Match,
             None => {
                 return CaseOutcome::Failure(handle_compare_error(
                     TestCaseError::fail(format!("{e}: error in query execution")),

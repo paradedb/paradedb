@@ -72,7 +72,7 @@ ORDER BY m.id DESC LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[m]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
+           :       TantivyFetchExec: fetch=[ctid_0]
            :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
            :           HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
            :             CooperativeExec
@@ -145,7 +145,7 @@ ORDER BY m.id DESC LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[m]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
+           :       TantivyFetchExec: fetch=[ctid_0]
            :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
            :           HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@1, main_id@0)]
            :             CooperativeExec
@@ -183,7 +183,7 @@ ORDER BY m.id DESC LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[m]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
+           :       TantivyFetchExec: fetch=[ctid_0]
            :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
            :           HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
            :             CooperativeExec

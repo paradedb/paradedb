@@ -80,12 +80,12 @@ LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[p]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
+           :       TantivyFetchExec: fetch=[ctid_0]
            :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[ctid_0@0, id@2]
            :           CooperativeExec
            :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo","lenient":null,"conjunction_mode":null}}}}
            :           VisibilityFilterExec: tables=[c]
-           :             TantivyLookupExec: decode=[], fetch=[ctid_1]
+           :             TantivyFetchExec: fetch=[ctid_1]
            :               HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, id@0)]
            :                 CooperativeExec
            :                   PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Engineering","lenient":null,"conjunction_mode":null}}}}
@@ -146,12 +146,12 @@ LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[p]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
+           :       TantivyFetchExec: fetch=[ctid_0]
            :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[ctid_0@0, id@2]
            :           CooperativeExec
            :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
            :           VisibilityFilterExec: tables=[c]
-           :             TantivyLookupExec: decode=[], fetch=[ctid_1]
+           :             TantivyFetchExec: fetch=[ctid_1]
            :               HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, id@0)]
            :                 CooperativeExec
            :                   PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Marketing","lenient":null,"conjunction_mode":null}}}}
@@ -221,12 +221,12 @@ LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[p]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
+           :       TantivyFetchExec: fetch=[ctid_0]
            :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[ctid_0@0, id@2]
            :           CooperativeExec
            :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
            :           VisibilityFilterExec: tables=[c]
-           :             TantivyLookupExec: decode=[], fetch=[ctid_1]
+           :             TantivyFetchExec: fetch=[ctid_1]
            :               HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, id@0)]
            :                 CooperativeExec
            :                   PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Marketing","lenient":null,"conjunction_mode":null}}}}
@@ -292,7 +292,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[c, p]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, company_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
            :           CooperativeExec
            :             PgSearchScan: table=c, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Acme","lenient":null,"conjunction_mode":null}}}}
@@ -351,12 +351,12 @@ LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[p]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
+           :       TantivyFetchExec: fetch=[ctid_0]
            :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[ctid_0@0, id@2]
            :           CooperativeExec
            :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
            :           VisibilityFilterExec: tables=[r, c]
-           :             TantivyLookupExec: decode=[], fetch=[ctid_1, ctid_2]
+           :             TantivyFetchExec: fetch=[ctid_1, ctid_2]
            :               HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
            :                 HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, region_id@1)], projection=[id@2, ctid_1@1, ctid_2@4]
            :                   CooperativeExec

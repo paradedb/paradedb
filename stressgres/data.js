@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788581119445,
+  "lastUpdate": 1788581127491,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -335694,6 +335694,96 @@ window.BENCHMARK_DATA = {
             "value": 45.14453125,
             "unit": "median mem",
             "extra": "avg mem: 44.94642499159832, max mem: 51.55078125, count: 58768"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f4b1f65e25f5ebeda6744e1e1fd00f962ba89260",
+          "message": "fix: clean up the pg15/pg16 insert states before a commit (#6211)\n\n## Ticket(s) Closed\n\n- Closes #6208\n\n## What\n\nThis PR runs the pg15/pg16 `aminsertcleanup` polyfill's cleanup before a\ncommit, instead of at the end of the utility statement.\n\n## Why\n\n`CREATE INDEX CONCURRENTLY` on a `bm25` index fails on Postgres 15 and\n16 when another backend writes to the table during the build:\n\n```\nWARNING:  buffer refcount leak: [11388] (rel=base/460123/462610, blockNum=582, ...)\nERROR:  buffer 11388 is not owned by resource owner TopTransaction\n```\n\nAn `InsertState` pins buffers, and a pin belongs to the resource owner\nof the transaction that took it. The polyfill keeps every state in a\nframe that a `ProcessUtility` or `ExecutorRun` hook opens, and cleans\nthat frame up when the hook returns. `CREATE INDEX CONCURRENTLY` commits\nbetween its phases while the frame is still open, so the state its\nvalidation pass builds outlives the owner of its pins. One local run\nwent further and ended in a segfault.\n\npg17 added `index_insert_cleanup`, and `validate_index` calls it before\nit returns. So 17 and 18 never reach this, and the polyfill is compiled\nout there.\n\nA subtransaction abort is the other way a state can outlive its owner,\nand it's worse. A statement that fails part way, say a multi-row\n`INSERT` that trips the primary key on its third row inside a PL/pgSQL\n`EXCEPTION` block, leaves its frame behind: the guard sees the unwind\nand steps aside. The next guard to exit then pops that stale frame\ninstead of its own and runs the cleanup on it, which commits the rows\nthe rollback discarded over pins the aborting owner has already given\nup. With `global_mutable_segment_rows = 0` that takes the backend down\nwith `SIGABRT`.\n\n## How\n\nA `PreCommit` xact callback drains every open frame, beside the `Abort`\nand `Commit` ones already registered. The frames themselves stay on the\nstack, because only a `FrameGuard` may pop one and every guard is still\nlive.\n\nEach frame now records the nesting level it was pushed at, and an\n`AbortSub` callback drops every frame at the aborting level or deeper,\nwithout cleanup. Those frames can only belong to hooks that left through\nan error, and the callback runs before the subtransaction's resource\nowner releases its pins, the same order the top-level abort path already\nrelies on.\n\nThis also reverts a9cab39e4, which held #6146's concurrent-build tests\nto pg17 and newer while this was open.\n\n## Tests\n\n`tests/tests/concurrent_build_writes.rs` races a writer against a plain\nbuild. It declares no `partition_by`, so it covers the bug on its own.\n\nStep 1: seed a table with about 60k rows.\n\nStep 2: run the build on one connection.\n\n```sql\nCREATE INDEX CONCURRENTLY cic_writes_idx ON cic_writes\nUSING bm25 (id, body) WITH (key_field = 'id');\n```\n\nStep 3: on a second connection, loop `UPDATE`s and `INSERT`s until the\nbuild returns.\n\nVerified on `PGVER=15.15` and `PGVER=16.11`, where it fails before the\nchange and passes after, and on `PGVER=18.1`.\n\n`a_subtransaction_abort_drops_its_insert_state` in `insert.rs` runs the\nfailing-`INSERT`-inside-`EXCEPTION` shape above with immutable inserts,\nthen checks the index holds exactly the surviving rows. It crashes the\nbackend on 16 before the fix and passes after; it also runs on 17 and\n18, where the native `aminsertcleanup` handles the same case.",
+          "timestamp": "2026-09-04T20:27:22-07:00",
+          "tree_id": "f48a74ba352432b9f4a1dbe2b430bb5a479eacb8",
+          "url": "https://github.com/paradedb/paradedb/commit/f4b1f65e25f5ebeda6744e1e1fd00f962ba89260"
+        },
+        "date": 1788581123597,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 62.375,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 58.88755114235651, max partition_index_size:MB: 78.3671875, count: 58782"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.29647427405926, max cpu: 33.432835, count: 58782"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 45.75,
+            "unit": "median mem",
+            "extra": "avg mem: 45.51207859389354, max mem: 52.31640625, count: 58782"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.471882,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.99090508516227, max cpu: 33.41621, count: 58782"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 54.2578125,
+            "unit": "median mem",
+            "extra": "avg mem: 54.72345647902419, max mem: 68.828125, count: 58782"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.481482,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.977358995811755, max cpu: 28.614008, count: 58782"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 54.1953125,
+            "unit": "median mem",
+            "extra": "avg mem: 49.318546307755774, max mem: 67.640625, count: 58782"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.460411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.927903347651057, max cpu: 33.349876, count: 58782"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 53.2890625,
+            "unit": "median mem",
+            "extra": "avg mem: 53.236487878410905, max mem: 62.1875, count: 58782"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.24776711767814, max cpu: 33.20158, count: 58782"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 45.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 44.981936567529175, max mem: 51.5859375, count: 58782"
           }
         ]
       }

@@ -781,12 +781,10 @@ ORDER BY p.name
     LIMIT 3 OFFSET 2;
        name       | supplier_name 
 ------------------+---------------
- Headphones       | TechCorp
- Keyboard         | TechCorp
  Mouse Pad        | GlobalSupply
  Wireless Charger | TechCorp
  Wireless Mouse   | TechCorp
-(5 rows)
+(3 rows)
 
 -- Expected: Mouse Pad, Wireless Charger, Wireless Mouse
 -- Last page: OFFSET 4 should return only 1 row (past the end of 5 rows)
@@ -796,14 +794,10 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 3 OFFSET 4;
-       name       | supplier_name 
-------------------+---------------
- Headphones       | TechCorp
- Keyboard         | TechCorp
- Mouse Pad        | GlobalSupply
- Wireless Charger | TechCorp
- Wireless Mouse   | TechCorp
-(5 rows)
+      name      | supplier_name 
+----------------+---------------
+ Wireless Mouse | TechCorp
+(1 row)
 
 -- Expected: Wireless Mouse (only 1 row since 5 - 4 = 1)
 -- OFFSET beyond result set should return empty
@@ -813,14 +807,9 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 3 OFFSET 10;
-       name       | supplier_name 
-------------------+---------------
- Headphones       | TechCorp
- Keyboard         | TechCorp
- Mouse Pad        | GlobalSupply
- Wireless Charger | TechCorp
- Wireless Mouse   | TechCorp
-(5 rows)
+ name | supplier_name 
+------+---------------
+(0 rows)
 
 -- Expected: 0 rows
 -- Correctness: compare JoinScan vs native PG for OFFSET 2
@@ -848,8 +837,8 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 3 OFFSET 2;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.name, s.name
    Relation Tree: p INNER s
@@ -859,16 +848,17 @@ ORDER BY p.name
    Distinct: true
    Order By: p.name asc, s.name asc
    DataFusion Physical Plan: 
-     : SortExec: TopK(fetch=5), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[name@0 as col_1, name@2 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
-     :     VisibilityFilterExec: tables=[p, s]
-     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[name@3, ctid_0@5, name@1, ctid_1@2]
-     :           CooperativeExec
-     :             PgSearchScan: table=s, segments=1, query="all"
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+     : GlobalLimitExec: skip=2, fetch=3
+     :   SortExec: TopK(fetch=5), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     AggregateExec: mode=Single, gby=[name@0 as col_1, name@2 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
+     :       VisibilityFilterExec: tables=[p, s]
+     :         TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[name@3, ctid_0@5, name@1, ctid_1@2]
+     :             CooperativeExec
+     :               PgSearchScan: table=s, segments=1, query="all"
+     :             CooperativeExec
+     :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
 
 -- Expected: Offset: 2 appears in the Custom Scan (ParadeDB Join Scan) node
 -- =============================================================================

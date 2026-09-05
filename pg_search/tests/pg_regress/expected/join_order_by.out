@@ -90,8 +90,8 @@ JOIN sorted_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val @@@ 'val'
 ORDER BY t1.id ASC NULLS FIRST
 OFFSET 5 LIMIT 10;
-                                                                                                  QUERY PLAN                                                                                                  
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: t1.val, t2.val, t1.id
    Relation Tree: t1 INNER t2
@@ -103,15 +103,16 @@ OFFSET 5 LIMIT 10;
      : TantivyDecodeExec: decode=[val]
      :   TantivyFetchExec: fetch=[val]
      :     ProjectionExec: expr=[val@1 as col_1, NULL as col_2, id@0 as col_3, ctid_0@2 as ctid_0, ctid_1@3 as ctid_1]
-     :       SortExec: TopK(fetch=15), expr=[id@0 ASC], preserve_partitioning=[false]
-     :         VisibilityFilterExec: tables=[t1, t2]
-     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, t1_id@0)], projection=[id@0, val@1, ctid_0@2, ctid_1@4]
-     :               CooperativeExec
-     :                 PgSearchScan: table=t1, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}
-     :               CooperativeExec
-     :                 PgSearchScan: table=t2, segments=1, dynamic_filters=1, query="all"
-(19 rows)
+     :       GlobalLimitExec: skip=5, fetch=10
+     :         SortExec: TopK(fetch=15), expr=[id@0 ASC], preserve_partitioning=[false]
+     :           VisibilityFilterExec: tables=[t1, t2]
+     :             TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :               HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, t1_id@0)], projection=[id@0, val@1, ctid_0@2, ctid_1@4]
+     :                 CooperativeExec
+     :                   PgSearchScan: table=t1, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}
+     :                 CooperativeExec
+     :                   PgSearchScan: table=t2, segments=1, dynamic_filters=1, query="all"
+(20 rows)
 
 SELECT t1.val, t2.val
 FROM sorted_t1 t1
@@ -119,13 +120,8 @@ JOIN sorted_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val @@@ 'val'
 ORDER BY t1.id ASC NULLS FIRST
 OFFSET 5 LIMIT 10;
-  val   |   val    
---------+----------
- val 1  | val 1000
- val 2  | val 1
- val 3  | val 2
- val 4  | val 3
- val 5  | val 4
+  val   |  val   
+--------+--------
  val 6  | val 5
  val 7  | val 6
  val 8  | val 7
@@ -136,7 +132,7 @@ OFFSET 5 LIMIT 10;
  val 13 | val 12
  val 14 | val 13
  val 15 | val 14
-(15 rows)
+(10 rows)
 
 -- =============================================================================
 -- TEST 3: Multi-segment sorted join

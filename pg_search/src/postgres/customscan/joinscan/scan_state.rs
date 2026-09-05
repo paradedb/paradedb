@@ -645,8 +645,9 @@ fn build_clause_df<'a>(
         // time). Parameterized LIMIT/OFFSET are injected at execution time in
         // `JoinScan::exec_custom_scan` after `EState` becomes available.
         let df = if let Some(lo) = &join_clause.limit_offset {
-            if let Some(fetch) = lo.static_fetch() {
-                df.limit(0, Some(fetch))?
+            if let Some(fetch) = lo.static_limit() {
+                let skip = lo.static_offset();
+                df.limit(skip, Some(fetch))?
             } else {
                 df
             }
@@ -1009,7 +1010,12 @@ fn apply_output_projection(
                     }
                 }
             } else {
-                build_projection_expr(proj, join_clause)
+                match proj {
+                    build::ChildProjection::Expression { pg_expr_string, .. } => unsafe {
+                        translate_child_projection_expr(pg_expr_string, join_clause)?
+                    },
+                    _ => build_projection_expr(proj, join_clause),
+                }
             };
             final_cols.push(expr.alias(col_alias));
         }
@@ -1075,8 +1081,7 @@ fn build_projection_expr(
         }
         ChildProjection::Expression { .. } => {
             unreachable!(
-                "Expression projections are handled via PgExprUdf in the \
-                 GROUP BY path, not through build_projection_expr"
+                "Expression projections are handled in apply_output_projection / apply_distinct"
             );
         }
     }
@@ -1173,8 +1178,8 @@ fn build_source_df<'a>(
             }
         }
 
-        // When DISTINCT is present, PostgreSQL expands the query path-keys
-        // to include all DISTINCT columns.
+        // When DISTINCT is present, columns referenced by DISTINCT projections
+        // and ORDER BY must be available early for DataFusion's AggregateExec and SortExec.
         if join_clause.has_distinct {
             if let Some(projections) = &join_clause.output_projection {
                 for proj in projections {

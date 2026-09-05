@@ -121,7 +121,7 @@ LIMIT 10;
    Limit: 10
    Order By: c.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, NULL as col_3, ctid_0@1 as ctid_0]
+     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, id@0 + 0 as col_3, ctid_0@1 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       TantivyFetchExec: fetch=[ctid_0]
@@ -205,7 +205,7 @@ LIMIT 10;
    Limit: 10
    Order By: c.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, NULL as col_3, ctid_0@1 as ctid_0]
+     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, id@0 - 0 as col_3, ctid_0@1 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       TantivyFetchExec: fetch=[ctid_0]
@@ -254,7 +254,7 @@ LIMIT 10;
    Limit: 10
    Order By: c.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, NULL as col_3, ctid_0@1 as ctid_0]
+     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, id@0 as col_3, ctid_0@1 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       TantivyFetchExec: fetch=[ctid_0]
@@ -303,7 +303,7 @@ LIMIT 10;
    Limit: 10
    Order By: c.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, NULL as col_3, ctid_0@1 as ctid_0]
+     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, id@0 as col_3, ctid_0@1 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       TantivyFetchExec: fetch=[ctid_0]
@@ -352,7 +352,7 @@ LIMIT 10;
    Limit: 10
    Order By: c.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, NULL as col_3, ctid_0@1 as ctid_0]
+     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, id@0 + 0 as col_3, ctid_0@1 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       TantivyFetchExec: fetch=[ctid_0]
@@ -402,7 +402,7 @@ LIMIT 10;
    Limit: 10
    Order By: c.big_id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, NULL as col_3, ctid_0@2 as ctid_0]
+     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, big_id@1 + 0 as col_3, ctid_0@2 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[big_id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       TantivyFetchExec: fetch=[ctid_0]
@@ -434,7 +434,7 @@ LIMIT 10;
    Limit: 10
    Order By: c.big_id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, NULL as col_3, ctid_0@2 as ctid_0]
+     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, big_id@1 as col_3, ctid_0@2 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[big_id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       TantivyFetchExec: fetch=[ctid_0]
@@ -466,7 +466,7 @@ LIMIT 10;
    Limit: 10
    Order By: c.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, NULL as col_3, ctid_0@1 as ctid_0]
+     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, 0 + id@0 as col_3, ctid_0@1 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       TantivyFetchExec: fetch=[ctid_0]
@@ -498,7 +498,7 @@ LIMIT 10;
    Limit: 10
    Order By: c.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, NULL as col_3, ctid_0@1 as ctid_0]
+     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, id@0 as col_3, ctid_0@1 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       TantivyFetchExec: fetch=[ctid_0]
@@ -757,7 +757,7 @@ LIMIT 10;
    Limit: 10
    Order By: c.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, NULL as col_3, ctid_0@1 as ctid_0]
+     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, id@0 + 0 as col_3, ctid_0@1 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       TantivyFetchExec: fetch=[ctid_0]

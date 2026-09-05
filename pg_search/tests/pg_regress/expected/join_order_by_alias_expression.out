@@ -57,7 +57,7 @@ LIMIT 10;
    Limit: 10
    Order By: company_name asc, cccf.contact_id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[contact_id@0 as col_1, company_id@1 as col_2, company_name_words@2 as col_3, NULL as col_4, ctid_0@3 as ctid_0, ctid_1@5 as ctid_1]
+     : ProjectionExec: expr=[contact_id@0 as col_1, company_id@1 as col_2, company_name_words@2 as col_3, company_name@4 as col_4, ctid_0@3 as ctid_0, ctid_1@5 as ctid_1]
      :   TantivyDecodeExec: decode=[company_name_words, company_name]
      :     TantivyFetchExec: fetch=[company_name_words, company_name]
      :       SegmentedTopKExec: expr=[company_name@4 ASC NULLS LAST, contact_id@0 ASC NULLS LAST], k=10, visibility_checks=[cccf, ti]

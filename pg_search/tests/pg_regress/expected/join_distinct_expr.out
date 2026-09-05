@@ -97,15 +97,15 @@ ORDER BY p.name
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  upper_supplier |      name       
 ----------------+-----------------
-                | 
-                | Headphones
-                | Keyboard
+ TECHCORP       | 
+ TECHCORP       | Headphones
+ TECHCORP       | Keyboard
                 | USB Cable
-                | WIRELESS ROUTER
-                | Wireless Mouse
+ TECHCORP       | WIRELESS ROUTER
+ TECHCORP       | Wireless Mouse
                 | tablet
                 | 
-                | 
+ FASTPARTS      | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = off;
@@ -172,15 +172,15 @@ ORDER BY p.name
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  supplier_null |      name       
 ---------------+-----------------
-               | 
-               | Headphones
-               | Keyboard
-               | USB Cable
-               | WIRELESS ROUTER
-               | Wireless Mouse
-               | tablet
-               | 
-               | 
+ f             | 
+ f             | Headphones
+ f             | Keyboard
+ t             | USB Cable
+ f             | WIRELESS ROUTER
+ f             | Wireless Mouse
+ t             | tablet
+ t             | 
+ f             | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = off;
@@ -245,15 +245,15 @@ ORDER BY p.name
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  combo_id |      name       
 ----------+-----------------
-          | 
-          | Headphones
-          | Keyboard
-          | USB Cable
-          | WIRELESS ROUTER
-          | Wireless Mouse
-          | tablet
-          | 
-          | 
+      119 | 
+      115 | Headphones
+      113 | Keyboard
+      122 | USB Cable
+      117 | WIRELESS ROUTER
+      111 | Wireless Mouse
+      128 | tablet
+      126 | 
+      134 | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = off;
@@ -320,15 +320,15 @@ ORDER BY p.name
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  safe_supplier |      name       
 ---------------+-----------------
-               | 
-               | Headphones
-               | Keyboard
-               | USB Cable
-               | WIRELESS ROUTER
-               | Wireless Mouse
-               | tablet
-               | 
-               | 
+ TechCorp      | 
+ TechCorp      | Headphones
+ TechCorp      | Keyboard
+ N/A           | USB Cable
+ TechCorp      | WIRELESS ROUTER
+ TechCorp      | Wireless Mouse
+ N/A           | tablet
+ N/A           | 
+ FastParts     | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = off;
@@ -393,17 +393,17 @@ WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
- name_id |      name       
----------+-----------------
-         | 
-         | Headphones
-         | Keyboard
-         | USB Cable
-         | WIRELESS ROUTER
-         | Wireless Mouse
-         | tablet
-         | 
-         | 
+   name_id   |      name       
+-------------+-----------------
+ TechCorp-1  | 
+ TechCorp-1  | Headphones
+ TechCorp-1  | Keyboard
+             | USB Cable
+ TechCorp-1  | WIRELESS ROUTER
+ TechCorp-1  | Wireless Mouse
+             | tablet
+             | 
+ FastParts-3 | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = off;
@@ -470,15 +470,15 @@ ORDER BY p.name
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  name_len |      name       
 ----------+-----------------
-          | 
-          | Headphones
-          | Keyboard
+        8 | 
+        8 | Headphones
+        8 | Keyboard
           | USB Cable
-          | WIRELESS ROUTER
-          | Wireless Mouse
+        8 | WIRELESS ROUTER
+        8 | Wireless Mouse
           | tablet
           | 
-          | 
+        9 | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = off;
@@ -546,7 +546,7 @@ ORDER BY p.name
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  ?column? | name 
 ----------+------
-          | 
+ f        | 
 (1 row)
 
 -- =============================================================================
@@ -594,15 +594,15 @@ ORDER BY p.name
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  has_name |      name       
 ----------+-----------------
-          | 
-          | Headphones
-          | Keyboard
-          | USB Cable
-          | WIRELESS ROUTER
-          | Wireless Mouse
-          | tablet
-          | 
-          | 
+ t        | 
+ t        | Headphones
+ t        | Keyboard
+ f        | USB Cable
+ t        | WIRELESS ROUTER
+ t        | Wireless Mouse
+ f        | tablet
+ f        | 
+ t        | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = off;
@@ -667,15 +667,15 @@ ORDER BY p.name
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  name_len |      name       
 ----------+-----------------
-          | 
-          | Headphones
-          | Keyboard
+        8 | 
+        8 | Headphones
+        8 | Keyboard
           | USB Cable
-          | WIRELESS ROUTER
-          | Wireless Mouse
+        8 | WIRELESS ROUTER
+        8 | Wireless Mouse
           | tablet
           | 
-          | 
+        9 | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = off;
@@ -738,15 +738,15 @@ ORDER BY p.name
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  big_id |      name       
 --------+-----------------
-        | 
-        | Headphones
-        | Keyboard
-        | USB Cable
-        | WIRELESS ROUTER
-        | Wireless Mouse
-        | tablet
-        | 
-        | 
+    100 | 
+    100 | Headphones
+    100 | Keyboard
+    200 | USB Cable
+    100 | WIRELESS ROUTER
+    100 | Wireless Mouse
+    200 | tablet
+    200 | 
+    300 | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = off;
@@ -807,17 +807,17 @@ WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
- ratio |      name       
--------+-----------------
-       | 
-       | Headphones
-       | Keyboard
-       | USB Cable
-       | WIRELESS ROUTER
-       | Wireless Mouse
-       | tablet
-       | 
-       | 
+       ratio        |      name       
+--------------------+-----------------
+ 0.3333333333333333 | 
+ 0.3333333333333333 | Headphones
+ 0.3333333333333333 | Keyboard
+ 0.6666666666666666 | USB Cable
+ 0.3333333333333333 | WIRELESS ROUTER
+ 0.3333333333333333 | Wireless Mouse
+ 0.6666666666666666 | tablet
+ 0.6666666666666666 | 
+                  1 | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = off;
@@ -882,15 +882,15 @@ ORDER BY p.name
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  upper_name |      name       
 ------------+-----------------
-            | 
-            | Headphones
-            | Keyboard
+ TECHCORP   | 
+ TECHCORP   | Headphones
+ TECHCORP   | Keyboard
             | USB Cable
-            | WIRELESS ROUTER
-            | Wireless Mouse
+ TECHCORP   | WIRELESS ROUTER
+ TECHCORP   | Wireless Mouse
             | tablet
             | 
-            | 
+ FASTPARTS  | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = off;
@@ -955,15 +955,15 @@ ORDER BY p.name
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  short_name |      name       
 ------------+-----------------
-            | 
-            | Headphones
-            | Keyboard
+ TechC      | 
+ TechC      | Headphones
+ TechC      | Keyboard
             | USB Cable
-            | WIRELESS ROUTER
-            | Wireless Mouse
+ TechC      | WIRELESS ROUTER
+ TechC      | Wireless Mouse
             | tablet
             | 
-            | 
+ FastP      | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = off;
@@ -1032,15 +1032,15 @@ ORDER BY p.name
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  supplier_or_default |      name       
 ---------------------+-----------------
-                     | 
-                     | Headphones
-                     | Keyboard
-                     | USB Cable
-                     | WIRELESS ROUTER
-                     | Wireless Mouse
-                     | tablet
-                     | 
-                     | 
+ TechCorp            | 
+ TechCorp            | Headphones
+ TechCorp            | Keyboard
+ N/A                 | USB Cable
+ TechCorp            | WIRELESS ROUTER
+ TechCorp            | Wireless Mouse
+ N/A                 | tablet
+ N/A                 | 
+ FastParts           | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = off;
@@ -1169,17 +1169,17 @@ WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
- mixed_key |      name       
------------+-----------------
-           | 
-           | Headphones
-           | Keyboard
-           | USB Cable
-           | WIRELESS ROUTER
-           | Wireless Mouse
-           | tablet
-           | 
-           | 
+            mixed_key             |      name       
+----------------------------------+-----------------
+ D9CE5A9B751D2E18071CC135E51C524B | 
+ D9CE5A9B751D2E18071CC135E51C524B | Headphones
+ D9CE5A9B751D2E18071CC135E51C524B | Keyboard
+                                  | USB Cable
+ D9CE5A9B751D2E18071CC135E51C524B | WIRELESS ROUTER
+ D9CE5A9B751D2E18071CC135E51C524B | Wireless Mouse
+                                  | tablet
+                                  | 
+ 9818B8B1AAC79FB78ABE7B48D8ECC003 | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = off;

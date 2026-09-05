@@ -93,7 +93,7 @@ ORDER BY users.id, products.id, orders.id LIMIT 20;
    DataFusion Physical Plan: 
      : TantivyDecodeExec: decode=[name, name]
      :   TantivyFetchExec: fetch=[name, name]
-     :     ProjectionExec: expr=[NULL as col_1, id@5 as col_2, name@6 as col_3, id@2 as col_4, name@3 as col_5, id@0 as col_6, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1, ctid_2@7 as ctid_2]
+     :     ProjectionExec: expr=[BM25 as col_1, id@5 as col_2, name@6 as col_3, id@2 as col_4, name@3 as col_5, id@0 as col_6, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1, ctid_2@7 as ctid_2]
      :       SortExec: TopK(fetch=20), expr=[id@5 ASC NULLS LAST, id@0 ASC NULLS LAST], preserve_partitioning=[false]
      :         VisibilityFilterExec: tables=[orders, products, users]
      :           TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
@@ -117,8 +117,8 @@ WHERE (users.name @@@ 'bob') AND (NOT (products.name @@@ 'bob'))
 ORDER BY users.id, products.id, orders.id LIMIT 20;
  source | uid | uname | pid | pname | oid 
 --------+-----+-------+-----+-------+-----
-        |   1 | bob   |   1 | cloe  | 101
-        |   5 | sally |   5 | bob   | 105
+ BM25   |   1 | bob   |   1 | cloe  | 101
+ BM25   |   5 | sally |   5 | bob   | 105
 (2 rows)
 
 DROP TABLE users CASCADE;

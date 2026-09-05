@@ -150,8 +150,8 @@ pub use self::build::CtidColumn;
 use self::build::{JoinCSClause, RelNode, RelationAlias};
 use self::planning::{
     collect_join_sources_base_rel, collect_required_fields, ensure_score_bubbling,
-    expr_uses_scores_from_source, extract_orderby, extract_orderby_from_parse_sort_clause,
-    get_score_func_rti, order_by_columns_are_fast_fields, pathkey_uses_scores_from_source,
+    expr_uses_scores_from_source, extract_orderby, get_score_func_rti,
+    order_by_columns_are_fast_fields, pathkey_uses_scores_from_source,
 };
 use self::privdat::PrivateData;
 use crate::postgres::customscan::datafusion::explain::{
@@ -592,6 +592,12 @@ impl JoinScan {
             ));
         }
 
+        if has_distinct && (*(*root).parse).hasDistinctOn {
+            return Err(JoinDeclineReason::new(
+                "JoinScan not used: DISTINCT ON is not supported",
+            ));
+        }
+
         if has_distinct && !distinct_collations_are_deterministic(root) {
             return Err(JoinDeclineReason::new(
                 "JoinScan not used: DISTINCT on a nondeterministic collation is not supported",
@@ -602,6 +608,56 @@ impl JoinScan {
             return Err(JoinDeclineReason::new(
                 "JoinScan not used: DISTINCT columns must be columnar indexed",
             ));
+        }
+
+        if has_distinct {
+            let parse = (*root).parse;
+            let distinct_list = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause);
+            let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+            let distinct_count = distinct_list.iter_ptr().count();
+            let tlist_count = target_list.iter_ptr().filter(|te| !(**te).resjunk).count();
+            if distinct_count > tlist_count {
+                return Err(JoinDeclineReason::new(
+                    "JoinScan not used: DISTINCT clause has more expressions than target list",
+                ));
+            }
+        }
+
+        // Verify that every target list entry can be evaluated and projected by JoinScan.
+        // At UPPERREL_FINAL, no upper projection node exists to compute unhandled expressions.
+        let parse = (*root).parse;
+        let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+        for te in target_list.iter_ptr() {
+            if (*te).resjunk {
+                continue;
+            }
+            let check_expr = crate::postgres::utils::strip_wrappers((*te).expr.cast());
+            if (*check_expr).type_ == pg_sys::NodeTag::T_Var {
+                let var = check_expr as *mut pg_sys::Var;
+                let rti = (*var).varno as pg_sys::Index;
+                let is_source_var = all_sources.iter().any(|s| s.contains_rti(rti));
+                let is_lateral_unnest =
+                    crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(
+                        root, rti,
+                    )
+                    .is_some_and(|u| all_sources.iter().any(|s| s.contains_rti(u.source_rti.0)));
+                if !is_source_var && !is_lateral_unnest {
+                    return Err(JoinDeclineReason::new(
+                        "JoinScan not used: target list references a relation outside the join",
+                    ));
+                }
+            } else if let Some(score_rti) = get_score_func_rti(check_expr.cast()) {
+                if !all_sources.iter().any(|s| s.contains_rti(score_rti)) {
+                    return Err(JoinDeclineReason::new(
+                        "JoinScan not used: score function references a relation outside the join",
+                    ));
+                }
+            } else if planning::resolve_target_entry_expr(check_expr, &all_sources, root).is_none()
+            {
+                return Err(JoinDeclineReason::new(
+                    "JoinScan not used: target list expression cannot be evaluated",
+                ));
+            }
         }
 
         order_by_columns_are_fast_fields(root, &all_sources, has_distinct)?;
@@ -1489,17 +1545,21 @@ impl CustomScan for JoinScan {
                 // physical planning) so SegmentedTopKRule can detect SortExec(fetch=K) and
                 // apply its TopK optimization. Static cases were already pushed in
                 // `build_clause_df`.
-                let runtime_fetch = {
+                let runtime_limit_offset = {
                     let estate = state.csstate.ss.ps.state;
                     join_clause
                         .limit_offset
                         .as_mut()
                         .filter(|lo| lo.has_any_param())
                         .map(|lo| {
-                            lo.resolve_mut(estate)
-                                .expect("LIMIT must be resolvable from EState")
-                                .static_fetch()
-                                .expect("static_fetch must succeed after resolve_mut")
+                            let lo = lo
+                                .resolve_mut(estate)
+                                .expect("LIMIT must be resolvable from EState");
+                            let fetch = lo
+                                .static_limit()
+                                .expect("static_limit must succeed after resolve_mut");
+                            let skip = lo.static_offset();
+                            (skip, fetch)
                         })
                 };
 
@@ -1519,11 +1579,11 @@ impl CustomScan for JoinScan {
                             source_manifests.clone(),
                         )
                         .expect("Failed to deserialize logical plan");
-                        let logical_plan = match runtime_fetch {
-                            Some(fetch) => {
+                        let logical_plan = match runtime_limit_offset {
+                            Some((skip, fetch)) => {
                                 use datafusion::logical_expr::LogicalPlanBuilder;
                                 LogicalPlanBuilder::from(logical_plan)
-                                    .limit(0, Some(fetch))
+                                    .limit(skip, Some(fetch))
                                     .expect("failed to add Limit to logical plan")
                                     .build()
                                     .expect("failed to build logical plan with Limit")
@@ -1584,11 +1644,11 @@ impl CustomScan for JoinScan {
                                 source_manifests.clone(),
                             )
                             .expect("Failed to deserialize serial fallback logical plan");
-                            let logical_plan = match runtime_fetch {
-                                Some(fetch) => {
+                            let logical_plan = match runtime_limit_offset {
+                                Some((skip, fetch)) => {
                                     use datafusion::logical_expr::LogicalPlanBuilder;
                                     LogicalPlanBuilder::from(logical_plan)
-                                        .limit(0, Some(fetch))
+                                        .limit(skip, Some(fetch))
                                         .expect("failed to add Limit to logical plan")
                                         .build()
                                         .expect("failed to build logical plan with Limit")
@@ -1691,6 +1751,10 @@ impl CustomScan for JoinScan {
                                 schema.index_of(field_name).ok()
                             }
                         }
+                        privdat::OutputColumnInfo::Expression => {
+                            let col_alias = format!("col_{}", out_idx + 1);
+                            schema.index_of(&col_alias).ok()
+                        }
                         privdat::OutputColumnInfo::Var { .. }
                         | privdat::OutputColumnInfo::Pruned => None,
                     })
@@ -1790,8 +1854,7 @@ impl CustomScan for JoinScan {
 /// Walk a target list and classify each entry into the corresponding
 /// [`privdat::OutputColumnInfo`]: a `Var` resolves to a plan position via the
 /// join clause, a `paradedb.score()` call becomes a `Score` sentinel, and any
-/// expression that cannot be located emits `Pruned` so the parent plan slot
-/// stays NULL.
+/// expression that cannot be located emits `Pruned`.
 unsafe fn compute_output_columns(
     join_clause: &JoinCSClause,
     original_tlist: *mut pg_sys::List,
@@ -1823,7 +1886,7 @@ unsafe fn compute_output_columns(
                 // join (e.g., the inner side of a flattened EXISTS).
                 // PostgreSQL's reltarget may include these Vars even though
                 // they are not accessible after the Semi/Anti. Emit NULL;
-                // the parent plan will not read this position.
+                // these positions are not read by downstream processing.
                 output_columns.push(privdat::OutputColumnInfo::Pruned);
             }
         } else if let Some(rti) = get_score_func_rti(check_expr.cast()) {
@@ -1849,88 +1912,20 @@ unsafe fn compute_output_columns(
 }
 
 /// Build `private_data.join_clause.output_projection` from the scan target
-/// list, picking one of two strategies:
+/// list.
 ///
-/// 1. **Defer to parent** when the parse-tree DISTINCT clause is wider than
-///    the scan target list. JoinScan strips DISTINCT, sorts by the parse
-///    `sortClause`, and emits a passthrough projection so the parent plan can
-///    re-evaluate the missing expressions.
-/// 2. **Normal** when DISTINCT (if any) fits inside the scan target list.
-///    Project each output column with metadata enriched from
-///    `distinct_columns_are_fast_fields` so GROUP BY column matching works
-///    against parse-tree varnos.
+/// Projects each output column with metadata enriched from
+/// `distinct_columns_are_fast_fields` when DISTINCT is active so that DataFusion
+/// can group by and evaluate expressions directly.
 unsafe fn build_output_projection(
     private_data: &mut PrivateData,
     original_entries: &PgList<pg_sys::TargetEntry>,
     root: *mut pg_sys::PlannerInfo,
 ) {
     let parse = (*root).parse;
-    let scan_tlist_len = original_entries.len();
-    let distinct_list_len =
-        if private_data.join_clause.has_distinct && !(*parse).distinctClause.is_null() {
-            PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause)
-                .iter_ptr()
-                .count()
-        } else {
-            0
-        };
 
-    // Postgres plans upper nodes (Result, Sort, Unique) to evaluate derived expressions
-    // (e.g., `col IS NULL`), requesting only the underlying base columns from CustomScan.
-    // When `scan_tlist` is shorter than `distinctClause`, DataFusion's output projection
-    // lacks slots for those extra expressions, so DataFusion cannot group by all DISTINCT
-    // keys. We defer DISTINCT to Postgres's upper Unique node and sort only by `sortClause`.
-    //
-    // Limitation: if distinctClause and scan tlist happen to have equal length but
-    // contain different expressions, this heuristic won't fire and the non-deferred
-    // path runs. In practice scan tlist is a strict subset of distinctClause columns,
-    // so a length mismatch is the reliable signal for upper-evaluated expressions.
-    let defer_distinct_to_parent =
-        private_data.join_clause.has_distinct && distinct_list_len > scan_tlist_len;
-
-    if defer_distinct_to_parent {
-        private_data.join_clause.has_distinct = false;
-        // Pushing down LIMIT below an upper Unique/Sort node is unsound: upper Unique
-        // collapses rows (risking fewer emitted rows than LIMIT), and upper Sort breaks
-        // ties using remaining DISTINCT keys (which an early LIMIT would arbitrarily truncate).
-        // JoinScan must stream all matching rows and let Postgres's upper Limit cap the output.
-        private_data.join_clause.limit_offset = None;
-        let output_rtis = private_data.join_clause.plan.output_rtis();
-        let current_sources = private_data.join_clause.plan.sources();
-        private_data.join_clause.order_by =
-            extract_orderby_from_parse_sort_clause(root, &current_sources, &output_rtis)
-                .unwrap_or_else(|| {
-                    let sort_count = if (*parse).sortClause.is_null() {
-                        0
-                    } else {
-                        PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause)
-                            .iter_ptr()
-                            .count()
-                    };
-                    panic!(
-                        "JoinScan: ORDER BY from sortClause failed after DISTINCT/tlist \
-                     mismatch (sortClause has {} entries, scan_tlist_len={}, \
-                     distinct_list_len={})",
-                        sort_count, scan_tlist_len, distinct_list_len
-                    )
-                });
-        // Non-Var, non-score expressions have rti=0, attno=0 here.  That is safe:
-        // has_distinct is cleared above, so DataFusion skips GROUP BY and
-        // build_projection_expr yields NULL for these slots.  build_result_tuple
-        // also treats rti=0 as NULL.  Postgres re-evaluates the real expressions
-        // on top of the result slot, so the NULLs are overwritten.
-        private_data.join_clause.output_projection = Some(
-            private_data
-                .output_columns
-                .iter()
-                .map(build::ChildProjection::from)
-                .collect(),
-        );
-        return;
-    }
-
-    // Normal path: build output_projection, enriching expression entries with
-    // metadata when DISTINCT is active.
+    // Build output_projection, enriching expression entries with metadata when
+    // DISTINCT is active.
     //
     // TODO: This is the second call to distinct_columns_are_fast_fields
     // in the same planning phase (first in validate_and_build_clause). Both
@@ -1967,73 +1962,47 @@ unsafe fn build_output_projection(
 
     let scan_target_entries: Vec<*mut pg_sys::TargetEntry> = original_entries.iter_ptr().collect();
     let mut claimed_distinct: Vec<bool> = vec![false; distinct_expr_map.len()];
-    let mut resolved_entries: Vec<Option<&planning::ResolvedExpr>> =
+    let mut resolved_entries: Vec<Option<planning::ResolvedExpr>> =
         vec![None; scan_target_entries.len()];
 
-    // Pass 1: Direct AST equality.
-    // Handles plain columns, scores, and unnested columns regardless of list ordering.
+    // Direct AST equality matching against resolved DISTINCT entries.
+    // Handles plain columns, scores, expressions, and unnested columns.
     for (scan_idx, te) in scan_target_entries.iter().copied().enumerate() {
         let scan_expr = crate::postgres::utils::strip_wrappers((*te).expr.cast());
         for (dist_idx, (parse_expr, entry)) in distinct_expr_map.iter().enumerate() {
             if !claimed_distinct[dist_idx] && pg_sys::equal(scan_expr.cast(), (*parse_expr).cast())
             {
                 claimed_distinct[dist_idx] = true;
-                resolved_entries[scan_idx] = Some(*entry);
+                resolved_entries[scan_idx] = Some((*entry).clone());
                 break;
             }
         }
     }
 
-    // Pass 2: Input-variable matching for expressions.
-    // Maps placeholder base columns in the scan target list to the upper-level expressions
-    // that depend on them (e.g. s.name -> upper(s.name)).
-    for (scan_idx, (info, te)) in private_data
-        .output_columns
-        .iter()
-        .zip(scan_target_entries.iter().copied())
-        .enumerate()
-    {
+    // For non-DISTINCT entries (or entries not matched above), resolve any expressions
+    // so DataFusion can evaluate them and exec_custom_scan can project their results.
+    let all_sources = private_data.join_clause.plan.sources();
+    for (scan_idx, te) in scan_target_entries.iter().copied().enumerate() {
         if resolved_entries[scan_idx].is_some() {
             continue;
         }
+        let scan_expr = crate::postgres::utils::strip_wrappers((*te).expr.cast());
+        if (*scan_expr).type_ != pg_sys::NodeTag::T_Var
+            && get_score_func_rti(scan_expr.cast()).is_none()
+            && let Some(resolved) =
+                planning::resolve_target_entry_expr(scan_expr, &all_sources, root)
+        {
+            resolved_entries[scan_idx] = Some(resolved);
+        }
+    }
 
-        let (var_rti, var_attno) = match info {
-            privdat::OutputColumnInfo::Var {
-                rti,
-                original_attno,
-                ..
-            } => (*rti, *original_attno),
-            _ => {
-                let scan_expr = crate::postgres::utils::strip_wrappers((*te).expr.cast());
-                if (*scan_expr).type_ == pg_sys::NodeTag::T_Var {
-                    let var = scan_expr as *mut pg_sys::Var;
-                    ((*var).varno as pg_sys::Index, (*var).varattno)
-                } else {
-                    continue;
-                }
-            }
-        };
-
-        for (dist_idx, (parse_expr, entry)) in distinct_expr_map.iter().enumerate() {
-            if claimed_distinct[dist_idx] {
-                continue;
-            }
-            let matches = match entry {
-                planning::ResolvedExpr::Expression { input_vars, .. } => input_vars
-                    .iter()
-                    .any(|v| v.rti == var_rti && v.attno == var_attno),
-                planning::ResolvedExpr::IndexedExpression { rti, .. } if *rti == var_rti => {
-                    let vars = crate::postgres::utils::expr_collect_vars(*parse_expr, true);
-                    vars.iter()
-                        .any(|v| v.rti == var_rti && v.attno == var_attno)
-                }
-                _ => false,
-            };
-            if matches {
-                claimed_distinct[dist_idx] = true;
-                resolved_entries[scan_idx] = Some(*entry);
-                break;
-            }
+    for (scan_idx, resolved) in resolved_entries.iter().enumerate() {
+        if let Some(
+            planning::ResolvedExpr::Expression { .. }
+            | planning::ResolvedExpr::IndexedExpression { .. },
+        ) = resolved
+        {
+            private_data.output_columns[scan_idx] = privdat::OutputColumnInfo::Expression;
         }
     }
 
@@ -2041,7 +2010,7 @@ unsafe fn build_output_projection(
         private_data
             .output_columns
             .iter()
-            .zip(resolved_entries)
+            .zip(&resolved_entries)
             .map(|(info, resolved)| match resolved {
                 Some(planning::ResolvedExpr::Expression {
                     expr_node,
@@ -2334,7 +2303,9 @@ impl JoinScan {
             let plan_position = match col_info {
                 privdat::OutputColumnInfo::Var { plan_position, .. } => *plan_position,
                 privdat::OutputColumnInfo::Score { plan_position, .. } => *plan_position,
-                privdat::OutputColumnInfo::Pruned | privdat::OutputColumnInfo::Unnested { .. } => {
+                privdat::OutputColumnInfo::Pruned
+                | privdat::OutputColumnInfo::Unnested { .. }
+                | privdat::OutputColumnInfo::Expression => {
                     continue;
                 }
             };
@@ -2480,6 +2451,50 @@ impl JoinScan {
                             }
                             Err(e) => {
                                 panic!("BUG: JoinScan unnest projection failed: {}", e);
+                            }
+                        }
+                    }
+                }
+                privdat::OutputColumnInfo::Expression => {
+                    let expr_col_idx = state
+                        .custom_state()
+                        .output_batch_col_indices
+                        .get(i)
+                        .copied()
+                        .flatten();
+                    let Some(col_idx) = expr_col_idx else {
+                        *nulls.add(i) = true;
+                        continue;
+                    };
+                    let expr_col = batch.column(col_idx);
+                    let expected_type = {
+                        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+                        {
+                            (*result_tupdesc).attrs.as_slice(natts)[i].atttypid
+                        }
+                        #[cfg(feature = "pg18")]
+                        {
+                            (*pg_sys::TupleDescAttr(result_tupdesc, i as i32)).atttypid
+                        }
+                    };
+                    if expr_col.is_null(row_idx) {
+                        *nulls.add(i) = true;
+                    } else {
+                        match crate::postgres::types_arrow::arrow_array_to_datum(
+                            expr_col.as_ref(),
+                            row_idx,
+                            pgrx::PgOid::from(expected_type),
+                            None,
+                        ) {
+                            Ok(Some(datum)) => {
+                                *datums.add(i) = datum;
+                                *nulls.add(i) = false;
+                            }
+                            Ok(None) => {
+                                *nulls.add(i) = true;
+                            }
+                            Err(e) => {
+                                panic!("BUG: JoinScan expression projection failed: {}", e);
                             }
                         }
                     }

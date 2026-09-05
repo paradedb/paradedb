@@ -76,7 +76,7 @@ mod tests {
         // Define fields to scan
         let fields = vec![
             WhichFastField::Ctid,
-            WhichFastField::Named("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
+            WhichFastField::eager("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
         ];
 
         let ffhelper = FFHelper::with_fields(&reader, &fields);
@@ -146,12 +146,12 @@ mod tests {
     fn test_fields() -> Vec<WhichFastField> {
         vec![
             WhichFastField::Ctid,
-            WhichFastField::Named("id".to_string(), SearchFieldType::I64(pg_sys::InvalidOid)),
-            WhichFastField::Named(
+            WhichFastField::eager("id".to_string(), SearchFieldType::I64(pg_sys::InvalidOid)),
+            WhichFastField::eager(
                 "price".to_string(),
                 SearchFieldType::F64(pg_sys::InvalidOid),
             ),
-            WhichFastField::Named(
+            WhichFastField::eager(
                 "quantity".to_string(),
                 SearchFieldType::I64(pg_sys::InvalidOid),
             ),
@@ -651,7 +651,7 @@ mod tests {
 
         let fields = vec![
             WhichFastField::Ctid,
-            WhichFastField::Named("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
+            WhichFastField::eager("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
         ];
         let ffhelper = FFHelper::with_fields(&reader, &fields);
 
@@ -840,7 +840,7 @@ mod tests {
 
         let fields = vec![
             WhichFastField::Ctid,
-            WhichFastField::Named("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
+            WhichFastField::eager("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
         ];
         let ffhelper = FFHelper::with_fields(&reader, &fields);
 

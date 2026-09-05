@@ -73,10 +73,7 @@ pub unsafe fn resolve_fast_field(
             if let Some(search_field) = schema.search_field(att.name()) {
                 let key_field_name = schema.key_field_name();
                 if att.name() == key_field_name.to_string().as_str() {
-                    return Some(WhichFastField::Named(
-                        att.name().to_string(),
-                        schema.key_field_type(),
-                    ));
+                    return Some(WhichFastField::eager(att.name(), schema.key_field_type()));
                 }
 
                 let categorized_fields = schema.categorized_fields();
@@ -100,7 +97,7 @@ pub unsafe fn resolve_fast_field(
                         && let Some(field_type) =
                             field_type_for_pullup(search_field.field_type(), data.is_array)
                     {
-                        return Some(WhichFastField::Named(att.name().to_string(), field_type));
+                        return Some(WhichFastField::eager(att.name(), field_type));
                     }
                 }
             }
@@ -144,10 +141,7 @@ pub fn resolve_fast_field_by_name(
     let schema = index.schema().ok()?;
     let search_field = schema.search_field(field_name)?;
     if search_field.is_fast() {
-        Some(WhichFastField::Named(
-            field_name.to_string(),
-            search_field.field_type(),
-        ))
+        Some(WhichFastField::eager(field_name, search_field.field_type()))
     } else {
         None
     }

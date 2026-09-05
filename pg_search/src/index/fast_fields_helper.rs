@@ -129,9 +129,7 @@ impl FFHelper {
     pub fn column(&self, segment_ord: SegmentOrdinal, field: FFIndex) -> &FFType {
         self.caches()[segment_ord as usize].columns[field].get_or_init(|| {
             match &self.inner().columns[field] {
-                WhichFastField::Named(name, _)
-                | WhichFastField::Array(name, _)
-                | WhichFastField::Deferred(name, _) => {
+                WhichFastField::Named { name, .. } => {
                     FFType::new(self.fast_fields(segment_ord), name)
                 }
                 WhichFastField::Ctid
@@ -445,15 +443,51 @@ impl FFType {
                 |b, v| b.append_value(datetime_to_pg_micros(v)),
             ),
             FFType::Junk => Arc::new(arrow_array::new_null_array(
-                &arrow_schema::DataType::List(Arc::new(arrow_schema::Field::new(
-                    "item",
-                    arrow_schema::DataType::Null,
-                    true,
-                ))),
+                &arrow_schema::DataType::List(list_item_field(arrow_schema::DataType::Null)),
                 ids.len(),
             )),
         }
     }
+}
+
+/// How a named fast field's values are delivered by the scan. Orthogonal to the
+/// column's type, the way an Arrow `Field` is orthogonal to the encoding of the
+/// array that carries it.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash)]
+pub enum FieldDelivery {
+    /// Values are fetched and decoded during the initial scan.
+    Eager,
+    /// The scan emits the deferred union encoding (doc addresses or term
+    /// ordinals); values are decoded above the scan, after row-reducing
+    /// operators have run. See `crate::scan::deferred_encode`.
+    Deferred,
+}
+
+/// Whether a named fast field holds one value per row or a list of them.
+///
+/// Arrow models a list as `DataType::List` wrapping the element field rather
+/// than as a parallel set of types, and this follows that: the element type
+/// stays in `field_type` and the nesting is recorded here.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash)]
+pub enum FieldCardinality {
+    Scalar,
+    List,
+}
+
+impl FieldCardinality {
+    /// Wrap an element type in this cardinality's Arrow representation.
+    fn wrap(self, element: arrow_schema::DataType) -> arrow_schema::DataType {
+        match self {
+            FieldCardinality::Scalar => element,
+            FieldCardinality::List => arrow_schema::DataType::List(list_item_field(element)),
+        }
+    }
+}
+
+/// The child field of an Arrow list, named "item" by Arrow convention.
+/// Every list this crate builds constructs its item field here.
+pub(crate) fn list_item_field(element: arrow_schema::DataType) -> Arc<arrow_schema::Field> {
+    Arc::new(arrow_schema::Field::new("item", element, true))
 }
 
 /// A request for a specific fast field, used *before* the column is open.
@@ -466,15 +500,25 @@ impl FFType {
 /// based on how they are stored in Tantivy). For instance, JSON and UUID are both stored as Strings.
 /// The consumer of the data (e.g. the Arrow conversion layer) is responsible for interpreting
 /// these widened types back into their original Postgres OIDs via `SearchFieldType::typeoid()`.
+///
+/// # Axes
+///
+/// A named column is described by three independent things: its identity (`name`),
+/// its element type (`field_type` plus `cardinality`), and how the scan hands the
+/// values over (`delivery`). Keeping them separate is what stops the variant list
+/// from growing a twin per combination.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Hash)]
 pub enum WhichFastField {
     Junk(String),
     Ctid,
     TableOid,
     Score,
-    Named(String, SearchFieldType),
-    Array(String, SearchFieldType),
-    Deferred(String, SearchFieldType),
+    Named {
+        name: String,
+        field_type: SearchFieldType,
+        cardinality: FieldCardinality,
+        delivery: FieldDelivery,
+    },
     /// Packed DocAddress ctid for deferred visibility (joinscan path only).
     /// The String is the ctid column alias (e.g. "ctid_0").
     DeferredCtid(String),
@@ -495,7 +539,7 @@ impl<S: AsRef<str>> From<(S, SearchFieldType)> for WhichFastField {
                         other.trim_start_matches("junk(").trim_end_matches(")"),
                     ))
                 } else {
-                    WhichFastField::Named(String::from(other), value.1)
+                    WhichFastField::eager(other, value.1)
                 }
             }
         }
@@ -509,20 +553,16 @@ impl WhichFastField {
             WhichFastField::Ctid => "ctid".into(),
             WhichFastField::TableOid => "tableoid".into(),
             WhichFastField::Score => "pdb.score()".into(),
-            WhichFastField::Named(s, _) => s.clone(),
-            WhichFastField::Array(s, _) => s.clone(),
-            WhichFastField::Deferred(s, _) => s.clone(),
+            WhichFastField::Named { name, .. } => name.clone(),
             WhichFastField::DeferredCtid(alias) => alias.clone(),
             WhichFastField::MatchTag(alias) => alias.clone(),
         }
     }
 
-    /// Returns the SearchFieldType if this is a Named or Array fast field, None otherwise.
+    /// Returns the SearchFieldType if this is a Named fast field, None otherwise.
     pub fn field_type(&self) -> Option<&SearchFieldType> {
         match self {
-            WhichFastField::Named(_, field_type) => Some(field_type),
-            WhichFastField::Array(_, field_type) => Some(field_type),
-            WhichFastField::Deferred(_, field_type) => Some(field_type),
+            WhichFastField::Named { field_type, .. } => Some(field_type),
             WhichFastField::DeferredCtid(_) | WhichFastField::MatchTag(_) => None,
             _ => None,
         }
@@ -535,17 +575,78 @@ impl WhichFastField {
             WhichFastField::Ctid => DataType::UInt64,
             WhichFastField::TableOid => DataType::UInt32,
             WhichFastField::Score => DataType::Float32,
-            WhichFastField::Named(_, field_type) => field_type.arrow_data_type(),
-            WhichFastField::Array(_, field_type) => DataType::List(Arc::new(
-                arrow_schema::Field::new("item", field_type.arrow_data_type(), true),
-            )),
+            WhichFastField::Named {
+                delivery: FieldDelivery::Eager,
+                field_type,
+                cardinality,
+                ..
+            } => cardinality.wrap(field_type.arrow_data_type()),
             WhichFastField::Junk(_) => DataType::Null,
-            WhichFastField::Deferred(_, _field_type) => {
-                crate::scan::deferred_encode::deferred_union_data_type()
-            }
+            WhichFastField::Named {
+                delivery: FieldDelivery::Deferred,
+                ..
+            } => crate::scan::deferred_encode::deferred_union_data_type(),
             WhichFastField::DeferredCtid(_) => DataType::UInt64,
             WhichFastField::MatchTag(_) => DataType::Boolean,
         }
+    }
+
+    /// A named column with every axis given explicitly.
+    pub fn named(
+        name: impl Into<String>,
+        field_type: SearchFieldType,
+        cardinality: FieldCardinality,
+        delivery: FieldDelivery,
+    ) -> Self {
+        WhichFastField::Named {
+            name: name.into(),
+            field_type,
+            cardinality,
+            delivery,
+        }
+    }
+
+    /// The common case: one value per row, decoded during the scan.
+    pub fn eager(name: impl Into<String>, field_type: SearchFieldType) -> Self {
+        Self::named(
+            name,
+            field_type,
+            FieldCardinality::Scalar,
+            FieldDelivery::Eager,
+        )
+    }
+
+    /// The same column with deferred delivery collapsed to eager.
+    ///
+    /// Schemas and plans that read decoded values need the eager view of a
+    /// column that the scan may still choose to defer. Non-named columns carry
+    /// no delivery mode and are returned unchanged.
+    pub fn to_eager(&self) -> Self {
+        match self {
+            WhichFastField::Named {
+                name,
+                field_type,
+                cardinality,
+                ..
+            } => Self::named(
+                name.clone(),
+                *field_type,
+                *cardinality,
+                FieldDelivery::Eager,
+            ),
+            other => other.clone(),
+        }
+    }
+
+    /// Whether this is a named fast field with eager delivery.
+    pub fn is_eager_named(&self) -> bool {
+        matches!(
+            self,
+            WhichFastField::Named {
+                delivery: FieldDelivery::Eager,
+                ..
+            }
+        )
     }
 }
 
@@ -899,8 +1000,8 @@ mod tests {
 
         let helper = FFHelper::with_fields(
             &reader,
-            &[WhichFastField::Named(
-                "id".to_string(),
+            &[WhichFastField::eager(
+                "id",
                 SearchFieldType::I64(pg_sys::INT8OID),
             )],
         );

@@ -20,7 +20,7 @@
 //! This module translates DataFusion `Expr` filters to Tantivy queries via `SearchQueryInput`.
 
 use crate::api::FieldName;
-use crate::index::fast_fields_helper::WhichFastField;
+use crate::index::fast_fields_helper::{FieldDelivery, WhichFastField};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::query::SearchQueryInput;
 use crate::query::pdb_query::pdb;
@@ -256,8 +256,14 @@ impl<'a> FilterAnalyzer<'a> {
 
     fn find_field(&self, name: &str) -> Option<&SearchFieldType> {
         self.fields.iter().find_map(|field| {
-            if let WhichFastField::Named(field_name, field_type)
-            | WhichFastField::Array(field_name, field_type) = field
+            // For a list column this is the element type: a pushed-down
+            // filter on a multi-valued field compares per element.
+            if let WhichFastField::Named {
+                name: field_name,
+                field_type,
+                delivery: FieldDelivery::Eager,
+                ..
+            } = field
                 && field_name == name
             {
                 return Some(field_type);

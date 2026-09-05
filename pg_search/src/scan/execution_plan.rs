@@ -709,7 +709,7 @@ impl PgSearchScanPlan {
             for d in &deferred {
                 if let Some(ref rb) = d.rebuild {
                     which[d.canonical.ff_index] =
-                        WhichFastField::Named(rb.field_name.clone(), rb.field_type);
+                        WhichFastField::eager(rb.field_name.clone(), rb.field_type);
                 }
             }
             Some(Arc::new(FFHelper::with_fields(&reader, &which)))

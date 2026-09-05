@@ -1,0 +1,82 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+-- Mixed aggregate + grouping-column output expressions on Tantivy AggregateScan.
+SET max_parallel_workers_per_gather = 0;
+SET paradedb.enable_aggregate_custom_scan = on;
+SET enable_seqscan = off;
+-- Grouping column is heap attribute 2.
+CREATE TABLE mixed_check (id integer PRIMARY KEY, category text);
+INSERT INTO mixed_check VALUES (1, 'a'), (2, 'a'), (3, 'b');
+CREATE INDEX mixed_check_idx ON mixed_check USING bm25 (id, category)
+  WITH (key_field='id', text_fields='{"category":{"fast":true}}');
+ANALYZE mixed_check;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category, COUNT(*)::text || category AS mixed
+FROM mixed_check WHERE mixed_check @@@ paradedb.all()
+GROUP BY category ORDER BY category;
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.mixed_check
+   Output: category, ((pdb.agg_fn('COUNT(*)'::text))::text || category)
+   Index: mixed_check_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: COUNT(*)
+     Group By: category
+     Aggregate Definition: {"grouped":{"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(7 rows)
+
+SELECT category, COUNT(*)::text || category AS mixed
+FROM mixed_check WHERE mixed_check @@@ paradedb.all()
+GROUP BY category ORDER BY category;
+ category | mixed 
+----------+-------
+ a        | 2a
+ b        | 1b
+(2 rows)
+
+-- Grouping column is heap attribute 3.
+CREATE TABLE mixed_check3 (id integer PRIMARY KEY, filler text, category text);
+INSERT INTO mixed_check3 VALUES (1, 'x', 'a'), (2, 'x', 'a'), (3, 'x', 'b');
+CREATE INDEX mixed_check3_idx ON mixed_check3 USING bm25 (id, category)
+  WITH (key_field='id', text_fields='{"category":{"fast":true}}');
+ANALYZE mixed_check3;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category, COUNT(*)::text || category AS mixed
+FROM mixed_check3 WHERE mixed_check3 @@@ paradedb.all()
+GROUP BY category ORDER BY category;
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.mixed_check3
+   Output: category, ((pdb.agg_fn('COUNT(*)'::text))::text || category)
+   Index: mixed_check3_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: COUNT(*)
+     Group By: category
+     Aggregate Definition: {"grouped":{"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(7 rows)
+
+SELECT category, COUNT(*)::text || category AS mixed
+FROM mixed_check3 WHERE mixed_check3 @@@ paradedb.all()
+GROUP BY category ORDER BY category;
+ category | mixed 
+----------+-------
+ a        | 2a
+ b        | 1b
+(2 rows)
+
+-- Mixed expression before the grouping column in the target list.
+SELECT COUNT(*)::text || category AS mixed, category
+FROM mixed_check WHERE mixed_check @@@ paradedb.all()
+GROUP BY category ORDER BY category;
+ mixed | category 
+-------+----------
+ 2a    | a
+ 1b    | b
+(2 rows)
+
+DROP TABLE mixed_check CASCADE;
+DROP TABLE mixed_check3 CASCADE;

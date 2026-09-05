@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788638034060,
+  "lastUpdate": 1788638042432,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -306386,6 +306386,162 @@ window.BENCHMARK_DATA = {
             "value": 17.7265625,
             "unit": "median mem",
             "extra": "avg mem: 17.603938518792585, max mem: 17.81640625, count: 59292"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1c2667adb313041e94c78563d03a889868c9f6e0",
+          "message": "refactor: decouple column fetching from string decoding (#6219)\n\n# Ticket(s) Closed\n\n- Closes #6216\n\n## What\n\nThis PR splits `TantivyLookupExec` into `TantivyFetchExec` (doc address\nto term ordinal, packed ctid to ctid) and `TantivyDecodeExec` (term\nordinal to string or bytes), and lets a scan emit term ordinals\ndirectly.\n\n## Why\n\nThe two halves have different access patterns. The fetch wants doc\norder, which a join or a shuffle above the scan no longer keeps. The\ndecode is random access wherever it runs, and an ordinal is far narrower\nthan the string. #6156 measured the cost of moving both above a fan-out\njoin. As separate nodes, a cost model can place each on its own.\n\n## How\n\n- The planner puts the decode directly over the fetch, so plans change\nshape but the work runs where it did. The fetch keeps the schema and\npasses State 1 rows through; the decode treats a State 0 row as an\ninternal error. The ctid-only lookup under `VisibilityFilterExec` is a\nfetch with no string columns.\n- The fetch carries only the input ordering up, as the old node did.\nCarrying a join's equivalence classes let DataFusion rewrite a Top-K\nsort key onto the other join side and move its dynamic filter off the\nprobe scan.\n- With `paradedb.defer_column_fetch = off` (default `on`), the scan\nresolves the ordinals itself, in doc order, and only the decode node is\nplanned. It's an A/B lever for the cost-model follow-up, not a\nrecommendation: it fetches every projected deferred column, decoded or\nnot.\n- Batch sizes are unchanged. The scan keeps its 8192 batch whenever its\nstrings are deferred, and the decode runs per input batch. Gathering the\ndecode's input up to `MAX_BATCH_SIZE` is a follow-up to measure, since a\nTop-K or `LIMIT` above it would see its first rows 16x later.\n- Naming follows option 1 from the issue. Folding the\n`SegmentedTopKExec`'s own union reader onto `DeferredUnion` is a\nfollow-up.\n\n## Tests\n\n- New `deferred_fetch_decode` regress test: Top-K, a two-column sort, a\nbytes-backed `NUMERIC` sort key, NULLs, `enable_segmented_topk = off`,\nan aggregate over a join, and an MPP leg, each under both GUC settings,\nwith identical rows. `mpp_joinscan` gains the scan-fetch placement over\nits shuffled LEFT JOIN, where the decode's worker rebuilds its reader\nfor a scan in another stage.\n- 56 expected files change shape: the ctid-only lookup is renamed, and\nevery `decode=[...]` line becomes a decode over a fetch. They were\nrewritten by script from the old outputs, then verified by running each\ntest. Only the fetch node's own `EXPLAIN ANALYZE` metrics come from a\nrun.",
+          "timestamp": "2026-09-05T12:34:56-07:00",
+          "tree_id": "5d9882f33a82aae5f5ddffc83077937ee9e4da12",
+          "url": "https://github.com/paradedb/paradedb/commit/1c2667adb313041e94c78563d03a889868c9f6e0"
+        },
+        "date": 1788638038733,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.829302260594737, max cpu: 42.814667, count: 59226"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 49.31640625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.2740267418448, max mem: 65.03125, count: 59226"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.216824417205794, max cpu: 4.703577, count: 59226"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 17.296875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.289879220591462, max mem: 17.296875, count: 59226"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.678363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.715342756119965, max cpu: 9.43489, count: 59226"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 21.68359375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.67454993636663, max mem: 21.68359375, count: 59226"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 10333,
+            "unit": "median pages",
+            "extra": "avg pages: 8755.848512477629, max pages: 14947.0, count: 59226"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 80.7265625,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 68.40506650373148, max relation_size:MB: 116.7734375, count: 59226"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 70,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 65.450663559923, max segment_count: 96.0, count: 59226"
+          },
+          {
+            "name": "Insert value - Publisher - cpu",
+            "value": 4.6354423,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.247475052444493, max cpu: 4.68979, count: 59226"
+          },
+          {
+            "name": "Insert value - Publisher - mem",
+            "value": 17.328125,
+            "unit": "median mem",
+            "extra": "avg mem: 17.30647666090484, max mem: 17.328125, count: 59226"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.000052179674185, max cpu: 38.057484, count: 59226"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 48.81640625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.54134784026441, max mem: 62.33203125, count: 59226"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 23.289665,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.718672883680814, max cpu: 33.300297, count: 59226"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 47.109375,
+            "unit": "median mem",
+            "extra": "avg mem: 46.577275499780505, max mem: 57.39453125, count: 59226"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 104.92953491210938,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 204.57715446568267, max replication_lag:MB: 947.642463684082, count: 59226"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.003514352295927, max cpu: 38.057484, count: 59226"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 49.046875,
+            "unit": "median mem",
+            "extra": "avg mem: 49.03023581018049, max mem: 63.046875, count: 59226"
+          },
+          {
+            "name": "Update 1..50 - Publisher - cpu",
+            "value": 9.315866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.986503989959363, max cpu: 28.388369, count: 59226"
+          },
+          {
+            "name": "Update 1..50 - Publisher - mem",
+            "value": 17.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.66908688487742, max mem: 17.83984375, count: 59226"
+          },
+          {
+            "name": "Update 51..100 - Publisher - cpu",
+            "value": 9.306834,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.979055248656525, max cpu: 32.95733, count: 59226"
+          },
+          {
+            "name": "Update 51..100 - Publisher - mem",
+            "value": 17.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.671330343725728, max mem: 17.8515625, count: 59226"
           }
         ]
       }

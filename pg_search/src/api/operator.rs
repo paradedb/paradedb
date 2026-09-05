@@ -243,6 +243,37 @@ impl ReturnedNodePointer {
             }
 
             let scalar_predicate = predicate.into_opexpr();
+            let index = (*request).index;
+            if let Some(restriction) =
+                PgList::<pg_sys::RestrictInfo>::from_pg((*index).indrestrictinfo)
+                    .iter_ptr()
+                    .find(|restriction| {
+                        (*(*restriction)).clause.cast::<pg_sys::Node>() == (*request).node
+                    })
+            {
+                let rel = (*index).rel;
+                if !rel.is_null() {
+                    // PostgreSQL initially shares this RestrictInfo between the base relation and
+                    // all of its indexes. Detach those other owners before changing the current
+                    // index's copy, so heap paths retain the CTID-aware predicate.
+                    (*rel).baserestrictinfo =
+                        detach_restriction((*rel).baserestrictinfo, restriction);
+                    for other_index in
+                        PgList::<pg_sys::IndexOptInfo>::from_pg((*rel).indexlist).iter_ptr()
+                    {
+                        if other_index != index {
+                            (*other_index).indrestrictinfo =
+                                detach_restriction((*other_index).indrestrictinfo, restriction);
+                        }
+                    }
+
+                    // Only the current ParadeDB index still owns the original RestrictInfo. Giving
+                    // it the scalar form keeps CTID and the fallback row out of
+                    // check_index_only's required attributes.
+                    (*restriction).clause = scalar_predicate.cast();
+                }
+            }
+
             let mut conditions = PgList::<pg_sys::Node>::new();
             conditions.push(scalar_predicate.cast());
             (*request).lossy = false;
@@ -271,6 +302,29 @@ impl ReturnedNodePointer {
             Self::from_node(request.cast())
         }
     }
+}
+
+unsafe fn detach_restriction(
+    restrictions: *mut pg_sys::List,
+    target: *mut pg_sys::RestrictInfo,
+) -> *mut pg_sys::List {
+    let restrictions = PgList::<pg_sys::RestrictInfo>::from_pg(restrictions);
+    if !restrictions
+        .iter_ptr()
+        .any(|restriction| restriction == target)
+    {
+        return restrictions.into_pg();
+    }
+
+    let mut cloned = PgList::new();
+    for restriction in restrictions.iter_ptr() {
+        cloned.push(if restriction == target {
+            pg_sys::copyObjectImpl(restriction.cast()).cast()
+        } else {
+            restriction
+        });
+    }
+    cloned.into_pg()
 }
 
 unsafe impl BoxRet for ReturnedNodePointer {

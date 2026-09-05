@@ -1,0 +1,847 @@
+-- The placement rule decides per source where the two halves of a late-materialized
+-- string lookup run. A build side comes back out of doc order, and a join key that is not
+-- the other side's key field fans the rows out; either moves the fetch into the scan. A
+-- fan-out with nothing above that stops after a fixed number of rows moves the decode into
+-- the scan as well.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan TO off;
+SET paradedb.enable_join_custom_scan = on;
+SET paradedb.enable_aggregate_custom_scan = on;
+DROP TABLE IF EXISTS lmp_comments CASCADE;
+DROP TABLE IF EXISTS lmp_posts CASCADE;
+CREATE TABLE lmp_posts (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    body TEXT
+);
+CREATE TABLE lmp_comments (
+    id SERIAL PRIMARY KEY,
+    post_id INTEGER,
+    author TEXT,
+    body TEXT
+);
+CREATE INDEX lmp_posts_idx ON lmp_posts USING bm25 (id, title, body)
+WITH (key_field = 'id', text_fields = '{"title": {"fast": true}, "body": {}}');
+CREATE INDEX lmp_comments_idx ON lmp_comments USING bm25 (id, post_id, author, body)
+WITH (key_field = 'id', numeric_fields = '{"post_id": {"fast": true}}', text_fields = '{"author": {"fast": true}, "body": {}}');
+-- Two insert batches per table give each index two segments, enough for the MPP leg to
+-- cut the plan into tasks.
+SET paradedb.global_mutable_segment_rows = 0;
+INSERT INTO lmp_posts (title, body)
+SELECT
+    'Post ' || LPAD(i::TEXT, 3, '0'),
+    CASE WHEN i % 3 = 0 THEN 'alpha topic' ELSE 'beta topic' END
+FROM generate_series(1, 15) AS i;
+INSERT INTO lmp_posts (title, body)
+SELECT
+    'Post ' || LPAD(i::TEXT, 3, '0'),
+    CASE WHEN i % 3 = 0 THEN 'alpha topic' ELSE 'beta topic' END
+FROM generate_series(16, 30) AS i;
+-- Five comments per post, so a join on `post_id` fans a post's row out.
+INSERT INTO lmp_comments (post_id, author, body)
+SELECT
+    (i - 1) % 30 + 1,
+    'author ' || LPAD(((i * 7) % 11)::TEXT, 2, '0'),
+    'comment ' || i
+FROM generate_series(1, 75) AS i;
+INSERT INTO lmp_comments (post_id, author, body)
+SELECT
+    (i - 1) % 30 + 1,
+    'author ' || LPAD(((i * 7) % 11)::TEXT, 2, '0'),
+    'comment ' || i
+FROM generate_series(76, 150) AS i;
+RESET paradedb.global_mutable_segment_rows;
+SHOW paradedb.defer_column_fetch;
+ paradedb.defer_column_fetch 
+-----------------------------
+ auto
+(1 row)
+
+SHOW paradedb.defer_string_decode;
+ paradedb.defer_string_decode 
+------------------------------
+ auto
+(1 row)
+
+-- =============================================================================
+-- Top-K: the consumer is bounded, so the decode stays deferred either way
+-- =============================================================================
+-- The sort key is on the build side, and `post_id` is not the key field of the comments
+-- index: the posts scan resolves the ordinals itself.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.title
+FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+ORDER BY p.title DESC, p.id ASC
+LIMIT 5;
+                                                                                                 QUERY PLAN                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.title
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: p.id, p.title
+         Relation Tree: c INNER p
+         Join Cond: p.id = c.post_id
+         Limit: 5
+         Order By: p.title desc, c.post_id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@3 as col_1, title@4 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           :   TantivyDecodeExec: decode=[title]
+           :     SegmentedTopKExec: expr=[title@4 DESC, post_id@1 ASC NULLS LAST], k=5, visibility_checks=[c, p]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, post_id@1)], projection=[ctid_0@3, post_id@4, ctid_1@0, id@1, title@2]
+           :         CooperativeExec
+           :           PgSearchScan: table=p, segments=2, fetch=[title], query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+           :         CooperativeExec
+           :           PgSearchScan: table=c, segments=2, dynamic_filters=1, query="all"
+(17 rows)
+
+SELECT p.id, p.title
+FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+ORDER BY p.title DESC, p.id ASC
+LIMIT 5;
+ id |  title   
+----+----------
+ 30 | Post 030
+ 30 | Post 030
+ 30 | Post 030
+ 30 | Post 030
+ 30 | Post 030
+(5 rows)
+
+-- The sort key is on the probe side, and `id` is the key field of the posts index: the
+-- rows reach the decode point in doc order and at most once, so the fetch stays deferred.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, c.author
+FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+ORDER BY c.author ASC, c.id ASC
+LIMIT 5;
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: c.id, c.author
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: c.id, c.author
+         Relation Tree: c INNER p
+         Join Cond: p.id = c.post_id
+         Limit: 5
+         Order By: c.author asc, c.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, author@1 as col_2, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+           :   TantivyDecodeExec: decode=[author]
+           :     TantivyFetchExec: fetch=[author]
+           :       SegmentedTopKExec: expr=[author@1 ASC NULLS LAST, id@2 ASC NULLS LAST], k=5, visibility_checks=[c, p]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, post_id@1)], projection=[ctid_0@2, author@4, id@5, ctid_1@0]
+           :           CooperativeExec
+           :             PgSearchScan: table=p, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: table=c, segments=2, dynamic_filters=2, query="all"
+(18 rows)
+
+SELECT c.id, c.author
+FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+ORDER BY c.author ASC, c.id ASC
+LIMIT 5;
+ id  |  author   
+-----+-----------
+  33 | author 00
+  66 | author 00
+  99 | author 00
+ 132 | author 00
+  30 | author 01
+(5 rows)
+
+-- A non-equi join fans out whatever the keys are.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, c.author
+FROM lmp_posts p JOIN lmp_comments c ON c.post_id < p.id
+WHERE p.body @@@ 'alpha'
+ORDER BY c.author ASC, c.id ASC
+LIMIT 5;
+                                                                                         QUERY PLAN                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: c.id, c.author
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: c.id, c.author
+         Relation Tree: c INNER p
+         Join Filter: (c.post_id < p.id)
+         Limit: 5
+         Order By: c.author asc, c.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, author@1 as col_2, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+           :   TantivyDecodeExec: decode=[author]
+           :     SegmentedTopKExec: expr=[author@1 ASC NULLS LAST, id@2 ASC NULLS LAST], k=5, visibility_checks=[c, p]
+           :       NestedLoopJoinExec: join_type=Inner, filter=post_id@0 < id@1, projection=[ctid_0@2, author@4, id@5, ctid_1@0]
+           :         CooperativeExec
+           :           PgSearchScan: table=p, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+           :         CooperativeExec
+           :           PgSearchScan: table=c, segments=2, fetch=[author], query="all"
+(17 rows)
+
+SELECT c.id, c.author
+FROM lmp_posts p JOIN lmp_comments c ON c.post_id < p.id
+WHERE p.body @@@ 'alpha'
+ORDER BY c.author ASC, c.id ASC
+LIMIT 5;
+ id |  author   
+----+-----------
+ 11 | author 00
+ 11 | author 00
+ 11 | author 00
+ 11 | author 00
+ 11 | author 00
+(5 rows)
+
+-- Without the SegmentedTopKExec the sort consumes every row, so a fan-out decodes
+-- in the scan like an aggregate would.
+SET paradedb.enable_segmented_topk = off;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.title
+FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+ORDER BY p.title DESC, p.id ASC
+LIMIT 5;
+                                                                                                  QUERY PLAN                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.title
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: p.id, p.title
+         Relation Tree: c INNER p
+         Join Cond: p.id = c.post_id
+         Limit: 5
+         Order By: p.title desc, c.post_id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@3 as col_1, title@4 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           :   SortExec: TopK(fetch=5), expr=[title@4 DESC, post_id@1 ASC NULLS LAST], preserve_partitioning=[false]
+           :     VisibilityFilterExec: tables=[c, p]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, post_id@1)], projection=[ctid_0@3, post_id@4, ctid_1@0, id@1, title@2]
+           :           CooperativeExec
+           :             PgSearchScan: table=p, segments=2, eager=[title], query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: table=c, segments=2, dynamic_filters=1, query="all"
+(18 rows)
+
+SELECT p.id, p.title
+FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+ORDER BY p.title DESC, p.id ASC
+LIMIT 5;
+ id |  title   
+----+----------
+ 30 | Post 030
+ 30 | Post 030
+ 30 | Post 030
+ 30 | Post 030
+ 30 | Post 030
+(5 rows)
+
+RESET paradedb.enable_segmented_topk;
+-- A semi-join never multiplies the outer rows; the build side still fetches in the scan.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.title
+FROM lmp_posts p
+WHERE p.body @@@ 'alpha'
+  AND EXISTS (SELECT 1 FROM lmp_comments c WHERE c.post_id = p.id)
+ORDER BY p.title DESC, p.id ASC
+LIMIT 5;
+                                                                                                          QUERY PLAN                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.title
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: p.id, p.title
+         Relation Tree: p SEMI c
+         Join Cond: p.id = c.post_id
+         Limit: 5
+         Order By: p.title desc, p.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@1 as col_1, title@2 as col_2, ctid_0@0 as ctid_0]
+           :   TantivyDecodeExec: decode=[title]
+           :     SegmentedTopKExec: expr=[title@2 DESC, id@1 ASC NULLS LAST], k=5, visibility_checks=[p]
+           :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, post_id@0)]
+           :         CooperativeExec
+           :           PgSearchScan: table=p, segments=2, fetch=[title], dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+           :         CooperativeExec
+           :           PgSearchScan: table=c, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(17 rows)
+
+SELECT p.id, p.title
+FROM lmp_posts p
+WHERE p.body @@@ 'alpha'
+  AND EXISTS (SELECT 1 FROM lmp_comments c WHERE c.post_id = p.id)
+ORDER BY p.title DESC, p.id ASC
+LIMIT 5;
+ id |  title   
+----+----------
+ 30 | Post 030
+ 27 | Post 027
+ 24 | Post 024
+ 21 | Post 021
+ 18 | Post 018
+(5 rows)
+
+-- An outer join keeps the same key shape as the inner one.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.title
+FROM lmp_posts p LEFT JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+ORDER BY p.title DESC, p.id ASC
+LIMIT 5;
+                                                                                                          QUERY PLAN                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.title
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: p.id, p.title
+         Relation Tree: c RIGHT p
+         Join Cond: c.post_id = p.id
+         Limit: 5
+         Order By: p.title desc, p.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, title@3 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+           :   TantivyDecodeExec: decode=[title]
+           :     SegmentedTopKExec: expr=[title@3 DESC, id@2 ASC NULLS LAST], k=5, visibility_checks=[p]
+           :       HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@1, post_id@1)], projection=[ctid_0@3, ctid_1@0, id@1, title@2]
+           :         CooperativeExec
+           :           PgSearchScan: table=p, segments=2, fetch=[title], dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+           :         CooperativeExec
+           :           PgSearchScan: table=c, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(17 rows)
+
+SELECT p.id, p.title
+FROM lmp_posts p LEFT JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+ORDER BY p.title DESC, p.id ASC
+LIMIT 5;
+ id |  title   
+----+----------
+ 30 | Post 030
+ 30 | Post 030
+ 30 | Post 030
+ 30 | Post 030
+ 30 | Post 030
+(5 rows)
+
+-- Two scans of one index share one decision.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT a.id, a.author, b.author
+FROM lmp_comments a JOIN lmp_comments b ON a.post_id = b.post_id
+WHERE a.body @@@ 'comment'
+ORDER BY a.author ASC, b.author DESC, a.id ASC, b.id ASC
+LIMIT 5;
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: a.id, a.author, b.author, b.id
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: a.id, a.author, b.author, b.id
+         Relation Tree: b INNER a
+         Join Cond: a.post_id = b.post_id
+         Limit: 5
+         Order By: a.author asc, b.author desc, a.id asc, b.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@5 as col_1, author@4 as col_2, author@1 as col_3, id@2 as col_4, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+           :   TantivyDecodeExec: decode=[author, author]
+           :     SegmentedTopKExec: expr=[author@4 ASC NULLS LAST, author@1 DESC, id@5 ASC NULLS LAST, id@2 ASC NULLS LAST], k=5, visibility_checks=[b, a]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(post_id@1, post_id@1)], projection=[ctid_0@0, author@2, id@3, ctid_1@4, author@6, id@7]
+           :         CooperativeExec
+           :           PgSearchScan: table=b, segments=2, fetch=[author], dynamic_filters=1, query="all"
+           :         CooperativeExec
+           :           PgSearchScan: table=a, segments=2, fetch=[author], dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"comment","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
+
+SELECT a.id, a.author, b.author
+FROM lmp_comments a JOIN lmp_comments b ON a.post_id = b.post_id
+WHERE a.body @@@ 'comment'
+ORDER BY a.author ASC, b.author DESC, a.id ASC, b.id ASC
+LIMIT 5;
+ id |  author   |  author   
+----+-----------+-----------
+ 33 | author 00 | author 10
+ 44 | author 00 | author 10
+ 55 | author 00 | author 10
+ 66 | author 00 | author 10
+ 77 | author 00 | author 10
+(5 rows)
+
+-- In a three-table join, a scan on the build side of the inner join fetches in the
+-- scan; the decode stays under the Top-K.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, c.author
+FROM lmp_comments c
+JOIN (lmp_posts p JOIN lmp_comments c2 ON c2.post_id = p.id) ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+ORDER BY c.author ASC, c.id ASC, c2.id ASC
+LIMIT 5;
+                                                                                         QUERY PLAN                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: c.id, c.author, c2.id
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: c.id, c.author, c2.id
+         Relation Tree: c INNER (c2 INNER p)
+         Join Cond: c.post_id = c2.post_id, p.id = c2.post_id
+         Limit: 5
+         Order By: c.author asc, c.id asc, c2.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, author@1 as col_2, id@4 as col_3, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1, ctid_2@5 as ctid_2]
+           :   TantivyDecodeExec: decode=[author]
+           :     SegmentedTopKExec: expr=[author@1 ASC NULLS LAST, id@2 ASC NULLS LAST, id@4 ASC NULLS LAST], k=5, visibility_checks=[c, c2, p]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, post_id@4)], projection=[ctid_0@2, author@3, id@4, ctid_1@5, id@7, ctid_2@0]
+           :         CooperativeExec
+           :           PgSearchScan: table=p, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(post_id@1, post_id@1)], projection=[ctid_0@0, author@2, id@3, ctid_1@4, post_id@5, id@6]
+           :           CooperativeExec
+           :             PgSearchScan: table=c, segments=2, fetch=[author], dynamic_filters=1, query="all"
+           :           CooperativeExec
+           :             PgSearchScan: table=c2, segments=2, dynamic_filters=2, query="all"
+(20 rows)
+
+SELECT c.id, c.author
+FROM lmp_comments c
+JOIN (lmp_posts p JOIN lmp_comments c2 ON c2.post_id = p.id) ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+ORDER BY c.author ASC, c.id ASC, c2.id ASC
+LIMIT 5;
+ id |  author   
+----+-----------
+ 33 | author 00
+ 33 | author 00
+ 33 | author 00
+ 33 | author 00
+ 33 | author 00
+(5 rows)
+
+-- =============================================================================
+-- Aggregates: nothing above bounds the rows, so a fan-out decodes in the scan
+-- =============================================================================
+SET paradedb.enable_aggregate_late_materialization = on;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.title, COUNT(*)
+FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+GROUP BY p.title
+ORDER BY p.title
+LIMIT 5;
+                                                                                                              QUERY PLAN                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.title, (count(*))
+   ->  Sort
+         Output: p.title, (count(*))
+         Sort Key: p.title
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: p.title, (count(*))
+               Backend: DataFusion
+               Indexes: lmp_posts_idx (p), lmp_comments_idx (c)
+               Group By: title
+               Aggregates: COUNT(*)
+               DataFusion Physical Plan: 
+                 : SortExec: TopK(fetch=5), expr=[title@0 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   AggregateExec: mode=Single, gby=[title@0 as title], aggr=[count(1) as agg_0]
+                 :     VisibilityFilterExec: tables=[p, c]
+                 :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@0)], projection=[title@1, ctid_0@2, ctid_1@4]
+                 :           CooperativeExec
+                 :             PgSearchScan: table=p, segments=2, eager=[title], dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+                 :           CooperativeExec
+                 :             PgSearchScan: table=c, segments=2, dynamic_filters=1, query="all"
+(21 rows)
+
+SELECT p.title, COUNT(*)
+FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+GROUP BY p.title
+ORDER BY p.title
+LIMIT 5;
+  title   | count 
+----------+-------
+ Post 003 |     5
+ Post 006 |     5
+ Post 009 |     5
+ Post 012 |     5
+ Post 015 |     5
+(5 rows)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.author, COUNT(*)
+FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+GROUP BY c.author
+ORDER BY c.author
+LIMIT 5;
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: c.author, (count(*))
+   ->  Sort
+         Output: c.author, (count(*))
+         Sort Key: c.author
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: c.author, (count(*))
+               Backend: DataFusion
+               Indexes: lmp_posts_idx (p), lmp_comments_idx (c)
+               Group By: author
+               Aggregates: COUNT(*)
+               DataFusion Physical Plan: 
+                 : SortExec: TopK(fetch=5), expr=[author@0 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   AggregateExec: mode=Single, gby=[author@0 as author], aggr=[count(1) as agg_0]
+                 :     TantivyDecodeExec: decode=[author]
+                 :       TantivyFetchExec: fetch=[author]
+                 :         VisibilityFilterExec: tables=[p, c]
+                 :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
+                 :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@0)], projection=[author@3, ctid_0@1, ctid_1@4]
+                 :               CooperativeExec
+                 :                 PgSearchScan: table=p, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+                 :               CooperativeExec
+                 :                 PgSearchScan: table=c, segments=2, dynamic_filters=2, query="all"
+(23 rows)
+
+SELECT c.author, COUNT(*)
+FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+GROUP BY c.author
+ORDER BY c.author
+LIMIT 5;
+  author   | count 
+-----------+-------
+ author 00 |     4
+ author 01 |     4
+ author 02 |     4
+ author 03 |     4
+ author 04 |     4
+(5 rows)
+
+-- =============================================================================
+-- Settings override the rule
+-- =============================================================================
+SET paradedb.defer_string_decode = on;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.title, COUNT(*)
+FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+GROUP BY p.title
+ORDER BY p.title
+LIMIT 5;
+                                                                                                               QUERY PLAN                                                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.title, (count(*))
+   ->  Sort
+         Output: p.title, (count(*))
+         Sort Key: p.title
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: p.title, (count(*))
+               Backend: DataFusion
+               Indexes: lmp_posts_idx (p), lmp_comments_idx (c)
+               Group By: title
+               Aggregates: COUNT(*)
+               DataFusion Physical Plan: 
+                 : SortExec: TopK(fetch=5), expr=[title@0 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   AggregateExec: mode=Single, gby=[title@0 as title], aggr=[count(1) as agg_0]
+                 :     TantivyDecodeExec: decode=[title]
+                 :       VisibilityFilterExec: tables=[p, c]
+                 :         TantivyFetchExec: fetch=[ctid_0, ctid_1]
+                 :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@0)], projection=[title@1, ctid_0@2, ctid_1@4]
+                 :             CooperativeExec
+                 :               PgSearchScan: table=p, segments=2, fetch=[title], dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+                 :             CooperativeExec
+                 :               PgSearchScan: table=c, segments=2, dynamic_filters=1, query="all"
+(22 rows)
+
+SELECT p.title, COUNT(*)
+FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+GROUP BY p.title
+ORDER BY p.title
+LIMIT 5;
+  title   | count 
+----------+-------
+ Post 003 |     5
+ Post 006 |     5
+ Post 009 |     5
+ Post 012 |     5
+ Post 015 |     5
+(5 rows)
+
+RESET paradedb.defer_string_decode;
+-- A pinned fetch stays with the decode; when the decode runs in the scan, so does it.
+SET paradedb.defer_column_fetch = on;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.title, COUNT(*)
+FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+GROUP BY p.title
+ORDER BY p.title
+LIMIT 5;
+                                                                                                              QUERY PLAN                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.title, (count(*))
+   ->  Sort
+         Output: p.title, (count(*))
+         Sort Key: p.title
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: p.title, (count(*))
+               Backend: DataFusion
+               Indexes: lmp_posts_idx (p), lmp_comments_idx (c)
+               Group By: title
+               Aggregates: COUNT(*)
+               DataFusion Physical Plan: 
+                 : SortExec: TopK(fetch=5), expr=[title@0 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   AggregateExec: mode=Single, gby=[title@0 as title], aggr=[count(1) as agg_0]
+                 :     VisibilityFilterExec: tables=[p, c]
+                 :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@0)], projection=[title@1, ctid_0@2, ctid_1@4]
+                 :           CooperativeExec
+                 :             PgSearchScan: table=p, segments=2, eager=[title], dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+                 :           CooperativeExec
+                 :             PgSearchScan: table=c, segments=2, dynamic_filters=1, query="all"
+(21 rows)
+
+SELECT p.title, COUNT(*)
+FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+GROUP BY p.title
+ORDER BY p.title
+LIMIT 5;
+  title   | count 
+----------+-------
+ Post 003 |     5
+ Post 006 |     5
+ Post 009 |     5
+ Post 012 |     5
+ Post 015 |     5
+(5 rows)
+
+RESET paradedb.defer_column_fetch;
+RESET paradedb.enable_aggregate_late_materialization;
+SET paradedb.defer_column_fetch = on;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.title
+FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+ORDER BY p.title DESC, p.id ASC
+LIMIT 5;
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.title
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: p.id, p.title
+         Relation Tree: c INNER p
+         Join Cond: p.id = c.post_id
+         Limit: 5
+         Order By: p.title desc, c.post_id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@3 as col_1, title@4 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           :   TantivyDecodeExec: decode=[title]
+           :     TantivyFetchExec: fetch=[title]
+           :       SegmentedTopKExec: expr=[title@4 DESC, post_id@1 ASC NULLS LAST], k=5, visibility_checks=[c, p]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, post_id@1)], projection=[ctid_0@3, post_id@4, ctid_1@0, id@1, title@2]
+           :           CooperativeExec
+           :             PgSearchScan: table=p, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: table=c, segments=2, dynamic_filters=1, query="all"
+(18 rows)
+
+SELECT p.id, p.title
+FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+ORDER BY p.title DESC, p.id ASC
+LIMIT 5;
+ id |  title   
+----+----------
+ 30 | Post 030
+ 30 | Post 030
+ 30 | Post 030
+ 30 | Post 030
+ 30 | Post 030
+(5 rows)
+
+RESET paradedb.defer_column_fetch;
+-- With the decode never deferred, no union leaves the scan and the sort runs on strings.
+SET paradedb.defer_string_decode = off;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.title
+FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+ORDER BY p.title DESC, p.id ASC
+LIMIT 5;
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.title
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: p.id, p.title
+         Relation Tree: c INNER p
+         Join Cond: p.id = c.post_id
+         Limit: 5
+         Order By: p.title desc, c.post_id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@3 as col_1, title@4 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           :   SortExec: TopK(fetch=5), expr=[title@4 DESC, post_id@1 ASC NULLS LAST], preserve_partitioning=[false]
+           :     VisibilityFilterExec: tables=[c, p]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, post_id@1)], projection=[ctid_0@3, post_id@4, ctid_1@0, id@1, title@2]
+           :           CooperativeExec
+           :             PgSearchScan: table=p, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: table=c, segments=2, dynamic_filters=1, query="all"
+(18 rows)
+
+SELECT p.id, p.title
+FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+ORDER BY p.title DESC, p.id ASC
+LIMIT 5;
+ id |  title   
+----+----------
+ 30 | Post 030
+ 30 | Post 030
+ 30 | Post 030
+ 30 | Post 030
+ 30 | Post 030
+(5 rows)
+
+RESET paradedb.defer_string_decode;
+-- =============================================================================
+-- MPP: the decision is made before the plan is cut into stages
+-- =============================================================================
+SET max_parallel_workers_per_gather TO 3;
+SET max_parallel_workers TO 8;
+SET min_parallel_table_scan_size TO 0;
+SET parallel_setup_cost TO 0;
+SET parallel_tuple_cost TO 0;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.title
+FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+ORDER BY p.title DESC, p.id ASC
+LIMIT 5;
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.title
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: p.id, p.title
+         Relation Tree: c INNER p
+         Join Cond: p.id = c.post_id
+         Limit: 5
+         Order By: p.title desc, c.post_id asc
+         DataFusion Physical Plan: 
+           : ┌───── DistributedExec
+           : │ ProjectionExec: expr=[id@3 as col_1, title@4 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           : │   SortPreservingMergeExec: [title@4 DESC, post_id@1 ASC NULLS LAST], fetch=5
+           : │     [Stage 2] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+           : └──────────────────────────────────────────────────
+           :   ┌───── Stage 2 ── tasks=2, partitions=6
+           :   │ LocalLimitExec: fetch=5
+           :   │   TantivyDecodeExec: decode=[title]
+           :   │     SegmentedTopKExec: expr=[title@4 DESC, post_id@1 ASC NULLS LAST], k=5, visibility_checks=[c, p]
+           :   │       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, post_id@1)], projection=[ctid_0@3, post_id@4, ctid_1@0, id@1, title@2]
+           :   │         CoalescePartitionsExec
+           :   │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+           :   │         RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+           :   │           DistributedLeafExec:
+           :   │             t0: PgSearchScan: table=c, segments=2, dynamic_filters=1, query="all"
+           :   │             t1: PgSearchScan: table=c, segments=2, dynamic_filters=1, query="all"
+           :   └──────────────────────────────────────────────────
+           :     ┌───── Stage 1 ── tasks=2, partitions=4
+           :     │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
+           :     │   DistributedLeafExec:
+           :     │     t0: PgSearchScan: table=p, segments=2, fetch=[title], query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+           :     │     t1: PgSearchScan: table=p, segments=2, fetch=[title], query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+           :     └──────────────────────────────────────────────────
+(32 rows)
+
+SELECT p.id, p.title
+FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+ORDER BY p.title DESC, p.id ASC
+LIMIT 5;
+ id |  title   
+----+----------
+ 30 | Post 030
+ 30 | Post 030
+ 30 | Post 030
+ 30 | Post 030
+ 30 | Post 030
+(5 rows)
+
+SET paradedb.enable_aggregate_late_materialization = on;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.title, COUNT(*)
+FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+GROUP BY p.title
+ORDER BY p.title
+LIMIT 5;
+                                                                                                                QUERY PLAN                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.title, (count(*))
+   ->  Sort
+         Output: p.title, (count(*))
+         Sort Key: p.title
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: p.title, (count(*))
+               Backend: DataFusion
+               Indexes: lmp_posts_idx (p), lmp_comments_idx (c)
+               Group By: title
+               Aggregates: COUNT(*)
+               DataFusion Physical Plan: 
+                 : ┌───── DistributedExec
+                 : │ SortPreservingMergeExec: [title@0 ASC NULLS LAST], fetch=5
+                 : │   [Stage 3] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+                 : └──────────────────────────────────────────────────
+                 :   ┌───── Stage 3 ── tasks=2, partitions=3
+                 :   │ SortExec: TopK(fetch=5), expr=[title@0 ASC NULLS LAST], preserve_partitioning=[true]
+                 :   │   AggregateExec: mode=FinalPartitioned, gby=[title@0 as title], aggr=[count(1) as agg_0]
+                 :   │     [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+                 :   └──────────────────────────────────────────────────
+                 :     ┌───── Stage 2 ── tasks=2, partitions=6
+                 :     │ RepartitionExec: partitioning=Hash([title@0], 6), input_partitions=3
+                 :     │   AggregateExec: mode=Partial, gby=[title@0 as title], aggr=[count(1) as agg_0]
+                 :     │     VisibilityFilterExec: tables=[p, c]
+                 :     │       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+                 :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@0)], projection=[title@1, ctid_0@2, ctid_1@4]
+                 :     │           CoalescePartitionsExec
+                 :     │             [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+                 :     │           RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+                 :     │             DistributedLeafExec:
+                 :     │               t0: PgSearchScan: table=c, segments=2, dynamic_filters=1, query="all"
+                 :     │               t1: PgSearchScan: table=c, segments=2, dynamic_filters=1, query="all"
+                 :     └──────────────────────────────────────────────────
+                 :       ┌───── Stage 1 ── tasks=2, partitions=4
+                 :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
+                 :       │   DistributedLeafExec:
+                 :       │     t0: PgSearchScan: table=p, segments=2, eager=[title], dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+                 :       │     t1: PgSearchScan: table=p, segments=2, eager=[title], dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+                 :       └──────────────────────────────────────────────────
+(40 rows)
+
+SELECT p.title, COUNT(*)
+FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+GROUP BY p.title
+ORDER BY p.title
+LIMIT 5;
+  title   | count 
+----------+-------
+ Post 003 |     5
+ Post 006 |     5
+ Post 009 |     5
+ Post 012 |     5
+ Post 015 |     5
+(5 rows)
+
+RESET paradedb.enable_aggregate_late_materialization;
+DROP TABLE lmp_comments;
+DROP TABLE lmp_posts;

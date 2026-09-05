@@ -20,6 +20,7 @@ use crate::api::version::{Version, VersionInfo};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::is_pgoid_datetime_type;
+use crate::query::more_like_this::MoreLikeThisQueryBuilder;
 use crate::query::numeric::{
     convert_value_for_field, convert_value_for_range_field, map_bound, numeric_bound_to_bytes,
     scale_numeric_bound, string_to_f64, string_to_i64, string_to_json_numeric, string_to_u64,
@@ -64,6 +65,7 @@ pub fn to_search_query_input_unfielded(query: pdb::Query) -> SearchQueryInput {
 #[pg_schema]
 pub mod pdb {
     use crate::postgres::pdb_owned_value::PdbOwnedValue;
+    use crate::query::more_like_this::MoreLikeThisOptions;
     use crate::query::proximity::{ProximityClause, ProximityDistance};
     use crate::query::range::{deserialize_bound, serialize_bound};
     use pgrx::PostgresType;
@@ -154,6 +156,12 @@ pub mod pdb {
     pub enum Query {
         All,
         Empty,
+        MoreLikeThis {
+            key_value: PdbOwnedValue,
+            fields: Option<Vec<String>>,
+            #[serde(flatten)]
+            options: MoreLikeThisOptions,
+        },
 
         /// This is instantiated in places where a string literal is used
         /// as the right-hand-side of one of our operators.  For example, in
@@ -467,10 +475,21 @@ impl pdb::Query {
         index_created_by_version: Option<Version>,
         parser: &QueryParserCtor,
         searcher: &Searcher,
+        index_oid: pgrx::pg_sys::Oid,
     ) -> anyhow::Result<Box<dyn TantivyQuery>> {
         let query: Box<dyn TantivyQuery> = match self {
             pdb::Query::All => Box::new(AllQuery),
             pdb::Query::Empty => Box::new(EmptyQuery),
+            pdb::Query::MoreLikeThis {
+                key_value,
+                fields,
+                options,
+            } => match MoreLikeThisQueryBuilder::new(options, index_created_by_version)
+                .with_field_value(field, key_value, fields, index_oid)
+            {
+                Some(query) => Box::new(query),
+                None => Box::new(EmptyQuery),
+            },
 
             pdb::Query::UnclassifiedString { .. } => {
                 // this would indicate a problem with the various operator SUPPORT functions failing
@@ -487,15 +506,20 @@ impl pdb::Query {
                 )
             }
             pdb::Query::Exists => exists(field, searcher),
-            pdb::Query::ScoreAdjusted { query, score } => score_adjust_query(
-                field,
-                schema,
-                index_created_by_version,
-                parser,
-                searcher,
-                *query,
-                score.expect("score adjustment value should have been set"),
-            )?,
+            pdb::Query::ScoreAdjusted { query, score } => {
+                let query = query.into_tantivy_query(
+                    field,
+                    schema,
+                    index_created_by_version,
+                    parser,
+                    searcher,
+                    index_oid,
+                )?;
+                match score.expect("score adjustment value should have been set") {
+                    ScoreAdjustStyle::Boost(boost) => Box::new(BoostQuery::new(query, boost)),
+                    ScoreAdjustStyle::Const(score) => Box::new(ConstScoreQuery::new(query, score)),
+                }
+            }
             pdb::Query::FastFieldRangeWeight {
                 lower_bound,
                 upper_bound,
@@ -670,6 +694,14 @@ impl pdb::Query {
         Ok(query)
     }
 
+    pub fn need_scores(&self) -> bool {
+        match self {
+            pdb::Query::MoreLikeThis { .. } => true,
+            pdb::Query::ScoreAdjusted { query, .. } => query.need_scores(),
+            _ => false,
+        }
+    }
+
     pub fn needs_tokenizer(&self) -> bool {
         match self {
             pdb::Query::All
@@ -691,7 +723,8 @@ impl pdb::Query {
             | pdb::Query::MatchArray { .. }
             | pdb::Query::PhraseArray { .. } => false,
 
-            pdb::Query::Parse { .. }
+            pdb::Query::MoreLikeThis { .. }
+            | pdb::Query::Parse { .. }
             | pdb::Query::ParseWithField { .. }
             | pdb::Query::Match { .. }
             | pdb::Query::Phrase { .. }
@@ -716,6 +749,7 @@ impl pdb::Query {
         match self {
             pdb::Query::FuzzyTerm { .. }
             | pdb::Query::Regex { .. }
+            | pdb::Query::MoreLikeThis { .. }
             | pdb::Query::RegexPhrase { .. } => true,
 
             pdb::Query::ParseWithField { fuzzy_data, .. } => fuzzy_data.is_some(),
@@ -731,6 +765,7 @@ impl pdb::Query {
         use crate::{FUZZY_HIGH_SELECTIVITY, FUZZY_LOW_SELECTIVITY, REGEX_SELECTIVITY};
 
         match self {
+            pdb::Query::MoreLikeThis { .. } => crate::MORE_LIKE_THIS_SELECTIVITY,
             pdb::Query::FuzzyTerm { distance, .. } => {
                 let dist = distance.unwrap_or(1);
                 if dist <= 1 {
@@ -773,23 +808,6 @@ impl InOutFuncs for pdb::Query {
 
     fn output(&self, buffer: &mut StringInfo) {
         serde_json::to_writer(buffer, self).unwrap();
-    }
-}
-
-fn score_adjust_query<QueryParserCtor: Fn() -> QueryParser>(
-    field: FieldName,
-    schema: &SearchIndexSchema,
-    index_created_by_version: Option<Version>,
-    parser: &QueryParserCtor,
-    searcher: &Searcher,
-    query: pdb::Query,
-    score: ScoreAdjustStyle,
-) -> anyhow::Result<Box<dyn TantivyQuery>> {
-    let query =
-        query.into_tantivy_query(field, schema, index_created_by_version, parser, searcher)?;
-    match score {
-        ScoreAdjustStyle::Boost(boost) => Ok(Box::new(BoostQuery::new(query, boost))),
-        ScoreAdjustStyle::Const(score) => Ok(Box::new(ConstScoreQuery::new(query, score))),
     }
 }
 

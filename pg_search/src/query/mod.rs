@@ -38,7 +38,8 @@ use crate::api::version::{Version, VersionInfo};
 use crate::postgres::customscan::explain::{ExplainFormat, format_for_explain};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
-use crate::query::more_like_this::MoreLikeThisQuery;
+pub use crate::query::more_like_this::MoreLikeThisOptions;
+use crate::query::more_like_this::MoreLikeThisQueryBuilder;
 use crate::query::pdb_query::pdb;
 use crate::query::score::ScoreFilter;
 use crate::schema::SearchIndexSchema;
@@ -107,17 +108,9 @@ pub enum SearchQueryInput {
     },
     Empty,
     MoreLikeThis {
-        min_doc_frequency: Option<u64>,
-        max_doc_frequency: Option<u64>,
-        min_term_frequency: Option<usize>,
-        max_query_terms: Option<usize>,
-        min_word_length: Option<usize>,
-        max_word_length: Option<usize>,
-        boost_factor: Option<f32>,
-        stopwords: Option<Vec<String>>,
-        document: Option<Vec<(String, PdbOwnedValue)>>,
-        key_value: Option<PdbOwnedValue>,
-        fields: Option<Vec<String>>,
+        #[serde(flatten)]
+        options: MoreLikeThisOptions,
+        document: Vec<(String, PdbOwnedValue)>,
     },
     Parse {
         query_string: String,
@@ -394,6 +387,7 @@ impl SearchQueryInput {
             SearchQueryInput::WithIndex { query, .. } => Self::need_scores(query),
             SearchQueryInput::HeapFilter { indexed_query, .. } => Self::need_scores(indexed_query),
             SearchQueryInput::MoreLikeThis { .. } => true,
+            SearchQueryInput::FieldedQuery { query, .. } => query.need_scores(),
             SearchQueryInput::ScoreFilter { .. } => true,
             _ => false,
         }
@@ -1398,89 +1392,22 @@ impl SearchQueryInput {
                 let query = Box::new(EmptyQuery);
                 Ok(builder.build_leaf(query, || "Empty Query".to_string(), cloned_for_estimate))
             }
-            SearchQueryInput::MoreLikeThis {
-                min_doc_frequency,
-                max_doc_frequency,
-                min_term_frequency,
-                max_query_terms,
-                min_word_length,
-                max_word_length,
-                boost_factor,
-                stopwords,
-                document,
-                key_value,
-                fields,
-            } => {
-                let mut mlt_builder = MoreLikeThisQuery::builder()
-                    .with_index_created_by_version(index_created_by_version);
-
-                // default min_doc_frequency to 1, Tantivy's default is 5
-                if let Some(min_doc_frequency) = min_doc_frequency {
-                    mlt_builder = mlt_builder.with_min_doc_frequency(min_doc_frequency);
-                } else {
-                    mlt_builder = mlt_builder.with_min_doc_frequency(1);
+            SearchQueryInput::MoreLikeThis { options, document } => {
+                let mlt_builder = MoreLikeThisQueryBuilder::new(options, index_created_by_version);
+                let mut fields_map = HashMap::default();
+                for (field, mut value) in document {
+                    let search_field = schema
+                        .search_field(&field)
+                        .ok_or(QueryError::NonIndexedField(field.into()))?;
+                    search_field.try_coerce(&mut value)?;
+                    fields_map
+                        .entry(search_field.field())
+                        .or_insert_with(Vec::new)
+                        .push(value);
                 }
-                // default min_term_frequency to 1, Tantivy's default is 2
-                if let Some(min_term_frequency) = min_term_frequency {
-                    mlt_builder = mlt_builder.with_min_term_frequency(min_term_frequency);
-                } else {
-                    mlt_builder = mlt_builder.with_min_term_frequency(1);
-                }
-                if let Some(max_doc_frequency) = max_doc_frequency {
-                    mlt_builder = mlt_builder.with_max_doc_frequency(max_doc_frequency);
-                }
-                if let Some(max_query_terms) = max_query_terms {
-                    mlt_builder = mlt_builder.with_max_query_terms(max_query_terms);
-                }
-                if let Some(min_work_length) = min_word_length {
-                    mlt_builder = mlt_builder.with_min_word_length(min_work_length);
-                }
-                if let Some(max_work_length) = max_word_length {
-                    mlt_builder = mlt_builder.with_max_word_length(max_work_length);
-                }
-                if let Some(boost_factor) = boost_factor {
-                    mlt_builder = mlt_builder.with_boost_factor(boost_factor);
-                }
-                if let Some(stopwords_clone) = &stopwords {
-                    mlt_builder = mlt_builder.with_stop_words(stopwords_clone.clone());
-                }
-
-                let query = match (&key_value, &fields, &document) {
-                    (Some(key_value_clone), fields_ref, None) => {
-                        match mlt_builder.with_key_value(
-                            key_value_clone.clone(),
-                            fields_ref.clone(),
-                            index_oid,
-                        ) {
-                            Some(query) => Box::new(query) as Box<dyn TantivyQuery>,
-                            None => Box::new(EmptyQuery) as Box<dyn TantivyQuery>,
-                        }
-                    }
-                    (None, None, Some(doc)) => {
-                        let mut fields_map = HashMap::default();
-                        for (field, mut value) in doc.clone() {
-                            let search_field = schema
-                                .search_field(&field)
-                                .ok_or(QueryError::NonIndexedField(field.into()))?;
-                            search_field.try_coerce(&mut value)?;
-                            fields_map
-                                .entry(search_field.field())
-                                .or_insert_with(Vec::new);
-
-                            if let Some(vec) = fields_map.get_mut(&search_field.field()) {
-                                vec.push(value)
-                            }
-                        }
-                        Box::new(mlt_builder.with_document(fields_map.into_iter().collect()))
-                            as Box<dyn TantivyQuery>
-                    }
-                    _ => {
-                        panic!("more_like_this must be called with either key_value or document")
-                    }
-                };
-
+                let query = mlt_builder.with_document(fields_map.into_iter().collect());
                 Ok(builder.build_leaf(
-                    query,
+                    Box::new(query),
                     || "MoreLikeThis Query".to_string(),
                     cloned_for_estimate,
                 ))
@@ -1598,6 +1525,7 @@ impl SearchQueryInput {
                     index_created_by_version,
                     parser,
                     searcher,
+                    index_oid,
                 )?;
                 Ok(builder.build_leaf(
                     Box::new(query),

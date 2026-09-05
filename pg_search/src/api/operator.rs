@@ -46,6 +46,7 @@ use crate::postgres::customscan::opexpr::{
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
+use crate::postgres::sequentialscan::MaybeInlineRow;
 use crate::postgres::utils::ToPalloc;
 #[cfg(feature = "pg18")]
 use crate::postgres::var::resolve_rte_group_var;
@@ -175,6 +176,11 @@ impl ReturnedNodePointer {
         args.push(rhs);
         args.push(ctid.cast());
 
+        let inline_row = MaybeInlineRow::new((*request).root, base_var, ctid, &indexrel);
+        if let Some(inline_row) = &inline_row {
+            args.push(inline_row.as_ptr());
+        }
+
         // Index tuple descriptors do not preserve the heap column's NOT NULL flag.
         // Use a strict helper only when the first index attribute maps directly to
         // a NOT NULL heap column; expression attributes remain conservatively nullable.
@@ -188,13 +194,20 @@ impl ReturnedNodePointer {
                     .is_some_and(|attribute| attribute.attnotnull)
             });
 
-        let [nullable_procoid, strict_procoid] = search_with_query_input_exec_procoids();
+        let [
+            nullable_procoid,
+            strict_procoid,
+            row_procoid,
+            strict_row_procoid,
+        ] = search_with_query_input_exec_procoids();
         let function = pg_sys::makeFuncExpr(
-            // Preserve PostgreSQL's strictness information for outer-join reduction.
-            if anchor_is_not_null {
-                strict_procoid
-            } else {
-                nullable_procoid
+            // Strictness lets PostgreSQL reduce outer joins. MaybeInlineRow's empty-array
+            // marker keeps the ordinary heap path callable even with a strict row argument.
+            match (inline_row.is_some(), anchor_is_not_null) {
+                (true, true) => strict_row_procoid,
+                (true, false) => row_procoid,
+                (false, true) => strict_procoid,
+                (false, false) => nullable_procoid,
             },
             pg_sys::BOOLOID,
             args.into_pg(),
@@ -303,8 +316,8 @@ pub fn anyelement_query_input_procoid() -> pg_sys::Oid {
     }
 }
 
-fn search_with_query_input_exec_procoids() -> [pg_sys::Oid; 2] {
-    static CACHE: OnceLock<[pg_sys::Oid; 2]> = OnceLock::new();
+fn search_with_query_input_exec_procoids() -> [pg_sys::Oid; 4] {
+    static CACHE: OnceLock<[pg_sys::Oid; 4]> = OnceLock::new();
     *CACHE.get_or_init(|| unsafe {
         [
             direct_function_call::<pg_sys::Oid>(
@@ -323,6 +336,22 @@ fn search_with_query_input_exec_procoids() -> [pg_sys::Oid; 2] {
             .expect(
                 "the `paradedb.search_with_query_input_ctid_strict(anyelement, paradedb.searchqueryinput, tid)` function should exist",
             ),
+            direct_function_call::<pg_sys::Oid>(
+                pg_sys::regprocedurein,
+                &[c"paradedb.search_with_query_input_ctid_or_row(anyelement, paradedb.searchqueryinput, tid, record[])"
+                    .into_datum()],
+            )
+            .expect(
+                "the `paradedb.search_with_query_input_ctid_or_row(anyelement, paradedb.searchqueryinput, tid, record[])` function should exist",
+            ),
+            direct_function_call::<pg_sys::Oid>(
+                pg_sys::regprocedurein,
+                &[c"paradedb.search_with_query_input_ctid_or_row_strict(anyelement, paradedb.searchqueryinput, tid, record[])"
+                    .into_datum()],
+            )
+            .expect(
+                "the `paradedb.search_with_query_input_ctid_or_row_strict(anyelement, paradedb.searchqueryinput, tid, record[])` function should exist",
+            ),
         ]
     })
 }
@@ -332,7 +361,7 @@ fn is_search_with_query_input_exec_procoid(procoid: pg_sys::Oid) -> bool {
 }
 
 /// The search operands shared by the scalar operator and its heap-filter forms.
-/// CTID arguments are execution details, so custom-scan planning only sees
+/// CTID and fallback-row arguments are execution details, so custom-scan planning only sees
 /// `lhs` and `rhs`.
 #[derive(Clone, Copy)]
 pub(crate) struct SearchPredicate {
@@ -1394,6 +1423,8 @@ extension_sql!(
 ALTER FUNCTION paradedb.search_with_query_input SUPPORT paradedb.query_input_support;
 ALTER FUNCTION paradedb.search_with_query_input_ctid SUPPORT paradedb.query_input_support;
 ALTER FUNCTION paradedb.search_with_query_input_ctid_strict SUPPORT paradedb.query_input_support;
+ALTER FUNCTION paradedb.search_with_query_input_ctid_or_row SUPPORT paradedb.query_input_support;
+ALTER FUNCTION paradedb.search_with_query_input_ctid_or_row_strict SUPPORT paradedb.query_input_support;
 
 CREATE OPERATOR pg_catalog.@@@ (
     PROCEDURE = search_with_query_input,
@@ -1438,6 +1469,9 @@ CREATE OPERATOR CLASS public.vector_ip_ops FOR TYPE public.vector USING paradedb
         sequentialscan::search_with_query_input,
         sequentialscan::search_with_query_input_ctid,
         sequentialscan::search_with_query_input_ctid_strict,
+        sequentialscan::search_with_query_input_ctid_or_row,
+        sequentialscan::search_with_query_input_ctid_or_row_strict,
+        sequentialscan::ctid_is_valid,
         searchqueryinput::query_input_restrict,
         searchqueryinput::query_input_support,
     ]

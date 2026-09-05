@@ -25,6 +25,7 @@ use pgrx::pgrx_sql_entity_graph::metadata::{
 pub struct FakeAnyElement;
 pub struct FakeSearchQueryInput;
 pub struct FakeCtid;
+pub struct FakeRow;
 
 unsafe impl<'fcx> ArgAbi<'fcx> for FakeAnyElement {
     unsafe fn unbox_arg_unchecked(_arg: Arg<'_, 'fcx>) -> Self {
@@ -70,5 +71,19 @@ unsafe impl SqlTranslatable for FakeCtid {
     const TYPE_IDENT: &'static str = pgrx::pgrx_resolved_type!(FakeCtid);
     const TYPE_ORIGIN: TypeOrigin = TypeOrigin::External;
     const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> = Ok(SqlMappingRef::literal("tid"));
+    const RETURN_SQL: Result<ReturnsRef, ReturnsError> = Err(ReturnsError::Datum);
+}
+
+unsafe impl<'fcx> ArgAbi<'fcx> for FakeRow {
+    unsafe fn unbox_arg_unchecked(_arg: Arg<'_, 'fcx>) -> Self {
+        Self
+    }
+}
+
+unsafe impl SqlTranslatable for FakeRow {
+    const TYPE_IDENT: &'static str = pgrx::pgrx_resolved_type!(FakeRow);
+    const TYPE_ORIGIN: TypeOrigin = TypeOrigin::External;
+    const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> =
+        Ok(SqlMappingRef::literal("record[]"));
     const RETURN_SQL: Result<ReturnsRef, ReturnsError> = Err(ReturnsError::Datum);
 }

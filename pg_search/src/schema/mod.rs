@@ -401,7 +401,6 @@ pub struct CategorizedFieldData {
     pub source: FieldSource,
     pub pg_type: PgOid,  // Original PostgreSQL type OID (e.g., pdb.alias)
     pub base_oid: PgOid, // Resolved base type OID (e.g., integer)
-    pub is_key_field: bool,
     pub is_array: bool,
     pub is_json: bool,
 }
@@ -442,14 +441,6 @@ impl SearchIndexSchema {
         self.schema
             .get_field(CTID_FIELD_NAME)
             .expect("ctid field should be present in the index")
-    }
-
-    pub fn key_field_name(&self) -> Option<FieldName> {
-        self.bm25_options.key_field_name()
-    }
-
-    pub fn key_field_type(&self) -> Option<SearchFieldType> {
-        self.bm25_options.key_field_type()
     }
 
     pub fn index_search_tokenizer(&self) -> Option<SearchTokenizer> {
@@ -638,7 +629,6 @@ impl SearchIndexSchema {
     pub fn categorized_fields(&self) -> Ref<'_, Vec<(SearchField, CategorizedFieldData)>> {
         let is_empty = self.categorized.borrow().is_empty();
         if is_empty {
-            let key_field_name = self.key_field_name();
             let mut categorized = self.categorized.borrow_mut();
             let mut alias_lookup = self.alias_lookup();
             for (
@@ -672,9 +662,6 @@ impl SearchIndexSchema {
                             tantivy_type.typeoid()
                         )
                     });
-                    let is_key_field = key_field_name
-                        .as_ref()
-                        .is_some_and(|key_field_name| key_field_name == search_field.field_name());
                     let is_json = matches!(
                         base_oid,
                         PgOid::BuiltIn(pg_sys::BuiltinOid::JSONBOID | pg_sys::BuiltinOid::JSONOID)
@@ -686,7 +673,6 @@ impl SearchIndexSchema {
                             source: *source,
                             pg_type: *pg_type,
                             base_oid,
-                            is_key_field,
                             is_array,
                             is_json,
                         },

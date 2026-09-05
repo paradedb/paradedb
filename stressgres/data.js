@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788639166032,
+  "lastUpdate": 1788639176379,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -313712,6 +313712,126 @@ window.BENCHMARK_DATA = {
             "value": 10.013045914413608,
             "unit": "median tps",
             "extra": "avg tps: 18.409027075206605, max tps: 169.88056920319423, count: 57377"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1c2667adb313041e94c78563d03a889868c9f6e0",
+          "message": "refactor: decouple column fetching from string decoding (#6219)\n\n# Ticket(s) Closed\n\n- Closes #6216\n\n## What\n\nThis PR splits `TantivyLookupExec` into `TantivyFetchExec` (doc address\nto term ordinal, packed ctid to ctid) and `TantivyDecodeExec` (term\nordinal to string or bytes), and lets a scan emit term ordinals\ndirectly.\n\n## Why\n\nThe two halves have different access patterns. The fetch wants doc\norder, which a join or a shuffle above the scan no longer keeps. The\ndecode is random access wherever it runs, and an ordinal is far narrower\nthan the string. #6156 measured the cost of moving both above a fan-out\njoin. As separate nodes, a cost model can place each on its own.\n\n## How\n\n- The planner puts the decode directly over the fetch, so plans change\nshape but the work runs where it did. The fetch keeps the schema and\npasses State 1 rows through; the decode treats a State 0 row as an\ninternal error. The ctid-only lookup under `VisibilityFilterExec` is a\nfetch with no string columns.\n- The fetch carries only the input ordering up, as the old node did.\nCarrying a join's equivalence classes let DataFusion rewrite a Top-K\nsort key onto the other join side and move its dynamic filter off the\nprobe scan.\n- With `paradedb.defer_column_fetch = off` (default `on`), the scan\nresolves the ordinals itself, in doc order, and only the decode node is\nplanned. It's an A/B lever for the cost-model follow-up, not a\nrecommendation: it fetches every projected deferred column, decoded or\nnot.\n- Batch sizes are unchanged. The scan keeps its 8192 batch whenever its\nstrings are deferred, and the decode runs per input batch. Gathering the\ndecode's input up to `MAX_BATCH_SIZE` is a follow-up to measure, since a\nTop-K or `LIMIT` above it would see its first rows 16x later.\n- Naming follows option 1 from the issue. Folding the\n`SegmentedTopKExec`'s own union reader onto `DeferredUnion` is a\nfollow-up.\n\n## Tests\n\n- New `deferred_fetch_decode` regress test: Top-K, a two-column sort, a\nbytes-backed `NUMERIC` sort key, NULLs, `enable_segmented_topk = off`,\nan aggregate over a join, and an MPP leg, each under both GUC settings,\nwith identical rows. `mpp_joinscan` gains the scan-fetch placement over\nits shuffled LEFT JOIN, where the decode's worker rebuilds its reader\nfor a scan in another stage.\n- 56 expected files change shape: the ctid-only lookup is renamed, and\nevery `decode=[...]` line becomes a decode over a fetch. They were\nrewritten by script from the old outputs, then verified by running each\ntest. Only the fetch node's own `EXPLAIN ANALYZE` metrics come from a\nrun.",
+          "timestamp": "2026-09-05T12:34:56-07:00",
+          "tree_id": "5d9882f33a82aae5f5ddffc83077937ee9e4da12",
+          "url": "https://github.com/paradedb/paradedb/commit/1c2667adb313041e94c78563d03a889868c9f6e0"
+        },
+        "date": 1788639156133,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 184.46367067668334,
+            "unit": "median tps",
+            "extra": "avg tps: 185.05079188380358, max tps: 219.4082074228965, count: 57412"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 362.17675832665054,
+            "unit": "median tps",
+            "extra": "avg tps: 355.3706380827666, max tps: 538.8391890432721, count: 57412"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3995.3514458289574,
+            "unit": "median tps",
+            "extra": "avg tps: 3996.6124139547323, max tps: 4065.398743361037, count: 57412"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 190.58114938109168,
+            "unit": "median tps",
+            "extra": "avg tps: 191.438044904792, max tps: 223.0321405106177, count: 57412"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3343.7902537722516,
+            "unit": "median tps",
+            "extra": "avg tps: 3322.511343898668, max tps: 3462.357326415844, count: 57412"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3385.5841251557085,
+            "unit": "median tps",
+            "extra": "avg tps: 3376.669683528575, max tps: 3525.211475233142, count: 57412"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 161.32945334509873,
+            "unit": "median tps",
+            "extra": "avg tps: 161.70239679123694, max tps: 188.7233734664727, count: 57412"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 291.97330913648943,
+            "unit": "median tps",
+            "extra": "avg tps: 292.7946526279118, max tps: 380.51863367311444, count: 57412"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Primary - tps",
+            "value": 537.2468083633565,
+            "unit": "median tps",
+            "extra": "avg tps: 535.0567549881533, max tps: 598.0093031401215, count: 57412"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 616.1969410937079,
+            "unit": "median tps",
+            "extra": "avg tps: 616.5532653308209, max tps: 719.6856848852321, count: 57412"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1279.6894165839449,
+            "unit": "median tps",
+            "extra": "avg tps: 1278.0783664723206, max tps: 1289.7183340711845, count: 57412"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 369.246761574939,
+            "unit": "median tps",
+            "extra": "avg tps: 373.39577463024625, max tps: 596.7490770799853, count: 57412"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 563.4237441249458,
+            "unit": "median tps",
+            "extra": "avg tps: 561.7502071667966, max tps: 641.5727480873252, count: 57412"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2313.9795996563626,
+            "unit": "median tps",
+            "extra": "avg tps: 2312.932104185466, max tps: 2367.637182598202, count: 57412"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1780.8024439539756,
+            "unit": "median tps",
+            "extra": "avg tps: 1772.4502945166582, max tps: 1826.322052226719, count: 57412"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 9.900795671998743,
+            "unit": "median tps",
+            "extra": "avg tps: 15.349360871444667, max tps: 762.690405659773, count: 57412"
           }
         ]
       }

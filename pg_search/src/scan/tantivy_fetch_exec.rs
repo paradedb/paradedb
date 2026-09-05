@@ -40,7 +40,7 @@ use crate::scan::deferred_encode::{
 };
 use crate::scan::deferred_lookup::{
     LookupRebuildContext, PhysicalDeferredField, ffhelper_for, open_rebuilt_ffhelper,
-    rebuild_missing_ffhelpers,
+    preserved_ordering, rebuild_missing_ffhelpers,
 };
 use crate::scan::execution_plan::UnsafeSendStream;
 
@@ -138,9 +138,12 @@ impl TantivyFetchExec {
                 )));
             }
         }
-        // Rows keep their order and their types; only the union state changes.
+        // Rows keep their order and their types; only the union state changes. Only the
+        // ordering is carried up, not the input's equivalence classes: above a hash join
+        // those would let DataFusion rewrite a Top-K sort key onto the other join side and
+        // move its dynamic filter off the probe scan.
         let properties = Arc::new(PlanProperties::new(
-            input.properties().equivalence_properties().clone(),
+            preserved_ordering(&input, schema),
             input.properties().output_partitioning().clone(),
             EmissionType::Incremental,
             Boundedness::Bounded,

@@ -20,6 +20,7 @@ use crate::api::operator::{
     RHSValue, ReturnedNodePointer, get_expr_result_type, is_text_like, pdb_query_typoid,
     searchqueryinput_typoid,
 };
+use crate::query::SearchQueryInput;
 use crate::query::pdb_query::{pdb, to_search_query_input};
 use crate::query::proximity::ProximityClause;
 use pgrx::{
@@ -62,6 +63,7 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
                 }
                 None => parse(query_string, None, None),
             },
+            RHSValue::PdbQuery(query) if field.is_none() => SearchQueryInput::from_unfielded(query),
             RHSValue::PdbQuery(pdb::Query::UnclassifiedString {
                 string,
                 fuzzy_data,
@@ -99,8 +101,10 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
                 to_search_query_input(field.unwrap(), query)
             }
             RHSValue::ProximityClause(prox) => {
-                assert!(field.is_some());
-                to_search_query_input(field.unwrap(), proximity(prox))
+                let field = field.expect(
+                    "a proximity search requires an indexed field on the left-hand side, not a whole-row reference",
+                );
+                to_search_query_input(field, proximity(prox))
             }
             _ => {
                 unreachable!("atatat_support should only ever be called with a text value")
@@ -117,16 +121,16 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
             }
 
             let funcid = if is_pdb_query {
+                let signature = if field.is_some() {
+                    c"paradedb.to_search_query_input(paradedb.fieldname, pdb.query)"
+                } else {
+                    c"paradedb.to_search_query_input(pdb.query)"
+                };
                 direct_function_call::<pg_sys::Oid>(
                     pg_sys::regprocedurein,
-                    &[
-                        c"paradedb.to_search_query_input(paradedb.fieldname, pdb.query)"
-                            .into_datum(),
-                    ],
+                    &[signature.into_datum()],
                 )
-                .expect(
-                    "`paradedb.to_search_query_input(paradedb.fieldname, pdb.query)` should exist",
-                )
+                .expect("`paradedb.to_search_query_input` should exist")
             } else if field.is_some() {
                 direct_function_call::<pg_sys::Oid>(
                         pg_sys::regprocedurein,
@@ -169,14 +173,14 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
                     }
                 }
 
-                // here we call the `paradedb.parse` function without a FieldName
+                // Whole-row queries carry no implicit field, including runtime pdb.query values.
                 None => {
-                    assert!(!is_pdb_query);
-
                     let mut args = PgList::<pg_sys::Node>::new();
                     args.push(rhs.cast());
-                    args.push(pg_sys::makeBoolConst(false, true));
-                    args.push(pg_sys::makeBoolConst(false, true));
+                    if !is_pdb_query {
+                        args.push(pg_sys::makeBoolConst(false, true));
+                        args.push(pg_sys::makeBoolConst(false, true));
+                    }
 
                     pg_sys::FuncExpr {
                         xpr: pg_sys::Expr {

@@ -146,8 +146,8 @@ SELECT description, rating, category
 FROM paradedb.test_partial_index
 WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
-                                                                      QUERY PLAN                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on test_partial_index
          Table: test_partial_index
@@ -156,7 +156,7 @@ ORDER BY rating LIMIT 20;
          Scores: false
             TopK Order By: rating asc
             TopK Limit: 20
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
 SELECT description, rating, category
@@ -215,8 +215,8 @@ SELECT description, rating, category
 FROM paradedb.test_partial_index
 WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
-                                                                      QUERY PLAN                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on test_partial_index
          Table: test_partial_index
@@ -225,7 +225,7 @@ ORDER BY rating LIMIT 20;
          Scores: false
             TopK Order By: rating asc
             TopK Limit: 20
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
 SELECT description, rating, category
@@ -249,8 +249,8 @@ SELECT description, category
 FROM paradedb.test_partial_index
 WHERE category = 'Electronics' AND test_partial_index @@@ 'category:Footwear AND rating:>1'
 ORDER BY rating LIMIT 20;
-                                                                                 QUERY PLAN                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                     QUERY PLAN                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on test_partial_index
          Table: test_partial_index
@@ -259,7 +259,7 @@ ORDER BY rating LIMIT 20;
          Scores: false
             TopK Order By: rating asc
             TopK Limit: 20
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:Footwear AND rating:>1","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Footwear AND rating:>1","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
 SELECT description, category

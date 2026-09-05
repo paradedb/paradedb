@@ -122,7 +122,7 @@ impl ReturnedNodePointer {
             return Self::unsupported();
         };
 
-        // The LHS must resolve to a field in a ParadeDB index.
+        // The LHS must identify a ParadeDB index, optionally with a specific field.
         let Some((indexrel, field)) = tantivy_field_name_from_node((*request).root, lhs) else {
             return Self::unsupported();
         };
@@ -886,10 +886,8 @@ pub unsafe fn field_name_from_node(
         // the expression we're looking for is just a simple Var.
 
         if (*var).varattno == 0 {
-            return indexrel
-                .schema()
-                .expect("index should have a valid schema")
-                .key_field_name();
+            // A whole row identifies the index, not a default search field.
+            return None;
         }
 
         // otherwise the var might be a specific index attribute or meaning to reference an indexed expression

@@ -2100,7 +2100,6 @@ mod tests {
             CREATE INDEX segmented_topk_test_idx ON segmented_topk_test 
             USING paradedb (id, name, sort_col) 
             WITH (
-                key_field = 'id', 
                 target_segment_count = 4, 
                 text_fields = '{"sort_col": {"fast": true}}'
             );

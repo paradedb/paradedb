@@ -2160,7 +2160,6 @@ mod tests {
             );
             CREATE INDEX exists_guard_test_idx ON exists_guard_test
             USING paradedb (id, color, description) WITH (
-                key_field = 'id',
                 text_fields = '{
                     "color": {"tokenizer": {"type": "keyword"}, "fast": true},
                     "description": {}

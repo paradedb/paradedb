@@ -679,7 +679,7 @@ mod tests {
             Spi::run("CREATE TABLE t_vec (id SERIAL, data TEXT, embedding vector(3));").unwrap();
             Spi::run("INSERT INTO t_vec (data, embedding) VALUES ('test', '[1,0,0]');").unwrap();
             Spi::run(
-                "CREATE INDEX t_vec_idx ON t_vec USING paradedb (id, data, embedding vector_l2_ops) WITH (key_field = 'id')",
+                "CREATE INDEX t_vec_idx ON t_vec USING paradedb (id, data, embedding vector_l2_ops)",
             )
             .unwrap();
             Spi::get_one::<pg_sys::Oid>(
@@ -690,10 +690,7 @@ mod tests {
         } else {
             Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
             Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
-            Spi::run(
-                "CREATE INDEX t_idx ON t USING paradedb (id, (data::pdb.simple)) WITH (key_field = 'id')",
-            )
-            .unwrap();
+            Spi::run("CREATE INDEX t_idx ON t USING paradedb (id, (data::pdb.simple))").unwrap();
             Spi::get_one::<pg_sys::Oid>(
                 "SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';",
             )

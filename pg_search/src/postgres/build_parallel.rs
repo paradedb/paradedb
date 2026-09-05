@@ -1713,7 +1713,7 @@ mod tests {
 
         // This should panic with a "maintenance_work_mem is not high enough" error
         Spi::run(
-            "CREATE INDEX parallel_build_large_idx ON parallel_build_large USING paradedb (id, name) WITH (key_field = 'id', target_segment_count = 16);",
+            "CREATE INDEX parallel_build_large_idx ON parallel_build_large USING paradedb (id, name) WITH (target_segment_count = 16);",
         ).unwrap();
     }
 
@@ -1745,7 +1745,7 @@ mod tests {
 
                         // Create index
                         Spi::run(&format!(
-                            "CREATE INDEX parallel_build_large_idx ON parallel_build_large USING paradedb (id, name) WITH (key_field = 'id', target_segment_count = {});",
+                            "CREATE INDEX parallel_build_large_idx ON parallel_build_large USING paradedb (id, name) WITH (target_segment_count = {});",
                             ts
                         ))
                         .unwrap_or_else(|e| {
@@ -1819,7 +1819,7 @@ mod tests {
         ))
         .unwrap();
         Spi::run(
-            "CREATE INDEX exact_cap_multiple_idx ON exact_cap_multiple USING paradedb (id, emb vector_cosine_ops) WITH (key_field = 'id', target_segment_count = 1);",
+            "CREATE INDEX exact_cap_multiple_idx ON exact_cap_multiple USING paradedb (id, emb vector_cosine_ops) WITH (target_segment_count = 1);",
         )
         .unwrap();
 
@@ -1853,7 +1853,7 @@ mod tests {
         // partition (the kd-tree's partition count).
         Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
         Spi::run(
-            "CREATE INDEX partitioned_build_idx ON partitioned_build USING paradedb (id, tenant_id, name) WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 8);",
+            "CREATE INDEX partitioned_build_idx ON partitioned_build USING paradedb (id, tenant_id, name) WITH (partition_by = 'tenant_id', target_segment_count = 8);",
         )
         .unwrap();
 
@@ -1900,7 +1900,7 @@ mod tests {
             ))
             .unwrap();
             Spi::run(
-                "CREATE INDEX partitioned_build_idx ON partitioned_build USING paradedb (id, tenant_id, name) WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 8);",
+                "CREATE INDEX partitioned_build_idx ON partitioned_build USING paradedb (id, tenant_id, name) WITH (partition_by = 'tenant_id', target_segment_count = 8);",
             )
             .unwrap();
 
@@ -1965,7 +1965,7 @@ mod tests {
             ))
             .unwrap();
             Spi::run(
-                "CREATE INDEX partitioned_lone_partition_idx ON partitioned_lone_partition USING paradedb (id, tenant_id, name) WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 8);",
+                "CREATE INDEX partitioned_lone_partition_idx ON partitioned_lone_partition USING paradedb (id, tenant_id, name) WITH (partition_by = 'tenant_id', target_segment_count = 8);",
             )
             .unwrap();
 
@@ -2023,14 +2023,14 @@ mod tests {
         };
 
         Spi::run(
-            "CREATE INDEX partitioned_deleted_idx ON partitioned_deleted USING paradedb (id, tenant_id, name) WITH (key_field = 'id', target_segment_count = 8);",
+            "CREATE INDEX partitioned_deleted_idx ON partitioned_deleted USING paradedb (id, tenant_id, name) WITH (target_segment_count = 8);",
         )
         .unwrap();
         let regular = num_docs("partitioned_deleted_idx");
         Spi::run("DROP INDEX partitioned_deleted_idx;").unwrap();
 
         Spi::run(
-            "CREATE INDEX partitioned_deleted_idx ON partitioned_deleted USING paradedb (id, tenant_id, name) WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 8);",
+            "CREATE INDEX partitioned_deleted_idx ON partitioned_deleted USING paradedb (id, tenant_id, name) WITH (partition_by = 'tenant_id', target_segment_count = 8);",
         )
         .unwrap();
         let partitioned = num_docs("partitioned_deleted_idx");
@@ -2063,7 +2063,7 @@ mod tests {
     fn test_partitioned_build_rejects_a_target_above_the_bound() {
         Spi::run("CREATE TABLE partitioned_capped (id BIGSERIAL PRIMARY KEY, name TEXT);").unwrap();
         Spi::run(
-            "CREATE INDEX partitioned_capped_idx ON partitioned_capped USING paradedb (id, name) WITH (key_field = 'id', partition_by = 'id', target_segment_count = 10000);",
+            "CREATE INDEX partitioned_capped_idx ON partitioned_capped USING paradedb (id, name) WITH (partition_by = 'id', target_segment_count = 10000);",
         )
         .unwrap();
     }
@@ -2085,7 +2085,7 @@ mod tests {
         Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
         Spi::run("SET maintenance_work_mem = '15MB';").unwrap();
         Spi::run(
-            "CREATE INDEX partitioned_spill_idx ON partitioned_spill USING paradedb (id, tenant_id) WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 2);",
+            "CREATE INDEX partitioned_spill_idx ON partitioned_spill USING paradedb (id, tenant_id) WITH (partition_by = 'tenant_id', target_segment_count = 2);",
         )
         .unwrap();
 
@@ -2129,7 +2129,7 @@ mod tests {
             SELECT (i * 7919) % 8, 'filler ' || i FROM generate_series(1, 200) i;
             INSERT INTO partitioned_hot (tenant_id, name) VALUES (3, 'stalemarker');
             UPDATE partitioned_hot SET name = 'freshmarker' WHERE name = 'stalemarker';
-            CREATE INDEX partitioned_hot_idx ON partitioned_hot USING paradedb (id, tenant_id, name) WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 2);
+            CREATE INDEX partitioned_hot_idx ON partitioned_hot USING paradedb (id, tenant_id, name) WITH (partition_by = 'tenant_id', target_segment_count = 2);
             "#,
         )
         .unwrap();
@@ -2169,7 +2169,7 @@ mod tests {
         Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
         Spi::run("SET maintenance_work_mem = '16MB';").unwrap();
         Spi::run(
-            "CREATE INDEX partitioned_overfull_idx ON partitioned_overfull USING paradedb (id, tenant_id, name) WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 2);",
+            "CREATE INDEX partitioned_overfull_idx ON partitioned_overfull USING paradedb (id, tenant_id, name) WITH (partition_by = 'tenant_id', target_segment_count = 2);",
         )
         .unwrap();
 
@@ -2225,7 +2225,7 @@ mod tests {
         // Ground truth: a non-partitioned index over the same rows.
         Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
         Spi::run(
-            "CREATE INDEX partitioned_parity_plain ON partitioned_parity USING paradedb (id, tenant_id, message) WITH (key_field = 'id', text_fields = '{\"message\": {\"fast\": true, \"normalizer\": \"raw\"}}');",
+            "CREATE INDEX partitioned_parity_plain ON partitioned_parity USING paradedb (id, tenant_id, message) WITH (text_fields = '{\"message\": {\"fast\": true, \"normalizer\": \"raw\"}}');",
         )
         .unwrap();
         let expected_alpha = ids_for("message:alpha");
@@ -2254,7 +2254,7 @@ mod tests {
                 "{label}: full set differs"
             );
         };
-        let create_partitioned = "CREATE INDEX partitioned_parity_idx ON partitioned_parity USING paradedb (id, tenant_id, message) WITH (key_field = 'id', partition_by = 'tenant_id, message', target_segment_count = 8, text_fields = '{\"message\": {\"fast\": true, \"normalizer\": \"raw\"}}');";
+        let create_partitioned = "CREATE INDEX partitioned_parity_idx ON partitioned_parity USING paradedb (id, tenant_id, message) WITH (partition_by = 'tenant_id, message', target_segment_count = 8, text_fields = '{\"message\": {\"fast\": true, \"normalizer\": \"raw\"}}');";
 
         // Serial build.
         Spi::run(create_partitioned).unwrap();
@@ -2294,7 +2294,7 @@ mod tests {
         .unwrap();
         Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
         Spi::run(
-            "CREATE INDEX partitioned_passes_idx ON partitioned_passes USING paradedb (id, tenant_id, emb vector_cosine_ops) WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 1);",
+            "CREATE INDEX partitioned_passes_idx ON partitioned_passes USING paradedb (id, tenant_id, emb vector_cosine_ops) WITH (partition_by = 'tenant_id', target_segment_count = 1);",
         )
         .unwrap();
 

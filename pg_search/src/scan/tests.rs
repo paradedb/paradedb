@@ -39,10 +39,7 @@ mod tests {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
         Spi::run("INSERT INTO t (data) SELECT 'test ' || i FROM generate_series(1, 100) i;")
             .unwrap();
-        Spi::run(
-            "CREATE INDEX t_idx ON t USING paradedb (id, (data::pdb.simple)) WITH (key_field = 'id')",
-        )
-        .unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING paradedb (id, (data::pdb.simple))").unwrap();
 
         let heap_oid = Spi::get_one::<pg_sys::Oid>(
             "SELECT oid FROM pg_class WHERE relname = 't' AND relkind = 'r';",
@@ -193,7 +190,6 @@ mod tests {
             "CREATE INDEX filter_test_idx ON filter_test
              USING paradedb (id, price, quantity)
              WITH (
-                 key_field = 'id',
                  numeric_fields = '{\"price\": {\"fast\": true}, \"quantity\": {\"fast\": true}}'
              );",
         )

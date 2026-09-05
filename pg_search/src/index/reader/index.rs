@@ -441,7 +441,7 @@ pub(crate) mod test_support {
         let mut sql = format!(
             "CREATE TABLE {name} (id bigint PRIMARY KEY, title text NOT NULL);
              CREATE INDEX {name}_idx ON {name} USING paradedb (id, title)
-             WITH (key_field = 'id', target_segment_count = 8, background_layer_sizes = '0');
+             WITH (target_segment_count = 8, background_layer_sizes = '0');
              SET paradedb.global_mutable_segment_rows = 0;"
         );
         for batch in 0..immutable_batches {

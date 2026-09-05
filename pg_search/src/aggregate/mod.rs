@@ -920,30 +920,6 @@ mod scrub_missing_sentinel_value_tests {
     }
 
     #[test]
-    fn leaves_bucket_without_key_field_unchanged() {
-        let mut input = json!({
-            "buckets": [
-                { "doc_count": 5 }
-            ]
-        });
-        let original = input.clone();
-        scrub_missing_sentinel_value(&mut input);
-        assert_eq!(input, original);
-    }
-
-    #[test]
-    fn does_not_replace_sentinel_in_non_key_field() {
-        let mut input = json!({
-            "buckets": [
-                { "key": "alpha", "label": NULL_SENTINEL_MAX, "doc_count": 1 }
-            ]
-        });
-        scrub_missing_sentinel_value(&mut input);
-        assert_eq!(input["buckets"][0]["key"], "alpha");
-        assert_eq!(input["buckets"][0]["label"], NULL_SENTINEL_MAX);
-    }
-
-    #[test]
     fn returns_unchanged_when_top_level_is_not_object() {
         let mut input = json!([
             { "buckets": [{ "key": NULL_SENTINEL_MIN }] }

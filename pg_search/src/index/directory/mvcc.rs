@@ -1011,8 +1011,7 @@ mod tests {
     unsafe fn test_list_meta_entries() {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
         Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
-        Spi::run("CREATE INDEX t_idx ON t USING paradedb (id, data) WITH (key_field = 'id')")
-            .unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING paradedb (id, data)").unwrap();
         let relation_oid: pg_sys::Oid =
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
                 .expect("spi should succeed")
@@ -1047,7 +1046,7 @@ mod tests {
         Spi::run("SET paradedb.global_mutable_segment_rows = 0;").unwrap();
         Spi::run(
             "CREATE INDEX t_idx ON t USING paradedb (id, data) \
-             WITH (key_field = 'id', layer_sizes = '0', background_layer_sizes = '0')",
+             WITH (layer_sizes = '0', background_layer_sizes = '0')",
         )
         .unwrap();
         Spi::run("INSERT INTO t (data) SELECT 'a' FROM generate_series(1, 30);").unwrap();

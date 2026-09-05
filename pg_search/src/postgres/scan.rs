@@ -16,28 +16,176 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::operator::searchqueryinput_typoid;
-use crate::index::fast_fields_helper::{FFHelper, FFType, resolve_ctid};
+use crate::index::fast_fields_helper::{FFHelper, FFType, WhichFastField, resolve_ctid};
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::utils::FieldSource;
 use crate::postgres::{ParallelScanState, ScanStrategy, parallel};
 use crate::query::SearchQueryInput;
+use crate::schema::SearchIndexSchema;
 
 use pgrx::pg_sys::IndexScanDesc;
 use pgrx::*;
 
 pub struct Bm25ScanState {
-    fast_fields: FFHelper,
     reader: SearchIndexReader,
     results: Option<MultiSegmentSearchResults>,
-    itup: (Vec<pg_sys::Datum>, Vec<bool>),
-    key_field_oid: Option<PgOid>,
+    index_only: Option<IndexOnlyScanState>,
     #[allow(dead_code)]
     ambulkdelete_epoch: u32,
     /// Cached per-segment ctid fast-field reader. Avoids re-opening the column
     /// reader for every row returned from the same segment.
     ctid_cache: Option<(tantivy::SegmentOrdinal, FFType)>,
+}
+
+struct IndexOnlyField {
+    tuple_index: usize,
+    fast_field: WhichFastField,
+    pg_type: PgOid,
+}
+
+impl IndexOnlyField {
+    fn from_schema(
+        indexrel: &PgSearchRelation,
+        schema: &SearchIndexSchema,
+        tuple_index: usize,
+    ) -> Option<Self> {
+        let tuple_desc = indexrel.tuple_desc();
+        let attribute = tuple_desc.get(tuple_index)?;
+        if ![
+            pg_sys::INT4OID,
+            pg_sys::INT8OID,
+            pg_sys::FLOAT4OID,
+            pg_sys::FLOAT8OID,
+            pg_sys::BOOLOID,
+            pg_sys::UUIDOID,
+        ]
+        .contains(&attribute.atttypid)
+        {
+            return None;
+        }
+
+        let search_field = schema.search_field(attribute.name())?;
+        let categorized = schema.categorized_fields();
+        let data = categorized.iter().find_map(|(field, data)| {
+            (field == &search_field && data.attno == tuple_index).then_some(data)
+        })?;
+        if !search_field.is_fast()
+            || data.is_array
+            || data.is_json
+            || !matches!(data.source, FieldSource::Heap { .. })
+        {
+            return None;
+        }
+
+        Some(Self {
+            tuple_index,
+            fast_field: WhichFastField::Named(
+                search_field.field_name().to_string(),
+                search_field.field_type(),
+            ),
+            pg_type: PgOid::from(attribute.atttypid),
+        })
+    }
+}
+
+#[repr(C)]
+struct AmCanReturnCache {
+    returnable: u32,
+}
+
+impl AmCanReturnCache {
+    unsafe fn get_or_init(indexrel: pg_sys::Relation) -> &'static Self {
+        if (*indexrel).rd_amcache.is_null() {
+            let relation = PgSearchRelation::from_pg(indexrel);
+            let mut returnable = 0;
+
+            if let Ok(schema) = relation.schema() {
+                let natts = relation.tuple_desc().len();
+                for tuple_index in 0..natts {
+                    if IndexOnlyField::from_schema(&relation, &schema, tuple_index).is_some() {
+                        returnable |= 1 << tuple_index;
+                    }
+                }
+            }
+
+            // PostgreSQL may call amcanreturn once per index attribute. Keep the capability
+            // mask in the relation's AM cache so those probes share one metadata read.
+            let cache = pg_sys::MemoryContextAllocZero(
+                (*indexrel).rd_indexcxt,
+                std::mem::size_of::<Self>(),
+            )
+            .cast::<Self>();
+            (*cache).returnable = returnable;
+            (*indexrel).rd_amcache = cache.cast();
+        }
+
+        &*(*indexrel).rd_amcache.cast::<Self>()
+    }
+
+    fn can_return(&self, tuple_index: usize) -> bool {
+        tuple_index < pg_sys::INDEX_MAX_KEYS as usize && self.returnable & (1 << tuple_index) != 0
+    }
+}
+
+struct IndexOnlyScanState {
+    fast_fields: FFHelper,
+    fields: Vec<IndexOnlyField>,
+    values: Vec<pg_sys::Datum>,
+    nulls: Vec<bool>,
+}
+
+impl IndexOnlyScanState {
+    fn new(reader: &SearchIndexReader, indexrel: &PgSearchRelation, natts: usize) -> Self {
+        let fields = (0..natts)
+            .filter_map(|tuple_index| {
+                IndexOnlyField::from_schema(indexrel, reader.schema(), tuple_index)
+            })
+            .collect::<Vec<_>>();
+        let fast_fields = fields
+            .iter()
+            .map(|field| field.fast_field.clone())
+            .collect::<Vec<_>>();
+
+        Self {
+            fast_fields: FFHelper::with_fields(reader, &fast_fields),
+            fields,
+            values: vec![pg_sys::Datum::null(); natts],
+            nulls: vec![true; natts],
+        }
+    }
+
+    unsafe fn form_tuple(
+        &mut self,
+        tuple_desc: pg_sys::TupleDesc,
+        doc_address: tantivy::DocAddress,
+    ) -> pg_sys::HeapTuple {
+        self.nulls.fill(true);
+        for (fast_field_index, field) in self.fields.iter().enumerate() {
+            let value = self
+                .fast_fields
+                .value(fast_field_index, doc_address)
+                .expect("index-only field should be a fast field");
+            match value
+                .try_into_datum(field.pg_type)
+                .expect("index-only field should convert to a Datum")
+            {
+                Some(datum) => {
+                    self.values[field.tuple_index] = datum;
+                    self.nulls[field.tuple_index] = false;
+                }
+                None => self.values[field.tuple_index] = pg_sys::Datum::null(),
+            }
+        }
+
+        pg_sys::heap_form_tuple(
+            tuple_desc,
+            self.values.as_mut_ptr(),
+            self.nulls.as_mut_ptr(),
+        )
+    }
 }
 
 #[pg_guard]
@@ -220,43 +368,17 @@ pub extern "C-unwind" fn amrescan(
         };
 
         let natts = (*(*scan).xs_hitupdesc).natts as usize;
-        let scan_state = if (*scan).xs_want_itup {
-            let schema = indexrel.schema().expect("indexrel should have a schema");
-            let key_field = schema.key_field_name().zip(schema.key_field_type());
-            Bm25ScanState {
-                fast_fields: key_field
-                    .as_ref()
-                    .map_or_else(FFHelper::empty, |key_field| {
-                        FFHelper::with_fields(&search_reader, &[key_field.clone().into()])
-                    }),
-                reader: search_reader,
-                results,
-                itup: (vec![pg_sys::Datum::null(); natts], vec![true; natts]),
-                key_field_oid: key_field.map(|_| {
-                    PgOid::from({
-                        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
-                        {
-                            (*(*scan).xs_hitupdesc).attrs.as_slice(natts)[0].atttypid
-                        }
-                        #[cfg(feature = "pg18")]
-                        {
-                            (*pg_sys::TupleDescAttr((*scan).xs_hitupdesc, 0)).atttypid
-                        }
-                    })
-                }),
-                ambulkdelete_epoch,
-                ctid_cache: None,
-            }
+        let index_only = if (*scan).xs_want_itup {
+            Some(IndexOnlyScanState::new(&search_reader, &indexrel, natts))
         } else {
-            Bm25ScanState {
-                fast_fields: FFHelper::empty(),
-                reader: search_reader,
-                results,
-                itup: (vec![], vec![]),
-                key_field_oid: None,
-                ambulkdelete_epoch,
-                ctid_cache: None,
-            }
+            None
+        };
+        let scan_state = Bm25ScanState {
+            reader: search_reader,
+            results,
+            index_only,
+            ambulkdelete_epoch,
+            ctid_cache: None,
         };
 
         (*scan).opaque = PgMemoryContexts::CurrentMemoryContext
@@ -316,67 +438,11 @@ pub unsafe extern "C-unwind" fn amgettuple(
                 let ipd = &mut (*scan).xs_heaptid;
                 crate::postgres::utils::u64_to_item_pointer(ctid, ipd);
 
-                if (*scan).xs_want_itup {
-                    if let Some(key_field_oid) = state.key_field_oid {
-                        let key = state
-                            .fast_fields
-                            .value(0, doc_address)
-                            .expect("key_field should be a fast_field");
-                        match key
-                            .try_into_datum(key_field_oid)
-                            .expect("key_field value should convert to a Datum")
-                        {
-                            Some(key_field_datum) => {
-                                state.itup.0[0] = key_field_datum;
-                                state.itup.1[0] = false;
-                            }
-                            None => {
-                                state.itup.0[0] = pg_sys::Datum::null();
-                                state.itup.1[0] = true;
-                            }
-                        }
+                if let Some(index_only) = &mut state.index_only {
+                    if !(*scan).xs_hitup.is_null() {
+                        pg_sys::heap_freetuple((*scan).xs_hitup);
                     }
-
-                    let values = state.itup.0.as_mut_ptr();
-                    let nulls = state.itup.1.as_mut_ptr();
-
-                    if (*scan).xs_hitup.is_null() {
-                        (*scan).xs_hitup =
-                            pg_sys::heap_form_tuple((*scan).xs_hitupdesc, values, nulls);
-                    } else {
-                        pg_sys::ffi::pg_guard_ffi_boundary(|| {
-                            unsafe extern "C-unwind" {
-                                fn heap_compute_data_size(
-                                    tupleDesc: pg_sys::TupleDesc,
-                                    values: *mut pg_sys::Datum,
-                                    isnull: *mut bool,
-                                ) -> pg_sys::Size;
-                                fn heap_fill_tuple(
-                                    tupleDesc: pg_sys::TupleDesc,
-                                    values: *mut pg_sys::Datum,
-                                    isnull: *mut bool,
-                                    data: *mut ::core::ffi::c_char,
-                                    data_size: pg_sys::Size,
-                                    infomask: *mut pg_sys::uint16,
-                                    bit: *mut pg_sys::bits8,
-                                );
-                            }
-                            let data_len =
-                                heap_compute_data_size((*scan).xs_hitupdesc, values, nulls);
-                            let td = (*(*scan).xs_hitup).t_data;
-
-                            // TODO:  seems like this could crash with a varlena "key_field" of varying sizes per row
-                            heap_fill_tuple(
-                                (*scan).xs_hitupdesc,
-                                values,
-                                nulls,
-                                td.cast::<std::ffi::c_char>().add((*td).t_hoff as usize),
-                                data_len,
-                                &mut (*td).t_infomask,
-                                (*td).t_bits.as_mut_ptr(),
-                            );
-                        });
-                    }
+                    (*scan).xs_hitup = index_only.form_tuple((*scan).xs_hitupdesc, doc_address);
                 }
 
                 return true;
@@ -479,38 +545,21 @@ unsafe fn search_next_segment(scan: IndexScanDesc, state: &mut Bm25ScanState) ->
 
 #[pg_guard]
 pub extern "C-unwind" fn amcanreturn(indexrel: pg_sys::Relation, attno: i32) -> bool {
-    if attno != 1 {
-        // currently, we only support returning the "key_field", which will always be the first
-        // index attribute
+    if attno <= 0 {
         return false;
     }
 
     unsafe {
         assert!(!indexrel.is_null());
         assert!(!(*indexrel).rd_att.is_null());
-        if PgSearchRelation::from_pg(indexrel)
-            .options()
-            .key_field_name()
-            .is_none()
-        {
+        let indexrel = PgSearchRelation::from_pg(indexrel);
+
+        // A partitioned index has no physical storage to inspect. PostgreSQL asks each child
+        // index separately whether it supports index-only scans.
+        if pg_sys::get_rel_relkind(indexrel.oid()) as u8 == pg_sys::RELKIND_PARTITIONED_INDEX {
             return false;
         }
-        let tupdesc = PgTupleDesc::from_pg_unchecked((*indexrel).rd_att);
 
-        let att = tupdesc
-            .get((attno - 1) as usize)
-            .expect("attno should exist in index tupledesc");
-
-        // we can only return a field if it's one of the below types -- basically pass-by-value (non tokenized) data types
-        [
-            pg_sys::INT4OID,
-            pg_sys::INT8OID,
-            pg_sys::FLOAT4OID,
-            pg_sys::FLOAT8OID,
-            pg_sys::BOOLOID,
-            // we index UUID as strings, but it's beneficial to support returning due to Parallel Index Only Scans
-            pg_sys::UUIDOID,
-        ]
-        .contains(&att.atttypid)
+        AmCanReturnCache::get_or_init(indexrel.as_ptr()).can_return((attno - 1) as usize)
     }
 }

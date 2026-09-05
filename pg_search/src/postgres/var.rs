@@ -15,8 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::FieldName;
-use crate::api::HashSet;
+use crate::api::{CTID_FIELD_NAME, FieldName, HashSet};
 use crate::customscan::operator_oid;
 use crate::nodecast;
 use crate::postgres::var::identity_ops::IdentityOp;
@@ -491,7 +490,7 @@ pub unsafe fn fieldname_from_var(
     let heaprel = PgRelation::open(heaprelid);
     let tupdesc = heaprel.tuple_desc();
     if varattno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber {
-        Some("ctid".into())
+        Some(CTID_FIELD_NAME.into())
     } else {
         tupdesc
             .get(varattno as usize - 1)

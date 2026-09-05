@@ -131,14 +131,13 @@ INNER JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'science' OR b.content @@@ 'technology')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
-  author_name  |      book_title      | author_score | book_score 
----------------+----------------------+--------------+------------
- J.K. Rowling  | Harry Potter Magic   |            0 |    0.98641
- Stephen King  | Harry Potter Horrors |            0 |          0
- George Orwell | Dystopian Future     |            0 |  1.0376933
- John Smith    | Smartphone Tech      |    1.6503524 |  1.1581132
- John Smith    | Future Technologies  |    1.6503524 |          0
-(5 rows)
+  author_name  |     book_title      | author_score | book_score 
+---------------+---------------------+--------------+------------
+ J.K. Rowling  | Harry Potter Magic  |            0 |    0.98641
+ George Orwell | Dystopian Future    |            0 |  1.0376933
+ John Smith    | Smartphone Tech     |    1.6503524 |  1.1581132
+ John Smith    | Future Technologies |    1.6503524 |          0
+(4 rows)
 
 -- Test 1.2: LEFT JOIN with equi-join condition
 SELECT 

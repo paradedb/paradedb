@@ -34,7 +34,7 @@ use super::predicate::{
 use super::privdat::{OutputColumnInfo, PrivateData};
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 
-use crate::api::operator::anyelement_query_input_opoid;
+use crate::api::operator::expr_contains_search_predicate;
 use crate::api::version::VersionInfo;
 use crate::api::{NullTestKind, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
@@ -53,9 +53,7 @@ use crate::postgres::customscan::range_table::{bms_iter, get_rte};
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::utils::{
-    expr_collect_vars, expr_contains_any_operator, missing_partial_index_predicate, strip_wrappers,
-};
+use crate::postgres::utils::{expr_collect_vars, missing_partial_index_predicate, strip_wrappers};
 use crate::postgres::var::{fieldname_from_var, strip_identity_wrappers};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchFieldType;
@@ -741,14 +739,13 @@ unsafe fn collect_join_sources_join_rel(
         )
         .ok()?;
 
-        let search_op = anyelement_query_input_opoid();
         let mut absorbed_search_clauses: Vec<*mut pg_sys::RestrictInfo> = Vec::new();
         for ri in &resolved.post_join_conditions {
             let clause = (**ri).clause;
             if clause.is_null() {
                 continue;
             }
-            if expr_contains_any_operator(clause.cast(), &[search_op])
+            if expr_contains_search_predicate(clause.cast())
                 || (all_vars_are_fast_fields_recursive(clause.cast(), &all_sources, None)
                     && PredicateTranslator::can_translate(
                         Some(root),
@@ -1319,7 +1316,6 @@ unsafe fn extract_join_conditions_from_list(
         has_search_predicate: false,
     };
 
-    let search_op = anyelement_query_input_opoid();
     let valid_rtis: Vec<pg_sys::Index> = sources.iter().map(|s| s.scan_info.heap_rti).collect();
     let list = PgList::<pg_sys::RestrictInfo>::from_pg(restrictlist);
     for ri in list.iter_ptr() {
@@ -1373,7 +1369,7 @@ unsafe fn extract_join_conditions_from_list(
             }
         }
 
-        let has_search_op = expr_contains_any_operator(clause.cast(), &[search_op]);
+        let has_search_op = expr_contains_search_predicate(clause.cast());
         if has_search_op {
             result.has_search_predicate = true;
         }

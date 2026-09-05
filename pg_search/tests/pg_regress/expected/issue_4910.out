@@ -91,7 +91,7 @@ LIMIT 25;
            : ProjectionExec: expr=[contact_id@3 as col_1, company_id@1 as col_2, revenue_rank@2 as col_3, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=25), expr=[revenue_rank@2 DESC NULLS LAST, contact_id@3 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[cccf]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
+           :       TantivyFetchExec: fetch=[ctid_0]
            :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, company_id@1)]
            :           CooperativeExec
            :             PgSearchScan: table=ce, segments=1, visibility=eager, query="all"
@@ -173,7 +173,7 @@ LIMIT 25;
            : ProjectionExec: expr=[contact_id@3 as col_1, company_id@1 as col_2, revenue_rank@2 as col_3, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=25), expr=[revenue_rank@2 DESC NULLS LAST, contact_id@3 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[cccf]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
+           :       TantivyFetchExec: fetch=[ctid_0]
            :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, company_id@1)]
            :           CooperativeExec
            :             PgSearchScan: table=ce, segments=1, visibility=eager, query="all"

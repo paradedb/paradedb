@@ -15,9 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Physical optimizer rule that injects `SegmentedTopKExec` below
-//! `TantivyLookupExec` when a `SortExec(TopK)` sorts by a deferred
-//! (late-materialized) string/bytes column.
+//! Physical optimizer rule that injects `SegmentedTopKExec` below the deferred
+//! lookup when a `SortExec(TopK)` sorts by a deferred (late-materialized)
+//! string/bytes column.
 //!
 //! See the [JoinScan README](../../postgres/customscan/joinscan/README.md) for
 //! the full optimizer pipeline and where this rule sits in the sequence.
@@ -27,20 +27,24 @@
 //! ```text
 //! BEFORE:
 //!   SortExec(fetch=K, sort=[val ASC])
-//!     └─ TantivyLookupExec(decode=[val])
-//!          └─ Child
+//!     └─ TantivyDecodeExec(decode=[val])
+//!          └─ TantivyFetchExec(fetch=[val])
+//!               └─ Child
 //!
 //! AFTER:
-//!   SortExec(fetch=K, sort=[val ASC])
-//!     └─ TantivyLookupExec(decode=[val])
+//!   TantivyDecodeExec(decode=[val])
+//!     └─ TantivyFetchExec(fetch=[val])
 //!          └─ SegmentedTopKExec(col=val, k=K, ASC)
 //!               └─ Child
 //! ```
 //!
 //! The rule walks the plan tree top-down. When it finds a `SortExec` with
-//! `fetch` (Top K mode), it searches its descendants for a `TantivyLookupExec`.
+//! `fetch` (Top K mode), it searches its descendants for a `TantivyDecodeExec`.
 //! If the primary sort key matches one of the deferred string/bytes fields,
-//! it injects a `SegmentedTopKExec` as the new child of `TantivyLookupExec`.
+//! it injects a `SegmentedTopKExec` below the lookup: under the `TantivyFetchExec`
+//! that fetches the column when there is one, so the fetch only runs for the
+//! survivors, and directly under the `TantivyDecodeExec` when the scan already
+//! resolved the ordinals.
 
 use std::sync::Arc;
 
@@ -57,7 +61,8 @@ use crate::gucs;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
 use crate::scan::segmented_topk_exec::{AbsorbedVisibilityData, SegmentedTopKExec};
-use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
+use crate::scan::tantivy_decode_exec::TantivyDecodeExec;
+use crate::scan::tantivy_fetch_exec::TantivyFetchExec;
 
 #[derive(Debug)]
 pub struct SegmentedTopKRule;
@@ -83,8 +88,8 @@ impl PhysicalOptimizerRule for SegmentedTopKRule {
     }
 }
 
-/// Recursively rewrite the plan tree, injecting `SegmentedTopKExec` below
-/// `TantivyLookupExec` when a `SortExec(TopK)` sorts by a deferred column.
+/// Recursively rewrite the plan tree, injecting `SegmentedTopKExec` below the
+/// deferred lookup when a `SortExec(TopK)` sorts by a deferred column.
 fn rewrite_plan(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionPlan>> {
     // First, recursively rewrite all children.
     let children = plan.children();
@@ -113,7 +118,7 @@ fn rewrite_plan(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionPlan>> 
 }
 
 /// If `plan` is a `SortExec(TopK)` sorting by at least one deferred column, inject
-/// `SegmentedTopKExec` below the `TantivyLookupExec` in its subtree.
+/// `SegmentedTopKExec` below the deferred lookup in its subtree.
 fn try_inject_at_sort(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionPlan>> {
     let Some(sort_exec) = plan.downcast_ref::<SortExec>() else {
         return Ok(plan);
@@ -141,7 +146,7 @@ fn try_inject_at_sort(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionP
     );
     let parent_filter = dynamic_exprs.into_iter().next();
 
-    // Walk down from SortExec to find TantivyLookupExec.
+    // Walk down from SortExec to find the deferred lookup.
     // If injection succeeds, SegmentedTopKExec now handles the final sort + limit,
     // so we unwrap SortExec and return its child directly.
     match try_inject_below_lookup(&plan, sort_exprs.clone(), k, parent_filter)? {
@@ -215,9 +220,9 @@ fn resolve_physical_index(
     Some(physical_idx)
 }
 
-/// Recursively search below `plan` for a `TantivyLookupExec` whose deferred
-/// fields include `sort_col_name`. If found, inject a `SegmentedTopKExec`
-/// as its new child and rebuild the plan tree up to `plan`.
+/// Recursively search below `plan` for a `TantivyDecodeExec` whose deferred
+/// fields include a sort column. If found, inject a `SegmentedTopKExec` below
+/// the lookup and rebuild the plan tree up to `plan`.
 fn try_inject_below_lookup(
     plan: &Arc<dyn ExecutionPlan>,
     sort_exprs: LexOrdering,
@@ -227,8 +232,21 @@ fn try_inject_below_lookup(
     let children = plan.children();
 
     for (child_idx, child) in children.iter().enumerate() {
-        if let Some(lookup) = child.downcast_ref::<TantivyLookupExec>() {
-            let lookup_child = &lookup.children()[0];
+        if let Some(lookup) = child.downcast_ref::<TantivyDecodeExec>() {
+            // The STK goes under the fetch when one sits directly below the decode: the
+            // STK resolves ordinals for its own comparisons, so the fetch above then runs
+            // only for the survivors. The fetch keeps the schema, so the column indexes
+            // below it are the decode's input indexes either way.
+            let decode_child = Arc::clone(lookup.children()[0]);
+            let fetch_below = decode_child
+                .downcast_ref::<TantivyFetchExec>()
+                .filter(|fetch| !fetch.fetch_fields().is_empty())
+                .map(|_| Arc::clone(&decode_child));
+            let lookup_child = match &fetch_below {
+                Some(fetch) => Arc::clone(fetch.children()[0]),
+                None => Arc::clone(&decode_child),
+            };
+            let lookup_child = &lookup_child;
             let input_schema = lookup_child.schema();
 
             // Check if ANY sort column is one of the deferred fields, using
@@ -249,7 +267,7 @@ fn try_inject_below_lookup(
             });
 
             if has_deferred_sort_col {
-                // If the direct child of TantivyLookupExec is a VisibilityFilterExec,
+                // If the direct child of the lookup is a VisibilityFilterExec,
                 // absorb it: SegmentedTopKExec will own MVCC visibility checking and the
                 // VFExec node is removed from the plan, so dead rows never inflate the
                 // pushed-down threshold. VFExec preserves schema, so `input_schema` above
@@ -259,13 +277,19 @@ fn try_inject_below_lookup(
                 // to be checked inside the join, so they won't be absorbed here.
                 let (absorbed_visibility, stk_input) =
                     if let Some(vis_exec) = lookup_child.downcast_ref::<VisibilityFilterExec>() {
-                        // The VF's child is a ctid-resolving TantivyLookupExec. Bypass it and let
+                        // The VF's child is a ctid-resolving TantivyFetchExec. Bypass it and let
                         // the STK resolve ctids at candidate time, so a large join output does not
-                        // pay one fast-field read per row before the Top-K prune.
+                        // pay one fast-field read per row before the Top-K prune. Only a fetch
+                        // with no string columns can be dropped this way: the STK resolves ctids
+                        // itself but not string ordinals, so a fetch that also carries string
+                        // columns has to stay, at the cost of the per-row read.
                         let vf_child = Arc::clone(vis_exec.children()[0]);
-                        let stk_input = match vf_child.downcast_ref::<TantivyLookupExec>() {
-                            Some(lookup) if !lookup.ctid_columns().is_empty() => {
-                                Arc::clone(lookup.children()[0])
+                        let stk_input = match vf_child.downcast_ref::<TantivyFetchExec>() {
+                            Some(fetch)
+                                if !fetch.ctid_columns().is_empty()
+                                    && fetch.fetch_fields().is_empty() =>
+                            {
+                                Arc::clone(fetch.children()[0])
                             }
                             _ => vf_child,
                         };
@@ -335,10 +359,9 @@ fn try_inject_below_lookup(
                 // resolved physical index so that SegmentedTopKExec operates on the
                 // correct field position in lookup_child's schema.
                 //
-                // Previously this used col.index() directly, which is the logical index
-                // relative to TantivyLookupExec's output schema. After a join the physical
-                // schema may differ (e.g. HashJoinExec emits [ctid_0, s.name, ctid_1, p.name]
-                // so p.name is at physical index 3, not 1).
+                // col.index() is the logical index relative to the lookup's output schema.
+                // After a join the physical schema may differ (e.g. HashJoinExec emits
+                // [ctid_0, s.name, ctid_1, p.name] so p.name is at physical index 3, not 1).
                 let mut rewritten_sort_exprs = Vec::with_capacity(sort_exprs.len());
                 for sort_expr in &sort_exprs {
                     use datafusion::common::tree_node::{Transformed, TreeNode};
@@ -384,11 +407,24 @@ fn try_inject_below_lookup(
                     parent_filter.clone(),
                 ));
 
-                // Rebuild TantivyLookupExec with the new child.
-                let new_lookup = Arc::clone(child).replace_children(
-                    vec![segmented_topk],
-                    ReplaceChildrenOptions::new(ChildrenPropertiesMode::Recompute),
-                )?;
+                // Rebuild the lookup with the new child: the fetch when the STK went under
+                // it, then the decode above.
+                let new_lookup = match fetch_below {
+                    Some(fetch) => {
+                        let new_fetch = fetch.replace_children(
+                            vec![segmented_topk],
+                            ReplaceChildrenOptions::new(ChildrenPropertiesMode::Recompute),
+                        )?;
+                        Arc::clone(child).replace_children(
+                            vec![new_fetch],
+                            ReplaceChildrenOptions::new(ChildrenPropertiesMode::Recompute),
+                        )?
+                    }
+                    None => Arc::clone(child).replace_children(
+                        vec![segmented_topk],
+                        ReplaceChildrenOptions::new(ChildrenPropertiesMode::Recompute),
+                    )?,
+                };
 
                 // Rebuild the parent with the updated child.
                 let mut new_children: Vec<Arc<dyn ExecutionPlan>> =

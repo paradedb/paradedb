@@ -33,7 +33,7 @@ use pgrx::{AnyNumeric, IntoDatum, JsonB, pg_sys};
 /// Project a single row from an aggregate `RecordBatch` into a Postgres `TupleTableSlot`.
 ///
 /// The DataFusion output schema is: `[group_col_0, ..., group_col_N, agg_0, ..., agg_M]`.
-/// Each column is mapped to the correct position in the Postgres tuple via `output_index`.
+/// The raw Postgres tuple has the same layout: `[groups..., aggregates..., resjunk...]`.
 /// `pdb.agg()` entries have no column of their own; their assembled documents come
 /// in `pdb_agg_json`, one per entry in target-list order.
 ///
@@ -50,21 +50,21 @@ pub unsafe fn project_aggregate_row_to_slot(
     targetlist: &JoinAggregateTargetList,
     group_df_indices: &[usize],
     pdb_agg_json: Vec<serde_json::Value>,
-) -> *mut pg_sys::TupleTableSlot {
+) {
     let tupdesc = (*slot).tts_tupleDescriptor;
     let natts = (*tupdesc).natts as usize;
+    let raw_columns = targetlist.group_columns.len() + targetlist.aggregates.len();
+    assert!(
+        natts >= raw_columns,
+        "aggregate raw tuple must contain every group and aggregate column"
+    );
     let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
     let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
 
     // Fill GROUP BY columns
-    for (i, gc) in targetlist.group_columns.iter().enumerate() {
-        let pg_idx = gc.output_index;
-        if pg_idx >= natts {
-            continue;
-        }
-
+    for (pg_idx, gc) in targetlist.group_columns.iter().enumerate() {
         // Use the pre-calculated DataFusion column index for this GROUP BY column
-        let df_col_idx = group_df_indices[i];
+        let df_col_idx = group_df_indices[pg_idx];
         let col = batch.column(df_col_idx);
         let expected_type = {
             #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
@@ -110,20 +110,14 @@ pub unsafe fn project_aggregate_row_to_slot(
     let mut df_col_idx = num_unique_group_cols;
     let mut pdb_agg_json = pdb_agg_json.into_iter();
 
-    for agg in &targetlist.aggregates {
-        let pg_idx = agg.output_index;
+    for (offset, agg) in targetlist.aggregates.iter().enumerate() {
+        let pg_idx = targetlist.group_columns.len() + offset;
         if let AggKind::PdbAgg(_) = agg.agg_kind {
             let document = pdb_agg_json
                 .next()
                 .expect("one assembled document per pdb.agg entry");
-            if pg_idx < natts {
-                datums[pg_idx] = JsonB(document).into_datum().expect("jsonb datum");
-                isnull[pg_idx] = false;
-            }
-            continue;
-        }
-        if pg_idx >= natts {
-            df_col_idx += 1;
+            datums[pg_idx] = JsonB(document).into_datum().expect("jsonb datum");
+            isnull[pg_idx] = false;
             continue;
         }
 
@@ -185,9 +179,13 @@ pub unsafe fn project_aggregate_row_to_slot(
         df_col_idx += 1;
     }
 
+    // Positions past the raw columns are resjunk predicate Vars appended by
+    // add_vars_to_tlist. ExecProject never reads them; null them rather than
+    // leave stale values behind.
+    datums[raw_columns..].fill(pg_sys::Datum::null());
+    isnull[raw_columns..].fill(true);
+
     // Mark slot as non-empty
     (*slot).tts_flags &= !(pg_sys::TTS_FLAG_EMPTY as u16);
     (*slot).tts_nvalid = natts as i16;
-
-    slot
 }

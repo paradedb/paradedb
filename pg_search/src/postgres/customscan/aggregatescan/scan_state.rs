@@ -143,7 +143,7 @@ pub struct AggregateScanState {
     /// has aggregates inside `FuncExpr` wrappers that need per-row projection.
     pub wrapped_projection: Option<WrappedAggregateProjection>,
 
-    /// Reusable tuple slot for aggregate result rows
+    /// Tantivy-only reusable tuple slot for aggregate result rows.
     /// Created once during begin_custom_scan and cleared/reused for each row
     /// to avoid per-row memory allocation and leaks
     pub scan_slot: Option<*mut pg_sys::TupleTableSlot>,

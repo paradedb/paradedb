@@ -29,7 +29,14 @@ INSERT INTO df_fallback_products (description, category, price, rating) VALUES
     ('Book novel read', 'Books', 14.99, 5),
     ('Pen ballpoint write', 'Office', 2.99, 3),
     ('Desk wooden sit', 'Furniture', 399.99, 4),
-    ('Lamp bright light', 'Lighting', 59.99, 4);
+    ('Lamp bright light', 'Lighting', 59.99, 4),
+    ('Garden hose green', 'Garden', 19.99, NULL),
+    ('Garden gloves thick', 'Garden', 9.99, NULL);
+-- One row per group makes the functionally-dependent output case explicit;
+-- the large text expression exercises per-tuple projection allocation.
+INSERT INTO df_fallback_products (description, category, price, rating)
+SELECT 'Memory projection row ' || g, 'Memory', g, 1
+FROM generate_series(1, 2048) g;
 CREATE INDEX df_fallback_products_idx ON df_fallback_products
 USING paradedb (id, description, category, price, rating)
 WITH (
@@ -167,7 +174,218 @@ ORDER BY category;
  Toys        |     1 |   49.99 |   2 |  49.99 |   49.99
 (11 rows)
 
--- Test 2.4: Scalar aggregate (no GROUP BY) stays on Tantivy — it produces a
+-- Test 2.4: PostgreSQL evaluates wrappers and multi-aggregate expressions
+-- over the flat DataFusion tuple.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, COUNT(*), COUNT(*) * 2, COUNT(*)::numeric, COUNT(*) / 2.0
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes'
+GROUP BY category
+ORDER BY 2 DESC
+LIMIT 2;
+                                                                                                                     QUERY PLAN                                                                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: category, (count(*)), (((count(*)) * 2)), (((count(*)))::numeric), ((((count(*)))::numeric / 2.0))
+   ->  Sort
+         Output: category, (count(*)), (((count(*)) * 2)), (((count(*)))::numeric), ((((count(*)))::numeric / 2.0))
+         Sort Key: (count(*)) DESC
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: category, (count(*)), ((count(*)) * 2), ((count(*)))::numeric, (((count(*)))::numeric / 2.0)
+               Backend: DataFusion
+               Indexes: df_fallback_products_idx (df_fallback_products)
+               Group By: category
+               Aggregates: COUNT(*)
+               DataFusion Physical Plan: 
+                 : SortExec: TopK(fetch=2), expr=[agg_0@1 DESC], preserve_partitioning=[false]
+                 :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
+                 :     CooperativeExec
+                 :       PgSearchScan: table=df_fallback_products, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
+
+SELECT category, COUNT(*), COUNT(*) * 2, COUNT(*)::numeric, COUNT(*) / 2.0
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes'
+GROUP BY category
+ORDER BY 2 DESC
+LIMIT 2;
+  category   | count | ?column? | count |        ?column?        
+-------------+-------+----------+-------+------------------------
+ Electronics |     2 |        4 |     2 | 1.00000000000000000000
+ Sports      |     1 |        2 |     1 | 0.50000000000000000000
+(2 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT SUM(rating) + COUNT(*) AS combined,
+       SUM(rating)::text || ':' || category AS labeled
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes'
+GROUP BY category
+ORDER BY category;
+                                                                                                                 QUERY PLAN                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: (((sum(rating)) + (count(*)))), (((((sum(rating)))::text || ':'::text) || category)), category
+   Sort Key: df_fallback_products.category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: ((sum(rating)) + (count(*))), ((((sum(rating)))::text || ':'::text) || category), category
+         Backend: DataFusion
+         Indexes: df_fallback_products_idx (df_fallback_products)
+         Group By: category
+         Aggregates: SUM(rating), COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[sum(df_fallback_products_0.rating) as agg_0, count(1) as agg_1]
+           :   CooperativeExec
+           :     PgSearchScan: table=df_fallback_products, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
+
+SELECT SUM(rating) + COUNT(*) AS combined,
+       SUM(rating)::text || ':' || category AS labeled
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes'
+GROUP BY category
+ORDER BY category;
+ combined |    labeled    
+----------+---------------
+       11 | 9:Electronics
+        5 | 4:Sports
+(2 rows)
+
+-- Test 2.5: NULL, casts and COALESCE remain PostgreSQL expressions.
+SELECT category, COUNT(rating), MAX(rating)::text, COALESCE(SUM(rating), 0),
+       COUNT(rating) * 2, AVG(rating)::numeric(4, 2)
+FROM df_fallback_products
+WHERE description @@@ 'garden OR laptop'
+GROUP BY category
+ORDER BY 2 DESC;
+  category   | count | max | coalesce | ?column? | avg  
+-------------+-------+-----+----------+----------+------
+ Electronics |     2 | 5   |        9 |        4 | 4.50
+ Garden      |     0 |     |        0 |        0 |     
+(2 rows)
+
+-- Test 2.6: HAVING identifies filtered aggregates by complete Aggref identity.
+-- The output and HAVING contain the same two COUNT(*) calls, but the HAVING
+-- predicate must refer to the second filter rather than the first one.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category,
+       COUNT(*) FILTER (WHERE rating >= 4) + COUNT(*) FILTER (WHERE rating <= 3) AS rated
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+GROUP BY category
+HAVING COUNT(*) FILTER (WHERE rating <= 3) > 0
+ORDER BY category;
+                                                                                                                                                           QUERY PLAN                                                                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category, (((count(*) FILTER (WHERE (rating >= 4))) + (count(*) FILTER (WHERE (rating <= 3)))))
+   Sort Key: df_fallback_products.category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: category, ((count(*) FILTER (WHERE (rating >= 4))) + (count(*) FILTER (WHERE (rating <= 3))))
+         Backend: DataFusion
+         Indexes: df_fallback_products_idx (df_fallback_products)
+         Group By: category
+         Aggregates: COUNT(*), COUNT(*)
+         DataFusion Physical Plan: 
+           : FilterExec: agg_1@2 > 0
+           :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) FILTER (WHERE df_fallback_products_0.rating >= Int64(4)) as agg_0, count(1) FILTER (WHERE df_fallback_products_0.rating <= Int64(3)) as agg_1]
+           :     CooperativeExec
+           :       PgSearchScan: table=df_fallback_products, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp","lenient":null,"conjunction_mode":null}}}}
+(14 rows)
+
+SELECT category,
+       COUNT(*) FILTER (WHERE rating >= 4) + COUNT(*) FILTER (WHERE rating <= 3) AS rated
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+GROUP BY category
+HAVING COUNT(*) FILTER (WHERE rating <= 3) > 0
+ORDER BY category;
+ category | rated 
+----------+-------
+ Clothing |     1
+ Fitness  |     1
+ Office   |     1
+ Toys     |     1
+(4 rows)
+
+-- Test 2.7: category is functionally dependent on the grouped primary key.
+-- It must be a real raw grouping input, never an uninitialised resjunk slot.
+-- The text group key also exercises by-reference Arrow-to-Datum conversion.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT id, category, upper(category),
+       repeat(category, 1024) || ':' || COUNT(*)::text AS label
+FROM df_fallback_products
+WHERE description @@@ 'memory'
+GROUP BY id;
+                                                                                                          QUERY PLAN                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: id, category, upper(category), ((repeat(category, 1024) || ':'::text) || ((count(*)))::text)
+   Backend: DataFusion
+   Indexes: df_fallback_products_idx (df_fallback_products)
+   Group By: category, id
+   Aggregates: COUNT(*)
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Single, gby=[id@0 as id, category@1 as category], aggr=[count(1) as agg_0]
+     :   CooperativeExec
+     :     PgSearchScan: table=df_fallback_products, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"memory","lenient":null,"conjunction_mode":null}}}}
+(10 rows)
+
+SELECT COUNT(*) AS groups,
+       BOOL_AND(category = 'Memory') AS categories_ok,
+       BOOL_AND(upper_category = 'MEMORY') AS wrappers_ok,
+       MIN(octet_length(label)) AS min_label_bytes,
+       MAX(octet_length(label)) AS max_label_bytes
+FROM (
+    SELECT id, category, upper(category) AS upper_category,
+           repeat(category, 1024) || ':' || COUNT(*)::text AS label
+    FROM df_fallback_products
+    WHERE description @@@ 'memory'
+    GROUP BY id
+) projected_groups;
+ groups | categories_ok | wrappers_ok | min_label_bytes | max_label_bytes 
+--------+---------------+-------------+-----------------+-----------------
+   2048 | t             | t           |            6146 |            6146
+(1 row)
+
+-- Test 2.8: DISTINCT with an ORDER BY whose sort-group order differs from the
+-- output column order.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT DISTINCT category, id
+FROM df_fallback_products
+WHERE description @@@ 'memory'
+ORDER BY id DESC;
+                                                                                                             QUERY PLAN                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category, id
+   Sort Key: df_fallback_products.id DESC
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: category, id
+         Backend: DataFusion
+         Indexes: df_fallback_products_idx (df_fallback_products)
+         Group By: category, id
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[category@1 as category, id@0 as id], aggr=[]
+           :   CooperativeExec
+           :     PgSearchScan: table=df_fallback_products, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"memory","lenient":null,"conjunction_mode":null}}}}
+(12 rows)
+
+SELECT COUNT(*) AS groups,
+       MIN(category) AS only_category,
+       MAX(id) - MIN(id) + 1 AS id_span
+FROM (
+    SELECT DISTINCT category, id
+    FROM df_fallback_products
+    WHERE description @@@ 'memory'
+    ORDER BY id DESC
+) distinct_groups;
+ groups | only_category | id_span 
+--------+---------------+---------
+   2048 | Memory        |    2048
+(1 row)
+
+-- Test 2.9: Scalar aggregate (no GROUP BY) stays on Tantivy — it produces a
 -- single row and cannot truncate, so the bucket cap is irrelevant.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), SUM(price)

@@ -2608,6 +2608,26 @@ impl JoinSortExprKind {
     }
 }
 
+/// Check if a given pathkey is part of `root->sort_pathkeys` (the explicit `ORDER BY` clause).
+///
+/// In PostgreSQL, pathkeys are canonicalized, so equality can be verified by pointer comparison
+/// or by matching the EquivalenceClass and sort direction.
+unsafe fn pathkey_is_in_sort_pathkeys(
+    root: *mut pg_sys::PlannerInfo,
+    pathkey: *mut pg_sys::PathKey,
+) -> bool {
+    let sort_pathkeys = (*root).sort_pathkeys;
+    if sort_pathkeys.is_null() {
+        return false;
+    }
+    let sort_pks = PgList::<pg_sys::PathKey>::from_pg(sort_pathkeys);
+    sort_pks.iter_ptr().any(|spk| {
+        spk == pathkey
+            || ((*spk).pk_eclass == (*pathkey).pk_eclass
+                && (*spk).pk_nulls_first == (*pathkey).pk_nulls_first)
+    })
+}
+
 /// Extract `ORDER BY` information from the Postgres query planner to pass down to the
 /// DataFusion execution plan.
 ///
@@ -2726,11 +2746,14 @@ pub(super) unsafe fn extract_orderby(
                 true,
             ) {
                 JoinSortExprKind::Resolved(info) => {
-                    // For DISTINCT queries, NullTest pathkeys come from the
-                    // DISTINCT target list — they are handled by the GROUP BY,
-                    // not the sort. Acknowledge the pathkey but don't add it to
-                    // the ORDER BY list.
-                    if has_distinct && matches!(info.feature, OrderByFeature::NullTest { .. }) {
+                    // For DISTINCT queries, NullTest pathkeys that do not come from
+                    // the explicit ORDER BY clause come from the DISTINCT target list — they
+                    // are handled by the GROUP BY, not the sort. Acknowledge the
+                    // pathkey but don't add it to the ORDER BY list.
+                    if has_distinct
+                        && matches!(info.feature, OrderByFeature::NullTest { .. })
+                        && !pathkey_is_in_sort_pathkeys(root, pathkey_ptr)
+                    {
                         pathkey_resolved = true;
                     } else {
                         result.push(info);

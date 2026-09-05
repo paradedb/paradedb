@@ -810,10 +810,11 @@ unsafe fn extract_non_equi_filter_from_quals(
 
         // Check if this conjunct references only a side that PostgreSQL pushes down.
         // For Inner joins, quals referencing only left or only right are pushed into base rels.
-        // For Left joins, quals referencing only the nullable side (right) are pushed into right's base rels
-        // only when the right side is a base relation (not an outer join, where outer-join-delayed quals cannot be pushed down).
-        // For Right joins, quals referencing only the nullable side (left) are pushed into left's base rels
-        // only when the left side is a base relation.
+        // For Left, Semi, and Anti joins, quals referencing only the inner/nullable side (right)
+        // are pushed into right's base rels only when the right side is a base relation
+        // (not an outer join, where outer-join-delayed quals cannot be pushed down).
+        // For Right, RightSemi, and RightAnti joins, quals referencing only the inner/nullable
+        // side (left) are pushed into left's base rels only when the left side is a base relation.
         let rtis = expr_collect_rtis(node);
         let pushed_down = if rtis.is_empty() {
             false
@@ -824,10 +825,10 @@ unsafe fn extract_non_equi_filter_from_quals(
                         || (matches!(right, RelNode::Scan(_))
                             && rtis.iter().all(|r| right_rtis.contains(r)))
                 }
-                JoinType::Left => {
+                JoinType::Left | JoinType::Semi | JoinType::Anti { .. } => {
                     matches!(right, RelNode::Scan(_)) && rtis.iter().all(|r| right_rtis.contains(r))
                 }
-                JoinType::Right => {
+                JoinType::Right | JoinType::RightSemi | JoinType::RightAnti => {
                     matches!(left, RelNode::Scan(_)) && rtis.iter().all(|r| left_rtis.contains(r))
                 }
                 _ => false,

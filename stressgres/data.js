@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788581092874,
+  "lastUpdate": 1788581100512,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -312962,6 +312962,126 @@ window.BENCHMARK_DATA = {
             "value": 8.604217384563542,
             "unit": "median tps",
             "extra": "avg tps: 22.285251368579495, max tps: 216.10394729527272, count: 57416"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f4b1f65e25f5ebeda6744e1e1fd00f962ba89260",
+          "message": "fix: clean up the pg15/pg16 insert states before a commit (#6211)\n\n## Ticket(s) Closed\n\n- Closes #6208\n\n## What\n\nThis PR runs the pg15/pg16 `aminsertcleanup` polyfill's cleanup before a\ncommit, instead of at the end of the utility statement.\n\n## Why\n\n`CREATE INDEX CONCURRENTLY` on a `bm25` index fails on Postgres 15 and\n16 when another backend writes to the table during the build:\n\n```\nWARNING:  buffer refcount leak: [11388] (rel=base/460123/462610, blockNum=582, ...)\nERROR:  buffer 11388 is not owned by resource owner TopTransaction\n```\n\nAn `InsertState` pins buffers, and a pin belongs to the resource owner\nof the transaction that took it. The polyfill keeps every state in a\nframe that a `ProcessUtility` or `ExecutorRun` hook opens, and cleans\nthat frame up when the hook returns. `CREATE INDEX CONCURRENTLY` commits\nbetween its phases while the frame is still open, so the state its\nvalidation pass builds outlives the owner of its pins. One local run\nwent further and ended in a segfault.\n\npg17 added `index_insert_cleanup`, and `validate_index` calls it before\nit returns. So 17 and 18 never reach this, and the polyfill is compiled\nout there.\n\nA subtransaction abort is the other way a state can outlive its owner,\nand it's worse. A statement that fails part way, say a multi-row\n`INSERT` that trips the primary key on its third row inside a PL/pgSQL\n`EXCEPTION` block, leaves its frame behind: the guard sees the unwind\nand steps aside. The next guard to exit then pops that stale frame\ninstead of its own and runs the cleanup on it, which commits the rows\nthe rollback discarded over pins the aborting owner has already given\nup. With `global_mutable_segment_rows = 0` that takes the backend down\nwith `SIGABRT`.\n\n## How\n\nA `PreCommit` xact callback drains every open frame, beside the `Abort`\nand `Commit` ones already registered. The frames themselves stay on the\nstack, because only a `FrameGuard` may pop one and every guard is still\nlive.\n\nEach frame now records the nesting level it was pushed at, and an\n`AbortSub` callback drops every frame at the aborting level or deeper,\nwithout cleanup. Those frames can only belong to hooks that left through\nan error, and the callback runs before the subtransaction's resource\nowner releases its pins, the same order the top-level abort path already\nrelies on.\n\nThis also reverts a9cab39e4, which held #6146's concurrent-build tests\nto pg17 and newer while this was open.\n\n## Tests\n\n`tests/tests/concurrent_build_writes.rs` races a writer against a plain\nbuild. It declares no `partition_by`, so it covers the bug on its own.\n\nStep 1: seed a table with about 60k rows.\n\nStep 2: run the build on one connection.\n\n```sql\nCREATE INDEX CONCURRENTLY cic_writes_idx ON cic_writes\nUSING bm25 (id, body) WITH (key_field = 'id');\n```\n\nStep 3: on a second connection, loop `UPDATE`s and `INSERT`s until the\nbuild returns.\n\nVerified on `PGVER=15.15` and `PGVER=16.11`, where it fails before the\nchange and passes after, and on `PGVER=18.1`.\n\n`a_subtransaction_abort_drops_its_insert_state` in `insert.rs` runs the\nfailing-`INSERT`-inside-`EXCEPTION` shape above with immutable inserts,\nthen checks the index holds exactly the surviving rows. It crashes the\nbackend on 16 before the fix and passes after; it also runs on 17 and\n18, where the native `aminsertcleanup` handles the same case.",
+          "timestamp": "2026-09-04T20:27:22-07:00",
+          "tree_id": "f48a74ba352432b9f4a1dbe2b430bb5a479eacb8",
+          "url": "https://github.com/paradedb/paradedb/commit/f4b1f65e25f5ebeda6744e1e1fd00f962ba89260"
+        },
+        "date": 1788581096940,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 194.44999739053526,
+            "unit": "median tps",
+            "extra": "avg tps: 192.90118952143513, max tps: 219.04666527190105, count: 57377"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 405.37617344174646,
+            "unit": "median tps",
+            "extra": "avg tps: 391.5187290482484, max tps: 495.7961198390477, count: 57377"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 4022.7963306314778,
+            "unit": "median tps",
+            "extra": "avg tps: 4020.871898135743, max tps: 4110.009166737686, count: 57377"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 203.3587452431084,
+            "unit": "median tps",
+            "extra": "avg tps: 201.40801081695457, max tps: 242.92130409651278, count: 57377"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3394.879202161445,
+            "unit": "median tps",
+            "extra": "avg tps: 3349.3107130051035, max tps: 3441.2277626457394, count: 57377"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3428.626551675216,
+            "unit": "median tps",
+            "extra": "avg tps: 3403.8288865311015, max tps: 3440.545696671296, count: 57377"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 170.91707718652654,
+            "unit": "median tps",
+            "extra": "avg tps: 169.25903566308884, max tps: 186.0366855739755, count: 57377"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 317.3377236118977,
+            "unit": "median tps",
+            "extra": "avg tps: 313.4230841273092, max tps: 394.0999144172626, count: 57377"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Primary - tps",
+            "value": 558.1480444376484,
+            "unit": "median tps",
+            "extra": "avg tps: 555.2774665197419, max tps: 599.4089827430154, count: 57377"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 645.4204718808711,
+            "unit": "median tps",
+            "extra": "avg tps: 641.4733443031595, max tps: 717.9370162753996, count: 57377"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1279.3194401543612,
+            "unit": "median tps",
+            "extra": "avg tps: 1278.8466804153227, max tps: 1287.0896755119247, count: 57377"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 417.1274139975465,
+            "unit": "median tps",
+            "extra": "avg tps: 410.4067080055499, max tps: 592.5684044409029, count: 57377"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 590.6224315795993,
+            "unit": "median tps",
+            "extra": "avg tps: 586.9748473028981, max tps: 645.2083823902097, count: 57377"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2329.8132590122354,
+            "unit": "median tps",
+            "extra": "avg tps: 2334.6668955322343, max tps: 2407.3860103505717, count: 57377"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1743.1635480552836,
+            "unit": "median tps",
+            "extra": "avg tps: 1748.3955033024804, max tps: 2051.3498510245636, count: 57377"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 10.013045914413608,
+            "unit": "median tps",
+            "extra": "avg tps: 18.409027075206605, max tps: 169.88056920319423, count: 57377"
           }
         ]
       }

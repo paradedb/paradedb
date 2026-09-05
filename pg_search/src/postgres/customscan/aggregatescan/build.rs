@@ -322,8 +322,8 @@ impl AggregateCSClause {
 
     /// True when this clause is a single doc-count aggregate with no GROUP BY,
     /// FILTER, or ORDER BY: the shape answerable by `Weight::count` alone.
-    /// Matches `COUNT(*)` and pdb.agg value_count over a field guaranteed
-    /// present exactly once per doc.
+    /// Matches `COUNT(*)` and pdb.agg value_count over the internal ctid field,
+    /// which is present exactly once per doc.
     pub fn is_bare_doc_count(&self) -> bool {
         if self.has_groupby() || self.has_filter() || self.orderby.has_orderby() {
             return false;
@@ -338,15 +338,14 @@ impl AggregateCSClause {
                 agg_json,
                 filter: None,
                 ..
-            } => self.is_doc_count_json(agg_json),
+            } => Self::is_doc_count_json(agg_json),
             _ => false,
         }
     }
 
-    /// True for `{"value_count": {"field": f}}` where `f` is single-valued and
-    /// present on every doc — the key field or ctid — making the value count
-    /// equal to the doc count.
-    fn is_doc_count_json(&self, agg_json: &serde_json::Value) -> bool {
+    /// True for `{"value_count": {"field": "ctid"}}`, whose value count is
+    /// equivalent to the document count.
+    fn is_doc_count_json(agg_json: &serde_json::Value) -> bool {
         let Some(aggs) = agg_json.as_object() else {
             return false;
         };
@@ -365,15 +364,7 @@ impl AggregateCSClause {
         {
             return false;
         }
-        if field == CTID_FIELD_NAME {
-            return true;
-        }
-        let indexrel = PgSearchRelation::with_lock(self.indexrelid, pg_sys::AccessShareLock as _);
-        SearchIndexSchema::open(&indexrel).is_ok_and(|schema| {
-            schema
-                .key_field_name()
-                .is_some_and(|key_field_name| key_field_name.to_string() == field)
-        })
+        field == CTID_FIELD_NAME
     }
 
     pub fn planner_should_replace_aggrefs(&self) -> bool {

@@ -104,13 +104,13 @@ Execution-layer files under [`pg_search/src/scan/`](../../../scan/):
 
 ## GUCs
 
-| GUC                                      | Default | Effect                                                                                                  |
-| ---------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------- |
-| `paradedb.enable_join_custom_scan`       | `on`    | Master switch                                                                                           |
-| `paradedb.enable_range_partitioned_join` | `false` | Range co-partitioned joins                                                                              |
-| `paradedb.enable_segmented_topk`         | `true`  | `SegmentedTopKExec` injection                                                                           |
-| `paradedb.defer_column_fetch`            | `auto`  | Fetch term ordinals at the decode point (`on`), in the scan (`off`), or per the placement rule (`auto`) |
-| `paradedb.defer_string_decode`           | `auto`  | Decode strings at the consumer (`on`), in the scan (`off`), or per the placement rule (`auto`)          |
+| GUC                                      | Default | Effect                                                                                              |
+| ---------------------------------------- | ------- | --------------------------------------------------------------------------------------------------- |
+| `paradedb.enable_join_custom_scan`       | `on`    | Master switch                                                                                       |
+| `paradedb.enable_range_partitioned_join` | `false` | Range co-partitioned joins                                                                          |
+| `paradedb.enable_segmented_topk`         | `true`  | `SegmentedTopKExec` injection                                                                       |
+| `paradedb.defer_column_fetch`            | `auto`  | Fetch term ordinals with the decode (`on`), in the scan (`off`), or per the placement rule (`auto`) |
+| `paradedb.defer_string_decode`           | `auto`  | Decode strings at the consumer (`on`), in the scan (`off`), or per the placement rule (`auto`)      |
 
 [activation]: mod.rs
 [relnode]: build.rs

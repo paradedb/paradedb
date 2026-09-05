@@ -570,10 +570,7 @@ impl PgSearchScanPlan {
             Boundedness::Bounded,
         ));
 
-        let mut state = plan
-            .state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut state = plan.state.lock().unwrap();
         if let ExecutionState::Shared { scan_state, .. }
         | ExecutionState::RangePartitioned { scan_state, .. } = &mut *state
         {
@@ -657,6 +654,7 @@ impl PgSearchScanPlan {
             indexrelid: self.indexrelid,
             table_alias: self.table_alias.clone(),
             deferred_fields: self.deferred_fields.clone(),
+            eager_fields: self.eager_fields.clone(),
             deferred_ctid_plan_position: self.deferred_ctid_plan_position,
             which_fast_fields: scanner_config.which_fast_fields,
             heap_relid: scanner_config.heap_relid,
@@ -814,6 +812,7 @@ impl PgSearchScanPlan {
         )
         .with_table_alias(descriptor.table_alias);
         plan.dynamic_filters = dynamic_filters;
+        plan.eager_fields = descriptor.eager_fields;
         let final_plan = if let Some(assigned) = descriptor.assigned_partition {
             plan.with_assigned_partition(assigned)
         } else {
@@ -840,6 +839,8 @@ struct ScanDispatchDescriptor {
     #[serde(default)]
     table_alias: String,
     deferred_fields: Vec<DeferredField>,
+    #[serde(default)]
+    eager_fields: Vec<String>,
     deferred_ctid_plan_position: Option<usize>,
     which_fast_fields: Vec<WhichFastField>,
     heap_relid: u32,

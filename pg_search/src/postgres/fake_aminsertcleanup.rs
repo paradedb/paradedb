@@ -65,14 +65,22 @@
 //! it returns; here the commit itself is the deadline, so a pre-commit callback drains every
 //! frame while the pins are still the committing transaction's to release.
 //!
+//! A subtransaction abort is the other way a state can outlive its owner. A statement that
+//! fails part way leaves its frame behind: the guard sees the unwind and steps aside, and no
+//! later guard may pop it, or it would commit rows the rollback discarded. Each frame records
+//! the nesting level it was pushed at, and the subtransaction abort callback drops every frame
+//! at its level or deeper. That callback runs before the aborting resource owner gives up its
+//! pins, so the states' own drops still release them cleanly.
+//!
 //! # Panic / unwind safety
 //!
 //! `insertcleanup` can panic (e.g. if called with `InsertMode::Completed`, or via `.expect()`
 //! calls inside the inner cleanup functions). If `FrameGuard::drop` ran cleanup during an
 //! already-active unwind, a second panic would abort the process. To prevent this, `Drop` checks
-//! `std::thread::panicking()` and skips cleanup when already unwinding. The transaction-abort
-//! xact callback registered in `push_insert_state` clears the stack in that case, which is safe
-//! because Postgres rolls back all storage changes on error anyway.
+//! `std::thread::panicking()` and skips cleanup when already unwinding. The abort callbacks
+//! registered in `push_insert_state` drop the frame in that case, whether the whole transaction
+//! or only a subtransaction rolls back, which is safe because Postgres discards the storage
+//! changes either way.
 
 #![allow(static_mut_refs)]
 
@@ -91,6 +99,10 @@ use std::collections::hash_map::Entry;
 /// Pushed onto [`EXECUTOR_RUN_STACK`] by [`FrameGuard::new`] and popped by [`FrameGuard::drop`].
 /// Starts empty; `aminsert` calls populate it via [`push_insert_state`].
 struct InsertFrame {
+    /// The transaction nesting level the hook was entered at. A subtransaction abort discards
+    /// every frame at its level or deeper, since those hooks can only have left through an
+    /// error.
+    nest_level: i32,
     active: HashMap<pg_sys::Oid, InsertFrameEntry>,
 }
 
@@ -127,6 +139,19 @@ unsafe fn ensure_xact_callbacks_registered() {
     pgrx::register_xact_callback(pgrx::PgXactCallbackEvent::Commit, || unsafe {
         XACT_CALLBACKS_REGISTERED = false;
     });
+    pgrx::register_subxact_callback(pgrx::PgSubXactCallbackEvent::AbortSub, |_, _| unsafe {
+        discard_aborted_frames();
+    });
+}
+
+/// Drops, without cleanup, every frame the aborting subtransaction orphaned.
+///
+/// A frame at the aborting level or deeper has no live guard left: its hook exited through an
+/// error, and only this abort follows. A guard still on the C stack sits at a shallower level,
+/// so its frame survives.
+unsafe fn discard_aborted_frames() {
+    let level = pg_sys::GetCurrentTransactionNestLevel();
+    EXECUTOR_RUN_STACK.retain(|frame| frame.nest_level < level);
 }
 
 /// Clean up every state the open frames hold, leaving the frames themselves to their guards.
@@ -185,6 +210,7 @@ impl FrameGuard {
     /// Must be called from within a Postgres executor hook (main thread, valid memory context).
     unsafe fn new() -> Self {
         EXECUTOR_RUN_STACK.push(InsertFrame {
+            nest_level: pg_sys::GetCurrentTransactionNestLevel(),
             active: HashMap::default(),
         });
 
@@ -199,8 +225,8 @@ impl Drop for FrameGuard {
         unsafe {
             if std::thread::panicking() {
                 // We are already unwinding.  Calling insertcleanup now risks a second panic,
-                // which would abort the process.  Leave the frame in place; the xact-abort
-                // callback registered above will clear the stack when the transaction rolls back.
+                // which would abort the process.  Leave the frame in place; whichever abort
+                // follows, of the transaction or of a subtransaction, drops it.
                 return;
             }
 

@@ -439,7 +439,7 @@ mod tests {
             SELECT (i * 7919) % 100, 'row ' || i FROM generate_series(1, 20000) i;
             CREATE INDEX sample_src_idx ON sample_src
                 USING paradedb (id, tenant_id, name)
-                WITH (key_field = 'id', partition_by = 'id, tenant_id');
+                WITH (partition_by = 'id, tenant_id');
             "#,
         )
         .unwrap();
@@ -484,7 +484,7 @@ mod tests {
             SELECT CASE WHEN i % 10 = 0 THEN NULL ELSE i END FROM generate_series(1, 5000) i;
             CREATE INDEX sample_expr_idx ON sample_expr
                 USING paradedb (id, ((base * 2)::pdb.alias('doubled')))
-                WITH (key_field = 'id', partition_by = 'doubled');
+                WITH (partition_by = 'doubled');
             "#,
         )
         .unwrap();
@@ -514,11 +514,10 @@ mod tests {
             r#"
             CREATE TABLE sample_plain (id BIGSERIAL PRIMARY KEY, v BIGINT);
             INSERT INTO sample_plain (v) SELECT i FROM generate_series(1, 100) i;
-            CREATE INDEX sample_plain_idx ON sample_plain USING paradedb (id, v)
-                WITH (key_field = 'id');
+            CREATE INDEX sample_plain_idx ON sample_plain USING paradedb (id, v);
             CREATE TABLE sample_empty (id BIGSERIAL PRIMARY KEY, v BIGINT);
             CREATE INDEX sample_empty_idx ON sample_empty USING paradedb (id, v)
-                WITH (key_field = 'id', partition_by = 'v');
+                WITH (partition_by = 'v');
             "#,
         )
         .unwrap();
@@ -555,7 +554,7 @@ mod tests {
             SELECT i % 50, repeat('lorem ipsum dolor sit amet ', 20) FROM generate_series(1, 40000) i;
             CREATE INDEX sample_parallel_idx ON sample_parallel
                 USING paradedb (id, tenant_id, body)
-                WITH (key_field = 'id', partition_by = 'tenant_id, id', target_segment_count = 8);
+                WITH (partition_by = 'tenant_id, id', target_segment_count = 8);
             "#,
         )
         .unwrap();
@@ -587,7 +586,7 @@ mod tests {
             FROM generate_series(1, 4000) i;
             CREATE INDEX sample_wide_idx ON sample_wide
                 USING paradedb (id, (label::pdb.literal), created)
-                WITH (key_field = 'id', partition_by = 'label, created');
+                WITH (partition_by = 'label, created');
             "#,
         )
         .unwrap();

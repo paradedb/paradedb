@@ -78,7 +78,7 @@ mod tests {
             SET max_parallel_maintenance_workers = 0;
             CREATE INDEX stats_src_idx ON stats_src
                 USING paradedb (id, tenant_id, name, seen, score, flag)
-                WITH (key_field = 'id', target_segment_count = 1,
+                WITH (target_segment_count = 1,
                       text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}');
             "#,
         )
@@ -166,7 +166,7 @@ mod tests {
             SET max_parallel_maintenance_workers = 0;
             SET maintenance_work_mem = '16MB';
             CREATE INDEX stats_merge_idx ON stats_merge USING paradedb (id, tenant_id, name)
-                WITH (key_field = 'id', target_segment_count = 1);
+                WITH (target_segment_count = 1);
             "#,
         )
         .unwrap();
@@ -193,7 +193,7 @@ mod tests {
             FROM generate_series(1, 20000) i;
             SET max_parallel_maintenance_workers = 0;
             CREATE INDEX stats_part_idx ON stats_part USING paradedb (id, tenant_id, name)
-                WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 8);
+                WITH (partition_by = 'tenant_id', target_segment_count = 8);
             "#,
         )
         .unwrap();
@@ -272,7 +272,7 @@ mod tests {
             ANALYZE stats_plain;
             SET max_parallel_maintenance_workers = 0;
             CREATE INDEX stats_plain_idx ON stats_plain USING paradedb (id, name)
-                WITH (key_field = 'id', target_segment_count = 4);
+                WITH (target_segment_count = 4);
             "#,
         )
         .unwrap();
@@ -323,7 +323,7 @@ mod tests {
             SET max_parallel_maintenance_workers = 0;
             SET maintenance_work_mem = '16MB';
             CREATE INDEX stats_partition_merge_idx ON stats_partition_merge USING paradedb (id, tenant_id, name)
-                WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 2);
+                WITH (partition_by = 'tenant_id', target_segment_count = 2);
             "#,
         )
         .unwrap();
@@ -366,7 +366,7 @@ mod tests {
             FROM generate_series(1, 20000) i;
             SET max_parallel_maintenance_workers = 0;
             CREATE INDEX stats_grow_idx ON stats_grow USING paradedb (id, tenant_id, name)
-                WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 4);
+                WITH (partition_by = 'tenant_id', target_segment_count = 4);
             "#,
         )
         .unwrap();
@@ -432,7 +432,7 @@ mod tests {
             FROM generate_series(1, 20000) i;
             SET max_parallel_maintenance_workers = 0;
             CREATE INDEX stats_unboxed_idx ON stats_unboxed USING paradedb (id, tenant_id, name)
-                WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 4,
+                WITH (partition_by = 'tenant_id', target_segment_count = 4,
                       mutable_segment_rows = 0);
             "#,
         )
@@ -542,7 +542,7 @@ mod tests {
             ANALYZE stats_ts;
             SET max_parallel_maintenance_workers = 0;
             CREATE INDEX stats_ts_idx ON stats_ts USING paradedb (id, created_at, name)
-                WITH (key_field = 'id', target_segment_count = 4);
+                WITH (target_segment_count = 4);
             "#,
         )
         .unwrap();
@@ -598,7 +598,7 @@ mod tests {
             FROM generate_series(1, 20000) i;
             SET max_parallel_maintenance_workers = 0;
             CREATE INDEX {index} ON {table} USING paradedb (id, name)
-                WITH (key_field = 'id', partition_by = 'name', target_segment_count = 4,
+                WITH (partition_by = 'name', target_segment_count = 4,
                       text_fields = '{{"name": {{"tokenizer": {{"type": "keyword"}}, "fast": true, "normalizer": "{normalizer}"}}}}');
             "#
         ))

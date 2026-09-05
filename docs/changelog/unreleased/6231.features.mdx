@@ -1,0 +1,5 @@
+---
+header: features
+---
+
+The two steps of a late-materialized string lookup are now placed per source by a planner rule. The columnar-field read moves into the scan when the rows would otherwise reach it out of document order or multiplied by a join, and the dictionary read moves there too when a join multiplies the rows and nothing above stops after a fixed number of them. `paradedb.defer_column_fetch` and the new `paradedb.defer_string_decode` accept `auto` (default), `on`, and `off` to pin either step.

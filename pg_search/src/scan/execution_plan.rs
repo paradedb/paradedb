@@ -178,6 +178,9 @@ pub struct PgSearchScanPlan {
     /// Metrics for EXPLAIN ANALYZE.
     metrics: ExecutionPlanMetricsSet,
     deferred_fields: Vec<DeferredField>,
+    /// String columns the placement rule handed back to the scan to decode, kept for EXPLAIN
+    /// so the decision is visible where it was made.
+    eager_fields: Vec<String>,
     /// Shared FFHelper for deferred lookup and deferred visibility.
     ///
     /// A scan may participate in late materialization, deferred visibility, or both.
@@ -212,6 +215,7 @@ impl Clone for PgSearchScanPlan {
             dynamic_filters: self.dynamic_filters.clone(),
             metrics: self.metrics.clone(),
             deferred_fields: self.deferred_fields.clone(),
+            eager_fields: self.eager_fields.clone(),
             ffhelper: self.ffhelper.clone(),
             indexrelid: self.indexrelid,
             table_alias: self.table_alias.clone(),
@@ -340,6 +344,7 @@ impl PgSearchScanPlan {
             dynamic_filters: Vec::new(),
             metrics: ExecutionPlanMetricsSet::new(),
             deferred_fields,
+            eager_fields: Vec::new(),
             ffhelper,
             indexrelid,
             table_alias: String::new(),
@@ -448,6 +453,7 @@ impl PgSearchScanPlan {
             dynamic_filters,
             metrics: self.metrics.clone(),
             deferred_fields: self.deferred_fields.clone(),
+            eager_fields: self.eager_fields.clone(),
             ffhelper: self.ffhelper.clone(),
             indexrelid: self.indexrelid,
             table_alias: self.table_alias.clone(),
@@ -503,6 +509,81 @@ impl PgSearchScanPlan {
 
     pub fn has_deferred_fields(&self) -> bool {
         !self.deferred_fields.is_empty()
+    }
+
+    pub fn deferred_fields(&self) -> &[DeferredField] {
+        &self.deferred_fields
+    }
+
+    /// Rebuilds this scan with deferred columns moved into it: the `fetch_at_scan` names
+    /// leave as term ordinals, the `eager` names leave decoded. An eager column changes the
+    /// scan's output type, so its schema and properties are rebuilt and the scanner reads the
+    /// column as a plain named field, which also gives it the larger decode batch.
+    pub(crate) fn with_deferred_placement(
+        &self,
+        fetch_at_scan: &[String],
+        eager: &[String],
+    ) -> Result<Arc<Self>> {
+        let mut plan = self.clone();
+        for d in plan.deferred_fields.iter_mut() {
+            if fetch_at_scan.contains(&d.name) {
+                d.fetch_at_scan = true;
+            }
+        }
+        if eager.is_empty() {
+            return Ok(Arc::new(plan));
+        }
+
+        let eager_types: Vec<(String, DataType)> = plan
+            .deferred_fields
+            .iter()
+            .filter(|d| eager.contains(&d.name))
+            .map(|d| {
+                let ty = if d.is_bytes {
+                    DataType::BinaryView
+                } else {
+                    DataType::Utf8View
+                };
+                (d.name.clone(), ty)
+            })
+            .collect();
+        plan.deferred_fields.retain(|d| !eager.contains(&d.name));
+        plan.eager_fields
+            .extend(eager_types.iter().map(|(name, _)| name.clone()));
+
+        let old_schema = self.properties.eq_properties.schema();
+        let fields: Vec<arrow_schema::Field> = old_schema
+            .fields()
+            .iter()
+            .map(
+                |f| match eager_types.iter().find(|(name, _)| name == f.name()) {
+                    Some((_, ty)) => arrow_schema::Field::new(f.name(), ty.clone(), true),
+                    None => f.as_ref().clone(),
+                },
+            )
+            .collect();
+        let schema: SchemaRef = Arc::new(arrow_schema::Schema::new(fields));
+        plan.properties = Arc::new(PlanProperties::new(
+            build_equivalence_properties(schema, plan.sort_order.as_ref()),
+            self.properties.output_partitioning().clone(),
+            EmissionType::Incremental,
+            Boundedness::Bounded,
+        ));
+
+        let mut state = plan.state.lock().unwrap();
+        if let ExecutionState::Shared { scan_state, .. }
+        | ExecutionState::RangePartitioned { scan_state, .. } = &mut *state
+        {
+            for wff in scan_state.0.scanner_config.which_fast_fields.iter_mut() {
+                if let WhichFastField::Deferred(name, ty) = wff
+                    && eager.contains(name)
+                {
+                    *wff = WhichFastField::Named(name.clone(), *ty);
+                }
+            }
+        }
+        drop(state);
+        Ok(Arc::new(plan))
     }
 
     pub fn ffhelper(&self) -> Option<Arc<FFHelper>> {
@@ -573,6 +654,7 @@ impl PgSearchScanPlan {
             indexrelid: self.indexrelid,
             table_alias: self.table_alias.clone(),
             deferred_fields: self.deferred_fields.clone(),
+            eager_fields: self.eager_fields.clone(),
             deferred_ctid_plan_position: self.deferred_ctid_plan_position,
             which_fast_fields: scanner_config.which_fast_fields,
             heap_relid: scanner_config.heap_relid,
@@ -730,6 +812,7 @@ impl PgSearchScanPlan {
         )
         .with_table_alias(descriptor.table_alias);
         plan.dynamic_filters = dynamic_filters;
+        plan.eager_fields = descriptor.eager_fields;
         let final_plan = if let Some(assigned) = descriptor.assigned_partition {
             plan.with_assigned_partition(assigned)
         } else {
@@ -756,6 +839,7 @@ struct ScanDispatchDescriptor {
     #[serde(default)]
     table_alias: String,
     deferred_fields: Vec<DeferredField>,
+    eager_fields: Vec<String>,
     deferred_ctid_plan_position: Option<usize>,
     which_fast_fields: Vec<WhichFastField>,
     heap_relid: u32,
@@ -903,6 +987,9 @@ impl DisplayAs for PgSearchScanPlan {
             .collect();
         if !scan_fetched.is_empty() {
             write!(f, ", fetch=[{}]", scan_fetched.join(", "))?;
+        }
+        if !self.eager_fields.is_empty() {
+            write!(f, ", eager=[{}]", self.eager_fields.join(", "))?;
         }
         if !self.dynamic_filters.is_empty() {
             write!(f, ", dynamic_filters={}", self.dynamic_filters.len())?;

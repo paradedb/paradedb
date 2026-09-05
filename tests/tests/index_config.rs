@@ -30,23 +30,6 @@ fn fmt_err<T: std::error::Error>(err: T) -> String {
 }
 
 #[rstest]
-fn invalid_create_index(mut conn: PgConnection) {
-    "CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'public')"
-        .execute(&mut conn);
-
-    match r#"CREATE INDEX index_config_index ON index_config
-        USING paradedb (id) "#
-        .execute_result(&mut conn)
-    {
-        Ok(_) => panic!("should fail with no key_field"),
-        Err(err) => assert_eq!(
-            db_error_message(&err),
-            "error returned from database: index should have a `WITH (key_field='...')` option"
-        ),
-    };
-}
-
-#[rstest]
 fn prevent_duplicate(mut conn: PgConnection) {
     "CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);

@@ -15,8 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! A memory-bounded set of key-field values, used by the per-row query filter to answer
-//! "did this row's key match the query?" without materializing the whole result set in RAM.
+//! A memory-bounded set of indexed values, used by the per-row query filter to answer
+//! "did this row's CTID match the query?" without materializing the whole result set in RAM.
 //!
 //! The set is built once (from the index search) and probed once per scan row. It stays in an
 //! in-memory hash set while it fits within `work_mem`; past that it spills to a temporary file:
@@ -42,10 +42,10 @@ const INDEX_STRIDE: usize = 1024;
 
 /// Serialize a key to the bytes used for both sorting and probing.
 fn key_bytes(value: &TantivyValue) -> Vec<u8> {
-    postcard::to_allocvec(value).expect("a key-field TantivyValue should serialize")
+    postcard::to_allocvec(value).expect("a TantivyValue should serialize")
 }
 
-/// A built, memory-bounded membership structure over key-field values.
+/// A built, memory-bounded membership structure over indexed values.
 pub enum KeySet {
     /// Every row matches (e.g. `pdb.all()`); no keys are stored.
     All,

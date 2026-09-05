@@ -18,8 +18,7 @@ use crate::api::builder_fns::{match_disjunction, match_disjunction_array, term_s
 use crate::api::operator::boost::BoostType;
 use crate::api::operator::fuzzy::FuzzyType;
 use crate::api::operator::{
-    RHSValue, ReturnedNodePointer, build_text_funcexpr, request_simplify,
-    validate_lhs_type_as_text_compatible,
+    RHSValue, ReturnedNodePointer, build_text_funcexpr, validate_lhs_type_as_text_compatible,
 };
 use crate::query::pdb_query::{pdb, to_search_query_input};
 use pgrx::{AnyElement, Internal, extension_sql, opname, pg_extern, pg_operator, pg_sys};
@@ -68,60 +67,98 @@ fn search_with_match_disjunction_fuzzy(_field: AnyElement, terms_to_tokenize: Fu
 #[pg_extern(immutable, parallel_safe)]
 fn search_with_match_disjunction_support(arg: Internal) -> ReturnedNodePointer {
     unsafe {
-        request_simplify(arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>(), |lhs, field, to_tokenize| {
+        let const_rewrite: super::ConstRewrite = |lhs, field, to_tokenize| {
             validate_lhs_type_as_text_compatible(lhs, "|||");
-            let field = field.expect("The left hand side of the `|||(field, TEXT)` operator must be a field.");
+            let field = field
+                .expect("The left hand side of the `|||(field, TEXT)` operator must be a field.");
             match to_tokenize {
-                RHSValue::Text(text) => {
-                    to_search_query_input(field, match_disjunction(text))
-                },
+                RHSValue::Text(text) => to_search_query_input(field, match_disjunction(text)),
                 RHSValue::TextArray(tokens) => {
                     to_search_query_input(field, match_disjunction_array(tokens))
                 }
-                RHSValue::PdbQuery(pdb::Query::ScoreAdjusted { query, score}) => {
+                RHSValue::PdbQuery(pdb::Query::ScoreAdjusted { query, score }) => {
                     let mut query = *query;
-                    if let pdb::Query::UnclassifiedString {string, fuzzy_data, slop_data} = query {
+                    if let pdb::Query::UnclassifiedString {
+                        string,
+                        fuzzy_data,
+                        slop_data,
+                    } = query
+                    {
                         query = match_disjunction(string);
                         query.apply_fuzzy_data(fuzzy_data);
                         query.apply_slop_data(slop_data);
-                    } else if let pdb::Query::UnclassifiedArray {array, fuzzy_data, slop_data} = query {
+                    } else if let pdb::Query::UnclassifiedArray {
+                        array,
+                        fuzzy_data,
+                        slop_data,
+                    } = query
+                    {
                         query = match_disjunction_array(array);
                         query.apply_fuzzy_data(fuzzy_data);
                         query.apply_slop_data(slop_data);
                     }
-                    to_search_query_input(field, pdb::Query::ScoreAdjusted { query: Box::new(query), score})
+                    to_search_query_input(
+                        field,
+                        pdb::Query::ScoreAdjusted {
+                            query: Box::new(query),
+                            score,
+                        },
+                    )
                 }
-                RHSValue::PdbQuery(pdb::Query::UnclassifiedString {string, fuzzy_data, slop_data}) => {
+                RHSValue::PdbQuery(pdb::Query::UnclassifiedString {
+                    string,
+                    fuzzy_data,
+                    slop_data,
+                }) => {
                     let mut query = match_disjunction(string);
                     query.apply_fuzzy_data(fuzzy_data);
                     query.apply_slop_data(slop_data);
                     to_search_query_input(field, query)
                 }
-                RHSValue::PdbQuery(pdb::Query::UnclassifiedArray { array, fuzzy_data, slop_data }) => {
+                RHSValue::PdbQuery(pdb::Query::UnclassifiedArray {
+                    array,
+                    fuzzy_data,
+                    slop_data,
+                }) => {
                     let mut query = term_set_str(array);
                     query.apply_fuzzy_data(fuzzy_data);
                     query.apply_slop_data(slop_data);
 
-                    assert!(matches!(query, pdb::Query::MatchArray{..}));
-                    let pdb::Query::MatchArray { conjunction_mode, .. } = &mut query else {
+                    assert!(matches!(query, pdb::Query::MatchArray { .. }));
+                    let pdb::Query::MatchArray {
+                        conjunction_mode, ..
+                    } = &mut query
+                    else {
                         unreachable!()
                     };
                     *conjunction_mode = Some(false);
 
                     to_search_query_input(field, query)
                 }
-                _ => panic!("The right-hand side of the `|||(field, TEXT)` operator must be a text value."),
+                _ => panic!(
+                    "The right-hand side of the `|||(field, TEXT)` operator must be a text value."
+                ),
             }
-        }, |field, lhs, rhs| {
+        };
+        let exec_rewrite: super::ExecRewrite = |field, lhs, rhs| {
             validate_lhs_type_as_text_compatible(lhs, "|||");
-            let field = field.expect("The left hand side of the `|||(field, TEXT)` operator must be a field.");
+            let field = field
+                .expect("The left hand side of the `|||(field, TEXT)` operator must be a field.");
             build_text_funcexpr(
-                field, rhs, "|||",
+                field,
+                rhs,
+                "|||",
                 c"paradedb.match_disjunction(paradedb.fieldname, text)",
                 c"paradedb.match_disjunction(paradedb.fieldname, text[])",
             )
-        })
-        .unwrap_or(ReturnedNodePointer(None))
+        };
+        ReturnedNodePointer::for_support_simplify(
+            arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>(),
+            super::SimplifyRhs::Rewrite {
+                const_rewrite,
+                exec_rewrite,
+            },
+        )
     }
 }
 

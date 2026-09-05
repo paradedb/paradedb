@@ -71,11 +71,15 @@ pub unsafe fn resolve_fast_field(
             let schema = index.schema().ok()?;
 
             if let Some(search_field) = schema.search_field(att.name()) {
-                let key_field_name = schema.key_field_name();
-                if att.name() == key_field_name.to_string().as_str() {
+                if schema
+                    .key_field_name()
+                    .is_some_and(|key_field_name| att.name() == key_field_name.to_string().as_str())
+                {
                     return Some(WhichFastField::Named(
                         att.name().to_string(),
-                        schema.key_field_type(),
+                        schema
+                            .key_field_type()
+                            .expect("configured key_field should have a field type"),
                     ));
                 }
 

@@ -1598,6 +1598,8 @@ async fn generated_pdb_agg_join(database: Db) {
             &pool,
             &setup_sql,
             |query, conn| {
+                // The aggregate's work_mem pool cannot spill; leave headroom over the 4MB default.
+                "SET work_mem TO '16MB';".execute_result(conn)?;
                 let rows = query.fetch_dynamic_result(conn)?;
                 let mut rows = agg.rows(rows)?;
                 rows.sort();

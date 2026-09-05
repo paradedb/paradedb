@@ -839,7 +839,6 @@ struct ScanDispatchDescriptor {
     #[serde(default)]
     table_alias: String,
     deferred_fields: Vec<DeferredField>,
-    #[serde(default)]
     eager_fields: Vec<String>,
     deferred_ctid_plan_position: Option<usize>,
     which_fast_fields: Vec<WhichFastField>,

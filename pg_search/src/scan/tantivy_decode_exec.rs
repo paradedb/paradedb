@@ -32,6 +32,7 @@ use crate::api::HashMap;
 use crate::index::fast_fields_helper::{
     FFHelper, FFType, ords_to_bytes_array, ords_to_string_array,
 };
+use crate::scan::batch_scanner::MAX_BATCH_SIZE;
 use crate::scan::deferred_encode::{DeferredUnion, DeferredValue};
 use crate::scan::deferred_lookup::{
     LookupRebuildContext, PhysicalDeferredField, ffhelper_for, preserved_ordering,
@@ -41,6 +42,7 @@ use crate::scan::execution_plan::UnsafeSendStream;
 
 use arrow_array::{ArrayRef, RecordBatch, UInt64Array, new_null_array};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
+use arrow_select::concat::concat_batches;
 use arrow_select::interleave::interleave;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
@@ -230,15 +232,44 @@ impl ExecutionPlan for TantivyDecodeExec {
         let deferred_fields = self.deferred_fields.clone();
         let ffhelpers = self.ffhelpers.clone();
         let schema = self.properties.eq_properties.schema().clone();
+        let input_schema = self.input.schema();
 
         let stream_gen = async_stream::try_stream! {
             use futures::StreamExt;
+            // A dictionary lookup sorts a batch's ordinals and sweeps each segment's
+            // dictionary once, so it gets cheaper per row as the batch grows. Ordinals are
+            // narrow, so the scan and the fetch work in small batches and the rows are
+            // gathered back up here, right before the sweep.
+            let mut pending: Vec<RecordBatch> = Vec::new();
+            let mut pending_rows = 0;
             while let Some(batch_res) = input_stream.next().await {
+                let batch = batch_res?;
+                if !pending.is_empty() && pending_rows + batch.num_rows() > MAX_BATCH_SIZE {
+                    let timer = baseline_metrics.elapsed_compute().timer();
+                    let result = decode_pending(
+                        &input_schema,
+                        &mut pending,
+                        &deferred_fields,
+                        &ffhelpers,
+                        &schema,
+                    );
+                    pending_rows = 0;
+                    timer.done();
+                    yield result.record_output(&baseline_metrics)?;
+                }
+                pending_rows += batch.num_rows();
+                pending.push(batch);
+            }
+            if !pending.is_empty() {
                 let timer = baseline_metrics.elapsed_compute().timer();
-                let result = batch_res
-                    .and_then(|batch| decode_batch(batch, &deferred_fields, &ffhelpers, &schema));
+                let result = decode_pending(
+                    &input_schema,
+                    &mut pending,
+                    &deferred_fields,
+                    &ffhelpers,
+                    &schema,
+                );
                 timer.done();
-
                 yield result.record_output(&baseline_metrics)?;
             }
             baseline_metrics.done();
@@ -274,6 +305,25 @@ impl ExecutionPlan for TantivyDecodeExec {
     ) -> Result<FilterPushdownPropagation<Arc<dyn ExecutionPlan>>> {
         Ok(FilterPushdownPropagation::if_all(child_pushdown_result))
     }
+}
+
+/// Decodes the pending batches as one. A lone batch is decoded as is; several are
+/// concatenated first, which sizes the buffers to the rows they hold.
+fn decode_pending(
+    input_schema: &SchemaRef,
+    pending: &mut Vec<RecordBatch>,
+    deferred_fields: &[PhysicalDeferredField],
+    ffhelpers: &HashMap<u32, Arc<FFHelper>>,
+    schema: &SchemaRef,
+) -> Result<RecordBatch> {
+    let batch = if pending.len() == 1 {
+        pending.pop().unwrap()
+    } else {
+        concat_batches(input_schema, pending.iter())
+            .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?
+    };
+    pending.clear();
+    decode_batch(batch, deferred_fields, ffhelpers, schema)
 }
 
 fn decode_batch(

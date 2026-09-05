@@ -35,8 +35,9 @@ use tantivy::{DocId, DocSet, Score, SegmentOrdinal};
 ///
 /// Setting this value larger reduces the cost of our joins to the term dictionary by allowing more
 /// terms to be looked up at a time, but increases our memory usage by forcing more column values to
-/// be held in memory at a time.
-const MAX_BATCH_SIZE: usize = 128_000;
+/// be held in memory at a time. A deferred dictionary lookup (`TantivyDecodeExec`) gathers its
+/// input back up to this size for the same reason.
+pub(crate) const MAX_BATCH_SIZE: usize = 128_000;
 
 /// The maximum number of rows to batch when all string/byte columns are
 /// deferred during late materialization. Aligned with DataFusion's default

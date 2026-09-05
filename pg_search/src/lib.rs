@@ -160,7 +160,7 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     #[allow(deprecated)]
     customscan::register_rel_pathlist(customscan::basescan::BaseScan);
     customscan::register_upper_path(customscan::aggregatescan::AggregateScan);
-    customscan::register_join_pathlist(customscan::joinscan::JoinScan);
+    customscan::register_upper_path(customscan::joinscan::JoinScan);
 
     // Register hook for SubPlan-based join opportunities (e.g. `col IN (SELECT ...) OR IS NULL`)
     // that PostgreSQL does not flatten into joins, so `set_join_pathlist_hook` never fires.

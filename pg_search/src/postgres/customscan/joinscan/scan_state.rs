@@ -1247,9 +1247,7 @@ fn build_source_df<'a>(
                 Some(WhichFastField::Ctid) => {
                     make_col(alias.as_str(), name).alias(CtidColumn::new(plan_position).to_string())
                 }
-                // Normalize score fast-field column name so all score references resolve
-                // through `<execution_alias>.score`.
-                Some(WhichFastField::Score) => make_col(alias.as_str(), name).alias(SCORE_COL_NAME),
+                Some(WhichFastField::Score) => make_col(alias.as_str(), SCORE_COL_NAME),
                 _ => make_col(alias.as_str(), name),
             };
 

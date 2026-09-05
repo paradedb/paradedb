@@ -1506,6 +1506,7 @@ pub unsafe fn is_search_operator(node: *mut pg_sys::Node, funcoids: &[pg_sys::Oi
 /// This ensures that if the CustomScan is expected to output a score (or similar),
 /// it is actually present in its `targetlist` so the `Result` node can simply
 /// project it, rather than Postgres natively trying to execute the dummy function.
+#[allow(dead_code)]
 pub unsafe fn add_missing_search_operators_to_tlist(
     root: *mut pg_sys::PlannerInfo,
     best_path: *mut pg_sys::Path,

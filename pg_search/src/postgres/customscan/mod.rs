@@ -67,8 +67,8 @@ use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::path::{plan_custom_path, reparameterize_custom_path_by_child};
 use crate::postgres::customscan::scan::create_custom_scan_state;
 pub use hook::{
-    register_join_pathlist, register_planner_hook, register_rel_pathlist,
-    register_subplan_join_pathlist, register_upper_path,
+    register_planner_hook, register_rel_pathlist, register_subplan_join_pathlist,
+    register_upper_path,
 };
 
 // TODO: This trait should be expanded to include a `reset` method, which would become the
@@ -284,6 +284,7 @@ impl RelPathlistHookArgs {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub struct JoinPathlistHookArgs {
     pub root: *mut pg_sys::PlannerInfo,

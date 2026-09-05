@@ -70,25 +70,30 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 10;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: i ANTI e
-         Join Filter: ((e.pattern = i.name) OR (e.pattern = i.alt_name))
-         Limit: 10
-         Order By: i.id desc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[i]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         NestedLoopJoinExec: join_type=RightAnti, filter=pattern@2 = name@0 OR pattern@2 = alt_name@1, projection=[ctid_0@0, id@3]
-           :           CooperativeExec
-           :             PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
-           :           CooperativeExec
-           :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+   ->  Sort
+         Sort Key: i.id DESC
+         ->  Nested Loop Anti Join
+               Join Filter: ((e.pattern = i.name) OR (e.pattern = i.alt_name))
+               ->  Custom Scan (ParadeDB Base Scan) on items i
+                     Table: items
+                     Index: items_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+               ->  Materialize
+                     ->  Custom Scan (ParadeDB Base Scan) on exclusions e
+                           Table: exclusions
+                           Index: exclusions_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: pattern
+                           Scores: false
+                           Full Index Scan: true
+                           Tantivy Query: {"with_index":{"query":"all"}}
+(20 rows)
 
 SELECT i.id
 FROM items i
@@ -100,6 +105,7 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
  id  
 -----
  500
@@ -128,25 +134,30 @@ WHERE EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id ASC
 LIMIT 10;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: i SEMI e
-         Join Filter: ((e.pattern = i.name) OR (e.pattern = i.alt_name))
-         Limit: 10
-         Order By: i.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[i]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         NestedLoopJoinExec: join_type=RightSemi, filter=pattern@2 = name@0 OR pattern@2 = alt_name@1, projection=[ctid_0@0, id@3]
-           :           CooperativeExec
-           :             PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
-           :           CooperativeExec
-           :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+   ->  Sort
+         Sort Key: i.id
+         ->  Nested Loop Semi Join
+               Join Filter: ((e.pattern = i.name) OR (e.pattern = i.alt_name))
+               ->  Custom Scan (ParadeDB Base Scan) on items i
+                     Table: items
+                     Index: items_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+               ->  Materialize
+                     ->  Custom Scan (ParadeDB Base Scan) on exclusions e
+                           Table: exclusions
+                           Index: exclusions_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: pattern
+                           Scores: false
+                           Full Index Scan: true
+                           Tantivy Query: {"with_index":{"query":"all"}}
+(20 rows)
 
 SELECT i.id
 FROM items i
@@ -158,6 +169,7 @@ WHERE EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id ASC
 LIMIT 10;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
  id  
 -----
   10
@@ -190,25 +202,30 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 10;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: i ANTI e
-         Join Filter: ((e.pattern = i.name) OR (e.pattern = i.alt_name) OR (e.pattern = i.category))
-         Limit: 10
-         Order By: i.id desc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[i]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         NestedLoopJoinExec: join_type=RightAnti, filter=pattern@3 = name@0 OR pattern@3 = alt_name@1 OR pattern@3 = category@2, projection=[ctid_0@0, id@4]
-           :           CooperativeExec
-           :             PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
-           :           CooperativeExec
-           :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+   ->  Sort
+         Sort Key: i.id DESC
+         ->  Nested Loop Anti Join
+               Join Filter: ((e.pattern = i.name) OR (e.pattern = i.alt_name) OR (e.pattern = i.category))
+               ->  Custom Scan (ParadeDB Base Scan) on items i
+                     Table: items
+                     Index: items_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+               ->  Materialize
+                     ->  Custom Scan (ParadeDB Base Scan) on exclusions e
+                           Table: exclusions
+                           Index: exclusions_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: pattern
+                           Scores: false
+                           Full Index Scan: true
+                           Tantivy Query: {"with_index":{"query":"all"}}
+(20 rows)
 
 SELECT i.id
 FROM items i
@@ -224,6 +241,7 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
  id  
 -----
  500
@@ -287,27 +305,31 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
-                                                                                                 QUERY PLAN                                                                                                  
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: i ANTI e
-         Join Filter: ((e.pattern = i.name) OR (length(e.pattern) > 100))
-         Limit: 5
-         Order By: i.id desc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=5), expr=[id@1 DESC], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[i]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         ProjectionExec: expr=[ctid_0@0 as ctid_0, id@2 as id]
-           :           NestedLoopJoinExec: join_type=RightAnti, filter=pattern@1 = name@0 OR join_proj_push_down_1@2, projection=[ctid_0@0, name@1, id@2]
-           :             ProjectionExec: expr=[pattern@0 as pattern, character_length(pattern@0) > 100 as join_proj_push_down_1]
-           :               CooperativeExec
-           :                 PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
-           :             CooperativeExec
-           :               PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+   ->  Sort
+         Sort Key: i.id DESC
+         ->  Nested Loop Anti Join
+               Join Filter: ((e.pattern = i.name) OR (length(e.pattern) > 100))
+               ->  Custom Scan (ParadeDB Base Scan) on items i
+                     Table: items
+                     Index: items_idx
+                     Exec Method: ColumnarExecState
+                     Fast Fields: id, name
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+               ->  Materialize
+                     ->  Custom Scan (ParadeDB Base Scan) on exclusions e
+                           Table: exclusions
+                           Index: exclusions_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: pattern
+                           Scores: false
+                           Full Index Scan: true
+                           Tantivy Query: {"with_index":{"query":"all"}}
+(21 rows)
 
 SELECT i.id
 FROM items i
@@ -319,6 +341,7 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
  id  
 -----
  500
@@ -345,25 +368,31 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 10;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: i ANTI e
-         Join Filter: (e.id <> i.id)
-         Limit: 10
-         Order By: i.id desc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[i]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         NestedLoopJoinExec: join_type=RightAnti, filter=id@1 != id@0
-           :           CooperativeExec
-           :             PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
-           :           CooperativeExec
-           :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+   ->  Sort
+         Sort Key: i.id DESC
+         ->  Nested Loop Anti Join
+               Join Filter: (e.id <> i.id)
+               ->  Custom Scan (ParadeDB Base Scan) on items i
+                     Table: items
+                     Index: items_idx
+                     Exec Method: ColumnarExecState
+                     Fast Fields: id
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+               ->  Materialize
+                     ->  Custom Scan (ParadeDB Base Scan) on exclusions e
+                           Table: exclusions
+                           Index: exclusions_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: id
+                           Scores: false
+                           Full Index Scan: true
+                           Tantivy Query: {"with_index":{"query":"all"}}
+(21 rows)
 
 SELECT i.id
 FROM items i
@@ -375,6 +404,7 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
  id 
 ----
 (0 rows)
@@ -411,25 +441,31 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 10;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: i ANTI e
-         Join Filter: ((e.id > i.id) OR (e.pattern = i.name))
-         Limit: 10
-         Order By: i.id desc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[i]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         NestedLoopJoinExec: join_type=RightAnti, filter=id@2 > id@0 OR pattern@3 = name@1, projection=[ctid_0@0, id@1]
-           :           CooperativeExec
-           :             PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
-           :           CooperativeExec
-           :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+   ->  Sort
+         Sort Key: i.id DESC
+         ->  Nested Loop Anti Join
+               Join Filter: ((e.id > i.id) OR (e.pattern = i.name))
+               ->  Custom Scan (ParadeDB Base Scan) on items i
+                     Table: items
+                     Index: items_idx
+                     Exec Method: ColumnarExecState
+                     Fast Fields: id, name
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+               ->  Materialize
+                     ->  Custom Scan (ParadeDB Base Scan) on exclusions e
+                           Table: exclusions
+                           Index: exclusions_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: id, pattern
+                           Scores: false
+                           Full Index Scan: true
+                           Tantivy Query: {"with_index":{"query":"all"}}
+(21 rows)
 
 SELECT i.id
 FROM items i
@@ -441,6 +477,7 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
  id  
 -----
  500
@@ -498,27 +535,31 @@ WHERE EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 10;
-                                                                                                 QUERY PLAN                                                                                                  
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: i SEMI e
-         Join Filter: ((e.pattern = i.name) OR (e.id = '42'::bigint))
-         Limit: 10
-         Order By: i.id desc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[i]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         ProjectionExec: expr=[ctid_0@0 as ctid_0, id@2 as id]
-           :           NestedLoopJoinExec: join_type=RightSemi, filter=pattern@1 = name@0 OR join_proj_push_down_1@2, projection=[ctid_0@0, name@1, id@2]
-           :             ProjectionExec: expr=[pattern@0 as pattern, id@1 as id, id@1 = 42 as join_proj_push_down_1]
-           :               CooperativeExec
-           :                 PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
-           :             CooperativeExec
-           :               PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+   ->  Sort
+         Sort Key: i.id DESC
+         ->  Nested Loop Semi Join
+               Join Filter: ((e.pattern = i.name) OR (e.id = '42'::bigint))
+               ->  Custom Scan (ParadeDB Base Scan) on items i
+                     Table: items
+                     Index: items_idx
+                     Exec Method: ColumnarExecState
+                     Fast Fields: id, name
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+               ->  Materialize
+                     ->  Custom Scan (ParadeDB Base Scan) on exclusions e
+                           Table: exclusions
+                           Index: exclusions_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: id, pattern
+                           Scores: false
+                           Full Index Scan: true
+                           Tantivy Query: {"with_index":{"query":"all"}}
+(21 rows)
 
 SELECT i.id
 FROM items i
@@ -530,6 +571,7 @@ WHERE EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
  id  
 -----
  500
@@ -589,25 +631,30 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 10;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: i ANTI e
-         Join Filter: (((e.pattern = i.name) AND (e.id > i.id)) OR (e.pattern = i.alt_name))
-         Limit: 10
-         Order By: i.id desc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[i]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         NestedLoopJoinExec: join_type=RightAnti, filter=pattern@3 = name@0 AND id@4 > id@1 OR pattern@3 = alt_name@2, projection=[ctid_0@0, id@2]
-           :           CooperativeExec
-           :             PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
-           :           CooperativeExec
-           :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+   ->  Sort
+         Sort Key: i.id DESC
+         ->  Nested Loop Anti Join
+               Join Filter: (((e.pattern = i.name) AND (e.id > i.id)) OR (e.pattern = i.alt_name))
+               ->  Custom Scan (ParadeDB Base Scan) on items i
+                     Table: items
+                     Index: items_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+               ->  Materialize
+                     ->  Custom Scan (ParadeDB Base Scan) on exclusions e
+                           Table: exclusions
+                           Index: exclusions_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: id, pattern
+                           Scores: false
+                           Full Index Scan: true
+                           Tantivy Query: {"with_index":{"query":"all"}}
+(20 rows)
 
 SELECT i.id
 FROM items i
@@ -622,6 +669,7 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
  id  
 -----
  500
@@ -683,25 +731,31 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 10;
-                                                                                                          QUERY PLAN                                                                                                          
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: i ANTI e
-         Join Cond: e.pattern = i.name
-         Limit: 10
-         Order By: i.id desc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[i]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(pattern@0, name@1)], projection=[ctid_0@0, id@2]
-           :           CooperativeExec
-           :             PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
-           :           CooperativeExec
-           :             PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+   ->  Sort
+         Sort Key: i.id DESC
+         ->  Hash Anti Join
+               Hash Cond: (i.name = e.pattern)
+               ->  Custom Scan (ParadeDB Base Scan) on items i
+                     Table: items
+                     Index: items_idx
+                     Exec Method: ColumnarExecState
+                     Fast Fields: id, name
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+               ->  Hash
+                     ->  Custom Scan (ParadeDB Base Scan) on exclusions e
+                           Table: exclusions
+                           Index: exclusions_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: pattern
+                           Scores: false
+                           Full Index Scan: true
+                           Tantivy Query: {"with_index":{"query":"all"}}
+(21 rows)
 
 SELECT i.id
 FROM items i
@@ -713,6 +767,7 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
  id  
 -----
  500
@@ -771,6 +826,7 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"other"'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
  id  
 -----
  499
@@ -870,25 +926,30 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 10;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: i ANTI e
-         Join Filter: (((e.pattern)::text = (i.name)::text) OR ((e.pattern)::text = (i.alt_name)::text))
-         Limit: 10
-         Order By: i.id desc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[i]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         NestedLoopJoinExec: join_type=RightAnti, filter=pattern@2 = name@0 OR pattern@2 = alt_name@1, projection=[ctid_0@0, id@3]
-           :           CooperativeExec
-           :             PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
-           :           CooperativeExec
-           :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+   ->  Sort
+         Sort Key: i.id DESC
+         ->  Nested Loop Anti Join
+               Join Filter: (((e.pattern)::text = (i.name)::text) OR ((e.pattern)::text = (i.alt_name)::text))
+               ->  Custom Scan (ParadeDB Base Scan) on items_vc i
+                     Table: items_vc
+                     Index: items_vc_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+               ->  Materialize
+                     ->  Custom Scan (ParadeDB Base Scan) on exclusions_vc e
+                           Table: exclusions_vc
+                           Index: exclusions_vc_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: pattern
+                           Scores: false
+                           Full Index Scan: true
+                           Tantivy Query: {"with_index":{"query":"all"}}
+(20 rows)
 
 SELECT i.id
 FROM items_vc i
@@ -900,6 +961,7 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
  id  
 -----
  200
@@ -958,27 +1020,31 @@ WHERE EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id ASC
 LIMIT 5;
-                                                                                                           QUERY PLAN                                                                                                           
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: i SEMI e
-         Join Filter: (upper(i.name) = upper(e.pattern))
-         Limit: 5
-         Order By: i.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[i]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(pdb_eval_expr_funcexpr_44945b63(e_1.pattern)@1, pdb_eval_expr_funcexpr_53eb87a5(i_0.name)@3)], projection=[ctid_0@0, id@2]
-           :           ProjectionExec: expr=[pattern@0 as pattern, pdb_eval_expr_funcexpr_44945b63(CAST(pattern@0 AS Utf8)) as pdb_eval_expr_funcexpr_44945b63(e_1.pattern)]
-           :             CooperativeExec
-           :               PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
-           :           ProjectionExec: expr=[ctid_0@0 as ctid_0, name@1 as name, id@2 as id, pdb_eval_expr_funcexpr_53eb87a5(CAST(name@1 AS Utf8)) as pdb_eval_expr_funcexpr_53eb87a5(i_0.name)]
-           :             CooperativeExec
-           :               PgSearchScan: table=i, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+   ->  Sort
+         Sort Key: i.id
+         ->  Hash Semi Join
+               Hash Cond: (upper(i.name) = upper(e.pattern))
+               ->  Custom Scan (ParadeDB Base Scan) on items i
+                     Table: items
+                     Index: items_idx
+                     Exec Method: ColumnarExecState
+                     Fast Fields: id, name
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+               ->  Hash
+                     ->  Custom Scan (ParadeDB Base Scan) on exclusions e
+                           Table: exclusions
+                           Index: exclusions_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: pattern
+                           Scores: false
+                           Full Index Scan: true
+                           Tantivy Query: {"with_index":{"query":"all"}}
+(21 rows)
 
 SELECT i.id
 FROM items i
@@ -990,6 +1056,7 @@ WHERE EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id ASC
 LIMIT 5;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
  id 
 ----
  10
@@ -1035,26 +1102,31 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
-                                                                                                          QUERY PLAN                                                                                                          
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: i ANTI e
-         Join Filter: (COALESCE(e.pattern, ''::text) = i.name)
-         Limit: 5
-         Order By: i.id desc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=5), expr=[id@1 DESC], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[i]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(CASE WHEN e_1.pattern IS NOT NULL THEN e_1.pattern ELSE Utf8View("") END@1, name@1)], projection=[ctid_0@0, id@2]
-           :           ProjectionExec: expr=[pattern@0 as pattern, CASE WHEN pattern@0 IS NOT NULL THEN pattern@0 ELSE  END as CASE WHEN e_1.pattern IS NOT NULL THEN e_1.pattern ELSE Utf8View("") END]
-           :             CooperativeExec
-           :               PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
-           :           CooperativeExec
-           :             PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
+   ->  Sort
+         Sort Key: i.id DESC
+         ->  Hash Anti Join
+               Hash Cond: (i.name = COALESCE(e.pattern, ''::text))
+               ->  Custom Scan (ParadeDB Base Scan) on items i
+                     Table: items
+                     Index: items_idx
+                     Exec Method: ColumnarExecState
+                     Fast Fields: id, name
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+               ->  Hash
+                     ->  Custom Scan (ParadeDB Base Scan) on exclusions e
+                           Table: exclusions
+                           Index: exclusions_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: pattern
+                           Scores: false
+                           Full Index Scan: true
+                           Tantivy Query: {"with_index":{"query":"all"}}
+(21 rows)
 
 SELECT i.id
 FROM items i
@@ -1066,6 +1138,7 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
  id  
 -----
  500
@@ -1112,27 +1185,31 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
-                                                                                                 QUERY PLAN                                                                                                  
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: i ANTI e
-         Join Filter: ((e.pattern = i.name) OR (e.pattern IS NULL))
-         Limit: 5
-         Order By: i.id desc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=5), expr=[id@1 DESC], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[i]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         ProjectionExec: expr=[ctid_0@0 as ctid_0, id@2 as id]
-           :           NestedLoopJoinExec: join_type=RightAnti, filter=pattern@1 = name@0 OR join_proj_push_down_1@2, projection=[ctid_0@0, name@1, id@2]
-           :             ProjectionExec: expr=[pattern@0 as pattern, pattern@0 IS NULL as join_proj_push_down_1]
-           :               CooperativeExec
-           :                 PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
-           :             CooperativeExec
-           :               PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+   ->  Sort
+         Sort Key: i.id DESC
+         ->  Nested Loop Anti Join
+               Join Filter: ((e.pattern = i.name) OR (e.pattern IS NULL))
+               ->  Custom Scan (ParadeDB Base Scan) on items i
+                     Table: items
+                     Index: items_idx
+                     Exec Method: ColumnarExecState
+                     Fast Fields: id, name
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+               ->  Materialize
+                     ->  Custom Scan (ParadeDB Base Scan) on exclusions e
+                           Table: exclusions
+                           Index: exclusions_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: pattern
+                           Scores: false
+                           Full Index Scan: true
+                           Tantivy Query: {"with_index":{"query":"all"}}
+(21 rows)
 
 SELECT i.id
 FROM items i
@@ -1144,6 +1221,7 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
  id  
 -----
  500
@@ -1189,26 +1267,31 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
-                                                                                                          QUERY PLAN                                                                                                          
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: i ANTI e
-         Join Filter: (CASE WHEN (e.pattern IS NOT NULL) THEN e.pattern ELSE ''::text END = i.name)
-         Limit: 5
-         Order By: i.id desc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=5), expr=[id@1 DESC], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[i]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(CASE WHEN e_1.pattern IS NOT NULL THEN e_1.pattern ELSE Utf8View("") END@1, name@1)], projection=[ctid_0@0, id@2]
-           :           ProjectionExec: expr=[pattern@0 as pattern, CASE WHEN pattern@0 IS NOT NULL THEN pattern@0 ELSE  END as CASE WHEN e_1.pattern IS NOT NULL THEN e_1.pattern ELSE Utf8View("") END]
-           :             CooperativeExec
-           :               PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
-           :           CooperativeExec
-           :             PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
+   ->  Sort
+         Sort Key: i.id DESC
+         ->  Hash Anti Join
+               Hash Cond: (i.name = CASE WHEN (e.pattern IS NOT NULL) THEN e.pattern ELSE ''::text END)
+               ->  Custom Scan (ParadeDB Base Scan) on items i
+                     Table: items
+                     Index: items_idx
+                     Exec Method: ColumnarExecState
+                     Fast Fields: id, name
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+               ->  Hash
+                     ->  Custom Scan (ParadeDB Base Scan) on exclusions e
+                           Table: exclusions
+                           Index: exclusions_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: pattern
+                           Scores: false
+                           Full Index Scan: true
+                           Tantivy Query: {"with_index":{"query":"all"}}
+(21 rows)
 
 SELECT i.id
 FROM items i
@@ -1220,6 +1303,7 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
  id  
 -----
  500
@@ -1267,26 +1351,31 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: i ANTI e
-         Join Filter: ((e.id * 2) > i.id)
-         Limit: 5
-         Order By: i.id desc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=5), expr=[id@1 DESC], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[i]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         NestedLoopJoinExec: join_type=RightAnti, filter=join_proj_push_down_1@1 > id@0, projection=[ctid_0@0, id@1]
-           :           ProjectionExec: expr=[id@0 as id, id@0 * 2 as join_proj_push_down_1]
-           :             CooperativeExec
-           :               PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
-           :           CooperativeExec
-           :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
+   ->  Sort
+         Sort Key: i.id DESC
+         ->  Nested Loop Anti Join
+               Join Filter: ((e.id * 2) > i.id)
+               ->  Custom Scan (ParadeDB Base Scan) on items i
+                     Table: items
+                     Index: items_idx
+                     Exec Method: ColumnarExecState
+                     Fast Fields: id
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+               ->  Materialize
+                     ->  Custom Scan (ParadeDB Base Scan) on exclusions e
+                           Table: exclusions
+                           Index: exclusions_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: id
+                           Scores: false
+                           Full Index Scan: true
+                           Tantivy Query: {"with_index":{"query":"all"}}
+(21 rows)
 
 SELECT i.id
 FROM items i
@@ -1298,6 +1387,7 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
  id  
 -----
  500
@@ -1345,27 +1435,31 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
-                                                                                                                                 QUERY PLAN                                                                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: i ANTI e
-         Join Filter: ((upper(e.pattern) = i.name) OR (md5(e.pattern) = 'never-matches'::text))
-         Limit: 5
-         Order By: i.id desc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=5), expr=[id@1 DESC], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[i]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         ProjectionExec: expr=[ctid_0@0 as ctid_0, id@2 as id]
-           :           NestedLoopJoinExec: join_type=RightAnti, filter=join_proj_push_down_1@1 = name@0 OR join_proj_push_down_2@2, projection=[ctid_0@0, name@1, id@2]
-           :             ProjectionExec: expr=[pattern@0 as pattern, CAST(pdb_eval_expr_funcexpr_44945b63(CAST(pattern@0 AS Utf8)) AS Utf8View) as join_proj_push_down_1, pdb_eval_expr_funcexpr_685b54ea(CAST(pattern@0 AS Utf8)) = never-matches as join_proj_push_down_2]
-           :               CooperativeExec
-           :                 PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
-           :             CooperativeExec
-           :               PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+   ->  Sort
+         Sort Key: i.id DESC
+         ->  Nested Loop Anti Join
+               Join Filter: ((upper(e.pattern) = i.name) OR (md5(e.pattern) = 'never-matches'::text))
+               ->  Custom Scan (ParadeDB Base Scan) on items i
+                     Table: items
+                     Index: items_idx
+                     Exec Method: ColumnarExecState
+                     Fast Fields: id, name
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+               ->  Materialize
+                     ->  Custom Scan (ParadeDB Base Scan) on exclusions e
+                           Table: exclusions
+                           Index: exclusions_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: pattern
+                           Scores: false
+                           Full Index Scan: true
+                           Tantivy Query: {"with_index":{"query":"all"}}
+(21 rows)
 
 SELECT i.id
 FROM items i
@@ -1377,6 +1471,7 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
  id  
 -----
  500
@@ -1430,28 +1525,31 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
-                                                                                                  QUERY PLAN                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: i ANTI e
-         Join Filter: ((length(e.pattern) > length(i.name)) OR (e.id <> i.id))
-         Limit: 5
-         Order By: i.id desc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=5), expr=[id@1 DESC], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[i]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         ProjectionExec: expr=[ctid_0@0 as ctid_0, id@2 as id]
-           :           NestedLoopJoinExec: join_type=RightAnti, filter=join_proj_push_down_1@2 > join_proj_push_down_2@3 OR id@1 != id@0, projection=[ctid_0@0, name@1, id@2]
-           :             ProjectionExec: expr=[pattern@0 as pattern, id@1 as id, character_length(pattern@0) as join_proj_push_down_1]
-           :               CooperativeExec
-           :                 PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
-           :             ProjectionExec: expr=[ctid_0@0 as ctid_0, name@1 as name, id@2 as id, character_length(name@1) as join_proj_push_down_2]
-           :               CooperativeExec
-           :                 PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+   ->  Sort
+         Sort Key: i.id DESC
+         ->  Nested Loop Anti Join
+               Join Filter: ((length(e.pattern) > length(i.name)) OR (e.id <> i.id))
+               ->  Custom Scan (ParadeDB Base Scan) on items i
+                     Table: items
+                     Index: items_idx
+                     Exec Method: ColumnarExecState
+                     Fast Fields: id, name
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+               ->  Materialize
+                     ->  Custom Scan (ParadeDB Base Scan) on exclusions e
+                           Table: exclusions
+                           Index: exclusions_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: id, pattern
+                           Scores: false
+                           Full Index Scan: true
+                           Tantivy Query: {"with_index":{"query":"all"}}
+(21 rows)
 
 SELECT i.id
 FROM items i
@@ -1463,6 +1561,7 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
  id 
 ----
 (0 rows)
@@ -1504,28 +1603,31 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
-                                                                                                           QUERY PLAN                                                                                                           
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: i ANTI e
-         Join Filter: ((length(e.pattern) > length(i.name)) OR (upper(e.pattern) = i.name))
-         Limit: 5
-         Order By: i.id desc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=5), expr=[id@1 DESC], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[i]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         ProjectionExec: expr=[ctid_0@0 as ctid_0, id@2 as id]
-           :           NestedLoopJoinExec: join_type=RightAnti, filter=join_proj_push_down_1@1 > join_proj_push_down_3@3 OR join_proj_push_down_2@2 = name@0, projection=[ctid_0@0, name@1, id@2]
-           :             ProjectionExec: expr=[pattern@0 as pattern, character_length(pattern@0) as join_proj_push_down_1, CAST(pdb_eval_expr_funcexpr_44945b63(CAST(pattern@0 AS Utf8)) AS Utf8View) as join_proj_push_down_2]
-           :               CooperativeExec
-           :                 PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
-           :             ProjectionExec: expr=[ctid_0@0 as ctid_0, name@1 as name, id@2 as id, character_length(name@1) as join_proj_push_down_3]
-           :               CooperativeExec
-           :                 PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+   ->  Sort
+         Sort Key: i.id DESC
+         ->  Nested Loop Anti Join
+               Join Filter: ((length(e.pattern) > length(i.name)) OR (upper(e.pattern) = i.name))
+               ->  Custom Scan (ParadeDB Base Scan) on items i
+                     Table: items
+                     Index: items_idx
+                     Exec Method: ColumnarExecState
+                     Fast Fields: id, name
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+               ->  Materialize
+                     ->  Custom Scan (ParadeDB Base Scan) on exclusions e
+                           Table: exclusions
+                           Index: exclusions_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: pattern
+                           Scores: false
+                           Full Index Scan: true
+                           Tantivy Query: {"with_index":{"query":"all"}}
+(21 rows)
 
 SELECT i.id
 FROM items i
@@ -1537,6 +1639,7 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
  id  
 -----
  500
@@ -1587,27 +1690,32 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
-                                                                                                                                           QUERY PLAN                                                                                                                                            
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: i ANTI e
-         Join Filter: ((to_hex(e.id) <> to_hex(i.id)) AND (md5(e.pattern) = md5(i.name)))
-         Limit: 5
-         Order By: i.id desc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=5), expr=[id@1 DESC], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[i]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(pdb_eval_expr_funcexpr_685b54ea(e_1.pattern)@2, pdb_eval_expr_funcexpr_887b5ea5(i_0.name)@3)], filter=pdb_eval_expr_funcexpr_7e60c530(id@1) != pdb_eval_expr_funcexpr_64208395(id@0), projection=[ctid_0@0, id@1]
-           :           ProjectionExec: expr=[id@0 as id, pattern@1 as pattern, pdb_eval_expr_funcexpr_685b54ea(CAST(pattern@1 AS Utf8)) as pdb_eval_expr_funcexpr_685b54ea(e_1.pattern)]
-           :             CooperativeExec
-           :               PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
-           :           ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, name@2 as name, pdb_eval_expr_funcexpr_887b5ea5(CAST(name@2 AS Utf8)) as pdb_eval_expr_funcexpr_887b5ea5(i_0.name)]
-           :             CooperativeExec
-           :               PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+   ->  Sort
+         Sort Key: i.id DESC
+         ->  Hash Anti Join
+               Hash Cond: (md5(i.name) = md5(e.pattern))
+               Join Filter: (to_hex(e.id) <> to_hex(i.id))
+               ->  Custom Scan (ParadeDB Base Scan) on items i
+                     Table: items
+                     Index: items_idx
+                     Exec Method: ColumnarExecState
+                     Fast Fields: id, name
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+               ->  Hash
+                     ->  Custom Scan (ParadeDB Base Scan) on exclusions e
+                           Table: exclusions
+                           Index: exclusions_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: id, pattern
+                           Scores: false
+                           Full Index Scan: true
+                           Tantivy Query: {"with_index":{"query":"all"}}
+(22 rows)
 
 SELECT i.id
 FROM items i
@@ -1620,6 +1728,7 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
  id  
 -----
  500
@@ -1739,28 +1848,31 @@ WHERE NOT EXISTS (
 AND i.id @@@ paradedb.all()
 ORDER BY i.id
 LIMIT 10;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: i, p)
+                                                QUERY PLAN                                                
+----------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: i ANTI p
-         Join Filter: ((p.id = i.pattern_id) OR (upper((p.pattern)::text) = upper((i.name)::text)))
-         Limit: 10
-         Order By: i.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, name@1 as col_2, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[i]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         ProjectionExec: expr=[ctid_0@0 as ctid_0, name@2 as name, id@3 as id]
-           :           NestedLoopJoinExec: join_type=RightAnti, filter=id@1 = pattern_id@0 OR join_proj_push_down_1@2 = join_proj_push_down_2@3, projection=[ctid_0@0, pattern_id@1, name@2, id@3]
-           :             ProjectionExec: expr=[id@0 as id, pattern@1 as pattern, pdb_eval_expr_funcexpr_52e8edc5(CAST(pattern@1 AS Utf8)) as join_proj_push_down_1]
-           :               CooperativeExec
-           :                 PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
-           :             ProjectionExec: expr=[ctid_0@0 as ctid_0, pattern_id@1 as pattern_id, name@2 as name, id@3 as id, pdb_eval_expr_funcexpr_4b32ca6c(CAST(name@2 AS Utf8)) as join_proj_push_down_2]
-           :               CooperativeExec
-           :                 PgSearchScan: table=i, segments=1, query={"with_index":{"query":"all"}}
-(19 rows)
+   ->  Sort
+         Sort Key: i.id
+         ->  Nested Loop Anti Join
+               Join Filter: ((p.id = i.pattern_id) OR (upper((p.pattern)::text) = upper((i.name)::text)))
+               ->  Custom Scan (ParadeDB Base Scan) on coll_items i
+                     Table: coll_items
+                     Index: coll_items_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Full Index Scan: true
+                     Tantivy Query: {"with_index":{"query":"all"}}
+               ->  Materialize
+                     ->  Custom Scan (ParadeDB Base Scan) on coll_patterns p
+                           Table: coll_patterns
+                           Index: coll_patterns_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: id, pattern
+                           Scores: false
+                           Full Index Scan: true
+                           Tantivy Query: {"with_index":{"query":"all"}}
+(21 rows)
 
 SELECT i.id, i.name
 FROM coll_items i
@@ -1773,6 +1885,7 @@ WHERE NOT EXISTS (
 AND i.id @@@ paradedb.all()
 ORDER BY i.id
 LIMIT 10;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: i, p)
  id |  name   
 ----+---------
   4 | Delta
@@ -1795,6 +1908,7 @@ WHERE NOT EXISTS (
 AND i.id @@@ paradedb.all()
 ORDER BY i.id
 LIMIT 10;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: i, p)
  id |  name   
 ----+---------
   1 | Alpha

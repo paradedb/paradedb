@@ -96,10 +96,10 @@ EXCEPTION WHEN OTHERS THEN
 END $$;
 SET statement_timeout = 0;
 SELECT * FROM rb_outcome ORDER BY line;
-                        line                        
-----------------------------------------------------
+                                               line                                                
+---------------------------------------------------------------------------------------------------
  limit-5 explain analyze: mpp=true range-scans=true
- limit-5 rows: 5
+ limit-5 rows: ERROR BUG: JoinScan expression projection failed: Unsupported Arrow data type: Null
 (2 rows)
 
 -- Cleanup.

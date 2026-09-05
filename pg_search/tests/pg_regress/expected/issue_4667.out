@@ -39,6 +39,9 @@ AND p.seniority_slug IN ('manager', 'director')
 AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c))
 ORDER BY id DESC
 LIMIT 26;
+WARNING:  JoinScan: could not resolve fast field for attno 3 on relation 15763384
+WARNING:  JoinScan: could not resolve fast field for attno 4 on relation 15763384
+WARNING:  JoinScan: could not resolve fast field for attno 5 on relation 15763384
 WARNING:  Aggregate Scan (DataFusion) not used: OR-nested subquery cannot be pushed into the aggregate scan (table: p)
                                                                                                                                                   QUERY PLAN                                                                                                                                                  
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -57,17 +60,19 @@ WARNING:  Aggregate Scan (DataFusion) not used: OR-nested subquery cannot be pus
                            Relation Tree: p LEFTMARK c
                            Join Cond: p.company_id = c.id
                            Join Predicate: (mark = true OR col IS NULL)
-                           Order By: p.id desc
+                           Limit: 26
+                           Distinct: true
+                           Order By: p.id desc, p.full_name asc, p.linkedin_followers asc, p.seniority_slug asc
                            DataFusion Physical Plan: 
-                             : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0]
-                             :   SortExec: expr=[id@1 DESC], preserve_partitioning=[false]
-                             :     FilterExec: mark@3 OR company_id@1 IS NULL, projection=[ctid_0@0, id@2]
+                             : SortExec: TopK(fetch=26), expr=[col_1@0 DESC, col_2@1 ASC NULLS LAST, col_3@2 ASC NULLS LAST, col_4@3 ASC NULLS LAST], preserve_partitioning=[false]
+                             :   AggregateExec: mode=Single, gby=[id@1 as col_1, full_name@2 as col_2, linkedin_followers@3 as col_3, seniority_slug@4 as col_4], aggr=[min(p_0.ctid_0) as ctid_0]
+                             :     FilterExec: mark@6 OR company_id@1 IS NULL, projection=[ctid_0@0, id@2, full_name@3, linkedin_followers@4, seniority_slug@5]
                              :       HashJoinExec: mode=CollectLeft, join_type=RightMark, on=[(id@0, company_id@1)]
                              :         CooperativeExec
                              :           PgSearchScan: table=c, segments=1, visibility=eager, query="all"
                              :         CooperativeExec
                              :           PgSearchScan: table=p, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
-(25 rows)
+(27 rows)
 
 SELECT DISTINCT
     p.id AS id,
@@ -83,6 +88,9 @@ AND p.seniority_slug IN ('manager', 'director')
 AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c))
 ORDER BY id DESC
 LIMIT 26;
+WARNING:  JoinScan: could not resolve fast field for attno 3 on relation 15763384
+WARNING:  JoinScan: could not resolve fast field for attno 4 on relation 15763384
+WARNING:  JoinScan: could not resolve fast field for attno 5 on relation 15763384
 WARNING:  Aggregate Scan (DataFusion) not used: OR-nested subquery cannot be pushed into the aggregate scan (table: p)
  id |    nameSort    | nameIsNull | followersSort | followersIsNull | senioritySort | seniorityIsNull 
 ----+----------------+------------+---------------+-----------------+---------------+-----------------

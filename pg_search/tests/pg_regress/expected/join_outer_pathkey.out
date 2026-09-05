@@ -74,28 +74,27 @@ AND p.id NOT IN (
 AND p.description @@@ 'widget OR gadget OR gizmo OR boring'
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                       QUERY PLAN                                                                                                                        
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: c INNER (p ANTI pt)
-         Join Cond: p.company_id = c.id, p.id = pt.product_id
-         Limit: 10
-         Order By: p.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[c, p]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, company_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
-           :           CooperativeExec
-           :             PgSearchScan: table=c, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Acme OR Globex OR Initech","lenient":null,"conjunction_mode":null}}}}
-           :           HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@2, product_id@0)], null_aware
-           :             CooperativeExec
-           :               PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
-           :             CooperativeExec
-           :               PgSearchScan: table=pt, segments=1, visibility=eager, query={"with_index":{"query":{"term":{"field":"tag","value":"niche"}}}}
-(19 rows)
+                                                                                                                    QUERY PLAN                                                                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: (p ANTI pt) SEMI c
+   Join Cond: p.company_id = c.id, p.id = pt.product_id
+   Limit: 10
+   Order By: p.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, ctid_0@1 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[p]
+     :       TantivyFetchExec: fetch=[ctid_0]
+     :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, company_id@1)], projection=[id@0, ctid_0@2]
+     :           CooperativeExec
+     :             PgSearchScan: table=c, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Acme OR Globex OR Initech","lenient":null,"conjunction_mode":null}}}}
+     :           HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@0, product_id@0)], null_aware
+     :             CooperativeExec
+     :               PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=pt, segments=1, visibility=eager, query={"with_index":{"query":{"term":{"field":"tag","value":"niche"}}}}
+(18 rows)
 
 SELECT p.id, p.description
 FROM products_op p
@@ -137,7 +136,7 @@ WHERE c.name @@@ 'Acme OR Globex'
 AND p.description @@@ 'widget OR gadget OR gizmo'
 ORDER BY cat.category_name, p.id
 LIMIT 5;
-WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: c, p)
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, cat, p)
                                                                                                QUERY PLAN                                                                                               
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -173,7 +172,7 @@ WHERE c.name @@@ 'Acme OR Globex'
 AND p.description @@@ 'widget OR gadget OR gizmo'
 ORDER BY cat.category_name, p.id
 LIMIT 5;
-WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: c, p)
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, cat, p)
  id  |  description  | category_name 
 -----+---------------+---------------
  100 | A fine widget | Electronics
@@ -201,25 +200,24 @@ WHERE p.id IN (
 AND p.description @@@ 'widget OR gizmo'
 ORDER BY p.id
 LIMIT 5;
-                                                                                                              QUERY PLAN                                                                                                              
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: p SEMI pt
-         Join Cond: p.id = pt.product_id
-         Limit: 5
-         Order By: p.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[p]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, product_id@0)]
-           :           CooperativeExec
-           :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gizmo","lenient":null,"conjunction_mode":null}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=pt, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"tag","query_string":"popular","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+                                                                                                           QUERY PLAN                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: p SEMI pt
+   Join Cond: p.id = pt.product_id
+   Limit: 5
+   Order By: p.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, ctid_0@1 as ctid_0]
+     :   SortExec: TopK(fetch=5), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[p]
+     :       TantivyFetchExec: fetch=[ctid_0]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, product_id@0)]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gizmo","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=pt, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"tag","query_string":"popular","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
 
 SELECT p.id, p.description
 FROM products_op p

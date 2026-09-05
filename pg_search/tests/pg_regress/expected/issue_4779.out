@@ -60,28 +60,40 @@ WHERE EXISTS (SELECT 1 FROM t_a_4779 a WHERE a.main_id = m.id AND a.id @@@ pdb.a
   AND EXISTS (SELECT 1 FROM t_b_4779 b WHERE b.main_id = m.id AND b.id @@@ pdb.all())
   AND m.id @@@ pdb.all()
 ORDER BY m.id DESC LIMIT 10;
-                                                                       QUERY PLAN                                                                        
----------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: a, b, m)
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: (m SEMI b) SEMI a
-         Join Cond: m.id = a.main_id, b.main_id = m.id
-         Limit: 10
-         Order By: m.id desc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[m]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
-           :           HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
-           :             CooperativeExec
-           :               PgSearchScan: table=m, segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-           :             CooperativeExec
-           :               PgSearchScan: table=b, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=a, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-(19 rows)
+   ->  Sort
+         Sort Key: m.id DESC
+         ->  Hash Semi Join
+               Hash Cond: (a.main_id = b.main_id)
+               ->  Hash Right Semi Join
+                     Hash Cond: (a.main_id = m.id)
+                     ->  Custom Scan (ParadeDB Base Scan) on t_a_4779 a
+                           Table: t_a_4779
+                           Index: t_a_4779_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: main_id
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+                     ->  Hash
+                           ->  Custom Scan (ParadeDB Base Scan) on t_main_4779 m
+                                 Table: t_main_4779
+                                 Index: t_main_4779_idx
+                                 Exec Method: ColumnarExecState
+                                 Fast Fields: id
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+               ->  Hash
+                     ->  Custom Scan (ParadeDB Base Scan) on t_b_4779 b
+                           Table: t_b_4779
+                           Index: t_b_4779_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: main_id
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(30 rows)
 
 -- Rows with JoinScan on (verifies correctness, not just plan shape).
 SELECT m.id FROM t_main_4779 m
@@ -89,6 +101,7 @@ WHERE EXISTS (SELECT 1 FROM t_a_4779 a WHERE a.main_id = m.id AND a.id @@@ pdb.a
   AND EXISTS (SELECT 1 FROM t_b_4779 b WHERE b.main_id = m.id AND b.id @@@ pdb.all())
   AND m.id @@@ pdb.all()
 ORDER BY m.id DESC LIMIT 10;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: a, b, m)
  id  
 -----
  100
@@ -133,28 +146,40 @@ WHERE EXISTS (SELECT 1 FROM t_a_4779 a WHERE a.main_id = m.id AND a.id @@@ pdb.a
   AND NOT EXISTS (SELECT 1 FROM t_b_4779 b WHERE b.main_id = m.id AND b.id @@@ pdb.all())
   AND m.id @@@ pdb.all()
 ORDER BY m.id DESC LIMIT 10;
-                                                                       QUERY PLAN                                                                        
----------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: a, b, m)
+                                              QUERY PLAN                                              
+------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: (m ANTI b) SEMI a
-         Join Cond: m.id = a.main_id, b.main_id = m.id
-         Limit: 10
-         Order By: m.id desc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[m]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
-           :           HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@1, main_id@0)]
-           :             CooperativeExec
-           :               PgSearchScan: table=m, segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-           :             CooperativeExec
-           :               PgSearchScan: table=b, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=a, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-(19 rows)
+   ->  Sort
+         Sort Key: m.id DESC
+         ->  Hash Right Semi Join
+               Hash Cond: (a.main_id = m.id)
+               ->  Custom Scan (ParadeDB Base Scan) on t_a_4779 a
+                     Table: t_a_4779
+                     Index: t_a_4779_idx
+                     Exec Method: ColumnarExecState
+                     Fast Fields: main_id
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+               ->  Hash
+                     ->  Hash Anti Join
+                           Hash Cond: (m.id = b.main_id)
+                           ->  Custom Scan (ParadeDB Base Scan) on t_main_4779 m
+                                 Table: t_main_4779
+                                 Index: t_main_4779_idx
+                                 Exec Method: ColumnarExecState
+                                 Fast Fields: id
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+                           ->  Hash
+                                 ->  Custom Scan (ParadeDB Base Scan) on t_b_4779 b
+                                       Table: t_b_4779
+                                       Index: t_b_4779_idx
+                                       Exec Method: ColumnarExecState
+                                       Fast Fields: main_id
+                                       Scores: false
+                                       Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(30 rows)
 
 -- ============================================================
 -- Parallel mode: control. Worked pre-fix (issue #4910); guard against
@@ -171,27 +196,39 @@ WHERE EXISTS (SELECT 1 FROM t_a_4779 a WHERE a.main_id = m.id AND a.id @@@ pdb.a
   AND EXISTS (SELECT 1 FROM t_b_4779 b WHERE b.main_id = m.id AND b.id @@@ pdb.all())
   AND m.id @@@ pdb.all()
 ORDER BY m.id DESC LIMIT 10;
-                                                                       QUERY PLAN                                                                        
----------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: a, b, m)
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: (m SEMI b) SEMI a
-         Join Cond: m.id = a.main_id, b.main_id = m.id
-         Limit: 10
-         Order By: m.id desc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[m]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
-           :           HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
-           :             CooperativeExec
-           :               PgSearchScan: table=m, segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-           :             CooperativeExec
-           :               PgSearchScan: table=b, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=a, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-(19 rows)
+   ->  Sort
+         Sort Key: m.id DESC
+         ->  Hash Semi Join
+               Hash Cond: (a.main_id = b.main_id)
+               ->  Hash Right Semi Join
+                     Hash Cond: (a.main_id = m.id)
+                     ->  Custom Scan (ParadeDB Base Scan) on t_a_4779 a
+                           Table: t_a_4779
+                           Index: t_a_4779_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: main_id
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+                     ->  Hash
+                           ->  Custom Scan (ParadeDB Base Scan) on t_main_4779 m
+                                 Table: t_main_4779
+                                 Index: t_main_4779_idx
+                                 Exec Method: ColumnarExecState
+                                 Fast Fields: id
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+               ->  Hash
+                     ->  Custom Scan (ParadeDB Base Scan) on t_b_4779 b
+                           Table: t_b_4779
+                           Index: t_b_4779_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: main_id
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(30 rows)
 
 DROP TABLE t_main_4779, t_a_4779, t_b_4779 CASCADE;

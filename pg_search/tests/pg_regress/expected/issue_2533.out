@@ -164,7 +164,8 @@ SELECT (SELECT COUNT(*)
            OR (NOT (products.age @@@ '20')) AND (users.name @@@ 'bob')
            OR ((users.color @@@ 'blue') AND (users.name @@@ 'bob')) AND (products.color @@@ 'blue')
            OR (NOT (products.name @@@ 'bob')));
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: products, users)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count | count 
 -------+-------
     13 |    13
@@ -188,7 +189,8 @@ SELECT (SELECT COUNT(*)
            OR (orders.age @@@ '20') AND NOT (users.name @@@ 'bob')
            OR ((users.color @@@ 'blue') OR (NOT (users.name @@@ 'bob'))) AND
               NOT ((orders.name @@@ 'bob') OR (orders.age @@@ '20')) AND (orders.name @@@ 'bob'));
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: orders, users)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count | count 
 -------+-------
      0 |     0
@@ -212,7 +214,8 @@ SELECT (SELECT COUNT(*)
            OR ((products.color @@@ 'blue') AND (products.color @@@ 'blue')) AND NOT (users.color @@@ 'blue')
            OR ((users.name @@@ 'bob') OR (NOT (users.color @@@ 'blue'))) AND NOT (products.color @@@ 'blue') AND
               ((products.color @@@ 'blue') OR (products.color @@@ 'blue')));
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: products, users)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count | count 
 -------+-------
      2 |     2
@@ -236,7 +239,8 @@ SELECT (SELECT COUNT(*)
            OR ((products.age @@@ '20') OR (products.age @@@ '20')) AND NOT (users.color @@@ 'blue')
            OR ((users.age @@@ '20') OR (NOT (users.color @@@ 'blue'))) AND NOT (products.age @@@ '20') AND
               (NOT (NOT (products.name @@@ 'bob'))));
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: products, users)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count | count 
 -------+-------
      3 |     3
@@ -260,7 +264,8 @@ SELECT (SELECT COUNT(*)
            OR ((products.name @@@ 'bob') OR (products.age @@@ '20')) AND NOT (users.color @@@ 'blue')
            OR ((NOT (users.color @@@ 'blue')) OR (users.color @@@ 'blue')) AND NOT (products.age @@@ '20') AND
               ((products.color @@@ 'blue') AND (products.name @@@ 'bob')));
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: products, users)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count | count 
 -------+-------
      2 |     2
@@ -282,7 +287,8 @@ SELECT (SELECT COUNT(*)
            OR ((users.age @@@ '20') OR (NOT (users.name @@@ 'bob'))) AND
               NOT NOT (NOT ((NOT (orders.name @@@ 'bob')) OR (orders.name @@@ 'bob'))) AND NOT (users.age @@@ '20')
            OR ((users.age @@@ '20') AND (NOT (users.color @@@ 'blue'))));
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: orders, users)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count | count 
 -------+-------
     13 |    13
@@ -304,7 +310,8 @@ SELECT (SELECT COUNT(*)
            OR ((NOT (users.color @@@ 'blue')) OR (users.name @@@ 'bob')) AND
               NOT NOT ((NOT (orders.color @@@ 'blue')) OR (NOT (orders.color @@@ 'blue'))) AND NOT (users.age @@@ '20')
            OR ((NOT (users.color @@@ 'blue')) AND (users.color @@@ 'blue')));
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: orders, users)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count | count 
 -------+-------
     13 |    13
@@ -328,7 +335,8 @@ SELECT (SELECT COUNT(*)
               NOT ((orders.age @@@ '20') AND (orders.age @@@ '20'))
            OR (orders.color @@@ 'blue') AND NOT (users.age @@@ '20')
            OR ((users.name @@@ 'bob') AND (NOT (users.color @@@ 'blue'))));
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: orders, users)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count | count 
 -------+-------
     14 |    14
@@ -349,7 +357,8 @@ SELECT (SELECT COUNT(*)
                  JOIN orders ON products.name = orders.name
         WHERE (NOT (products.id @@@ '3'))
            OR ((products.name @@@ 'bob') AND (orders.id @@@ '3')));
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: orders, products)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count | count 
 -------+-------
     19 |    19

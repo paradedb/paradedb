@@ -133,35 +133,6 @@ pub(super) struct JoinConditions {
     pub has_search_predicate: bool,
 }
 
-/// Extract join conditions from the restrict list.
-///
-/// Analyzes the join's restrict list to identify:
-/// - Equi-join conditions (e.g., `a.id = b.id`) for joining
-/// - Other conditions that need post-join evaluation
-/// - Whether any condition contains our @@@ search operator
-pub(super) unsafe fn extract_join_conditions(
-    root: *mut pg_sys::PlannerInfo,
-    extra: *mut pg_sys::JoinPathExtraData,
-    sources: &[&JoinSource],
-) -> JoinConditions {
-    let result = JoinConditions {
-        equi_keys: Vec::new(),
-        other_conditions: Vec::new(),
-        has_search_predicate: false,
-    };
-
-    if extra.is_null() || sources.len() < 2 {
-        return result;
-    }
-
-    let restrictlist = (*extra).restrictlist;
-    if restrictlist.is_null() {
-        return result;
-    }
-
-    extract_join_conditions_from_list(root, restrictlist, sources)
-}
-
 /// Get type length and pass-by-value info for a given type OID.
 unsafe fn get_type_info(type_oid: pg_sys::Oid) -> (i16, bool) {
     let mut typlen: i16 = 0;

@@ -149,12 +149,10 @@ pub mod visibility_filter;
 pub use self::build::CtidColumn;
 use self::build::{JoinCSClause, RelNode, RelationAlias};
 use self::planning::{
-    collect_join_sources, collect_join_sources_base_rel, collect_required_fields,
-    ensure_score_bubbling, expr_uses_scores_from_source, extract_join_conditions, extract_orderby,
-    extract_orderby_from_parse_sort_clause, get_score_func_rti, order_by_columns_are_fast_fields,
-    pathkey_uses_scores_from_source,
+    collect_join_sources_base_rel, collect_required_fields, ensure_score_bubbling,
+    expr_uses_scores_from_source, extract_orderby, extract_orderby_from_parse_sort_clause,
+    get_score_func_rti, order_by_columns_are_fast_fields, pathkey_uses_scores_from_source,
 };
-use self::predicate::{extract_join_level_conditions, resolve_join_conditions};
 use self::privdat::PrivateData;
 use crate::postgres::customscan::datafusion::explain::{
     explain_physical_plan, format_join_level_expr, get_attname_safe, get_plan_with_merged_metrics,
@@ -189,9 +187,10 @@ use datafusion_distributed::shm::MppMesh;
 
 use crate::DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE;
 use crate::postgres::ParallelScanArgs;
+use crate::postgres::customscan::aggregatescan::datafusion_build;
 use crate::postgres::customscan::parameterized_value::ParameterizedValue;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
-use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
+use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logical_plan};
@@ -705,17 +704,33 @@ impl JoinScan {
         let order_by_len = join_clause.order_by.len();
         let relevant_pathkeys = planning::count_relevant_pathkeys(root, &output_rtis);
         let private_data = PrivateData::new(join_clause, query_allows_parallel_mode(&*root));
+        let pathtarget = {
+            let final_target =
+                (*root).upper_targets[pg_sys::UpperRelationKind::UPPERREL_FINAL as usize];
+            if !final_target.is_null() {
+                final_target
+            } else {
+                (*rel).reltarget
+            }
+        };
+        if !pathtarget.is_null() && !rel.is_null() && (*(*rel).reltarget).exprs.is_null() {
+            (*rel).reltarget = pathtarget;
+        }
         let mut custom_path = pg_sys::CustomPath {
             path: pg_sys::Path {
                 type_: pg_sys::NodeTag::T_CustomPath,
                 pathtype: pg_sys::NodeTag::T_CustomScan,
                 parent: rel,
-                pathtarget: (*rel).reltarget,
-                param_info: pg_sys::get_baserel_parampathinfo(
-                    root,
-                    rel,
-                    pg_sys::bms_copy((*rel).lateral_relids),
-                ),
+                pathtarget,
+                param_info: if (*rel).reloptkind == pg_sys::RelOptKind::RELOPT_BASEREL {
+                    pg_sys::get_baserel_parampathinfo(
+                        root,
+                        rel,
+                        pg_sys::bms_copy((*rel).lateral_relids),
+                    )
+                } else {
+                    std::ptr::null_mut()
+                },
                 rows: result_rows,
                 startup_cost,
                 total_cost,
@@ -956,7 +971,7 @@ impl JoinScan {
 }
 impl CustomScan for JoinScan {
     const NAME: &'static CStr = c"ParadeDB Join Scan";
-    type Args = JoinPathlistHookArgs;
+    type Args = CreateUpperPathsHookArgs;
     type State = JoinScanState;
     type PrivateData = PrivateData;
 
@@ -981,6 +996,14 @@ impl CustomScan for JoinScan {
     }
 
     fn create_custom_path(builder: CustomPathBuilder<Self>) -> Vec<pg_sys::CustomPath> {
+        let stage = builder.args().stage;
+        if stage != pg_sys::UpperRelationKind::UPPERREL_FINAL {
+            return Vec::new();
+        }
+        if !crate::gucs::enable_join_custom_scan() {
+            return Vec::new();
+        }
+
         unsafe {
             match Self::try_build_join_custom_path(&builder) {
                 Ok(BuiltJoinPath {
@@ -1019,28 +1042,11 @@ impl CustomScan for JoinScan {
         let mut node = builder.build();
 
         unsafe {
-            // For joins, we need to set both custom_scan_tlist and scan.plan.targetlist
-            // to describe the output columns. We create a fresh copy of the target list
-            // to avoid corrupting the original.
-            let mut tlist = PgList::<pg_sys::TargetEntry>::from_pg(
-                pg_sys::copyObjectImpl(node.scan.plan.targetlist.cast()).cast(),
-            );
-
-            // If the parent plan (`processed_tlist` or `pathkeys`) needs `pdb.score(...)` but the
-            // planner didn't push it down into the target list, we must add it. Otherwise,
-            // the parent node will attempt to evaluate `pdb.score(...)` natively, which fails.
-            crate::postgres::utils::add_missing_search_operators_to_tlist(
-                root,
-                best_path as *mut pg_sys::Path,
-                &mut tlist,
-                &crate::postgres::customscan::score_funcoids(),
-            );
-
-            // Update node.scan.plan.targetlist so parent nodes can reference the outputs.
-            // We also set custom_scan_tlist, which is what setrefs.c uses to translate
-            // Vars in custom_exprs into INDEX_VAR references. We must provide a separate
-            // copy to custom_scan_tlist because setrefs.c may modify it in-place.
-            let tlist_ptr = tlist.into_pg();
+            // At UPPERREL_FINAL, scan.plan.targetlist describes the final output columns
+            // and must match root->processed_tlist 1:1. We provide a fresh copy to avoid
+            // corrupting the original.
+            let tlist_ptr =
+                pg_sys::copyObjectImpl(node.scan.plan.targetlist.cast()).cast::<pg_sys::List>();
             node.scan.plan.targetlist = tlist_ptr;
 
             let mut custom_scan_tlist = PgList::<pg_sys::TargetEntry>::from_pg(
@@ -1068,17 +1074,6 @@ impl CustomScan for JoinScan {
             // set_customscan_references. The Vars in these expressions will be converted to
             // INDEX_VAR references into custom_scan_tlist.
             node.custom_exprs = splice_path_private_into_list(node.custom_exprs, best_path);
-
-            // Ensure all Vars referenced in custom_exprs (heap condition clauses)
-            // are present in custom_scan_tlist so setrefs can create INDEX_VAR references.
-            let path_private_full = PgList::<pg_sys::Node>::from_pg((*best_path).custom_private);
-            let mut scan_tlist = PgList::<pg_sys::TargetEntry>::from_pg(node.custom_scan_tlist);
-            for i in 1..path_private_full.len() {
-                if let Some(node_ptr) = path_private_full.get_ptr(i) {
-                    crate::postgres::utils::add_vars_to_tlist(node_ptr, &mut scan_tlist);
-                }
-            }
-            node.custom_scan_tlist = scan_tlist.into_pg();
 
             // Extract the column mappings from custom_scan_tlist (including any added
             // custom_exprs Vars) so INDEX_VAR references can be resolved.
@@ -2174,124 +2169,6 @@ unsafe fn splice_path_private_into_list(
 }
 
 impl JoinScan {
-    /// Attempts to build a lateral unnest CustomPath when one side of a join is a single-table
-    /// lateral unnest over an array fast field originating from the other side.
-    unsafe fn try_build_lateral_unnest_path(
-        root: *mut pg_sys::PlannerInfo,
-        builder: &CustomPathBuilder<Self>,
-        jointype: pg_sys::JoinType::Type,
-        extra: *mut pg_sys::JoinPathExtraData,
-        input_rel: *mut pg_sys::RelOptInfo,
-        unnest_rel: *mut pg_sys::RelOptInfo,
-    ) -> Result<Option<BuiltJoinPath>, JoinPathDecline> {
-        if unnest_rel.is_null() || pg_sys::bms_num_members((*unnest_rel).relids) != 1 {
-            return Ok(None);
-        }
-        let rti = crate::postgres::customscan::range_table::bms_iter((*unnest_rel).relids)
-            .next()
-            .unwrap();
-        let Some(mut unnest_info) =
-            crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(root, rti)
-        else {
-            return Ok(None);
-        };
-        let Some(input_collected) = collect_join_sources(root, input_rel) else {
-            return Ok(None);
-        };
-        let input_node = input_collected.plan;
-        let join_keys = input_collected.join_keys;
-        let mut multi_table_clauses = input_collected.multi_table_clauses;
-        if !input_node.contains_rti(unnest_info.source_rti.0) {
-            return Ok(None);
-        }
-        let is_left = jointype == pg_sys::JoinType::JOIN_LEFT
-            || (!extra.is_null()
-                && !(*extra).sjinfo.is_null()
-                && (*(*extra).sjinfo).jointype == pg_sys::JoinType::JOIN_LEFT);
-        unnest_info.is_left_join = is_left;
-        let plan = RelNode::Unnest(Box::new(build::UnnestNode {
-            input: input_node,
-            unnest_info,
-            absorbed_clauses: Vec::new(),
-        }));
-
-        let aliases: Vec<String> = plan
-            .sources()
-            .iter()
-            .map(|s| {
-                RelationAlias::new(s.scan_info.alias.as_deref())
-                    .warning_context(s.scan_info.heaprelid)
-            })
-            .collect();
-
-        let join_conditions = extract_join_conditions(root, extra, &plan.sources());
-        let mut other_conditions = join_conditions.other_conditions.clone();
-        if !unnest_rel.is_null() && !(*unnest_rel).baserestrictinfo.is_null() {
-            let baserestrict =
-                PgList::<pg_sys::RestrictInfo>::from_pg((*unnest_rel).baserestrictinfo);
-            for ri in baserestrict.iter_ptr() {
-                other_conditions.push(ri);
-            }
-        }
-
-        if !plan
-            .sources()
-            .iter()
-            .any(|s| s.scan_info.has_search_predicate)
-            && !join_conditions.has_search_predicate
-            && !plan.has_absorbed_search_clauses()
-        {
-            return Err(JoinPathDecline::Quiet);
-        }
-
-        let warn = |reason| JoinPathDecline::Warn {
-            reason,
-            aliases: aliases.clone(),
-        };
-
-        let has_distinct = !(*(*root).parse).distinctClause.is_null();
-        let (mut join_clause, limit_offset) =
-            Self::validate_and_build_clause(root, &plan, &join_keys, has_distinct).map_err(warn)?;
-
-        let current_sources = plan.sources();
-        let (join_clause_updated, new_multi_table_clauses) = extract_join_level_conditions(
-            root,
-            extra,
-            &current_sources,
-            &other_conditions,
-            join_clause,
-        )
-        .map_err(|_| {
-            warn(JoinDeclineReason::new(
-                "JoinScan not used: failed to extract join-level conditions (ensure all referenced columns are fast fields)",
-            ))
-        })?;
-        join_clause = join_clause_updated;
-        multi_table_clauses.extend(new_multi_table_clauses);
-
-        if !join_clause.plan.has_search_predicate() {
-            return Err(JoinPathDecline::Quiet);
-        }
-
-        let path = Self::finalize_clause_into_path(
-            root,
-            builder.args().joinrel,
-            join_clause,
-            &limit_offset,
-        )
-        .ok_or_else(|| {
-            warn(JoinDeclineReason::new(
-                "JoinScan not used: ORDER BY column is not available in the joined output schema",
-            ))
-        })?;
-
-        Ok(Some(BuiltJoinPath {
-            path,
-            aliases,
-            multi_table_clauses,
-        }))
-    }
-
     /// Body of `<Self as CustomScan>::create_custom_path` in `?`-style.
     /// The Ok variant returns the assembled `CustomPath` plus the alias list
     /// (for the "successful" mark) and the trailing multi-table clauses to
@@ -2303,118 +2180,83 @@ impl JoinScan {
     ) -> Result<BuiltJoinPath, JoinPathDecline> {
         let args = builder.args();
         let root = args.root;
-        let jointype = args.jointype;
-        let outerrel = args.outerrel;
-        let innerrel = args.innerrel;
-        let extra = args.extra;
+        let input_rel = args.input_rel;
+        let output_rel = args.output_rel;
 
-        // Mirrored / unique-ified variants the planner generates as alternatives
-        // for a joinrel it also offers as plain SEMI / ANTI. The canonical
-        // invocation carries the real decision (and any warning); a warning here
-        // would imply a capability gap that doesn't exist.
-        let is_planner_alternative = matches!(
-            jointype,
-            pg_sys::JoinType::JOIN_UNIQUE_OUTER | pg_sys::JoinType::JOIN_UNIQUE_INNER
-        );
-        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
-        let is_planner_alternative =
-            is_planner_alternative || jointype == pg_sys::JoinType::JOIN_RIGHT_ANTI;
-        #[cfg(feature = "pg18")]
-        let is_planner_alternative =
-            is_planner_alternative || jointype == pg_sys::JoinType::JOIN_RIGHT_SEMI;
-        if is_planner_alternative {
+        if root.is_null() || (*root).parse.is_null() || input_rel.is_null() || output_rel.is_null()
+        {
+            return Err(JoinPathDecline::Quiet);
+        }
+        let parse = (*root).parse;
+        let input_rel = &*input_rel;
+
+        if (*parse).hasAggs || !(*parse).groupClause.is_null() || (*parse).hasWindowFuncs {
             return Err(JoinPathDecline::Quiet);
         }
 
-        // Silent gates: check if either side is a lateral unnest.
-        if let Some(built) =
-            Self::try_build_lateral_unnest_path(root, builder, jointype, extra, outerrel, innerrel)?
-        {
-            return Ok(built);
+        let sources = datafusion_build::collect_join_agg_sources(root, input_rel);
+        if sources.is_empty() {
+            return Err(JoinPathDecline::Quiet);
         }
-        if let Some(built) =
-            Self::try_build_lateral_unnest_path(root, builder, jointype, extra, innerrel, outerrel)?
-        {
-            return Ok(built);
+
+        // Silent gates: check for lateral unnest or at least 2 sources.
+        let has_lateral_unnest = sources.len() == 1
+            && (1..(*root).simple_rel_array_size).any(|rti| {
+                crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(
+                    root,
+                    rti as pg_sys::Index,
+                )
+                .is_some_and(|u| u.source_rti.0 == sources[0].rti)
+            });
+
+        if sources.len() < 2 && !has_lateral_unnest {
+            return Err(JoinPathDecline::Quiet);
         }
-        // Silent gates: collect outer/inner sources or bail without a warning.
-        let outer_collected = collect_join_sources(root, outerrel).ok_or(JoinPathDecline::Quiet)?;
-        let inner_collected = collect_join_sources(root, innerrel).ok_or(JoinPathDecline::Quiet)?;
 
-        let left_sources_count = outer_collected.plan.sources().len();
-        let inner_node = inner_collected
-            .plan
-            .offset_plan_positions(left_sources_count);
-
-        let mut join_keys = outer_collected.join_keys;
-        join_keys.extend(inner_collected.join_keys);
-
-        let outer_node = outer_collected.plan;
-
-        let aliases: Vec<String> = {
-            let mut all_sources = outer_node.sources();
-            all_sources.extend(inner_node.sources());
-            all_sources
-                .iter()
-                .map(|s| {
-                    RelationAlias::new(s.scan_info.alias.as_deref())
-                        .warning_context(s.scan_info.heaprelid)
-                })
-                .collect()
-        };
-
-        let join_conditions = {
-            let mut all_sources = outer_node.sources();
-            all_sources.extend(inner_node.sources());
-            extract_join_conditions(root, extra, &all_sources)
-        };
-
-        // The minimum requirement for considering the join scan is that a
-        // search predicate is used — either in a source, a sub-join plan, or in a join-level
-        // condition. Below this gate, every Err carries a planner warning.
-        {
-            let mut all_sources = outer_node.sources();
-            all_sources.extend(inner_node.sources());
-            if !all_sources.iter().any(|s| s.scan_info.has_search_predicate)
-                && !outer_node.has_search_predicate()
-                && !inner_node.has_search_predicate()
-                && !join_conditions.has_search_predicate
-                && !outer_node.has_absorbed_search_clauses()
-                && !inner_node.has_absorbed_search_clauses()
-            {
-                return Err(JoinPathDecline::Quiet);
-            }
+        // Check if any table has a BM25 index. If none do, quiet decline.
+        if !datafusion_build::has_any_bm25_index(&sources) {
+            return Err(JoinPathDecline::Quiet);
         }
+
+        let aliases: Vec<String> = sources
+            .iter()
+            .map(|s| RelationAlias::new(s.alias.as_deref()).warning_context(s.relid))
+            .collect();
 
         let warn = |reason| JoinPathDecline::Warn {
             reason,
             aliases: aliases.clone(),
         };
 
-        join_keys.extend(join_conditions.equi_keys.clone());
+        // All tables in the join must have ParadeDB indexes.
+        if !datafusion_build::all_have_bm25_index(&sources) {
+            return Err(warn(JoinDeclineReason::new(
+                "JoinScan not used: at least one relation lacks a ParadeDB index",
+            )));
+        }
 
-        let mut current_sources = outer_node.sources();
-        current_sources.extend(inner_node.sources());
-        let resolved = resolve_join_conditions(
-            root,
-            &current_sources,
-            &join_conditions.equi_keys,
-            &join_conditions.other_conditions,
-            jointype,
-        )
-        .map_err(warn)?;
+        // Inspect lower join path predicates
+        let path_info = match datafusion_build::check_join_path_predicates(
+            root, input_rel, &sources,
+        ) {
+            datafusion_build::JoinPathPredicateCheck::Complete(info) => info,
+            datafusion_build::JoinPathPredicateCheck::Unsupported(reason) => {
+                return Err(warn(JoinDeclineReason::new(format!(
+                    "JoinScan not used: {}",
+                    reason.detail()
+                ))));
+            }
+            datafusion_build::JoinPathPredicateCheck::IncompletePath(_) => {
+                return Err(warn(JoinDeclineReason::new(
+                    "JoinScan not used: the selected lower join path cannot be inspected completely",
+                )));
+            }
+        };
 
-        let parsed_jointype = build::JoinType::try_from(jointype)
-            .map_err(|e| warn(JoinDeclineReason::new(e.to_string())))?;
-        let mut plan = RelNode::Join(Box::new(build::JoinNode {
-            join_type: parsed_jointype,
-            left: outer_node,
-            right: inner_node,
-            equi_keys: join_conditions.equi_keys,
-            filter: resolved.filter,
-            subplan_id: None,
-            absorbed_search_clauses: Vec::new(),
-        }));
+        // Extract join tree from parse
+        let (mut plan, multi_table_clauses) =
+            datafusion_build::extract_join_tree_from_parse(root, &sources, path_info)
+                .map_err(|e| warn(JoinDeclineReason::new(format!("JoinScan not used: {e}"))))?;
 
         let unsupported = plan.unsupported_join_types();
         if !unsupported.is_empty() {
@@ -2434,50 +2276,20 @@ impl JoinScan {
             )));
         }
 
-        let has_distinct = !(*(*root).parse).distinctClause.is_null();
+        let has_distinct = !(*parse).distinctClause.is_null();
+        let join_keys = plan.join_keys();
 
-        // Phase 1: shared activation checks + JoinCSClause construction.
-        let (mut join_clause, limit_offset) =
+        let (join_clause, limit_offset) =
             Self::validate_and_build_clause(root, &plan, &join_keys, has_distinct).map_err(warn)?;
 
-        let mut multi_table_clauses = outer_collected.multi_table_clauses;
-        multi_table_clauses.extend(inner_collected.multi_table_clauses);
-
-        // --- Join-level predicate extraction (join-hook specific) ---
-        // This builds an expression tree that can reference:
-        // - Predicate nodes: Tantivy search queries
-        // - MultiTablePredicate nodes: PostgreSQL expressions
-        //
-        // Disjunctive Var=Var conditions already absorbed into
-        // `JoinNode.filter` (above) are filtered out of `resolved.post_join_conditions`
-        // so they are not re-processed here as MultiTablePredicates.
-        let current_sources = join_clause.plan.sources();
-        let (join_clause_updated, new_multi_table_clauses) = extract_join_level_conditions(
-            root,
-            extra,
-            &current_sources,
-            &resolved.post_join_conditions,
-            join_clause.clone(),
-        )
-        .map_err(|_| {
-            warn(JoinDeclineReason::new(
-                "JoinScan not used: failed to extract join-level conditions (ensure all referenced columns are columnar indexed)",
-            ))
-        })?;
-        join_clause = join_clause_updated;
-        multi_table_clauses.extend(new_multi_table_clauses);
-
-        // Post-extraction check: need at least one search predicate in the plan.
-        // This is a silent gate — the join is no longer interesting once predicates have
-        // been pulled out.
+        // Need at least one search predicate in the plan.
         if !join_clause.plan.has_search_predicate() {
             return Err(JoinPathDecline::Quiet);
         }
 
-        // Phase 2: shared ORDER BY + cost + CustomPath construction.
         let path = Self::finalize_clause_into_path(
             root,
-            builder.args().joinrel,
+            output_rel,
             join_clause,
             &limit_offset,
         )

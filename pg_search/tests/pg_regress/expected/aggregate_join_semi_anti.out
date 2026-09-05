@@ -228,7 +228,6 @@ WHERE contact_id IN     (SELECT ldf_id FROM asa_contact_list WHERE list_id @@@ '
   AND job_title @@@ 'Senior'
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: asa_cccf, asa_contact_list)
      job_title     | doc_count 
 -------------------+-----------
  Senior Programmer |         7
@@ -449,7 +448,6 @@ WHERE id IN     (SELECT id FROM asa_excl_include)
   AND label @@@ 'Senior'
 GROUP BY label
 ORDER BY doc_count DESC, label;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: asa_excl_include, asa_excl_inner, asa_excl_outer)
  label | doc_count 
 -------+-----------
 (0 rows)
@@ -595,7 +593,7 @@ WHERE l.fk IN (
 )
   AND r.body @@@ 'doc'
 GROUP BY l.label ORDER BY l.label;
-WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate cannot be pushed into the aggregate scan (table: join)
+WARNING:  Aggregate Scan (DataFusion) not used: predicate cannot be pushed into the scan (table: join)
  label | c 
 -------+---
  A     | 1
@@ -610,7 +608,6 @@ WHERE l.fk IN (
 )
   AND r.body @@@ 'doc'
 GROUP BY l.label ORDER BY l.label;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: l, r, z)
  label | c 
 -------+---
  A     | 1
@@ -702,7 +699,6 @@ WHERE a.id NOT IN (
     )
   AND a.body @@@ 'outermatch'
   AND b.val > a.threshold;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: a, b)
  count | sum 
 -------+-----
      1 |  60
@@ -748,7 +744,6 @@ WHERE id IN (
 )
   AND label @@@ 'A'
 GROUP BY label ORDER BY label;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: asa_n9_outer, i, m)
  label | c 
 -------+---
  A     | 1
@@ -797,7 +792,6 @@ WHERE id IN (SELECT id FROM asa_n10_in1)
   AND id NOT IN (SELECT id FROM asa_n10_in3)
   AND label @@@ 'A'
 GROUP BY label ORDER BY label;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: asa_n10_in1, asa_n10_in2, asa_n10_in3, asa_n10_outer)
  label | c 
 -------+---
  A     | 3

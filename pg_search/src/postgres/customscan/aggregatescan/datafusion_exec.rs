@@ -934,7 +934,7 @@ async fn build_source_df(
             Some(WhichFastField::Ctid) => {
                 make_col(alias.as_str(), name).alias(CtidColumn::new(plan_position).to_string())
             }
-            Some(WhichFastField::Score) => make_col(alias.as_str(), name).alias(SCORE_COL_NAME),
+            Some(WhichFastField::Score) => make_col(alias.as_str(), SCORE_COL_NAME),
             _ => make_col(alias.as_str(), name),
         };
         exprs.push(expr);

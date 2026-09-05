@@ -48,27 +48,25 @@ FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
 WHERE u.id @@@ pdb.all() AND p.title @@@ 'error'
 ORDER BY u.id, p.id
 LIMIT 10;
-                                                                                                    QUERY PLAN                                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                        QUERY PLAN                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: u.id, p.id
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: u.id, p.id
-         Relation Tree: p INNER u
-         Join Cond: u.id = p.owner_user_id
-         Limit: 10
-         Order By: u.id asc, p.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@3 as col_1, id@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
-           :   SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST, id@1 ASC NULLS LAST], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[p, u]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(owner_user_id@1, id@1)], projection=[ctid_0@0, id@2, ctid_1@3, id@4]
-           :           CooperativeExec
-           :             PgSearchScan: table=p, segments=4, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=u, segments=4, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-(18 rows)
+   Relation Tree: u INNER p
+   Join Cond: u.id = p.owner_user_id
+   Limit: 10
+   Order By: u.id asc, p.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, id@2 as col_2, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST, id@2 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[u, p]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(owner_user_id@1, id@0)], projection=[id@3, ctid_0@4, id@0, ctid_1@2]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=u, segments=4, dynamic_filters=2, query={"with_index":{"query":{"all":{"field":"id"}}}}
+(16 rows)
 
 SELECT u.id, p.id
 FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
@@ -127,37 +125,35 @@ FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
 WHERE u.id @@@ pdb.all() AND p.title @@@ 'error'
 ORDER BY u.id, p.id
 LIMIT 10;
-                                                                                                                           QUERY PLAN                                                                                                                           
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                              QUERY PLAN                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: u.id, p.id
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: u.id, p.id
-         Relation Tree: p INNER u
-         Join Cond: u.id = p.owner_user_id
-         Limit: 10
-         Order By: u.id asc, p.id asc
-         DataFusion Physical Plan: 
-           : ┌───── DistributedExec
-           : │ ProjectionExec: expr=[id@3 as col_1, id@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
-           : │   SortPreservingMergeExec: [id@3 ASC NULLS LAST, id@1 ASC NULLS LAST], fetch=10
-           : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
-           : └──────────────────────────────────────────────────
-           :   ┌───── Stage 1 ── tasks=3, partitions=3
-           :   │ SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST, id@1 ASC NULLS LAST], preserve_partitioning=[true]
-           :   │   VisibilityFilterExec: tables=[p, u]
-           :   │     TantivyFetchExec: fetch=[ctid_0, ctid_1]
-           :   │       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(owner_user_id@1, id@1)], projection=[ctid_0@0, id@2, ctid_1@3, id@4]
-           :   │         DistributedLeafExec:
-           :   │           t0: PgSearchScan: table=p, segments=4, partition=owner_user_id[-∞..10001), dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-           :   │           t1: PgSearchScan: table=p, segments=4, partition=owner_user_id[10001..15001), dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-           :   │           t2: PgSearchScan: table=p, segments=4, partition=owner_user_id[15001..∞), dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-           :   │         DistributedLeafExec:
-           :   │           t0: PgSearchScan: table=u, segments=4, partition=id[-∞..10001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-           :   │           t1: PgSearchScan: table=u, segments=4, partition=id[10001..15001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-           :   │           t2: PgSearchScan: table=u, segments=4, partition=id[15001..∞), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-           :   └──────────────────────────────────────────────────
-(28 rows)
+   Relation Tree: u INNER p
+   Join Cond: u.id = p.owner_user_id
+   Limit: 10
+   Order By: u.id asc, p.id asc
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ ProjectionExec: expr=[id@0 as col_1, id@2 as col_2, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
+     : │   SortPreservingMergeExec: [id@0 ASC NULLS LAST, id@2 ASC NULLS LAST], fetch=10
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 1 ── tasks=3, partitions=3
+     :   │ SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST, id@2 ASC NULLS LAST], preserve_partitioning=[true]
+     :   │   VisibilityFilterExec: tables=[u, p]
+     :   │     TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :   │       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(owner_user_id@1, id@0)], projection=[id@3, ctid_0@4, id@0, ctid_1@2]
+     :   │         DistributedLeafExec:
+     :   │           t0: PgSearchScan: table=p, segments=4, partition=owner_user_id[-∞..10001), query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     :   │           t1: PgSearchScan: table=p, segments=4, partition=owner_user_id[10001..15001), query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     :   │           t2: PgSearchScan: table=p, segments=4, partition=owner_user_id[15001..∞), query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     :   │         DistributedLeafExec:
+     :   │           t0: PgSearchScan: table=u, segments=4, partition=id[-∞..10001), dynamic_filters=2, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │           t1: PgSearchScan: table=u, segments=4, partition=id[10001..15001), dynamic_filters=2, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │           t2: PgSearchScan: table=u, segments=4, partition=id[15001..∞), dynamic_filters=2, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   └──────────────────────────────────────────────────
+(26 rows)
 
 SELECT u.id, p.id
 FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id

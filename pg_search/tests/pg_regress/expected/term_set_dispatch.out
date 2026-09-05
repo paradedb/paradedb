@@ -86,25 +86,24 @@ FROM ts_outer JOIN ts_unique ON ts_outer.id = ts_unique.fk
 WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 4
 ORDER BY ts_unique.id ASC
 LIMIT 10;
-                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual rows=4.00 loops=1)
-   ->  Custom Scan (ParadeDB Join Scan) (actual rows=4.00 loops=1)
-         Relation Tree: ts_unique INNER ts_outer
-         Join Cond: ts_outer.id = ts_unique.fk
-         Limit: 10
-         Order By: ts_unique.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@3 as col_1, id@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=4, output_bytes=128.0 B, output_batches=1]
-           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false], metrics=[output_rows=4, output_bytes=128.0 B, output_batches=1, row_replacements=4]
-           :     VisibilityFilterExec: tables=[ts_unique, ts_outer], metrics=[output_rows=4, output_bytes=128.1 KB, output_batches=1]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=4, output_bytes=128.1 KB, output_batches=1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fk@1)], projection=[ctid_0@2, id@4, ctid_1@0, id@1], metrics=[output_rows=4, output_bytes=256.0 KB, output_batches=1, build_mem_used=80.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=4, input_batches=1, input_rows=4, avg_fanout=100% (4/4), probe_hit_rate=100% (4/4)]
-           :           CooperativeExec
-           :             PgSearchScan: table=ts_outer, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":4}}}]}}, metrics=[output_rows=4, output_bytes=64.0 B, output_batches=1]
-           :           CooperativeExec
-           :             PgSearchScan: table=ts_unique, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=4, output_bytes=96.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=4]
-(16 rows)
+                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=4.00 loops=1)
+   Relation Tree: ts_outer INNER ts_unique
+   Join Cond: ts_outer.id = ts_unique.fk
+   Limit: 10
+   Order By: ts_unique.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, id@2 as col_2, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1], metrics=[output_rows=4, output_bytes=128.0 B, output_batches=1]
+     :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false], metrics=[output_rows=4, output_bytes=128.0 B, output_batches=1, row_replacements=4]
+     :     VisibilityFilterExec: tables=[ts_outer, ts_unique], metrics=[output_rows=4, output_bytes=128.1 KB, output_batches=1]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=4, output_bytes=128.1 KB, output_batches=1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, fk@1)], projection=[id@0, ctid_0@1, id@2, ctid_1@4], metrics=[output_rows=4, output_bytes=256.0 KB, output_batches=1, build_mem_used=80.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=4, input_batches=1, input_rows=4, avg_fanout=100% (4/4), probe_hit_rate=100% (4/4)]
+     :           CooperativeExec
+     :             PgSearchScan: table=ts_outer, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":4}}}]}}, metrics=[output_rows=4, output_bytes=64.0 B, output_batches=1, rows_pruned=0, rows_scanned=4]
+     :           CooperativeExec
+     :             PgSearchScan: table=ts_unique, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=4, output_bytes=96.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=4]
+(15 rows)
 
 SELECT ts_outer.id, ts_unique.id
 FROM ts_outer JOIN ts_unique ON ts_outer.id = ts_unique.fk
@@ -130,25 +129,24 @@ FROM ts_outer JOIN ts_unique ON ts_outer.id = ts_unique.fk
 WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 5
 ORDER BY ts_unique.id ASC
 LIMIT 10;
-                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                      
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual rows=5.00 loops=1)
-   ->  Custom Scan (ParadeDB Join Scan) (actual rows=5.00 loops=1)
-         Relation Tree: ts_unique INNER ts_outer
-         Join Cond: ts_outer.id = ts_unique.fk
-         Limit: 10
-         Order By: ts_unique.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@3 as col_1, id@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=5, output_bytes=160.0 B, output_batches=1]
-           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false], metrics=[output_rows=5, output_bytes=160.0 B, output_batches=1, row_replacements=5]
-           :     VisibilityFilterExec: tables=[ts_unique, ts_outer], metrics=[output_rows=5, output_bytes=128.1 KB, output_batches=1]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=5, output_bytes=128.1 KB, output_batches=1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fk@1)], projection=[ctid_0@2, id@4, ctid_1@0, id@1], metrics=[output_rows=5, output_bytes=256.0 KB, output_batches=1, build_mem_used=100.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=5, input_batches=1, input_rows=5, avg_fanout=100% (5/5), probe_hit_rate=100% (5/5)]
-           :           CooperativeExec
-           :             PgSearchScan: table=ts_outer, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":5}}}]}}, metrics=[output_rows=5, output_bytes=80.0 B, output_batches=1]
-           :           CooperativeExec
-           :             PgSearchScan: table=ts_unique, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=5, output_bytes=120.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=5]
-(16 rows)
+                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=5.00 loops=1)
+   Relation Tree: ts_outer INNER ts_unique
+   Join Cond: ts_outer.id = ts_unique.fk
+   Limit: 10
+   Order By: ts_unique.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, id@2 as col_2, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1], metrics=[output_rows=5, output_bytes=160.0 B, output_batches=1]
+     :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false], metrics=[output_rows=5, output_bytes=160.0 B, output_batches=1, row_replacements=5]
+     :     VisibilityFilterExec: tables=[ts_outer, ts_unique], metrics=[output_rows=5, output_bytes=128.1 KB, output_batches=1]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=5, output_bytes=128.1 KB, output_batches=1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, fk@1)], projection=[id@0, ctid_0@1, id@2, ctid_1@4], metrics=[output_rows=5, output_bytes=256.0 KB, output_batches=1, build_mem_used=100.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=5, input_batches=1, input_rows=5, avg_fanout=100% (5/5), probe_hit_rate=100% (5/5)]
+     :           CooperativeExec
+     :             PgSearchScan: table=ts_outer, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":5}}}]}}, metrics=[output_rows=5, output_bytes=80.0 B, output_batches=1, rows_pruned=0, rows_scanned=5]
+     :           CooperativeExec
+     :             PgSearchScan: table=ts_unique, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=5, output_bytes=120.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=5]
+(15 rows)
 
 SELECT ts_outer.id, ts_unique.id
 FROM ts_outer JOIN ts_unique ON ts_outer.id = ts_unique.fk
@@ -174,25 +172,24 @@ FROM ts_outer JOIN ts_unique ON ts_outer.id = ts_unique.fk
 WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 6
 ORDER BY ts_unique.id ASC
 LIMIT 10;
-                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                      
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual rows=6.00 loops=1)
-   ->  Custom Scan (ParadeDB Join Scan) (actual rows=6.00 loops=1)
-         Relation Tree: ts_unique INNER ts_outer
-         Join Cond: ts_outer.id = ts_unique.fk
-         Limit: 10
-         Order By: ts_unique.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@3 as col_1, id@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=6, output_bytes=192.0 B, output_batches=1]
-           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false], metrics=[output_rows=6, output_bytes=192.0 B, output_batches=1, row_replacements=6]
-           :     VisibilityFilterExec: tables=[ts_unique, ts_outer], metrics=[output_rows=6, output_bytes=128.1 KB, output_batches=1]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=6, output_bytes=128.1 KB, output_batches=1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fk@1)], projection=[ctid_0@2, id@4, ctid_1@0, id@1], metrics=[output_rows=6, output_bytes=256.0 KB, output_batches=1, build_mem_used=120.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=6, input_batches=1, input_rows=6, avg_fanout=100% (6/6), probe_hit_rate=100% (6/6)]
-           :           CooperativeExec
-           :             PgSearchScan: table=ts_outer, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":6}}}]}}, metrics=[output_rows=6, output_bytes=96.0 B, output_batches=1]
-           :           CooperativeExec
-           :             PgSearchScan: table=ts_unique, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=6, output_bytes=144.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, rows_pruned=0, rows_scanned=6]
-(16 rows)
+                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=6.00 loops=1)
+   Relation Tree: ts_outer INNER ts_unique
+   Join Cond: ts_outer.id = ts_unique.fk
+   Limit: 10
+   Order By: ts_unique.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, id@2 as col_2, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1], metrics=[output_rows=6, output_bytes=192.0 B, output_batches=1]
+     :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false], metrics=[output_rows=6, output_bytes=192.0 B, output_batches=1, row_replacements=6]
+     :     VisibilityFilterExec: tables=[ts_outer, ts_unique], metrics=[output_rows=6, output_bytes=128.1 KB, output_batches=1]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=6, output_bytes=128.1 KB, output_batches=1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, fk@1)], projection=[id@0, ctid_0@1, id@2, ctid_1@4], metrics=[output_rows=6, output_bytes=256.0 KB, output_batches=1, build_mem_used=120.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=6, input_batches=1, input_rows=6, avg_fanout=100% (6/6), probe_hit_rate=100% (6/6)]
+     :           CooperativeExec
+     :             PgSearchScan: table=ts_outer, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":6}}}]}}, metrics=[output_rows=6, output_bytes=96.0 B, output_batches=1, rows_pruned=0, rows_scanned=6]
+     :           CooperativeExec
+     :             PgSearchScan: table=ts_unique, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=6, output_bytes=144.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, rows_pruned=0, rows_scanned=6]
+(15 rows)
 
 SELECT ts_outer.id, ts_unique.id
 FROM ts_outer JOIN ts_unique ON ts_outer.id = ts_unique.fk
@@ -221,25 +218,24 @@ FROM ts_outer JOIN ts_multi ON ts_outer.id = ts_multi.fk
 WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 50
 ORDER BY ts_multi.id ASC
 LIMIT 10;
-                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual rows=10.00 loops=1)
-   ->  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
-         Relation Tree: ts_multi INNER ts_outer
-         Join Cond: ts_outer.id = ts_multi.fk
-         Limit: 10
-         Order By: ts_multi.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@3 as col_1, id@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
-           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@1 < 10], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1, row_replacements=10]
-           :     VisibilityFilterExec: tables=[ts_multi, ts_outer], metrics=[output_rows=5.00 K, output_bytes=156.2 KB, output_batches=1]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=5.00 K, output_bytes=156.2 KB, output_batches=1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fk@1)], projection=[ctid_0@2, id@4, ctid_1@0, id@1], metrics=[output_rows=5.00 K, output_bytes=156.2 KB, output_batches=1, build_mem_used=1000.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=50, input_batches=1, input_rows=5.00 K, avg_fanout=100% (5.00 K/5.00 K), probe_hit_rate=100% (5.00 K/5.00 K)]
-           :           CooperativeExec
-           :             PgSearchScan: table=ts_outer, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":50}}}]}}, metrics=[output_rows=50, output_bytes=800.0 B, output_batches=1]
-           :           CooperativeExec
-           :             PgSearchScan: table=ts_multi, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=5.00 K, output_bytes=117.2 KB, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=5.00 K]
-(16 rows)
+                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
+   Relation Tree: ts_outer INNER ts_multi
+   Join Cond: ts_outer.id = ts_multi.fk
+   Limit: 10
+   Order By: ts_multi.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, id@2 as col_2, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
+     :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@2 < 10], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1, row_replacements=10]
+     :     VisibilityFilterExec: tables=[ts_outer, ts_multi], metrics=[output_rows=5.00 K, output_bytes=156.2 KB, output_batches=1]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=5.00 K, output_bytes=156.2 KB, output_batches=1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, fk@1)], projection=[id@0, ctid_0@1, id@2, ctid_1@4], metrics=[output_rows=5.00 K, output_bytes=156.2 KB, output_batches=1, build_mem_used=1000.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=50, input_batches=1, input_rows=5.00 K, avg_fanout=100% (5.00 K/5.00 K), probe_hit_rate=100% (5.00 K/5.00 K)]
+     :           CooperativeExec
+     :             PgSearchScan: table=ts_outer, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":50}}}]}}, metrics=[output_rows=50, output_bytes=800.0 B, output_batches=1, rows_pruned=0, rows_scanned=50]
+     :           CooperativeExec
+     :             PgSearchScan: table=ts_multi, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=5.00 K, output_bytes=117.2 KB, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=5.00 K]
+(15 rows)
 
 SELECT ts_outer.id, ts_multi.id
 FROM ts_outer JOIN ts_multi ON ts_outer.id = ts_multi.fk
@@ -270,25 +266,24 @@ FROM ts_outer JOIN ts_multi ON ts_outer.id = ts_multi.fk
 WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 60
 ORDER BY ts_multi.id ASC
 LIMIT 10;
-                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual rows=10.00 loops=1)
-   ->  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
-         Relation Tree: ts_multi INNER ts_outer
-         Join Cond: ts_outer.id = ts_multi.fk
-         Limit: 10
-         Order By: ts_multi.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@3 as col_1, id@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
-           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@1 < 10], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1, row_replacements=10]
-           :     VisibilityFilterExec: tables=[ts_multi, ts_outer], metrics=[output_rows=4.92 K, output_bytes=153.8 KB, output_batches=1]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=4.92 K, output_bytes=153.8 KB, output_batches=1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fk@1)], projection=[ctid_0@2, id@4, ctid_1@0, id@1], metrics=[output_rows=4.92 K, output_bytes=153.8 KB, output_batches=1, build_mem_used=1200.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=60, input_batches=2, input_rows=4.92 K, avg_fanout=100% (4.92 K/4.92 K), probe_hit_rate=100% (4.92 K/4.92 K)]
-           :           CooperativeExec
-           :             PgSearchScan: table=ts_outer, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":60}}}]}}, metrics=[output_rows=60, output_bytes=960.0 B, output_batches=1]
-           :           CooperativeExec
-           :             PgSearchScan: table=ts_multi, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=4.92 K, output_bytes=115.3 KB, output_batches=2, rows_pruned=5.08 K, rows_scanned=10.00 K]
-(16 rows)
+                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
+   Relation Tree: ts_outer INNER ts_multi
+   Join Cond: ts_outer.id = ts_multi.fk
+   Limit: 10
+   Order By: ts_multi.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, id@2 as col_2, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
+     :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@2 < 10], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1, row_replacements=10]
+     :     VisibilityFilterExec: tables=[ts_outer, ts_multi], metrics=[output_rows=6.00 K, output_bytes=298.6 KB, output_batches=2]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=6.00 K, output_bytes=298.6 KB, output_batches=2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, fk@1)], projection=[id@0, ctid_0@1, id@2, ctid_1@4], metrics=[output_rows=6.00 K, output_bytes=409.8 KB, output_batches=2, build_mem_used=1200.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=60, input_batches=2, input_rows=6.00 K, avg_fanout=100% (6.00 K/6.00 K), probe_hit_rate=100% (6.00 K/6.00 K)]
+     :           CooperativeExec
+     :             PgSearchScan: table=ts_outer, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":60}}}]}}, metrics=[output_rows=60, output_bytes=960.0 B, output_batches=1, rows_pruned=0, rows_scanned=60]
+     :           CooperativeExec
+     :             PgSearchScan: table=ts_multi, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=6.00 K, output_bytes=140.6 KB, output_batches=2, rows_pruned=4.00 K, rows_scanned=10.00 K]
+(15 rows)
 
 SELECT ts_outer.id, ts_multi.id
 FROM ts_outer JOIN ts_multi ON ts_outer.id = ts_multi.fk
@@ -320,25 +315,24 @@ FROM ts_outer JOIN ts_sorted ON ts_outer.id = ts_sorted.fk
 WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 100
 ORDER BY ts_sorted.id ASC
 LIMIT 10;
-                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                              
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual rows=10.00 loops=1)
-   ->  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
-         Relation Tree: ts_sorted INNER ts_outer
-         Join Cond: ts_outer.id = ts_sorted.fk
-         Limit: 10
-         Order By: ts_sorted.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@3 as col_1, id@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
-           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@1 < 10], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1, row_replacements=10]
-           :     VisibilityFilterExec: tables=[ts_sorted, ts_outer], metrics=[output_rows=100, output_bytes=129.6 KB, output_batches=1]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=100, output_bytes=129.6 KB, output_batches=1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fk@1)], projection=[ctid_0@2, id@4, ctid_1@0, id@1], metrics=[output_rows=100, output_bytes=256.0 KB, output_batches=1, build_mem_used=2000.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=100, input_batches=1, input_rows=100, avg_fanout=100% (100/100), probe_hit_rate=100% (100/100)]
-           :           CooperativeExec
-           :             PgSearchScan: table=ts_outer, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":100}}}]}}, metrics=[output_rows=100, output_bytes=1600.0 B, output_batches=1]
-           :           CooperativeExec
-           :             PgSearchScan: table=ts_sorted, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=100, output_bytes=2.3 KB, output_batches=1, dynamic_filter_pushdown_gallop=1, rows_pruned=0, rows_scanned=100]
-(16 rows)
+                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
+   Relation Tree: ts_outer INNER ts_sorted
+   Join Cond: ts_outer.id = ts_sorted.fk
+   Limit: 10
+   Order By: ts_sorted.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, id@2 as col_2, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
+     :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@2 < 10], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1, row_replacements=10]
+     :     VisibilityFilterExec: tables=[ts_outer, ts_sorted], metrics=[output_rows=100, output_bytes=129.6 KB, output_batches=1]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=100, output_bytes=129.6 KB, output_batches=1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, fk@1)], projection=[id@0, ctid_0@1, id@2, ctid_1@4], metrics=[output_rows=100, output_bytes=256.0 KB, output_batches=1, build_mem_used=2000.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=100, input_batches=1, input_rows=100, avg_fanout=100% (100/100), probe_hit_rate=100% (100/100)]
+     :           CooperativeExec
+     :             PgSearchScan: table=ts_outer, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":100}}}]}}, metrics=[output_rows=100, output_bytes=1600.0 B, output_batches=1, rows_pruned=0, rows_scanned=100]
+     :           CooperativeExec
+     :             PgSearchScan: table=ts_sorted, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=100, output_bytes=2.3 KB, output_batches=1, dynamic_filter_pushdown_gallop=1, rows_pruned=0, rows_scanned=100]
+(15 rows)
 
 SELECT ts_outer.id, ts_sorted.id
 FROM ts_outer JOIN ts_sorted ON ts_outer.id = ts_sorted.fk
@@ -370,25 +364,24 @@ FROM ts_outer JOIN ts_unique ON ts_outer.id = ts_unique.fk
 WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 4
 ORDER BY ts_unique.id ASC
 LIMIT 10;
-                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual rows=4.00 loops=1)
-   ->  Custom Scan (ParadeDB Join Scan) (actual rows=4.00 loops=1)
-         Relation Tree: ts_unique INNER ts_outer
-         Join Cond: ts_outer.id = ts_unique.fk
-         Limit: 10
-         Order By: ts_unique.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@3 as col_1, id@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=4, output_bytes=128.0 B, output_batches=1]
-           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false], metrics=[output_rows=4, output_bytes=128.0 B, output_batches=1, row_replacements=4]
-           :     VisibilityFilterExec: tables=[ts_unique, ts_outer], metrics=[output_rows=4, output_bytes=128.1 KB, output_batches=1]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=4, output_bytes=128.1 KB, output_batches=1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fk@1)], projection=[ctid_0@2, id@4, ctid_1@0, id@1], metrics=[output_rows=4, output_bytes=256.0 KB, output_batches=1, build_mem_used=80.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=4, input_batches=1, input_rows=4, avg_fanout=100% (4/4), probe_hit_rate=100% (4/4)]
-           :           CooperativeExec
-           :             PgSearchScan: table=ts_outer, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":4}}}]}}, metrics=[output_rows=4, output_bytes=64.0 B, output_batches=1]
-           :           CooperativeExec
-           :             PgSearchScan: table=ts_unique, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=4, output_bytes=96.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, rows_pruned=0, rows_scanned=4]
-(16 rows)
+                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=4.00 loops=1)
+   Relation Tree: ts_outer INNER ts_unique
+   Join Cond: ts_outer.id = ts_unique.fk
+   Limit: 10
+   Order By: ts_unique.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, id@2 as col_2, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1], metrics=[output_rows=4, output_bytes=128.0 B, output_batches=1]
+     :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false], metrics=[output_rows=4, output_bytes=128.0 B, output_batches=1, row_replacements=4]
+     :     VisibilityFilterExec: tables=[ts_outer, ts_unique], metrics=[output_rows=4, output_bytes=128.1 KB, output_batches=1]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=4, output_bytes=128.1 KB, output_batches=1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, fk@1)], projection=[id@0, ctid_0@1, id@2, ctid_1@4], metrics=[output_rows=4, output_bytes=256.0 KB, output_batches=1, build_mem_used=80.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=4, input_batches=1, input_rows=4, avg_fanout=100% (4/4), probe_hit_rate=100% (4/4)]
+     :           CooperativeExec
+     :             PgSearchScan: table=ts_outer, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":4}}}]}}, metrics=[output_rows=4, output_bytes=64.0 B, output_batches=1, rows_pruned=0, rows_scanned=4]
+     :           CooperativeExec
+     :             PgSearchScan: table=ts_unique, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=4, output_bytes=96.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, rows_pruned=0, rows_scanned=4]
+(15 rows)
 
 RESET paradedb.term_set_bitset_max_density_unique;
 -- ============================================================================
@@ -402,25 +395,24 @@ FROM ts_outer JOIN ts_unique ON ts_outer.id = ts_unique.fk
 WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 20
 ORDER BY ts_unique.id ASC
 LIMIT 10;
-                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                          
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual rows=10.00 loops=1)
-   ->  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
-         Relation Tree: ts_unique INNER ts_outer
-         Join Cond: ts_outer.id = ts_unique.fk
-         Limit: 10
-         Order By: ts_unique.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@3 as col_1, id@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
-           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@1 < 10], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1, row_replacements=10]
-           :     VisibilityFilterExec: tables=[ts_unique, ts_outer], metrics=[output_rows=20, output_bytes=128.3 KB, output_batches=1]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=20, output_bytes=128.3 KB, output_batches=1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fk@1)], projection=[ctid_0@2, id@4, ctid_1@0, id@1], metrics=[output_rows=20, output_bytes=256.0 KB, output_batches=1, build_mem_used=400.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=20, input_batches=1, input_rows=20, avg_fanout=100% (20/20), probe_hit_rate=100% (20/20)]
-           :           CooperativeExec
-           :             PgSearchScan: table=ts_outer, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":20}}}]}}, metrics=[output_rows=20, output_bytes=320.0 B, output_batches=1]
-           :           CooperativeExec
-           :             PgSearchScan: table=ts_unique, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=20, output_bytes=480.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=20]
-(16 rows)
+                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
+   Relation Tree: ts_outer INNER ts_unique
+   Join Cond: ts_outer.id = ts_unique.fk
+   Limit: 10
+   Order By: ts_unique.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, id@2 as col_2, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
+     :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@2 < 10], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1, row_replacements=10]
+     :     VisibilityFilterExec: tables=[ts_outer, ts_unique], metrics=[output_rows=20, output_bytes=128.3 KB, output_batches=1]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=20, output_bytes=128.3 KB, output_batches=1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, fk@1)], projection=[id@0, ctid_0@1, id@2, ctid_1@4], metrics=[output_rows=20, output_bytes=256.0 KB, output_batches=1, build_mem_used=400.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=20, input_batches=1, input_rows=20, avg_fanout=100% (20/20), probe_hit_rate=100% (20/20)]
+     :           CooperativeExec
+     :             PgSearchScan: table=ts_outer, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":20}}}]}}, metrics=[output_rows=20, output_bytes=320.0 B, output_batches=1, rows_pruned=0, rows_scanned=20]
+     :           CooperativeExec
+     :             PgSearchScan: table=ts_unique, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=20, output_bytes=480.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=20]
+(15 rows)
 
 RESET paradedb.term_set_bitset_max_density_unique;
 -- ============================================================================
@@ -435,25 +427,24 @@ FROM ts_outer JOIN ts_multi ON ts_outer.id = ts_multi.fk
 WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 40
 ORDER BY ts_multi.id ASC
 LIMIT 10;
-                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                      
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual rows=10.00 loops=1)
-   ->  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
-         Relation Tree: ts_multi INNER ts_outer
-         Join Cond: ts_outer.id = ts_multi.fk
-         Limit: 10
-         Order By: ts_multi.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@3 as col_1, id@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
-           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@1 < 10], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1, row_replacements=10]
-           :     VisibilityFilterExec: tables=[ts_multi, ts_outer], metrics=[output_rows=4.00 K, output_bytes=190.5 KB, output_batches=1]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=4.00 K, output_bytes=190.5 KB, output_batches=1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fk@1)], projection=[ctid_0@2, id@4, ctid_1@0, id@1], metrics=[output_rows=4.00 K, output_bytes=256.0 KB, output_batches=1, build_mem_used=800.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=40, input_batches=2, input_rows=4.00 K, avg_fanout=100% (4.00 K/4.00 K), probe_hit_rate=100% (4.00 K/4.00 K)]
-           :           CooperativeExec
-           :             PgSearchScan: table=ts_outer, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":40}}}]}}, metrics=[output_rows=40, output_bytes=640.0 B, output_batches=1]
-           :           CooperativeExec
-           :             PgSearchScan: table=ts_multi, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=4.00 K, output_bytes=93.8 KB, output_batches=2, rows_pruned=6.00 K, rows_scanned=10.00 K]
-(16 rows)
+                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
+   Relation Tree: ts_outer INNER ts_multi
+   Join Cond: ts_outer.id = ts_multi.fk
+   Limit: 10
+   Order By: ts_multi.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, id@2 as col_2, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
+     :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@2 < 10], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1, row_replacements=10]
+     :     VisibilityFilterExec: tables=[ts_outer, ts_multi], metrics=[output_rows=4.00 K, output_bytes=190.5 KB, output_batches=1]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=4.00 K, output_bytes=190.5 KB, output_batches=1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, fk@1)], projection=[id@0, ctid_0@1, id@2, ctid_1@4], metrics=[output_rows=4.00 K, output_bytes=256.0 KB, output_batches=1, build_mem_used=800.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=40, input_batches=2, input_rows=4.00 K, avg_fanout=100% (4.00 K/4.00 K), probe_hit_rate=100% (4.00 K/4.00 K)]
+     :           CooperativeExec
+     :             PgSearchScan: table=ts_outer, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":40}}}]}}, metrics=[output_rows=40, output_bytes=640.0 B, output_batches=1, rows_pruned=0, rows_scanned=40]
+     :           CooperativeExec
+     :             PgSearchScan: table=ts_multi, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=4.00 K, output_bytes=93.8 KB, output_batches=2, rows_pruned=6.00 K, rows_scanned=10.00 K]
+(15 rows)
 
 RESET paradedb.term_set_bitset_max_density_multi;
 -- ============================================================================
@@ -470,23 +461,22 @@ ORDER BY ts_multi.id ASC
 LIMIT 10;
                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                       
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual rows=10.00 loops=1)
-   ->  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
-         Relation Tree: ts_multi INNER ts_outer
-         Join Cond: ts_outer.id = ts_multi.fk
-         Limit: 10
-         Order By: ts_multi.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@3 as col_1, id@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
-           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@1 < 10], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1, row_replacements=10]
-           :     VisibilityFilterExec: tables=[ts_multi, ts_outer], metrics=[output_rows=8.19 K, output_bytes=256.0 KB, output_batches=1]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=8.19 K, output_bytes=256.0 KB, output_batches=1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fk@1)], projection=[ctid_0@2, id@4, ctid_1@0, id@1], metrics=[output_rows=8.19 K, output_bytes=256.0 KB, output_batches=1, build_mem_used=2000.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=100, input_batches=2, input_rows=8.19 K, avg_fanout=100% (8.19 K/8.19 K), probe_hit_rate=100% (8.19 K/8.19 K)]
-           :           CooperativeExec
-           :             PgSearchScan: table=ts_outer, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":100}}}]}}, metrics=[output_rows=100, output_bytes=1600.0 B, output_batches=1]
-           :           CooperativeExec
-           :             PgSearchScan: table=ts_multi, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=8.19 K, output_bytes=192.0 KB, output_batches=2, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=1.81 K, rows_scanned=10.00 K]
-(16 rows)
+ Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
+   Relation Tree: ts_outer INNER ts_multi
+   Join Cond: ts_outer.id = ts_multi.fk
+   Limit: 10
+   Order By: ts_multi.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, id@2 as col_2, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
+     :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@2 < 10], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1, row_replacements=10]
+     :     VisibilityFilterExec: tables=[ts_outer, ts_multi], metrics=[output_rows=10.00 K, output_bytes=412.2 KB, output_batches=2]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=10.00 K, output_bytes=412.2 KB, output_batches=2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, fk@1)], projection=[id@0, ctid_0@1, id@2, ctid_1@4], metrics=[output_rows=10.00 K, output_bytes=512.0 KB, output_batches=2, build_mem_used=2000.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=100, input_batches=2, input_rows=10.00 K, avg_fanout=100% (10.00 K/10.00 K), probe_hit_rate=100% (10.00 K/10.00 K)]
+     :           CooperativeExec
+     :             PgSearchScan: table=ts_outer, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":100}}}]}}, metrics=[output_rows=100, output_bytes=1600.0 B, output_batches=1, rows_pruned=0, rows_scanned=100]
+     :           CooperativeExec
+     :             PgSearchScan: table=ts_multi, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=10.00 K, output_bytes=234.4 KB, output_batches=2, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=10.00 K]
+(15 rows)
 
 RESET paradedb.term_set_bitset_max_density_multi;
 -- ============================================================================
@@ -502,25 +492,24 @@ FROM ts_outer JOIN ts_sorted ON ts_outer.id = ts_sorted.fk
 WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 4
 ORDER BY ts_sorted.id ASC
 LIMIT 10;
-                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual rows=4.00 loops=1)
-   ->  Custom Scan (ParadeDB Join Scan) (actual rows=4.00 loops=1)
-         Relation Tree: ts_sorted INNER ts_outer
-         Join Cond: ts_outer.id = ts_sorted.fk
-         Limit: 10
-         Order By: ts_sorted.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@3 as col_1, id@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=4, output_bytes=128.0 B, output_batches=1]
-           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false], metrics=[output_rows=4, output_bytes=128.0 B, output_batches=1, row_replacements=4]
-           :     VisibilityFilterExec: tables=[ts_sorted, ts_outer], metrics=[output_rows=4, output_bytes=128.1 KB, output_batches=1]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=4, output_bytes=128.1 KB, output_batches=1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fk@1)], projection=[ctid_0@2, id@4, ctid_1@0, id@1], metrics=[output_rows=4, output_bytes=256.0 KB, output_batches=1, build_mem_used=80.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=4, input_batches=1, input_rows=4, avg_fanout=100% (4/4), probe_hit_rate=100% (4/4)]
-           :           CooperativeExec
-           :             PgSearchScan: table=ts_outer, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":4}}}]}}, metrics=[output_rows=4, output_bytes=64.0 B, output_batches=1]
-           :           CooperativeExec
-           :             PgSearchScan: table=ts_sorted, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=4, output_bytes=96.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=4]
-(16 rows)
+                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=4.00 loops=1)
+   Relation Tree: ts_outer INNER ts_sorted
+   Join Cond: ts_outer.id = ts_sorted.fk
+   Limit: 10
+   Order By: ts_sorted.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, id@2 as col_2, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1], metrics=[output_rows=4, output_bytes=128.0 B, output_batches=1]
+     :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false], metrics=[output_rows=4, output_bytes=128.0 B, output_batches=1, row_replacements=4]
+     :     VisibilityFilterExec: tables=[ts_outer, ts_sorted], metrics=[output_rows=4, output_bytes=128.1 KB, output_batches=1]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=4, output_bytes=128.1 KB, output_batches=1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, fk@1)], projection=[id@0, ctid_0@1, id@2, ctid_1@4], metrics=[output_rows=4, output_bytes=256.0 KB, output_batches=1, build_mem_used=80.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=4, input_batches=1, input_rows=4, avg_fanout=100% (4/4), probe_hit_rate=100% (4/4)]
+     :           CooperativeExec
+     :             PgSearchScan: table=ts_outer, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":4}}}]}}, metrics=[output_rows=4, output_bytes=64.0 B, output_batches=1, rows_pruned=0, rows_scanned=4]
+     :           CooperativeExec
+     :             PgSearchScan: table=ts_sorted, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=4, output_bytes=96.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=4]
+(15 rows)
 
 RESET paradedb.term_set_gallop_enabled;
 -- ============================================================================

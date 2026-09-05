@@ -24,7 +24,7 @@ use pgrx::pg_sys;
 use pgrx::pg_sys::AsPgCStr;
 use serde::{Deserialize, Serialize};
 
-pub const SCORE_COL_NAME: &str = "score";
+pub const SCORE_COL_NAME: &str = "pdb.score()";
 
 /// Describes how a single output column of the JoinScan CustomScan is produced.
 #[derive(Debug, Clone, Serialize, Deserialize)]

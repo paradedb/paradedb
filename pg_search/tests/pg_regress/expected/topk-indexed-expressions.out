@@ -277,29 +277,25 @@ FROM expr_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY upper(p.name) ASC
     LIMIT 5;
-                                                                                                            QUERY PLAN                                                                                                            
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: p.name, s.name, (upper(p.name))
-   ->  Result
-         Output: p.name, s.name, upper(p.name)
-         ->  Custom Scan (ParadeDB Join Scan)
-               Output: p.name, s.name
-               Relation Tree: s INNER p
-               Join Cond: p.id = s.product_id
-               Limit: 5
-               Order By: name asc
-               DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[NULL as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-                 :   TantivyDecodeExec: decode=[name]
-                 :     TantivyFetchExec: fetch=[name]
-                 :       SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=5, visibility_checks=[s, p]
-                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@3, ctid_1@0, name@2]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-                 :           CooperativeExec
-                 :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
-(20 rows)
+   Relation Tree: p INNER s
+   Join Cond: p.id = s.product_id
+   Limit: 5
+   Order By: name asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[NULL as col_1, name@2 as col_2, name@1 as col_3, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     :   TantivyDecodeExec: decode=[name, name]
+     :     TantivyFetchExec: fetch=[name, name]
+     :       SegmentedTopKExec: expr=[name@1 ASC NULLS LAST], k=5, visibility_checks=[p, s]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[ctid_0@1, name@2, name@4, ctid_1@5]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
+(16 rows)
 
 SELECT p.name, s.name AS supplier_name
 FROM expr_products p
@@ -326,27 +322,25 @@ FROM expr_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY s.name ASC
     LIMIT 5;
-                                                                                               QUERY PLAN                                                                                                
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: p.name, s.name
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: p.name, s.name
-         Relation Tree: s INNER p
-         Join Cond: p.id = s.product_id
-         Limit: 5
-         Order By: s.name asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[NULL as col_1, name@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
-           :   TantivyDecodeExec: decode=[name]
-           :     TantivyFetchExec: fetch=[name]
-           :       SegmentedTopKExec: expr=[name@1 ASC NULLS LAST], k=5, visibility_checks=[s, p]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@2, name@4, ctid_1@0]
-           :           CooperativeExec
-           :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=s, segments=1, dynamic_filters=2, query="all"
-(18 rows)
+   Relation Tree: p INNER s
+   Join Cond: p.id = s.product_id
+   Limit: 5
+   Order By: s.name asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[NULL as col_1, name@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   TantivyDecodeExec: decode=[name]
+     :     TantivyFetchExec: fetch=[name]
+     :       SegmentedTopKExec: expr=[name@1 ASC NULLS LAST], k=5, visibility_checks=[p, s]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[ctid_0@1, name@3, ctid_1@4]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=s, segments=1, dynamic_filters=2, query="all"
+(16 rows)
 
 SELECT p.name, s.name AS supplier_name
 FROM expr_products p

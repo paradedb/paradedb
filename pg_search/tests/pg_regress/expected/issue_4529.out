@@ -45,27 +45,25 @@ JOIN typmod_suppliers s ON p.supplier_id = s.id
 WHERE p.description === 'widget'
 ORDER BY s.name
 LIMIT 10;
-                                                                    QUERY PLAN                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Unique
-         ->  Custom Scan (ParadeDB Join Scan)
-               Relation Tree: s INNER p
-               Join Cond: p.supplier_id = s.id
-               Limit: 10
-               Distinct: true
-               Order By: s.name asc
-               DataFusion Physical Plan: 
-                 : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[name@1 as col_1], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                 :     VisibilityFilterExec: tables=[s, p]
-                 :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], projection=[ctid_0@2, name@4, ctid_1@0]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"term":{"field":"description","value":"widget"}}}}
-                 :           CooperativeExec
-                 :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
-(18 rows)
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: p INNER s
+   Join Cond: p.supplier_id = s.id
+   Limit: 10
+   Distinct: true
+   Order By: s.name asc
+   DataFusion Physical Plan: 
+     : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
+     :   AggregateExec: mode=Single, gby=[name@1 as col_1], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
+     :     VisibilityFilterExec: tables=[p, s]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@0, id@0)], projection=[ctid_0@1, name@3, ctid_1@4]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"term":{"field":"description","value":"widget"}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
+(16 rows)
 
 SELECT DISTINCT s.name
 FROM typmod_products p

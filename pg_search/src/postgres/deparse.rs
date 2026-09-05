@@ -299,6 +299,7 @@ pub unsafe fn node_to_string_without_context(expr: *mut pg_sys::Node) -> String 
 
 /// Deparse a planner expression using `deparse_planner_expr`, falling back to
 /// `node_to_string_without_context` if deparsing returns `None`.
+#[allow(dead_code)]
 pub unsafe fn deparse_planner_expr_or_raw(
     root: *mut pg_sys::PlannerInfo,
     expr: *mut pg_sys::Node,

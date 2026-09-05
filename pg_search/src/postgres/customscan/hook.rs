@@ -155,6 +155,7 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS>(
     }
 }
 
+#[allow(dead_code)]
 pub fn register_join_pathlist<CS>(_: CS)
 where
     CS: CustomScan<Args = JoinPathlistHookArgs> + 'static,
@@ -289,24 +290,7 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
 ) where
     CS: CustomScan<Args = CreateUpperPathsHookArgs> + 'static,
 {
-    if stage != pg_sys::UpperRelationKind::UPPERREL_GROUP_AGG
-        && stage != pg_sys::UpperRelationKind::UPPERREL_DISTINCT
-    {
-        return;
-    }
-
     if !pg_search_extension_installed() {
-        return;
-    }
-
-    // Check if pdb.agg() is used - if so, enable aggregate custom scan regardless of GUC
-    // Otherwise, respect the enable_aggregate_custom_scan GUC setting
-    let has_paradedb_agg = unsafe {
-        let parse = (*root).parse;
-        !parse.is_null() && query_has_paradedb_agg(parse, true)
-    };
-
-    if !has_paradedb_agg && !gucs::enable_aggregate_custom_scan() {
         return;
     }
 

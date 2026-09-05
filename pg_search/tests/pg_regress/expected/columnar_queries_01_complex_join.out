@@ -182,28 +182,29 @@ JOIN pages ON pages.fileId = files.id
 WHERE documents.parents @@@ 'Factures' AND files.title @@@ 'Receipt' AND pages.content @@@ 'Socienty'
 ORDER BY pages.fileId, pages.page_number
 LIMIT 10;
-                                                                                                         QUERY PLAN                                                                                                         
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: documents INNER (files INNER pages)
-         Join Cond: documents.id = files.documentid, files.id = pages.fileid
-         Limit: 10
-         Order By: pages.fileid asc, pages.page_number asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[fileid@3 as col_1, page_number@4 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1, ctid_2@2 as ctid_2]
-           :   SortExec: TopK(fetch=10), expr=[fileid@3 ASC NULLS LAST, page_number@4 ASC NULLS LAST], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[documents, files, pages]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, fileid@1)], projection=[ctid_0@0, ctid_1@1, ctid_2@3, fileid@4, page_number@5]
-           :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, documentid@1)], projection=[ctid_0@0, ctid_1@2, id@4]
-           :             CooperativeExec
-           :               PgSearchScan: table=documents, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
-           :             CooperativeExec
-           :               PgSearchScan: table=files, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=pages, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: (documents INNER files) INNER pages
+   Join Cond: pages.fileid = files.id, documents.id = files.documentid
+   Limit: 10
+   Order By: pages.fileid asc, pages.page_number asc
+   DataFusion Physical Plan: 
+     : TantivyDecodeExec: decode=[content]
+     :   TantivyFetchExec: fetch=[content]
+     :     ProjectionExec: expr=[fileid@2 as col_1, page_number@3 as col_2, content@4 as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1, ctid_2@5 as ctid_2]
+     :       SortExec: TopK(fetch=10), expr=[fileid@2 ASC NULLS LAST, page_number@3 ASC NULLS LAST], preserve_partitioning=[false]
+     :         VisibilityFilterExec: tables=[documents, files, pages]
+     :           TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fileid@0)], projection=[ctid_0@0, ctid_1@2, fileid@3, page_number@4, content@5, ctid_2@6]
+     :               HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, documentid@1)], projection=[ctid_0@1, id@2, ctid_1@4]
+     :                 CooperativeExec
+     :                   PgSearchScan: table=documents, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
+     :                 CooperativeExec
+     :                   PgSearchScan: table=files, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=pages, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
 
 \i common/columnar_queries_cleanup.sql
 -- Cleanup for relational query tests (07-10)

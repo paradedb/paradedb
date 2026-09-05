@@ -451,6 +451,13 @@ impl CustomScan for AggregateScan {
     }
 
     fn create_custom_path(builder: CustomPathBuilder<Self>) -> Vec<pg_sys::CustomPath> {
+        let stage = builder.args().stage;
+        if stage != pg_sys::UpperRelationKind::UPPERREL_GROUP_AGG
+            && stage != pg_sys::UpperRelationKind::UPPERREL_DISTINCT
+        {
+            return Vec::new();
+        }
+
         let (has_paradedb_agg_recursive, has_paradedb_agg) = unsafe {
             let parse = builder.args().root().parse;
             if parse.is_null() {
@@ -462,6 +469,10 @@ impl CustomScan for AggregateScan {
                 )
             }
         };
+
+        if !has_paradedb_agg_recursive && !gucs::enable_aggregate_custom_scan() {
+            return Vec::new();
+        }
 
         if let Err(reason) = unsafe { validate_grouping_pushdown(builder.args()) } {
             if has_paradedb_agg {

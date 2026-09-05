@@ -24,10 +24,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
-use crate::api::operator::keyset::KeySet;
 use crate::api::version::Version;
 use crate::api::{FieldName, HashMap, OrderByFeature, OrderByInfo, SortDirection};
-use crate::index::fast_fields_helper::FFHelper;
+use crate::index::fast_fields_helper::{FFType, resolve_ctid};
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies, SegmentView};
 use crate::index::reader::io_stats;
 use crate::index::reader::scorer::{DeferredScorer, LazyWeight, ScorerIter};
@@ -36,8 +35,10 @@ use crate::index::setup_tokenizers;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::sequentialscan::KeySet;
 use crate::postgres::storage::buffer::PinnedBuffer;
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::types::TantivyValue;
 use crate::query::SearchQueryInput;
 use crate::query::estimate_tree::QueryWithEstimates;
 use crate::scan::info::RowEstimate;
@@ -812,18 +813,43 @@ impl SearchIndexReader {
         &self.schema
     }
 
-    /// Collect the key-field value of every matching document into a memory-bounded [`KeySet`],
-    /// which spills to a temporary file once it would exceed `work_mem`.
-    pub fn collect_keyset(&self) -> KeySet {
-        let key_ff_helper = FFHelper::with_fields(
-            self,
-            &[(self.schema.key_field_name(), self.schema.key_field_type()).into()],
-        );
+    /// Collect the visible CTID of every matching document into a memory-bounded [`KeySet`],
+    /// resolving HOT chains against the active snapshot before building the set.
+    pub fn collect_ctidset(&self, visibility: &mut VisibilityChecker) -> KeySet {
+        const VISIBILITY_BATCH_SIZE: usize = 1024;
 
-        KeySet::build_from(self.search().map(|(_, doc_address)| {
-            key_ff_helper
-                .value(0, doc_address)
-                .expect("key_field value should not be null")
+        let mut search_results = self.search();
+        let mut ctid_cache: Option<(SegmentOrdinal, FFType)> = None;
+        let mut visible_ctids = Vec::new().into_iter();
+
+        KeySet::build_from(std::iter::from_fn(move || {
+            loop {
+                if let Some(ctid) = visible_ctids.next() {
+                    return Some(
+                        TantivyValue::try_from(ctid)
+                            .expect("ctid should convert to a Tantivy value"),
+                    );
+                }
+
+                let ctids: Vec<_> = search_results
+                    .by_ref()
+                    .take(VISIBILITY_BATCH_SIZE)
+                    .map(|(_, doc_address)| {
+                        Some(resolve_ctid(&mut ctid_cache, self.searcher(), doc_address))
+                    })
+                    .collect();
+                if ctids.is_empty() {
+                    return None;
+                }
+
+                let mut resolved = vec![None; ctids.len()];
+                visibility.resolve_batch(&ctids, &mut resolved);
+                visible_ctids = resolved
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+                    .into_iter();
+            }
         }))
     }
 

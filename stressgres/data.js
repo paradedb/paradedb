@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788580013837,
+  "lastUpdate": 1788580022187,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -306032,6 +306032,162 @@ window.BENCHMARK_DATA = {
             "value": 17.73046875,
             "unit": "median mem",
             "extra": "avg mem: 17.65459811635167, max mem: 17.85546875, count: 59260"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f4b1f65e25f5ebeda6744e1e1fd00f962ba89260",
+          "message": "fix: clean up the pg15/pg16 insert states before a commit (#6211)\n\n## Ticket(s) Closed\n\n- Closes #6208\n\n## What\n\nThis PR runs the pg15/pg16 `aminsertcleanup` polyfill's cleanup before a\ncommit, instead of at the end of the utility statement.\n\n## Why\n\n`CREATE INDEX CONCURRENTLY` on a `bm25` index fails on Postgres 15 and\n16 when another backend writes to the table during the build:\n\n```\nWARNING:  buffer refcount leak: [11388] (rel=base/460123/462610, blockNum=582, ...)\nERROR:  buffer 11388 is not owned by resource owner TopTransaction\n```\n\nAn `InsertState` pins buffers, and a pin belongs to the resource owner\nof the transaction that took it. The polyfill keeps every state in a\nframe that a `ProcessUtility` or `ExecutorRun` hook opens, and cleans\nthat frame up when the hook returns. `CREATE INDEX CONCURRENTLY` commits\nbetween its phases while the frame is still open, so the state its\nvalidation pass builds outlives the owner of its pins. One local run\nwent further and ended in a segfault.\n\npg17 added `index_insert_cleanup`, and `validate_index` calls it before\nit returns. So 17 and 18 never reach this, and the polyfill is compiled\nout there.\n\nA subtransaction abort is the other way a state can outlive its owner,\nand it's worse. A statement that fails part way, say a multi-row\n`INSERT` that trips the primary key on its third row inside a PL/pgSQL\n`EXCEPTION` block, leaves its frame behind: the guard sees the unwind\nand steps aside. The next guard to exit then pops that stale frame\ninstead of its own and runs the cleanup on it, which commits the rows\nthe rollback discarded over pins the aborting owner has already given\nup. With `global_mutable_segment_rows = 0` that takes the backend down\nwith `SIGABRT`.\n\n## How\n\nA `PreCommit` xact callback drains every open frame, beside the `Abort`\nand `Commit` ones already registered. The frames themselves stay on the\nstack, because only a `FrameGuard` may pop one and every guard is still\nlive.\n\nEach frame now records the nesting level it was pushed at, and an\n`AbortSub` callback drops every frame at the aborting level or deeper,\nwithout cleanup. Those frames can only belong to hooks that left through\nan error, and the callback runs before the subtransaction's resource\nowner releases its pins, the same order the top-level abort path already\nrelies on.\n\nThis also reverts a9cab39e4, which held #6146's concurrent-build tests\nto pg17 and newer while this was open.\n\n## Tests\n\n`tests/tests/concurrent_build_writes.rs` races a writer against a plain\nbuild. It declares no `partition_by`, so it covers the bug on its own.\n\nStep 1: seed a table with about 60k rows.\n\nStep 2: run the build on one connection.\n\n```sql\nCREATE INDEX CONCURRENTLY cic_writes_idx ON cic_writes\nUSING bm25 (id, body) WITH (key_field = 'id');\n```\n\nStep 3: on a second connection, loop `UPDATE`s and `INSERT`s until the\nbuild returns.\n\nVerified on `PGVER=15.15` and `PGVER=16.11`, where it fails before the\nchange and passes after, and on `PGVER=18.1`.\n\n`a_subtransaction_abort_drops_its_insert_state` in `insert.rs` runs the\nfailing-`INSERT`-inside-`EXCEPTION` shape above with immutable inserts,\nthen checks the index holds exactly the surviving rows. It crashes the\nbackend on 16 before the fix and passes after; it also runs on 17 and\n18, where the native `aminsertcleanup` handles the same case.",
+          "timestamp": "2026-09-04T20:27:22-07:00",
+          "tree_id": "f48a74ba352432b9f4a1dbe2b430bb5a479eacb8",
+          "url": "https://github.com/paradedb/paradedb/commit/f4b1f65e25f5ebeda6744e1e1fd00f962ba89260"
+        },
+        "date": 1788580018318,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 23.088022,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.42069711058331, max cpu: 32.860634, count: 59292"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 49.046875,
+            "unit": "median mem",
+            "extra": "avg mem: 48.92084289933718, max mem: 60.484375, count: 59292"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.6021094,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.1697469251786807, max cpu: 4.653417, count: 59292"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 17.28515625,
+            "unit": "median mem",
+            "extra": "avg mem: 17.24467195985546, max mem: 17.28515625, count: 59292"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.6489105,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.706646558944297, max cpu: 9.356726, count: 59292"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 21.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.847203380093436, max mem: 21.86328125, count: 59292"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 6924,
+            "unit": "median pages",
+            "extra": "avg pages: 9865.130489779396, max pages: 18087.0, count: 59292"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 54.09375,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 77.07133195140153, max relation_size:MB: 141.3046875, count: 59292"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 36,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 38.571510490454024, max segment_count: 79.0, count: 59292"
+          },
+          {
+            "name": "Insert value - Publisher - cpu",
+            "value": 4.6669908,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.8153867327318682, max cpu: 4.6669908, count: 59292"
+          },
+          {
+            "name": "Insert value - Publisher - mem",
+            "value": 17.31640625,
+            "unit": "median mem",
+            "extra": "avg mem: 17.303256684080484, max mem: 17.31640625, count: 59292"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 23.110256,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.631931112255863, max cpu: 32.876713, count: 59292"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 48.9609375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.81378884113793, max mem: 62.73828125, count: 59292"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 23.088022,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.42416305609986, max cpu: 32.860634, count: 59292"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 46.83203125,
+            "unit": "median mem",
+            "extra": "avg mem: 46.649724364690854, max mem: 58.23828125, count: 59292"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 97.66252899169922,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 193.82032602888316, max replication_lag:MB: 904.326416015625, count: 59292"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 23.121387,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.626895841650263, max cpu: 32.74854, count: 59292"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 48.65625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.62610951150661, max mem: 62.51953125, count: 59292"
+          },
+          {
+            "name": "Update 1..50 - Publisher - cpu",
+            "value": 9.226334,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.809055020827502, max cpu: 28.166258, count: 59292"
+          },
+          {
+            "name": "Update 1..50 - Publisher - mem",
+            "value": 17.7109375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.621714354381705, max mem: 17.84765625, count: 59292"
+          },
+          {
+            "name": "Update 51..100 - Publisher - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.765293857120808, max cpu: 28.166258, count: 59292"
+          },
+          {
+            "name": "Update 51..100 - Publisher - mem",
+            "value": 17.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 17.603938518792585, max mem: 17.81640625, count: 59292"
           }
         ]
       }

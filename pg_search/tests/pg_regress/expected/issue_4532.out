@@ -68,30 +68,29 @@ WHERE p.company_id IN (
 AND p.description @@@ 'widget OR gadget OR gizmo'
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                 QUERY PLAN                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: p SEMI (c SEMI d)
-         Join Cond: p.company_id = c.id, c.id = d.company_id
-         Limit: 10
-         Order By: p.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[p]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[ctid_0@0, id@2]
-           :           CooperativeExec
-           :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo","lenient":null,"conjunction_mode":null}}}}
-           :           VisibilityFilterExec: tables=[c]
-           :             TantivyFetchExec: fetch=[ctid_1]
-           :               HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, id@0)]
-           :                 CooperativeExec
-           :                   PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Engineering","lenient":null,"conjunction_mode":null}}}}
-           :                 CooperativeExec
-           :                   PgSearchScan: table=c, segments=1, dynamic_filters=2, query="all"
-(21 rows)
+                                                                                                              QUERY PLAN                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: p SEMI (c SEMI d)
+   Join Cond: p.company_id = c.id, c.id = d.company_id
+   Limit: 10
+   Order By: p.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, ctid_0@1 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[p]
+     :       TantivyFetchExec: fetch=[ctid_0]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[id@0, ctid_0@2]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo","lenient":null,"conjunction_mode":null}}}}
+     :           VisibilityFilterExec: tables=[c]
+     :             TantivyFetchExec: fetch=[ctid_1]
+     :               HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, id@0)]
+     :                 CooperativeExec
+     :                   PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Engineering","lenient":null,"conjunction_mode":null}}}}
+     :                 CooperativeExec
+     :                   PgSearchScan: table=c, segments=1, dynamic_filters=2, query="all"
+(20 rows)
 
 SELECT p.id, p.description
 FROM products p
@@ -134,30 +133,33 @@ AND EXISTS (
 )
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                      QUERY PLAN                                                                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: c, d, p)
+                                                                                              QUERY PLAN                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: p SEMI (c ANTI d)
-         Join Cond: p.company_id = c.id, d.company_id = c.id
-         Limit: 10
-         Order By: p.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[p]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[ctid_0@0, id@2]
-           :           CooperativeExec
-           :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
-           :           VisibilityFilterExec: tables=[c]
-           :             TantivyFetchExec: fetch=[ctid_1]
-           :               HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, id@0)]
-           :                 CooperativeExec
-           :                   PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Marketing","lenient":null,"conjunction_mode":null}}}}
-           :                 CooperativeExec
-           :                   PgSearchScan: table=c, segments=1, dynamic_filters=1, query="all"
-(21 rows)
+   ->  Sort
+         Sort Key: p.id
+         ->  Nested Loop Semi Join
+               Join Filter: (p.company_id = c.id)
+               ->  Custom Scan (ParadeDB Base Scan) on products p
+                     Table: products
+                     Index: products_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
+               ->  Materialize
+                     ->  Nested Loop Anti Join
+                           Join Filter: (d.company_id = c.id)
+                           ->  Seq Scan on companies c
+                           ->  Materialize
+                                 ->  Custom Scan (ParadeDB Base Scan) on departments d
+                                       Table: departments
+                                       Index: departments_idx
+                                       Exec Method: ColumnarExecState
+                                       Fast Fields: company_id
+                                       Scores: false
+                                       Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Marketing","lenient":null,"conjunction_mode":null}}}}
+(23 rows)
 
 SELECT p.id, p.description
 FROM products p
@@ -175,6 +177,7 @@ AND EXISTS (
 )
 ORDER BY p.id
 LIMIT 10;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: c, d, p)
  id  |  description  
 -----+---------------
  100 | A fine widget
@@ -209,33 +212,43 @@ AND EXISTS (
 )
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                      QUERY PLAN                                                                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: c, d, p)
+                                                                                                 QUERY PLAN                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: p SEMI ((c SEMI d) ANTI d)
-         Join Cond: p.company_id = c.id, d.company_id = c.id, c.id = d.company_id
-         Limit: 10
-         Order By: p.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[p]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[ctid_0@0, id@2]
-           :           CooperativeExec
-           :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
-           :           VisibilityFilterExec: tables=[c]
-           :             TantivyFetchExec: fetch=[ctid_1]
-           :               HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, id@0)]
-           :                 CooperativeExec
-           :                   PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Marketing","lenient":null,"conjunction_mode":null}}}}
-           :                 HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, id@0)]
-           :                   CooperativeExec
-           :                     PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Engineering","lenient":null,"conjunction_mode":null}}}}
-           :                   CooperativeExec
-           :                     PgSearchScan: table=c, segments=1, dynamic_filters=2, query="all"
-(24 rows)
+   ->  Sort
+         Sort Key: p.id
+         ->  Hash Right Semi Join
+               Hash Cond: (d.company_id = p.company_id)
+               ->  Nested Loop Semi Join
+                     Join Filter: (c.id = d.company_id)
+                     ->  Nested Loop Anti Join
+                           Join Filter: (d_1.company_id = c.id)
+                           ->  Seq Scan on companies c
+                           ->  Materialize
+                                 ->  Custom Scan (ParadeDB Base Scan) on departments d_1
+                                       Table: departments
+                                       Index: departments_idx
+                                       Exec Method: ColumnarExecState
+                                       Fast Fields: company_id
+                                       Scores: false
+                                       Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Marketing","lenient":null,"conjunction_mode":null}}}}
+                     ->  Materialize
+                           ->  Custom Scan (ParadeDB Base Scan) on departments d
+                                 Table: departments
+                                 Index: departments_idx
+                                 Exec Method: ColumnarExecState
+                                 Fast Fields: company_id
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Engineering","lenient":null,"conjunction_mode":null}}}}
+               ->  Hash
+                     ->  Custom Scan (ParadeDB Base Scan) on products p
+                           Table: products
+                           Index: products_idx
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
+(33 rows)
 
 SELECT p.id, p.description
 FROM products p
@@ -259,6 +272,7 @@ AND EXISTS (
 )
 ORDER BY p.id
 LIMIT 10;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: c, d, p)
  id  |  description  
 -----+---------------
  100 | A fine widget
@@ -280,25 +294,24 @@ WHERE p.company_id IN (
 AND p.description @@@ 'widget OR gadget'
 ORDER BY p.id
 LIMIT 10;
-                                                                                                             QUERY PLAN                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: c INNER p
-         Join Cond: p.company_id = c.id
-         Limit: 10
-         Order By: p.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[c, p]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, company_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
-           :           CooperativeExec
-           :             PgSearchScan: table=c, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Acme","lenient":null,"conjunction_mode":null}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+                                                                                                          QUERY PLAN                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: p SEMI c
+   Join Cond: p.company_id = c.id
+   Limit: 10
+   Order By: p.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, ctid_0@1 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[p]
+     :       TantivyFetchExec: fetch=[ctid_0]
+     :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, company_id@1)], projection=[id@0, ctid_0@2]
+     :           CooperativeExec
+     :             PgSearchScan: table=c, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Acme","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
 
 SELECT p.id, p.description
 FROM products p
@@ -339,32 +352,32 @@ WHERE p.company_id IN (
 AND p.description @@@ 'widget OR gadget OR gizmo OR boring'
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                      QUERY PLAN                                                                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: p SEMI ((r INNER c) SEMI d)
-         Join Cond: p.company_id = c.id, c.id = d.company_id, c.region_id = r.id
-         Limit: 10
-         Order By: p.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[p]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[ctid_0@0, id@2]
-           :           CooperativeExec
-           :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
-           :           VisibilityFilterExec: tables=[r, c]
-           :             TantivyFetchExec: fetch=[ctid_1, ctid_2]
-           :               HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
-           :                 HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, region_id@1)], projection=[id@2, ctid_1@1, ctid_2@4]
-           :                   CooperativeExec
-           :                     PgSearchScan: table=r, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"America","lenient":null,"conjunction_mode":null}}}}
-           :                   CooperativeExec
-           :                     PgSearchScan: table=c, segments=1, dynamic_filters=2, query="all"
-           :                 CooperativeExec
-           :                   PgSearchScan: table=d, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Engineering","lenient":null,"conjunction_mode":null}}}}
+                                                                                                                   QUERY PLAN                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: p SEMI ((c SEMI r) SEMI d)
+   Join Cond: p.company_id = c.id, c.id = d.company_id, c.region_id = r.id
+   Limit: 10
+   Order By: p.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, ctid_0@1 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[p]
+     :       TantivyFetchExec: fetch=[ctid_0]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[id@0, ctid_0@2]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
+     :           HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
+     :             ProjectionExec: expr=[id@0 as id]
+     :               VisibilityFilterExec: tables=[c]
+     :                 TantivyFetchExec: fetch=[ctid_1]
+     :                   HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, region_id@1)]
+     :                     CooperativeExec
+     :                       PgSearchScan: table=r, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"America","lenient":null,"conjunction_mode":null}}}}
+     :                     CooperativeExec
+     :                       PgSearchScan: table=c, segments=1, dynamic_filters=2, query="all"
+     :             CooperativeExec
+     :               PgSearchScan: table=d, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Engineering","lenient":null,"conjunction_mode":null}}}}
 (24 rows)
 
 SELECT p.id, p.description

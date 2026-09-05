@@ -297,15 +297,6 @@ pub unsafe fn node_to_string_without_context(expr: *mut pg_sys::Node) -> String 
         .to_string()
 }
 
-/// Deparse a planner expression using `deparse_planner_expr`, falling back to
-/// `node_to_string_without_context` if deparsing returns `None`.
-pub unsafe fn deparse_planner_expr_or_raw(
-    root: *mut pg_sys::PlannerInfo,
-    expr: *mut pg_sys::Node,
-) -> String {
-    deparse_planner_expr(root, expr).unwrap_or_else(|| node_to_string_without_context(expr))
-}
-
 /// Serialize a non-null node via `nodeToString` into an owned Rust `String`.
 pub unsafe fn node_to_string_owned(node: *mut pg_sys::Node) -> String {
     pgrx::node_to_string(node)

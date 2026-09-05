@@ -84,7 +84,7 @@ AND EXISTS(
     AND t.id @@@ paradedb.term('status', 'completed')
 )
 ORDER BY u.id;
-WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: t, u)
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: t, u)
  id | name  
 ----+-------
   1 | Alice
@@ -110,7 +110,7 @@ AND EXISTS(
     )
 )
 ORDER BY u.id;
-WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: d, id, t, ti, u)
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: d, id, t, ti, u)
  id | name 
 ----+------
 (0 rows)
@@ -138,8 +138,7 @@ AND EXISTS(
     )
 )
 ORDER BY u.id;
-WARNING:  the table is being sequentially scanned for this query, so performance may be slow
-if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+WARNING:  JoinScan not used: baserestrictinfo predicate cannot be pushed into the aggregate scan (tables: t, u)
  id | name  
 ----+-------
   1 | Alice
@@ -167,8 +166,7 @@ AND EXISTS(
     )
 )
 ORDER BY u.id;
-WARNING:  the table is being sequentially scanned for this query, so performance may be slow
-if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+WARNING:  JoinScan not used: baserestrictinfo predicate cannot be pushed into the aggregate scan (tables: t, u)
  id | name  
 ----+-------
   1 | Alice
@@ -195,8 +193,7 @@ AND EXISTS(
     )
 )
 ORDER BY u.id;
-WARNING:  the table is being sequentially scanned for this query, so performance may be slow
-if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+WARNING:  JoinScan not used: baserestrictinfo predicate cannot be pushed into the aggregate scan (tables: t, u)
  id |  name   
 ----+---------
   3 | Charlie
@@ -250,8 +247,7 @@ AND EXISTS(
     )
 )
 ORDER BY u.id;
-WARNING:  the table is being sequentially scanned for this query, so performance may be slow
-if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+WARNING:  JoinScan not used: baserestrictinfo predicate cannot be pushed into the aggregate scan (tables: t, u)
  id | name  
 ----+-------
   1 | Alice

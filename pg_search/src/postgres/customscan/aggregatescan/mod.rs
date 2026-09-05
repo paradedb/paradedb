@@ -104,8 +104,6 @@ use crate::postgres::customscan::exec::{
 };
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::hook::query_has_paradedb_agg;
-use crate::postgres::customscan::joinscan::JoinScan;
-use crate::postgres::customscan::joinscan::planning::transparent_path_subpath;
 use crate::postgres::customscan::joinscan::scan_state::{build_physical_plan, build_task_context};
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
@@ -251,21 +249,7 @@ impl AggregateDeclineReason {
     fn detail(&self) -> std::borrow::Cow<'static, str> {
         match self {
             Self::NotAllBm25 => "all tables in the join must have ParadeDB indexes".into(),
-            Self::JoinPredicate(reason) => match reason {
-                datafusion_build::PathPredicateDeclineReason::ExternParam => {
-                    "generic prepared-plan parameters in join predicates are not supported".into()
-                }
-                #[cfg(feature = "pg15")]
-                datafusion_build::PathPredicateDeclineReason::AmbiguousVolatileOverlap => {
-                    "a volatile join predicate cannot be reconstructed safely on PostgreSQL 15".into()
-                }
-                datafusion_build::PathPredicateDeclineReason::OuterJoinOnResidual => {
-                    "outer-join ON residual predicates are not supported".into()
-                }
-                datafusion_build::PathPredicateDeclineReason::UnclassifiedClause => {
-                    "the selected lower join path contains a predicate that AggregateScan cannot classify".into()
-                }
-            },
+            Self::JoinPredicate(reason) => reason.detail().into(),
             Self::DistinctOn => "DISTINCT ON is not supported".into(),
             Self::NondeterministicCollation => {
                 "DISTINCT on a nondeterministic collation is not supported".into()
@@ -305,28 +289,6 @@ unsafe fn resolve_decline_alias(args: &CreateUpperPathsHookArgs) -> String {
         return "unknown".to_string();
     };
     rte_alias_or_unknown(rte)
-}
-
-/// Whether `JoinScan` already offered a path for this join relation.
-///
-/// The upper-paths hook runs after the join relation is complete, so its
-/// pathlist answers the question directly. JoinScan's path can sit under any of
-/// the row-preserving wrappers, a `Gather` above a parallel join in particular,
-/// so peel with the same helper JoinScan itself uses. Matching on the node tag
-/// rather than `pathtype` matters: `GroupResultPath` and `MinMaxAggPath` also
-/// plan to `T_Result`, and their second field is a `List`, not a subpath.
-unsafe fn joinrel_has_joinscan_path(input_rel: &pg_sys::RelOptInfo) -> bool {
-    let joinscan_methods = JoinScan::custom_path_methods();
-    PgList::<pg_sys::Path>::from_pg(input_rel.pathlist)
-        .iter_ptr()
-        .any(|mut path| {
-            while let Some(subpath) = transparent_path_subpath(path) {
-                path = subpath;
-            }
-            !path.is_null()
-                && (*path).type_ == pg_sys::NodeTag::T_CustomPath
-                && (*(path as *mut pg_sys::CustomPath)).methods == joinscan_methods
-        })
 }
 
 /// A grouping operation, unifying GROUP BY and SELECT DISTINCT
@@ -451,6 +413,13 @@ impl CustomScan for AggregateScan {
     }
 
     fn create_custom_path(builder: CustomPathBuilder<Self>) -> Vec<pg_sys::CustomPath> {
+        let stage = builder.args().stage;
+        if stage != pg_sys::UpperRelationKind::UPPERREL_GROUP_AGG
+            && stage != pg_sys::UpperRelationKind::UPPERREL_DISTINCT
+        {
+            return Vec::new();
+        }
+
         let (has_paradedb_agg_recursive, has_paradedb_agg) = unsafe {
             let parse = builder.args().root().parse;
             if parse.is_null() {
@@ -462,6 +431,10 @@ impl CustomScan for AggregateScan {
                 )
             }
         };
+
+        if !has_paradedb_agg_recursive && !gucs::enable_aggregate_custom_scan() {
+            return Vec::new();
+        }
 
         if let Err(reason) = unsafe { validate_grouping_pushdown(builder.args()) } {
             if has_paradedb_agg {
@@ -550,15 +523,6 @@ impl CustomScan for AggregateScan {
                 Self::build_tantivy_aggregate_path(builder, has_paradedb_agg, shape)
             }
             pg_sys::RelOptKind::RELOPT_JOINREL => {
-                // JoinScan deduplicates a DISTINCT itself and materializes the
-                // heap late, so leave the shape to it whenever it accepted the
-                // join. Asking whether it built a path (rather than replaying its
-                // gates) keeps a join it turned down from losing both pushdowns.
-                let defer_to_joinscan =
-                    shape.is_distinct() && unsafe { joinrel_has_joinscan_path(input_rel) };
-                if defer_to_joinscan {
-                    return Vec::new();
-                }
                 if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg_recursive {
                     return Vec::new();
                 }

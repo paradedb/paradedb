@@ -114,7 +114,6 @@ JOIN fb_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, r, t)
   category   | count | sum 
 -------------+-------+-----
  Clothing    |     1 |   4
@@ -316,7 +315,6 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 HAVING COUNT(*) > 0
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
   category   | count 
 -------------+-------
  Clothing    |     1

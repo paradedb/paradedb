@@ -62,26 +62,26 @@ WHERE id IN (
 AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
-                                                                                                                 QUERY PLAN                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                                QUERY PLAN                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: table_a.id, table_a.category
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: table_a.id, table_a.category
-         Relation Tree: table_a SEMI table_b
-         Join Cond: table_a.id = table_b.a_id
-         Limit: 10
-         Order By: table_a.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[table_a]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1)]
-           :           CooperativeExec
-           :             PgSearchScan: table=table_b, segments=1, visibility=eager, query={"term":{"field":"group_id","value":"group_1"}}
-           :           CooperativeExec
-           :             PgSearchScan: table=table_a, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
+   Relation Tree: table_a SEMI table_b
+   Join Cond: table_a.id = table_b.a_id
+   Limit: 10
+   Order By: table_a.id asc
+   DataFusion Physical Plan: 
+     : TantivyDecodeExec: decode=[category]
+     :   TantivyFetchExec: fetch=[category]
+     :     ProjectionExec: expr=[id@0 as col_1, category@1 as col_2, ctid_0@2 as ctid_0]
+     :       SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     :         VisibilityFilterExec: tables=[table_a]
+     :           TantivyFetchExec: fetch=[ctid_0]
+     :             HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@0)]
+     :               CooperativeExec
+     :                 PgSearchScan: table=table_b, segments=1, visibility=eager, query={"term":{"field":"group_id","value":"group_1"}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=table_a, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
 (18 rows)
 
 -- =====================================================================
@@ -130,27 +130,31 @@ WHERE NOT EXISTS (
 AND table_a.id @@@ 'category:"target_category"'
 ORDER BY table_a.id ASC
 LIMIT 10;
-                                                                                                                 QUERY PLAN                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                                QUERY PLAN                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: table_a.id, table_a.category
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: table_a.id, table_a.category
-         Relation Tree: table_a ANTI table_b
-         Join Cond: table_b.a_id = table_a.id
-         Limit: 10
-         Order By: table_a.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[table_a]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(a_id@0, id@1)]
-           :           CooperativeExec
-           :             PgSearchScan: table=table_b, segments=1, visibility=eager, query={"term_set":{"terms":[{"field":"group_id","value":"group_3"},{"field":"group_id","value":"group_4"}]}}
-           :           CooperativeExec
-           :             PgSearchScan: table=table_a, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+   Relation Tree: table_a ANTI table_b
+   Join Cond: table_b.a_id = table_a.id
+   Join Filter: ((table_b.group_id)::text = ANY ('{group_3,group_4}'::text[]))
+   Limit: 10
+   Order By: table_a.id asc
+   DataFusion Physical Plan: 
+     : TantivyDecodeExec: decode=[category]
+     :   TantivyFetchExec: fetch=[category]
+     :     ProjectionExec: expr=[id@0 as col_1, category@1 as col_2, ctid_0@2 as ctid_0]
+     :       SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     :         VisibilityFilterExec: tables=[table_a]
+     :           TantivyFetchExec: fetch=[ctid_0]
+     :             HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@0, a_id@0)]
+     :               CooperativeExec
+     :                 PgSearchScan: table=table_a, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
+     :               VisibilityFilterExec: tables=[table_b]
+     :                 TantivyFetchExec: fetch=[ctid_1]
+     :                   FilterExec: pdb_eval_expr_scalararrayopexpr_586523c8(CAST(group_id@0 AS Utf8)), projection=[a_id@1, ctid_1@2]
+     :                     CooperativeExec
+     :                       PgSearchScan: table=table_b, segments=1, dynamic_filters=1, query={"term_set":{"terms":[{"field":"group_id","value":"group_3"},{"field":"group_id","value":"group_4"}]}}
+(22 rows)
 
 -- =====================================================================
 -- 3. Both Semi and Anti Join
@@ -250,27 +254,25 @@ WHERE (id, category) IN (
 AND id @@@ pdb.all()
 ORDER BY id ASC
 LIMIT 10;
-                                                                QUERY PLAN                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                             QUERY PLAN                                                              
+-------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: table_a.id, table_a.category
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: table_a.id, table_a.category
-         Relation Tree: table_a SEMI table_b
-         Join Cond: table_a.id = table_b.a_id, table_a.category = table_b.category
-         Limit: 10
-         Order By: table_a.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, category@2 as col_2, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[table_a]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1), (category@1, category@2)]
-           :           CooperativeExec
-           :             PgSearchScan: table=table_b, segments=1, visibility=eager, query={"term":{"field":"group_id","value":"group_1"}}
-           :           CooperativeExec
-           :             PgSearchScan: table=table_a, segments=1, dynamic_filters=2, query={"with_index":{"query":{"all":{"field":"id"}}}}
-(18 rows)
+   Relation Tree: table_a SEMI table_b
+   Join Cond: table_a.id = table_b.a_id, table_a.category = table_b.category
+   Limit: 10
+   Order By: table_a.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, category@1 as col_2, ctid_0@2 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[table_a]
+     :       TantivyFetchExec: fetch=[ctid_0]
+     :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@0), (category@1, category@1)]
+     :           CooperativeExec
+     :             PgSearchScan: table=table_b, segments=1, visibility=eager, query={"term":{"field":"group_id","value":"group_1"}}
+     :           CooperativeExec
+     :             PgSearchScan: table=table_a, segments=1, dynamic_filters=2, query={"with_index":{"query":{"all":{"field":"id"}}}}
+(16 rows)
 
 SELECT id, category
 FROM table_a
@@ -310,27 +312,25 @@ WHERE id IN (
 AND id @@@ 'category:"target_category"'
 ORDER BY category ASC, id ASC
 LIMIT 10;
-                                                                                                                 QUERY PLAN                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                              QUERY PLAN                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: table_a.id, table_a.category
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: table_a.id, table_a.category
-         Relation Tree: table_a SEMI table_b
-         Join Cond: table_a.id = table_b.a_id
-         Limit: 10
-         Order By: table_a.category asc, table_a.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, category@2 as col_2, ctid_0@0 as ctid_0]
-           :   TantivyDecodeExec: decode=[category]
-           :     TantivyFetchExec: fetch=[category]
-           :       SegmentedTopKExec: expr=[category@2 ASC NULLS LAST, id@1 ASC NULLS LAST], k=10, visibility_checks=[table_a]
-           :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1)]
-           :           CooperativeExec
-           :             PgSearchScan: table=table_b, segments=1, visibility=eager, query={"term":{"field":"group_id","value":"group_1"}}
-           :           CooperativeExec
-           :             PgSearchScan: table=table_a, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+   Relation Tree: table_a SEMI table_b
+   Join Cond: table_a.id = table_b.a_id
+   Limit: 10
+   Order By: table_a.category asc, table_a.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, category@1 as col_2, ctid_0@2 as ctid_0]
+     :   TantivyDecodeExec: decode=[category]
+     :     TantivyFetchExec: fetch=[category]
+     :       SegmentedTopKExec: expr=[category@1 ASC NULLS LAST, id@0 ASC NULLS LAST], k=10, visibility_checks=[table_a]
+     :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@0)]
+     :           CooperativeExec
+     :             PgSearchScan: table=table_b, segments=1, visibility=eager, query={"term":{"field":"group_id","value":"group_1"}}
+     :           CooperativeExec
+     :             PgSearchScan: table=table_a, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT *
 FROM table_a
@@ -371,26 +371,26 @@ WHERE id IN (
 AND id @@@ 'id:1'
 ORDER BY id ASC
 LIMIT 10;
-                                                                                                     QUERY PLAN                                                                                                      
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: table_a.id, table_a.category
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: table_a.id, table_a.category
-         Relation Tree: table_a SEMI table_b
-         Join Cond: table_a.id = table_b.a_id
-         Limit: 10
-         Order By: table_a.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[table_a]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, a_id@0)]
-           :           CooperativeExec
-           :             PgSearchScan: table=table_a, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"id:1","lenient":null,"conjunction_mode":null}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=table_b, segments=1, dynamic_filters=1, visibility=eager, query="all"
+   Relation Tree: table_a SEMI table_b
+   Join Cond: table_a.id = table_b.a_id
+   Limit: 10
+   Order By: table_a.id asc
+   DataFusion Physical Plan: 
+     : TantivyDecodeExec: decode=[category]
+     :   TantivyFetchExec: fetch=[category]
+     :     ProjectionExec: expr=[id@0 as col_1, category@1 as col_2, ctid_0@2 as ctid_0]
+     :       SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     :         VisibilityFilterExec: tables=[table_a]
+     :           TantivyFetchExec: fetch=[ctid_0]
+     :             HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, a_id@0)]
+     :               CooperativeExec
+     :                 PgSearchScan: table=table_a, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"id:1","lenient":null,"conjunction_mode":null}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=table_b, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (18 rows)
 
 SELECT id, category

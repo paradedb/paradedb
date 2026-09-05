@@ -63,27 +63,25 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id DESC
 LIMIT 10;
-                                                                                                                QUERY PLAN                                                                                                                
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                             QUERY PLAN                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: c.id, c.name
-         Relation Tree: c SEMI fr
-         Join Cond: c.id = fr.company_id
-         Limit: 10
-         Order By: c.id desc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[c]
-           :       TantivyFetchExec: fetch=[ctid_0]
-           :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
-           :           CooperativeExec
-           :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+   Relation Tree: c SEMI fr
+   Join Cond: c.id = fr.company_id
+   Limit: 10
+   Order By: c.id desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, ctid_0@1 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[c]
+     :       TantivyFetchExec: fetch=[ctid_0]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
+     :           CooperativeExec
+     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT c.id, c.name
 FROM companies c
@@ -114,29 +112,25 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id + 0 DESC
 LIMIT 10;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                             QUERY PLAN                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((c.id + 0))
-   ->  Result
-         Output: c.id, c.name, (c.id + 0)
-         ->  Custom Scan (ParadeDB Join Scan)
-               Output: c.id, c.name
-               Relation Tree: c SEMI fr
-               Join Cond: c.id = fr.company_id
-               Limit: 10
-               Order By: c.id desc
-               DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
-                 :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
-                 :     VisibilityFilterExec: tables=[c]
-                 :       TantivyFetchExec: fetch=[ctid_0]
-                 :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-                 :           CooperativeExec
-                 :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+   Relation Tree: c SEMI fr
+   Join Cond: c.id = fr.company_id
+   Limit: 10
+   Order By: c.id desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, id@0 + 0 as col_3, ctid_0@1 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[c]
+     :       TantivyFetchExec: fetch=[ctid_0]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
+     :           CooperativeExec
+     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT c.id, c.name
 FROM companies c
@@ -202,29 +196,25 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id - 0 DESC
 LIMIT 10;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                             QUERY PLAN                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((c.id - 0))
-   ->  Result
-         Output: c.id, c.name, (c.id - 0)
-         ->  Custom Scan (ParadeDB Join Scan)
-               Output: c.id, c.name
-               Relation Tree: c SEMI fr
-               Join Cond: c.id = fr.company_id
-               Limit: 10
-               Order By: c.id desc
-               DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
-                 :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
-                 :     VisibilityFilterExec: tables=[c]
-                 :       TantivyFetchExec: fetch=[ctid_0]
-                 :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-                 :           CooperativeExec
-                 :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+   Relation Tree: c SEMI fr
+   Join Cond: c.id = fr.company_id
+   Limit: 10
+   Order By: c.id desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, id@0 - 0 as col_3, ctid_0@1 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[c]
+     :       TantivyFetchExec: fetch=[ctid_0]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
+     :           CooperativeExec
+     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT c.id, c.name
 FROM companies c
@@ -255,29 +245,25 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id * 1 DESC
 LIMIT 10;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                             QUERY PLAN                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((c.id * 1))
-   ->  Result
-         Output: c.id, c.name, (c.id * 1)
-         ->  Custom Scan (ParadeDB Join Scan)
-               Output: c.id, c.name
-               Relation Tree: c SEMI fr
-               Join Cond: c.id = fr.company_id
-               Limit: 10
-               Order By: c.id desc
-               DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
-                 :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
-                 :     VisibilityFilterExec: tables=[c]
-                 :       TantivyFetchExec: fetch=[ctid_0]
-                 :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-                 :           CooperativeExec
-                 :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+   Relation Tree: c SEMI fr
+   Join Cond: c.id = fr.company_id
+   Limit: 10
+   Order By: c.id desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, id@0 as col_3, ctid_0@1 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[c]
+     :       TantivyFetchExec: fetch=[ctid_0]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
+     :           CooperativeExec
+     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT c.id, c.name
 FROM companies c
@@ -308,29 +294,25 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id / 1 DESC
 LIMIT 10;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                             QUERY PLAN                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((c.id / 1))
-   ->  Result
-         Output: c.id, c.name, (c.id / 1)
-         ->  Custom Scan (ParadeDB Join Scan)
-               Output: c.id, c.name
-               Relation Tree: c SEMI fr
-               Join Cond: c.id = fr.company_id
-               Limit: 10
-               Order By: c.id desc
-               DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
-                 :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
-                 :     VisibilityFilterExec: tables=[c]
-                 :       TantivyFetchExec: fetch=[ctid_0]
-                 :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-                 :           CooperativeExec
-                 :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+   Relation Tree: c SEMI fr
+   Join Cond: c.id = fr.company_id
+   Limit: 10
+   Order By: c.id desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, id@0 as col_3, ctid_0@1 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[c]
+     :       TantivyFetchExec: fetch=[ctid_0]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
+     :           CooperativeExec
+     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT c.id, c.name
 FROM companies c
@@ -361,29 +343,25 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY (c.id + 0)::int4 DESC
 LIMIT 10;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                             QUERY PLAN                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((c.id + 0))
-   ->  Result
-         Output: c.id, c.name, (c.id + 0)
-         ->  Custom Scan (ParadeDB Join Scan)
-               Output: c.id, c.name
-               Relation Tree: c SEMI fr
-               Join Cond: c.id = fr.company_id
-               Limit: 10
-               Order By: c.id desc
-               DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
-                 :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
-                 :     VisibilityFilterExec: tables=[c]
-                 :       TantivyFetchExec: fetch=[ctid_0]
-                 :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-                 :           CooperativeExec
-                 :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+   Relation Tree: c SEMI fr
+   Join Cond: c.id = fr.company_id
+   Limit: 10
+   Order By: c.id desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, id@0 + 0 as col_3, ctid_0@1 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[c]
+     :       TantivyFetchExec: fetch=[ctid_0]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
+     :           CooperativeExec
+     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT c.id, c.name
 FROM companies c
@@ -415,29 +393,25 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.big_id + 0::bigint DESC
 LIMIT 10;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                             QUERY PLAN                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((c.big_id + '0'::bigint))
-   ->  Result
-         Output: c.id, c.name, (c.big_id + '0'::bigint)
-         ->  Custom Scan (ParadeDB Join Scan)
-               Output: c.id, c.name, c.big_id
-               Relation Tree: c SEMI fr
-               Join Cond: c.id = fr.company_id
-               Limit: 10
-               Order By: c.big_id desc
-               DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, big_id@2 as col_3, ctid_0@0 as ctid_0]
-                 :   SortExec: TopK(fetch=10), expr=[big_id@2 DESC], preserve_partitioning=[false]
-                 :     VisibilityFilterExec: tables=[c]
-                 :       TantivyFetchExec: fetch=[ctid_0]
-                 :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-                 :           CooperativeExec
-                 :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+   Relation Tree: c SEMI fr
+   Join Cond: c.id = fr.company_id
+   Limit: 10
+   Order By: c.big_id desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, big_id@1 + 0 as col_3, ctid_0@2 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[big_id@1 DESC], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[c]
+     :       TantivyFetchExec: fetch=[ctid_0]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
+     :           CooperativeExec
+     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 -- int8: big_id * 1::bigint
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -451,29 +425,25 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.big_id * 1::bigint DESC
 LIMIT 10;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                             QUERY PLAN                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((c.big_id * '1'::bigint))
-   ->  Result
-         Output: c.id, c.name, (c.big_id * '1'::bigint)
-         ->  Custom Scan (ParadeDB Join Scan)
-               Output: c.id, c.name, c.big_id
-               Relation Tree: c SEMI fr
-               Join Cond: c.id = fr.company_id
-               Limit: 10
-               Order By: c.big_id desc
-               DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, big_id@2 as col_3, ctid_0@0 as ctid_0]
-                 :   SortExec: TopK(fetch=10), expr=[big_id@2 DESC], preserve_partitioning=[false]
-                 :     VisibilityFilterExec: tables=[c]
-                 :       TantivyFetchExec: fetch=[ctid_0]
-                 :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-                 :           CooperativeExec
-                 :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+   Relation Tree: c SEMI fr
+   Join Cond: c.id = fr.company_id
+   Limit: 10
+   Order By: c.big_id desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, big_id@1 as col_3, ctid_0@2 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[big_id@1 DESC], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[c]
+     :       TantivyFetchExec: fetch=[ctid_0]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
+     :           CooperativeExec
+     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 -- const-on-left: 0 + id (commutative, should unwrap)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -487,29 +457,25 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY 0 + c.id DESC
 LIMIT 10;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                             QUERY PLAN                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((0 + c.id))
-   ->  Result
-         Output: c.id, c.name, (0 + c.id)
-         ->  Custom Scan (ParadeDB Join Scan)
-               Output: c.id, c.name
-               Relation Tree: c SEMI fr
-               Join Cond: c.id = fr.company_id
-               Limit: 10
-               Order By: c.id desc
-               DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
-                 :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
-                 :     VisibilityFilterExec: tables=[c]
-                 :       TantivyFetchExec: fetch=[ctid_0]
-                 :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-                 :           CooperativeExec
-                 :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+   Relation Tree: c SEMI fr
+   Join Cond: c.id = fr.company_id
+   Limit: 10
+   Order By: c.id desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, 0 + id@0 as col_3, ctid_0@1 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[c]
+     :       TantivyFetchExec: fetch=[ctid_0]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
+     :           CooperativeExec
+     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 -- const-on-left: 1 * id (commutative, should unwrap)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -523,29 +489,25 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY 1 * c.id DESC
 LIMIT 10;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                             QUERY PLAN                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((1 * c.id))
-   ->  Result
-         Output: c.id, c.name, (1 * c.id)
-         ->  Custom Scan (ParadeDB Join Scan)
-               Output: c.id, c.name
-               Relation Tree: c SEMI fr
-               Join Cond: c.id = fr.company_id
-               Limit: 10
-               Order By: c.id desc
-               DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
-                 :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
-                 :     VisibilityFilterExec: tables=[c]
-                 :       TantivyFetchExec: fetch=[ctid_0]
-                 :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-                 :           CooperativeExec
-                 :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+   Relation Tree: c SEMI fr
+   Join Cond: c.id = fr.company_id
+   Limit: 10
+   Order By: c.id desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, id@0 as col_3, ctid_0@1 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[c]
+     :       TantivyFetchExec: fetch=[ctid_0]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
+     :           CooperativeExec
+     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 -- =============================================================================
 -- Type coverage — BaseScan (single-table, no join)
@@ -786,29 +748,25 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id + 0 DESC
 LIMIT 10;
-                                                                                                             QUERY PLAN                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((c.id + 0))
-   ->  Result
-         Output: c.id, c.name, (c.id + 0)
-         ->  Custom Scan (ParadeDB Join Scan)
-               Output: c.id, c.name
-               Relation Tree: c SEMI fr
-               Join Cond: c.id = fr.company_id
-               Limit: 10
-               Order By: c.id desc
-               DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
-                 :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
-                 :     VisibilityFilterExec: tables=[c]
-                 :       TantivyFetchExec: fetch=[ctid_0]
-                 :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-                 :           CooperativeExec
-                 :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"term":{"field":"round_type","value":"seed"}}}}
-(20 rows)
+   Relation Tree: c SEMI fr
+   Join Cond: c.id = fr.company_id
+   Limit: 10
+   Order By: c.id desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, id@0 + 0 as col_3, ctid_0@1 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[c]
+     :       TantivyFetchExec: fetch=[ctid_0]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
+     :           CooperativeExec
+     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"term":{"field":"round_type","value":"seed"}}}}
+(16 rows)
 
 SELECT c.id, c.name
 FROM companies c
@@ -907,6 +865,7 @@ WHERE c.id IN (
 AND c.description @@@ 'technology OR intelligence'
 ORDER BY c.id DESC
 LIMIT 10;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: c, fr, o)
  id |    name    
 ----+------------
   4 | AIVentures
@@ -927,6 +886,7 @@ WHERE c.id IN (
 AND c.description @@@ 'technology OR intelligence'
 ORDER BY c.id + 0 DESC
 LIMIT 10;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: c, fr, o)
  id |    name    
 ----+------------
   4 | AIVentures

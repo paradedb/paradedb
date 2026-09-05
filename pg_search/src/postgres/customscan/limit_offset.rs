@@ -112,6 +112,20 @@ impl LimitOffset {
         Some(limit.saturating_add(offset))
     }
 
+    /// Returns `LIMIT` only when statically known.
+    pub fn static_limit(&self) -> Option<usize> {
+        let limit = *self.limit.static_value()?;
+        Some(limit.max(0) as usize)
+    }
+
+    /// Returns `OFFSET` when statically known, or 0 if none or not static.
+    pub fn static_offset(&self) -> usize {
+        match &self.offset {
+            None => 0,
+            Some(o) => o.static_value().copied().unwrap_or(0).max(0) as usize,
+        }
+    }
+
     /// Planning-time row estimate. Uses static values when available, falls
     /// back to `DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE` for parameterized values.
     pub fn planning_estimate(&self) -> f64 {

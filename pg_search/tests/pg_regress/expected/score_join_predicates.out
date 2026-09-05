@@ -175,7 +175,7 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') OR a.age > 60
 ORDER BY b.id, a.id;
-WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
+WARNING:  JoinScan not used: predicate cannot be pushed into the scan (tables: a, b)
  book_id |   author_name   | author_score | book_score 
 ---------+-----------------+--------------+------------
        1 | Stephen King    |     2.540445 |          0

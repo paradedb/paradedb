@@ -284,6 +284,23 @@ impl<'a> PredicateTranslator<'a> {
             return None;
         }
 
+        if let Some(rti) =
+            crate::postgres::customscan::joinscan::planning::get_score_func_rti(node.cast())
+        {
+            for source in self.sources.iter() {
+                if let Some(attno) = source.map_var(rti, 0) {
+                    if let Some(name) = source.column_name(attno) {
+                        return Some(make_source_col(source, &name));
+                    } else {
+                        return Some(make_source_score_col(source));
+                    }
+                } else if source.contains_rti(rti) {
+                    return Some(make_source_score_col(source));
+                }
+            }
+            return None;
+        }
+
         let native = match (*node).type_ {
             pg_sys::NodeTag::T_OpExpr => self.translate_op_expr(node as *mut pg_sys::OpExpr),
             pg_sys::NodeTag::T_Var => self.translate_var(node as *mut pg_sys::Var),
@@ -722,7 +739,7 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
                     false,
                     Some((source_rti.0, field_name.clone())),
                 ),
-                OutputColumnInfo::Pruned => return None,
+                OutputColumnInfo::Expression | OutputColumnInfo::Pruned => return None,
             }
         } else {
             (varno, varattno, false, None)

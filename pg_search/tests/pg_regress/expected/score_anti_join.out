@@ -42,6 +42,7 @@ AND NOT EXISTS (
 )
 ORDER BY pdb.score(s.id) DESC, id
 LIMIT 5;
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: s, score_aj_entries)
                                                QUERY PLAN                                                
 ---------------------------------------------------------------------------------------------------------
  Limit
@@ -72,6 +73,7 @@ AND NOT EXISTS (
 )
 ORDER BY pdb.score(s.id) DESC, id
 LIMIT 5;
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: s, score_aj_entries)
  id  |  title   |     score     
 -----+----------+---------------
  501 | Item 501 | 4.9947444e-05
@@ -95,6 +97,7 @@ AND EXISTS (
 )
 ORDER BY pdb.score(s.id) DESC, id
 LIMIT 5;
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: s, score_aj_entries)
                                                QUERY PLAN                                                
 ---------------------------------------------------------------------------------------------------------
  Limit
@@ -123,6 +126,7 @@ AND EXISTS (
 )
 ORDER BY pdb.score(s.id) DESC, id
 LIMIT 5;
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: s, score_aj_entries)
  id | title  |     score     
 ----+--------+---------------
   1 | Item 1 | 4.9947444e-05
@@ -156,6 +160,7 @@ AND NOT EXISTS (
 )
 ORDER BY pdb.score(s.id) DESC, id
 LIMIT 5;
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: s, score_aj_entries)
                                                                                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                                                                                           
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -195,6 +200,7 @@ AND NOT EXISTS (
 )
 ORDER BY pdb.score(s.id) DESC, id
 LIMIT 5;
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: s, score_aj_entries)
  id  |  title   |   score   
 -----+----------+-----------
  501 | Item 501 | 2.0000873

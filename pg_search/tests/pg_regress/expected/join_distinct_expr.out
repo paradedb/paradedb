@@ -65,32 +65,28 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                    QUERY PLAN                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Unique
-         ->  Sort
-               Sort Key: p.name, (upper(s.name))
-               ->  Result
-                     ->  Custom Scan (ParadeDB Join Scan)
-                           Relation Tree: s INNER p
-                           Join Cond: p.supplier_id = s.id
-                           Limit: 10
-                           Distinct: true
-                           Order By: p.name asc
-                           DataFusion Physical Plan: 
-                             : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[name@3 as col_1, pdb_eval_expr_funcexpr_44945b63(CAST(name@1 AS Utf8)) as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :     TantivyDecodeExec: decode=[name]
-                             :       TantivyFetchExec: fetch=[name]
-                             :         VisibilityFilterExec: tables=[s, p]
-                             :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-                             :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :               CooperativeExec
-                             :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :               CooperativeExec
-                             :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(23 rows)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: p INNER s
+   Join Cond: p.supplier_id = s.id
+   Limit: 10
+   Distinct: true
+   Order By: p.name asc
+   DataFusion Physical Plan: 
+     : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_44945b63(CAST(name@2 AS Utf8)) as col_1, name@0 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
+     :     TantivyDecodeExec: decode=[name]
+     :       TantivyFetchExec: fetch=[name]
+     :         VisibilityFilterExec: tables=[p, s]
+     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[name@3, ctid_0@5, name@1, ctid_1@2]
+     :               CooperativeExec
+     :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 SELECT DISTINCT upper(s.name) AS upper_supplier, p.name
 FROM dex_products p
@@ -98,6 +94,7 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  upper_supplier |      name       
 ----------------+-----------------
  TECHCORP       | 
@@ -107,8 +104,8 @@ ORDER BY p.name
  TECHCORP       | WIRELESS ROUTER
  TECHCORP       | Wireless Mouse
                 | tablet
- FASTPARTS      | 
                 | 
+ FASTPARTS      | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = off;
@@ -143,32 +140,28 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                    QUERY PLAN                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Unique
-         ->  Sort
-               Sort Key: p.name, ((s.name IS NULL))
-               ->  Result
-                     ->  Custom Scan (ParadeDB Join Scan)
-                           Relation Tree: s INNER p
-                           Join Cond: p.supplier_id = s.id
-                           Limit: 10
-                           Distinct: true
-                           Order By: p.name asc
-                           DataFusion Physical Plan: 
-                             : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[name@3 as col_1, name@1 IS NULL as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :     TantivyDecodeExec: decode=[name]
-                             :       TantivyFetchExec: fetch=[name]
-                             :         VisibilityFilterExec: tables=[s, p]
-                             :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-                             :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :               CooperativeExec
-                             :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :               CooperativeExec
-                             :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(23 rows)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: p INNER s
+   Join Cond: p.supplier_id = s.id
+   Limit: 10
+   Distinct: true
+   Order By: p.name asc
+   DataFusion Physical Plan: 
+     : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :   AggregateExec: mode=Single, gby=[name@2 IS NULL as col_1, name@0 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
+     :     TantivyDecodeExec: decode=[name]
+     :       TantivyFetchExec: fetch=[name]
+     :         VisibilityFilterExec: tables=[p, s]
+     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[name@3, ctid_0@5, name@1, ctid_1@2]
+     :               CooperativeExec
+     :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 SELECT DISTINCT s.name IS NULL AS supplier_null, p.name
 FROM dex_products p
@@ -176,6 +169,7 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  supplier_null |      name       
 ---------------+-----------------
  f             | 
@@ -185,8 +179,8 @@ ORDER BY p.name
  f             | WIRELESS ROUTER
  f             | Wireless Mouse
  t             | tablet
- f             | 
  t             | 
+ f             | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = off;
@@ -221,30 +215,26 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                  QUERY PLAN                                                                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Unique
-         ->  Sort
-               Sort Key: p.name, (((p.supplier_id * 10) + p.id))
-               ->  Result
-                     ->  Custom Scan (ParadeDB Join Scan)
-                           Relation Tree: s INNER p
-                           Join Cond: p.supplier_id = s.id
-                           Limit: 10
-                           Distinct: true
-                           Order By: p.name asc
-                           DataFusion Physical Plan: 
-                             : SortExec: TopK(fetch=10), expr=[col_3@2 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[supplier_id@2 * 10 + id@4 as col_1, id@4 as col_2, name@3 as col_3], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :     VisibilityFilterExec: tables=[s, p]
-                             :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-                             :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, supplier_id@3, name@4, id@5]
-                             :           CooperativeExec
-                             :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :           CooperativeExec
-                             :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: p INNER s
+   Join Cond: p.supplier_id = s.id
+   Limit: 10
+   Distinct: true
+   Order By: p.name asc
+   DataFusion Physical Plan: 
+     : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :   AggregateExec: mode=Single, gby=[supplier_id@2 * 10 + id@0 as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
+     :     VisibilityFilterExec: tables=[p, s]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@2)], projection=[id@2, name@3, supplier_id@4, ctid_0@5, ctid_1@1]
+     :           CooperativeExec
+     :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT DISTINCT p.supplier_id * 10 + p.id AS combo_id, p.name
 FROM dex_products p
@@ -252,6 +242,7 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  combo_id |      name       
 ----------+-----------------
       119 | 
@@ -297,32 +288,28 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                    QUERY PLAN                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Unique
-         ->  Sort
-               Sort Key: p.name, (COALESCE(s.name, 'N/A'::text))
-               ->  Result
-                     ->  Custom Scan (ParadeDB Join Scan)
-                           Relation Tree: s INNER p
-                           Join Cond: p.supplier_id = s.id
-                           Limit: 10
-                           Distinct: true
-                           Order By: p.name asc
-                           DataFusion Physical Plan: 
-                             : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[name@3 as col_1, CASE WHEN name@1 IS NOT NULL THEN name@1 ELSE N/A END as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :     TantivyDecodeExec: decode=[name]
-                             :       TantivyFetchExec: fetch=[name]
-                             :         VisibilityFilterExec: tables=[s, p]
-                             :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-                             :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :               CooperativeExec
-                             :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :               CooperativeExec
-                             :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(23 rows)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: p INNER s
+   Join Cond: p.supplier_id = s.id
+   Limit: 10
+   Distinct: true
+   Order By: p.name asc
+   DataFusion Physical Plan: 
+     : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :   AggregateExec: mode=Single, gby=[CASE WHEN name@2 IS NOT NULL THEN name@2 ELSE N/A END as col_1, name@0 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
+     :     TantivyDecodeExec: decode=[name]
+     :       TantivyFetchExec: fetch=[name]
+     :         VisibilityFilterExec: tables=[p, s]
+     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[name@3, ctid_0@5, name@1, ctid_1@2]
+     :               CooperativeExec
+     :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 SELECT DISTINCT COALESCE(s.name, 'N/A') AS safe_supplier, p.name
 FROM dex_products p
@@ -330,6 +317,7 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  safe_supplier |      name       
 ---------------+-----------------
  TechCorp      | 
@@ -339,8 +327,8 @@ ORDER BY p.name
  TechCorp      | WIRELESS ROUTER
  TechCorp      | Wireless Mouse
  N/A           | tablet
- FastParts     | 
  N/A           | 
+ FastParts     | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = off;
@@ -375,32 +363,28 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                    QUERY PLAN                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Unique
-         ->  Sort
-               Sort Key: p.name, (((s.name || '-'::text) || (p.supplier_id)::text))
-               ->  Result
-                     ->  Custom Scan (ParadeDB Join Scan)
-                           Relation Tree: s INNER p
-                           Join Cond: p.supplier_id = s.id
-                           Limit: 10
-                           Distinct: true
-                           Order By: p.name asc
-                           DataFusion Physical Plan: 
-                             : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[pdb_eval_expr_opexpr_9f86f13f(CAST(name@1 AS Utf8), supplier_id@3) as col_1, name@4 as col_2, name@1 as col_3], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :     TantivyDecodeExec: decode=[name]
-                             :       TantivyFetchExec: fetch=[name]
-                             :         VisibilityFilterExec: tables=[s, p]
-                             :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-                             :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, supplier_id@4, name@5]
-                             :               CooperativeExec
-                             :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :               CooperativeExec
-                             :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(23 rows)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: p INNER s
+   Join Cond: p.supplier_id = s.id
+   Limit: 10
+   Distinct: true
+   Order By: p.name asc
+   DataFusion Physical Plan: 
+     : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_opexpr_9f86f13f(CAST(name@3 AS Utf8), supplier_id@1) as col_1, name@0 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
+     :     TantivyDecodeExec: decode=[name]
+     :       TantivyFetchExec: fetch=[name]
+     :         VisibilityFilterExec: tables=[p, s]
+     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[name@3, supplier_id@4, ctid_0@5, name@1, ctid_1@2]
+     :               CooperativeExec
+     :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 SELECT DISTINCT s.name || '-' || p.supplier_id::text AS name_id, p.name
 FROM dex_products p
@@ -408,6 +392,7 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
    name_id   |      name       
 -------------+-----------------
  TechCorp-1  | 
@@ -417,8 +402,8 @@ ORDER BY p.name
  TechCorp-1  | WIRELESS ROUTER
  TechCorp-1  | Wireless Mouse
              | tablet
- FastParts-3 | 
              | 
+ FastParts-3 | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = off;
@@ -453,32 +438,28 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                    QUERY PLAN                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Unique
-         ->  Sort
-               Sort Key: p.name, (length(s.name))
-               ->  Result
-                     ->  Custom Scan (ParadeDB Join Scan)
-                           Relation Tree: s INNER p
-                           Join Cond: p.supplier_id = s.id
-                           Limit: 10
-                           Distinct: true
-                           Order By: p.name asc
-                           DataFusion Physical Plan: 
-                             : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[name@3 as col_1, character_length(name@1) as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :     TantivyDecodeExec: decode=[name]
-                             :       TantivyFetchExec: fetch=[name]
-                             :         VisibilityFilterExec: tables=[s, p]
-                             :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-                             :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :               CooperativeExec
-                             :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :               CooperativeExec
-                             :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(23 rows)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: p INNER s
+   Join Cond: p.supplier_id = s.id
+   Limit: 10
+   Distinct: true
+   Order By: p.name asc
+   DataFusion Physical Plan: 
+     : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :   AggregateExec: mode=Single, gby=[character_length(name@2) as col_1, name@0 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
+     :     TantivyDecodeExec: decode=[name]
+     :       TantivyFetchExec: fetch=[name]
+     :         VisibilityFilterExec: tables=[p, s]
+     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[name@3, ctid_0@5, name@1, ctid_1@2]
+     :               CooperativeExec
+     :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 SELECT DISTINCT length(s.name) AS name_len, p.name
 FROM dex_products p
@@ -486,6 +467,7 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  name_len |      name       
 ----------+-----------------
         8 | 
@@ -495,8 +477,8 @@ ORDER BY p.name
         8 | WIRELESS ROUTER
         8 | Wireless Mouse
           | tablet
-        9 | 
           | 
+        9 | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = off;
@@ -532,32 +514,28 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 1;
-                                                                                                                    QUERY PLAN                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Unique
-         ->  Sort
-               Sort Key: p.name, ((upper(s.name) IS NULL))
-               ->  Result
-                     ->  Custom Scan (ParadeDB Join Scan)
-                           Relation Tree: s INNER p
-                           Join Cond: p.supplier_id = s.id
-                           Limit: 1
-                           Distinct: true
-                           Order By: p.name asc
-                           DataFusion Physical Plan: 
-                             : SortExec: TopK(fetch=1), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[name@3 as col_1, pdb_eval_expr_funcexpr_44945b63(CAST(name@1 AS Utf8)) IS NULL as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :     TantivyDecodeExec: decode=[name]
-                             :       TantivyFetchExec: fetch=[name]
-                             :         VisibilityFilterExec: tables=[s, p]
-                             :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-                             :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :               CooperativeExec
-                             :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :               CooperativeExec
-                             :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(23 rows)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: p INNER s
+   Join Cond: p.supplier_id = s.id
+   Limit: 1
+   Distinct: true
+   Order By: p.name asc
+   DataFusion Physical Plan: 
+     : SortExec: TopK(fetch=1), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_44945b63(CAST(name@2 AS Utf8)) IS NULL as col_1, name@0 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
+     :     TantivyDecodeExec: decode=[name]
+     :       TantivyFetchExec: fetch=[name]
+     :         VisibilityFilterExec: tables=[p, s]
+     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[name@3, ctid_0@5, name@1, ctid_1@2]
+     :               CooperativeExec
+     :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 SELECT DISTINCT upper(s.name) IS NULL, p.name
 FROM dex_products p
@@ -565,6 +543,7 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 1;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  ?column? | name 
 ----------+------
  f        | 
@@ -583,32 +562,28 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                    QUERY PLAN                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Unique
-         ->  Sort
-               Sort Key: p.name, ((s.name IS NOT NULL))
-               ->  Result
-                     ->  Custom Scan (ParadeDB Join Scan)
-                           Relation Tree: s INNER p
-                           Join Cond: p.supplier_id = s.id
-                           Limit: 10
-                           Distinct: true
-                           Order By: p.name asc
-                           DataFusion Physical Plan: 
-                             : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[name@3 as col_1, name@1 IS NOT NULL as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :     TantivyDecodeExec: decode=[name]
-                             :       TantivyFetchExec: fetch=[name]
-                             :         VisibilityFilterExec: tables=[s, p]
-                             :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-                             :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :               CooperativeExec
-                             :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :               CooperativeExec
-                             :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(23 rows)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: p INNER s
+   Join Cond: p.supplier_id = s.id
+   Limit: 10
+   Distinct: true
+   Order By: p.name asc
+   DataFusion Physical Plan: 
+     : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :   AggregateExec: mode=Single, gby=[name@2 IS NOT NULL as col_1, name@0 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
+     :     TantivyDecodeExec: decode=[name]
+     :       TantivyFetchExec: fetch=[name]
+     :         VisibilityFilterExec: tables=[p, s]
+     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[name@3, ctid_0@5, name@1, ctid_1@2]
+     :               CooperativeExec
+     :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 SELECT DISTINCT (s.name IS NOT NULL) AS has_name, p.name
 FROM dex_products p
@@ -616,6 +591,7 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  has_name |      name       
 ----------+-----------------
  t        | 
@@ -659,32 +635,28 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                    QUERY PLAN                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Unique
-         ->  Sort
-               Sort Key: p.name, (length(s.name))
-               ->  Result
-                     ->  Custom Scan (ParadeDB Join Scan)
-                           Relation Tree: s INNER p
-                           Join Cond: p.supplier_id = s.id
-                           Limit: 10
-                           Distinct: true
-                           Order By: p.name asc
-                           DataFusion Physical Plan: 
-                             : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[name@3 as col_1, character_length(name@1) as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :     TantivyDecodeExec: decode=[name]
-                             :       TantivyFetchExec: fetch=[name]
-                             :         VisibilityFilterExec: tables=[s, p]
-                             :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-                             :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :               CooperativeExec
-                             :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :               CooperativeExec
-                             :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(23 rows)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: p INNER s
+   Join Cond: p.supplier_id = s.id
+   Limit: 10
+   Distinct: true
+   Order By: p.name asc
+   DataFusion Physical Plan: 
+     : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :   AggregateExec: mode=Single, gby=[character_length(name@2) as col_1, name@0 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
+     :     TantivyDecodeExec: decode=[name]
+     :       TantivyFetchExec: fetch=[name]
+     :         VisibilityFilterExec: tables=[p, s]
+     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[name@3, ctid_0@5, name@1, ctid_1@2]
+     :               CooperativeExec
+     :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 SELECT DISTINCT length(s.name) AS name_len, p.name
 FROM dex_products p
@@ -692,6 +664,7 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  name_len |      name       
 ----------+-----------------
         8 | 
@@ -701,8 +674,8 @@ ORDER BY p.name
         8 | WIRELESS ROUTER
         8 | Wireless Mouse
           | tablet
-        9 | 
           | 
+        9 | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = off;
@@ -735,30 +708,26 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                  QUERY PLAN                                                                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Unique
-         ->  Sort
-               Sort Key: p.name, (((p.supplier_id)::bigint * 100))
-               ->  Result
-                     ->  Custom Scan (ParadeDB Join Scan)
-                           Relation Tree: s INNER p
-                           Join Cond: p.supplier_id = s.id
-                           Limit: 10
-                           Distinct: true
-                           Order By: p.name asc
-                           DataFusion Physical Plan: 
-                             : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_f1ebe528(supplier_id@2) * 100 as col_1, name@3 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :     VisibilityFilterExec: tables=[s, p]
-                             :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-                             :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, supplier_id@3, name@4]
-                             :           CooperativeExec
-                             :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :           CooperativeExec
-                             :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: p INNER s
+   Join Cond: p.supplier_id = s.id
+   Limit: 10
+   Distinct: true
+   Order By: p.name asc
+   DataFusion Physical Plan: 
+     : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_f1ebe528(supplier_id@1) * 100 as col_1, name@0 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
+     :     VisibilityFilterExec: tables=[p, s]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[name@2, supplier_id@3, ctid_0@4, ctid_1@1]
+     :           CooperativeExec
+     :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT DISTINCT p.supplier_id::bigint * 100 AS big_id, p.name
 FROM dex_products p
@@ -766,6 +735,7 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  big_id |      name       
 --------+-----------------
     100 | 
@@ -809,30 +779,26 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                  QUERY PLAN                                                                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Unique
-         ->  Sort
-               Sort Key: p.name, (((p.supplier_id)::double precision / '3'::double precision))
-               ->  Result
-                     ->  Custom Scan (ParadeDB Join Scan)
-                           Relation Tree: s INNER p
-                           Join Cond: p.supplier_id = s.id
-                           Limit: 10
-                           Distinct: true
-                           Order By: p.name asc
-                           DataFusion Physical Plan: 
-                             : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_eb551b6f(supplier_id@2) / 3 as col_1, name@3 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :     VisibilityFilterExec: tables=[s, p]
-                             :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-                             :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, supplier_id@3, name@4]
-                             :           CooperativeExec
-                             :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :           CooperativeExec
-                             :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: p INNER s
+   Join Cond: p.supplier_id = s.id
+   Limit: 10
+   Distinct: true
+   Order By: p.name asc
+   DataFusion Physical Plan: 
+     : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_eb551b6f(supplier_id@1) / 3 as col_1, name@0 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
+     :     VisibilityFilterExec: tables=[p, s]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[name@2, supplier_id@3, ctid_0@4, ctid_1@1]
+     :           CooperativeExec
+     :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT DISTINCT p.supplier_id::float8 / 3.0 AS ratio, p.name
 FROM dex_products p
@@ -840,6 +806,7 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
        ratio        |      name       
 --------------------+-----------------
  0.3333333333333333 | 
@@ -883,32 +850,28 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                    QUERY PLAN                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Unique
-         ->  Sort
-               Sort Key: p.name, (upper(s.name))
-               ->  Result
-                     ->  Custom Scan (ParadeDB Join Scan)
-                           Relation Tree: s INNER p
-                           Join Cond: p.supplier_id = s.id
-                           Limit: 10
-                           Distinct: true
-                           Order By: p.name asc
-                           DataFusion Physical Plan: 
-                             : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[name@3 as col_1, pdb_eval_expr_funcexpr_44945b63(CAST(name@1 AS Utf8)) as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :     TantivyDecodeExec: decode=[name]
-                             :       TantivyFetchExec: fetch=[name]
-                             :         VisibilityFilterExec: tables=[s, p]
-                             :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-                             :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :               CooperativeExec
-                             :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :               CooperativeExec
-                             :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(23 rows)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: p INNER s
+   Join Cond: p.supplier_id = s.id
+   Limit: 10
+   Distinct: true
+   Order By: p.name asc
+   DataFusion Physical Plan: 
+     : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_44945b63(CAST(name@2 AS Utf8)) as col_1, name@0 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
+     :     TantivyDecodeExec: decode=[name]
+     :       TantivyFetchExec: fetch=[name]
+     :         VisibilityFilterExec: tables=[p, s]
+     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[name@3, ctid_0@5, name@1, ctid_1@2]
+     :               CooperativeExec
+     :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 SELECT DISTINCT upper(s.name) AS upper_name, p.name
 FROM dex_products p
@@ -916,6 +879,7 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  upper_name |      name       
 ------------+-----------------
  TECHCORP   | 
@@ -925,8 +889,8 @@ ORDER BY p.name
  TECHCORP   | WIRELESS ROUTER
  TECHCORP   | Wireless Mouse
             | tablet
- FASTPARTS  | 
             | 
+ FASTPARTS  | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = off;
@@ -959,32 +923,28 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                    QUERY PLAN                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Unique
-         ->  Sort
-               Sort Key: p.name, ((s.name)::character varying(5))
-               ->  Result
-                     ->  Custom Scan (ParadeDB Join Scan)
-                           Relation Tree: s INNER p
-                           Join Cond: p.supplier_id = s.id
-                           Limit: 10
-                           Distinct: true
-                           Order By: p.name asc
-                           DataFusion Physical Plan: 
-                             : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[name@3 as col_1, pdb_eval_expr_funcexpr_6978d23a(CAST(name@1 AS Utf8)) as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :     TantivyDecodeExec: decode=[name]
-                             :       TantivyFetchExec: fetch=[name]
-                             :         VisibilityFilterExec: tables=[s, p]
-                             :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-                             :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :               CooperativeExec
-                             :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :               CooperativeExec
-                             :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(23 rows)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: p INNER s
+   Join Cond: p.supplier_id = s.id
+   Limit: 10
+   Distinct: true
+   Order By: p.name asc
+   DataFusion Physical Plan: 
+     : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_6978d23a(CAST(name@2 AS Utf8)) as col_1, name@0 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
+     :     TantivyDecodeExec: decode=[name]
+     :       TantivyFetchExec: fetch=[name]
+     :         VisibilityFilterExec: tables=[p, s]
+     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[name@3, ctid_0@5, name@1, ctid_1@2]
+     :               CooperativeExec
+     :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 SELECT DISTINCT s.name::varchar(5) AS short_name, p.name
 FROM dex_products p
@@ -992,6 +952,7 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  short_name |      name       
 ------------+-----------------
  TechC      | 
@@ -1001,8 +962,8 @@ ORDER BY p.name
  TechC      | WIRELESS ROUTER
  TechC      | Wireless Mouse
             | tablet
- FastP      | 
             | 
+ FastP      | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = off;
@@ -1039,32 +1000,28 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                    QUERY PLAN                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Unique
-         ->  Sort
-               Sort Key: p.name, (CASE WHEN (s.name IS NOT NULL) THEN s.name ELSE 'N/A'::text END)
-               ->  Result
-                     ->  Custom Scan (ParadeDB Join Scan)
-                           Relation Tree: s INNER p
-                           Join Cond: p.supplier_id = s.id
-                           Limit: 10
-                           Distinct: true
-                           Order By: p.name asc
-                           DataFusion Physical Plan: 
-                             : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[name@3 as col_1, CASE WHEN name@1 IS NOT NULL THEN name@1 ELSE N/A END as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :     TantivyDecodeExec: decode=[name]
-                             :       TantivyFetchExec: fetch=[name]
-                             :         VisibilityFilterExec: tables=[s, p]
-                             :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-                             :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :               CooperativeExec
-                             :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :               CooperativeExec
-                             :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(23 rows)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: p INNER s
+   Join Cond: p.supplier_id = s.id
+   Limit: 10
+   Distinct: true
+   Order By: p.name asc
+   DataFusion Physical Plan: 
+     : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :   AggregateExec: mode=Single, gby=[CASE WHEN name@2 IS NOT NULL THEN name@2 ELSE N/A END as col_1, name@0 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
+     :     TantivyDecodeExec: decode=[name]
+     :       TantivyFetchExec: fetch=[name]
+     :         VisibilityFilterExec: tables=[p, s]
+     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[name@3, ctid_0@5, name@1, ctid_1@2]
+     :               CooperativeExec
+     :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 SELECT DISTINCT CASE WHEN s.name IS NOT NULL THEN s.name ELSE 'N/A' END AS supplier_or_default, p.name
 FROM dex_products p
@@ -1072,6 +1029,7 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  supplier_or_default |      name       
 ---------------------+-----------------
  TechCorp            | 
@@ -1081,8 +1039,8 @@ ORDER BY p.name
  TechCorp            | WIRELESS ROUTER
  TechCorp            | Wireless Mouse
  N/A                 | tablet
- FastParts           | 
  N/A                 | 
+ FastParts           | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = off;
@@ -1181,32 +1139,28 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                    QUERY PLAN                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Unique
-         ->  Sort
-               Sort Key: p.name, (upper(md5(s.name)))
-               ->  Result
-                     ->  Custom Scan (ParadeDB Join Scan)
-                           Relation Tree: s INNER p
-                           Join Cond: p.supplier_id = s.id
-                           Limit: 10
-                           Distinct: true
-                           Order By: p.name asc
-                           DataFusion Physical Plan: 
-                             : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[name@3 as col_1, pdb_eval_expr_funcexpr_d16211df(CAST(name@1 AS Utf8)) as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :     TantivyDecodeExec: decode=[name]
-                             :       TantivyFetchExec: fetch=[name]
-                             :         VisibilityFilterExec: tables=[s, p]
-                             :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-                             :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :               CooperativeExec
-                             :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :               CooperativeExec
-                             :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(23 rows)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: p INNER s
+   Join Cond: p.supplier_id = s.id
+   Limit: 10
+   Distinct: true
+   Order By: p.name asc
+   DataFusion Physical Plan: 
+     : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_d16211df(CAST(name@2 AS Utf8)) as col_1, name@0 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
+     :     TantivyDecodeExec: decode=[name]
+     :       TantivyFetchExec: fetch=[name]
+     :         VisibilityFilterExec: tables=[p, s]
+     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[name@3, ctid_0@5, name@1, ctid_1@2]
+     :               CooperativeExec
+     :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 SELECT DISTINCT upper(md5(s.name)) AS mixed_key, p.name
 FROM dex_products p
@@ -1214,6 +1168,7 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
             mixed_key             |      name       
 ----------------------------------+-----------------
  D9CE5A9B751D2E18071CC135E51C524B | 
@@ -1223,8 +1178,8 @@ ORDER BY p.name
  D9CE5A9B751D2E18071CC135E51C524B | WIRELESS ROUTER
  D9CE5A9B751D2E18071CC135E51C524B | Wireless Mouse
                                   | tablet
- 9818B8B1AAC79FB78ABE7B48D8ECC003 | 
                                   | 
+ 9818B8B1AAC79FB78ABE7B48D8ECC003 | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = off;

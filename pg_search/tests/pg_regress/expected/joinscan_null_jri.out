@@ -65,28 +65,29 @@ JOIN products ON users.age = products.age
 JOIN orders ON products.uuid = orders.uuid
 WHERE users.name @@@ 'bob'
 ORDER BY users.id, products.id, orders.id LIMIT 1;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: users INNER (products INNER orders)
-         Join Cond: users.age = products.age, products.uuid = orders.uuid
-         Limit: 1
-         Order By: users.id asc, products.id asc, orders.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@3 as col_3, id@5 as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@4 as ctid_2]
-           :   SortExec: TopK(fetch=1), expr=[id@1 ASC NULLS LAST, id@3 ASC NULLS LAST, id@5 ASC NULLS LAST], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[users, products, orders]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(uuid@3, uuid@1)], projection=[ctid_0@0, id@1, ctid_1@2, id@4, ctid_2@5, id@7]
-           :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@1, age@1)], projection=[ctid_0@0, id@2, ctid_1@3, uuid@5, id@6]
-           :             CooperativeExec
-           :               PgSearchScan: table=users, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
-           :             CooperativeExec
-           :               PgSearchScan: table=products, segments=1, dynamic_filters=1, query="all"
-           :           CooperativeExec
-           :             PgSearchScan: table=orders, segments=1, dynamic_filters=1, query="all"
-(19 rows)
+                                                                                                     QUERY PLAN                                                                                                     
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: (users INNER products) INNER orders
+   Join Cond: products.uuid = orders.uuid, users.age = products.age
+   Limit: 1
+   Order By: users.id asc, products.id asc, orders.id asc
+   DataFusion Physical Plan: 
+     : TantivyDecodeExec: decode=[name]
+     :   TantivyFetchExec: fetch=[name]
+     :     ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, id@3 as col_3, id@5 as col_4, ctid_0@2 as ctid_0, ctid_1@4 as ctid_1, ctid_2@6 as ctid_2]
+     :       SortExec: TopK(fetch=1), expr=[id@0 ASC NULLS LAST, id@3 ASC NULLS LAST, id@5 ASC NULLS LAST], preserve_partitioning=[false]
+     :         VisibilityFilterExec: tables=[users, products, orders]
+     :           TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(uuid@4, uuid@1)], projection=[id@0, name@1, ctid_0@2, id@3, ctid_1@5, id@6, ctid_2@8]
+     :               HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@2, age@1)], projection=[id@0, name@1, ctid_0@3, id@4, uuid@6, ctid_1@7]
+     :                 CooperativeExec
+     :                   PgSearchScan: table=users, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+     :                 CooperativeExec
+     :                   PgSearchScan: table=products, segments=1, dynamic_filters=1, query="all"
+     :               CooperativeExec
+     :                 PgSearchScan: table=orders, segments=1, dynamic_filters=1, query="all"
+(20 rows)
 
 SELECT users.id, users.name
 FROM users

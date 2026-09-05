@@ -111,42 +111,44 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5000;
-                                                                                                   QUERY PLAN                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
+                                                                                    QUERY PLAN                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id
-   ->  Custom Scan (ParadeDB Join Scan)
+   ->  Nested Loop Anti Join
          Output: i.id
-         Relation Tree: i ANTI e
          Join Filter: ((e.pattern = i.name) OR (e.pattern = i.alt_name))
-         Limit: 5000
-         Order By: i.id desc
-         DataFusion Physical Plan: 
-           : ┌───── DistributedExec
-           : │ ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
-           : │   SortPreservingMergeExec: [id@1 DESC], fetch=5000
-           : │     [Stage 2] => NetworkCoalesceExec: output_partitions=4, input_tasks=4
-           : └──────────────────────────────────────────────────
-           :   ┌───── Stage 2 ── tasks=4, partitions=4
-           :   │ SortExec: TopK(fetch=5000), expr=[id@1 DESC], preserve_partitioning=[true]
-           :   │   VisibilityFilterExec: tables=[i]
-           :   │     TantivyFetchExec: fetch=[ctid_0]
-           :   │       NestedLoopJoinExec: join_type=RightAnti, filter=pattern@2 = name@0 OR pattern@2 = alt_name@1, projection=[ctid_0@0, id@3]
-           :   │         CoalescePartitionsExec
-           :   │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=4, input_tasks=2
-           :   │         DistributedLeafExec:
-           :   │           t0: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-           :   │           t1: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-           :   │           t2: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-           :   │           t3: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-           :   └──────────────────────────────────────────────────
-           :     ┌───── Stage 1 ── tasks=2, partitions=8
-           :     │ BroadcastExec: input_partitions=1, consumer_tasks=4, output_partitions=4
-           :     │   DistributedLeafExec:
-           :     │     t0: PgSearchScan: table=e, segments=2, visibility=eager, query={"with_index":{"query":"all"}}
-           :     │     t1: PgSearchScan: table=e, segments=2, visibility=eager, query={"with_index":{"query":"all"}}
-           :     └──────────────────────────────────────────────────
-(33 rows)
+         ->  Gather Merge
+               Output: i.id, i.name, i.alt_name
+               Workers Planned: 3
+               ->  Sort
+                     Output: i.id, i.name, i.alt_name
+                     Sort Key: i.id DESC
+                     ->  Parallel Custom Scan (ParadeDB Base Scan) on public.jsd_par_items i
+                           Output: i.id, i.name, i.alt_name
+                           Table: jsd_par_items
+                           Index: jsd_par_items_idx
+                           Worker Selection: Cost model
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+         ->  Materialize
+               Output: e.pattern
+               ->  Gather
+                     Output: e.pattern
+                     Workers Planned: 1
+                     ->  Parallel Custom Scan (ParadeDB Base Scan) on public.jsd_par_exclusions e
+                           Output: e.pattern
+                           Table: jsd_par_exclusions
+                           Index: jsd_par_exclusions_idx
+                           Worker Selection: Cost model
+                           Exec Method: ColumnarExecState
+                           Fast Fields: pattern
+                           Scores: false
+                           Full Index Scan: true
+                           Tantivy Query: {"with_index":{"query":"all"}}
+(34 rows)
 
 CREATE TEMP TABLE jsd_par_r1_on AS
 SELECT i.id
@@ -159,6 +161,7 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5000;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
 SET paradedb.enable_join_custom_scan = off;
 CREATE TEMP TABLE jsd_par_r1_off AS
 SELECT i.id
@@ -238,42 +241,44 @@ WHERE EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id ASC
 LIMIT 5000;
-                                                                                                   QUERY PLAN                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
+                                                                                    QUERY PLAN                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id
-   ->  Custom Scan (ParadeDB Join Scan)
+   ->  Nested Loop Semi Join
          Output: i.id
-         Relation Tree: i SEMI e
          Join Filter: ((e.pattern = i.name) OR (e.pattern = i.alt_name) OR (e.pattern = i.category))
-         Limit: 5000
-         Order By: i.id asc
-         DataFusion Physical Plan: 
-           : ┌───── DistributedExec
-           : │ ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
-           : │   SortPreservingMergeExec: [id@1 ASC NULLS LAST], fetch=5000
-           : │     [Stage 2] => NetworkCoalesceExec: output_partitions=4, input_tasks=4
-           : └──────────────────────────────────────────────────
-           :   ┌───── Stage 2 ── tasks=4, partitions=4
-           :   │ SortExec: TopK(fetch=5000), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[true]
-           :   │   VisibilityFilterExec: tables=[i]
-           :   │     TantivyFetchExec: fetch=[ctid_0]
-           :   │       NestedLoopJoinExec: join_type=RightSemi, filter=pattern@3 = name@0 OR pattern@3 = alt_name@1 OR pattern@3 = category@2, projection=[ctid_0@0, id@4]
-           :   │         CoalescePartitionsExec
-           :   │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=4, input_tasks=2
-           :   │         DistributedLeafExec:
-           :   │           t0: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-           :   │           t1: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-           :   │           t2: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-           :   │           t3: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-           :   └──────────────────────────────────────────────────
-           :     ┌───── Stage 1 ── tasks=2, partitions=8
-           :     │ BroadcastExec: input_partitions=1, consumer_tasks=4, output_partitions=4
-           :     │   DistributedLeafExec:
-           :     │     t0: PgSearchScan: table=e, segments=2, visibility=eager, query={"with_index":{"query":"all"}}
-           :     │     t1: PgSearchScan: table=e, segments=2, visibility=eager, query={"with_index":{"query":"all"}}
-           :     └──────────────────────────────────────────────────
-(33 rows)
+         ->  Gather Merge
+               Output: i.id, i.name, i.alt_name, i.category
+               Workers Planned: 3
+               ->  Sort
+                     Output: i.id, i.name, i.alt_name, i.category
+                     Sort Key: i.id
+                     ->  Parallel Custom Scan (ParadeDB Base Scan) on public.jsd_par_items i
+                           Output: i.id, i.name, i.alt_name, i.category
+                           Table: jsd_par_items
+                           Index: jsd_par_items_idx
+                           Worker Selection: Cost model
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+         ->  Materialize
+               Output: e.pattern
+               ->  Gather
+                     Output: e.pattern
+                     Workers Planned: 1
+                     ->  Parallel Custom Scan (ParadeDB Base Scan) on public.jsd_par_exclusions e
+                           Output: e.pattern
+                           Table: jsd_par_exclusions
+                           Index: jsd_par_exclusions_idx
+                           Worker Selection: Cost model
+                           Exec Method: ColumnarExecState
+                           Fast Fields: pattern
+                           Scores: false
+                           Full Index Scan: true
+                           Tantivy Query: {"with_index":{"query":"all"}}
+(34 rows)
 
 CREATE TEMP TABLE jsd_par_r2_on AS
 SELECT i.id
@@ -290,6 +295,7 @@ WHERE EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id ASC
 LIMIT 5000;
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: e, i)
 SET paradedb.enable_join_custom_scan = off;
 CREATE TEMP TABLE jsd_par_r2_off AS
 SELECT i.id

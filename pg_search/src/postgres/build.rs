@@ -569,7 +569,7 @@ mod tests {
             r#"
             CREATE TABLE unroutable_key (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
             CREATE INDEX unroutable_key_idx ON unroutable_key USING bm25 (id, tenant_id, name)
-                WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 4,
+                WITH (partition_by = 'tenant_id', target_segment_count = 4,
                       numeric_fields = '{"tenant_id": {"fast": false}}');
             "#,
         )
@@ -586,7 +586,7 @@ mod tests {
             r#"
             CREATE TABLE mixed_key (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
             CREATE INDEX mixed_key_idx ON mixed_key USING bm25 (id, tenant_id, name)
-                WITH (key_field = 'id', partition_by = 'tenant_id, name', target_segment_count = 4,
+                WITH (partition_by = 'tenant_id, name', target_segment_count = 4,
                       numeric_fields = '{"tenant_id": {"fast": true}}');
             "#,
         )
@@ -601,7 +601,7 @@ mod tests {
             r#"
             CREATE TABLE normalized_sort (id BIGSERIAL PRIMARY KEY, name TEXT);
             CREATE INDEX normalized_sort_idx ON normalized_sort USING bm25 (id, name)
-                WITH (key_field = 'id', sort_by = 'name ASC NULLS FIRST',
+                WITH (sort_by = 'name ASC NULLS FIRST',
                       text_fields = '{"name": {"fast": true, "normalizer": "lowercase"}}');
             INSERT INTO normalized_sort (name)
             SELECT 'Lorem Ipsum ' || i FROM generate_series(1, 500) i;

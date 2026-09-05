@@ -418,6 +418,34 @@ pub(crate) fn has_reduction_before_stop(
     has_reduction
 }
 
+/// True if the first ancestor that anchors `df` is an aggregate grouping on it as a plain
+/// column. The partial aggregate then groups the ordinals and reduces the rows before the
+/// decode, which is a reduction of its own (see `DeferredAggregateRule`).
+fn grouped_at_anchor(
+    ancestors: &[&LogicalPlan],
+    is_stop: impl Fn(&LogicalPlan) -> bool,
+    df: &DeferredField,
+) -> bool {
+    let Some(anchor) = ancestors.iter().rev().find(|a| is_stop(a)) else {
+        return false;
+    };
+    let LogicalPlan::Aggregate(agg) = anchor else {
+        return false;
+    };
+    agg.group_expr.iter().any(|expr| {
+        let unaliased = match expr {
+            Expr::Alias(alias) => alias.expr.as_ref(),
+            e => e,
+        };
+        match unaliased {
+            Expr::Column(c) => {
+                trace_column(agg.input.as_ref(), c).is_some_and(|base| base.name == df.name)
+            }
+            _ => false,
+        }
+    })
+}
+
 /// Recursively traverses `plan` tracking the ancestor chain down to each `TableScan`.
 /// For each deferred field of a `TableScan`, checks if there is any intermediate reduction
 /// node (`Filter`, `Join`, `Limit`, etc.) on the path between the scan and the first ancestor
@@ -430,9 +458,11 @@ fn collect_beneficial_deferred_fields_inner<'a>(
     if let LogicalPlan::TableScan(scan) = node {
         if let Some(provider) = pg_search_provider_from_scan(scan) {
             for df in provider.deferred_fields() {
-                if has_reduction_before_stop(ancestors, |ancestor| {
-                    should_anchor(ancestor, std::slice::from_ref(&df))
-                }) {
+                let anchors =
+                    |ancestor: &LogicalPlan| should_anchor(ancestor, std::slice::from_ref(&df));
+                if has_reduction_before_stop(ancestors, anchors)
+                    || grouped_at_anchor(ancestors, anchors, &df)
+                {
                     beneficial.insert(df.canonical);
                 }
             }

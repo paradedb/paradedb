@@ -355,6 +355,9 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
         .with_physical_optimizer_rule(Arc::new(
             crate::scan::deferred_placement_rule::DeferredPlacementRule,
         ))
+        .with_physical_optimizer_rule(Arc::new(
+            crate::scan::deferred_aggregate_rule::DeferredAggregateRule,
+        ))
         .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
 }
 

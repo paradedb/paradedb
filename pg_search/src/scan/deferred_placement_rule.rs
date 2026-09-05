@@ -21,7 +21,7 @@
 //! rule decides where each half of the lookup runs, from the shape of the plan between the
 //! scan and the decode point:
 //!
-//! - The fetch (doc address to term ordinal) reads a fast-field column, which is cheapest in
+//! - The fetch (doc address to term ordinal) reads a columnar field, which is cheapest in
 //!   doc order. It stays deferred while the rows reach the decode point in that order and no
 //!   join multiplies them. Otherwise the scan resolves the ordinals itself, in doc order.
 //! - The decode (term ordinal to string) costs the same per row wherever it runs, so it stays

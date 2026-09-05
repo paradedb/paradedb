@@ -624,7 +624,7 @@ pub fn init() {
 
     GucRegistry::define_enum_guc(
         c"paradedb.defer_column_fetch",
-        c"Where the fast-field fetch of a late-materialized string column runs",
+        c"Where the columnar-field fetch of a late-materialized string column runs",
         c"When 'auto' (default), the placement rule keeps the fetch with the decode unless the \
           rows reach it out of doc order or multiplied by a join, in which case the scan \
           resolves the term ordinals itself. 'on' keeps the fetch with the decode, wherever \

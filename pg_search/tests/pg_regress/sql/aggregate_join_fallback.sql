@@ -203,6 +203,23 @@ GROUP BY p.category
 HAVING COUNT(*) > 0
 ORDER BY p.category;
 
+-- A GROUP BY expression the index cannot serve declines with the 1-based
+-- position of the offending item.
+SELECT lower(p.category), COUNT(*)
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY lower(p.category)
+ORDER BY 1;
+
+-- The position follows the offending item, not the first one.
+SELECT p.category, lower(p.category), COUNT(*)
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category, lower(p.category)
+ORDER BY 1, 2;
+
 -- =====================================================================
 -- Clean up
 -- =====================================================================

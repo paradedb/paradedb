@@ -508,10 +508,17 @@ pub unsafe fn extract_aggregate_targetlist(
 
     let mut group_exprs: Vec<*mut pg_sys::Node> = Vec::new();
     if shape.is_distinct() {
-        for expr in target_exprs.iter_ptr() {
-            if !super::expr_contains_aggref(expr.cast()) {
-                push_unique(&mut group_exprs, expr.cast());
+        for (idx, expr) in target_exprs.iter_ptr().enumerate() {
+            if super::expr_contains_aggref(expr.cast()) {
+                continue;
             }
+            if (*expr).type_ != pg_sys::NodeTag::T_Var {
+                return Err(format!(
+                    "DISTINCT column {} is an expression; only plain columns are pushed down",
+                    idx + 1
+                ));
+            }
+            push_unique(&mut group_exprs, expr.cast());
         }
     } else {
         let exprs = pg_sys::get_sortgrouplist_exprs((*parse).groupClause, (*parse).targetList);
@@ -539,8 +546,8 @@ pub unsafe fn extract_aggregate_targetlist(
         pdb_agg_funcoids: crate::api::agg_funcoids(),
     };
     let mut group_columns = Vec::with_capacity(group_exprs.len());
-    for expr in &group_exprs {
-        group_columns.push(extract_raw_group_column(&context, *expr)?);
+    for (idx, expr) in group_exprs.iter().enumerate() {
+        group_columns.push(extract_raw_group_column(&context, *expr, idx + 1)?);
     }
     let mut aggregates = Vec::with_capacity(aggrefs.len());
     for aggref in &aggrefs {
@@ -588,7 +595,7 @@ unsafe fn resolve_var_source<'a>(
     context: &RawColumnContext<'a>,
     rti: pg_sys::Index,
     attno: pg_sys::AttrNumber,
-    label: &str,
+    what: &str,
 ) -> Result<ResolvedVar<'a>, String> {
     let (source_rti, attno, unnest_field) = match context.plan.find_lateral_unnest(rti) {
         Some(unnest) => (
@@ -598,13 +605,13 @@ unsafe fn resolve_var_source<'a>(
         ),
         None => (rti, attno, None),
     };
-    let source = find_source_by_rti(context.sources, source_rti, label)?;
+    let source = find_source_by_rti(context.sources, source_rti, what)?;
     let field_name = match unnest_field {
         Some(field_name) => field_name,
         None => source.column_name(attno).ok_or_else(|| {
             let alias = RelationAlias::new(source.alias.as_deref()).display(source.rti as usize);
             format!(
-                "{label} column {} is not columnar indexed",
+                "{what} {} is not columnar indexed",
                 get_attname_safe(Some(source.relid), attno, &alias)
             )
         })?,
@@ -614,7 +621,7 @@ unsafe fn resolve_var_source<'a>(
         .plan_position(context.outer_root_id, source_rti, attno)
         .ok_or_else(|| {
             format!(
-                "{label} column (RTI={rti}, attno={attno}) does not resolve to a unique \
+                "{what} (RTI={rti}, attno={attno}) does not resolve to a unique \
                  output-visible source in the plan tree"
             )
         })?;
@@ -626,9 +633,13 @@ unsafe fn resolve_var_source<'a>(
     })
 }
 
+/// `position` is the 1-based GROUP BY item. Group expressions come first in
+/// GROUP BY order and the functionally dependent Vars appended after them are
+/// plain columns, so only real GROUP BY items can reach the expression error.
 unsafe fn extract_raw_group_column(
     context: &RawColumnContext<'_>,
     expr: *mut pg_sys::Node,
+    position: usize,
 ) -> Result<JoinGroupColumn, String> {
     let clause = context.shape.clause_name();
     let mut node = expr;
@@ -647,7 +658,7 @@ unsafe fn extract_raw_group_column(
             context,
             (*var).varno as pg_sys::Index,
             (*var).varattno,
-            clause,
+            &format!("{clause} column"),
         )?;
         (
             resolved.attno,
@@ -655,15 +666,20 @@ unsafe fn extract_raw_group_column(
             resolved.plan_position,
             Some(resolved.source),
         )
-    } else if !context.shape.is_distinct() {
-        let (var, field_name) = find_one_var_and_fieldname(
-            VarContext::from_planner(context.root),
-            expr,
-        )
-        .ok_or_else(|| {
-            "GROUP BY on this expression is not pushed down, only supported indexed expressions are"
-                .to_string()
-        })?;
+    } else {
+        assert!(
+            !context.shape.is_distinct(),
+            "DISTINCT group expressions are plain columns by construction"
+        );
+        let (var, field_name) =
+            find_one_var_and_fieldname(VarContext::from_planner(context.root), expr).ok_or_else(
+                || {
+                    format!(
+                        "GROUP BY item {position} is an unsupported expression; only plain columns \
+                 and indexed expressions are pushed down"
+                    )
+                },
+            )?;
         let rti = (*var).varno as pg_sys::Index;
         let attno = (*var).varattno;
         let plan_position = context
@@ -681,8 +697,6 @@ unsafe fn extract_raw_group_column(
             plan_position,
             find_source_by_rti(context.sources, rti, "GROUP BY expression").ok(),
         )
-    } else {
-        return Err("DISTINCT on an expression is not pushed down, only plain columns are".into());
     };
     let numeric_scale = numeric_source
         .and_then(|source| source.bm25_index.as_ref())

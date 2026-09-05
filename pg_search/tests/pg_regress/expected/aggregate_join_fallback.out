@@ -64,7 +64,7 @@ WHERE p.description @@@ 'laptop';
                                                                                                   QUERY PLAN                                                                                                   
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('COUNT(*)'::text)
+   Output: (count(*))
    Backend: DataFusion
    Indexes: fb_products_idx (p), fb_tags_idx (t), fb_reviews_idx (r)
    Aggregates: COUNT(*)
@@ -337,6 +337,37 @@ ORDER BY p.category;
  Clothing    |     1
  Electronics |     1
  Sports      |     1
+(3 rows)
+
+-- A GROUP BY expression the index cannot serve declines with the 1-based
+-- position of the offending item.
+SELECT lower(p.category), COUNT(*)
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY lower(p.category)
+ORDER BY 1;
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 1 is an unsupported expression; only plain columns and indexed expressions are pushed down (table: join)
+    lower    | count 
+-------------+-------
+ clothing    |     1
+ electronics |     1
+ sports      |     1
+(3 rows)
+
+-- The position follows the offending item, not the first one.
+SELECT p.category, lower(p.category), COUNT(*)
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category, lower(p.category)
+ORDER BY 1, 2;
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 2 is an unsupported expression; only plain columns and indexed expressions are pushed down (table: join)
+  category   |    lower    | count 
+-------------+-------------+-------
+ Clothing    | clothing    |     1
+ Electronics | electronics |     1
+ Sports      | sports      |     1
 (3 rows)
 
 -- =====================================================================

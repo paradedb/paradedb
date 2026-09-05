@@ -83,7 +83,7 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket';
                                                                                                                      QUERY PLAN                                                                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('COUNT(*)'::text)
+   Output: (count(*))
    Backend: DataFusion
    Indexes: ec_products_idx (p), ec_reviews_idx (r)
    Aggregates: COUNT(*)

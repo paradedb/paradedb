@@ -15,6 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use super::spill::buffile_disk_manager_mode;
+use crate::gucs;
 use datafusion::common::DataFusionError;
 use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
 use datafusion::execution::disk_manager::{DiskManagerBuilder, DiskManagerMode};
@@ -28,11 +30,12 @@ use std::sync::Arc;
 /// Caps DataFusion allocations at PostgreSQL's `work_mem` and reports an overflow as a
 /// query error. A panic here used to abort the backend: on the MPP path the pool runs in
 /// a parallel worker, so the panic took down the whole server instead of failing the one
-/// query. The caller pairs this with a disabled disk manager, so a `try_grow` past the
-/// limit aborts the query rather than spilling to untracked temp files.
+/// query.
 ///
-// TODO: spill through PostgreSQL's temp-file management (BufFile/VFD) so large
-// aggregates and sorts complete instead of erroring once `work_mem` is exceeded.
+/// With `paradedb.spill_to_disk` off (the default), the caller pairs this with a
+/// disabled disk manager, so `try_grow` past the limit aborts the query. With it on,
+/// the caller wires a `BufFile`-backed disk manager instead (`spill.rs`), and this
+/// limit is a backstop for whatever hasn't spilled yet.
 #[derive(Debug)]
 struct WorkMemMemoryPool {
     pool: GreedyMemoryPool,
@@ -83,6 +86,13 @@ impl MemoryPool for WorkMemMemoryPool {
     fn reserved(&self) -> usize {
         self.pool.reserved()
     }
+    fn memory_limit(&self) -> datafusion::execution::memory_pool::MemoryLimit {
+        // DataFusion's aggregate stream selection (execute_typed) picks a
+        // spill-capable stream only when the pool reports a Finite limit;
+        // the trait's default (Unknown) causes it to pick a stream with no
+        // spill support at all, so a bounded pool must report its real size.
+        datafusion::execution::memory_pool::MemoryLimit::Finite(self.limit)
+    }
 }
 
 /// Returns a memory pool that fails the query with a `ResourcesExhausted` error when the
@@ -112,16 +122,21 @@ pub fn create_memory_pool(
     Arc::new(WorkMemMemoryPool::new(total_memory.max(work_mem)))
 }
 
-/// Build the DataFusion `RuntimeEnv` for JoinScan and AggregateScan: the `work_mem` pool plus a
-/// disabled disk manager, so a `try_grow` past the budget errors instead of writing untracked
-/// temp files. Spilling isn't wired to PG's temp-file management yet.
+/// Build the DataFusion `RuntimeEnv` for JoinScan and AggregateScan: the `work_mem` pool,
+/// plus a disk manager gated on `paradedb.spill_to_disk`. Off (default): disabled, so
+/// `try_grow` past `work_mem` errors instead of writing untracked temp files. On: spills
+/// through Postgres's `BufFile`, so files respect `temp_file_limit`/`temp_tablespaces`
+/// and are cleaned up with the transaction.
 pub fn build_runtime_env(memory_pool: Arc<dyn MemoryPool>) -> Arc<RuntimeEnv> {
+    let disk_manager_mode = if gucs::spill_to_disk() {
+        buffile_disk_manager_mode()
+    } else {
+        DiskManagerMode::Disabled
+    };
     Arc::new(
         RuntimeEnvBuilder::new()
             .with_memory_pool(memory_pool)
-            .with_disk_manager_builder(
-                DiskManagerBuilder::default().with_mode(DiskManagerMode::Disabled),
-            )
+            .with_disk_manager_builder(DiskManagerBuilder::default().with_mode(disk_manager_mode))
             .build()
             .expect("Failed to create RuntimeEnv"),
     )

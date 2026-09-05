@@ -35,6 +35,10 @@ pub enum PlannerWarnings {
     Error,
 }
 
+/// Spill DataFusion sorts/aggregates/joins to a `BufFile` temp file on `work_mem`
+/// overflow, instead of erroring. Off by default.
+static SPILL_TO_DISK: GucSetting<bool> = GucSetting::<bool>::new(false);
+
 /// Allows the user to toggle the use of our "ParadeDB Base Scan".
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
@@ -296,6 +300,15 @@ pub fn vector_clustering_threshold() -> usize {
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.spill_to_disk",
+        c"Spill DataFusion queries to disk instead of erroring on work_mem overflow",
+        c"When a JoinScan or AggregateScan query would exceed work_mem, spill sorts/aggregates/joins to a BufFile-backed temp file and complete the query, instead of returning a work_mem-exceeded error",
+        &SPILL_TO_DISK,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
 
     GucRegistry::define_bool_guc(
         c"paradedb.enable_custom_scan",
@@ -763,6 +776,11 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::UNIT_S,
     );
+}
+
+/// Whether DataFusion queries spill to a `BufFile` temp file on `work_mem` overflow.
+pub fn spill_to_disk() -> bool {
+    SPILL_TO_DISK.get()
 }
 
 pub fn enable_custom_scan() -> bool {

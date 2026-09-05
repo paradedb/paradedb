@@ -20,7 +20,7 @@ use std::ffi::CStr;
 use std::num::NonZeroUsize;
 use std::rc::Rc;
 
-use crate::api::{FieldName, HashMap};
+use crate::api::{CTID_FIELD_NAME, FieldName, HashMap};
 use crate::gucs;
 use crate::postgres::utils::{ExtractedFieldAttribute, extract_field_attributes};
 use crate::schema::IndexRecordOption;
@@ -953,7 +953,7 @@ impl BM25IndexOptionsData {
             // Default: sort segments by ctid ascending so they're laid out in
             // heap (tid) order unless the user explicitly opts out with 'none'.
             return vec![SortByField::new(
-                FieldName::from("ctid".to_string()),
+                FieldName::from(CTID_FIELD_NAME),
                 SortByDirection::Asc,
             )];
         }

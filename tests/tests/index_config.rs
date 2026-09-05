@@ -373,36 +373,34 @@ fn null_key_field_build(mut conn: PgConnection) {
     "INSERT INTO paradedb.index_config VALUES (NULL, 'Null Item 1'), (2, 'Null Item 2')"
         .execute(&mut conn);
 
-    match r#"CREATE INDEX index_config_index ON paradedb.index_config
+    r#"CREATE INDEX index_config_index ON paradedb.index_config
         USING paradedb (id, description) WITH (key_field='id')"#
-        .execute_result(&mut conn)
-    {
-        Ok(_) => panic!("should fail with null key_field"),
-        Err(err) => assert_eq!(
-            db_error_message(&err),
-            "error returned from database: key_field column 'id' cannot be NULL"
-        ),
-    };
+        .execute(&mut conn);
+    let rows: Vec<(Option<i32>,)> =
+        "SELECT id FROM paradedb.index_config WHERE description @@@ 'item' ORDER BY id NULLS FIRST"
+            .fetch(&mut conn);
+    assert_eq!(rows, vec![(None,), (Some(2),)]);
 }
 
 #[rstest]
-fn null_key_field_insert(mut conn: PgConnection) {
+#[case(0)]
+#[case(1000)]
+fn null_key_field_insert(mut conn: PgConnection, #[case] mutable_segment_rows: usize) {
     "CREATE TABLE paradedb.index_config(id INTEGER, description TEXT)".execute(&mut conn);
     "INSERT INTO paradedb.index_config VALUES (1, 'Null Item 1'), (2, 'Null Item 2')"
         .execute(&mut conn);
 
-    r#"CREATE INDEX index_config_index ON paradedb.index_config
-        USING paradedb (id, description) WITH (key_field='id')"#
-        .execute(&mut conn);
+    format!(
+        "CREATE INDEX index_config_index ON paradedb.index_config USING paradedb (id, description)
+        WITH (key_field='id', mutable_segment_rows={mutable_segment_rows})"
+    )
+    .execute(&mut conn);
 
-    match "INSERT INTO paradedb.index_config VALUES (NULL, 'Null Item 3')".execute_result(&mut conn)
-    {
-        Ok(_) => panic!("should fail with null key_field"),
-        Err(err) => assert_eq!(
-            db_error_message(&err),
-            "error returned from database: key_field column 'id' cannot be NULL"
-        ),
-    };
+    "INSERT INTO paradedb.index_config VALUES (NULL, 'Null Item 3')".execute(&mut conn);
+    let rows: Vec<(Option<i32>,)> =
+        "SELECT id FROM paradedb.index_config WHERE description @@@ 'item' ORDER BY id NULLS FIRST"
+            .fetch(&mut conn);
+    assert_eq!(rows, vec![(None,), (Some(1),), (Some(2),)]);
 }
 
 #[rstest]

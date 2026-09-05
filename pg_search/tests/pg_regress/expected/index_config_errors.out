@@ -33,7 +33,7 @@ CREATE INDEX idx_chunks_bm25 ON test_index_config_errors
         "id": {"tokenizer": {"type": "default"}}
     }'
     );
-ERROR:  cannot override BM25 configuration for key_field 'id', you must use an aliased field name and 'column' configuration key
+ERROR:  `id` was configured with the wrong type
 CREATE INDEX idx_chunks_bm25 ON test_index_config_errors USING paradedb (id, name);
 CREATE INDEX idx_chunks_bm25_configured ON test_index_config_errors USING paradedb (id, name) WITH (text_fields ='{"id": {"tokenizer": {"type": "default"}}}');
 ERROR:  `id` was configured with the wrong type

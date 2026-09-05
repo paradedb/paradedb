@@ -23,7 +23,6 @@ use std::rc::Rc;
 use crate::api::{CTID_FIELD_NAME, FieldName, HashMap};
 use crate::gucs;
 use crate::postgres::utils::{ExtractedFieldAttribute, extract_field_attributes};
-use crate::schema::IndexRecordOption;
 use crate::schema::{SearchFieldConfig, SearchFieldType};
 
 use crate::api::tokenizers::search_field_config_from_type;
@@ -34,8 +33,7 @@ use pgrx::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Map;
 use tantivy::vector::BoundsScope;
-use tokenizers::manager::SearchTokenizerFilters;
-use tokenizers::{SearchNormalizer, SearchTokenizer};
+use tokenizers::SearchTokenizer;
 /* ADDING OPTIONS
  * in init(), call pg_sys::add_{type}_reloption (check postgres docs for what args you need)
  * add the corresponding entries to SearchIndexOptionsData struct definition
@@ -142,11 +140,6 @@ extern "C-unwind" fn validate_datetime_fields(value: *const std::os::raw::c_char
         return;
     }
     deserialize_config_fields(json_str, &SearchFieldConfig::date_from_json);
-}
-
-#[pg_guard]
-extern "C-unwind" fn validate_key_field(value: *const std::os::raw::c_char) {
-    cstr_to_rust_str(value);
 }
 
 #[pg_guard]
@@ -488,10 +481,6 @@ impl BM25IndexOptions {
         self.options_data().cluster_replication()
     }
 
-    pub fn key_field_name(&self) -> Option<FieldName> {
-        self.options_data().key_field_name()
-    }
-
     /// Returns the sort_by configuration.
     /// - Not specified: defaults to `ctid ASC NULLS FIRST`
     /// - "none": returns empty vec (no sorting)
@@ -506,11 +495,6 @@ impl BM25IndexOptions {
 
     pub fn search_tokenizer(&self) -> Option<SearchTokenizer> {
         self.options_data().search_tokenizer()
-    }
-
-    pub fn key_field_type(&self) -> Option<SearchFieldType> {
-        self.key_field_name()
-            .and_then(|key_field_name| self.get_field_type(&key_field_name))
     }
 
     /// Returns either the config explicitly set in the CREATE INDEX WITH options,
@@ -578,28 +562,14 @@ impl BM25IndexOptions {
         self.lazy.inet.borrow()
     }
 
-    /// Returns the config only if it is explicitly set in the CREATE INDEX WITH options
+    /// Resolves indexed types and explicit field options.
     fn field_config(&self, field_name: &FieldName) -> Option<SearchFieldConfig> {
-        let data = self.options_data();
         if field_name.is_ctid() {
             return Some(SearchFieldConfig::Numeric {
                 indexed: true,
                 fast: true,
                 scale: None,
             });
-        }
-
-        if data
-            .key_field_name()
-            .is_some_and(|key_field_name| field_name.root() == key_field_name.root())
-        {
-            return match self.text_config().as_ref().unwrap().get(field_name) {
-                // if the key_field is TEXT then we'll use the config for it
-                config @ Some(SearchFieldConfig::Text { .. }) => config.cloned(),
-
-                // otherwise we'll use the default config for key_fields in general
-                _ => self.get_field_type(field_name).map(key_field_config),
-            };
         }
 
         let field_type = self.get_field_type(field_name);
@@ -827,7 +797,7 @@ struct BM25IndexOptionsData {
     json_fields_offset: i32,
     range_fields_offset: i32,
     datetime_fields_offset: i32,
-    key_field_offset: i32,
+    key_field_offset: i32, // Accepted for compatibility; never read.
     layer_sizes_offset: i32,
     inet_fields_offset: i32,
     target_segment_count: i32,
@@ -930,14 +900,6 @@ impl BM25IndexOptionsData {
         } else {
             self.cluster_replication as usize
         }
-    }
-
-    pub fn key_field_name(&self) -> Option<FieldName> {
-        let key_field_name = self.get_str(self.key_field_offset, "".to_string());
-        if key_field_name.is_empty() {
-            return None;
-        }
-        Some(key_field_name.into())
     }
 
     /// Returns the sort_by configuration.
@@ -1108,9 +1070,9 @@ pub unsafe fn init() {
     pg_sys::add_string_reloption(
         RELOPT_KIND_PDB,
         "key_field".as_pg_cstr(),
-        "Column name as a string specify the unique identifier for a row".as_pg_cstr(),
+        "Deprecated compatibility option; ignored".as_pg_cstr(),
         std::ptr::null(),
-        Some(validate_key_field),
+        None,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
     pg_sys::add_string_reloption(
@@ -1371,81 +1333,6 @@ fn parse_sort_key(input: &str) -> SortByField {
     }
 
     SortByField::new(field_name, direction)
-}
-
-fn key_field_config(field_type: SearchFieldType) -> SearchFieldConfig {
-    match field_type {
-        SearchFieldType::I64(_) | SearchFieldType::U64(_) | SearchFieldType::F64(_) => {
-            SearchFieldConfig::Numeric {
-                indexed: true,
-                fast: true,
-                scale: None,
-            }
-        }
-        SearchFieldType::Numeric64(_, scale) => SearchFieldConfig::Numeric {
-            indexed: true,
-            fast: true,
-            scale: Some(scale),
-        },
-        SearchFieldType::NumericBytes(_, scale) => SearchFieldConfig::Numeric {
-            indexed: true,
-            fast: true,
-            scale,
-        },
-        SearchFieldType::Text(_) | SearchFieldType::Uuid(_) => {
-            SearchFieldConfig::Text {
-                indexed: true,
-                fast: true,
-                fieldnorms: false,
-
-                // NB:  This should use the `SearchTokenizer::Keyword` tokenizer but for historical
-                // reasons it uses the `SearchTokenizer::Raw` tokenizer but with the same filters
-                // configuration as the `SearchTokenizer::Keyword` tokenizer.
-                #[allow(deprecated)]
-                tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::keyword().clone()),
-                search_tokenizer: None,
-                record: IndexRecordOption::Basic,
-                normalizer: SearchNormalizer::Raw,
-                column: None,
-                k1: None,
-                b: None,
-            }
-        }
-        SearchFieldType::Ltree(_) => SearchFieldConfig::Facet,
-        SearchFieldType::Tokenized(..) => {
-            panic!("the key_field cannot use a custom tokenizer configuration")
-        }
-        SearchFieldType::Inet(_) => SearchFieldConfig::Inet {
-            indexed: true,
-            fast: true,
-        },
-        SearchFieldType::Json(_) => SearchFieldConfig::Json {
-            indexed: true,
-            fast: true,
-            fieldnorms: false,
-            expand_dots: false,
-            #[allow(deprecated)]
-            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
-            search_tokenizer: None,
-            record: IndexRecordOption::Basic,
-            normalizer: SearchNormalizer::Raw,
-            column: None,
-            k1: None,
-            b: None,
-        },
-        SearchFieldType::Range(_) => SearchFieldConfig::Range { fast: true },
-        SearchFieldType::Bool(_) => SearchFieldConfig::Boolean {
-            indexed: true,
-            fast: true,
-        },
-        SearchFieldType::Date(_) => SearchFieldConfig::Date {
-            indexed: true,
-            fast: true,
-        },
-        SearchFieldType::Vector(_, _, _) => {
-            panic!("vector fields cannot be used as key fields")
-        }
-    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]

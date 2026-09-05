@@ -1369,7 +1369,7 @@ fn multiple_tokenizers_with_alias(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn alias_cannot_be_key_field(mut conn: PgConnection) {
+fn alias_cannot_duplicate_indexed_field(mut conn: PgConnection) {
     // Create the table
     "CREATE TABLE products (
         id TEXT PRIMARY KEY,
@@ -1384,7 +1384,7 @@ fn alias_cannot_be_key_field(mut conn: PgConnection) {
     "
     .execute(&mut conn);
 
-    // Test alias cannot be the same as key_field
+    // An alias cannot reuse another indexed field's name.
     let result = r#"
     CREATE INDEX products_index ON products
     USING paradedb (id, name, description)
@@ -1405,10 +1405,10 @@ fn alias_cannot_be_key_field(mut conn: PgConnection) {
     assert!(result.is_err());
     assert_eq!(
         db_error_message(&result.unwrap_err()),
-        "error returned from database: cannot override BM25 configuration for key_field 'id', you must use an aliased field name and 'column' configuration key"
+        "error returned from database: Field already exists in schema id"
     );
 
-    // Test valid configuration where alias is different from key_field
+    // A distinct alias is valid.
     r#"
     CREATE INDEX products_index ON products
     USING paradedb (id, name, description)

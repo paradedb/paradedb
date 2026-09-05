@@ -22,7 +22,6 @@ use crate::api::tokenizers::{
 };
 use crate::api::version::Version;
 use crate::api::{FieldName, HashMap};
-use crate::index::writer::index::IndexError;
 use crate::nodecast;
 use crate::postgres::composite::{
     CompositeSlotValues, get_composite_fields_for_index, is_composite_type,
@@ -820,7 +819,7 @@ pub unsafe fn row_to_search_document<'a>(
     >,
     document: &mut tantivy::TantivyDocument,
     created_by_version: Option<Version>,
-) -> Result<(), IndexError> {
+) {
     for (
         datum,
         isnull,
@@ -828,17 +827,12 @@ pub unsafe fn row_to_search_document<'a>(
         CategorizedFieldData {
             pg_type,
             base_oid,
-            is_key_field,
             is_array,
             is_json,
             ..
         },
     ) in categorized_fields
     {
-        if isnull && *is_key_field {
-            return Err(IndexError::KeyIdNull(search_field.field_name().to_string()));
-        }
-
         if isnull {
             continue;
         }
@@ -905,7 +899,6 @@ pub unsafe fn row_to_search_document<'a>(
             );
         }
     }
-    Ok(())
 }
 
 /// Converts a non-NULL, single-valued (non-array, non-JSON, non-vector) index datum into the

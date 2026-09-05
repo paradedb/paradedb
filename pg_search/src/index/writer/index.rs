@@ -27,15 +27,14 @@ use tantivy::{
     Directory, Index, IndexMeta, IndexWriter, Opstamp, Segment, SegmentMeta, TantivyDocument,
     directory::RamDirectory,
 };
-use thiserror::Error;
 
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::stats::{self, LogicalBoundsByField, StatsWriter};
 use crate::index::{index_settings, setup_tokenizers};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{STATS_EXT, SegmentMetaEntry};
+use crate::schema::SearchIndexSchema;
 use crate::vector::clusterer::set_ivf_clusterer;
-use crate::{postgres::types::TantivyValueError, schema::SearchIndexSchema};
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{IntoDatum, PgLogLevel, PgSqlErrorCode, direct_function_call, function_name};
 
@@ -662,24 +661,6 @@ impl Mergeable for SearchIndexMerger {
 
         Ok(new_segment)
     }
-}
-
-#[derive(Error, Debug)]
-pub enum IndexError {
-    #[error(transparent)]
-    TantivyError(#[from] tantivy::TantivyError),
-
-    #[error(transparent)]
-    IOError(#[from] std::io::Error),
-
-    #[error(transparent)]
-    SerdeJsonError(#[from] serde_json::Error),
-
-    #[error(transparent)]
-    TantivyValueError(#[from] TantivyValueError),
-
-    #[error("key_field column '{0}' cannot be NULL")]
-    KeyIdNull(String),
 }
 
 #[cfg(any(test, feature = "pg_test"))]

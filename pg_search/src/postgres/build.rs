@@ -33,7 +33,6 @@ use std::ffi::CStr;
 use tantivy::Index;
 use tantivy::schema::Schema;
 use tantivy::vector::VectorOptions;
-use tokenizers::SearchTokenizer;
 
 #[pg_guard]
 pub extern "C-unwind" fn ambuild(
@@ -136,26 +135,23 @@ unsafe fn build_empty(index_relation: &PgSearchRelation) {
 unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
     let created_by_version = index_relation.created_by_version();
     let options = index_relation.options();
-    let key_field_name = options.key_field_name();
-
-    let options = index_relation.options();
     let text_configs = options.text_config();
     for (field_name, config) in text_configs.iter().flatten() {
-        validate_field_config(field_name, key_field_name.as_ref(), config, options, |t| {
+        validate_field_config(field_name, config, options, |t| {
             matches!(t, SearchFieldType::Text(_) | SearchFieldType::Uuid(_))
         });
     }
 
     let inet_configs = options.inet_config();
     for (field_name, config) in inet_configs.iter().flatten() {
-        validate_field_config(field_name, key_field_name.as_ref(), config, options, |t| {
+        validate_field_config(field_name, config, options, |t| {
             matches!(t, SearchFieldType::Inet(_))
         });
     }
 
     let numeric_configs = options.numeric_config();
     for (field_name, config) in numeric_configs.iter().flatten() {
-        validate_field_config(field_name, key_field_name.as_ref(), config, options, |t| {
+        validate_field_config(field_name, config, options, |t| {
             matches!(
                 t,
                 SearchFieldType::I64(_)
@@ -169,21 +165,21 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
 
     let boolean_configs = options.boolean_config();
     for (field_name, config) in boolean_configs.iter().flatten() {
-        validate_field_config(field_name, key_field_name.as_ref(), config, options, |t| {
+        validate_field_config(field_name, config, options, |t| {
             matches!(t, SearchFieldType::Bool(_))
         });
     }
 
     let json_configs = options.json_config();
     for (field_name, config) in json_configs.iter().flatten() {
-        validate_field_config(field_name, key_field_name.as_ref(), config, options, |t| {
+        validate_field_config(field_name, config, options, |t| {
             matches!(t, SearchFieldType::Json(_))
         });
     }
 
     let range_configs = options.range_config();
     for (field_name, config) in range_configs.iter().flatten() {
-        validate_field_config(field_name, key_field_name.as_ref(), config, options, |t| {
+        validate_field_config(field_name, config, options, |t| {
             matches!(t, SearchFieldType::Range(_))
         });
     }
@@ -197,7 +193,7 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
         }
     } else {
         for (field_name, config) in datetime_configs.iter().flatten() {
-            validate_field_config(field_name, key_field_name.as_ref(), config, options, |t| {
+            validate_field_config(field_name, config, options, |t| {
                 matches!(t, SearchFieldType::Date(_))
             });
         }
@@ -252,30 +248,12 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
 
 fn validate_field_config(
     field_name: &FieldName,
-    key_field_name: Option<&FieldName>,
     config: &SearchFieldConfig,
     options: &BM25IndexOptions,
     matches: fn(&SearchFieldType) -> bool,
 ) {
     if field_name.is_ctid() {
         panic!("the name `ctid` is reserved by pg_search");
-    }
-
-    if key_field_name.is_some_and(|key_field_name| field_name.root() == key_field_name.root()) {
-        match config {
-            // we allow the user to change a TEXT key_field tokenizer to "keyword"
-            SearchFieldConfig::Text {
-                tokenizer: SearchTokenizer::Keyword,
-                ..
-            } => {
-                // noop
-            }
-
-            // but not to anything else
-            _ => panic!(
-                "cannot override BM25 configuration for key_field '{field_name}', you must use an aliased field name and 'column' configuration key"
-            ),
-        }
     }
 
     if let Some(alias) = config.alias() {

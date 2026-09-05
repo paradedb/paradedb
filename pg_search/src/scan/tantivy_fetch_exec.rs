@@ -176,6 +176,33 @@ impl TantivyFetchExec {
         &self.ffhelpers
     }
 
+    /// Rebuilds this node over `input` with `fetch_fields`, keeping the ctid columns and the
+    /// resolvers already wired for them.
+    pub(crate) fn with_input_and_fields(
+        &self,
+        input: Arc<dyn ExecutionPlan>,
+        fetch_fields: Vec<PhysicalDeferredField>,
+    ) -> Result<Self> {
+        let exec = TantivyFetchExec::new(
+            input,
+            fetch_fields,
+            self.ffhelpers.clone(),
+            self.ctid_columns.clone(),
+        )?;
+        for (plan_pos, resolver) in self
+            .ctid_resolvers
+            .lock()
+            .expect("ctid_resolvers lock poisoned")
+            .iter()
+            .enumerate()
+        {
+            if let Some((indexrelid, ffhelper)) = resolver {
+                exec.set_ctid_resolver(plan_pos, *indexrelid, ffhelper.clone());
+            }
+        }
+        Ok(exec)
+    }
+
     /// Wire the FFHelper that resolves the given source's ctid column. Mirrors
     /// `VisibilityFilterExec::set_ctid_resolver`.
     pub fn set_ctid_resolver(&self, plan_pos: usize, indexrelid: u32, ffhelper: Arc<FFHelper>) {
@@ -300,24 +327,10 @@ impl ExecutionPlan for TantivyFetchExec {
         self: Arc<Self>,
         mut children: Vec<Arc<dyn ExecutionPlan>>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        let exec = TantivyFetchExec::new(
+        Ok(Arc::new(self.with_input_and_fields(
             children.remove(0),
             self.fetch_fields.clone(),
-            self.ffhelpers.clone(),
-            self.ctid_columns.clone(),
-        )?;
-        for (plan_pos, resolver) in self
-            .ctid_resolvers
-            .lock()
-            .expect("ctid_resolvers lock poisoned")
-            .iter()
-            .enumerate()
-        {
-            if let Some((indexrelid, ffhelper)) = resolver {
-                exec.set_ctid_resolver(plan_pos, *indexrelid, ffhelper.clone());
-            }
-        }
-        Ok(Arc::new(exec))
+        )?))
     }
 
     fn execute(

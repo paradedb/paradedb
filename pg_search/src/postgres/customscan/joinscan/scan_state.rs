@@ -346,9 +346,14 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
 
     builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner));
 
+    // Placement reads the final join sides and modes, so it follows the co-partitioning
+    // flip; the resolver rule follows it because placement rebuilds the fetch nodes.
     builder
         .with_physical_optimizer_rule(Arc::new(
             super::range_partitioning_rule::RangeCoPartitionedJoinRule,
+        ))
+        .with_physical_optimizer_rule(Arc::new(
+            crate::scan::deferred_placement_rule::DeferredPlacementRule,
         ))
         .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
 }

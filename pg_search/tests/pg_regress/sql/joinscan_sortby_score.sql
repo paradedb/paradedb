@@ -99,6 +99,7 @@ USING paradedb (id, content, title, "fileId")
 WITH (
     key_field = 'id',
     text_fields = '{
+        "id": {"tokenizer": {"type": "keyword"}, "fast": true},
         "fileId": {"tokenizer": {"type": "keyword"}, "fast": true},
         "content": {"tokenizer": {"type": "default"}, "fast": true},
         "title": {"tokenizer": {"type": "default"}, "fast": true}
@@ -110,6 +111,7 @@ USING paradedb (id, content, "documentId", title)
 WITH (
     key_field = 'id',
     text_fields = '{
+        "id": {"tokenizer": {"type": "keyword"}, "fast": true},
         "documentId": {"tokenizer": {"type": "keyword"}, "fast": true},
         "content": {"tokenizer": {"type": "default"}, "fast": true},
         "title": {"tokenizer": {"type": "default"}, "fast": true}
@@ -121,6 +123,7 @@ USING paradedb (id, content, title, parents)
 WITH (
     key_field = 'id',
     text_fields = '{
+        "id": {"tokenizer": {"type": "keyword"}, "fast": true},
         "content": {"tokenizer": {"type": "default"}, "fast": true},
         "title": {"tokenizer": {"type": "default"}, "fast": true},
         "parents": {"tokenizer": {"type": "default"}, "fast": true}

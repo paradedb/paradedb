@@ -224,8 +224,7 @@ impl RowMatcher {
             }),
             &mut document,
             self.created_by_version,
-        )
-        .unwrap_or_else(|error| panic!("failed to index row for inline evaluation: {error}"));
+        );
         pg_sys::ExecClearTuple(self.slot);
 
         // Tantivy queries execute against segment readers, so expose the row as a temporary segment.

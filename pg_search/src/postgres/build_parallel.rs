@@ -1316,8 +1316,7 @@ unsafe extern "C-unwind" fn build_callback(
                 }),
             &mut doc,
             build_state.index_created_by_version,
-        )
-        .unwrap_or_else(|e| panic!("{e}"));
+        );
 
         build_state
             .writer

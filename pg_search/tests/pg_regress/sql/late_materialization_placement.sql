@@ -117,6 +117,86 @@ WHERE p.body @@@ 'alpha'
 ORDER BY c.author ASC, c.id ASC
 LIMIT 5;
 
+-- Without the SegmentedTopKExec the sort consumes every row, so a fan-out decodes
+-- in the scan like an aggregate would.
+SET paradedb.enable_segmented_topk = off;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.title
+FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+ORDER BY p.title DESC, p.id ASC
+LIMIT 5;
+
+SELECT p.id, p.title
+FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+ORDER BY p.title DESC, p.id ASC
+LIMIT 5;
+
+RESET paradedb.enable_segmented_topk;
+
+-- A semi-join never multiplies the outer rows; the build side still fetches in the scan.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.title
+FROM lmp_posts p
+WHERE p.body @@@ 'alpha'
+  AND EXISTS (SELECT 1 FROM lmp_comments c WHERE c.post_id = p.id)
+ORDER BY p.title DESC, p.id ASC
+LIMIT 5;
+
+SELECT p.id, p.title
+FROM lmp_posts p
+WHERE p.body @@@ 'alpha'
+  AND EXISTS (SELECT 1 FROM lmp_comments c WHERE c.post_id = p.id)
+ORDER BY p.title DESC, p.id ASC
+LIMIT 5;
+
+-- An outer join keeps the same key shape as the inner one.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.title
+FROM lmp_posts p LEFT JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+ORDER BY p.title DESC, p.id ASC
+LIMIT 5;
+
+SELECT p.id, p.title
+FROM lmp_posts p LEFT JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+ORDER BY p.title DESC, p.id ASC
+LIMIT 5;
+
+-- Two scans of one index share one decision.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT a.id, a.author, b.author
+FROM lmp_comments a JOIN lmp_comments b ON a.post_id = b.post_id
+WHERE a.body @@@ 'comment'
+ORDER BY a.author ASC, b.author DESC, a.id ASC, b.id ASC
+LIMIT 5;
+
+SELECT a.id, a.author, b.author
+FROM lmp_comments a JOIN lmp_comments b ON a.post_id = b.post_id
+WHERE a.body @@@ 'comment'
+ORDER BY a.author ASC, b.author DESC, a.id ASC, b.id ASC
+LIMIT 5;
+
+-- In a three-table join, a scan on the build side of the inner join fetches in the
+-- scan; the decode stays under the Top-K.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, c.author
+FROM lmp_comments c
+JOIN (lmp_posts p JOIN lmp_comments c2 ON c2.post_id = p.id) ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+ORDER BY c.author ASC, c.id ASC, c2.id ASC
+LIMIT 5;
+
+SELECT c.id, c.author
+FROM lmp_comments c
+JOIN (lmp_posts p JOIN lmp_comments c2 ON c2.post_id = p.id) ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+ORDER BY c.author ASC, c.id ASC, c2.id ASC
+LIMIT 5;
+
 -- =============================================================================
 -- Aggregates: nothing above bounds the rows, so a fan-out decodes in the scan
 -- =============================================================================
@@ -175,6 +255,26 @@ ORDER BY p.title
 LIMIT 5;
 
 RESET paradedb.defer_string_decode;
+
+-- A pinned fetch stays with the decode; when the decode runs in the scan, so does it.
+SET paradedb.defer_column_fetch = on;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.title, COUNT(*)
+FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+GROUP BY p.title
+ORDER BY p.title
+LIMIT 5;
+
+SELECT p.title, COUNT(*)
+FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.body @@@ 'alpha'
+GROUP BY p.title
+ORDER BY p.title
+LIMIT 5;
+
+RESET paradedb.defer_column_fetch;
 RESET paradedb.enable_aggregate_late_materialization;
 
 SET paradedb.defer_column_fetch = on;

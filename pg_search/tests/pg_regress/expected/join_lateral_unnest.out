@@ -100,7 +100,7 @@ LIMIT 5;
            : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, NULL as col_3, p_1_categories@2 as col_4, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=5), expr=[id@3 ASC NULLS LAST, p_1_categories@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[b, p]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(product_id@1, id@2)], filter=__p_1_tag_0@1 OR __b_0_tag_0@0, projection=[ctid_0@0, ctid_1@3, p_1_categories@4, id@5]
            :           CooperativeExec
            :             PgSearchScan: table=b, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"brand_name","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}
@@ -162,7 +162,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, b_2_tags@4 as col_5, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST, b_2_tags@4 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[p, b]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_2]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_2]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@4)], filter=__p_0_tag_0@0 OR __b_2_tag_0@2 OR __s_1_tag_0@1, projection=[ctid_0@0, id@1, ctid_1@3, ctid_2@5, b_2_tags@6]
            :           CooperativeExec
            :             PgSearchScan: table=p, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Smart","lenient":null,"conjunction_mode":null}}}}
@@ -226,7 +226,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, NULL as col_3, b_0_tags@1 as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST, b_0_tags@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[b, p]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
            :         UnnestExec
            :           ProjectionExec: expr=[ctid_0@0 as ctid_0, tags@1 as b_0_tags, ctid_1@2 as ctid_1, id@3 as id]
            :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(product_id@2, id@1)], filter=__p_1_tag_0@1 OR __b_0_tag_0@0, projection=[ctid_0@0, tags@1, ctid_1@4, id@5]
@@ -285,7 +285,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, p_1_categories@2 as col_3, s_2_regions@5 as col_4, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1, ctid_2@4 as ctid_2]
            :   SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST, p_1_categories@2 ASC NULLS LAST, s_2_regions@5 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[b, p, s]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1, ctid_2]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, brand_id@2)], projection=[ctid_0@0, ctid_1@2, p_1_categories@3, id@4, ctid_2@5, s_2_regions@6]
            :           UnnestExec
            :             ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, ctid_1@2 as ctid_1, categories@3 as p_1_categories, id@4 as id]
@@ -352,7 +352,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, NULL as col_3, b_0_tags@1 as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[b, p]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
            :         FilterExec: b_0_tags@1 = bestseller
            :           UnnestExec
            :             ProjectionExec: expr=[ctid_0@0 as ctid_0, tags@1 as b_0_tags, ctid_1@2 as ctid_1, id@3 as id]
@@ -408,7 +408,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[b, p]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
            :         FilterExec: b_0_tags@1 = bestseller, projection=[ctid_0@0, ctid_1@2, id@3]
            :           UnnestExec
            :             ProjectionExec: expr=[ctid_0@0 as ctid_0, tags@1 as b_0_tags, ctid_1@2 as ctid_1, id@3 as id]
@@ -525,7 +525,7 @@ LIMIT 2;
            : ProjectionExec: expr=[id@3 as col_1, p_1_categories@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=2), expr=[id@3 ASC NULLS LAST, p_1_categories@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[b, p]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(product_id@1, id@2)], projection=[ctid_0@0, ctid_1@2, p_1_categories@3, id@4]
            :           CooperativeExec
            :             PgSearchScan: table=b, segments=1, query="all"
@@ -575,7 +575,7 @@ LIMIT 3;
            : ProjectionExec: expr=[id@3 as col_1, p_1_categories@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=3), expr=[p_1_categories@2 DESC], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[b, p]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(product_id@1, id@2)], projection=[ctid_0@0, ctid_1@2, p_1_categories@3, id@4]
            :           CooperativeExec
            :             PgSearchScan: table=b, segments=1, query="all"
@@ -628,7 +628,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, b_1_tags@3 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST, b_1_tags@3 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[p, b]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@2)], filter=__p_0_tag_0@0 OR __b_1_tag_0@1, projection=[ctid_0@0, id@1, ctid_1@3, b_1_tags@4]
            :           CooperativeExec
            :             PgSearchScan: table=p, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Category","lenient":null,"conjunction_mode":null}}}}

@@ -32,6 +32,18 @@
 //! rows fan out through an equi-join when the other side's key is not that side's unique key
 //! field, and through any non-equi or cross join. Estimates move between machines and would
 //! flip plans between runs; the key shape does not.
+//!
+//! The shape of the model follows Liu et al., "Selective Late Materialization in Modern
+//! Analytical Databases" (PVLDB 2025): each attribute picks its own point between its scan
+//! and its first consumer, a fetch costs more once the row ids stop arriving in storage order
+//! (a hash join's build side, a sort, a hash repartition) and grows with the row count at the
+//! point, and carrying a narrow stand-in through hash tables and shuffles is what deferral
+//! buys. It differs in what it measures. The paper trains a fetch and memory-copy cost model
+//! and takes cardinalities from the optimizer. Here both signals come from the plan's shape:
+//! the fetch of an ordinal is a sequential column read that costs little whichever way the
+//! decision goes, the decode is a per-row dictionary lookup whose cost is set by the row
+//! count alone, and the paper found that points in the middle of a pipeline rarely pay, so
+//! the scan and the consumer are the only candidates.
 
 use std::sync::Arc;
 
@@ -47,7 +59,9 @@ use datafusion::physical_plan::projection::ProjectionExec;
 use datafusion::physical_plan::repartition::RepartitionExec;
 use datafusion::physical_plan::sorts::sort::SortExec;
 use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
-use datafusion::physical_plan::{ChildrenPropertiesMode, ExecutionPlan, ReplaceChildrenOptions};
+use datafusion::physical_plan::{
+    ChildrenPropertiesMode, ExecutionPlan, Partitioning, ReplaceChildrenOptions,
+};
 use pgrx::pg_sys;
 
 use crate::api::HashMap;
@@ -273,6 +287,12 @@ fn summarize_path(path: &[PathStep], ctx: &mut Context) -> PathSummary {
             summary.expansion = summary.expansion.join(Expansion::Yes);
         } else if node.is::<SortExec>() {
             summary.out_of_order = true;
+        } else if let Some(repartition) = node.downcast_ref::<RepartitionExec>() {
+            // A hash repartition hands each partition a strided slice of the column, so a
+            // batch no longer covers a contiguous run of doc ids; round-robin keeps batches.
+            if matches!(repartition.partitioning(), Partitioning::Hash(_, _)) {
+                summary.out_of_order = true;
+            }
         } else if node.children().len() > 1 {
             summary.expansion = summary.expansion.join(Expansion::Unknown);
         }

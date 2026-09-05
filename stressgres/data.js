@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788581100512,
+  "lastUpdate": 1788581110003,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -319924,6 +319924,234 @@ window.BENCHMARK_DATA = {
             "value": 28.65234375,
             "unit": "median mem",
             "extra": "avg mem: 28.17743298361955, max mem: 29.92578125, count: 57416"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f4b1f65e25f5ebeda6744e1e1fd00f962ba89260",
+          "message": "fix: clean up the pg15/pg16 insert states before a commit (#6211)\n\n## Ticket(s) Closed\n\n- Closes #6208\n\n## What\n\nThis PR runs the pg15/pg16 `aminsertcleanup` polyfill's cleanup before a\ncommit, instead of at the end of the utility statement.\n\n## Why\n\n`CREATE INDEX CONCURRENTLY` on a `bm25` index fails on Postgres 15 and\n16 when another backend writes to the table during the build:\n\n```\nWARNING:  buffer refcount leak: [11388] (rel=base/460123/462610, blockNum=582, ...)\nERROR:  buffer 11388 is not owned by resource owner TopTransaction\n```\n\nAn `InsertState` pins buffers, and a pin belongs to the resource owner\nof the transaction that took it. The polyfill keeps every state in a\nframe that a `ProcessUtility` or `ExecutorRun` hook opens, and cleans\nthat frame up when the hook returns. `CREATE INDEX CONCURRENTLY` commits\nbetween its phases while the frame is still open, so the state its\nvalidation pass builds outlives the owner of its pins. One local run\nwent further and ended in a segfault.\n\npg17 added `index_insert_cleanup`, and `validate_index` calls it before\nit returns. So 17 and 18 never reach this, and the polyfill is compiled\nout there.\n\nA subtransaction abort is the other way a state can outlive its owner,\nand it's worse. A statement that fails part way, say a multi-row\n`INSERT` that trips the primary key on its third row inside a PL/pgSQL\n`EXCEPTION` block, leaves its frame behind: the guard sees the unwind\nand steps aside. The next guard to exit then pops that stale frame\ninstead of its own and runs the cleanup on it, which commits the rows\nthe rollback discarded over pins the aborting owner has already given\nup. With `global_mutable_segment_rows = 0` that takes the backend down\nwith `SIGABRT`.\n\n## How\n\nA `PreCommit` xact callback drains every open frame, beside the `Abort`\nand `Commit` ones already registered. The frames themselves stay on the\nstack, because only a `FrameGuard` may pop one and every guard is still\nlive.\n\nEach frame now records the nesting level it was pushed at, and an\n`AbortSub` callback drops every frame at the aborting level or deeper,\nwithout cleanup. Those frames can only belong to hooks that left through\nan error, and the callback runs before the subtransaction's resource\nowner releases its pins, the same order the top-level abort path already\nrelies on.\n\nThis also reverts a9cab39e4, which held #6146's concurrent-build tests\nto pg17 and newer while this was open.\n\n## Tests\n\n`tests/tests/concurrent_build_writes.rs` races a writer against a plain\nbuild. It declares no `partition_by`, so it covers the bug on its own.\n\nStep 1: seed a table with about 60k rows.\n\nStep 2: run the build on one connection.\n\n```sql\nCREATE INDEX CONCURRENTLY cic_writes_idx ON cic_writes\nUSING bm25 (id, body) WITH (key_field = 'id');\n```\n\nStep 3: on a second connection, loop `UPDATE`s and `INSERT`s until the\nbuild returns.\n\nVerified on `PGVER=15.15` and `PGVER=16.11`, where it fails before the\nchange and passes after, and on `PGVER=18.1`.\n\n`a_subtransaction_abort_drops_its_insert_state` in `insert.rs` runs the\nfailing-`INSERT`-inside-`EXCEPTION` shape above with immutable inserts,\nthen checks the index holds exactly the surviving rows. It crashes the\nbackend on 16 before the fix and passes after; it also runs on 17 and\n18, where the native `aminsertcleanup` handles the same case.",
+          "timestamp": "2026-09-04T20:27:22-07:00",
+          "tree_id": "f48a74ba352432b9f4a1dbe2b430bb5a479eacb8",
+          "url": "https://github.com/paradedb/paradedb/commit/f4b1f65e25f5ebeda6744e1e1fd00f962ba89260"
+        },
+        "date": 1788581104900,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.432942464785149, max cpu: 14.194184, count: 57377"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 41.5390625,
+            "unit": "median mem",
+            "extra": "avg mem: 41.511062931357515, max mem: 41.828125, count: 57377"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - cpu",
+            "value": 4.701273,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.180814926708829, max cpu: 18.786694, count: 57377"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - mem",
+            "value": 40.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 40.280300073962565, max mem: 40.65625, count: 57377"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.701480095003253, max cpu: 9.266409, count: 57377"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 20.76171875,
+            "unit": "median mem",
+            "extra": "avg mem: 20.757015686817017, max mem: 20.76171875, count: 57377"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - cpu",
+            "value": 4.7081904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.213381105236995, max cpu: 14.166257, count: 57377"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - mem",
+            "value": 37.6328125,
+            "unit": "median mem",
+            "extra": "avg mem: 37.616298165532356, max mem: 37.9140625, count: 57377"
+          },
+          {
+            "name": "Insert value A - Primary - cpu",
+            "value": 4.673807,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.68226547450616, max cpu: 9.37958, count: 57377"
+          },
+          {
+            "name": "Insert value A - Primary - mem",
+            "value": 40.5703125,
+            "unit": "median mem",
+            "extra": "avg mem: 39.001179833600574, max mem: 41.01171875, count: 57377"
+          },
+          {
+            "name": "Insert value B - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.701554690569316, max cpu: 9.338522, count: 57377"
+          },
+          {
+            "name": "Insert value B - Primary - mem",
+            "value": 40.5703125,
+            "unit": "median mem",
+            "extra": "avg mem: 39.536877390984195, max mem: 41.140625, count: 57377"
+          },
+          {
+            "name": "JoinScan - Primary - cpu",
+            "value": 9.37958,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.133713515498844, max cpu: 23.483368, count: 57377"
+          },
+          {
+            "name": "JoinScan - Primary - mem",
+            "value": 60.11328125,
+            "unit": "median mem",
+            "extra": "avg mem: 60.09858398182198, max mem: 60.78515625, count: 57377"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 5765,
+            "unit": "median block_count",
+            "extra": "avg block_count: 5919.891210763895, max block_count: 11633.0, count: 57377"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 54,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 43.52939331090855, max segment_count: 73.0, count: 57377"
+          },
+          {
+            "name": "Normal Base Scan - Primary - cpu",
+            "value": 9.279845,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.639163924501161, max cpu: 18.805092, count: 57377"
+          },
+          {
+            "name": "Normal Base Scan - Primary - mem",
+            "value": 36.359375,
+            "unit": "median mem",
+            "extra": "avg mem: 36.34569859765237, max mem: 36.55078125, count: 57377"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Primary - cpu",
+            "value": 4.673807,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6348649967198625, max cpu: 4.7105007, count: 57377"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Primary - mem",
+            "value": 35.375,
+            "unit": "median mem",
+            "extra": "avg mem: 35.263760073178275, max mem: 35.46484375, count: 57377"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - cpu",
+            "value": 4.676084,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.274510638743232, max cpu: 14.04193, count: 57377"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - mem",
+            "value": 35.3515625,
+            "unit": "median mem",
+            "extra": "avg mem: 35.326540564490124, max mem: 35.51171875, count: 57377"
+          },
+          {
+            "name": "Rotate join keys - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.681187847031282, max cpu: 9.402546, count: 57377"
+          },
+          {
+            "name": "Rotate join keys - Primary - mem",
+            "value": 25.14453125,
+            "unit": "median mem",
+            "extra": "avg mem: 25.141635177205153, max mem: 25.26953125, count: 57377"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - cpu",
+            "value": 4.701273,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.989142556823674, max cpu: 14.278632, count: 57377"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - mem",
+            "value": 37.078125,
+            "unit": "median mem",
+            "extra": "avg mem: 37.025266276121094, max mem: 37.37109375, count: 57377"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 4.676084,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.273620207160905, max cpu: 14.04193, count: 57377"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 36.18359375,
+            "unit": "median mem",
+            "extra": "avg mem: 36.17760001830001, max mem: 36.3984375, count: 57377"
+          },
+          {
+            "name": "Update joined rows - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6264576983887675, max cpu: 4.7081904, count: 57377"
+          },
+          {
+            "name": "Update joined rows - Primary - mem",
+            "value": 29.67578125,
+            "unit": "median mem",
+            "extra": "avg mem: 29.702294487011347, max mem: 29.8828125, count: 57377"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.628549874825916, max cpu: 4.7105007, count: 57377"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 44.125,
+            "unit": "median mem",
+            "extra": "avg mem: 42.83232549355578, max mem: 44.125, count: 57377"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.657933,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.423517703589937, max cpu: 4.7058825, count: 57377"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 28.85546875,
+            "unit": "median mem",
+            "extra": "avg mem: 28.56667053817296, max mem: 29.703125, count: 57377"
           }
         ]
       }

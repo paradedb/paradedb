@@ -15,7 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::{FieldName, HashSet, MvccVisibility, is_agg_funcoid, pdb_agg_spec};
+use crate::api::{
+    CTID_FIELD_NAME, FieldName, HashSet, MvccVisibility, is_agg_funcoid, pdb_agg_spec,
+};
 use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
@@ -427,7 +429,7 @@ pub(crate) fn validate_agg_json_fields(
         if !indexed_fields.contains(field) {
             let mut available: Vec<_> = indexed_fields
                 .iter()
-                .filter(|f| *f != "ctid")
+                .filter(|f| *f != CTID_FIELD_NAME)
                 .cloned()
                 .collect();
             available.sort();
@@ -639,7 +641,7 @@ impl From<AggregateType> for AggregationVariants {
     fn from(val: AggregateType) -> Self {
         match val {
             AggregateType::CountAny { .. } => AggregationVariants::Count(CountAggregation {
-                field: "ctid".to_string(),
+                field: CTID_FIELD_NAME.to_string(),
                 missing: None,
             }),
             AggregateType::Count { field, missing, .. } => {

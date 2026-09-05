@@ -123,6 +123,14 @@ GROUP BY category
 ORDER BY 2 DESC
 LIMIT 2;
 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT SUM(rating) + COUNT(*) AS combined,
+       SUM(rating)::text || ':' || category AS labeled
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes'
+GROUP BY category
+ORDER BY category;
+
 SELECT SUM(rating) + COUNT(*) AS combined,
        SUM(rating)::text || ':' || category AS labeled
 FROM df_fallback_products

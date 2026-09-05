@@ -215,6 +215,30 @@ LIMIT 2;
  Sports      |     1 |        2 |     1 | 0.50000000000000000000
 (2 rows)
 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT SUM(rating) + COUNT(*) AS combined,
+       SUM(rating)::text || ':' || category AS labeled
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes'
+GROUP BY category
+ORDER BY category;
+                                                                                                                 QUERY PLAN                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: (((sum(rating)) + (count(*)))), (((((sum(rating)))::text || ':'::text) || category)), category
+   Sort Key: df_fallback_products.category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: ((sum(rating)) + (count(*))), ((((sum(rating)))::text || ':'::text) || category), category
+         Backend: DataFusion
+         Indexes: df_fallback_products_idx (df_fallback_products)
+         Group By: category
+         Aggregates: SUM(rating), COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[sum(df_fallback_products_0.rating) as agg_0, count(1) as agg_1]
+           :   CooperativeExec
+           :     PgSearchScan: table=df_fallback_products, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
+
 SELECT SUM(rating) + COUNT(*) AS combined,
        SUM(rating)::text || ':' || category AS labeled
 FROM df_fallback_products

@@ -288,6 +288,23 @@ impl<'a> PredicateTranslator<'a> {
             return None;
         }
 
+        if let Some(rti) =
+            crate::postgres::customscan::joinscan::planning::get_score_func_rti(node.cast())
+        {
+            for source in self.sources.iter() {
+                if let Some(attno) = source.map_var(rti, 0) {
+                    if let Some(name) = source.column_name(attno) {
+                        return Some(make_source_col(source, &name));
+                    } else {
+                        return Some(make_source_score_col(source));
+                    }
+                } else if source.contains_rti(rti) {
+                    return Some(make_source_score_col(source));
+                }
+            }
+            return None;
+        }
+
         let native = match (*node).type_ {
             pg_sys::NodeTag::T_OpExpr => self.translate_op_expr(node as *mut pg_sys::OpExpr),
             pg_sys::NodeTag::T_Var => self.translate_var(node as *mut pg_sys::Var),
@@ -413,7 +430,12 @@ pub fn build_join_df(left: DataFrame, right: DataFrame, join: &JoinNode) -> Resu
     }
 
     if on.is_empty() {
-        left.join(right, df_join_type, &[], &[], None)
+        let filter = if df_join_type != JoinType::Inner {
+            Some(lit(true))
+        } else {
+            None
+        };
+        left.join(right, df_join_type, &[], &[], filter)
     } else {
         left.join_on(right, df_join_type, on)
     }
@@ -770,7 +792,7 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
                     false,
                     Some((source_rti.0, field_name.clone())),
                 ),
-                OutputColumnInfo::Pruned => return None,
+                OutputColumnInfo::Expression | OutputColumnInfo::Pruned => return None,
             }
         } else {
             (varno, varattno, false, None)
@@ -910,5 +932,89 @@ mod tests {
                 None,
             ));
         }
+    }
+
+    #[pg_test]
+    fn keyless_semi_join_plans_and_executes_as_nested_loop_join() {
+        use datafusion::arrow::array::Int64Array;
+        use datafusion::arrow::datatypes::{DataType, Field, Schema};
+        use datafusion::arrow::record_batch::RecordBatch;
+        use datafusion::datasource::MemTable;
+        use datafusion::prelude::SessionContext;
+        use std::sync::Arc;
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        runtime.block_on(async {
+            let ctx = SessionContext::new();
+            let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, true)]));
+
+            let batch_l = RecordBatch::try_new(
+                schema.clone(),
+                vec![Arc::new(Int64Array::from(vec![Some(1), Some(2), Some(3)]))],
+            )
+            .expect("build batch l");
+            ctx.register_table(
+                "l",
+                Arc::new(
+                    MemTable::try_new(schema.clone(), vec![vec![batch_l]]).expect("memtable l"),
+                ),
+            )
+            .expect("register l");
+
+            let batch_r = RecordBatch::try_new(
+                schema.clone(),
+                vec![Arc::new(Int64Array::from(vec![Some(10)]))],
+            )
+            .expect("build batch r");
+            ctx.register_table(
+                "r",
+                Arc::new(MemTable::try_new(schema, vec![vec![batch_r]]).expect("memtable r")),
+            )
+            .expect("register r");
+
+            let left = ctx.table("l").await.expect("table l");
+            let right = ctx.table("r").await.expect("table r");
+
+            let join = crate::postgres::customscan::joinscan::build::JoinNode {
+                join_type: crate::postgres::customscan::joinscan::build::JoinType::Semi,
+                left: crate::postgres::customscan::joinscan::build::RelNode::Scan(Box::new(
+                    crate::postgres::customscan::joinscan::build::JoinSource {
+                        plan_position: 1,
+                        root_id: None,
+                        scan_info: crate::scan::info::ScanInfo::new(
+                            1,
+                            pgrx::pg_sys::InvalidOid,
+                            pgrx::pg_sys::InvalidOid,
+                            crate::scan::ScanMode::all(),
+                        ),
+                    },
+                )),
+                right: crate::postgres::customscan::joinscan::build::RelNode::Scan(Box::new(
+                    crate::postgres::customscan::joinscan::build::JoinSource {
+                        plan_position: 2,
+                        root_id: None,
+                        scan_info: crate::scan::info::ScanInfo::new(
+                            2,
+                            pgrx::pg_sys::InvalidOid,
+                            pgrx::pg_sys::InvalidOid,
+                            crate::scan::ScanMode::all(),
+                        ),
+                    },
+                )),
+                equi_keys: Vec::new(),
+                filter: None,
+                absorbed_search_clauses: Vec::new(),
+                subplan_id: None,
+            };
+
+            let result = super::build_join_df(left, right, &join).expect("build_join_df");
+            let batches = result.collect().await.expect("collect");
+            let row_count: usize = batches.iter().map(|b| b.num_rows()).sum();
+            assert_eq!(row_count, 3);
+        });
     }
 }

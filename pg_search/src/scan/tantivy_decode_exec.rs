@@ -39,6 +39,7 @@ use crate::scan::deferred_lookup::{
 };
 use crate::scan::execution_plan::UnsafeSendStream;
 
+use crate::scan::filter_pushdown::schema_preserving_child_filter_description;
 use arrow_array::{Array, ArrayRef, RecordBatch, UInt64Array, new_null_array};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use arrow_select::interleave::interleave;
@@ -47,8 +48,7 @@ use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::PhysicalExpr;
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion::physical_plan::filter_pushdown::{
-    ChildFilterDescription, ChildPushdownResult, FilterDescription, FilterPushdownPhase,
-    FilterPushdownPropagation,
+    ChildPushdownResult, FilterDescription, FilterPushdownPhase, FilterPushdownPropagation,
 };
 use datafusion::physical_plan::metrics::{
     BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet, RecordOutput,
@@ -262,7 +262,11 @@ impl ExecutionPlan for TantivyDecodeExec {
                 &self.children(),
             ));
         }
-        let child_desc = ChildFilterDescription::from_child(&parent_filters, &self.input)?;
+        let child_desc = schema_preserving_child_filter_description(
+            &parent_filters,
+            &self.input.schema(),
+            None,
+        )?;
         Ok(FilterDescription::new().with_child(child_desc))
     }
 

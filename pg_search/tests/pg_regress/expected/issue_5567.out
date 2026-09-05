@@ -65,27 +65,25 @@ FROM issue_5567_parent p JOIN issue_5567_child c ON c.parent_id = p.id
 WHERE p.id @@@ paradedb.term('kind', 'manga') AND c.id @@@ paradedb.all()
 ORDER BY p.category DESC NULLS FIRST, p.name ASC
 LIMIT 5;
-                                                                        QUERY PLAN                                                                        
-----------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                     QUERY PLAN                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.category, p.name
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: p.id, p.category, p.name
-         Relation Tree: c INNER p
-         Join Cond: p.id = c.parent_id
-         Limit: 5
-         Order By: p.category desc, p.name asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, category@3 as col_2, name@4 as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-           :   TantivyDecodeExec: decode=[category, name]
-           :     TantivyFetchExec: fetch=[category, name]
-           :       SegmentedTopKExec: expr=[category@3 DESC, name@4 ASC NULLS LAST], k=5, visibility_checks=[c, p]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, parent_id@1)], projection=[ctid_0@4, ctid_1@0, id@1, category@2, name@3]
-           :           CooperativeExec
-           :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"term":{"field":"kind","value":"manga"}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":"all"}}
-(18 rows)
+   Relation Tree: p INNER c
+   Join Cond: c.parent_id = p.id
+   Limit: 5
+   Order By: p.category desc, p.name asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, category@1 as col_2, name@2 as col_3, ctid_0@3 as ctid_0, ctid_1@4 as ctid_1]
+     :   TantivyDecodeExec: decode=[category, name]
+     :     TantivyFetchExec: fetch=[category, name]
+     :       SegmentedTopKExec: expr=[category@1 DESC, name@2 ASC NULLS LAST], k=5, visibility_checks=[p, c]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@0)], projection=[id@0, category@1, name@2, ctid_0@3, ctid_1@5]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"term":{"field":"kind","value":"manga"}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":"all"}}
+(16 rows)
 
 -- Same rows as the reference result above.
 SELECT p.id, p.category, p.name
@@ -126,27 +124,25 @@ FROM issue_5567_parent p JOIN issue_5567_child c ON c.parent_id = p.id
 WHERE p.id @@@ paradedb.term('kind', 'manga') AND c.id @@@ paradedb.all()
 ORDER BY p.kind ASC, p.category ASC NULLS FIRST, p.name ASC
 LIMIT 5;
-                                                                            QUERY PLAN                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.kind, p.category, p.name
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: p.id, p.kind, p.category, p.name
-         Relation Tree: c INNER p
-         Join Cond: p.id = c.parent_id
-         Limit: 5
-         Order By: p.kind asc, p.category asc nulls first, p.name asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, kind@3 as col_2, category@4 as col_3, name@5 as col_4, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-           :   TantivyDecodeExec: decode=[kind, category, name]
-           :     TantivyFetchExec: fetch=[kind, category, name]
-           :       SegmentedTopKExec: expr=[kind@3 ASC NULLS LAST, category@4 ASC, name@5 ASC NULLS LAST], k=5, visibility_checks=[c, p]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, parent_id@1)], projection=[ctid_0@5, ctid_1@0, id@1, kind@2, category@3, name@4]
-           :           CooperativeExec
-           :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"term":{"field":"kind","value":"manga"}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":"all"}}
-(18 rows)
+   Relation Tree: p INNER c
+   Join Cond: c.parent_id = p.id
+   Limit: 5
+   Order By: p.kind asc, p.category asc nulls first, p.name asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, kind@1 as col_2, category@2 as col_3, name@3 as col_4, ctid_0@4 as ctid_0, ctid_1@5 as ctid_1]
+     :   TantivyDecodeExec: decode=[kind, category, name]
+     :     TantivyFetchExec: fetch=[kind, category, name]
+     :       SegmentedTopKExec: expr=[kind@1 ASC NULLS LAST, category@2 ASC, name@3 ASC NULLS LAST], k=5, visibility_checks=[p, c]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@0)], projection=[id@0, kind@1, category@2, name@3, ctid_0@4, ctid_1@6]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"term":{"field":"kind","value":"manga"}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":"all"}}
+(16 rows)
 
 SELECT p.id, p.kind, p.category, p.name
 FROM issue_5567_parent p JOIN issue_5567_child c ON c.parent_id = p.id

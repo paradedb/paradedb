@@ -1081,11 +1081,11 @@ impl SegmentedTopKState {
         for row_idx in 0..num_rows {
             if self.pass_through_scratch[row_idx] {
                 // Keep the compound key the converter already built for this
-                // row. `row_to_seg_scratch` is populated unconditionally in
-                // `extract_deferred_ordinals` for every row a deferred column
-                // touched, which includes any row that reached this branch.
-                let seg_ord = self.row_to_seg_scratch[row_idx]
-                    .expect("row_to_seg_scratch must be populated for pass-through rows");
+                // row. When pass-through was triggered by a NULL value in an outer
+                // join, `row_to_seg_scratch` may be None because the row did not
+                // originate from any segment. Pass-through rows with NULL sort keys
+                // never inspect `seg_ord` downstream, so fallback to 0 is safe.
+                let seg_ord = self.row_to_seg_scratch[row_idx].unwrap_or(0);
                 self.pass_through_rows.push(PassThroughRow {
                     batch_idx,
                     row_idx,
@@ -1156,6 +1156,10 @@ impl SegmentedTopKState {
         let mut state0_rows: Vec<usize> = Vec::new();
         let mut state1_rows: Vec<usize> = Vec::new();
         for row_idx in 0..num_rows {
+            if union_col.is_null(row_idx) {
+                pass_through[row_idx] = true;
+                continue;
+            }
             match type_ids[row_idx] {
                 0 => state0_rows.push(row_idx),
                 1 => state1_rows.push(row_idx),
@@ -1178,7 +1182,12 @@ impl SegmentedTopKState {
                     )
                 })?;
             for &row_idx in &state0_rows {
-                let packed = doc_addr_child.value(offsets[row_idx] as usize);
+                let ci = offsets[row_idx] as usize;
+                if doc_addr_child.is_null(ci) {
+                    pass_through[row_idx] = true;
+                    continue;
+                }
+                let packed = doc_addr_child.value(ci);
                 let (seg_ord, doc_id) = unpack_doc_address(packed);
                 state0_by_seg
                     .entry(seg_ord)
@@ -1220,6 +1229,10 @@ impl SegmentedTopKState {
 
             for &row_idx in &state1_rows {
                 let ci = offsets[row_idx] as usize;
+                if term_ord_child.is_null(ci) {
+                    pass_through[row_idx] = true;
+                    continue;
+                }
                 let seg_ord = seg_ord_array.value(ci);
                 row_to_seg[row_idx] = Some(seg_ord);
                 if !ord_array.is_null(ci) {

@@ -42,6 +42,7 @@ SELECT c.body, d.filename, pdb.score(c.id) AS s
 FROM issue_5108_chunks c, issue_5108_docs d
 WHERE d.id = c.doc_id AND c.id @@@ paradedb.match('body', 'healthcare')
 ORDER BY s DESC, c.id LIMIT 100;
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, d)
                                                                                                        QUERY PLAN                                                                                                       
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -76,6 +77,7 @@ SELECT c.body, d.filename, pdb.score(c.id) AS s
 FROM issue_5108_chunks c, issue_5108_docs d
 WHERE d.id = c.doc_id AND c.id @@@ paradedb.match('body', 'healthcare')
 ORDER BY s DESC, c.id LIMIT 100;
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, d)
          body         |  filename  |     s     
 ----------------------+------------+-----------
  healthcare notes 3   | doc_3.pdf  | 0.9835667
@@ -185,6 +187,7 @@ SELECT pdb.snippet(c.body) AS snip, d.filename
 FROM issue_5108_chunks c, issue_5108_docs d
 WHERE d.id = c.doc_id AND c.id @@@ paradedb.match('body', 'healthcare')
 ORDER BY snip DESC, c.id LIMIT 100;
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, d)
                                                                                                        QUERY PLAN                                                                                                       
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -219,6 +222,7 @@ SELECT pdb.snippet(c.body) AS snip, d.filename
 FROM issue_5108_chunks c, issue_5108_docs d
 WHERE d.id = c.doc_id AND c.id @@@ paradedb.match('body', 'healthcare')
 ORDER BY snip DESC, c.id LIMIT 100;
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, d)
             snip             |  filename  
 -----------------------------+------------
  <b>healthcare</b> notes 999 | doc_9.pdf
@@ -328,6 +332,7 @@ SELECT pdb.snippet_positions(c.body) AS pos, d.filename
 FROM issue_5108_chunks c, issue_5108_docs d
 WHERE d.id = c.doc_id AND c.id @@@ paradedb.match('body', 'healthcare')
 ORDER BY pos DESC, c.id LIMIT 100;
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, d)
                                                                                                        QUERY PLAN                                                                                                       
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -362,6 +367,7 @@ SELECT pdb.snippet_positions(c.body) AS pos, d.filename
 FROM issue_5108_chunks c, issue_5108_docs d
 WHERE d.id = c.doc_id AND c.id @@@ paradedb.match('body', 'healthcare')
 ORDER BY pos DESC, c.id LIMIT 100;
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, d)
    pos    |  filename  
 ----------+------------
  {{0,10}} | doc_3.pdf

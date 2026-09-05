@@ -38,7 +38,7 @@ SELECT n FROM issue_5997
 WHERE title @@@ 'doc'
 ORDER BY n::text COLLATE "C"
 LIMIT 4;
-WARNING:  Query has LIMIT 4 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: issue_5997)
+WARNING:  Query has LIMIT 4 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: issue_5997)
                                                                         QUERY PLAN                                                                        
 ----------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -56,7 +56,7 @@ SELECT n FROM issue_5997
 WHERE title @@@ 'doc'
 ORDER BY n::text COLLATE "C"
 LIMIT 4;
-WARNING:  Query has LIMIT 4 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: issue_5997)
+WARNING:  Query has LIMIT 4 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: issue_5997)
   n  
 -----
    1
@@ -150,7 +150,7 @@ SELECT span FROM issue_5997
 WHERE title @@@ 'doc'
 ORDER BY span::text COLLATE "C"
 LIMIT 4;
-WARNING:  Query has LIMIT 4 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: issue_5997)
+WARNING:  Query has LIMIT 4 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: issue_5997)
                                                                         QUERY PLAN                                                                        
 ----------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -168,7 +168,7 @@ SELECT span FROM issue_5997
 WHERE title @@@ 'doc'
 ORDER BY span::text COLLATE "C"
 LIMIT 4;
-WARNING:  Query has LIMIT 4 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: issue_5997)
+WARNING:  Query has LIMIT 4 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: issue_5997)
    span    
 -----------
  [1,2)

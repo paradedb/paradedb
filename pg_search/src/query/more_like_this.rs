@@ -163,7 +163,12 @@ impl MoreLikeThisQueryBuilder {
         let schema = index_relation
             .schema()
             .expect("more_like_this: should be able to open schema");
-        let (key_field_name, key_field_type) = (schema.key_field_name(), schema.key_field_type());
+        let key_field_name = schema.key_field_name().unwrap_or_else(|| {
+            panic!("more_like_this(key_value => ...) requires an index configured with key_field")
+        });
+        let key_field_type = schema
+            .key_field_type()
+            .expect("configured key_field should have a field type");
         let categorized_fields = schema.categorized_fields();
 
         let maybe_doc_fields: Result<Vec<(Field, Vec<PdbOwnedValue>)>, SpiError> =

@@ -18,7 +18,7 @@
 use crate::api::builder_fns::{parse, parse_with_field, proximity};
 use crate::api::operator::{
     RHSValue, ReturnedNodePointer, get_expr_result_type, is_text_like, pdb_query_typoid,
-    request_simplify, searchqueryinput_typoid,
+    searchqueryinput_typoid,
 };
 use crate::query::pdb_query::{pdb, to_search_query_input};
 use crate::query::proximity::ProximityClause;
@@ -55,133 +55,153 @@ pub fn search_with_proximity_clause(_element: AnyElement, query: ProximityClause
 #[pg_extern(immutable, parallel_safe)]
 pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
     unsafe {
-        request_simplify(
-            arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>(),
-            |_, field, query_value| match query_value {
-                RHSValue::Text(query_string) => match field {
-                    Some(field) => to_search_query_input(field, parse_with_field(query_string, None, None)),
-                    None => parse(query_string, None, None),
+        let const_rewrite: super::ConstRewrite = |_, field, query_value| match query_value {
+            RHSValue::Text(query_string) => match field {
+                Some(field) => {
+                    to_search_query_input(field, parse_with_field(query_string, None, None))
                 }
-                RHSValue::PdbQuery(pdb::Query::UnclassifiedString { string, fuzzy_data, slop_data }) => {
-                    assert!(field.is_some());
-                    let mut query = parse_with_field(string, None, None);
+                None => parse(query_string, None, None),
+            },
+            RHSValue::PdbQuery(pdb::Query::UnclassifiedString {
+                string,
+                fuzzy_data,
+                slop_data,
+            }) => {
+                assert!(field.is_some());
+                let mut query = parse_with_field(string, None, None);
+                query.apply_fuzzy_data(fuzzy_data);
+                query.apply_slop_data(slop_data);
+                to_search_query_input(field.unwrap(), query)
+            }
+            RHSValue::PdbQuery(pdb::Query::ScoreAdjusted { query, score }) => {
+                assert!(field.is_some());
+                let mut query = *query;
+                if let pdb::Query::UnclassifiedString {
+                    string,
+                    fuzzy_data,
+                    slop_data,
+                } = query
+                {
+                    query = parse_with_field(string, None, None);
                     query.apply_fuzzy_data(fuzzy_data);
                     query.apply_slop_data(slop_data);
-                    to_search_query_input(field.unwrap(), query)
                 }
-                RHSValue::PdbQuery(pdb::Query::ScoreAdjusted { query, score }) => {
-                    assert!(field.is_some());
-                    let mut query = *query;
-                    if let pdb::Query::UnclassifiedString { string, fuzzy_data, slop_data } = query {
-                        query = parse_with_field(string, None, None);
-                        query.apply_fuzzy_data(fuzzy_data);
-                        query.apply_slop_data(slop_data);
-                    }
-                    to_search_query_input(field.unwrap(), pdb::Query::ScoreAdjusted { query: Box::new(query), score })
-                }
-                RHSValue::PdbQuery(query) => {
-                    assert!(field.is_some());
-                    to_search_query_input(field.unwrap(), query)
-                }
-                RHSValue::ProximityClause(prox) => {
-                    assert!(field.is_some());
-                    to_search_query_input(field.unwrap(), proximity(prox))
-                }
-                _ => {
-                    unreachable!(
-                        "atatat_support should only ever be called with a text value"
-                    )
-                }
-            },
-            |field, _, rhs| {
-                let search_query_input_typoid = searchqueryinput_typoid();
-                let pdb_query_typoid = pdb_query_typoid();
-                let expr_type = get_expr_result_type(rhs);
-                let is_pdb_query = expr_type == pdb_query_typoid;
+                to_search_query_input(
+                    field.unwrap(),
+                    pdb::Query::ScoreAdjusted {
+                        query: Box::new(query),
+                        score,
+                    },
+                )
+            }
+            RHSValue::PdbQuery(query) => {
+                assert!(field.is_some());
+                to_search_query_input(field.unwrap(), query)
+            }
+            RHSValue::ProximityClause(prox) => {
+                assert!(field.is_some());
+                to_search_query_input(field.unwrap(), proximity(prox))
+            }
+            _ => {
+                unreachable!("atatat_support should only ever be called with a text value")
+            }
+        };
+        let exec_rewrite: super::ExecRewrite = |field, _, rhs| {
+            let search_query_input_typoid = searchqueryinput_typoid();
+            let pdb_query_typoid = pdb_query_typoid();
+            let expr_type = get_expr_result_type(rhs);
+            let is_pdb_query = expr_type == pdb_query_typoid;
 
-                if !(is_text_like(expr_type) || is_pdb_query) {
-                    panic!(
-                        "The right-hand side of the `@@@` operator must be a text value"
-                    );
-                }
+            if !(is_text_like(expr_type) || is_pdb_query) {
+                panic!("The right-hand side of the `@@@` operator must be a text value");
+            }
 
-
-                let funcid = if is_pdb_query {
-                    direct_function_call::<pg_sys::Oid>(
-                        pg_sys::regprocedurein,
-                        &[c"paradedb.to_search_query_input(paradedb.fieldname, pdb.query)".into_datum()],
-                    )
-                        .expect("`paradedb.to_search_query_input(paradedb.fieldname, pdb.query)` should exist")
-                } else if field.is_some() {
-                    direct_function_call::<pg_sys::Oid>(
+            let funcid = if is_pdb_query {
+                direct_function_call::<pg_sys::Oid>(
+                    pg_sys::regprocedurein,
+                    &[
+                        c"paradedb.to_search_query_input(paradedb.fieldname, pdb.query)"
+                            .into_datum(),
+                    ],
+                )
+                .expect(
+                    "`paradedb.to_search_query_input(paradedb.fieldname, pdb.query)` should exist",
+                )
+            } else if field.is_some() {
+                direct_function_call::<pg_sys::Oid>(
                         pg_sys::regprocedurein,
                         &[c"paradedb.parse_with_field(paradedb.fieldname, text, bool, bool)".into_datum()],
                     )
                         .expect("`paradedb.parse_with_field(paradedb.fieldname, text, bool, bool)` should exist")
-                } else {
-                    direct_function_call::<pg_sys::Oid>(
-                        pg_sys::regprocedurein,
-                        &[c"paradedb.parse(text, bool, bool)".into_datum()],
-                    )
-                        .expect("`paradedb.parse(text, bool, bool)` should exist")
-                };
+            } else {
+                direct_function_call::<pg_sys::Oid>(
+                    pg_sys::regprocedurein,
+                    &[c"paradedb.parse(text, bool, bool)".into_datum()],
+                )
+                .expect("`paradedb.parse(text, bool, bool)` should exist")
+            };
 
-                match field {
-                    // here we call the `paradedb.parse_with_field` function
-                    Some(field) => {
-                        let mut args = PgList::<pg_sys::Node>::new();
-                        args.push(field.into_const().cast());
-                        args.push(rhs.cast());
+            match field {
+                // here we call the `paradedb.parse_with_field` function
+                Some(field) => {
+                    let mut args = PgList::<pg_sys::Node>::new();
+                    args.push(field.into_const().cast());
+                    args.push(rhs.cast());
 
-                        if !is_pdb_query {
-                            args.push(pg_sys::makeBoolConst(false, true));
-                            args.push(pg_sys::makeBoolConst(false, true));
-                        }
-
-                        pg_sys::FuncExpr {
-                            xpr: pg_sys::Expr {
-                                type_: pg_sys::NodeTag::T_FuncExpr,
-                            },
-                            funcid,
-                            funcresulttype: search_query_input_typoid,
-                            funcretset: false,
-                            funcvariadic: false,
-                            funcformat: pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
-                            funccollid: pg_sys::Oid::INVALID,
-                            inputcollid: pg_sys::Oid::INVALID,
-                            args: args.into_pg(),
-                            location: -1,
-                        }
+                    if !is_pdb_query {
+                        args.push(pg_sys::makeBoolConst(false, true));
+                        args.push(pg_sys::makeBoolConst(false, true));
                     }
 
-                    // here we call the `paradedb.parse` function without a FieldName
-                    None => {
-                        assert!(!is_pdb_query);
-
-                        let mut args = PgList::<pg_sys::Node>::new();
-                        args.push(rhs.cast());
-                        args.push(pg_sys::makeBoolConst(false, true));
-                        args.push(pg_sys::makeBoolConst(false, true));
-
-                        pg_sys::FuncExpr {
-                            xpr: pg_sys::Expr {
-                                type_: pg_sys::NodeTag::T_FuncExpr,
-                            },
-                            funcid,
-                            funcresulttype: search_query_input_typoid,
-                            funcretset: false,
-                            funcvariadic: false,
-                            funcformat: pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
-                            funccollid: pg_sys::Oid::INVALID,
-                            inputcollid: pg_sys::Oid::INVALID,
-                            args: args.into_pg(),
-                            location: -1,
-                        }
+                    pg_sys::FuncExpr {
+                        xpr: pg_sys::Expr {
+                            type_: pg_sys::NodeTag::T_FuncExpr,
+                        },
+                        funcid,
+                        funcresulttype: search_query_input_typoid,
+                        funcretset: false,
+                        funcvariadic: false,
+                        funcformat: pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+                        funccollid: pg_sys::Oid::INVALID,
+                        inputcollid: pg_sys::Oid::INVALID,
+                        args: args.into_pg(),
+                        location: -1,
                     }
                 }
+
+                // here we call the `paradedb.parse` function without a FieldName
+                None => {
+                    assert!(!is_pdb_query);
+
+                    let mut args = PgList::<pg_sys::Node>::new();
+                    args.push(rhs.cast());
+                    args.push(pg_sys::makeBoolConst(false, true));
+                    args.push(pg_sys::makeBoolConst(false, true));
+
+                    pg_sys::FuncExpr {
+                        xpr: pg_sys::Expr {
+                            type_: pg_sys::NodeTag::T_FuncExpr,
+                        },
+                        funcid,
+                        funcresulttype: search_query_input_typoid,
+                        funcretset: false,
+                        funcvariadic: false,
+                        funcformat: pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+                        funccollid: pg_sys::Oid::INVALID,
+                        inputcollid: pg_sys::Oid::INVALID,
+                        args: args.into_pg(),
+                        location: -1,
+                    }
+                }
+            }
+        };
+        ReturnedNodePointer::for_support_simplify(
+            arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>(),
+            super::SimplifyRhs::Rewrite {
+                const_rewrite,
+                exec_rewrite,
             },
         )
-            .unwrap_or(ReturnedNodePointer(None))
     }
 }
 

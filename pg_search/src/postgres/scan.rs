@@ -32,7 +32,7 @@ pub struct Bm25ScanState {
     reader: SearchIndexReader,
     results: Option<MultiSegmentSearchResults>,
     itup: (Vec<pg_sys::Datum>, Vec<bool>),
-    key_field_oid: PgOid,
+    key_field_oid: Option<PgOid>,
     #[allow(dead_code)]
     ambulkdelete_epoch: u32,
     /// Cached per-segment ctid fast-field reader. Avoids re-opening the column
@@ -222,23 +222,27 @@ pub extern "C-unwind" fn amrescan(
         let natts = (*(*scan).xs_hitupdesc).natts as usize;
         let scan_state = if (*scan).xs_want_itup {
             let schema = indexrel.schema().expect("indexrel should have a schema");
+            let key_field = schema.key_field_name().zip(schema.key_field_type());
             Bm25ScanState {
-                fast_fields: FFHelper::with_fields(
-                    &search_reader,
-                    &[(schema.key_field_name(), schema.key_field_type()).into()],
-                ),
+                fast_fields: key_field
+                    .as_ref()
+                    .map_or_else(FFHelper::empty, |key_field| {
+                        FFHelper::with_fields(&search_reader, &[key_field.clone().into()])
+                    }),
                 reader: search_reader,
                 results,
                 itup: (vec![pg_sys::Datum::null(); natts], vec![true; natts]),
-                key_field_oid: PgOid::from({
-                    #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
-                    {
-                        (*(*scan).xs_hitupdesc).attrs.as_slice(natts)[0].atttypid
-                    }
-                    #[cfg(feature = "pg18")]
-                    {
-                        (*pg_sys::TupleDescAttr((*scan).xs_hitupdesc, 0)).atttypid
-                    }
+                key_field_oid: key_field.map(|_| {
+                    PgOid::from({
+                        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+                        {
+                            (*(*scan).xs_hitupdesc).attrs.as_slice(natts)[0].atttypid
+                        }
+                        #[cfg(feature = "pg18")]
+                        {
+                            (*pg_sys::TupleDescAttr((*scan).xs_hitupdesc, 0)).atttypid
+                        }
+                    })
                 }),
                 ambulkdelete_epoch,
                 ctid_cache: None,
@@ -249,7 +253,7 @@ pub extern "C-unwind" fn amrescan(
                 reader: search_reader,
                 results,
                 itup: (vec![], vec![]),
-                key_field_oid: PgOid::Invalid,
+                key_field_oid: None,
                 ambulkdelete_epoch,
                 ctid_cache: None,
             }
@@ -313,24 +317,23 @@ pub unsafe extern "C-unwind" fn amgettuple(
                 crate::postgres::utils::u64_to_item_pointer(ctid, ipd);
 
                 if (*scan).xs_want_itup {
-                    let key = state
-                        .fast_fields
-                        .value(0, doc_address)
-                        .expect("key_field should be a fast_field");
-                    match key
-                        .try_into_datum(state.key_field_oid)
-                        .expect("key_field value should convert to a Datum")
-                    {
-                        // got a valid Datum
-                        Some(key_field_datum) => {
-                            state.itup.0[0] = key_field_datum;
-                            state.itup.1[0] = false;
-                        }
-
-                        // we got a NULL for the key_field.  Highly unlikely but definitely possible
-                        None => {
-                            state.itup.0[0] = pg_sys::Datum::null();
-                            state.itup.1[0] = true;
+                    if let Some(key_field_oid) = state.key_field_oid {
+                        let key = state
+                            .fast_fields
+                            .value(0, doc_address)
+                            .expect("key_field should be a fast_field");
+                        match key
+                            .try_into_datum(key_field_oid)
+                            .expect("key_field value should convert to a Datum")
+                        {
+                            Some(key_field_datum) => {
+                                state.itup.0[0] = key_field_datum;
+                                state.itup.1[0] = false;
+                            }
+                            None => {
+                                state.itup.0[0] = pg_sys::Datum::null();
+                                state.itup.1[0] = true;
+                            }
                         }
                     }
 
@@ -485,6 +488,13 @@ pub extern "C-unwind" fn amcanreturn(indexrel: pg_sys::Relation, attno: i32) -> 
     unsafe {
         assert!(!indexrel.is_null());
         assert!(!(*indexrel).rd_att.is_null());
+        if PgSearchRelation::from_pg(indexrel)
+            .options()
+            .key_field_name()
+            .is_none()
+        {
+            return false;
+        }
         let tupdesc = PgTupleDesc::from_pg_unchecked((*indexrel).rd_att);
 
         let att = tupdesc

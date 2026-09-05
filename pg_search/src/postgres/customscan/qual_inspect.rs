@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::operator::{is_anyelement_search_opoid, searchqueryinput_typoid};
+use crate::api::operator::{SearchPredicate, is_anyelement_search_opoid, searchqueryinput_typoid};
 use crate::gucs;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
@@ -299,67 +299,9 @@ impl NegationContext {
             ));
         }
     }
-
-    fn index_relation(&self) -> Option<&PgSearchRelation> {
-        self.index_relation.as_ref()
-    }
 }
 
-/// Whether the null-preserving existence guard is valid for this field.
-///
-/// The guard equates "field absent from the index" with SQL NULL, which is only
-/// correct for scalar fast fields. Array and JSON columns can be non-NULL in
-/// SQL while having no indexed values (e.g. `'{}'::text[]`, `'{}'::jsonb`).
-fn field_supports_null_preserving_guard(
-    index_relation: &PgSearchRelation,
-    field: &crate::api::FieldName,
-) -> bool {
-    let Ok(schema) = index_relation.schema() else {
-        return false;
-    };
-    let root = field.root();
-    let Some(search_field) = schema.search_field(&root) else {
-        return false;
-    };
-    if !search_field.is_fast() {
-        return false;
-    }
-
-    let categorized = schema.categorized_fields();
-    categorized
-        .iter()
-        .find(|(sf, _)| sf.field_name().root() == root)
-        .is_none_or(|(_, data)| !data.is_array && !data.is_json)
-}
-
-/// Existence guard for null-preserving negation, scored at 0.0 so it does not
-/// shift relative rankings inside boolean `should` clauses.
-fn null_preserving_exists_guard(field: &crate::api::FieldName) -> SearchQueryInput {
-    SearchQueryInput::ConstScore {
-        query: Box::new(SearchQueryInput::FieldedQuery {
-            field: field.root().into(),
-            query: pdb::Query::Exists,
-        }),
-        score: 0.0,
-    }
-}
-
-/// Negate a `SearchQueryInput` while preserving PostgreSQL's three-valued NULL
-/// semantics.
-///
-/// For a fielded predicate, `NOT (field @@@ q)` must exclude rows where `field`
-/// is NULL (i.e. not indexed). We express this as `field exists AND NOT q`,
-/// which requires an `Exists` query on `field`. Since `Exists` is only available
-/// on fast fields, we only add the existence guard when `field` is fast;
-/// otherwise we fall back to the generic negation (the historical behavior),
-/// which keeps non-fast fields working at the cost of NULL-exactness.
-///
-/// An `Exists` query is special-cased: negating "field exists" must return the
-/// rows where the field is *missing*, so it never gets an existence guard (that
-/// would produce `exists AND NOT exists`, which is unsatisfiable).
-///
-/// `index_oid` carries the index from the enclosing `WithIndex` wrapper so the
-/// recursion can resolve whether a field is fast.
+/// Negate a search predicate, requiring its NULL guard when the schema supplies one.
 fn negate_fielded_input(input: SearchQueryInput, ctx: &mut NegationContext) -> SearchQueryInput {
     match input {
         SearchQueryInput::WithIndex { oid, query } => {
@@ -369,62 +311,26 @@ fn negate_fielded_input(input: SearchQueryInput, ctx: &mut NegationContext) -> S
                 query: Box::new(negate_fielded_input(*query, ctx)),
             }
         }
-        SearchQueryInput::FieldedQuery { field, query } => {
-            // Negating an existence check must return rows where the field is
-            // missing, so it never gets an existence guard. Any other fielded
-            // predicate gets the guard on eligible scalar fast fields so NULLs
-            // are excluded; otherwise we fall back to the generic negation.
-            if !matches!(query, pdb::Query::Exists)
-                && ctx
-                    .index_relation()
-                    .is_some_and(|rel| field_supports_null_preserving_guard(rel, &field))
-            {
-                SearchQueryInput::Boolean {
-                    must: vec![null_preserving_exists_guard(&field)],
-                    should: Default::default(),
-                    must_not: vec![SearchQueryInput::FieldedQuery { field, query }],
-                    minimum_should_match: None,
-                }
-            } else {
-                generic_negation(SearchQueryInput::FieldedQuery { field, query })
+        input => {
+            let null_guard = ctx
+                .index_relation
+                .as_ref()
+                .and_then(|index| index.schema().ok()?.null_guard(&input));
+            let Some(null_guard) = null_guard else {
+                return generic_negation(input);
+            };
+
+            SearchQueryInput::Boolean {
+                // The guard filters NULLs without changing relevance scores.
+                must: vec![SearchQueryInput::ConstScore {
+                    query: Box::new(null_guard),
+                    score: 0.0,
+                }],
+                should: Default::default(),
+                must_not: vec![input],
+                minimum_should_match: None,
             }
         }
-        SearchQueryInput::Boolean {
-            must,
-            should,
-            must_not,
-            ..
-        } if must_not.is_empty() => {
-            if should.is_empty() {
-                SearchQueryInput::Boolean {
-                    must: Default::default(),
-                    should: must
-                        .into_iter()
-                        .map(|query| negate_fielded_input(query, ctx))
-                        .collect(),
-                    must_not: Default::default(),
-                    minimum_should_match: None,
-                }
-            } else if must.is_empty() {
-                SearchQueryInput::Boolean {
-                    must: should
-                        .into_iter()
-                        .map(|query| negate_fielded_input(query, ctx))
-                        .collect(),
-                    should: Default::default(),
-                    must_not: Default::default(),
-                    minimum_should_match: None,
-                }
-            } else {
-                generic_negation(SearchQueryInput::Boolean {
-                    must,
-                    should,
-                    must_not,
-                    minimum_should_match: None,
-                })
-            }
-        }
-        other => generic_negation(other),
     }
 }
 
@@ -847,6 +753,19 @@ pub unsafe fn extract_quals(
 ) -> Option<Qual> {
     if node.is_null() {
         return None;
+    }
+
+    if let Some(predicate) = SearchPredicate::from_node(node) {
+        return opexpr(
+            context,
+            rti,
+            OpExpr::Single(predicate.into_opexpr()),
+            ri_type,
+            indexrel,
+            convert_external_to_special_qual,
+            state,
+            attempt_pushdown,
+        );
     }
 
     match (*node).type_ {
@@ -1461,6 +1380,12 @@ unsafe fn is_node_range_table_entry(node: *mut pg_sys::Node, rti: pg_sys::Index)
         pg_sys::NodeTag::T_Var => {
             let var = node.cast::<pg_sys::Var>();
             (*var).varno as pg_sys::Index == rti
+        }
+        pg_sys::NodeTag::T_RowExpr => {
+            let row = node.cast::<pg_sys::RowExpr>();
+            PgList::<pg_sys::Node>::from_pg((*row).args)
+                .iter_ptr()
+                .all(|arg| is_node_range_table_entry(arg, rti))
         }
         pg_sys::NodeTag::T_FuncExpr => {
             let funcexpr = node.cast::<pg_sys::FuncExpr>();

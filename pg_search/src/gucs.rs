@@ -148,7 +148,7 @@ static MIN_ROWS_PER_WORKER: GucSetting<i32> = GucSetting::<i32>::new(300000);
 static DYNAMIC_FILTER_BATCH_SIZE: GucSetting<i32> = GucSetting::<i32>::new(0);
 
 /// Where one half of a late-materialized string column's lookup runs. `Auto` leaves the
-/// choice to the placement rule; `On` keeps the step deferred to the decode point; `Off`
+/// choice to the placement rule; `On` keeps the step as late as the other half allows; `Off`
 /// runs it inside the scan.
 #[derive(pgrx::PostgresGucEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum DeferredPlacement {
@@ -625,10 +625,10 @@ pub fn init() {
     GucRegistry::define_enum_guc(
         c"paradedb.defer_column_fetch",
         c"Where the fast-field fetch of a late-materialized string column runs",
-        c"When 'auto' (default), the placement rule keeps the fetch at the decode point unless \
-          the rows reach it out of doc order or multiplied by a join, in which case the scan \
-          resolves the term ordinals itself. 'on' always defers the fetch; 'off' always runs \
-          it in the scan.",
+        c"When 'auto' (default), the placement rule keeps the fetch with the decode unless the \
+          rows reach it out of doc order or multiplied by a join, in which case the scan \
+          resolves the term ordinals itself. 'on' keeps the fetch with the decode, wherever \
+          the decode runs; 'off' always runs it in the scan.",
         &DEFER_COLUMN_FETCH,
         GucContext::Userset,
         GucFlags::default(),

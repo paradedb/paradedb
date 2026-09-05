@@ -293,13 +293,14 @@ struct SpecShape {
 /// text and integer columns, metrics from the integer and NUMERIC ones.
 pub fn arb_pdb_agg_join(
     tables: Vec<String>,
-    key_columns: Vec<Column>,
+    key_columns: &[Column],
 ) -> impl Strategy<Value = (JoinExpr, PdbAggExpr)> {
     let shape = SpecShape {
         grouped: false,
         numeric_metrics: true,
         size_anywhere: false,
     };
+    let key_columns = key_columns.to_vec();
     (2..=tables.len()).prop_flat_map(move |num_tables| {
         let joined: Vec<String> = tables[..num_tables].to_vec();
         // The planner cannot see the fields inside a spec, so it removes an outer

@@ -18,10 +18,7 @@
 use proptest::prelude::*;
 use std::fmt::{self, Display};
 
-use super::Column;
-
-/// Temporary toggle to disable generation of distinct expressions.
-pub const ENABLE_DISTINCT_EXPRESSIONS: bool = false;
+use super::{Column, IndexExpression};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DistinctExpr {
@@ -93,35 +90,50 @@ pub fn arb_distinct_mode<S: AsRef<str>>(
 
     let mut candidates = Vec::new();
 
-    if ENABLE_DISTINCT_EXPRESSIONS {
-        for table in &tables {
-            for col in columns {
-                if !col.is_groupable || !col.is_indexed {
-                    continue;
-                }
+    for table in &tables {
+        for col in columns {
+            if !col.is_groupable || !col.is_indexed {
+                continue;
+            }
 
-                // Null test is valid on any groupable indexed column
-                candidates.push(DistinctExpr::IsNull {
-                    table: table.clone(),
-                    column: col.name.to_string(),
-                });
-
-                match col.sql_type {
-                    "TEXT" | "VARCHAR" => {
+            if let Some(expr) = col.index_expression {
+                // If the column uses an index expression, only expressions matching
+                // the index definition (e.g. `upper(category)`) are columnar fast fields.
+                // Bare `col IS NULL` or other transforms cannot be evaluated without
+                // the bare column being an indexed fast field.
+                match expr {
+                    IndexExpression::Upper => {
                         candidates.push(DistinctExpr::Upper {
                             table: table.clone(),
                             column: col.name.to_string(),
                         });
                     }
-                    "INTEGER" | "BIGINT" | "SERIAL8" => {
-                        candidates.push(DistinctExpr::Multiply {
-                            table: table.clone(),
-                            column: col.name.to_string(),
-                            factor: 10,
-                        });
-                    }
-                    _ => {}
+                    IndexExpression::LiteralNormalized => {}
                 }
+                continue;
+            }
+
+            // Null test is valid on any groupable indexed column
+            candidates.push(DistinctExpr::IsNull {
+                table: table.clone(),
+                column: col.name.to_string(),
+            });
+
+            match col.sql_type {
+                "TEXT" | "VARCHAR" => {
+                    candidates.push(DistinctExpr::Upper {
+                        table: table.clone(),
+                        column: col.name.to_string(),
+                    });
+                }
+                "INTEGER" | "BIGINT" | "SERIAL8" => {
+                    candidates.push(DistinctExpr::Multiply {
+                        table: table.clone(),
+                        column: col.name.to_string(),
+                        factor: 10,
+                    });
+                }
+                _ => {}
             }
         }
     }

@@ -54,6 +54,24 @@ pub struct BM25Options {
     pub config_json: &'static str,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IndexExpression {
+    /// V2 expression index: `(upper({column})::pdb.literal)`
+    Upper,
+    /// V2 expression index: `({column}::pdb.literal_normalized)`
+    LiteralNormalized,
+}
+
+impl IndexExpression {
+    /// Generate the column definition for `CREATE INDEX ... USING paradedb(...)`
+    pub fn to_index_sql(&self, column_name: &str) -> String {
+        match self {
+            Self::Upper => format!("(upper({column_name})::pdb.literal)"),
+            Self::LiteralNormalized => format!("({column_name}::pdb.literal_normalized)"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Column {
     pub name: &'static str,
@@ -66,9 +84,9 @@ pub struct Column {
     pub is_orderable: Option<bool>,
     pub bm25_options: Option<BM25Options>,
     pub random_generator_sql: &'static str,
-    /// V2 syntax: expression to use in index column list, e.g. "(column::pdb.literal_normalized)"
+    /// V2 syntax: typed expression to use in index column list, e.g. `IndexExpression::Upper`.
     /// When set, this is used instead of bm25_options JSON config.
-    pub index_expression: Option<&'static str>,
+    pub index_expression: Option<IndexExpression>,
 }
 
 impl Column {
@@ -165,11 +183,17 @@ impl Column {
         self
     }
 
-    /// V2 syntax: set index expression, e.g. "(column::pdb.literal_normalized)"
+    /// V2 syntax: set index expression using typed `IndexExpression`
     /// When set, this is used instead of bm25_options JSON config.
-    pub const fn bm25_v2_expression(mut self, expression: &'static str) -> Self {
+    pub const fn bm25_v2_expression(mut self, expression: IndexExpression) -> Self {
         self.index_expression = Some(expression);
         self
+    }
+
+    /// Whether this column has an array SQL type (e.g. "TEXT[]", "INTEGER[]").
+    pub const fn is_array(&self) -> bool {
+        let bytes = self.sql_type.as_bytes();
+        bytes.len() >= 2 && bytes[bytes.len() - 2] == b'[' && bytes[bytes.len() - 1] == b']'
     }
 }
 
@@ -283,7 +307,7 @@ fn generated_queries_setup_inner(
         .filter(|c| c.is_indexed)
         .map(|c| {
             if let Some(expr) = c.index_expression {
-                expr.to_string()
+                expr.to_index_sql(c.name)
             } else {
                 c.name.to_string()
             }

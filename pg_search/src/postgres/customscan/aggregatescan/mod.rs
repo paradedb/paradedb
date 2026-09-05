@@ -830,6 +830,9 @@ impl CustomScan for AggregateScan {
                         RelNode::Filter(filter) => {
                             collect_join_filter_strings(&filter.input, explainer, acc);
                         }
+                        RelNode::Unnest(unnest) => {
+                            collect_join_filter_strings(&unnest.input, explainer, acc);
+                        }
                         RelNode::Join(join) => {
                             if let Some(JoinLevelExpr::PgExpression { pg_node_string, .. }) =
                                 &join.filter
@@ -1550,6 +1553,18 @@ impl AggregateScan {
                         let rtekind = unsafe { (*rte_ptr).rtekind };
                         // RTE_JOIN represents the join itself, not a base table we'd scan
                         if rtekind == pgrx::pg_sys::RTEKind::RTE_JOIN {
+                            continue;
+                        }
+
+                        // Check if this is a supported lateral unnest
+                        if let Some(unnest_info) = (unsafe {
+                            crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest_from_rte(
+                                root,
+                                rti,
+                                rte_ptr,
+                            )
+                        }) && sources.iter().any(|s| s.rti == unnest_info.source_rti.0)
+                        {
                             continue;
                         }
 

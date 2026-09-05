@@ -25,7 +25,7 @@ use tests::fixtures::querygen::pdbagggen::{arb_pdb_agg_join, arb_pdb_agg_single_
 use tests::fixtures::querygen::wheregen::Expr as WhereExpr;
 use tests::fixtures::querygen::wheregen::arb_wheres;
 use tests::fixtures::querygen::{
-    Column, PgGucs, Sides, arb_joins_and_wheres, compare_outcome_retrying,
+    Column, IndexExpression, PgGucs, Sides, arb_joins_and_wheres, compare_outcome_retrying,
     compare_outcome_retrying_on, generated_queries_setup,
 };
 
@@ -156,7 +156,7 @@ const COLUMNS: &[Column] = &[
         .random_generator_sql("(floor(random() * 5) + 1)::int"),
     Column::new("category", "TEXT", "'electronics'")
         .whereable(false)
-        .bm25_v2_expression(r#"(upper(category)::pdb.literal)"#)
+        .bm25_v2_expression(IndexExpression::Upper)
         .random_generator_sql(
             "(ARRAY ['electronics', 'clothing', 'food', 'books', 'toys', 'sports', 'home']::text[])[(floor(random() * 7) + 1)::int]"
         ),
@@ -167,7 +167,8 @@ const COLUMNS: &[Column] = &[
             // results, so we exclude it from WHERE clause testing.
             false
         })
-        .bm25_v2_expression("(literal_normalized::pdb.literal_normalized)")
+        .groupable(false)
+        .bm25_v2_expression(IndexExpression::LiteralNormalized)
         .random_generator_sql(
             "(ARRAY ['Hello World', 'HELLO WORLD', 'hello world', 'HeLLo WoRLD', 'GOODBYE WORLD', 'goodbye world']::text[])[(floor(random() * 6) + 1)::int]"
         ),
@@ -180,6 +181,19 @@ const COLUMNS: &[Column] = &[
                 'brand', (ARRAY ['apple', 'samsung', 'sony', 'lg']::text[])[(floor(random() * 4) + 1)::int],
                 'rating', (floor(random() * 5) + 1)::int
             )"
+        ),
+    Column::new("tags", "TEXT[]", "ARRAY['alpha', 'beta']::text[]")
+        .whereable(false)
+        .groupable(false)
+        .bm25_text_field(r#""tags": { "tokenizer": { "type": "keyword" }, "fast": true }"#)
+        .random_generator_sql(
+            "(CASE (floor(random() * 5) + 1)::int \
+                WHEN 1 THEN ARRAY['alpha', 'beta']::text[] \
+                WHEN 2 THEN ARRAY['gamma']::text[] \
+                WHEN 3 THEN ARRAY['delta', 'epsilon', 'zeta']::text[] \
+                WHEN 4 THEN NULL \
+                ELSE ARRAY[]::text[] \
+            END)",
         ),
 ];
 
@@ -244,7 +258,6 @@ impl GeneratedSubquery {
 }
 
 ///
-///
 /// Tests all join configurations against small tables (important for joins that produce
 /// cartesian products or expansive results).
 ///
@@ -282,19 +295,11 @@ async fn generated_joins_small(database: Db) {
                 .into_iter()
                 .map(str::to_string)
                 .collect::<Vec<_>>();
-            let used_tables_for_order = used_tables.clone();
-            arb_distinct_mode(used_tables, COLUMNS).prop_flat_map(move |distinct_mode| {
-                // TODO: https://github.com/paradedb/paradedb/pull/6149 adds support for
-                // DISTINCT expressions with lateral unnest joins. Until then, restrict ORDER BY
-                // to plain projected columns when DISTINCT is active so that expressions are
-                // not forced into the SELECT DISTINCT list.
-                let restrict = distinct_mode.is_distinct();
-                (
-                    Just((join.clone(), where_expr.clone(), cross_rel.clone())),
-                    Just(distinct_mode),
-                    arb_joinscan_order_parts(used_tables_for_order.clone(), restrict),
-                )
-            })
+            (
+                Just((join, where_expr, cross_rel)),
+                arb_distinct_mode(used_tables.clone(), COLUMNS),
+                arb_joinscan_order_parts(used_tables, false),
+            )
         }),
         limit in proptest::option::of(1..=50usize),
         gucs in any::<PgGucs>(),
@@ -722,7 +727,6 @@ async fn generated_subquery(database: Db) {
     });
 }
 
-///
 /// Property test for aggregate-on-join via DataFusion — ensures equivalence between
 /// PostgreSQL native aggregation and ParadeDB's DataFusion aggregate backend.
 ///
@@ -1575,7 +1579,7 @@ async fn generated_pdb_agg_join(database: Db) {
 
     proptest!(qgen_proptest_config(), |(
         outer_bm25 in arb_wheres(vec![all_tables[0].clone()], &text_columns),
-        (join_expr, agg) in arb_pdb_agg_join(all_tables.clone(), join_key_columns.clone()),
+        (join_expr, agg) in arb_pdb_agg_join(all_tables.clone(), &join_key_columns),
         mut gucs in any::<PgGucs>(),
     )| {
         let join_clause = join_expr.to_sql();

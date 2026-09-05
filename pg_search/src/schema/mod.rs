@@ -19,9 +19,8 @@ mod anyenum;
 mod config;
 pub mod range;
 
-use crate::api::FieldName;
-use crate::api::HashMap;
 use crate::api::version::{Version, VersionInfo};
+use crate::api::{CTID_FIELD_NAME, FieldName, HashMap};
 use crate::postgres::catalog::{is_citext_oid, is_pgvector_oid};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::options::{BM25IndexOptions, SortByDirection, SortByField};
@@ -43,7 +42,7 @@ use crate::index::utils::load_index_schema;
 use crate::postgres::catalog::is_ltree_oid;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::extract_numeric_precision_scale;
-use crate::query::QueryError;
+use crate::query::{QueryError, SearchQueryInput, pdb_query::pdb};
 use anyhow::Result;
 use decimal_bytes::MAX_DECIMAL64_NO_SCALE_PRECISION;
 use pgrx::{PgBuiltInOids, PgOid, pg_sys};
@@ -441,15 +440,15 @@ impl SearchIndexSchema {
 
     pub fn ctid_field(&self) -> Field {
         self.schema
-            .get_field("ctid")
+            .get_field(CTID_FIELD_NAME)
             .expect("ctid field should be present in the index")
     }
 
-    pub fn key_field_name(&self) -> FieldName {
+    pub fn key_field_name(&self) -> Option<FieldName> {
         self.bm25_options.key_field_name()
     }
 
-    pub fn key_field_type(&self) -> SearchFieldType {
+    pub fn key_field_type(&self) -> Option<SearchFieldType> {
         self.bm25_options.key_field_type()
     }
 
@@ -534,6 +533,44 @@ impl SearchIndexSchema {
             Ok(field) => Some(SearchField::new(field, &self.bm25_options, &self.schema)),
             Err(_) => None,
         }
+    }
+
+    /// Returns an additional existence check without replacing the original query.
+    ///
+    /// For a scalar fast field, `color @@@ 'blue'` gets an `exists(color)` guard.
+    /// Both 'red' and NULL fail to match 'blue', but the guard distinguishes them:
+    /// 'red' exists, so the predicate returns FALSE; NULL is missing, so it returns NULL.
+    ///
+    /// A compound search query such as `exists(color) AND NOT term(color, 'red')`
+    /// gets no guard: a missing color makes that whole query FALSE, not NULL.
+    pub fn null_guard(&self, query: &SearchQueryInput) -> Option<SearchQueryInput> {
+        let field = match query {
+            SearchQueryInput::WithIndex { query, .. }
+            | SearchQueryInput::Boost { query, .. }
+            | SearchQueryInput::ConstScore { query, .. } => return self.null_guard(query),
+            SearchQueryInput::FieldedQuery { field, .. } if !query.is_exists() => field,
+            _ => return None,
+        };
+        let search_field = self.search_field(field)?;
+        if !search_field.is_fast() {
+            return None;
+        }
+
+        // Empty arrays and JSON can have no indexed values without being SQL NULL.
+        let root = search_field.field_name().root();
+        if self
+            .categorized_fields()
+            .iter()
+            .find(|(field, _)| field.field_name().root() == root)
+            .is_some_and(|(_, data)| data.is_array || data.is_json)
+        {
+            return None;
+        }
+
+        Some(SearchQueryInput::FieldedQuery {
+            field: field.root().into(),
+            query: pdb::Query::Exists,
+        })
     }
 
     /// Check if a field supports aggregate pushdown on the Tantivy backend.
@@ -635,7 +672,9 @@ impl SearchIndexSchema {
                             tantivy_type.typeoid()
                         )
                     });
-                    let is_key_field = key_field_name == *search_field.field_name();
+                    let is_key_field = key_field_name
+                        .as_ref()
+                        .is_some_and(|key_field_name| key_field_name == search_field.field_name());
                     let is_json = matches!(
                         base_oid,
                         PgOid::BuiltIn(pg_sys::BuiltinOid::JSONBOID | pg_sys::BuiltinOid::JSONOID)

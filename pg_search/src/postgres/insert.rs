@@ -64,8 +64,7 @@ impl InsertModeImmutable {
 
 pub struct InsertModeMutable {
     ctids: Vec<u64>,
-    key_field_name: FieldName,
-    key_field_attno: usize,
+    key_field: Option<(FieldName, usize)>,
     row_limit: usize,
 }
 
@@ -103,20 +102,18 @@ impl InsertState {
         );
 
         let mode = if let Some(row_limit) = indexrel.options().mutable_segment_rows() {
-            let (key_field_name, key_field_attno) = indexrel
+            let key_field = indexrel
                 .schema()?
                 .categorized_fields()
                 .iter()
                 .find(|(_, categorized_field)| categorized_field.is_key_field)
                 .map(|(search_field, categorized_field)| {
                     (search_field.field_name().clone(), categorized_field.attno)
-                })
-                .expect("No key field defined.");
+                });
 
             InsertMode::Mutable(InsertModeMutable {
                 ctids: Vec::new(),
-                key_field_name,
-                key_field_attno,
+                key_field,
                 row_limit: row_limit.into(),
             })
         } else {
@@ -312,8 +309,10 @@ unsafe fn insert(
             cxt.reset();
         }),
         InsertMode::Mutable(mode) => {
-            if *isnull.add(mode.key_field_attno) {
-                panic!("{}", IndexError::KeyIdNull(mode.key_field_name.to_string()));
+            if let Some((key_field_name, key_field_attno)) = &mode.key_field
+                && *isnull.add(*key_field_attno)
+            {
+                panic!("{}", IndexError::KeyIdNull(key_field_name.to_string()));
             }
 
             if mode.ctids.len() < mode.row_limit {

@@ -25,7 +25,7 @@
 //! lower into a DataFusion plan.
 
 use super::privdat::{CompareOp, FilterExpr};
-use crate::api::operator::anyelement_query_input_opoid;
+use crate::api::operator::expr_contains_search_predicate;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
@@ -47,8 +47,7 @@ use crate::postgres::customscan::qual_inspect::{
 use crate::postgres::customscan::range_table::bms_iter;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{
-    expr_collect_rtis, expr_collect_vars, expr_contains_any_operator,
-    missing_partial_index_predicate,
+    expr_collect_rtis, expr_collect_vars, missing_partial_index_predicate,
 };
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
@@ -789,7 +788,6 @@ unsafe fn extract_non_equi_filter_from_quals(
         .collect();
 
     let mut non_equi_nodes = Vec::new();
-    let search_op = crate::api::operator::anyelement_query_input_opoid();
 
     for node in conjuncts {
         if (*node).type_ == pg_sys::NodeTag::T_OpExpr
@@ -828,7 +826,7 @@ unsafe fn extract_non_equi_filter_from_quals(
             continue;
         }
 
-        if expr_contains_any_operator(node, &[search_op]) {
+        if expr_contains_search_predicate(node) {
             return Err("search operators in join ON clause are not supported".into());
         }
 
@@ -1123,8 +1121,7 @@ unsafe fn analyze_join_path_restrictinfo(
     }
     let path = input_rel.cheapest_total_path;
     if !path.is_null() {
-        let search_op = anyelement_query_input_opoid();
-        walk_path_restrictinfo(path, false, sources, search_op, &on_clauses, &mut info);
+        walk_path_restrictinfo(path, false, sources, &on_clauses, &mut info);
     }
     info
 }
@@ -1134,7 +1131,6 @@ unsafe fn classify_path_restrictinfo(
     equi_key_source: EquiKeySource,
     origin: RestrictInfoOrigin,
     sources: &[JoinAggSource],
-    search_op: pg_sys::Oid,
     on_clauses: &[*mut pg_sys::Node],
     info: &mut PathRestrictInfo,
 ) {
@@ -1198,7 +1194,7 @@ unsafe fn classify_path_restrictinfo(
             || on_clauses
                 .iter()
                 .any(|&on_node| pg_sys::equal(clause.cast(), on_node.cast()));
-        if is_on_clause && !expr_contains_any_operator(clause, &[search_op]) {
+        if is_on_clause && !expr_contains_search_predicate(clause) {
             // ON-clause predicate (for inner or outer join) - handled in JoinNode.filter during
             // join execution. Decline only if columns are not columnar fields.
             if !all_vars_are_fast_fields_for_agg(clause, sources) {
@@ -1209,7 +1205,7 @@ unsafe fn classify_path_restrictinfo(
 
         let rtis = expr_collect_rtis(clause);
         if rtis.len() > 1 {
-            let has_search = expr_contains_any_operator(clause, &[search_op]);
+            let has_search = expr_contains_search_predicate(clause);
             let acceptable = if has_search {
                 true // build_search_filter will validate the full tree
             } else {
@@ -1251,7 +1247,6 @@ unsafe fn walk_path_restrictinfo(
     path: *mut pg_sys::Path,
     behind_transparent_wrapper: bool,
     sources: &[JoinAggSource],
-    search_op: pg_sys::Oid,
     on_clauses: &[*mut pg_sys::Node],
     info: &mut PathRestrictInfo,
 ) {
@@ -1277,7 +1272,6 @@ unsafe fn walk_path_restrictinfo(
             EquiKeySource::Ignore,
             RestrictInfoOrigin::ParamPathInfo,
             sources,
-            search_op,
             on_clauses,
             info,
         );
@@ -1288,7 +1282,7 @@ unsafe fn walk_path_restrictinfo(
             info.mark_incomplete((*path).type_);
             return;
         }
-        walk_path_restrictinfo(subpath, true, sources, search_op, on_clauses, info);
+        walk_path_restrictinfo(subpath, true, sources, on_clauses, info);
         return;
     }
 
@@ -1319,7 +1313,6 @@ unsafe fn walk_path_restrictinfo(
         },
         RestrictInfoOrigin::JoinRestrictInfo,
         sources,
-        search_op,
         on_clauses,
         info,
     );
@@ -1328,7 +1321,6 @@ unsafe fn walk_path_restrictinfo(
         (*join_path).outerjoinpath,
         behind_transparent_wrapper,
         sources,
-        search_op,
         on_clauses,
         info,
     );
@@ -1336,7 +1328,6 @@ unsafe fn walk_path_restrictinfo(
         (*join_path).innerjoinpath,
         behind_transparent_wrapper,
         sources,
-        search_op,
         on_clauses,
         info,
     );

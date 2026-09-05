@@ -876,10 +876,7 @@ impl<'a> HeapDocFetcher<'a> {
                 }),
                 &mut doc,
                 self.created_by_version,
-            )
-            .unwrap_or_else(|e| {
-                panic!("Failed to create document from row: {e}");
-            });
+            );
 
             // Eagerly release the buffer pin now that all datum values have
             // been detoasted into palloc'd memory. Without this, the pin would

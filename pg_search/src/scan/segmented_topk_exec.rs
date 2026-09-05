@@ -1167,6 +1167,10 @@ impl SegmentedTopKState {
         let mut state0_rows: Vec<usize> = Vec::new();
         let mut state1_rows: Vec<usize> = Vec::new();
         for row_idx in 0..num_rows {
+            if union_col.is_null(row_idx) {
+                pass_through[row_idx] = true;
+                continue;
+            }
             match type_ids[row_idx] {
                 0 => state0_rows.push(row_idx),
                 1 => state1_rows.push(row_idx),

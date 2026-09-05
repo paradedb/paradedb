@@ -15,8 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 //! Provides a reference-counted wrapper around an open Postgres [`pg_sys::Relation`].
-use crate::api::HashSet;
 use crate::api::version::Version;
+use crate::api::{CTID_FIELD_NAME, HashSet};
 use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::build::is_bm25_index;
 use crate::postgres::options::BM25IndexOptions;
@@ -509,7 +509,7 @@ impl PgSearchRelation {
         };
         matches!(
             underlying.settings().sort_by_field.as_ref(),
-            Some(sort) if sort.field == "ctid" && sort.order == Order::Asc
+            Some(sort) if sort.field == CTID_FIELD_NAME && sort.order == Order::Asc
         )
     }
 

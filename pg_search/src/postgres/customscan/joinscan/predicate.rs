@@ -30,7 +30,7 @@
 use super::build::{
     FilterNode, JoinCSClause, JoinLevelExpr, JoinNode, JoinSource, RelNode, ScanInfo, UnnestNode,
 };
-use crate::api::operator::anyelement_query_input_opoid;
+use crate::api::operator::{SearchPredicate, expr_contains_search_predicate};
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::pullup::resolve_fast_field;
@@ -39,7 +39,7 @@ use crate::postgres::customscan::qual_inspect::{
 };
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::utils::{expr_collect_rtis, expr_collect_vars, expr_contains_any_operator};
+use crate::postgres::utils::{expr_collect_rtis, expr_collect_vars};
 use crate::query::SearchQueryInput;
 use pgrx::{PgList, pg_sys};
 
@@ -84,7 +84,6 @@ pub unsafe fn extract_join_level_conditions(
     )?;
     join_clause.plan = new_plan;
 
-    let search_op = anyelement_query_input_opoid();
     let mut all_restrict_infos: Vec<*mut pg_sys::RestrictInfo> = Vec::new();
     if !extra.is_null() && !(*extra).restrictlist.is_null() {
         let restrict_infos = PgList::<pg_sys::RestrictInfo>::from_pg((*extra).restrictlist);
@@ -133,7 +132,7 @@ pub unsafe fn extract_join_level_conditions(
         if already_present {
             continue;
         }
-        let has_search_op = expr_contains_any_operator(clause.cast(), &[search_op]);
+        let has_search_op = expr_contains_search_predicate(clause.cast());
 
         if has_search_op {
             if let Some(expr) = transform_to_search_expr(
@@ -227,7 +226,7 @@ pub unsafe fn extract_join_level_conditions(
                     continue;
                 }
 
-                let has_search_op = expr_contains_any_operator(conjunct.cast(), &[search_op]);
+                let has_search_op = expr_contains_search_predicate(conjunct.cast());
                 if has_search_op {
                     if let Some(expr) = transform_to_search_expr(
                         root,
@@ -360,8 +359,7 @@ pub unsafe fn transform_to_search_expr(
         };
     }
 
-    let search_op = anyelement_query_input_opoid();
-    let has_search_op = expr_contains_any_operator(node, &[search_op]);
+    let has_search_op = expr_contains_search_predicate(node);
 
     // Check which tables this expression references
     let rtis = expr_collect_rtis(node);
@@ -373,10 +371,10 @@ pub unsafe fn transform_to_search_expr(
         }
     }
 
-    /// Check if an expression consists purely of search operators (`search_op`)
+    /// Check if an expression consists purely of search predicates
     /// connected by boolean operations (AND, OR, NOT). Expressions containing
     /// non-search predicates (such as `NullTest`, comparisons, etc.) return false.
-    unsafe fn is_pure_search_expr(mut node: *mut pg_sys::Node, search_op: pg_sys::Oid) -> bool {
+    unsafe fn is_pure_search_expr(mut node: *mut pg_sys::Node) -> bool {
         if node.is_null() {
             return false;
         }
@@ -384,18 +382,14 @@ pub unsafe fn transform_to_search_expr(
         if node.is_null() {
             return false;
         }
+        if SearchPredicate::from_node(node).is_some() {
+            return true;
+        }
         match (*node).type_ {
-            pg_sys::NodeTag::T_OpExpr => {
-                let opexpr = node as *mut pg_sys::OpExpr;
-                (*opexpr).opno == search_op
-            }
             pg_sys::NodeTag::T_BoolExpr => {
                 let boolexpr = node as *mut pg_sys::BoolExpr;
                 let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-                !args.is_empty()
-                    && args
-                        .iter_ptr()
-                        .all(|arg| is_pure_search_expr(arg, search_op))
+                !args.is_empty() && args.iter_ptr().all(|arg| is_pure_search_expr(arg))
             }
             _ => false,
         }
@@ -409,7 +403,7 @@ pub unsafe fn transform_to_search_expr(
     if has_search_op
         && rtis.len() == 1
         && referenced_source_indices.len() == 1
-        && is_pure_search_expr(node, search_op)
+        && is_pure_search_expr(node)
     {
         let rti = *rtis.iter().next().unwrap();
         let source = &sources[referenced_source_indices[0]];
@@ -777,7 +771,6 @@ pub unsafe fn resolve_join_conditions(
     #[cfg(feature = "pg18")]
     let is_semi_or_anti = is_semi_or_anti || jointype == pg_sys::JoinType::JOIN_RIGHT_SEMI;
 
-    let search_op = anyelement_query_input_opoid();
     let mut absorbed_clauses: Vec<*mut pg_sys::Node> = Vec::new();
     let mut unabsorbed: Vec<*mut pg_sys::RestrictInfo> = Vec::with_capacity(other_conditions.len());
 
@@ -785,7 +778,7 @@ pub unsafe fn resolve_join_conditions(
         let clause = (*ri).clause;
         // Skip `@@@` (and any search ops): search clauses pass through to
         // `extract_join_level_conditions`, where `transform_to_search_expr` handles them.
-        if !clause.is_null() && expr_contains_any_operator(clause.cast(), &[search_op]) {
+        if !clause.is_null() && expr_contains_search_predicate(clause.cast()) {
             unabsorbed.push(ri);
             continue;
         }
@@ -863,8 +856,7 @@ pub unsafe fn resolve_join_conditions(
         }
         if illegal_residuals.iter().any(|&ri| {
             let clause = (*ri).clause;
-            !clause.is_null()
-                && crate::postgres::utils::expr_contains_any_operator(clause.cast(), &[search_op])
+            !clause.is_null() && expr_contains_search_predicate(clause.cast())
         }) {
             return Err(super::JoinDeclineReason::new(format!(
                 "JoinScan not used: search operators in {context} are not supported"

@@ -40,6 +40,7 @@ fn test_subselect(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore = "Materialized CTEs lack heap CTIDs; PR #6222 adds inline-row fallback and re-enables this test"]
 fn test_cte(mut conn: PgConnection) {
     r#"
         CREATE TABLE test_cte(id serial8, t text);

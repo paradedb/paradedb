@@ -216,6 +216,26 @@ SELECT id FROM sequential_scan_null_checks WHERE NOT query_or ORDER BY id;
 SELECT id FROM sequential_scan_null_checks WHERE NOT sql_and ORDER BY id;
 SELECT id FROM sequential_scan_null_checks WHERE NOT sql_or ORDER BY id;
 
+-- Rows outside the partial index use the inline matcher, with the same NULL behavior.
+SET paradedb.enable_custom_scan = off;
+DROP INDEX sequential_scan_nulls_idx;
+CREATE INDEX sequential_scan_nulls_idx ON sequential_scan_nulls
+USING paradedb (id, color) WITH (
+    text_fields = '{"color":{"tokenizer":{"type":"keyword"},"fast":true}}'
+) WHERE covered;
+UPDATE sequential_scan_nulls SET covered = false;
+SELECT id, field_match, wrapped_match, missing, compound, wrapped_compound
+FROM sequential_scan_null_checks ORDER BY id;
+SELECT id FROM sequential_scan_null_checks WHERE NOT field_match ORDER BY id;
+SELECT id FROM sequential_scan_null_checks WHERE NOT wrapped_match ORDER BY id;
+SELECT id FROM sequential_scan_null_checks WHERE NOT compound ORDER BY id;
+
+SELECT id, query_and, query_or, sql_and, sql_or FROM sequential_scan_null_checks ORDER BY id;
+SELECT id FROM sequential_scan_null_checks WHERE NOT query_and ORDER BY id;
+SELECT id FROM sequential_scan_null_checks WHERE NOT query_or ORDER BY id;
+SELECT id FROM sequential_scan_null_checks WHERE NOT sql_and ORDER BY id;
+SELECT id FROM sequential_scan_null_checks WHERE NOT sql_or ORDER BY id;
+
 DROP VIEW sequential_scan_null_checks;
 
 SELECT paradedb.search_with_query_input_ctid(

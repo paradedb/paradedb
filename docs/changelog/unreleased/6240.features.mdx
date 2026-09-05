@@ -1,0 +1,5 @@
+---
+header: features
+---
+
+A `GROUP BY` on a string column of a search index now groups on the index's term ordinals first and decodes one value per group, instead of decoding every input row. Aggregate sources keep their strings deferred through joins by default; the setting `paradedb.enable_aggregate_late_materialization` is gone, and `paradedb.defer_string_decode = off` pins the decode to the scan.

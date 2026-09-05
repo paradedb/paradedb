@@ -439,6 +439,7 @@ JOIN categories c ON pc.category_id = c.id
 WHERE p.name @@@ 'Product' AND c.is_active = true
 ORDER BY p.price DESC
 LIMIT 10;
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, p, pc)
                                                                                QUERY PLAN                                                                                
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -469,6 +470,7 @@ JOIN categories c ON pc.category_id = c.id
 WHERE p.name @@@ 'Product' AND c.is_active = true
 ORDER BY p.price DESC
 LIMIT 10;
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, p, pc)
     name     | price |    category    
 -------------+-------+----------------
  Product 100 |  1050 | Electronics
@@ -575,6 +577,7 @@ JOIN categories c ON pc.category_id = c.id
 WHERE c.is_active = true
 ORDER BY pr.avg_rating DESC, pdb.score(tp.id), tp.price DESC;
 WARNING:  Aggregate Scan not used: grouping column product_id is missing from index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: reviews)
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, pc)
                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                      
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -633,6 +636,7 @@ JOIN categories c ON pc.category_id = c.id
 WHERE c.is_active = true
 ORDER BY pr.avg_rating DESC, pdb.score(tp.id), tp.price DESC;
 WARNING:  Aggregate Scan not used: grouping column product_id is missing from index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: reviews)
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, pc)
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- Test 5: Union of results from different tables
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -743,6 +747,7 @@ WHERE p.id IN (
 AND p.stock_count > 50
 AND p.price < 500
 ORDER BY p.price;
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, p, pc)
                                                                                        QUERY PLAN                                                                                        
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -777,6 +782,7 @@ WHERE p.id IN (
 AND p.stock_count > 50
 AND p.price < 500
 ORDER BY p.price;
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, p, pc)
     name    | price | stock_count 
 ------------+-------+-------------
  Product 27 |   320 |          54
@@ -906,7 +912,7 @@ WHERE p.name @@@ 'Product'
   AND c.name = 'Electronics'
   AND p.is_available = true
 ORDER BY r.rating DESC, p.price DESC;
-WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p, r)
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, p, pc, r)
                                                                                                                      QUERY PLAN                                                                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -945,7 +951,7 @@ WHERE p.name @@@ 'Product'
   AND c.name = 'Electronics'
   AND p.is_available = true
 ORDER BY r.rating DESC, p.price DESC;
-WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p, r)
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, p, pc, r)
  name | price | content | rating 
 ------+-------+---------+--------
 (0 rows)
@@ -959,6 +965,7 @@ WHERE p.name @@@ 'Product 1'
   AND c.is_active = true
 ORDER BY p.price DESC
 LIMIT 5;
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, p, pc)
     name     | price |  category   
 -------------+-------+-------------
  Product 100 |  1050 | Electronics

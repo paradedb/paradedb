@@ -97,55 +97,53 @@ WHERE i.overview @@@ 'software'
   )
 ORDER BY i.id DESC
 LIMIT 10;
-                                                                                                                      QUERY PLAN                                                                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                                   QUERY PLAN                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: i.id
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: i.id
-         Relation Tree: (i ANTI e) SEMI p
-         Join Cond: i.id = p.company_id, i.id = e.company_id
-         Limit: 10
-         Order By: i.id desc
-         DataFusion Physical Plan: 
-           : ┌───── DistributedExec
-           : │ ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
-           : │   SortPreservingMergeExec: [id@1 DESC], fetch=10
-           : │     [Stage 4] => NetworkCoalesceExec: output_partitions=16, input_tasks=4
-           : └──────────────────────────────────────────────────
-           :   ┌───── Stage 4 ── tasks=4, partitions=4
-           :   │ SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[true]
-           :   │   VisibilityFilterExec: tables=[i]
-           :   │     TantivyFetchExec: fetch=[ctid_0]
-           :   │       HashJoinExec: mode=Partitioned, join_type=LeftSemi, on=[(id@1, company_id@0)]
-           :   │         [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=1
-           :   │         [Stage 3] => NetworkShuffleExec: output_partitions=4, input_tasks=4
-           :   └──────────────────────────────────────────────────
-           :     ┌───── Stage 2 ── tasks=1, partitions=16
-           :     │ RepartitionExec: partitioning=Hash([id@1], 16), input_partitions=4
-           :     │   HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@1, company_id@0)], null_aware
-           :     │     CoalescePartitionsExec
-           :     │       [Stage 1] => NetworkCoalesceExec: output_partitions=4, input_tasks=4
-           :     │     RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-           :     │       DistributedLeafExec:
-           :     │         t0: PgSearchScan: table=e, segments=2, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"with_index":{"query":{"term_set":{"field":"technology_name","terms":["Marketo"]}}}}]}}
-           :     └──────────────────────────────────────────────────
-           :       ┌───── Stage 1 ── tasks=4, partitions=4
-           :       │ DistributedLeafExec:
-           :       │   t0: PgSearchScan: table=i, segments=10, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
-           :       │   t1: PgSearchScan: table=i, segments=10, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
-           :       │   t2: PgSearchScan: table=i, segments=10, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
-           :       │   t3: PgSearchScan: table=i, segments=10, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
-           :       └──────────────────────────────────────────────────
-           :     ┌───── Stage 3 ── tasks=4, partitions=16
-           :     │ RepartitionExec: partitioning=Hash([company_id@0], 16), input_partitions=1
-           :     │   DistributedLeafExec:
-           :     │     t0: PgSearchScan: table=p, segments=30, dynamic_filters=1, visibility=eager, query="all"
-           :     │     t1: PgSearchScan: table=p, segments=30, dynamic_filters=1, visibility=eager, query="all"
-           :     │     t2: PgSearchScan: table=p, segments=30, dynamic_filters=1, visibility=eager, query="all"
-           :     │     t3: PgSearchScan: table=p, segments=30, dynamic_filters=1, visibility=eager, query="all"
-           :     └──────────────────────────────────────────────────
-(46 rows)
+   Relation Tree: (i ANTI e) SEMI p
+   Join Cond: p.company_id = i.id, i.id = e.company_id
+   Limit: 10
+   Order By: i.id desc
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ ProjectionExec: expr=[id@0 as col_1, ctid_0@1 as ctid_0]
+     : │   SortPreservingMergeExec: [id@0 DESC], fetch=10
+     : │     [Stage 4] => NetworkCoalesceExec: output_partitions=16, input_tasks=4
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 4 ── tasks=4, partitions=4
+     :   │ SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[true]
+     :   │   VisibilityFilterExec: tables=[i]
+     :   │     TantivyFetchExec: fetch=[ctid_0]
+     :   │       HashJoinExec: mode=Partitioned, join_type=LeftSemi, on=[(id@0, company_id@0)]
+     :   │         [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=1
+     :   │         [Stage 3] => NetworkShuffleExec: output_partitions=4, input_tasks=4
+     :   └──────────────────────────────────────────────────
+     :     ┌───── Stage 2 ── tasks=1, partitions=16
+     :     │ RepartitionExec: partitioning=Hash([id@0], 16), input_partitions=4
+     :     │   HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@0, company_id@0)], null_aware
+     :     │     CoalescePartitionsExec
+     :     │       [Stage 1] => NetworkCoalesceExec: output_partitions=4, input_tasks=4
+     :     │     RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+     :     │       DistributedLeafExec:
+     :     │         t0: PgSearchScan: table=e, segments=2, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"with_index":{"query":{"term_set":{"field":"technology_name","terms":["Marketo"]}}}}]}}
+     :     └──────────────────────────────────────────────────
+     :       ┌───── Stage 1 ── tasks=4, partitions=4
+     :       │ DistributedLeafExec:
+     :       │   t0: PgSearchScan: table=i, segments=10, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
+     :       │   t1: PgSearchScan: table=i, segments=10, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
+     :       │   t2: PgSearchScan: table=i, segments=10, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
+     :       │   t3: PgSearchScan: table=i, segments=10, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
+     :       └──────────────────────────────────────────────────
+     :     ┌───── Stage 3 ── tasks=4, partitions=16
+     :     │ RepartitionExec: partitioning=Hash([company_id@0], 16), input_partitions=1
+     :     │   DistributedLeafExec:
+     :     │     t0: PgSearchScan: table=p, segments=30, dynamic_filters=1, visibility=eager, query="all"
+     :     │     t1: PgSearchScan: table=p, segments=30, dynamic_filters=1, visibility=eager, query="all"
+     :     │     t2: PgSearchScan: table=p, segments=30, dynamic_filters=1, visibility=eager, query="all"
+     :     │     t3: PgSearchScan: table=p, segments=30, dynamic_filters=1, visibility=eager, query="all"
+     :     └──────────────────────────────────────────────────
+(44 rows)
 
 SELECT i.id
 FROM js_rti_items i

@@ -370,71 +370,18 @@ async fn generated_joins_small(database: Db) {
         let pg_query = format!("{from} WHERE {where_pg} ORDER BY {order_by} {limit_clause}");
         let bm25_query = format!("{from} WHERE {where_bm25} ORDER BY {order_by} {limit_clause}");
 
-        // Assert that JoinScan or AggregateScan was actually used whenever the query is within
-        // the subset guaranteed to be plannable by ParadeDB's custom scan.
-        let is_supported_join = (|| {
-            // DISTINCT expressions (e.g. `col * 10`) fall back to PostgreSQL because
-            // LIMIT cannot be pushed down below upper deduplication.
-            if distinct_mode.expression().is_some() {
-                return false;
-            }
-
-            // Cross joins (Cartesian products) intentionally fall back to PostgreSQL.
-            if !join.has_no_cross() || cross_rel.is_some() {
-                return false;
-            }
-
-            // Multi-unnest queries: PostgreSQL's optimizer can pair unnest function scans together
-            // into intermediate unnest sub-joins (e.g. `users_tags JOIN products_tags`), which
-            // JoinScan cannot absorb because neither side is a base table provider containing the array source.
-            // TODO: https://github.com/paradedb/paradedb/pull/6239
-            if join.unnest_aliases().len() > 1 {
-                return false;
-            }
-
-            let has_null_ordering = order_parts
-                .iter()
-                .any(|p| p.contains("IS NULL") || p.contains("IS NOT NULL"));
-
-            // When DISTINCT is active, ORDER BY expressions are projected into SELECT DISTINCT.
-            // Null-predicate ordering (`col IS (NOT) NULL`) alongside base column `col` creates
-            // derived expressions in DISTINCT that cannot push down LIMIT.
-            if distinct_mode.is_distinct() && has_null_ordering {
-                return false;
-            }
-
-            // INNER joins support arbitrary WHERE expressions, cross-relation predicates, and expression ORDER BY.
-            if join.has_only_inner() {
-                return true;
-            }
-
-            // Outer joins (LEFT, RIGHT, FULL): cross-table OR predicates cannot be pushed down.
-            if where_expr.has_cross_table_or() {
-                return false;
-            }
-
-            // Outer joins: expression or NULL-predicate ORDER BY (`upper()`, `IS NULL`) cannot be
-            // guaranteed across outer join boundaries.
-            let has_expr_ordering = has_null_ordering || order_parts.iter().any(|p| p.contains("upper("));
-            if has_expr_ordering {
-                return false;
-            }
-
-            // Outer joins: null-testing predicates (`IS NULL`, `IS NOT NULL`) in WHERE can cause
-            // PostgreSQL to simplify outer joins into anti-joins. If subsequent joins reference
-            // columns from the pruned relation, JoinScan intentionally declines because the join keys
-            // cannot be resolved to output-visible equivalents.
-            // TODO: https://github.com/paradedb/paradedb/pull/6239
-            if where_expr.has_null_predicate() {
-                return false;
-            }
-
-            true
-        })();
-
+        // Assert that JoinScan or AggregateScan was actually used.
+        // With JoinScan running at UPPERREL_FINAL, all generated join shapes (inner, outer,
+        // cross, multi-table, DISTINCT, lateral unnest, and expression ordering)
+        // are plannable by ParadeDB's custom scan whenever LIMIT is present, except when
+        // outer joins combine with null-testing predicates (`IS NULL`, `IS NOT NULL`, or
+        // negated equivalents). PostgreSQL's optimizer (`reduce_outer_joins`) converts such
+        // outer joins into anti-joins (`JOIN_ANTI`) and prunes the inner relation. When join keys
+        // or projections reference columns from the pruned relation with no output-visible
+        // equivalent, JoinScan intentionally declines to plan (see `rewrite_pruned_join_keys`).
         let expect_custom_scan = gucs.join_custom_scan
             && limit.is_some()
-            && is_supported_join;
+            && !(!join.has_only_inner() && where_expr.has_null_predicate());
 
         if expect_custom_scan {
             use tests::fixtures::fault_grace::{RetryError, retry_transient, sql_attempt};

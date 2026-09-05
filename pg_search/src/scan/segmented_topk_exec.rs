@@ -1079,7 +1079,6 @@ impl SegmentedTopKState {
 
         for row_idx in 0..num_rows {
             if self.pass_through_scratch[row_idx] {
-                // Keep the compound key the converter already built for this
                 // row. A row that is NULL in one deferred column but not in
                 // another keeps that column's segment for the final decode; a
                 // row with no segment is NULL in every deferred column and

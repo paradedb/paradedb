@@ -902,14 +902,11 @@ pub struct JoinNode {
     /// The `plan_id` of the PostgreSQL SubPlan that this join was extracted
     /// from, if any.  Set for Semi/Anti/LeftMark joins created by
     /// `wrap_with_semi_anti` and `wrap_with_mark_filter`; `None` for joins
-    /// that come from the normal join-hook path or path reconstruction.
+    /// that come from UPPERREL_FINAL or path reconstruction.
     pub subplan_id: Option<i32>,
     /// Cross-table `@@@` predicates that PG placed on this sub-join's
     /// `joinrestrictinfo`. The reconstruction in
-    /// `collect_join_sources_join_rel` parks them here because no
-    /// `JoinCSClause` exists yet to receive interned `plan_position`s;
-    /// `lower_absorbed_search_clauses` drains the field once one does, so
-    /// the vector is empty by the time the outer hook returns.
+    /// `collect_join_sources_join_rel` parks them here.
     /// `#[serde(skip)]` because the pointers are valid only within this
     /// planning pass and never reach the serialized plan.
     #[serde(skip)]
@@ -1267,41 +1264,6 @@ impl RelNode {
             }
         }
     }
-
-    /// Returns true if `rtis` contains at least one relation from both sides of this join or unnest.
-    /// Clauses that touch only one side belong to a child relation and should not be absorbed at this level.
-    pub fn spans_both_sides<'a>(
-        &self,
-        rtis: impl IntoIterator<Item = &'a pg_sys::Index> + Copy,
-    ) -> bool {
-        match self {
-            Self::Join(j) => {
-                rtis.into_iter().any(|&rti| j.left.contains_rti(rti))
-                    && rtis.into_iter().any(|&rti| j.right.contains_rti(rti))
-            }
-            Self::Unnest(u) => {
-                rtis.into_iter().any(|&rti| u.input.contains_rti(rti))
-                    && rtis.into_iter().any(|&rti| {
-                        rti == u.unnest_info.source_rti.0 || rti == u.unnest_info.function_rti.0
-                    })
-            }
-            Self::Filter(f) => f.input.spans_both_sides(rtis),
-            Self::Scan(_) => false,
-        }
-    }
-
-    pub fn has_absorbed_search_clauses(&self) -> bool {
-        self.exists(|node| {
-            let has = match node {
-                RelNode::Join(j) => !j.absorbed_search_clauses.is_empty(),
-                RelNode::Unnest(u) => !u.absorbed_clauses.is_empty(),
-                _ => false,
-            };
-            Ok(has)
-        })
-        .unwrap_or(false)
-    }
-
     pub fn source_for_rti_in_subtree(&self, rti: pg_sys::Index) -> Option<&JoinSource> {
         self.sources().into_iter().find(|s| s.contains_rti(rti))
     }
@@ -1882,29 +1844,6 @@ impl Default for RelNode {
     }
 }
 
-/// Controls whether `SELECT DISTINCT` is executed inside JoinScan or deferred to PostgreSQL.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum DistinctMode {
-    #[default]
-    None,
-    /// DISTINCT is executed by JoinScan (via DataFusion GROUP BY).
-    /// Used when each DISTINCT expression maps 1-to-1 to an output column in `reltarget`.
-    Active,
-    /// DISTINCT is deferred to PostgreSQL's upper Unique/HashAggregate node.
-    ///
-    /// This happens when `parse->distinctClause` contains expressions derived from base columns
-    /// (e.g. `col IS NULL`, or function calls alongside the base column `col`). In that case,
-    /// PostgreSQL strips the derived expressions from the scan's `reltarget`, asking the scan
-    /// for only the base column `col`, and plans an upper `Result` node to evaluate `col IS NULL`.
-    ///
-    /// Because a CustomScan's output tuple must conform to `reltarget`, JoinScan lacks output
-    /// slots to emit those upper expressions and cannot perform the full DISTINCT deduplication.
-    /// In turn, pushing down LIMIT below PostgreSQL's upper deduplication node is unsound (an
-    /// early LIMIT could return fewer distinct rows than requested), so top-level queries with
-    /// `Deferred` DISTINCT decline JoinScan.
-    Deferred,
-}
-
 /// The clause information for a Join Custom Scan.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct JoinCSClause {
@@ -1918,8 +1857,8 @@ pub struct JoinCSClause {
     pub order_by: Vec<OrderByInfo>,
     /// Projection of output columns for this join.
     pub output_projection: Option<Vec<ChildProjection>>,
-    /// Distinct mode for this join: absent, executed by JoinScan, or deferred to parent.
-    pub distinct: DistinctMode,
+    /// Whether the join has DISTINCT specified.
+    pub has_distinct: bool,
 }
 
 impl JoinCSClause {
@@ -1929,7 +1868,7 @@ impl JoinCSClause {
             limit_offset: None,
             order_by: Vec::new(),
             output_projection: None,
-            distinct: DistinctMode::None,
+            has_distinct: false,
         };
         for (i, source) in clause.plan.sources_mut().into_iter().enumerate() {
             source.plan_position = i;
@@ -1947,17 +1886,9 @@ impl JoinCSClause {
         self
     }
 
-    pub fn with_distinct(mut self, distinct: DistinctMode) -> Self {
-        self.distinct = distinct;
+    pub fn with_distinct(mut self, has_distinct: bool) -> Self {
+        self.has_distinct = has_distinct;
         self
-    }
-
-    pub fn has_distinct(&self) -> bool {
-        self.distinct == DistinctMode::Active
-    }
-
-    pub fn is_distinct_deferred(&self) -> bool {
-        self.distinct == DistinctMode::Deferred
     }
 
     pub fn with_output_projection(mut self, projection: Vec<ChildProjection>) -> Self {

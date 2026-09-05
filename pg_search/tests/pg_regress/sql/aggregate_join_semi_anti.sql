@@ -615,6 +615,39 @@ DROP TABLE asa_n10_outer; DROP TABLE asa_n10_in1;
 DROP TABLE asa_n10_in2; DROP TABLE asa_n10_in3;
 
 -- =====================================================================
+-- Test 11: Semi-join without equi-keys under AggregateScan (NestedLoopJoinExec LeftSemi)
+-- =====================================================================
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS doc_count
+FROM asa_cccf c
+WHERE EXISTS (
+    SELECT 1 FROM asa_contact_list cl
+    WHERE (cl.ldf_id = c.contact_id AND cl.list_id @@@ 'list-A')
+       OR (cl.list_id @@@ 'list-A')
+)
+AND c.job_title @@@ 'Senior';
+
+SELECT COUNT(*) AS doc_count
+FROM asa_cccf c
+WHERE EXISTS (
+    SELECT 1 FROM asa_contact_list cl
+    WHERE (cl.ldf_id = c.contact_id AND cl.list_id @@@ 'list-A')
+       OR (cl.list_id @@@ 'list-A')
+)
+AND c.job_title @@@ 'Senior';
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT COUNT(*) AS doc_count
+FROM asa_cccf c
+WHERE EXISTS (
+    SELECT 1 FROM asa_contact_list cl
+    WHERE (cl.ldf_id = c.contact_id AND cl.list_id @@@ 'list-A')
+       OR (cl.list_id @@@ 'list-A')
+)
+AND c.job_title @@@ 'Senior';
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- =====================================================================
 -- Cleanup
 -- =====================================================================
 DROP TABLE asa_excl_outer;

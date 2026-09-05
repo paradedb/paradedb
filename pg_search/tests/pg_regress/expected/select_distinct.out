@@ -915,7 +915,6 @@ JOIN dist_regions dr ON dp.category = dr.category
 WHERE dp.name @@@ 'laptop OR jacket OR shoes'
 GROUP BY dp.category
 ORDER BY dp.category;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: dp, dr)
   category   | count 
 -------------+-------
  Clothing    |     2

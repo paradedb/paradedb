@@ -530,7 +530,6 @@ SELECT issue_5751_plan_uses(
     JOIN issue_5751_js_left l ON l.id = r.left_id
     WHERE l.body @@@ 'alpha' AND r.body @@@ 'gamma'$$,
   'ParadeDB Base Scan') AS joinscan_declines_falls_back_to_base_scans;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: l, r)
  joinscan_declines_falls_back_to_base_scans 
 --------------------------------------------
  t
@@ -550,7 +549,6 @@ SELECT issue_5751_result(
     WHERE l.body @@@ 'alpha' AND r.body @@@ 'gamma'$$,
   false
 ) AS joinscan_interaction_matches_postgres;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: l, r)
  joinscan_interaction_matches_postgres 
 ---------------------------------------
  t

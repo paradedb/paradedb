@@ -18,6 +18,7 @@
 use std::convert::identity;
 use std::sync::{Arc, OnceLock};
 
+use crate::api::CTID_FIELD_NAME;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
@@ -222,7 +223,10 @@ impl FFType {
     /// Construct the proper [`FFType`] for the internal `ctid` field, which
     /// should be a known field name in the Tantivy index
     pub fn new_ctid(ffr: &FastFieldReaders) -> Self {
-        Self::U64(ffr.u64("ctid").expect("ctid should be a u64 fast field"))
+        Self::U64(
+            ffr.u64(CTID_FIELD_NAME)
+                .expect("ctid should be a u64 fast field"),
+        )
     }
 
     /// Construct the proper [`FFType`] for the specified `field_name`, which
@@ -486,7 +490,7 @@ impl<S: AsRef<str>> From<(S, SearchFieldType)> for WhichFastField {
     fn from(value: (S, SearchFieldType)) -> Self {
         let name = value.0.as_ref();
         match name {
-            "ctid" => WhichFastField::Ctid,
+            CTID_FIELD_NAME => WhichFastField::Ctid,
             "tableoid" => WhichFastField::TableOid,
             "pdb.score()" => WhichFastField::Score,
             other => {
@@ -506,7 +510,7 @@ impl WhichFastField {
     pub fn name(&self) -> String {
         match self {
             WhichFastField::Junk(s) => format!("junk({s})"),
-            WhichFastField::Ctid => "ctid".into(),
+            WhichFastField::Ctid => CTID_FIELD_NAME.into(),
             WhichFastField::TableOid => "tableoid".into(),
             WhichFastField::Score => "pdb.score()".into(),
             WhichFastField::Named(s, _) => s.clone(),

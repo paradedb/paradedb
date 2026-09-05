@@ -369,8 +369,11 @@ impl AggregateCSClause {
             return true;
         }
         let indexrel = PgSearchRelation::with_lock(self.indexrelid, pg_sys::AccessShareLock as _);
-        SearchIndexSchema::open(&indexrel)
-            .is_ok_and(|schema| schema.key_field_name().to_string() == field)
+        SearchIndexSchema::open(&indexrel).is_ok_and(|schema| {
+            schema
+                .key_field_name()
+                .is_some_and(|key_field_name| key_field_name.to_string() == field)
+        })
     }
 
     pub fn planner_should_replace_aggrefs(&self) -> bool {

@@ -66,6 +66,7 @@ mod parallel;
 pub mod pdb_owned_value;
 pub mod planner_warnings;
 pub mod rel;
+pub(crate) mod sequentialscan;
 pub mod storage;
 pub mod tuplesort;
 pub mod types;
